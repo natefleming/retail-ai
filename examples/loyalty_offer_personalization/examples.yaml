@@ -1,0 +1,181 @@
+# Demo prompts for the loyalty offer personalization companion.
+# Each example exercises a specific sub-agent. Use `dao-ai chat` or invoke
+# against the deployed Model Serving endpoint / Databricks App.
+
+examples:
+  # ---------------------------------------------------------------------------
+  # customer_intelligence
+  # ---------------------------------------------------------------------------
+  customer_profile_lookup:
+    messages:
+    - role: user
+      content: "Tell me about customer C-00007. Pull their profile and recent purchases."
+    custom_inputs:
+      configurable:
+        thread_id: "1"
+        user_id: "loyalty_marketer_01"
+
+  customer_quick_glance:
+    messages:
+    - role: user
+      content: "Who is C-00042 and what brands do they actually buy?"
+    custom_inputs:
+      configurable:
+        thread_id: "2"
+        user_id: "loyalty_marketer_01"
+
+  # ---------------------------------------------------------------------------
+  # offer_catalog
+  # ---------------------------------------------------------------------------
+  offer_search_by_brand:
+    messages:
+    - role: user
+      content: "Find Nike running shoe offers that are still active and apply to Silver-tier members."
+    custom_inputs:
+      configurable:
+        thread_id: "3"
+        user_id: "loyalty_marketer_01"
+
+  offer_search_by_discount_depth:
+    messages:
+    - role: user
+      content: "Show me high-discount offers (30% or more off) for outerwear this fall."
+    custom_inputs:
+      configurable:
+        thread_id: "4"
+        user_id: "merchandiser_01"
+
+  offer_eligibility_check:
+    messages:
+    - role: user
+      content: "Is customer C-00007 eligible for offer O-0099?"
+    custom_inputs:
+      configurable:
+        thread_id: "5"
+        user_id: "loyalty_marketer_01"
+
+  # ---------------------------------------------------------------------------
+  # ranking_explainer
+  # ---------------------------------------------------------------------------
+  explain_top_offer:
+    messages:
+    - role: user
+      content: "Why was offer O-0007 ranked first for customer C-00007?"
+    custom_inputs:
+      configurable:
+        thread_id: "6"
+        user_id: "loyalty_marketer_01"
+
+  explain_bottom_offer:
+    messages:
+    - role: user
+      content: "What was the lowest-ranked offer for C-00100 and why?"
+    custom_inputs:
+      configurable:
+        thread_id: "7"
+        user_id: "loyalty_marketer_01"
+
+  # ---------------------------------------------------------------------------
+  # what_if_ranker
+  # ---------------------------------------------------------------------------
+  what_if_add_offer:
+    messages:
+    - role: user
+      content: "Add offer O-0099 to the candidate pool for C-00007 and re-rank."
+    custom_inputs:
+      configurable:
+        thread_id: "8"
+        user_id: "loyalty_marketer_01"
+
+  what_if_fresh_rank:
+    messages:
+    - role: user
+      content: "Re-rank for customer C-00007 using their currently eligible offers."
+    custom_inputs:
+      configurable:
+        thread_id: "9"
+        user_id: "loyalty_marketer_01"
+
+  # ---------------------------------------------------------------------------
+  # segment_analyst
+  # ---------------------------------------------------------------------------
+  segment_top_customers:
+    messages:
+    - role: user
+      content: "Which 10 customers were most active in Footwear last 90 days?"
+    custom_inputs:
+      configurable:
+        thread_id: "10"
+        user_id: "merchandiser_01"
+
+  segment_tier_redemption:
+    messages:
+    - role: user
+      content: "Which loyalty tier saw the highest redemption rate on offer O-0011?"
+    custom_inputs:
+      configurable:
+        thread_id: "11"
+        user_id: "merchandiser_01"
+
+  segment_brand_mix:
+    messages:
+    - role: user
+      content: "Brand mix by loyalty tier for the last 90 days?"
+    custom_inputs:
+      configurable:
+        thread_id: "12"
+        user_id: "merchandiser_01"
+
+  # ---------------------------------------------------------------------------
+  # redemption_outcomes
+  # ---------------------------------------------------------------------------
+  redemption_lift:
+    messages:
+    - role: user
+      content: "Did the winter coat sale O-0083 lift redemption among lapsed members?"
+    custom_inputs:
+      configurable:
+        thread_id: "13"
+        user_id: "merchandiser_01"
+
+  redemption_underperformers:
+    messages:
+    - role: user
+      content: "Which offers underperformed last week relative to their ranking position?"
+    custom_inputs:
+      configurable:
+        thread_id: "14"
+        user_id: "merchandiser_01"
+
+  # ---------------------------------------------------------------------------
+  # general / supervisor routing
+  # ---------------------------------------------------------------------------
+  capabilities:
+    messages:
+    - role: user
+      content: "What can you help me do as a loyalty marketer?"
+    custom_inputs:
+      configurable:
+        thread_id: "15"
+        user_id: "loyalty_marketer_01"
+
+  # ---------------------------------------------------------------------------
+  # chained / multi-agent
+  # ---------------------------------------------------------------------------
+  chained_profile_and_explain:
+    messages:
+    - role: user
+      content: "Pull C-00007's profile and explain why offer O-0001 should rank in their top 3."
+    custom_inputs:
+      configurable:
+        thread_id: "16"
+        user_id: "loyalty_marketer_01"
+
+  chained_segment_and_rank:
+    messages:
+    - role: user
+      content: "Build me a list of the top 5 customers most likely to redeem outerwear next month, and show their stored rankings."
+    custom_inputs:
+      configurable:
+        thread_id: "17"
+        user_id: "merchandiser_01"

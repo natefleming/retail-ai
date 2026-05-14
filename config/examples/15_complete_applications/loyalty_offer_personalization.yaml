@@ -1,0 +1,1006 @@
+# yaml-language-server: $schema=../../../schemas/model_config_schema.json
+
+
+# =============================================================================
+# Loyalty Offer Personalization
+# =============================================================================
+# Multi-agent operator companion for receipt-driven loyalty personalization.
+# Targets loyalty/CRM marketers and merchandiser/category managers analyzing
+# LLM-ranked offer assignments across ~40M customers.
+#
+# Architecture: Supervisor pattern with Lakebase persistent memory.
+# Agents:       7 specialized operator roles.
+# Tools:        7 Unity Catalog SQL functions (incl. one ai_query-bearing
+#               ranker that is the single source of truth for the prompt),
+#               1 vector retriever over the offer catalog, 1 Genie room.
+# Memory:       Lakebase checkpointer + namespaced store + memory extraction
+#               on the existing retail-consumer-goods Lakebase project.
+# Deployment:   Same config deploys to Model Serving and Databricks Apps via
+#               `dao-ai pipeline ... --deployment-target both --deploy --run`.
+# AI Gateway:   All chat-completion endpoints route through the gateway.
+
+# =============================================================================
+# PARAMETERS
+# =============================================================================
+parameters:
+  catalog:
+    description: Unity Catalog catalog name
+    default: retail_consumer_goods
+  schema:
+    description: Schema within the catalog
+    default: loyalty_offers
+  genie_parent_path:
+    description: Workspace folder for the Genie space (path under /Users/<user>/)
+    default: "/Users/${workspace.current_user.userName}/genie"
+  lakebase_project:
+    description: Existing Lakebase project reused for agent memory + checkpointer
+    default: retail-consumer-goods
+  warehouse_id:
+    description: SQL Warehouse id used by Genie + provisioning. Override per workspace via --var.
+    default: 4b9b953939869799
+
+# =============================================================================
+# VARIABLES (shared secrets for the retail_consumer_goods service principal)
+# =============================================================================
+variables:
+  client_id: &client_id
+    options:
+    - scope: retail_consumer_goods
+      secret: RETAIL_AI_DATABRICKS_CLIENT_ID
+    - env: RETAIL_AI_DATABRICKS_CLIENT_ID
+
+  client_secret: &client_secret
+    options:
+    - scope: retail_consumer_goods
+      secret: RETAIL_AI_DATABRICKS_CLIENT_SECRET
+    - env: RETAIL_AI_DATABRICKS_CLIENT_SECRET
+
+service_principals:
+  retail_consumer_goods_sp:
+    name: retail_consumer_goods_sp
+    client_id: *client_id
+    client_secret: *client_secret
+
+# =============================================================================
+# SCHEMAS
+# =============================================================================
+schemas:
+  loyalty_schema: &loyalty_schema
+    catalog_name: ${var.catalog}
+    schema_name: ${var.schema}
+    permissions:
+    - principals: [users]
+      privileges:
+      - USE_CATALOG
+      - USE_SCHEMA
+      - SELECT
+      - EXECUTE
+
+# =============================================================================
+# RESOURCES
+# =============================================================================
+resources:
+  # ---------------------------------------------------------------------------
+  # LANGUAGE MODELS — chat completions all route through AI Gateway
+  # ---------------------------------------------------------------------------
+  models:
+    fast_llm: &fast_llm
+      name: databricks-gpt-5-4-mini
+      ai_gateway: true
+      temperature: 0.1
+      max_tokens: 4096
+
+    supervisor_llm: &supervisor_llm
+      name: databricks-gpt-5-4-mini
+      ai_gateway: true
+      temperature: 0.1
+      max_tokens: 1024
+
+    tool_calling_llm: &tool_calling_llm
+      name: databricks-claude-sonnet-4-5
+      ai_gateway: true
+      temperature: 0.1
+      max_tokens: 4096
+      fallbacks:
+      - databricks-claude-sonnet-4-6
+
+    ranker_llm: &ranker_llm
+      name: databricks-claude-sonnet-4-5
+      ai_gateway: true
+      temperature: 0.1
+      max_tokens: 1500
+      fallbacks:
+      - databricks-claude-sonnet-4-6
+
+    judge_llm: &judge_llm
+      name: databricks-claude-sonnet-4-5
+      ai_gateway: true
+      temperature: 0.5
+      max_tokens: 8192
+
+    decomposition_llm: &decomposition_llm
+      name: databricks-gpt-5-4-mini
+      ai_gateway: true
+      temperature: 0.0
+      max_tokens: 1024
+
+    embedding_model: &embedding_model
+      name: databricks-gte-large-en
+      on_behalf_of_user: true
+
+  # ---------------------------------------------------------------------------
+  # VECTOR STORES
+  # ---------------------------------------------------------------------------
+  vector_stores:
+    offer_catalog_vector_store: &offer_catalog_vector_store
+      embedding_model: *embedding_model
+      on_behalf_of_user: true
+      endpoint:
+        name: dbdemos_vs_endpoint
+        type: STANDARD
+      index:
+        schema: *loyalty_schema
+        name: offer_catalog_index
+      source_table:
+        schema: *loyalty_schema
+        name: offer_catalog
+      primary_key: offer_id
+      doc_uri:
+      embedding_source_column: description
+      columns:
+      - offer_id
+      - name
+      - description
+      - brand
+      - category
+      - discount_kind
+      - discount_pct
+      - margin_class
+      - seasonal_tag
+      - valid_from
+      - valid_to
+
+  # ---------------------------------------------------------------------------
+  # WAREHOUSES
+  # ---------------------------------------------------------------------------
+  warehouses:
+    loyalty_warehouse: &loyalty_warehouse
+      name: "Shared Unity Catalog Serverless"
+      description: "Shared serverless warehouse for loyalty offer personalization"
+      warehouse_id: ${var.warehouse_id}
+      on_behalf_of_user: true
+
+  # ---------------------------------------------------------------------------
+  # GENIE ROOMS — one room covering C360, offer performance, and rankings
+  # ---------------------------------------------------------------------------
+  genie_rooms:
+    # SP-backed (on_behalf_of_user: false) so we don't have to pre-populate
+    # space_id for a brand-new room. GenieRoomModel.create() will provision
+    # the space on first deploy. Switch to OBO + a populated space_id once
+    # the room is stable.
+    loyalty_genie_room: &loyalty_genie_room
+      name: "Loyalty Offer Personalization Analytics"
+      description: >
+        Natural-language analytics over the loyalty_offers schema: customer
+        features, receipt history, redemption performance, candidate-offer
+        eligibility, and LLM-produced offer rankings. Use for cross-segment
+        and trend questions that don't map to a single-customer lookup.
+      on_behalf_of_user: false
+      parent_path: "${var.genie_parent_path}"
+      warehouse: *loyalty_warehouse
+      table_sources:
+      - table:
+          schema: *loyalty_schema
+          name: customer_features
+          on_behalf_of_user: false
+        description: "Customer 360 features per loyalty member: tier, RFM, brand/category preferences, price tolerance, redemption history, promo response rate."
+      - table:
+          schema: *loyalty_schema
+          name: receipts
+          on_behalf_of_user: false
+        description: "Receipt headers (channel, store, basket total, promo flag)."
+      - table:
+          schema: *loyalty_schema
+          name: receipt_lines
+          on_behalf_of_user: false
+        description: "Receipt line items (SKU, brand, category, qty, price, line discount). Joins to receipts via receipt_id."
+      - table:
+          schema: *loyalty_schema
+          name: redemptions
+          on_behalf_of_user: false
+        description: "Past offer redemptions per customer. Source of truth for redemption rate and rank-correlation eval."
+      - table:
+          schema: *loyalty_schema
+          name: offer_catalog
+          on_behalf_of_user: false
+        description: "Active offers (brand, category, discount, margin class, eligibility, validity, seasonal tag)."
+      - table:
+          schema: *loyalty_schema
+          name: customers_x_eligible_offers
+          on_behalf_of_user: false
+        description: "Per-customer pre-filtered candidate offer pool (≤30 offers per customer) used as input to the LLM ranker."
+      - table:
+          schema: *loyalty_schema
+          name: offer_rankings
+          on_behalf_of_user: false
+        description: "LLM-produced offer rankings per customer per prompt version. ranking column is an array of {offer_id, rank, score, reason}."
+      sample_questions:
+      - "Which loyalty tier saw the highest redemption rate on offer O-0011 last 90 days?"
+      - "Top 10 customers by 90-day redemption volume in Activewear?"
+      - "Average basket value for customers who redeemed Patagonia offers in the last 60 days?"
+      - "Compare offer O-0001 vs O-0008 redemption across Silver and Gold tiers."
+      - "How many lapsed members (no visit > 180 days) redeemed an offer last week?"
+
+  # ---------------------------------------------------------------------------
+  # FUNCTIONS — all SP-backed because rank_offers_for_customer calls ai_query
+  # via Spark Connect and the OBO token lacks the databricks-connect scope.
+  # Keeping all UC fns SP-backed for consistency (and well within the Apps
+  # 20-resource budget: 7 UC fns + 1 Lakebase + 1 VS + 1 Genie + 5 LLMs).
+  # ---------------------------------------------------------------------------
+  functions:
+    get_customer_features: &get_customer_features
+      schema: *loyalty_schema
+      name: get_customer_features
+      on_behalf_of_user: false
+    get_recent_receipts: &get_recent_receipts
+      schema: *loyalty_schema
+      name: get_recent_receipts
+      on_behalf_of_user: false
+    check_offer_eligibility: &check_offer_eligibility
+      schema: *loyalty_schema
+      name: check_offer_eligibility
+      on_behalf_of_user: false
+    get_offer_ranking: &get_offer_ranking
+      schema: *loyalty_schema
+      name: get_offer_ranking
+      on_behalf_of_user: false
+    top_offers_by_segment: &top_offers_by_segment
+      schema: *loyalty_schema
+      name: top_offers_by_segment
+      on_behalf_of_user: false
+    rank_offers_for_customer: &rank_offers_for_customer
+      schema: *loyalty_schema
+      name: rank_offers_for_customer
+      on_behalf_of_user: false
+    refresh_offer_rankings: &refresh_offer_rankings
+      schema: *loyalty_schema
+      name: refresh_offer_rankings
+      on_behalf_of_user: false
+
+  # ---------------------------------------------------------------------------
+  # DATABASES (Lakebase) — reuses the existing retail-consumer-goods project
+  # ---------------------------------------------------------------------------
+  databases:
+    loyalty_database: &loyalty_database
+      name: "retail-consumer-goods"
+      project: "${var.lakebase_project}"
+      description: "Lakebase Postgres reused for agent memory checkpoints + namespaced store"
+      client_id: *client_id
+      client_secret: *client_secret
+      on_behalf_of_user: false
+
+# =============================================================================
+# RETRIEVERS — instructed retriever over the offer catalog
+# =============================================================================
+retrievers:
+  offer_catalog_retriever: &offer_catalog_retriever
+    vector_store: *offer_catalog_vector_store
+    columns:
+    - offer_id
+    - name
+    - description
+    - brand
+    - category
+    - discount_kind
+    - discount_pct
+    - margin_class
+    - seasonal_tag
+    - valid_from
+    - valid_to
+    search_parameters:
+      num_results: 40
+      filters: {}
+      query_type: HYBRID
+    instructed:
+      columns:
+      - name: offer_id
+        type: string
+        description: "Unique offer identifier"
+      - name: name
+        type: string
+        description: "Short marketing name"
+      - name: description
+        type: string
+        description: "Customer-facing offer description"
+      - name: brand
+        type: string
+        description: "Brand targeted by the offer (Nike, Adidas, Lululemon, Patagonia, REI, Levis, GAP, JCrew, BananaRepublic, Puma, or ALL_BRANDS for catalog-wide)"
+      - name: category
+        type: string
+        description: "Product category (Footwear, Activewear, Outerwear, Denim, Apparel-Tops, Apparel-Bottoms, Accessories)"
+      - name: discount_kind
+        type: string
+        description: "Discount mechanism: PERCENT, DOLLAR_OFF, BOGO, FREE_SHIPPING, TIERED"
+      - name: discount_pct
+        type: number
+        description: "Normalized discount magnitude (0.0-1.0)"
+      - name: margin_class
+        type: string
+        description: "A=protected margin, B=neutral, C=margin-erosive"
+      - name: seasonal_tag
+        type: string
+        description: "SPRING | SUMMER | FALL | WINTER | EVERGREEN"
+      - name: valid_from
+        type: datetime
+        description: "First date the offer is redeemable"
+      - name: valid_to
+        type: datetime
+        description: "Last date the offer is redeemable"
+      constraints:
+      - "Use brand for brand filtering"
+      - "Use category for product-area filtering"
+      - "Use discount_pct for discount-depth ranges"
+      - "Use seasonal_tag when the user mentions a season"
+      - "Only return offers where current_date() is between valid_from and valid_to unless the user explicitly asks for expired offers"
+      decomposition:
+        model: *decomposition_llm
+        max_subqueries: 3
+        rrf_k: 60
+        normalize_filter_case: uppercase
+        examples:
+        - query: "Nike running shoe offers"
+          filters: {"brand": "NIKE", "category": "FOOTWEAR"}
+        - query: "high-discount outerwear this winter"
+          filters: {"category": "OUTERWEAR", "discount_pct >=": 0.25, "seasonal_tag": ["WINTER","EVERGREEN"]}
+        - query: "Patagonia deals excluding margin-erosive ones"
+          filters: {"brand": "PATAGONIA", "margin_class NOT": "C"}
+        - query: "catalog-wide promos for premium members"
+          filters: {"brand": "ALL_BRANDS"}
+      rerank:
+        model: *decomposition_llm
+        instructions: |
+          Prioritize offers using:
+          - Match on brand the customer prefers (top_brands)
+          - Match on category the customer prefers (top_categories)
+          - Demote brand/category in avoided_brands or avoided_categories
+          - Respect price tolerance: if low (<0.2), prefer high discount_pct;
+            if high (>0.6), prefer protected-margin (A) low-discount offers
+          - Demote offers the customer has already redeemed recently
+        top_n: 20
+    rerank:
+      model: ms-marco-MiniLM-L-12-v2
+      top_n: 30
+      columns:
+      - brand
+      - category
+      - description
+
+# =============================================================================
+# TOOLS
+# =============================================================================
+tools:
+  # ---------------------------------------------------------------------------
+  # Vector search over the offer catalog
+  # ---------------------------------------------------------------------------
+  offer_search_tool: &offer_search_tool
+    name: offer_catalog_search
+    function:
+      type: factory
+      name: dao_ai.tools.create_vector_search_tool
+      args:
+        retriever: *offer_catalog_retriever
+        name: offer_catalog_search
+        description: "Search the active offer catalog by description, brand, category, discount depth, or seasonal tag. Use when the operator describes the offer rather than naming an offer_id."
+
+  # ---------------------------------------------------------------------------
+  # Unity Catalog SQL function tools
+  # ---------------------------------------------------------------------------
+  get_customer_features_tool: &get_customer_features_tool
+    name: get_customer_features_uc
+    function:
+      type: unity_catalog
+      resource: *get_customer_features
+
+  get_recent_receipts_tool: &get_recent_receipts_tool
+    name: get_recent_receipts_uc
+    function:
+      type: unity_catalog
+      resource: *get_recent_receipts
+
+  check_offer_eligibility_tool: &check_offer_eligibility_tool
+    name: check_offer_eligibility_uc
+    function:
+      type: unity_catalog
+      resource: *check_offer_eligibility
+
+  get_offer_ranking_tool: &get_offer_ranking_tool
+    name: get_offer_ranking_uc
+    function:
+      type: unity_catalog
+      resource: *get_offer_ranking
+
+  top_offers_by_segment_tool: &top_offers_by_segment_tool
+    name: top_offers_by_segment_uc
+    function:
+      type: unity_catalog
+      resource: *top_offers_by_segment
+
+  rank_offers_for_customer_tool: &rank_offers_for_customer_tool
+    name: rank_offers_for_customer_uc
+    function:
+      type: unity_catalog
+      resource: *rank_offers_for_customer
+
+  refresh_offer_rankings_tool: &refresh_offer_rankings_tool
+    name: refresh_offer_rankings_uc
+    function:
+      type: unity_catalog
+      resource: *refresh_offer_rankings
+
+  # ---------------------------------------------------------------------------
+  # Genie analytics — one room exposed under two names so the supervisor's
+  # routing heuristics distinguish "segment analytics" from "redemption
+  # outcomes".
+  # ---------------------------------------------------------------------------
+  segment_analytics_tool: &segment_analytics_tool
+    name: query_segment_analytics
+    function:
+      type: factory
+      name: dao_ai.tools.create_genie_toolkit
+      args:
+        name: query_segment_analytics
+        description: >
+          Natural-language analytics over customer_features, receipts, and
+          offer rankings. Use for "which segments...", "top customers by...",
+          "brand mix by tier" — cross-segment, cross-customer questions.
+        genie_room: *loyalty_genie_room
+        lru_cache_parameters:
+          warehouse: *loyalty_warehouse
+          capacity: 100
+          time_to_live_seconds: 3600
+          invalidate_on_empty_result: true
+        context_aware_cache_parameters:
+          database: *loyalty_database
+          warehouse: *loyalty_warehouse
+          embedding_model: *embedding_model
+          similarity_threshold: 0.85
+          time_to_live_seconds: 86400
+          invalidate_on_empty_result: true
+        persist_conversation: true
+
+  redemption_outcomes_tool: &redemption_outcomes_tool
+    name: query_redemption_outcomes
+    function:
+      type: factory
+      name: dao_ai.tools.create_genie_toolkit
+      args:
+        name: query_redemption_outcomes
+        description: >
+          Natural-language analytics over redemptions joined to offer_catalog
+          and customer_features. Use for "did offer X lift...", "which offers
+          underperformed last week", "redemption rate by tier".
+        genie_room: *loyalty_genie_room
+        lru_cache_parameters:
+          warehouse: *loyalty_warehouse
+          capacity: 100
+          time_to_live_seconds: 3600
+          invalidate_on_empty_result: true
+        context_aware_cache_parameters:
+          database: *loyalty_database
+          warehouse: *loyalty_warehouse
+          embedding_model: *embedding_model
+          similarity_threshold: 0.85
+          time_to_live_seconds: 86400
+          invalidate_on_empty_result: true
+        persist_conversation: true
+
+  # ---------------------------------------------------------------------------
+  # Utility tools
+  # ---------------------------------------------------------------------------
+  current_time_tool: &current_time_tool
+    name: current_time
+    function:
+      type: python
+      name: dao_ai.tools.current_time_tool
+
+  app_info_tool: &app_info_tool
+    name: app_info
+    function:
+      type: factory
+      name: dao_ai.tools.create_app_info_tool
+      args:
+        app_name: "Loyalty Offer Personalization"
+        description: >
+          Multi-agent companion for loyalty/CRM marketers and merchandiser/
+          category managers. Provides Customer 360 lookups, offer catalog
+          search, ranking explanations, what-if re-ranking, segment analytics,
+          and redemption-outcome analysis on top of LLM-generated offer
+          rankings.
+        agents:
+        - name: customer_intelligence
+          description: "Customer 360 lookups: profile, recent receipts, preferences."
+        - name: offer_catalog
+          description: "Search/filter the active offer catalog by brand/category/discount/season."
+        - name: ranking_explainer
+          description: "Explain why specific offers were ranked the way they were."
+        - name: what_if_ranker
+          description: "Run ad-hoc rankings with custom candidate pools."
+        - name: segment_analyst
+          description: "Cross-segment analytics over customer features and rankings."
+        - name: redemption_outcomes
+          description: "After-the-fact analysis of offer performance and rankings."
+        - name: general
+          description: "Meta-questions, current time, app capabilities."
+        sample_prompts:
+        - "Tell me about customer C-00007."
+        - "Why was offer O-0007 ranked first for C-00007?"
+        - "What if I add O-0099 to C-00007's candidate pool?"
+        - "Which segments redeemed offer O-0011 most last week?"
+        - "Compare ranking for C-00007 and C-00042."
+        - "Find Nike offers active this week for Silver-tier members."
+
+# =============================================================================
+# AGENTS
+# =============================================================================
+agents:
+  general: &general
+    name: general
+    description: "Default operator agent for meta-questions, capability discovery, and time-relative queries"
+    model: *tool_calling_llm
+    tools:
+    - *current_time_tool
+    - *app_info_tool
+    prompt: |
+      You are the default agent for a loyalty-personalization operator companion.
+      Your job is to answer meta questions about what this app does, surface
+      capabilities of the specialist agents, and handle simple time-relative
+      questions. When the operator asks something substantive about a customer,
+      offer, ranking, or segment, hand off to the appropriate specialist.
+
+      Response style: be concise, use 1-2 sentences when possible, and don't
+      explain how the system works internally unless asked.
+    handoff_prompt: "Meta-questions about the app, time-relative queries, or anything that doesn't clearly belong to a specialist."
+
+  customer_intelligence: &customer_intelligence
+    name: customer_intelligence
+    description: "Customer 360 specialist: profile lookups and recent-receipts history"
+    model: *tool_calling_llm
+    tools:
+    - *get_customer_features_tool
+    - *get_recent_receipts_tool
+    - *segment_analytics_tool
+    prompt: |
+      You are a Customer 360 specialist for a loyalty-personalization operator
+      companion. Your job is to surface what we know about a named customer:
+      profile features (tier, RFM, brand/category preferences, price tolerance,
+      redemption history) and recent receipts.
+
+      ## CRITICAL: Parallel Tool Execution
+      When asked about a customer, call `get_customer_features_uc` AND
+      `get_recent_receipts_uc` in a SINGLE response — they are independent.
+      Do not chain them sequentially.
+
+      ## Tool selection
+      - Single customer lookup → call both `get_customer_features_uc` (always)
+        and `get_recent_receipts_uc` (when recent purchases matter) in parallel.
+      - "Which 10 customers..." or aggregate cross-customer questions →
+        `query_segment_analytics`.
+
+      ## Response style
+      - Lead with the customer's tier, top_brands, top_categories, and
+        days_since_last_visit. Those are the most useful at a glance.
+      - When listing recent receipts, surface store/channel/basket_total
+        and the brands/categories on each receipt.
+      - Be honest if the customer is not in the dataset.
+    handoff_prompt: "Customer 360 profile lookups, recent receipt history, or aggregate cross-customer questions."
+
+  offer_catalog: &offer_catalog
+    name: offer_catalog
+    description: "Offer catalog search + eligibility checks"
+    model: *tool_calling_llm
+    tools:
+    - *offer_search_tool
+    - *check_offer_eligibility_tool
+    prompt: |
+      You are an offer-catalog specialist. Your job is to find offers in the
+      catalog that match an operator's natural-language description, and to
+      check whether a specific customer is eligible for a specific offer.
+
+      ## Tool selection
+      - "Find Nike running shoe offers" / "high-discount outerwear" / any
+        descriptive query → `offer_catalog_search`. The instructed retriever
+        handles brand/category/discount filters from the query text.
+      - "Is C-00007 eligible for O-0007?" → `check_offer_eligibility_uc`,
+        which returns (eligible, reason).
+
+      ## Filters and validity
+      - Default to currently-valid offers (current_date between valid_from
+        and valid_to). Mention if the operator asked for expired ones.
+      - Respect any tier or lifetime-spend hints — the retriever applies them.
+
+      ## Response style
+      - Return 5-10 offers in a tight list with offer_id, name, brand,
+        category, discount_pct, and seasonal_tag.
+      - For eligibility checks, lead with eligible: true/false and the
+        reason string.
+    handoff_prompt: "Search the offer catalog by description/brand/category/discount, or check whether a customer is eligible for a specific offer."
+
+  ranking_explainer: &ranking_explainer
+    name: ranking_explainer
+    description: "Explain stored offer rankings for a customer using C360 features"
+    model: *tool_calling_llm
+    tools:
+    - *get_offer_ranking_tool
+    - *get_customer_features_tool
+    prompt: |
+      You are a ranking-explainer specialist. When an operator asks why a
+      specific offer was ranked the way it was for a specific customer, you
+      surface the stored ranking row (including the LLM's per-offer `reason`
+      string and `score`) and tie it back to the customer's C360 features.
+
+      ## Tool flow
+      - Always call `get_offer_ranking_uc(customer_id, prompt_version)` with
+        prompt_version='v1' unless told otherwise. This returns one row per
+        offer in the ranking, with rank/score/reason.
+      - Pull `get_customer_features_uc` IN PARALLEL with the above so you
+        can cite specific features in the explanation.
+
+      ## Response style
+      - State the offer's rank and score from the stored ranking.
+      - Quote the `reason` string from the ranking row verbatim.
+      - Then add 1-2 sentences citing concrete C360 features that align with
+        that reason (top_brands, top_categories, price_tolerance_score,
+        recent redemption history, days_since_last_visit).
+      - If the customer or ranking doesn't exist, say so plainly — never
+        fabricate.
+    handoff_prompt: "Why offer X was ranked the way it was for customer Y; explain stored ranking rationale in terms of customer features."
+
+  what_if_ranker: &what_if_ranker
+    name: what_if_ranker
+    description: "Run ad-hoc LLM offer ranking for a customer (with optional candidate-pool override)"
+    model: *tool_calling_llm
+    tools:
+    - *rank_offers_for_customer_tool
+    - *get_customer_features_tool
+    prompt: |
+      You are a what-if ranker. The operator wants to see what the LLM-based
+      offer ranker would produce for a specific customer right now — possibly
+      with an extended or substituted candidate pool.
+
+      ## Tool flow
+      - Call `rank_offers_for_customer_uc(customer_id, prompt_version,
+        candidate_offer_ids)`. Use prompt_version='v1' unless told otherwise.
+      - If the operator didn't give a candidate_offer_ids array, look up the
+        customer's current eligible pool first (use the offer_catalog agent
+        if needed) and pass it through.
+      - Optionally call `get_customer_features_uc` to add context in the
+        response, but don't block on it.
+
+      ## Response style
+      - Return the 10-element ranking as a compact table:
+        rank | offer_id | score | reason
+      - End with a 1-2 sentence summary of the top picks and any surprises
+        (e.g., "Adidas O-0009 ranked 4 despite being in C-00007's top
+        category — likely because margin_class=C signaled deeper discount
+        than this price-insensitive customer needs.")
+      - Never edit the LLM's reason strings; quote them verbatim.
+    handoff_prompt: "Run a fresh LLM-based offer ranking for a customer, optionally with a custom candidate pool — the 'what-if' surface."
+
+  segment_analyst: &segment_analyst
+    name: segment_analyst
+    description: "Cross-segment analytics over customer features, receipts, and rankings"
+    model: *tool_calling_llm
+    tools:
+    - *segment_analytics_tool
+    - *top_offers_by_segment_tool
+    prompt: |
+      You are a segment-analytics specialist. The operator is asking
+      questions that span many customers or many offers — segment-level
+      counts, top-N lists, brand mix by tier, basket comparisons.
+
+      ## Tool flow
+      - For top-N offer questions by segment → `top_offers_by_segment_uc`.
+        Pass segment in {Standard, Silver, Gold, Premium, ALL} and a window
+        in days.
+      - For everything else (custom group-by, joins to receipts, ad-hoc
+        aggregates) → `query_segment_analytics` (Genie).
+
+      ## Response style
+      - Lead with the bottom-line answer (one sentence with a number).
+      - Follow with the top 5-10 rows in a compact table.
+      - If Genie can't answer, say so and propose a rephrasing.
+    handoff_prompt: "Cross-segment analytics: top-N customers/offers, brand mix by tier, segment-level aggregates and trends."
+
+  redemption_outcomes: &redemption_outcomes
+    name: redemption_outcomes
+    description: "Did the rankings drive redemption? Post-hoc performance analysis."
+    model: *tool_calling_llm
+    tools:
+    - *redemption_outcomes_tool
+    - *top_offers_by_segment_tool
+    prompt: |
+      You are an outcomes specialist. The operator wants to know whether
+      LLM-produced rankings translated into actual redemptions, and which
+      offers under- or over-performed relative to their rank.
+
+      ## Tool flow
+      - `top_offers_by_segment_uc` for ranked offer-performance lists in a
+        window.
+      - `query_redemption_outcomes` (Genie) for joins to customer_features
+        and offer_rankings, lift comparisons, and lapsed-member behavior.
+
+      ## Response style
+      - Lead with the headline (rate, count, or comparison).
+      - Surface the offer_id + name, the rank position in offer_rankings,
+        and the actual redemption count side-by-side when relevant.
+      - Flag any offer where the gap between rank position and redemption
+        rate is large (under- or over-performing).
+    handoff_prompt: "Offer performance after the fact: did rankings drive redemption, which offers over/under-performed, lapsed-member behavior."
+
+# =============================================================================
+# MEMORY (Lakebase)
+# =============================================================================
+memory: &memory
+  checkpointer:
+    name: default_checkpointer
+    database: *loyalty_database
+
+  store:
+    name: default_store
+    database: *loyalty_database
+    namespace: "{user_id}"
+    embedding_model: *embedding_model
+
+  extraction:
+    schemas:
+    - user_profile
+    - preference
+    - episode
+    instructions: |
+      Extract the operator's role (loyalty/CRM marketer, merchandiser,
+      category manager, data scientist), the segments and categories
+      they focus on, customers they investigate repeatedly, and offer
+      ids they reference often. Track preferred analytical lenses
+      (segment-by-tier, brand mix, lapsed-member behavior). Record
+      notable investigations: what-if rankings they ran, offers they
+      flagged as under/over-performing, and any saved comparisons.
+    auto_inject: true
+    auto_inject_limit: 5
+    background_extraction: true
+    extraction_model: *tool_calling_llm
+    query_model: *fast_llm
+
+# =============================================================================
+# APPLICATION
+# =============================================================================
+app:
+  name: loyalty_offers_dao
+  description: >
+    Multi-agent operator companion for receipt-driven loyalty offer
+    personalization. Loyalty/CRM marketers and merchandisers use it to
+    investigate, explain, and re-run LLM-ranked offer assignments.
+    Deploys to both Model Serving and Databricks Apps from the same config.
+  log_level: INFO
+  deployment_target: both
+  registered_model:
+    schema: *loyalty_schema
+    name: loyalty_offers_dao
+  endpoint_name: loyalty_offers_dao
+  environment_vars:
+    RETAIL_AI_DATABRICKS_CLIENT_ID: "{{secrets/retail_consumer_goods/RETAIL_AI_DATABRICKS_CLIENT_ID}}"
+    RETAIL_AI_DATABRICKS_CLIENT_SECRET: "{{secrets/retail_consumer_goods/RETAIL_AI_DATABRICKS_CLIENT_SECRET}}"
+    RETAIL_AI_DATABRICKS_HOST: "{{secrets/retail_consumer_goods/RETAIL_AI_DATABRICKS_HOST}}"
+  tags:
+    business: rcg
+    use_case: loyalty_offer_personalization
+    streaming: true
+  enable_chat_proxy: true
+
+  permissions:
+  - principals: [users]
+    entitlements:
+    - CAN_QUERY
+  agents:
+  - *general
+  - *customer_intelligence
+  - *offer_catalog
+  - *ranking_explainer
+  - *what_if_ranker
+  - *segment_analyst
+  - *redemption_outcomes
+  orchestration:
+    memory: *memory
+    supervisor:
+      model: *supervisor_llm
+      tools:
+      - *app_info_tool
+      prompt: |
+        You are a routing coordinator for a loyalty-personalization operator
+        companion. You serve two personas: loyalty/CRM marketers and
+        merchandiser/category managers.
+
+        You do NOT answer questions yourself. Your only job is to read the
+        request and hand off to the most appropriate specialist agent using
+        the handoff tools.
+
+        IMPORTANT: You do NOT have access to customer data, offer data,
+        ranking data, or any tools beyond app_info. You MUST hand off every
+        substantive request to one of: customer_intelligence, offer_catalog,
+        ranking_explainer, what_if_ranker, segment_analyst,
+        redemption_outcomes, general.
+
+        Routing hints:
+        - Named customer + "tell me about" / "profile" / "recent purchases"
+          → customer_intelligence
+        - "Find offers..." / "Which Nike..." / "Offers in fall..."
+          → offer_catalog
+        - "Why was offer X ranked..." / "explain the ranking..."
+          → ranking_explainer
+        - "What if..." / "Re-rank..." / "Run the ranker for..."
+          → what_if_ranker
+        - "Which segments..." / "Top N customers..." / "Brand mix..."
+          → segment_analyst
+        - "Did offer X lift..." / "Which offers under-performed..."
+          → redemption_outcomes
+        - Anything else → general
+  input_example:
+    messages:
+    - role: user
+      content: "Tell me about customer C-00007 and explain why offer O-0007 was ranked first for them."
+    custom_inputs:
+      configurable:
+        user_id: loyalty_marketer_01
+      session: {}
+
+# =============================================================================
+# EVALUATION
+# =============================================================================
+evaluation:
+  model: *judge_llm
+  table:
+    schema: *loyalty_schema
+    name: evaluation
+  num_evals: 25
+  guidelines:
+  - name: factual_grounding
+    guidelines:
+    - Customer profile claims (tier, top brands, top categories, AOV) must come from a UC function or Genie tool result, never fabricated
+    - Offer attributes (brand, category, discount_pct, validity dates) must come from offer_catalog rows or vector search hits
+    - Stored ranking reasons must be quoted verbatim from the offer_rankings.ranking[].reason field, not paraphrased
+    - When a customer or ranking does not exist, the agent must say so plainly — no hallucinated attributes
+  - name: tool_usage_quality
+    guidelines:
+    - Customer 360 questions must call get_customer_features_uc (often in parallel with get_recent_receipts_uc)
+    - Offer discovery by description should use offer_catalog_search (vector retriever), not Genie
+    - Cross-segment aggregates should use query_segment_analytics (Genie), not single-customer UC functions in a loop
+    - What-if re-rankings must call rank_offers_for_customer_uc, not paraphrase a stored ranking
+  - name: personalization_depth
+    guidelines:
+    - Explanations of why an offer was ranked must cite at least one customer-specific feature (top brand, top category, price tolerance, redemption history, recency)
+    - Generic phrasing without customer-specific anchor counts as a failure
+    - Reason citations should map to features the prompt actually consumes (see rank_offers_for_customer)
+  - name: response_professionalism
+    guidelines:
+    - Responses lead with the bottom-line answer in the first sentence
+    - Currency formatted as USD with $ prefix
+    - Lists capped at 10 rows unless the operator explicitly asks for more
+
+# =============================================================================
+# DATASETS
+# =============================================================================
+datasets:
+# Bronze / source-of-truth tables (loaded from SQL DDL + INSERTs)
+- table:
+    schema: *loyalty_schema
+    name: loyalty_events
+  ddl: ../data/loyalty_offer_personalization/loyalty_events.sql
+  data: ../data/loyalty_offer_personalization/loyalty_events_data.sql
+  format: sql
+
+- table:
+    schema: *loyalty_schema
+    name: receipts
+  ddl: ../data/loyalty_offer_personalization/receipts.sql
+  data: ../data/loyalty_offer_personalization/receipts_data.sql
+  format: sql
+
+- table:
+    schema: *loyalty_schema
+    name: receipt_lines
+  ddl: ../data/loyalty_offer_personalization/receipt_lines.sql
+  data: ../data/loyalty_offer_personalization/receipt_lines_data.sql
+  format: sql
+
+- table:
+    schema: *loyalty_schema
+    name: redemptions
+  ddl: ../data/loyalty_offer_personalization/redemptions.sql
+  data: ../data/loyalty_offer_personalization/redemptions_data.sql
+  format: sql
+
+- table:
+    schema: *loyalty_schema
+    name: offer_catalog
+  ddl: ../data/loyalty_offer_personalization/offer_catalog.sql
+  data: ../data/loyalty_offer_personalization/offer_catalog_data.sql
+  format: sql
+
+# Gold / analytical tables (built declaratively via CTAS-style DDL)
+- table:
+    schema: *loyalty_schema
+    name: customer_features
+  ddl: ../data/loyalty_offer_personalization/customer_features.sql
+  data: ../data/loyalty_offer_personalization/customer_features_data.sql
+  format: sql
+
+- table:
+    schema: *loyalty_schema
+    name: customers_x_eligible_offers
+  ddl: ../data/loyalty_offer_personalization/customers_x_eligible_offers.sql
+  data: ../data/loyalty_offer_personalization/customers_x_eligible_offers_data.sql
+  format: sql
+
+# Output table (empty DDL; populated by refresh_offer_rankings UC fn)
+- table:
+    schema: *loyalty_schema
+    name: offer_rankings
+  ddl: ../data/loyalty_offer_personalization/offer_rankings.sql
+  data: ../data/loyalty_offer_personalization/offer_rankings_data.sql
+  format: sql
+
+# Eval payload table
+- table:
+    schema: *loyalty_schema
+    name: evaluation
+  ddl: ../data/loyalty_offer_personalization/evaluation.sql
+  data: ../data/loyalty_offer_personalization/evaluation_data.sql
+  format: sql
+
+# =============================================================================
+# UNITY CATALOG FUNCTIONS
+# =============================================================================
+unity_catalog_functions:
+- function: *get_customer_features
+  ddl: ../functions/loyalty_offer_personalization/get_customer_features.sql
+  test:
+    parameters:
+      customer_id: "C-00007"
+
+- function: *get_recent_receipts
+  ddl: ../functions/loyalty_offer_personalization/get_recent_receipts.sql
+  test:
+    parameters:
+      customer_id: "C-00007"
+      days: 90
+
+- function: *check_offer_eligibility
+  ddl: ../functions/loyalty_offer_personalization/check_offer_eligibility.sql
+  test:
+    parameters:
+      customer_id: "C-00007"
+      offer_id: "O-0007"
+
+- function: *get_offer_ranking
+  ddl: ../functions/loyalty_offer_personalization/get_offer_ranking.sql
+  test:
+    parameters:
+      customer_id: "C-00007"
+      prompt_version: "v1"
+
+- function: *top_offers_by_segment
+  ddl: ../functions/loyalty_offer_personalization/top_offers_by_segment.sql
+  test:
+    parameters:
+      segment: "Silver"
+      window_days: 90
+
+- function: *rank_offers_for_customer
+  ddl: ../functions/loyalty_offer_personalization/rank_offers_for_customer.sql
+  test:
+    parameters:
+      customer_id: "C-00007"
+      prompt_version: "v1"
+      candidate_offer_ids: ["O-0001","O-0002","O-0006","O-0007","O-0008","O-0046","O-0058","O-0085","O-0087","O-0088"]
+
+- function: *refresh_offer_rankings
+  ddl: ../functions/loyalty_offer_personalization/refresh_offer_rankings.sql
