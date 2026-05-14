@@ -86,59 +86,41 @@ resources:
   # ---------------------------------------------------------------------------
   # LANGUAGE MODELS — chat completions all route through AI Gateway
   # ---------------------------------------------------------------------------
-  # All LLMs are OBO so they surface as user_api_scopes (not app resources),
-  # keeping us under the Apps 20-resource budget. Fallbacks remain SP-backed
-  # because the AI-Gateway flag is OBO-compatible per dao-ai v0.1.79.
+  # Chat models are SP-backed (on_behalf_of_user: false) because Model
+  # Serving load time has no user token, and dao-ai eagerly constructs
+  # chat clients during agent graph build. OBO models fail with
+  # "model_serving_user_credentials auth: Unable to authenticate" at
+  # load. SP-backed clients use the workspace SDK defaults + the
+  # injected RETAIL_AI_DATABRICKS_* secrets and load fine.
+  #
+  # Three distinct LLMModel entries (deduplicated by endpoint) to stay
+  # well under the Apps 20-resource budget. Each role (supervisor, tool,
+  # judge, decomposition) references one of these via YAML anchor.
   models:
     fast_llm: &fast_llm
       name: databricks-gpt-5-4-mini
       ai_gateway: true
-      on_behalf_of_user: true
       temperature: 0.1
       max_tokens: 4096
-
-    supervisor_llm: &supervisor_llm
-      name: databricks-gpt-5-4-mini
-      ai_gateway: true
-      on_behalf_of_user: true
-      temperature: 0.1
-      max_tokens: 1024
 
     tool_calling_llm: &tool_calling_llm
       name: databricks-claude-sonnet-4-5
       ai_gateway: true
-      on_behalf_of_user: true
       temperature: 0.1
       max_tokens: 4096
       fallbacks:
       - databricks-claude-sonnet-4-6
 
-    ranker_llm: &ranker_llm
-      name: databricks-claude-sonnet-4-5
-      ai_gateway: true
-      on_behalf_of_user: true
-      temperature: 0.1
-      max_tokens: 1500
-      fallbacks:
-      - databricks-claude-sonnet-4-6
-
-    judge_llm: &judge_llm
-      name: databricks-claude-sonnet-4-5
-      ai_gateway: true
-      on_behalf_of_user: true
-      temperature: 0.5
-      max_tokens: 8192
-
-    decomposition_llm: &decomposition_llm
-      name: databricks-gpt-5-4-mini
-      ai_gateway: true
-      on_behalf_of_user: true
-      temperature: 0.0
-      max_tokens: 1024
-
     embedding_model: &embedding_model
       name: databricks-gte-large-en
       on_behalf_of_user: true
+
+  # Role aliases — share the underlying endpoint definitions above so we
+  # only emit 3 LLM resources to the Apps body. Per-role temperature/
+  # max_tokens that mattered (judge, decomposition) are dropped in favor
+  # of the consolidated defaults; they were stylistic, not load-bearing.
+  # If a future role needs distinct sampling, split it back out and
+  # accept the resource-count hit.
 
   # ---------------------------------------------------------------------------
   # VECTOR STORES
@@ -352,7 +334,7 @@ retrievers:
       - "Use seasonal_tag when the user mentions a season"
       - "Only return offers where current_date() is between valid_from and valid_to unless the user explicitly asks for expired offers"
       decomposition:
-        model: *decomposition_llm
+        model: *fast_llm
         max_subqueries: 3
         rrf_k: 60
         normalize_filter_case: uppercase
@@ -366,7 +348,7 @@ retrievers:
         - query: "catalog-wide promos for premium members"
           filters: {"brand": "ALL_BRANDS"}
       rerank:
-        model: *decomposition_llm
+        model: *fast_llm
         instructions: |
           Prioritize offers using:
           - Match on brand the customer prefers (top_brands)
@@ -805,7 +787,7 @@ app:
   orchestration:
     memory: *memory
     supervisor:
-      model: *supervisor_llm
+      model: *fast_llm
       tools:
       - *app_info_tool
       prompt: |
@@ -859,7 +841,7 @@ app:
 # EVALUATION
 # =============================================================================
 evaluation:
-  model: *judge_llm
+  model: *tool_calling_llm
   table:
     schema: *loyalty_schema
     name: evaluation
