@@ -271,7 +271,7 @@ mlflow.set_registry_uri("databricks-uc")
 # Note: For production use, increase n_trials to 50+ for better results
 result: ThresholdOptimizationResult = optimize_context_aware_cache_thresholds(
     dataset=manual_dataset,
-    judge_model="databricks-meta-llama-3-3-70b-instruct",  # For unlabeled entries
+    judge_model="databricks-gpt-5-4-mini",  # For unlabeled entries
     n_trials=20,  # Increase for better optimization (50+ recommended)
     metric="f1",  # Options: f1, precision, recall, fbeta
     register_if_improved=True,

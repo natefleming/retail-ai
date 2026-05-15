@@ -5,12 +5,21 @@ import sys
 from pathlib import Path
 
 import pytest
-from conftest import has_databricks_env, has_postgres_env
+from conftest import has_databricks_connect, has_databricks_env, has_postgres_env
 from mlflow.types.responses import ResponsesAgentRequest
 from mlflow.types.responses_helpers import Message
 
 from dao_ai.config import AppConfig
 from dao_ai.models import ResponsesAgent
+
+# Inference tests exercise the full agent stack including UC function
+# tool execution, which requires databricks-connect for serverless Spark.
+# Skip the entire module when databricks-connect can't be imported
+# (typically a local pyspark version mismatch).
+pytestmark = pytest.mark.skipif(
+    not has_databricks_connect(),
+    reason="databricks-connect not importable (full-agent inference requires UC fn execution)",
+)
 
 
 @pytest.fixture

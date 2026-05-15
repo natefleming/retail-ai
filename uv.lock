@@ -961,12 +961,12 @@ requires-dist = [
     { name = "a2a-sdk", specifier = ">=0.3.0,<1.0.0" },
     { name = "databricks-agents", specifier = ">=1.9.3" },
     { name = "databricks-connect", marker = "extra == 'databricks'", specifier = ">=16.0.0" },
-    { name = "databricks-langchain", extras = ["memory"], specifier = ">=0.17.0" },
+    { name = "databricks-langchain", extras = ["memory"], specifier = ">=0.19.0" },
     { name = "databricks-mcp", specifier = ">=0.9.0" },
-    { name = "databricks-sdk", extras = ["openai"], specifier = ">=0.106.0" },
+    { name = "databricks-sdk", extras = ["openai"], specifier = ">=0.108.0" },
     { name = "databricks-vectorsearch", marker = "extra == 'databricks'", specifier = ">=0.67" },
     { name = "ddgs", specifier = ">=9.10.0" },
-    { name = "deepagents", specifier = ">=0.5.6" },
+    { name = "deepagents", specifier = ">=0.5.7" },
     { name = "dspy", specifier = ">=2.6.27" },
     { name = "flashrank", specifier = ">=0.2.10" },
     { name = "gepa", specifier = ">=0.0.22" },
@@ -1078,7 +1078,7 @@ wheels = [
 
 [[package]]
 name = "databricks-ai-bridge"
-version = "0.17.0"
+version = "0.19.0"
 source = { registry = "https://pypi-proxy.dev.databricks.com/simple/" }
 dependencies = [
     { name = "databricks-sdk" },
@@ -1090,9 +1090,9 @@ dependencies = [
     { name = "tiktoken" },
     { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/e8/83/6bfd2a80804b0adf945d8890afa4e6707d050d678dfe66af237f149b2843/databricks_ai_bridge-0.17.0.tar.gz", hash = "sha256:99c37f969a4476d60df400e0cd87add51b08ab59dbbe4812303ed34731af055b", size = 29872, upload-time = "2026-03-09T23:16:24.13Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/fe/55/fb65eec27ffbe3aaaab930a10ea3fc8585fd32a237bf93f8604c7e0541e6/databricks_ai_bridge-0.19.0.tar.gz", hash = "sha256:9b93e8360039266b7b9c8b8fde71eea99b4b947f58344197e9495a2946772639", size = 39831, upload-time = "2026-04-22T02:00:27.915Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/38/25/0587b9c404c46fbee3ed049085660b589166c939c54f18ef580211f96c45/databricks_ai_bridge-0.17.0-py3-none-any.whl", hash = "sha256:d194cc0578c3c0e31213bef6596b6757c0b0c161b4eb3c82de8f63560dce36d3", size = 35389, upload-time = "2026-03-09T23:16:22.096Z" },
+    { url = "https://files.pythonhosted.org/packages/8f/e2/dd3f905cfad25de160c2c1b51783e095b96809c7435e2fd0feb5b0e87b7c/databricks_ai_bridge-0.19.0-py3-none-any.whl", hash = "sha256:b754a3a5040a0c356034be31b1bb9c026d4f50d984efea7aeab0f5ca54052621", size = 48005, upload-time = "2026-04-22T02:00:26.829Z" },
 ]
 
 [package.optional-dependencies]
@@ -1154,7 +1154,7 @@ wheels = [
 
 [[package]]
 name = "databricks-langchain"
-version = "0.17.0"
+version = "0.19.0"
 source = { registry = "https://pypi-proxy.dev.databricks.com/simple/" }
 dependencies = [
     { name = "databricks-ai-bridge" },
@@ -1169,9 +1169,9 @@ dependencies = [
     { name = "pydantic" },
     { name = "unitycatalog-langchain", extra = ["databricks"] },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/b4/11/66e907aab4b056b38b20b6dfc6d9218898584c8b4adb318a2c3e32a85d05/databricks_langchain-0.17.0.tar.gz", hash = "sha256:deaf97964acdfe3e7ae4a338e1fb49a9a0f9a5772001f8f07c9a74e4543834d6", size = 33201, upload-time = "2026-03-09T23:19:34.846Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/ff/f5/17e6055c3577d2536119781db6181d0d27708cfed40ff069744a8f3659e2/databricks_langchain-0.19.0.tar.gz", hash = "sha256:a6e5c79f88d5f35e07dc82268efd7bed1172af0ca9fdc409dadef47b7dfc31ce", size = 34203, upload-time = "2026-04-22T02:03:05.457Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/76/9d/97cd118e3d63baa847c5aea400dc367f979b3c5ebaa25bf886dcd1786b4a/databricks_langchain-0.17.0-py3-none-any.whl", hash = "sha256:384fc96ba3440a8e7cc760f361242b8c8ed8b762b3bcbfb52fa35d75f9b7bc84", size = 38396, upload-time = "2026-03-09T23:19:33.695Z" },
+    { url = "https://files.pythonhosted.org/packages/31/2f/438f7468e1f321f69da735abbdcc9c8466011d272a48da2bf8fb4d3478cf/databricks_langchain-0.19.0-py3-none-any.whl", hash = "sha256:bd2e12dc2195481dd52176ad7b38caa963c4f7736302624421d278193efc86ec", size = 39412, upload-time = "2026-04-22T02:03:04.487Z" },
 ]
 
 [package.optional-dependencies]
@@ -1197,7 +1197,7 @@ wheels = [
 
 [[package]]
 name = "databricks-openai"
-version = "0.13.0"
+version = "0.15.0"
 source = { registry = "https://pypi-proxy.dev.databricks.com/simple/" }
 dependencies = [
     { name = "databricks-ai-bridge" },
@@ -1209,23 +1209,23 @@ dependencies = [
     { name = "pydantic" },
     { name = "unitycatalog-openai", extra = ["databricks"] },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/36/c8/a4e3213b63aac8ef9c0632f28fdafa233ba4248177eddd900dfaf2380612/databricks_openai-0.13.0.tar.gz", hash = "sha256:74a18cb134a08d2bf1b5e6f35b6dc43883a8164c52fc4e893a902cda570cbf63", size = 15734, upload-time = "2026-03-09T23:20:49.012Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/a6/8b/e07f2a4a4927a1c0272dbad1eddc23bee892cb23b5fd3f266984ca9216da/databricks_openai-0.15.0.tar.gz", hash = "sha256:22d0b136ba20e5e55ae9bdfeb0c4b6ed3ddc58e04e8fcf94b7721f9c0b2858a4", size = 16845, upload-time = "2026-04-22T02:02:24.995Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/eb/5b/d55157dd69beecb45f6ccbc356c83bbce6731acdc92cd80d05157168c2f9/databricks_openai-0.13.0-py3-none-any.whl", hash = "sha256:358846b6bdbfc82254e32adfb1fe76087af65cdc920559150380a9f19b7cd5ad", size = 19795, upload-time = "2026-03-09T23:20:47.876Z" },
+    { url = "https://files.pythonhosted.org/packages/69/aa/82e8fafebf1fc2196b39ce0689b1c6a0508ef6c3353558271747e948521d/databricks_openai-0.15.0-py3-none-any.whl", hash = "sha256:814776f50a3a7f6bf62eeebfba14a071267b1970d4753babfb42699eeb18d119", size = 20937, upload-time = "2026-04-22T02:02:23.69Z" },
 ]
 
 [[package]]
 name = "databricks-sdk"
-version = "0.106.0"
+version = "0.108.0"
 source = { registry = "https://pypi-proxy.dev.databricks.com/simple/" }
 dependencies = [
     { name = "google-auth" },
     { name = "protobuf" },
     { name = "requests" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/b5/b7/ef86e7b8c3d135c844f972e06efb628e147eed0a7b9a0ecbf9511437a3c2/databricks_sdk-0.106.0.tar.gz", hash = "sha256:6bbd492cb8593747aced037b9186f8632e9d553fc358e6f3d83b7e959851d9d3", size = 930953, upload-time = "2026-04-30T12:33:19.601Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/d3/13/05a1dbf9c2c43639b032128c18227953777a2a2da66e4b97d1914ceacb68/databricks_sdk-0.108.0.tar.gz", hash = "sha256:c43f1099b8228e5e9ecb4569381ec8f49b739129d35a826be72a61bc5eaaf1a6", size = 940266, upload-time = "2026-05-12T09:04:03.75Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/07/a9/63b4f6ef3078e4d060faaad85c4e43667189c3429edd68d5cbddc45187ca/databricks_sdk-0.106.0-py3-none-any.whl", hash = "sha256:db9de5566279ae80dfea0ecd37231e8968523ef984e83cbe4bd77e50c59aa6a5", size = 879452, upload-time = "2026-04-30T12:33:18.116Z" },
+    { url = "https://files.pythonhosted.org/packages/56/38/9b59ebb34ccaef79095f168eff1fab5f8d645b961680c7bcbc320434acd0/databricks_sdk-0.108.0-py3-none-any.whl", hash = "sha256:010528183abb475acf7f4058e331049dc7932e73a314d9808b123f5cbb722579", size = 887647, upload-time = "2026-05-12T09:04:01.771Z" },
 ]
 
 [package.optional-dependencies]
@@ -1304,7 +1304,7 @@ wheels = [
 
 [[package]]
 name = "deepagents"
-version = "0.5.6"
+version = "0.5.7"
 source = { registry = "https://pypi-proxy.dev.databricks.com/simple/" }
 dependencies = [
     { name = "langchain" },
@@ -1314,9 +1314,9 @@ dependencies = [
     { name = "langsmith" },
     { name = "wcmatch" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/e5/b6/8bff546e96d33fa16b3f20038db4329f0c4b7c6e3e510855f477bc55e9a8/deepagents-0.5.6.tar.gz", hash = "sha256:9906b3695affb0175742eb681377158d197c5cfbb70ab31cc6633da0deb080d9", size = 163816, upload-time = "2026-05-01T15:24:36.111Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/5e/81/7c2285e29816a0f1c33211cda31770ddca3b6bb6baf8d645e4d85f133e7d/deepagents-0.5.7.tar.gz", hash = "sha256:8a9e28f2d2c48b5eb1f659573c95829ac31db563cb223d561b0d1dddce133187", size = 165168, upload-time = "2026-05-05T15:54:23.992Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/35/32/d21ef2cd5f17e98bc3fb83cd7303661caf3dab00b7f622b415ab8ef0d900/deepagents-0.5.6-py3-none-any.whl", hash = "sha256:3dc2f2ac4f0a0eb2735dedb62c9e00ac066312fcaedd9ef8d6c11c0fb7c153f5", size = 186304, upload-time = "2026-05-01T15:24:34.729Z" },
+    { url = "https://files.pythonhosted.org/packages/fd/bb/c1c68ad0ca96cdddd601e7fca0f274be202411378af6da76a35f0e4a1b66/deepagents-0.5.7-py3-none-any.whl", hash = "sha256:2783f87cfeade4c6fbbb86b427e35bf9d12c6cc29d1f0f2b978cd2529082bb66", size = 187645, upload-time = "2026-05-05T15:54:22.764Z" },
 ]
 
 [[package]]
@@ -2635,16 +2635,16 @@ wheels = [
 
 [[package]]
 name = "langchain-anthropic"
-version = "1.4.2"
+version = "1.4.3"
 source = { registry = "https://pypi-proxy.dev.databricks.com/simple/" }
 dependencies = [
     { name = "anthropic" },
     { name = "langchain-core" },
     { name = "pydantic" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/d2/57/1f6be85f408d28864ec9b04c989011915f48ddbd43545d29e56a1e6818f2/langchain_anthropic-1.4.2.tar.gz", hash = "sha256:cc75cf4facfaf9f345e789b22986fdf23c6524921d4453a75bba32251e9fb0ec", size = 685094, upload-time = "2026-04-28T20:50:39.068Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/fa/e3/d2f9dec95602524b1cfb4be2747ba5bc38d32501b2a56cb4bcb76e80bb45/langchain_anthropic-1.4.3.tar.gz", hash = "sha256:f8a2442463c0629b1b3110eaeaa56fdbdc87df2a802f8c7f5ecf611eb4874ec8", size = 685219, upload-time = "2026-05-03T17:33:27.118Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/07/66/2b26b1f7949a7484bce68832a1e4f558bb24f9e2e8ebced504a19351133c/langchain_anthropic-1.4.2-py3-none-any.whl", hash = "sha256:f48e340dffcac2b760d2024ca6b3f83647782929bd01e62199a4b29d72e18c3e", size = 50423, upload-time = "2026-04-28T20:50:37.684Z" },
+    { url = "https://files.pythonhosted.org/packages/d3/55/482a1968c95275e8be6d8c1e53b54f0f7be0b8b155ce1608c947a95cf543/langchain_anthropic-1.4.3-py3-none-any.whl", hash = "sha256:65466e0f2f95909a009708f2958e917dfdbfab79c612b4484a30866a85e1f291", size = 50389, upload-time = "2026-05-03T17:33:25.671Z" },
 ]
 
 [[package]]

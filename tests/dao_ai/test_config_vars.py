@@ -234,9 +234,7 @@ class _FakeUser:
 class _FakeWorkspaceClient:
     def __init__(self, *, host: str, user_name: str) -> None:
         self.config = type("Cfg", (), {"host": host})()
-        self.current_user = type(
-            "CU", (), {"me": lambda _self: _FakeUser(user_name)}
-        )()
+        self.current_user = type("CU", (), {"me": lambda _self: _FakeUser(user_name)})()
 
 
 @pytest.mark.unit
@@ -269,9 +267,7 @@ def test_substitute_workspace_refs_resolves_all_four_dabs_paths() -> None:
         "short: ${workspace.current_user.short_name}\n"
         "domain: ${workspace.current_user.domain_friendly_name}\n"
     )
-    rendered = substitute_workspace_refs(
-        text, workspace_client_factory=lambda: client
-    )
+    rendered = substitute_workspace_refs(text, workspace_client_factory=lambda: client)
     assert "host: https://example.cloud.databricks.com" in rendered
     assert "host: https://example.cloud.databricks.com/" not in rendered
     assert "email: nate.fleming@databricks.com" in rendered
@@ -333,7 +329,7 @@ def test_workspace_refs_resolve_inside_parameter_defaults(tmp_path: Path) -> Non
     text = (
         "parameters:\n"
         "  genie_parent_path:\n"
-        "    default: \"/Users/${workspace.current_user.userName}/genie\"\n"
+        '    default: "/Users/${workspace.current_user.userName}/genie"\n'
         "value: ${var.genie_parent_path}\n"
     )
     workspace_resolved = substitute_workspace_refs(
@@ -396,6 +392,193 @@ def test_app_config_from_file_substitutes_params(tmp_path: Path) -> None:
     assert config.rendered_yaml is not None
     assert "${param." not in config.rendered_yaml
     assert config.substitution_vars == {"module_id": "09"}
+
+
+# ---------------------------------------------------------------------------
+# AppConfig.from_file(task_values=...) — pull resolved parameter values from
+# an upstream Databricks job task via the dbutils.jobs.taskValues protocol.
+# ---------------------------------------------------------------------------
+
+
+class _FakeTaskValues:
+    """In-memory stand-in for ``dbutils.jobs.taskValues`` shaped as
+    :class:`dao_ai.config.TaskValuesLike`. Records every probe so tests
+    can assert which parameter names were looked up."""
+
+    def __init__(self, values: dict[tuple[str, str], object] | None = None) -> None:
+        self._values: dict[tuple[str, str], object] = values or {}
+        self.calls: list[tuple[str, str]] = []
+
+    def get(
+        self,
+        *,
+        taskKey: str,
+        key: str,
+        default: object = None,
+        debugValue: object = None,
+    ) -> object:
+        self.calls.append((taskKey, key))
+        return self._values.get((taskKey, key), default)
+
+
+class _RaisingTaskValues:
+    """TaskValuesLike whose ``get`` always raises (mimics dbutils when the
+    upstream task key has not run yet)."""
+
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, str]] = []
+
+    def get(
+        self,
+        *,
+        taskKey: str,
+        key: str,
+        default: object = None,
+        debugValue: object = None,
+    ) -> object:
+        self.calls.append((taskKey, key))
+        raise ValueError(f"No taskValue for taskKey={taskKey!r}, key={key!r}")
+
+
+def _write_genie_space_yaml(yaml_path: Path) -> None:
+    """Helper: writes a YAML with two declared parameters and references."""
+    yaml_path.write_text(
+        dedent(
+            """
+            parameters:
+              genie_space_id:
+                description: Genie space id (provisioned upstream)
+              warehouse_id:
+                description: SQL warehouse id
+                default: wh-default
+
+            schemas:
+              s:
+                catalog_name: main
+                schema_name: "space-${param.genie_space_id}-wh-${param.warehouse_id}"
+            """
+        ).lstrip()
+    )
+
+
+@pytest.mark.unit
+def test_from_file_pulls_params_from_task_values(tmp_path: Path) -> None:
+    """taskValues with a matching declared parameter is folded into substitution."""
+    yaml_path = tmp_path / "cfg.yaml"
+    _write_genie_space_yaml(yaml_path)
+    tv = _FakeTaskValues({("provision-genie", "genie_space_id"): "abc-123"})
+
+    config = AppConfig.from_file(
+        yaml_path,
+        task_values=tv,
+        task_key="provision-genie",
+        initialize=False,
+    )
+
+    assert config.schemas["s"].schema_name == "space-abc-123-wh-wh-default"
+    assert config.substitution_vars == {"genie_space_id": "abc-123"}
+
+
+@pytest.mark.unit
+def test_from_file_task_values_requires_task_key(tmp_path: Path) -> None:
+    """task_values without task_key is a programming error — raise immediately."""
+    yaml_path = tmp_path / "cfg.yaml"
+    _write_genie_space_yaml(yaml_path)
+    tv = _FakeTaskValues({("provision-genie", "genie_space_id"): "abc-123"})
+
+    with pytest.raises(ValueError, match="task_values requires task_key"):
+        AppConfig.from_file(yaml_path, task_values=tv, initialize=False)
+
+
+@pytest.mark.unit
+def test_from_file_params_beat_task_values(tmp_path: Path) -> None:
+    """CLI-style ``params`` overrides matching ``task_values`` per key."""
+    yaml_path = tmp_path / "cfg.yaml"
+    _write_genie_space_yaml(yaml_path)
+    tv = _FakeTaskValues({("provision-genie", "genie_space_id"): "from-tv"})
+
+    config = AppConfig.from_file(
+        yaml_path,
+        params={"genie_space_id": "from-cli"},
+        task_values=tv,
+        task_key="provision-genie",
+        initialize=False,
+    )
+
+    assert config.schemas["s"].schema_name == "space-from-cli-wh-wh-default"
+    assert config.substitution_vars == {"genie_space_id": "from-cli"}
+
+
+@pytest.mark.unit
+def test_from_file_task_values_empty_strings_are_skipped(tmp_path: Path) -> None:
+    """An empty taskValue result must not shadow a declared default."""
+    yaml_path = tmp_path / "cfg.yaml"
+    _write_genie_space_yaml(yaml_path)
+    tv = _FakeTaskValues(
+        {
+            ("provision-genie", "genie_space_id"): "abc-123",
+            ("provision-genie", "warehouse_id"): "",
+        }
+    )
+
+    config = AppConfig.from_file(
+        yaml_path,
+        task_values=tv,
+        task_key="provision-genie",
+        initialize=False,
+    )
+
+    assert config.schemas["s"].schema_name == "space-abc-123-wh-wh-default"
+
+
+@pytest.mark.unit
+def test_from_file_task_values_only_probes_declared_parameters(tmp_path: Path) -> None:
+    """task_values.get must only be called for declared parameter names."""
+    yaml_path = tmp_path / "cfg.yaml"
+    _write_genie_space_yaml(yaml_path)
+    tv = _FakeTaskValues({("provision-genie", "genie_space_id"): "abc-123"})
+
+    AppConfig.from_file(
+        yaml_path,
+        task_values=tv,
+        task_key="provision-genie",
+        initialize=False,
+    )
+
+    probed = sorted(key for _, key in tv.calls)
+    assert probed == ["genie_space_id", "warehouse_id"]
+
+
+@pytest.mark.unit
+def test_from_file_task_values_get_exception_is_tolerated(tmp_path: Path) -> None:
+    """An exception from task_values.get must not break config loading."""
+    yaml_path = tmp_path / "cfg.yaml"
+    yaml_path.write_text(
+        dedent(
+            """
+            parameters:
+              with_default:
+                default: fallback
+
+            schemas:
+              s:
+                catalog_name: ${param.with_default}
+                schema_name: x
+            """
+        ).lstrip()
+    )
+    tv = _RaisingTaskValues()
+
+    config = AppConfig.from_file(
+        yaml_path,
+        task_values=tv,
+        task_key="provision-genie",
+        initialize=False,
+    )
+
+    assert config.schemas["s"].catalog_name == "fallback"
+    # The exception was tolerated but the probe was still attempted.
+    assert tv.calls == [("provision-genie", "with_default")]
 
 
 @pytest.mark.unit

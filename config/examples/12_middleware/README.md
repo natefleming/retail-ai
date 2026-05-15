@@ -309,7 +309,7 @@ The `model` field in each subagent spec accepts a string (`"openai:gpt-4o-mini"`
 subagents:
   - name: analyst
     model:                                   # Dict -> ChatDatabricks
-      name: "databricks-meta-llama-3-3-70b-instruct"
+      name: "databricks-gpt-5-4-mini"
       temperature: 0.1
 ```
 

@@ -23,7 +23,6 @@ import pytest
 
 from dao_ai.config import (
     AppConfig,
-    AppModel,
     InferenceEndpointModel,
     LLMModel,
     ResourcesModel,
@@ -65,14 +64,18 @@ class TestResourcesModelFieldAlias:
 
     def test_llms_key_still_parses_via_alias(self) -> None:
         # Pydantic should accept the legacy key via field alias.
-        resources = ResourcesModel.model_validate({"llms": {"primary": self.SHARED_ENDPOINT}})
+        resources = ResourcesModel.model_validate(
+            {"llms": {"primary": self.SHARED_ENDPOINT}}
+        )
         assert "primary" in resources.models
         assert resources.models["primary"].name == "databricks-claude-sonnet-4-5"
         assert isinstance(resources.models["primary"], InferenceEndpointModel)
 
     def test_both_keys_produce_identical_objects(self) -> None:
         models_based = ResourcesModel(models={"primary": self.SHARED_ENDPOINT})
-        llms_based = ResourcesModel.model_validate({"llms": {"primary": self.SHARED_ENDPOINT}})
+        llms_based = ResourcesModel.model_validate(
+            {"llms": {"primary": self.SHARED_ENDPOINT}}
+        )
         assert models_based.models == llms_based.models
 
     def test_models_attribute_access(self) -> None:
@@ -140,17 +143,23 @@ class TestAppConfigEndToEnd:
         cfg = AppConfig(**base_config_dict)
         assert "primary" in cfg.resources.models
 
-    def test_models_and_llms_produce_equivalent_configs(self, base_config_dict: dict) -> None:
+    def test_models_and_llms_produce_equivalent_configs(
+        self, base_config_dict: dict
+    ) -> None:
         cfg_models = AppConfig(
             **{
                 **base_config_dict,
-                "resources": {"models": {"primary": {"name": "databricks-claude-sonnet-4-5"}}},
+                "resources": {
+                    "models": {"primary": {"name": "databricks-claude-sonnet-4-5"}}
+                },
             }
         )
         cfg_llms = AppConfig(
             **{
                 **base_config_dict,
-                "resources": {"llms": {"primary": {"name": "databricks-claude-sonnet-4-5"}}},
+                "resources": {
+                    "llms": {"primary": {"name": "databricks-claude-sonnet-4-5"}}
+                },
             }
         )
         assert cfg_models.resources.models == cfg_llms.resources.models

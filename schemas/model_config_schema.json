@@ -1165,7 +1165,7 @@
     },
     "ContextAwareCacheOptimizationModel": {
       "additionalProperties": false,
-      "description": "Configuration for context-aware cache threshold optimization.\n\nUses Optuna Bayesian optimization to find optimal threshold values\nthat maximize cache hit accuracy (F1 score by default).\n\nExample:\n    optimizations:\n      cache_threshold_optimizations:\n        my_optimization:\n          name: optimize_cache_thresholds\n          cache_parameters: *my_cache_params\n          dataset: *my_eval_dataset\n          judge_model: databricks-meta-llama-3-3-70b-instruct\n          n_trials: 50\n          metric: f1",
+      "description": "Configuration for context-aware cache threshold optimization.\n\nUses Optuna Bayesian optimization to find optimal threshold values\nthat maximize cache hit accuracy (F1 score by default).\n\nExample:\n    optimizations:\n      cache_threshold_optimizations:\n        my_optimization:\n          name: optimize_cache_thresholds\n          cache_parameters: *my_cache_params\n          dataset: *my_eval_dataset\n          judge_model: databricks-gpt-5-4-mini\n          n_trials: 50\n          metric: f1",
       "properties": {
         "name": {
           "description": "Unique name for this optimization run (used as the Optuna study name).",
@@ -1200,7 +1200,7 @@
               "type": "null"
             }
           ],
-          "default": "databricks-meta-llama-3-3-70b-instruct",
+          "default": "databricks-gpt-5-4-mini",
           "description": "LLM judge for evaluating match quality when expected_match is None.",
           "title": "Judge Model"
         },
@@ -3912,7 +3912,7 @@
     },
     "GuardrailModel": {
       "additionalProperties": false,
-      "description": "Configuration for a guardrail.\n\nGuardrails evaluate agent responses against quality or safety criteria.\nTwo configuration modes are supported:\n\n1. **Custom (LLM-judge)** -- provide *model* and *prompt*.  A\n   ``JudgeScorer`` is created using ``mlflow.genai.judges.make_judge``.\n2. **Scorer-based** -- provide *scorer* (and optionally *scorer_args*).\n   Any ``mlflow.genai.scorers.base.Scorer`` class can be used,\n   including built-in ``GuardrailsScorer`` validators such as\n   ``ToxicLanguage`` and ``DetectPII``.\n\nThe two modes are mutually exclusive.\n\nAttributes:\n    name: Name identifying this guardrail.\n    model: LLM model for the judge.  Accepts a string (model name) or\n        ``InferenceEndpointModel``.  Required when using the custom judge mode.\n    prompt: Evaluation instructions using ``{{ inputs }}`` and\n        ``{{ outputs }}`` template variables.  Required when using\n        the custom judge mode.\n    scorer: Fully qualified name of an MLflow ``Scorer`` class\n        (e.g. ``\"mlflow.genai.scorers.guardrails.DetectPII\"``).\n        Required when using the scorer-based mode.\n    scorer_args: Keyword arguments forwarded to the scorer constructor\n        (e.g. ``{\"pii_entities\": [\"CREDIT_CARD\", \"SSN\"]}``).\n    hub: Optional guardrails-ai hub URI for the scorer validator\n        (e.g. ``\"hub://guardrails/toxic_language\"``).  When set,\n        the validator is auto-installed at startup if the\n        ``GUARDRAILSAI_API_KEY`` environment variable is present.\n        Only valid when *scorer* is also set.\n    num_retries: Maximum retry attempts when evaluation fails (default: 3).\n    fail_on_error: If True, block responses when the evaluation call\n        itself errors (e.g. scorer exception, network timeout).\n        If False (default), let responses through on evaluation\n        errors.\n    max_context_length: Max character length for extracted tool context\n        (default: 8000).\n    apply_to: When to run this guardrail.  ``\"input\"`` runs before\n        the model (on user messages), ``\"output\"`` runs after the\n        model (on agent responses), ``\"both\"`` runs in both places\n        (default: ``\"both\"``).",
+      "description": "Configuration for a guardrail.\n\nGuardrails evaluate agent responses against quality or safety criteria.\nTwo configuration modes are supported:\n\n1. **Custom (LLM-judge)** -- provide *model* and *prompt*.  A\n   ``JudgeScorer`` is created using ``mlflow.genai.judges.make_judge``.\n2. **Scorer-based** -- provide *scorer* (and optionally *scorer_args*).\n   Any ``mlflow.genai.scorers.base.Scorer`` class can be used,\n   including built-in ``GuardrailsScorer`` validators such as\n   ``ToxicLanguage`` and ``DetectPII``.\n\nThe two modes are mutually exclusive.\n\nAttributes:\n    name: Name identifying this guardrail.\n    model: LLM model for the judge.  Accepts a string (model name) or\n        ``InferenceEndpointModel``.  Required when using the custom judge mode.\n    prompt: Evaluation instructions using ``{{ inputs }}`` and\n        ``{{ outputs }}`` template variables.  Required when using\n        the custom judge mode.\n    scorer: Fully qualified name of an MLflow ``Scorer`` class\n        (e.g. ``\"mlflow.genai.scorers.guardrails.DetectPII\"``).\n        Required when using the scorer-based mode.\n    scorer_args: Keyword arguments forwarded to the scorer constructor\n        (e.g. ``{\"pii_entities\": [\"CREDIT_CARD\", \"SSN\"]}``).\n    num_retries: Maximum retry attempts when evaluation fails (default: 3).\n    fail_on_error: If True, block responses when the evaluation call\n        itself errors (e.g. scorer exception, network timeout).\n        If False (default), let responses through on evaluation\n        errors.\n    max_context_length: Max character length for extracted tool context\n        (default: 8000).\n    apply_to: When to run this guardrail.  ``\"input\"`` runs before\n        the model (on user messages), ``\"output\"`` runs after the\n        model (on agent responses), ``\"both\"`` runs in both places\n        (default: ``\"both\"``).",
       "properties": {
         "name": {
           "description": "Name identifying this guardrail.",
@@ -3969,19 +3969,6 @@
           "description": "Keyword arguments forwarded to the scorer constructor (e.g., {'pii_entities': ['CREDIT_CARD', 'SSN']}).",
           "title": "Scorer Args",
           "type": "object"
-        },
-        "hub": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "description": "Guardrails-AI hub URI for auto-installing the scorer validator (e.g., 'hub://guardrails/toxic_language'). Requires scorer.",
-          "title": "Hub"
         },
         "num_retries": {
           "anyOf": [
@@ -4484,7 +4471,7 @@
           "title": "Pat"
         },
         "name": {
-          "description": "Serving endpoint name (e.g., 'databricks-meta-llama-3-3-70b-instruct').",
+          "description": "Serving endpoint name (e.g., 'databricks-gpt-5-4-mini').",
           "title": "Name",
           "type": "string"
         },
@@ -5772,7 +5759,7 @@
     },
     "PromptOptimizationModel": {
       "additionalProperties": false,
-      "description": "Configuration for prompt optimization using GEPA.\n\nGEPA (Generative Evolution of Prompts and Agents) is an evolutionary\noptimizer that uses reflective mutation to improve prompts based on\nevaluation feedback.\n\nExample:\n    prompt_optimization:\n      name: optimize_my_prompt\n      prompt: *my_prompt\n      agent: *my_agent\n      dataset: *my_training_dataset\n      reflection_model: databricks-meta-llama-3-3-70b-instruct\n      num_candidates: 50",
+      "description": "Configuration for prompt optimization using GEPA.\n\nGEPA (Generative Evolution of Prompts and Agents) is an evolutionary\noptimizer that uses reflective mutation to improve prompts based on\nevaluation feedback.\n\nExample:\n    prompt_optimization:\n      name: optimize_my_prompt\n      prompt: *my_prompt\n      agent: *my_agent\n      dataset: *my_training_dataset\n      reflection_model: databricks-gpt-5-4-mini\n      num_candidates: 50",
       "properties": {
         "name": {
           "description": "Unique name for this optimization run.",

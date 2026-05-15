@@ -45,7 +45,7 @@ Example:
                 "description": "Data analysis agent",
                 "system_prompt": "You are a data analyst.",
                 "model": {
-                    "name": "databricks-meta-llama-3-3-70b-instruct",
+                    "name": "databricks-gpt-5-4-mini",
                     "temperature": 0.1,
                 },
             }
@@ -65,7 +65,7 @@ YAML Config:
               description: "Data analysis agent"
               system_prompt: "You are a data analyst."
               model:
-                name: "databricks-meta-llama-3-3-70b-instruct"
+                name: "databricks-gpt-5-4-mini"
                 temperature: 0.1
 """
 
@@ -241,7 +241,7 @@ def create_subagent_middleware(
                     "description": "Analyzes data",
                     "system_prompt": "You are a data analyst.",
                     "model": {
-                        "name": "databricks-meta-llama-3-3-70b-instruct",
+                        "name": "databricks-gpt-5-4-mini",
                         "temperature": 0.1,
                     },
                 }

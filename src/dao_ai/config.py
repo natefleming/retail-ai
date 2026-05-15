@@ -16,6 +16,7 @@ from typing import (
     Literal,
     Mapping,
     Optional,
+    Protocol,
     Self,
     Sequence,
     TypeAlias,
@@ -113,6 +114,46 @@ def value_of(value: HasValue | str | int | float | bool) -> Any:
     if isinstance(value, HasValue):
         value = value.as_value()
     return value
+
+
+_PARAMETER_REF_PATTERN: re.Pattern[str] = re.compile(
+    r"^\$\{(?:var|param)\.([A-Za-z_][A-Za-z0-9_]*)\}$"
+)
+
+
+def is_parameter(value: Any) -> bool:
+    """Return True if ``value`` is a ``${var.NAME}`` or ``${param.NAME}`` reference.
+
+    Useful for tooling that needs to distinguish operator-supplied parameters
+    from literal values in a YAML field — e.g., a provisioning task that
+    should only forward task-values for fields backed by a CLI/env parameter.
+    """
+    return isinstance(value, str) and bool(_PARAMETER_REF_PATTERN.match(value.strip()))
+
+
+def parameter_name(value: Any) -> str | None:
+    """Return the parameter name if ``value`` is a ``${var.NAME}`` / ``${param.NAME}`` reference, else None."""
+    if not isinstance(value, str):
+        return None
+    m: re.Match[str] | None = _PARAMETER_REF_PATTERN.match(value.strip())
+    return m.group(1) if m else None
+
+
+class TaskValuesLike(Protocol):
+    """Minimal duck-typed shape of ``dbutils.jobs.taskValues``.
+
+    Lets :meth:`AppConfig.from_file` pull resolved parameter values from
+    an upstream Databricks job task without importing ``dbutils`` in tests.
+    """
+
+    def get(
+        self,
+        *,
+        taskKey: str,
+        key: str,
+        default: Any = None,
+        debugValue: Any = None,
+    ) -> Any: ...
 
 
 class HasFullName(ABC):
@@ -796,6 +837,40 @@ class BestOfNConfig(BaseModel):
         return v
 
 
+class AIGatewayChatOpenAI(ChatOpenAI):
+    """ChatOpenAI variant for the Databricks AI Gateway.
+
+    The Gateway's OpenAI-compatible validator rejects ``name`` on
+    ``user`` / ``assistant`` / ``system`` messages with::
+
+        400 BAD_REQUEST: messages.N.name: Extra inputs are not permitted
+
+    LangGraph's supervisor pattern attaches a ``name`` field to agent
+    AIMessages for routing (see
+    :func:`dao_ai.orchestration.core.filter_messages_for_agent`), so we
+    strip it at the request-payload boundary instead of in orchestration
+    where it carries real semantics for ChatDatabricks and other backends.
+    ``role: "tool"`` / ``role: "function"`` messages are left untouched.
+    """
+
+    def _get_request_payload(
+        self,
+        input_: Any,
+        *,
+        stop: Optional[list[str]] = None,
+        **kwargs: Any,
+    ) -> dict:
+        payload: dict = super()._get_request_payload(input_, stop=stop, **kwargs)
+        for msg in payload.get("messages", []) or []:
+            if isinstance(msg, dict) and msg.get("role") in (
+                "user",
+                "assistant",
+                "system",
+            ):
+                msg.pop("name", None)
+        return payload
+
+
 class InferenceEndpointModel(IsDatabricksResource):
     """Configuration for a Databricks Model Serving endpoint used for inference.
 
@@ -820,7 +895,7 @@ class InferenceEndpointModel(IsDatabricksResource):
 
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
     name: str = Field(
-        description="Serving endpoint name (e.g., 'databricks-meta-llama-3-3-70b-instruct').",
+        description="Serving endpoint name (e.g., 'databricks-gpt-5-4-mini').",
     )
     description: Optional[str] = Field(
         default=None,
@@ -962,7 +1037,7 @@ class InferenceEndpointModel(IsDatabricksResource):
                     )
                 return auth.split(" ", 1)[1]
 
-            return ChatOpenAI(
+            return AIGatewayChatOpenAI(
                 model=self.name,
                 base_url=f"{host}/ai-gateway/mlflow/v1",
                 api_key=token_provider,
@@ -994,7 +1069,7 @@ class InferenceEndpointModel(IsDatabricksResource):
         chat_client: LanguageModelLike
         if self.ai_gateway:
             host, token_provider = self._resolve_ai_gateway_credentials()
-            chat_client = ChatOpenAI(
+            chat_client = AIGatewayChatOpenAI(
                 model=self.name,
                 base_url=f"{host}/ai-gateway/mlflow/v1",
                 api_key=token_provider,
@@ -1052,7 +1127,7 @@ class InferenceEndpointModel(IsDatabricksResource):
         chat_client: ChatOpenAI
         if self.ai_gateway:
             host, token_provider = self._resolve_ai_gateway_credentials()
-            chat_client = ChatOpenAI(
+            chat_client = AIGatewayChatOpenAI(
                 model=self.name,
                 base_url=f"{host}/ai-gateway/mlflow/v1",
                 api_key=token_provider,
@@ -1060,10 +1135,8 @@ class InferenceEndpointModel(IsDatabricksResource):
                 max_tokens=self.max_tokens,
             )
         else:
-            chat_client = (
-                self.workspace_client.serving_endpoints.get_langchain_chat_open_ai_client(
-                    model=self.name
-                )
+            chat_client = self.workspace_client.serving_endpoints.get_langchain_chat_open_ai_client(
+                model=self.name
             )
             chat_client.temperature = self.temperature
             chat_client.max_tokens = self.max_tokens
@@ -1681,6 +1754,24 @@ class GenieRoomModel(IsDatabricksResource, ManagedResource):
     )
 
     _space_details: Optional[GenieSpace] = PrivateAttr(default=None)
+    _raw_space_id: Optional[str] = PrivateAttr(default=None)
+    """The original ``space_id`` YAML value before parameter substitution.
+
+    Populated by :meth:`AppConfig.from_file` from the pre-substitution
+    raw YAML. Useful for tooling that needs to know whether the field
+    was backed by a ``${var.X}`` reference — e.g., a provisioning task
+    that should forward a resolved value back to that same parameter.
+    Use :func:`is_parameter` and :func:`parameter_name` to inspect.
+    """
+
+    @property
+    def raw_space_id(self) -> Optional[str]:
+        """The original (pre-substitution) ``space_id`` YAML value, or ``None``.
+
+        Use with :func:`is_parameter` / :func:`parameter_name` to detect
+        whether the field was bound to a ``${var.X}`` parameter.
+        """
+        return self._raw_space_id
 
     def _get_space_details(self) -> GenieSpace | None:
         """Fetch Genie space details from the API.
@@ -2507,6 +2598,83 @@ class GenieRoomModel(IsDatabricksResource, ManagedResource):
         instance.refresh()
         return instance
 
+    @classmethod
+    def from_space_id(
+        cls,
+        space_id: Optional[str],
+        *,
+        w: WorkspaceClient | None = None,
+        **auth_kwargs: Any,
+    ) -> Optional[Self]:
+        """Tolerant variant of :meth:`from_space`: returns ``None`` when the
+        space does not exist (or when ``space_id`` is empty/None) instead of
+        raising.
+
+        Use this when a caller has a *candidate* space_id and wants to know
+        whether it refers to a live space — e.g., a provisioning task that
+        will create a fresh space if the candidate is stale or unset.
+
+        Args:
+            space_id: A candidate space id (may be empty or None).
+            w: Optional pre-built ``WorkspaceClient``.
+            **auth_kwargs: Forwarded to :meth:`from_space`.
+
+        Returns:
+            A populated ``GenieRoomModel`` if the space exists, else ``None``.
+        """
+        if not space_id:
+            return None
+        try:
+            return cls.from_space(space_id, w=w, **auth_kwargs)
+        except NotFound:
+            return None
+
+    @classmethod
+    def from_name(
+        cls,
+        name: Optional[str],
+        *,
+        w: WorkspaceClient | None = None,
+        **auth_kwargs: Any,
+    ) -> Optional[Self]:
+        """Find a Genie space by its title. Returns a hydrated
+        ``GenieRoomModel`` for the **most-recently created** match, or
+        ``None`` when no space matches.
+
+        Unlike :meth:`_resolve_space_id_by_name`, this method is *tolerant*
+        of duplicate titles — Genie does not enforce unique titles and
+        re-running provisioning workflows can leave multiple spaces with
+        the same name. We pick the freshest match rather than raise, so
+        repeated runs of a provisioning task converge on a single space.
+
+        Args:
+            name: Genie space title to look up (may be empty or None).
+            w: Optional pre-built ``WorkspaceClient``.
+            **auth_kwargs: Forwarded to :meth:`from_space`.
+
+        Returns:
+            A populated ``GenieRoomModel`` if at least one space matches,
+            else ``None``.
+        """
+        if not name:
+            return None
+        client: WorkspaceClient = w or WorkspaceClient()
+        matches: list = []
+        page_token: Optional[str] = None
+        while True:
+            resp = client.genie.list_spaces(page_token=page_token)
+            if resp.spaces:
+                for sp in resp.spaces:
+                    if sp.title == name:
+                        matches.append(sp)
+            if not resp.next_page_token:
+                break
+            page_token = resp.next_page_token
+        if not matches:
+            return None
+        matches.sort(key=lambda s: getattr(s, "created_time", 0) or 0, reverse=True)
+        return cls.from_space(matches[0].space_id, w=client, **auth_kwargs)
+
     def create(self, w: WorkspaceClient | None = None) -> None:
         """Create or update this Genie space.
 
@@ -2876,7 +3044,9 @@ class VectorStoreModel(IsDatabricksResource, ManagedResource):
     def set_default_embedding_model(self) -> Self:
         # Only set default embedding model in provisioning mode
         if self.source_table is not None and not self.embedding_model:
-            self.embedding_model = InferenceEndpointModel(name="databricks-gte-large-en")
+            self.embedding_model = InferenceEndpointModel(
+                name="databricks-gte-large-en"
+            )
         return self
 
     def ensure_resolved(self) -> None:
@@ -3016,7 +3186,9 @@ class VectorStoreModel(IsDatabricksResource, ManagedResource):
                 self.embedding_source_column = first.get("name")
                 model_endpoint_name = first.get("embedding_model_endpoint_name")
                 if model_endpoint_name:
-                    self.embedding_model = InferenceEndpointModel(name=model_endpoint_name)
+                    self.embedding_model = InferenceEndpointModel(
+                        name=model_endpoint_name
+                    )
 
         endpoint_name = details.get("endpoint_name")
         if endpoint_name:
@@ -7071,7 +7243,7 @@ class PromptOptimizationModel(BaseModel):
           prompt: *my_prompt
           agent: *my_agent
           dataset: *my_training_dataset
-          reflection_model: databricks-meta-llama-3-3-70b-instruct
+          reflection_model: databricks-gpt-5-4-mini
           num_candidates: 50
     """
 
@@ -7329,7 +7501,7 @@ class ContextAwareCacheOptimizationModel(BaseModel):
               name: optimize_cache_thresholds
               cache_parameters: *my_cache_params
               dataset: *my_eval_dataset
-              judge_model: databricks-meta-llama-3-3-70b-instruct
+              judge_model: databricks-gpt-5-4-mini
               n_trials: 50
               metric: f1
     """
@@ -7346,7 +7518,7 @@ class ContextAwareCacheOptimizationModel(BaseModel):
         description="Evaluation dataset with question/context pairs and expected match labels.",
     )
     judge_model: Optional[InferenceEndpointModel | str] = Field(
-        default="databricks-meta-llama-3-3-70b-instruct",
+        default="databricks-gpt-5-4-mini",
         description="LLM judge for evaluating match quality when expected_match is None.",
     )
     n_trials: int = Field(
@@ -7402,7 +7574,7 @@ class ContextAwareCacheOptimizationModel(BaseModel):
         elif self.judge_model:
             judge_model_name = self.judge_model.uri
         else:
-            judge_model_name = "databricks-meta-llama-3-3-70b-instruct"
+            judge_model_name = "databricks-gpt-5-4-mini"
 
         result: ThresholdOptimizationResult = optimize_context_aware_cache_thresholds(
             dataset=eval_dataset,
@@ -7811,6 +7983,7 @@ class AppConfig(BaseModel):
     _source_config_path: str | None = None
     _rendered_yaml: str | None = None
     _substitution_vars: dict[str, str] | None = None
+    _raw_yaml_dict: dict[str, Any] | None = None
     _initialized: bool = False
 
     @model_validator(mode="after")
@@ -7865,6 +8038,8 @@ class AppConfig(BaseModel):
         path: PathLike,
         *,
         params: Optional[Mapping[str, str]] = None,
+        task_values: Optional[TaskValuesLike] = None,
+        task_key: Optional[str] = None,
         initialize: bool = True,
     ) -> "AppConfig":
         """Load an AppConfig from a YAML file with optional parameter substitution.
@@ -7872,17 +8047,27 @@ class AppConfig(BaseModel):
         Top-level ``parameters:`` declarations are parsed first and used to
         resolve ``${param.NAME}`` and ``${var.NAME}`` references in the rest
         of the YAML (the two prefixes are interchangeable aliases).
-        Resolution precedence per reference is CLI ``params`` > process env
-        > declared ``default`` > inline ``${var.NAME:-fallback}`` > error.
+        Resolution precedence per reference is CLI ``params`` > ``task_values``
+        > process env > declared ``default`` > inline ``${var.NAME:-fallback}``
+        > error.
 
         Args:
             path: Path to the YAML config file.
             params: Optional mapping of parameter name to literal string value,
                 used to override env-var and default lookups for
                 ``${param.NAME}`` / ``${var.NAME}`` references.
+            task_values: Optional :class:`TaskValuesLike` (e.g.
+                ``dbutils.jobs.taskValues``). When provided, every declared
+                parameter is probed via ``task_values.get(taskKey=task_key,
+                key=NAME, ...)`` and any non-empty result is folded into the
+                substitution map. ``params`` overrides ``task_values`` per
+                key. Requires ``task_key``.
+            task_key: Upstream task key whose taskValues should be probed.
+                Required when ``task_values`` is given.
             initialize: Whether to call :meth:`initialize` after loading.
 
         Raises:
+            ValueError: If ``task_values`` is given without ``task_key``.
             ConfigVariableError: If any required parameter cannot be resolved
                 or any reference is undeclared (when a ``parameters:`` block
                 is present).
@@ -7903,10 +8088,33 @@ class AppConfig(BaseModel):
             for name, spec in decl_block.items()
         }
 
+        task_value_params: dict[str, str] = {}
+        if task_values is not None:
+            if not task_key:
+                raise ValueError(
+                    "AppConfig.from_file: task_values requires task_key "
+                    "(the upstream task whose taskValues should be probed)."
+                )
+            for name in declarations:
+                try:
+                    val: Any = task_values.get(
+                        taskKey=task_key, key=name, default="", debugValue=""
+                    )
+                except Exception as e:
+                    logger.debug(
+                        f"task_values.get raised for {name!r} on taskKey={task_key!r}: {e}"
+                    )
+                    continue
+                if val:
+                    task_value_params[name] = str(val)
+
+        # CLI params win over taskValues (CLI is the most explicit source).
+        merged_params: dict[str, str] = {**task_value_params, **(params or {})}
+
         rendered_text: str = substitute_params(
             workspace_resolved_text,
             declarations=declarations,
-            cli_vars=params,
+            cli_vars=merged_params or None,
             source=path,
         )
         rendered_dict: dict[str, Any] = yaml.safe_load(rendered_text) or {}
@@ -7916,7 +8124,22 @@ class AppConfig(BaseModel):
 
         config._source_config_path = path
         config._rendered_yaml = rendered_text
-        config._substitution_vars = dict(params) if params else None
+        config._substitution_vars = dict(merged_params) if merged_params else None
+        # Stash the pre-substitution dict so tooling can recover which
+        # YAML fields were backed by ``${var.X}`` references.
+        config._raw_yaml_dict = raw_dict
+
+        # Wire pre-substitution values onto specific models that need to
+        # introspect their own parameter bindings at runtime. Genie rooms
+        # carry the raw space_id so provisioning tasks can detect a
+        # ``${var.X}`` binding via ``is_parameter(room.raw_space_id)``.
+        if config.resources is not None and config.resources.genie_rooms:
+            raw_rooms: dict[str, Any] = (
+                raw_dict.get("resources", {}).get("genie_rooms", {}) or {}
+            )
+            for room_key, room in config.resources.genie_rooms.items():
+                raw_room: dict[str, Any] = raw_rooms.get(room_key) or {}
+                room._raw_space_id = raw_room.get("space_id")
 
         if initialize:
             config.initialize()

@@ -101,7 +101,6 @@ nest_asyncio.apply()
 
 # COMMAND ----------
 
-from typing import Sequence
 from dao_ai.config import AppConfig, DeploymentTarget
 
 config_path: str = dbutils.widgets.get("config-path") or dbutils.widgets.get("config-paths")
@@ -110,7 +109,16 @@ deployment_target_str: str | None = dbutils.widgets.get("deployment-target") or 
 print(f"Config path: {config_path}")
 print(f"Deployment target: {deployment_target_str or '(using config default)'}")
 
-config: AppConfig = AppConfig.from_file(path=config_path)
+# Pull any resolved parameter values that upstream provisioning tasks
+# (e.g. provision-genie) forwarded via job taskValues. AppConfig.from_file
+# probes the declared parameters block against taskValues.get(taskKey=...,
+# key=<param_name>) and folds non-empty results into substitution.
+config: AppConfig = AppConfig.from_file(
+    path=config_path,
+    task_values=dbutils.jobs.taskValues,
+    task_key="provision-genie",
+)
+print(f"Substituted parameters: {config.substitution_vars}")
 
 deployment_target: DeploymentTarget
 if deployment_target_str:

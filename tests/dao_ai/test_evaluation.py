@@ -83,8 +83,25 @@ class TestNormalizeEvalInputs:
 # -----------------------------------------------------------------------------
 
 
+try:
+    import pyspark.sql.types  # noqa: F401
+
+    _HAS_PYSPARK = True
+except Exception:
+    _HAS_PYSPARK = False
+
+
+@pytest.mark.skipif(
+    not _HAS_PYSPARK,
+    reason="pyspark.sql.types not importable locally; runs in DBR / on serverless.",
+)
 class TestPrepareEvalDataframe:
-    """Tests for prepare_eval_dataframe."""
+    """Tests for prepare_eval_dataframe.
+
+    Uses ``pyspark.sql.types`` at import time to construct fixture
+    DataFrames, so the entire class is skipped when pyspark isn't
+    available in the local environment.
+    """
 
     @pytest.mark.unit
     def test_converts_struct_columns_via_json(self) -> None:

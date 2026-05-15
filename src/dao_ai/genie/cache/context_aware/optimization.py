@@ -28,7 +28,7 @@ Usage:
     # Optimize thresholds
     result = optimize_context_aware_cache_thresholds(
         dataset=eval_dataset,
-        judge_model="databricks-meta-llama-3-3-70b-instruct",
+        judge_model="databricks-gpt-5-4-mini",
         n_trials=50,
         metric="f1",
     )
@@ -196,7 +196,9 @@ def semantic_match_judge(
             return _judge_cache[cache_key]
 
     # Convert model to InferenceEndpointModel if string
-    llm_model: InferenceEndpointModel = InferenceEndpointModel(name=model) if isinstance(model, str) else model
+    llm_model: InferenceEndpointModel = (
+        InferenceEndpointModel(name=model) if isinstance(model, str) else model
+    )
 
     # Create the chat model
     chat = llm_model.as_chat_model()
@@ -447,7 +449,8 @@ def optimize_context_aware_cache_thresholds(
     original_thresholds: dict[str, float]
     | GenieContextAwareCacheParametersModel
     | None = None,
-    judge_model: InferenceEndpointModel | str = "databricks-meta-llama-3-3-70b-instruct",
+    judge_model: InferenceEndpointModel
+    | str = "databricks-gpt-5-4-mini",
     n_trials: int = 50,
     metric: Literal["f1", "precision", "recall", "fbeta"] = "f1",
     beta: float = 1.0,
@@ -487,7 +490,7 @@ def optimize_context_aware_cache_thresholds(
 
         result = optimize_context_aware_cache_thresholds(
             dataset=my_dataset,
-            judge_model="databricks-meta-llama-3-3-70b-instruct",
+            judge_model="databricks-gpt-5-4-mini",
             n_trials=50,
             metric="f1",
         )
@@ -834,7 +837,7 @@ def generate_eval_dataset_from_cache(
         else (
             paraphrase_model
             if paraphrase_model
-            else InferenceEndpointModel(name="databricks-meta-llama-3-3-70b-instruct")
+            else InferenceEndpointModel(name="databricks-gpt-5-4-mini")
         )
     )
     chat = para_model.as_chat_model()

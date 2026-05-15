@@ -1811,9 +1811,7 @@ def handle_vars_command(options: Namespace) -> None:
         sys.exit(1)
 
     try:
-        rendered_text: str = substitute_workspace_refs(
-            raw_text, source=options.config
-        )
+        rendered_text: str = substitute_workspace_refs(raw_text, source=options.config)
     except WorkspaceVariableError as e:
         logger.error(str(e))
         sys.exit(1)

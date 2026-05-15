@@ -265,7 +265,7 @@ class TestSubAgentModelResolution:
         assert result is mock_model
 
     def test_resolve_dict_calls_llm_model(self) -> None:
-        """Test that a dict is converted via LLMModel(**dict).as_chat_model()."""
+        """Test that a dict is converted via InferenceEndpointModel(**dict).as_chat_model()."""
         from unittest.mock import MagicMock, patch
 
         from dao_ai.middleware.subagent import _resolve_subagent_model
@@ -275,7 +275,7 @@ class TestSubAgentModelResolution:
         mock_llm_model_instance.as_chat_model.return_value = mock_chat_model
 
         with patch(
-            "dao_ai.config.LLMModel",
+            "dao_ai.config.InferenceEndpointModel",
             return_value=mock_llm_model_instance,
         ) as mock_llm_cls:
             result = _resolve_subagent_model(
@@ -298,7 +298,7 @@ class TestSubAgentModelResolution:
         mock_llm_model.as_chat_model.return_value = mock_chat_model
 
         # Patch LLMModel so isinstance check succeeds
-        with patch("dao_ai.config.LLMModel", type(mock_llm_model)):
+        with patch("dao_ai.config.InferenceEndpointModel", type(mock_llm_model)):
             result = _resolve_subagent_model(mock_llm_model)
 
         mock_llm_model.as_chat_model.assert_called_once()
@@ -315,14 +315,19 @@ class TestSubAgentModelResolution:
         """Test that create_subagent_middleware resolves dict models."""
         from unittest.mock import MagicMock, patch
 
+        from langchain_core.language_models import BaseChatModel
+
         from dao_ai.middleware.subagent import create_subagent_middleware
 
-        mock_chat_model = MagicMock()
+        # spec=BaseChatModel so deepagents accepts the resolved chat
+        # client as a real chat model instance (it pattern-matches on
+        # BaseChatModel vs string at the call site).
+        mock_chat_model = MagicMock(spec=BaseChatModel)
         mock_llm_model_instance = MagicMock()
         mock_llm_model_instance.as_chat_model.return_value = mock_chat_model
 
         with patch(
-            "dao_ai.config.LLMModel",
+            "dao_ai.config.InferenceEndpointModel",
             return_value=mock_llm_model_instance,
         ):
             middleware = create_subagent_middleware(

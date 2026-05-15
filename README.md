@@ -138,7 +138,7 @@ schemas:
 resources:
   llms:
     default_llm: &default_llm
-      name: databricks-meta-llama-3-3-70b-instruct  # The AI model to use
+      name: databricks-gpt-5-4-mini  # The AI model to use
 
 agents:
   assistant: &assistant

@@ -223,7 +223,7 @@ display(summary_df)
 # MAGIC
 # MAGIC After optimizing prompts:
 # MAGIC 1. Review the optimized prompt templates in MLflow
-# MAGIC 2. Evaluate the optimized prompts using `07_run_evaluation.py`
+# MAGIC 2. Evaluate the optimized prompts using `08_run_evaluation.py`
 # MAGIC 3. Update your configuration to use the optimized prompt versions
 # MAGIC 4. Deploy the updated agent with optimized prompts
 

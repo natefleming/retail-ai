@@ -119,9 +119,14 @@ def _build_provider_with_mocked_vsc() -> tuple[DatabricksProvider, MagicMock]:
 
 
 @pytest.mark.unit
-def test_create_vector_store_passes_min_qps_when_target_qps_set() -> None:
+def test_create_vector_store_passes_target_qps_when_set() -> None:
     """When target_qps is set and the endpoint does not exist, the SDK
-    is called with min_qps equal to the configured target_qps."""
+    is called with target_qps equal to the configured target_qps.
+
+    Note: the SDK kwarg was originally ``min_qps`` but was renamed to
+    ``target_qps`` to match the public API surface. The provider now
+    forwards under the new name; this test gates that contract.
+    """
     provider, mock_vsc = _build_provider_with_mocked_vsc()
     vector_store = _build_provisioning_vector_store(target_qps=500)
 
@@ -137,13 +142,13 @@ def test_create_vector_store_passes_min_qps_when_target_qps_set() -> None:
     assert call_kwargs["name"] == "test_endpoint"
     assert call_kwargs["endpoint_type"] == "STANDARD"
     assert call_kwargs["verbose"] is True
-    assert call_kwargs["min_qps"] == 500
+    assert call_kwargs["target_qps"] == 500
 
 
 @pytest.mark.unit
-def test_create_vector_store_omits_min_qps_when_target_qps_unset() -> None:
-    """When target_qps is unset, the SDK is called WITHOUT a min_qps key
-    in kwargs (not min_qps=None — the key must be absent)."""
+def test_create_vector_store_omits_target_qps_when_unset() -> None:
+    """When target_qps is unset, the SDK is called WITHOUT a target_qps key
+    in kwargs (not target_qps=None — the key must be absent)."""
     provider, mock_vsc = _build_provider_with_mocked_vsc()
     vector_store = _build_provisioning_vector_store(target_qps=None)
 
@@ -155,6 +160,7 @@ def test_create_vector_store_omits_min_qps_when_target_qps_unset() -> None:
 
     mock_vsc.create_endpoint_and_wait.assert_called_once()
     call_kwargs = mock_vsc.create_endpoint_and_wait.call_args.kwargs
+    assert "target_qps" not in call_kwargs
     assert "min_qps" not in call_kwargs
 
 

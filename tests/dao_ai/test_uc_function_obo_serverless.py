@@ -14,6 +14,7 @@ import os
 from unittest.mock import MagicMock, patch
 
 import pytest
+from conftest import has_databricks_connect
 from databricks.sdk import WorkspaceClient
 from databricks.sdk.errors import PermissionDenied
 
@@ -191,6 +192,10 @@ def _has_two_identities() -> bool:
         "DATABRICKS_HOST/TOKEN (user PAT) + "
         "RETAIL_AI_DATABRICKS_HOST/CLIENT_ID/CLIENT_SECRET (service principal)"
     ),
+)
+@pytest.mark.skipif(
+    not has_databricks_connect(),
+    reason="databricks-connect not importable (UC fn serverless execution path)",
 )
 class TestOBOUCFunctionServerlessIntegration:
     """Verify that serverless Spark honours the WorkspaceClient identity,

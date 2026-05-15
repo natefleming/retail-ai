@@ -179,7 +179,7 @@ Example:
 resources:
   llms:
     default_llm: &default_llm
-      name: databricks-meta-llama-3-3-70b-instruct
+      name: databricks-gpt-5-4-mini
       temperature: 0.7
 
 agents:

@@ -78,14 +78,6 @@ resources:
             base_parameters:
               config-path: ${var.config_path}
           environment_key: dao-ai-env
-        - task_key: generate-evaluation-data
-          depends_on:
-            - task_key: provision-vector-search
-          notebook_task:
-            notebook_path: ./notebooks/06_generate_evaluation_data.py
-            base_parameters:
-              config-path: ${var.config_path}
-          environment_key: dao-ai-env
         - task_key: unity-catalog-tools
           depends_on:
             - task_key: provision-vector-search
@@ -95,21 +87,37 @@ resources:
             base_parameters:
               config-path: ${var.config_path}
           environment_key: dao-ai-env
-        - task_key: deploy-agents
+        - task_key: provision-genie
           depends_on:
             - task_key: unity-catalog-tools
           notebook_task:
-            notebook_path: ./notebooks/05_deploy_agent.py
+            notebook_path: ./notebooks/05_provision_genie.py
+            base_parameters:
+              config-path: ${var.config_path}
+          environment_key: dao-ai-env
+        - task_key: deploy-agents
+          depends_on:
+            - task_key: provision-genie
+          notebook_task:
+            notebook_path: ./notebooks/06_deploy_agent.py
             base_parameters:
               config-path: ${var.config_path}
               deployment-target: ${var.deployment_target}
+          environment_key: dao-ai-env
+        - task_key: generate-evaluation-data
+          depends_on:
+            - task_key: provision-vector-search
+          notebook_task:
+            notebook_path: ./notebooks/07_generate_evaluation_data.py
+            base_parameters:
+              config-path: ${var.config_path}
           environment_key: dao-ai-env
         - task_key: run-evaluation
           depends_on:
             - task_key: deploy-agents
             - task_key: generate-evaluation-data
           notebook_task:
-            notebook_path: ./notebooks/07_run_evaluation.py
+            notebook_path: ./notebooks/08_run_evaluation.py
             base_parameters:
               config-path: ${var.config_path}
           environment_key: dao-ai-env

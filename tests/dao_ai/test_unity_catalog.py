@@ -5,7 +5,7 @@ from typing import Optional, Union
 from unittest.mock import Mock, patch
 
 import pytest
-from conftest import has_retail_ai_env
+from conftest import has_databricks_connect, has_retail_ai_env
 from langchain_core.tools import StructuredTool
 from pydantic import BaseModel, Field, create_model
 
@@ -151,6 +151,10 @@ def test_create_uc_tools_with_partial_args() -> None:
 @pytest.mark.skipif(
     not has_retail_ai_env(),
     reason="Missing RETAIL_AI environment variables",
+)
+@pytest.mark.skipif(
+    not has_databricks_connect(),
+    reason="databricks-connect not importable (UC fn serverless execution path)",
 )
 def test_create_uc_tools_with_partial_args_real_execution() -> None:
     """Integration test that creates a UC tool with partial_args using real credentials.
@@ -387,6 +391,10 @@ _BOOL_TEST_FUNCTION: str = "main.dao_ai_test.bool_default_test"
 @pytest.mark.skipif(
     not _has_databricks_auth(),
     reason="Missing DATABRICKS_HOST / DATABRICKS_TOKEN env vars",
+)
+@pytest.mark.skipif(
+    not has_databricks_connect(),
+    reason="databricks-connect not importable (UC fn serverless execution path)",
 )
 class TestBooleanDefaultsIntegration:
     """Integration tests that exercise boolean-default fix against a real UC function.
