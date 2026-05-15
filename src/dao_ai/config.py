@@ -16,6 +16,7 @@ from typing import (
     Literal,
     Mapping,
     Optional,
+    Protocol,
     Self,
     Sequence,
     TypeAlias,
@@ -136,6 +137,23 @@ def parameter_name(value: Any) -> str | None:
         return None
     m: re.Match[str] | None = _PARAMETER_REF_PATTERN.match(value.strip())
     return m.group(1) if m else None
+
+
+class TaskValuesLike(Protocol):
+    """Minimal duck-typed shape of ``dbutils.jobs.taskValues``.
+
+    Lets :meth:`AppConfig.from_file` pull resolved parameter values from
+    an upstream Databricks job task without importing ``dbutils`` in tests.
+    """
+
+    def get(
+        self,
+        *,
+        taskKey: str,
+        key: str,
+        default: Any = None,
+        debugValue: Any = None,
+    ) -> Any: ...
 
 
 class HasFullName(ABC):
@@ -7984,6 +8002,8 @@ class AppConfig(BaseModel):
         path: PathLike,
         *,
         params: Optional[Mapping[str, str]] = None,
+        task_values: Optional[TaskValuesLike] = None,
+        task_key: Optional[str] = None,
         initialize: bool = True,
     ) -> "AppConfig":
         """Load an AppConfig from a YAML file with optional parameter substitution.
@@ -7991,17 +8011,27 @@ class AppConfig(BaseModel):
         Top-level ``parameters:`` declarations are parsed first and used to
         resolve ``${param.NAME}`` and ``${var.NAME}`` references in the rest
         of the YAML (the two prefixes are interchangeable aliases).
-        Resolution precedence per reference is CLI ``params`` > process env
-        > declared ``default`` > inline ``${var.NAME:-fallback}`` > error.
+        Resolution precedence per reference is CLI ``params`` > ``task_values``
+        > process env > declared ``default`` > inline ``${var.NAME:-fallback}``
+        > error.
 
         Args:
             path: Path to the YAML config file.
             params: Optional mapping of parameter name to literal string value,
                 used to override env-var and default lookups for
                 ``${param.NAME}`` / ``${var.NAME}`` references.
+            task_values: Optional :class:`TaskValuesLike` (e.g.
+                ``dbutils.jobs.taskValues``). When provided, every declared
+                parameter is probed via ``task_values.get(taskKey=task_key,
+                key=NAME, ...)`` and any non-empty result is folded into the
+                substitution map. ``params`` overrides ``task_values`` per
+                key. Requires ``task_key``.
+            task_key: Upstream task key whose taskValues should be probed.
+                Required when ``task_values`` is given.
             initialize: Whether to call :meth:`initialize` after loading.
 
         Raises:
+            ValueError: If ``task_values`` is given without ``task_key``.
             ConfigVariableError: If any required parameter cannot be resolved
                 or any reference is undeclared (when a ``parameters:`` block
                 is present).
@@ -8022,10 +8052,33 @@ class AppConfig(BaseModel):
             for name, spec in decl_block.items()
         }
 
+        task_value_params: dict[str, str] = {}
+        if task_values is not None:
+            if not task_key:
+                raise ValueError(
+                    "AppConfig.from_file: task_values requires task_key "
+                    "(the upstream task whose taskValues should be probed)."
+                )
+            for name in declarations:
+                try:
+                    val: Any = task_values.get(
+                        taskKey=task_key, key=name, default="", debugValue=""
+                    )
+                except Exception as e:
+                    logger.debug(
+                        f"task_values.get raised for {name!r} on taskKey={task_key!r}: {e}"
+                    )
+                    continue
+                if val:
+                    task_value_params[name] = str(val)
+
+        # CLI params win over taskValues (CLI is the most explicit source).
+        merged_params: dict[str, str] = {**task_value_params, **(params or {})}
+
         rendered_text: str = substitute_params(
             workspace_resolved_text,
             declarations=declarations,
-            cli_vars=params,
+            cli_vars=merged_params or None,
             source=path,
         )
         rendered_dict: dict[str, Any] = yaml.safe_load(rendered_text) or {}
@@ -8035,7 +8088,7 @@ class AppConfig(BaseModel):
 
         config._source_config_path = path
         config._rendered_yaml = rendered_text
-        config._substitution_vars = dict(params) if params else None
+        config._substitution_vars = dict(merged_params) if merged_params else None
         # Stash the pre-substitution dict so tooling can recover which
         # YAML fields were backed by ``${var.X}`` references.
         config._raw_yaml_dict = raw_dict

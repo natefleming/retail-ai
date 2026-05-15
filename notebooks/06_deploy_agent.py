@@ -101,10 +101,7 @@ nest_asyncio.apply()
 
 # COMMAND ----------
 
-from typing import Sequence
 from dao_ai.config import AppConfig, DeploymentTarget
-
-from dao_ai.config import is_parameter, parameter_name
 
 config_path: str = dbutils.widgets.get("config-path") or dbutils.widgets.get("config-paths")
 deployment_target_str: str | None = dbutils.widgets.get("deployment-target") or None
@@ -112,33 +109,16 @@ deployment_target_str: str | None = dbutils.widgets.get("deployment-target") or 
 print(f"Config path: {config_path}")
 print(f"Deployment target: {deployment_target_str or '(using config default)'}")
 
-# For each Genie room whose space_id is bound to a `${var.NAME}`
-# parameter, pull the matching taskValue from provision-genie (key=NAME)
-# and add it to the params dict. Symmetric with provision-genie, which
-# sets `taskValues.set(key=NAME, value=<resolved_space_id>)` for each
-# parameterized room.
-config_for_lookup: AppConfig = AppConfig.from_file(path=config_path, initialize=False)
-params: dict[str, str] = {}
-if config_for_lookup.resources is not None and config_for_lookup.resources.genie_rooms:
-    for room in config_for_lookup.resources.genie_rooms.values():
-        if not is_parameter(room.raw_space_id):
-            continue
-        name: str = parameter_name(room.raw_space_id)
-        try:
-            val: str = dbutils.jobs.taskValues.get(
-                taskKey="provision-genie",
-                key=name,
-                default="",
-                debugValue="",
-            )
-        except Exception:
-            continue
-        if val:
-            params[name] = val
-
-print(f"Resolved params from provision-genie taskValues: {params}")
-
-config: AppConfig = AppConfig.from_file(path=config_path, params=params or None)
+# Pull any resolved parameter values that upstream provisioning tasks
+# (e.g. provision-genie) forwarded via job taskValues. AppConfig.from_file
+# probes the declared parameters block against taskValues.get(taskKey=...,
+# key=<param_name>) and folds non-empty results into substitution.
+config: AppConfig = AppConfig.from_file(
+    path=config_path,
+    task_values=dbutils.jobs.taskValues,
+    task_key="provision-genie",
+)
+print(f"Substituted parameters: {config.substitution_vars}")
 
 deployment_target: DeploymentTarget
 if deployment_target_str:

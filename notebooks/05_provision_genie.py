@@ -137,7 +137,9 @@ if config.resources is not None and config.resources.genie_rooms:
 # Emit a short notebook_output summary for observability. The actual
 # downstream contract is the per-parameter taskValues set above
 # (key=<parameter_name>, value=<resolved space_id>); deploy-agents
-# iterates config.parameter_declarations and probes each for a
-# matching task value.
+# loads via AppConfig.from_file(task_values=dbutils.jobs.taskValues,
+# task_key="provision-genie"), which probes each declared parameter
+# against this task's taskValues and folds non-empty results into
+# substitution.
 summary: dict = {"provisioned": provisioned}
 dbutils.notebook.exit(json.dumps(summary))
