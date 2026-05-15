@@ -1028,7 +1028,7 @@ class TestPromptOptimizationSystem:
         )
 
         llm = LLMModel(
-            name="databricks-meta-llama-3-3-70b-instruct",
+            name="databricks-gpt-5-4-mini",
         )
 
         agent = AgentModel(name="summarization_agent", model=llm, prompt=prompt)

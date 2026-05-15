@@ -1832,7 +1832,7 @@ middleware:
             You are a technical writer. Create clear, well-organized
             documents based on the information provided.
           model:
-            name: "databricks-meta-llama-3-3-70b-instruct"
+            name: "databricks-gpt-5-4-mini"
             temperature: 0.1
             max_tokens: 4096
           tools: []

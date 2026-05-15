@@ -39,7 +39,7 @@ resources:
     # Judge model for semantic equivalence evaluation
     # Used when expected_match is not provided for an entry
     judge_model: &judge_model
-      name: databricks-meta-llama-3-3-70b-instruct
+      name: databricks-gpt-5-4-mini
       temperature: 0.0  # Low temperature for consistent judgments
       max_tokens: 10    # Only need "MATCH" or "NO_MATCH"
 

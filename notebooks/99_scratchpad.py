@@ -80,7 +80,7 @@ from langgraph.prebuilt import create_react_agent
 from langchain_core.messages.modifier import RemoveMessage
 from databricks_langchain import ChatDatabricks
 
-llm  = ChatDatabricks(model="databricks-meta-llama-3-3-70b-instruct")
+llm  = ChatDatabricks(model="databricks-gpt-5-4-mini")
 search_tool = DuckDuckGoSearchRun()
 
 
@@ -201,7 +201,7 @@ vs_tool = create_vector_search_tool(
     columns=columns
 )
 
-model_name: str = "databricks-meta-llama-3-3-70b-instruct"
+model_name: str = "databricks-gpt-5-4-mini"
 vector_search_agent = create_react_agent(
     model=ChatDatabricks(model=model_name, temperature=0.1),
     tools=[vs_tool],
@@ -228,7 +228,7 @@ from langgraph.prebuilt import create_react_agent, chat_agent_executor
 from dao_ai.tools import create_product_classification_tool
 
 
-model_name: str = "databricks-meta-llama-3-3-70b-instruct"
+model_name: str = "databricks-gpt-5-4-mini"
 llm: ChatDatabricks = ChatDatabricks(model=model_name)
 
 product_classification_tool = create_product_classification_tool(
@@ -293,7 +293,7 @@ from langgraph.prebuilt import create_react_agent
 from dao_ai.tools import create_sku_extraction_tool
 
 
-model_name: str = "databricks-meta-llama-3-3-70b-instruct"
+model_name: str = "databricks-gpt-5-4-mini"
 llm: ChatDatabricks = ChatDatabricks(model=model_name)
 
 sku_extraction_tool = create_sku_extraction_tool(llm=llm)
@@ -457,7 +457,7 @@ from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
 from loguru import logger
 
 
-llm: LanguageModelLike = ChatDatabricks(model="databricks-meta-llama-3-3-70b-instruct", temperature=0.1)
+llm: LanguageModelLike = ChatDatabricks(model="databricks-gpt-5-4-mini", temperature=0.1)
 
 class FactualityJudge(BaseModel):
     is_factual: bool = Field(..., description="Whether the statement is factually correct")
@@ -523,7 +523,7 @@ from mlflow.genai.judges import make_judge
 from langchain_core.language_models import LanguageModelLike
 from databricks_langchain import ChatDatabricks
 
-llm: LanguageModelLike = ChatDatabricks(model="databricks-meta-llama-3-3-70b-instruct", temperature=0.1)
+llm: LanguageModelLike = ChatDatabricks(model="databricks-gpt-5-4-mini", temperature=0.1)
 
 
 # Define the main assistant model that will generate responses
@@ -578,7 +578,7 @@ def judge_response(state, config):
         name="critique_judge",
         instructions=critique_prompt,
         feedback_value_type=bool,
-        model="databricks:/databricks-meta-llama-3-3-70b-instruct",
+        model="databricks:/databricks-gpt-5-4-mini",
     )
     feedback = evaluator(outputs={"response": state["messages"][-1].content}, inputs={})
 

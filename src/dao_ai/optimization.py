@@ -512,7 +512,7 @@ def optimize_prompt(
         )
         agent = AgentModel(
             name="my_agent",
-            model=InferenceEndpointModel(name="databricks-meta-llama-3-3-70b-instruct"),
+            model=InferenceEndpointModel(name="databricks-gpt-5-4-mini"),
             prompt=prompt,
         )
 

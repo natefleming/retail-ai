@@ -895,7 +895,7 @@ class InferenceEndpointModel(IsDatabricksResource):
 
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
     name: str = Field(
-        description="Serving endpoint name (e.g., 'databricks-meta-llama-3-3-70b-instruct').",
+        description="Serving endpoint name (e.g., 'databricks-gpt-5-4-mini').",
     )
     description: Optional[str] = Field(
         default=None,
@@ -7243,7 +7243,7 @@ class PromptOptimizationModel(BaseModel):
           prompt: *my_prompt
           agent: *my_agent
           dataset: *my_training_dataset
-          reflection_model: databricks-meta-llama-3-3-70b-instruct
+          reflection_model: databricks-gpt-5-4-mini
           num_candidates: 50
     """
 
@@ -7501,7 +7501,7 @@ class ContextAwareCacheOptimizationModel(BaseModel):
               name: optimize_cache_thresholds
               cache_parameters: *my_cache_params
               dataset: *my_eval_dataset
-              judge_model: databricks-meta-llama-3-3-70b-instruct
+              judge_model: databricks-gpt-5-4-mini
               n_trials: 50
               metric: f1
     """
@@ -7518,7 +7518,7 @@ class ContextAwareCacheOptimizationModel(BaseModel):
         description="Evaluation dataset with question/context pairs and expected match labels.",
     )
     judge_model: Optional[InferenceEndpointModel | str] = Field(
-        default="databricks-meta-llama-3-3-70b-instruct",
+        default="databricks-gpt-5-4-mini",
         description="LLM judge for evaluating match quality when expected_match is None.",
     )
     n_trials: int = Field(
@@ -7574,7 +7574,7 @@ class ContextAwareCacheOptimizationModel(BaseModel):
         elif self.judge_model:
             judge_model_name = self.judge_model.uri
         else:
-            judge_model_name = "databricks-meta-llama-3-3-70b-instruct"
+            judge_model_name = "databricks-gpt-5-4-mini"
 
         result: ThresholdOptimizationResult = optimize_context_aware_cache_thresholds(
             dataset=eval_dataset,

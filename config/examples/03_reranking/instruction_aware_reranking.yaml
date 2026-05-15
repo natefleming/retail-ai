@@ -38,7 +38,7 @@ resources:
     # Use small models: GPT-3.5, Haiku, Llama 3 8B (~100ms vs 500ms+ for large models)
     reranker_llm: &reranker_llm
       #name: databricks-meta-llama-3-1-8b-instruct
-      #name: databricks-meta-llama-3-3-70b-instruct
+      #name: databricks-gpt-5-4-mini
       name: databricks-meta-llama-3-1-8b-instruct
 
     embedding_model: &embedding_model

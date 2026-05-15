@@ -611,14 +611,14 @@ class TestOptimizePromptIntegration:
             prompt=prompt,
             agent=agent,
             dataset=dataset,
-            reflection_model="databricks-meta-llama-3-3-70b-instruct",
+            reflection_model="databricks-gpt-5-4-mini",
             num_candidates=10,
             register_if_improved=False,
         )
 
         # Verify reflection_lm was passed correctly
         call_kwargs = mock_gepa_optimize.call_args.kwargs
-        assert call_kwargs["reflection_lm"] == "databricks-meta-llama-3-3-70b-instruct"
+        assert call_kwargs["reflection_lm"] == "databricks-gpt-5-4-mini"
 
     @pytest.mark.unit
     @patch("dao_ai.optimization.optimize")

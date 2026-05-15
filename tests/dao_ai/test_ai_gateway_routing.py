@@ -29,7 +29,7 @@ from dao_ai.config import InferenceEndpointModel
 
 
 def test_default_ai_gateway_is_false() -> None:
-    model = InferenceEndpointModel(name="databricks-meta-llama-3-3-70b-instruct")
+    model = InferenceEndpointModel(name="databricks-gpt-5-4-mini")
     assert model.ai_gateway is False
 
 
@@ -119,7 +119,7 @@ def test_resolve_credentials_raises_when_no_bearer() -> None:
 
 def test_as_chat_model_default_uses_chat_databricks() -> None:
     model = InferenceEndpointModel(
-        name="databricks-meta-llama-3-3-70b-instruct",
+        name="databricks-gpt-5-4-mini",
         temperature=0.2,
         max_tokens=512,
     )
@@ -132,7 +132,7 @@ def test_as_chat_model_default_uses_chat_databricks() -> None:
     mock_chat_databricks.assert_called_once()
     mock_chat_openai.assert_not_called()
     kwargs = mock_chat_databricks.call_args.kwargs
-    assert kwargs["model"] == "databricks-meta-llama-3-3-70b-instruct"
+    assert kwargs["model"] == "databricks-gpt-5-4-mini"
     assert kwargs["temperature"] == 0.2
     assert kwargs["max_tokens"] == 512
     assert result is mock_chat_databricks.return_value
@@ -275,7 +275,7 @@ def test_chat_model_for_workspace_client_legacy_path_passes_workspace_client() -
     """Without ai_gateway, OBO factory falls through to ChatDatabricks bound
     to the OBO workspace_client (unchanged legacy behavior)."""
     model = InferenceEndpointModel(
-        name="databricks-meta-llama-3-3-70b-instruct",
+        name="databricks-gpt-5-4-mini",
         on_behalf_of_user=True,
         temperature=0.0,
         max_tokens=128,
@@ -293,7 +293,7 @@ def test_chat_model_for_workspace_client_legacy_path_passes_workspace_client() -
     mock_chat_databricks.assert_called_once()
     kwargs = mock_chat_databricks.call_args.kwargs
     assert kwargs["workspace_client"] is obo_wc
-    assert kwargs["model"] == "databricks-meta-llama-3-3-70b-instruct"
+    assert kwargs["model"] == "databricks-gpt-5-4-mini"
 
 
 # ---------------------------------------------------------------------------
@@ -323,7 +323,7 @@ def test_heterogeneous_fallbacks_compose() -> None:
     primary = InferenceEndpointModel(
         name="databricks-claude-opus-4-6",
         ai_gateway=True,
-        fallbacks=["databricks-meta-llama-3-3-70b-instruct"],
+        fallbacks=["databricks-gpt-5-4-mini"],
     )
 
     chat_openai_instance = MagicMock(name="ChatOpenAI-instance")
@@ -451,7 +451,7 @@ def test_as_chat_model_legacy_path_is_not_subclass() -> None:
     """Regression: ai_gateway=False returns ChatDatabricks (no subclass involvement)."""
     from dao_ai.config import AIGatewayChatOpenAI
 
-    model = InferenceEndpointModel(name="databricks-meta-llama-3-3-70b-instruct")
+    model = InferenceEndpointModel(name="databricks-gpt-5-4-mini")
     with patch("dao_ai.config.ChatDatabricks") as mock_chat_databricks:
         mock_chat_databricks.return_value = MagicMock(spec=[])
         client = model.as_chat_model()
