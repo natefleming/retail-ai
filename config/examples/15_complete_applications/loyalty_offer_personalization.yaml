@@ -199,11 +199,12 @@ resources:
           name: offer_catalog
           on_behalf_of_user: false
         description: "Active offers (brand, category, discount, margin class, eligibility, validity, seasonal tag)."
-      - table:
-          schema: *loyalty_schema
-          name: customers_x_eligible_offers
-          on_behalf_of_user: false
-        description: "Per-customer pre-filtered candidate offer pool (≤30 offers per customer) used as input to the LLM ranker."
+      # customers_x_eligible_offers is intentionally NOT a Genie source —
+      # it's the intermediate candidate pool consumed by rank_offers_for_customer.
+      # The Genie analytics use case can derive segment overlaps from
+      # customer_features ∪ offer_catalog. Dropping it keeps the app under
+      # the Apps 20-resource budget when live Genie data_sources are
+      # discovered at deploy time.
       - table:
           schema: *loyalty_schema
           name: offer_rankings
@@ -247,10 +248,11 @@ resources:
       schema: *loyalty_schema
       name: rank_offers_for_customer
       on_behalf_of_user: false
-    refresh_offer_rankings: &refresh_offer_rankings
-      schema: *loyalty_schema
-      name: refresh_offer_rankings
-      on_behalf_of_user: false
+    # refresh_offer_rankings is intentionally NOT a registered resource —
+    # it's the offline batch refresh entrypoint, not an agent-callable tool.
+    # The UC function still exists (provisioned via unity_catalog_functions
+    # in examples.yaml) and is callable out-of-band; just not exposed as
+    # an Apps surface resource. Saves one slot toward the 20-resource cap.
 
   # ---------------------------------------------------------------------------
   # DATABASES (Lakebase) — reuses the existing retail-consumer-goods project
@@ -416,11 +418,7 @@ tools:
       type: unity_catalog
       resource: *rank_offers_for_customer
 
-  refresh_offer_rankings_tool: &refresh_offer_rankings_tool
-    name: refresh_offer_rankings_uc
-    function:
-      type: unity_catalog
-      resource: *refresh_offer_rankings
+  # refresh_offer_rankings_tool removed — see resources.functions for context.
 
   # ---------------------------------------------------------------------------
   # Genie analytics — one room exposed under two names so the supervisor's
@@ -983,5 +981,8 @@ unity_catalog_functions:
       prompt_version: "v1"
       candidate_offer_ids: ["O-0001","O-0002","O-0006","O-0007","O-0008","O-0046","O-0058","O-0085","O-0087","O-0088"]
 
-- function: *refresh_offer_rankings
+- function:
+    schema: *loyalty_schema
+    name: refresh_offer_rankings
+    on_behalf_of_user: false
   ddl: ../functions/loyalty_offer_personalization/refresh_offer_rankings.sql
