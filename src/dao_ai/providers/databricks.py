@@ -160,6 +160,105 @@ def _function_client(w: WorkspaceClient | None = None) -> DatabricksFunctionClie
     return DatabricksFunctionClient(w=w)
 
 
+def _collect_resources_with_obo_flag(
+    config: AppConfig,
+) -> Sequence[IsDatabricksResource]:
+    """Flatten every declared resource in ``config.resources`` into a single
+    list while preserving the ``on_behalf_of_user`` flag on each entry.
+
+    Tables on Genie rooms that aren't separately declared under
+    ``config.resources.tables`` are pulled in so they appear in the auth
+    policy too (the ``update_genie_tables`` validator may have run before
+    Genie spaces were resolved).
+    """
+    if config.resources is None:
+        return ()
+
+    llms: Sequence[InferenceEndpointModel] = list(config.resources.models.values())
+    vector_indexes: Sequence[VectorStoreModel] = list(
+        config.resources.vector_stores.values()
+    )
+    warehouses: Sequence[WarehouseModel] = list(config.resources.warehouses.values())
+    genie_rooms: Sequence[GenieRoomModel] = list(config.resources.genie_rooms.values())
+    functions: Sequence[FunctionModel] = list(config.resources.functions.values())
+    connections: Sequence[ConnectionModel] = list(
+        config.resources.connections.values()
+    )
+    databases: Sequence[DatabaseModel] = list(config.resources.databases.values())
+    volumes: Sequence[VolumeModel] = list(config.resources.volumes.values())
+    apps: Sequence[DatabricksAppModel] = list(config.resources.apps.values())
+
+    tables_list: list[TableModel] = list(config.resources.tables.values())
+    existing_table_names: set[str] = {t.full_name for t in tables_list}
+    for genie_room in genie_rooms:
+        for table in genie_room.tables:
+            if table.full_name not in existing_table_names:
+                tables_list.append(table)
+                existing_table_names.add(table.full_name)
+
+    return (
+        list(llms)
+        + list(vector_indexes)
+        + list(warehouses)
+        + list(genie_rooms)
+        + list(functions)
+        + tables_list
+        + list(connections)
+        + list(databases)
+        + list(volumes)
+        + list(apps)
+    )
+
+
+def build_auth_policy(config: AppConfig) -> AuthPolicy:
+    """Build the MLflow ``AuthPolicy`` for a Model Serving deploy from an AppConfig.
+
+    Partitions every resource by ``on_behalf_of_user``:
+
+    - SP-backed (``on_behalf_of_user=False``) resources are flattened into
+      the :class:`SystemAuthPolicy` so the Model Serving endpoint SP gets
+      auto-granted the required permissions on each one at deploy time.
+    - OBO (``on_behalf_of_user=True``) resources contribute their
+      ``api_scopes`` to the :class:`UserAuthPolicy` instead, so the user's
+      forwarded token has the right OAuth scopes for runtime calls.
+
+    A resource never appears in *both* outputs.
+
+    ``config.app.trace_location`` (if set) contributes its OTEL trace
+    tables + warehouse to the system policy — they are always SP-backed
+    (the user never touches them).
+
+    Pure function: no I/O, no mutation of ``config``. Safe to unit-test.
+    """
+    all_models: Sequence[IsDatabricksResource] = _collect_resources_with_obo_flag(
+        config
+    )
+
+    system_resources: list[DatabricksResource] = [
+        resource
+        for r in all_models
+        for resource in r.as_resources()
+        if not r.on_behalf_of_user
+    ]
+
+    if config.app and config.app.trace_location:
+        system_resources.extend(config.app.trace_location.as_resources())
+
+    api_scopes: list[str] = sorted(
+        {
+            scope
+            for r in all_models
+            if r.on_behalf_of_user
+            for scope in r.api_scopes
+        }
+    )
+
+    return AuthPolicy(
+        system_auth_policy=SystemAuthPolicy(resources=system_resources),
+        user_auth_policy=UserAuthPolicy(api_scopes=api_scopes),
+    )
+
+
 def _build_wheel(project_root: Path) -> Path:
     """Build a dao-ai wheel from source using uv."""
     import subprocess
@@ -376,103 +475,11 @@ class DatabricksProvider(ServiceProvider):
             experiment_id=experiment.experiment_id,
         )
 
-        llms: Sequence[InferenceEndpointModel] = list(config.resources.models.values())
-        vector_indexes: Sequence[IndexModel] = list(
-            config.resources.vector_stores.values()
-        )
-        warehouses: Sequence[WarehouseModel] = list(
-            config.resources.warehouses.values()
-        )
-        genie_rooms: Sequence[GenieRoomModel] = list(
-            config.resources.genie_rooms.values()
-        )
-        # config.resources.tables may be empty if the update_genie_tables
-        # validator ran before Genie rooms were resolved.  Collect tables
-        # directly from resolved Genie rooms as a fallback so they are
-        # included in the SystemAuthPolicy for Model Serving.
-        tables_list: list[TableModel] = list(config.resources.tables.values())
-        existing_table_names: set[str] = {t.full_name for t in tables_list}
-        for genie_room in config.resources.genie_rooms.values():
-            for table in genie_room.tables:
-                if table.full_name not in existing_table_names:
-                    tables_list.append(table)
-                    existing_table_names.add(table.full_name)
-        tables: Sequence[TableModel] = tables_list
-        functions: Sequence[FunctionModel] = list(config.resources.functions.values())
-        connections: Sequence[ConnectionModel] = list(
-            config.resources.connections.values()
-        )
-        databases: Sequence[DatabaseModel] = list(config.resources.databases.values())
-        volumes: Sequence[VolumeModel] = list(config.resources.volumes.values())
-        apps: Sequence[DatabricksAppModel] = list(config.resources.apps.values())
-
-        resources: Sequence[IsDatabricksResource] = (
-            llms
-            + vector_indexes
-            + warehouses
-            + genie_rooms
-            + functions
-            + tables
-            + connections
-            + databases
-            + volumes
-            + apps
-        )
-
-        # Flatten all resources from all models into a single list
-        all_resources: list[DatabricksResource] = []
-        for r in resources:
-            all_resources.extend(r.as_resources())
-
-        system_resources: list[DatabricksResource] = [
-            resource
-            for r in resources
-            for resource in r.as_resources()
-            if not r.on_behalf_of_user
-        ]
-
-        if config.app and config.app.trace_location:
-            trace_resources = config.app.trace_location.as_resources()
-            system_resources.extend(trace_resources)
-            all_resources.extend(trace_resources)
-            logger.debug(
-                "Added OTEL trace tables to system resources",
-                count=len(trace_resources),
-            )
-
-        logger.trace(
-            "System resources identified",
-            count=len(system_resources),
-            resources=[r.name for r in system_resources],
-        )
-
-        system_auth_policy: SystemAuthPolicy = SystemAuthPolicy(
-            resources=system_resources
-        )
-        logger.trace("System auth policy created", policy=str(system_auth_policy))
-
-        api_scopes: Sequence[str] = list(
-            set(
-                [
-                    scope
-                    for r in resources
-                    if r.on_behalf_of_user
-                    for scope in r.api_scopes
-                ]
-            )
-        )
-        logger.trace("API scopes identified", scopes=api_scopes)
-
-        user_auth_policy: UserAuthPolicy = UserAuthPolicy(api_scopes=api_scopes)
-        logger.trace("User auth policy created", policy=str(user_auth_policy))
-
-        auth_policy: AuthPolicy = AuthPolicy(
-            system_auth_policy=system_auth_policy, user_auth_policy=user_auth_policy
-        )
+        auth_policy: AuthPolicy = build_auth_policy(config)
         logger.debug(
             "Auth policy created",
-            has_system_auth=system_auth_policy is not None,
-            has_user_auth=user_auth_policy is not None,
+            system_resource_count=len(auth_policy.system_auth_policy.resources),
+            user_api_scopes=list(auth_policy.user_auth_policy.api_scopes),
         )
 
         code_paths: list[str] = config.app.code_paths
