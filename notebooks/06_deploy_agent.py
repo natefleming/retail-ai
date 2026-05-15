@@ -104,7 +104,7 @@ nest_asyncio.apply()
 from typing import Sequence
 from dao_ai.config import AppConfig, DeploymentTarget
 
-import json
+from dao_ai.config import is_parameter, parameter_name
 
 config_path: str = dbutils.widgets.get("config-path") or dbutils.widgets.get("config-paths")
 deployment_target_str: str | None = dbutils.widgets.get("deployment-target") or None
@@ -112,34 +112,31 @@ deployment_target_str: str | None = dbutils.widgets.get("deployment-target") or 
 print(f"Config path: {config_path}")
 print(f"Deployment target: {deployment_target_str or '(using config default)'}")
 
-# Forward the provision-genie task's resolved space ids into the config
-# as dao-ai parameters. We read the taskValue at *runtime* via
-# dbutils.jobs.taskValues.get rather than via a `{{...}}` template in
-# base_parameters — the latter is unreliable in some bundle/Jobs
-# combinations. The provision-genie task sets each resolved
-# parameter under both its own name AND a consolidated
-# `genie_space_params` JSON map; we read the consolidated map.
+# For each Genie room whose space_id is bound to a `${var.NAME}`
+# parameter, pull the matching taskValue from provision-genie (key=NAME)
+# and add it to the params dict. Symmetric with provision-genie, which
+# sets `taskValues.set(key=NAME, value=<resolved_space_id>)` for each
+# parameterized room.
+config_for_lookup: AppConfig = AppConfig.from_file(path=config_path, initialize=False)
 params: dict[str, str] = {}
-try:
-    raw_map: str = dbutils.jobs.taskValues.get(
-        taskKey="provision-genie",
-        key="genie_space_params",
-        default="",
-        debugValue="",
-    )
-except Exception as exc:
-    print(f"  taskValues.get unavailable ({exc}); skipping genie param injection.")
-    raw_map = ""
+if config_for_lookup.resources is not None and config_for_lookup.resources.genie_rooms:
+    for room in config_for_lookup.resources.genie_rooms.values():
+        if not is_parameter(room.raw_space_id):
+            continue
+        name: str = parameter_name(room.raw_space_id)
+        try:
+            val: str = dbutils.jobs.taskValues.get(
+                taskKey="provision-genie",
+                key=name,
+                default="",
+                debugValue="",
+            )
+        except Exception:
+            continue
+        if val:
+            params[name] = val
 
-print(f"Genie space params (from provision-genie task): {raw_map or '(unset)'}")
-
-if raw_map:
-    try:
-        decoded: dict[str, str] = json.loads(raw_map)
-        if isinstance(decoded, dict):
-            params.update({k: str(v) for k, v in decoded.items() if v})
-    except json.JSONDecodeError as exc:
-        print(f"WARNING: could not parse genie_space_params as JSON: {exc}")
+print(f"Resolved params from provision-genie taskValues: {params}")
 
 config: AppConfig = AppConfig.from_file(path=config_path, params=params or None)
 

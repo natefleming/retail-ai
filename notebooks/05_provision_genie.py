@@ -134,15 +134,10 @@ if config.resources is not None and config.resources.genie_rooms:
 
 # COMMAND ----------
 
-# Also set a consolidated JSON map so deploy-agents can read every
-# resolved parameter via a single base_parameter (the bundle template
-# can't reference N dynamic keys at template-write time).
+# Emit a short notebook_output summary for observability. The actual
+# downstream contract is the per-parameter taskValues set above
+# (key=<parameter_name>, value=<resolved space_id>); deploy-agents
+# iterates config.parameter_declarations and probes each for a
+# matching task value.
 summary: dict = {"provisioned": provisioned}
-if provisioned:
-    dbutils.jobs.taskValues.set(key="genie_space_params", value=json.dumps(provisioned))
-    summary["taskvalue_set"] = True
-else:
-    print("No parameterized Genie space_ids; no taskValues set.")
-    summary["taskvalue_set"] = False
-
 dbutils.notebook.exit(json.dumps(summary))
