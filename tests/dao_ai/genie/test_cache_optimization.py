@@ -79,7 +79,7 @@ class TestSemanticMatchJudge:
         mock_model.as_chat_model.return_value = mock_chat
 
         with patch(
-            "dao_ai.genie.cache.context_aware.optimization.LLMModel",
+            "dao_ai.genie.cache.context_aware.optimization.InferenceEndpointModel",
             return_value=mock_model,
         ):
             # First call
@@ -121,7 +121,7 @@ class TestSemanticMatchJudge:
         mock_model.as_chat_model.return_value = mock_chat
 
         with patch(
-            "dao_ai.genie.cache.context_aware.optimization.LLMModel",
+            "dao_ai.genie.cache.context_aware.optimization.InferenceEndpointModel",
             return_value=mock_model,
         ):
             result = semantic_match_judge(
@@ -144,7 +144,7 @@ class TestSemanticMatchJudge:
         mock_model.as_chat_model.return_value = mock_chat
 
         with patch(
-            "dao_ai.genie.cache.context_aware.optimization.LLMModel",
+            "dao_ai.genie.cache.context_aware.optimization.InferenceEndpointModel",
             return_value=mock_model,
         ):
             result = semantic_match_judge(
@@ -165,7 +165,7 @@ class TestSemanticMatchJudge:
         mock_model.as_chat_model.return_value = mock_chat
 
         with patch(
-            "dao_ai.genie.cache.context_aware.optimization.LLMModel",
+            "dao_ai.genie.cache.context_aware.optimization.InferenceEndpointModel",
             return_value=mock_model,
         ):
             result = semantic_match_judge(

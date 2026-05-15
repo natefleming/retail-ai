@@ -107,6 +107,26 @@ def has_retail_ai_env() -> bool:
     return all(var in os.environ for var in required_vars)
 
 
+def has_databricks_connect() -> bool:
+    """Return True if ``databricks.connect.session`` can actually be imported.
+
+    The ``databricks-connect`` wheel requires a Python-version-matched
+    ``pyspark`` (e.g. databricks-connect 15.x needs the bundled pyspark
+    classes); installing one without the other or under an unsupported
+    Python interpreter raises ImportError. UC function execution via
+    ``DatabricksFunctionClient(execution_mode='serverless')`` calls
+    ``databricks-connect`` at runtime, so tests that exercise that path
+    must skip cleanly when the dependency is unsatisfiable rather than
+    crash with an opaque ImportError.
+    """
+    try:
+        import databricks.connect.session  # noqa: F401
+
+        return True
+    except Exception:
+        return False
+
+
 @pytest.fixture
 def development_config() -> Path:
     return config_dir / "test_model_config.yaml"
