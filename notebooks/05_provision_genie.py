@@ -110,22 +110,22 @@ if config.resources is not None and config.resources.genie_rooms:
         #   2. Existing space matching this room's title (most-recent
         #      wins — idempotent across deploys without orphans)
         #   3. Provision a fresh space via room.create()
-        # Always call room.create() at the end. When space_id is set it
-        # goes to the UPDATE path (pushing room.warehouse_id and other
-        # current config back to the space); when unset it creates fresh.
+        # NOTE: when an existing space is reused, we deliberately skip
+        # room.create() to avoid etag conflicts on update_space. If a
+        # room's configuration changes (e.g., new warehouse, new table
+        # sources), delete the existing space first or rename the room
+        # title so provision-genie creates a fresh one.
         existing: GenieRoomModel | None = (
             GenieRoomModel.from_space_id(value_of(room.space_id), w=room.workspace_client)
             or GenieRoomModel.from_name(value_of(room.name), w=room.workspace_client)
         )
         if existing is not None:
             room.space_id = existing.space_id
-            print(f"[{room_key}] reusing existing space {room.space_id}; updating config")
+            print(f"[{room_key}] reusing existing space {room.space_id}")
         else:
             room.space_id = None
-            print(f"[{room_key}] no existing space; creating new")
-
-        room.create()
-        print(f"[{room_key}] space {value_of(room.space_id)} is current")
+            room.create()
+            print(f"[{room_key}] created new space {value_of(room.space_id)}")
 
         resolved: str = value_of(room.space_id)
         provisioned[param] = resolved
