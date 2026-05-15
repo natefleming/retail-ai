@@ -837,6 +837,40 @@ class BestOfNConfig(BaseModel):
         return v
 
 
+class _AIGatewayChatOpenAI(ChatOpenAI):
+    """ChatOpenAI variant for the Databricks AI Gateway.
+
+    The Gateway's OpenAI-compatible validator rejects ``name`` on
+    ``user`` / ``assistant`` / ``system`` messages with::
+
+        400 BAD_REQUEST: messages.N.name: Extra inputs are not permitted
+
+    LangGraph's supervisor pattern attaches a ``name`` field to agent
+    AIMessages for routing (see
+    :func:`dao_ai.orchestration.core.filter_messages_for_agent`), so we
+    strip it at the request-payload boundary instead of in orchestration
+    where it carries real semantics for ChatDatabricks and other backends.
+    ``role: "tool"`` / ``role: "function"`` messages are left untouched.
+    """
+
+    def _get_request_payload(
+        self,
+        input_: Any,
+        *,
+        stop: Optional[list[str]] = None,
+        **kwargs: Any,
+    ) -> dict:
+        payload: dict = super()._get_request_payload(input_, stop=stop, **kwargs)
+        for msg in payload.get("messages", []) or []:
+            if isinstance(msg, dict) and msg.get("role") in (
+                "user",
+                "assistant",
+                "system",
+            ):
+                msg.pop("name", None)
+        return payload
+
+
 class InferenceEndpointModel(IsDatabricksResource):
     """Configuration for a Databricks Model Serving endpoint used for inference.
 
@@ -1003,7 +1037,7 @@ class InferenceEndpointModel(IsDatabricksResource):
                     )
                 return auth.split(" ", 1)[1]
 
-            return ChatOpenAI(
+            return _AIGatewayChatOpenAI(
                 model=self.name,
                 base_url=f"{host}/ai-gateway/mlflow/v1",
                 api_key=token_provider,
@@ -1035,7 +1069,7 @@ class InferenceEndpointModel(IsDatabricksResource):
         chat_client: LanguageModelLike
         if self.ai_gateway:
             host, token_provider = self._resolve_ai_gateway_credentials()
-            chat_client = ChatOpenAI(
+            chat_client = _AIGatewayChatOpenAI(
                 model=self.name,
                 base_url=f"{host}/ai-gateway/mlflow/v1",
                 api_key=token_provider,
@@ -1093,7 +1127,7 @@ class InferenceEndpointModel(IsDatabricksResource):
         chat_client: ChatOpenAI
         if self.ai_gateway:
             host, token_provider = self._resolve_ai_gateway_credentials()
-            chat_client = ChatOpenAI(
+            chat_client = _AIGatewayChatOpenAI(
                 model=self.name,
                 base_url=f"{host}/ai-gateway/mlflow/v1",
                 api_key=token_provider,

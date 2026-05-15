@@ -125,7 +125,7 @@ def test_as_chat_model_default_uses_chat_databricks() -> None:
         max_tokens=512,
     )
     with patch("dao_ai.config.ChatDatabricks") as mock_chat_databricks, patch(
-        "dao_ai.config.ChatOpenAI"
+        "dao_ai.config._AIGatewayChatOpenAI"
     ) as mock_chat_openai:
         mock_chat_databricks.return_value = MagicMock(name="chat_databricks_instance")
         result = model.as_chat_model()
@@ -153,7 +153,7 @@ def test_as_chat_model_ai_gateway_uses_chat_openai() -> None:
             "https://adb-984752964297111.11.azuredatabricks.net",
             fake_provider,
         ),
-    ), patch("dao_ai.config.ChatOpenAI") as mock_chat_openai, patch(
+    ), patch("dao_ai.config._AIGatewayChatOpenAI") as mock_chat_openai, patch(
         "dao_ai.config.ChatDatabricks"
     ) as mock_chat_databricks:
         mock_chat_openai.return_value = MagicMock(name="chat_openai_instance")
@@ -186,7 +186,7 @@ def test_as_chat_model_ai_gateway_disables_streaming_when_requested() -> None:
         InferenceEndpointModel,
         "_resolve_ai_gateway_credentials",
         return_value=("https://x", lambda: "tok"),
-    ), patch("dao_ai.config.ChatOpenAI") as mock_chat_openai:
+    ), patch("dao_ai.config._AIGatewayChatOpenAI") as mock_chat_openai:
         model.as_chat_model()
     assert mock_chat_openai.call_args.kwargs["streaming"] is False
 
@@ -208,7 +208,7 @@ def test_as_open_ai_client_ai_gateway_uses_direct_chat_openai() -> None:
         InferenceEndpointModel,
         "_resolve_ai_gateway_credentials",
         return_value=("https://host", fake_provider),
-    ), patch("dao_ai.config.ChatOpenAI") as mock_chat_openai:
+    ), patch("dao_ai.config._AIGatewayChatOpenAI") as mock_chat_openai:
         mock_chat_openai.return_value = MagicMock()
         model.as_open_ai_client()
     mock_chat_openai.assert_called_once_with(
@@ -245,7 +245,7 @@ def test_chat_model_for_workspace_client_uses_ai_gateway_when_flag_set() -> None
     obo_wc.config.host = "https://obo-host.databricks.com"
     obo_wc.config.authenticate.return_value = {"Authorization": "Bearer obo-user-token"}
 
-    with patch("dao_ai.config.ChatOpenAI") as mock_chat_openai, patch(
+    with patch("dao_ai.config._AIGatewayChatOpenAI") as mock_chat_openai, patch(
         "dao_ai.config.ChatDatabricks"
     ) as mock_chat_databricks:
         mock_chat_openai.return_value = MagicMock()
@@ -274,7 +274,7 @@ def test_chat_model_for_workspace_client_legacy_path_passes_workspace_client() -
     obo_wc = MagicMock()
 
     with patch("dao_ai.config.ChatDatabricks") as mock_chat_databricks, patch(
-        "dao_ai.config.ChatOpenAI"
+        "dao_ai.config._AIGatewayChatOpenAI"
     ) as mock_chat_openai:
         mock_chat_databricks.return_value = MagicMock()
         model.chat_model_for_workspace_client(obo_wc)
@@ -325,7 +325,7 @@ def test_heterogeneous_fallbacks_compose() -> None:
         InferenceEndpointModel,
         "_resolve_ai_gateway_credentials",
         return_value=("https://h", lambda: "t"),
-    ), patch("dao_ai.config.ChatOpenAI", return_value=chat_openai_instance), patch(
+    ), patch("dao_ai.config._AIGatewayChatOpenAI", return_value=chat_openai_instance), patch(
         "dao_ai.config.ChatDatabricks", return_value=chat_databricks_instance
     ):
         result = primary.as_chat_model()
@@ -334,3 +334,179 @@ def test_heterogeneous_fallbacks_compose() -> None:
     (fallback_list,) = chat_openai_instance.with_fallbacks.call_args.args
     assert fallback_list == [chat_databricks_instance]
     assert result is chained
+
+
+# ---------------------------------------------------------------------------
+# _AIGatewayChatOpenAI — name-field stripping
+#
+# Background: the AI Gateway's OpenAI-compatible validator rejects ``name``
+# on user/assistant/system messages with 400 BAD_REQUEST. LangGraph's
+# supervisor pattern attaches ``name`` to AIMessages for routing, so the
+# subclass strips it on the request-payload boundary.
+# ---------------------------------------------------------------------------
+
+
+def _build_ai_gateway_chat() -> "_AIGatewayChatOpenAI":  # type: ignore[name-defined]
+    from dao_ai.config import _AIGatewayChatOpenAI
+
+    return _AIGatewayChatOpenAI(
+        model="databricks-claude-opus-4-6",
+        base_url="https://example.databricks.com/ai-gateway/mlflow/v1",
+        api_key="dapi-test-token",
+    )
+
+
+def test_ai_gateway_chat_strips_name_from_user_messages() -> None:
+    from langchain_core.messages import HumanMessage
+
+    chat = _build_ai_gateway_chat()
+    payload = chat._get_request_payload([HumanMessage(content="hi", name="alice")])
+    user_msgs = [m for m in payload["messages"] if m.get("role") == "user"]
+    assert user_msgs, "expected a user message in the payload"
+    assert all("name" not in m for m in user_msgs)
+
+
+def test_ai_gateway_chat_strips_name_from_assistant_messages() -> None:
+    from langchain_core.messages import AIMessage
+
+    chat = _build_ai_gateway_chat()
+    payload = chat._get_request_payload([AIMessage(content="hello there", name="agent_a")])
+    assistant_msgs = [m for m in payload["messages"] if m.get("role") == "assistant"]
+    assert assistant_msgs
+    assert all("name" not in m for m in assistant_msgs)
+
+
+def test_ai_gateway_chat_strips_name_from_system_messages() -> None:
+    from langchain_core.messages import SystemMessage
+
+    chat = _build_ai_gateway_chat()
+    payload = chat._get_request_payload([SystemMessage(content="you are helpful", name="sys")])
+    system_msgs = [m for m in payload["messages"] if m.get("role") == "system"]
+    assert system_msgs
+    assert all("name" not in m for m in system_msgs)
+
+
+def test_ai_gateway_chat_leaves_tool_messages_alone() -> None:
+    """Tool messages may legitimately carry ``name`` (function name); leave them
+    untouched — OpenAI's tool message schema is the upstream contract."""
+    from langchain_core.messages import (
+        AIMessage,
+        HumanMessage,
+        ToolMessage,
+    )
+
+    chat = _build_ai_gateway_chat()
+    payload = chat._get_request_payload(
+        [
+            HumanMessage(content="run my_tool", name="user"),
+            AIMessage(
+                content="",
+                name="agent_a",
+                tool_calls=[
+                    {"id": "t1", "name": "my_tool", "args": {}, "type": "tool_call"}
+                ],
+            ),
+            ToolMessage(content="ok", tool_call_id="t1", name="my_tool"),
+        ]
+    )
+    tool_msgs = [m for m in payload["messages"] if m.get("role") == "tool"]
+    assert tool_msgs, "expected a tool message in the payload"
+    # We didn't strip from role=tool. Whatever LangChain put there (likely
+    # tool_call_id only — no top-level name) is what we send to the gateway.
+    # The assertion is just "we didn't crash and we didn't reach into tool".
+
+
+def test_as_chat_model_ai_gateway_returns_subclass_instance() -> None:
+    """When ai_gateway=True, as_chat_model() must return the name-stripping
+    subclass — not a vanilla ChatOpenAI."""
+    from dao_ai.config import _AIGatewayChatOpenAI
+
+    model = InferenceEndpointModel(name="databricks-claude-opus-4-6", ai_gateway=True)
+    with patch.object(
+        InferenceEndpointModel,
+        "_resolve_ai_gateway_credentials",
+        return_value=("https://x", lambda: "t"),
+    ):
+        client = model.as_chat_model()
+    assert isinstance(client, _AIGatewayChatOpenAI)
+
+
+def test_as_chat_model_legacy_path_is_not_subclass() -> None:
+    """Regression: ai_gateway=False returns ChatDatabricks (no subclass involvement)."""
+    from dao_ai.config import _AIGatewayChatOpenAI
+
+    model = InferenceEndpointModel(name="databricks-meta-llama-3-3-70b-instruct")
+    with patch("dao_ai.config.ChatDatabricks") as mock_chat_databricks:
+        mock_chat_databricks.return_value = MagicMock(spec=[])
+        client = model.as_chat_model()
+    assert not isinstance(client, _AIGatewayChatOpenAI)
+
+
+def test_chat_model_for_workspace_client_ai_gateway_returns_subclass() -> None:
+    """OBO factory must also return the subclass when ai_gateway=True."""
+    from dao_ai.config import _AIGatewayChatOpenAI
+
+    model = InferenceEndpointModel(
+        name="databricks-claude-opus-4-6",
+        ai_gateway=True,
+        on_behalf_of_user=True,
+    )
+    obo_wc = MagicMock()
+    obo_wc.config.host = "https://obo-host.databricks.com"
+    obo_wc.config.authenticate.return_value = {"Authorization": "Bearer obo-tok"}
+
+    client = model.chat_model_for_workspace_client(obo_wc)
+    assert isinstance(client, _AIGatewayChatOpenAI)
+
+
+def test_as_open_ai_client_ai_gateway_returns_subclass() -> None:
+    """as_open_ai_client (raw client factory) must also return the subclass
+    when ai_gateway=True."""
+    from dao_ai.config import _AIGatewayChatOpenAI
+
+    model = InferenceEndpointModel(name="databricks-claude-opus-4-6", ai_gateway=True)
+    with patch.object(
+        InferenceEndpointModel,
+        "_resolve_ai_gateway_credentials",
+        return_value=("https://h", lambda: "t"),
+    ):
+        client = model.as_open_ai_client()
+    assert isinstance(client, _AIGatewayChatOpenAI)
+
+
+# ---------------------------------------------------------------------------
+# Live AI Gateway smoke (integration)
+# ---------------------------------------------------------------------------
+
+
+import os  # noqa: E402
+
+
+@pytest.mark.integration
+@pytest.mark.skipif(
+    not os.environ.get("DAO_AI_INTEGRATION"),
+    reason="Set DAO_AI_INTEGRATION=1 (with DATABRICKS_HOST/DATABRICKS_TOKEN or a configured profile) to run live AI Gateway smoke.",
+)
+def test_ai_gateway_chat_handles_supervisor_named_messages_live() -> None:
+    """Live AI Gateway round-trip with supervisor-tagged AIMessage(name=...).
+
+    Pre-fix this would 400 with ``messages.N.name: Extra inputs are not permitted``.
+    Post-fix the name is stripped on the request boundary and the call succeeds.
+    """
+    from langchain_core.messages import AIMessage, HumanMessage
+
+    endpoint = InferenceEndpointModel(
+        name="databricks-claude-opus-4-6",
+        ai_gateway=True,
+        max_tokens=64,
+    )
+    chat = endpoint.as_chat_model()
+    out = chat.invoke(
+        [
+            HumanMessage(content="Say a one-word greeting.", name="user_alice"),
+            AIMessage(content="hello there", name="loyalty_lead"),
+            HumanMessage(content="Now say a one-word farewell."),
+        ]
+    )
+    assert isinstance(out, AIMessage)
+    assert out.content
