@@ -30,7 +30,6 @@ import pytest
 from dao_ai.config import (
     AppConfig,
     ConnectionModel,
-    DatabaseModel,
     FunctionModel,
     GenieRoomModel,
     IndexModel,
@@ -46,7 +45,6 @@ from dao_ai.providers.databricks import (
     _collect_resources_with_obo_flag,
     build_auth_policy,
 )
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -339,9 +337,7 @@ class TestAuthPolicyInvariants:
         """If every declared resource is SP-backed, UserAuthPolicy is empty."""
         config = _config(
             models={
-                "sp_llm": InferenceEndpointModel(
-                    name="sp-llm", on_behalf_of_user=False
-                )
+                "sp_llm": InferenceEndpointModel(name="sp-llm", on_behalf_of_user=False)
             },
             functions={
                 "sp_fn": FunctionModel(
@@ -387,12 +383,8 @@ class TestAuthPolicyInvariants:
         """Two OBO LLMs share one scope — it appears exactly once in the user policy."""
         config = _config(
             models={
-                "obo_llm_a": InferenceEndpointModel(
-                    name="a", on_behalf_of_user=True
-                ),
-                "obo_llm_b": InferenceEndpointModel(
-                    name="b", on_behalf_of_user=True
-                ),
+                "obo_llm_a": InferenceEndpointModel(name="a", on_behalf_of_user=True),
+                "obo_llm_b": InferenceEndpointModel(name="b", on_behalf_of_user=True),
             }
         )
         policy = build_auth_policy(config)

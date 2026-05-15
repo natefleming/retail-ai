@@ -1135,10 +1135,8 @@ class InferenceEndpointModel(IsDatabricksResource):
                 max_tokens=self.max_tokens,
             )
         else:
-            chat_client = (
-                self.workspace_client.serving_endpoints.get_langchain_chat_open_ai_client(
-                    model=self.name
-                )
+            chat_client = self.workspace_client.serving_endpoints.get_langchain_chat_open_ai_client(
+                model=self.name
             )
             chat_client.temperature = self.temperature
             chat_client.max_tokens = self.max_tokens
@@ -3046,7 +3044,9 @@ class VectorStoreModel(IsDatabricksResource, ManagedResource):
     def set_default_embedding_model(self) -> Self:
         # Only set default embedding model in provisioning mode
         if self.source_table is not None and not self.embedding_model:
-            self.embedding_model = InferenceEndpointModel(name="databricks-gte-large-en")
+            self.embedding_model = InferenceEndpointModel(
+                name="databricks-gte-large-en"
+            )
         return self
 
     def ensure_resolved(self) -> None:
@@ -3186,7 +3186,9 @@ class VectorStoreModel(IsDatabricksResource, ManagedResource):
                 self.embedding_source_column = first.get("name")
                 model_endpoint_name = first.get("embedding_model_endpoint_name")
                 if model_endpoint_name:
-                    self.embedding_model = InferenceEndpointModel(name=model_endpoint_name)
+                    self.embedding_model = InferenceEndpointModel(
+                        name=model_endpoint_name
+                    )
 
         endpoint_name = details.get("endpoint_name")
         if endpoint_name:

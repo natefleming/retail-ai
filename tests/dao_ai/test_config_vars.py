@@ -234,9 +234,7 @@ class _FakeUser:
 class _FakeWorkspaceClient:
     def __init__(self, *, host: str, user_name: str) -> None:
         self.config = type("Cfg", (), {"host": host})()
-        self.current_user = type(
-            "CU", (), {"me": lambda _self: _FakeUser(user_name)}
-        )()
+        self.current_user = type("CU", (), {"me": lambda _self: _FakeUser(user_name)})()
 
 
 @pytest.mark.unit
@@ -269,9 +267,7 @@ def test_substitute_workspace_refs_resolves_all_four_dabs_paths() -> None:
         "short: ${workspace.current_user.short_name}\n"
         "domain: ${workspace.current_user.domain_friendly_name}\n"
     )
-    rendered = substitute_workspace_refs(
-        text, workspace_client_factory=lambda: client
-    )
+    rendered = substitute_workspace_refs(text, workspace_client_factory=lambda: client)
     assert "host: https://example.cloud.databricks.com" in rendered
     assert "host: https://example.cloud.databricks.com/" not in rendered
     assert "email: nate.fleming@databricks.com" in rendered
@@ -333,7 +329,7 @@ def test_workspace_refs_resolve_inside_parameter_defaults(tmp_path: Path) -> Non
     text = (
         "parameters:\n"
         "  genie_parent_path:\n"
-        "    default: \"/Users/${workspace.current_user.userName}/genie\"\n"
+        '    default: "/Users/${workspace.current_user.userName}/genie"\n'
         "value: ${var.genie_parent_path}\n"
     )
     workspace_resolved = substitute_workspace_refs(

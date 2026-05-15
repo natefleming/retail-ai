@@ -835,8 +835,8 @@ class TestRealGenieProvisioning:
                 if existing is not None:
                     break
             assert existing is not None, (
-                f"from_name must find the prior space within ~20s "
-                f"(Genie list_spaces eventual-consistency window)"
+                "from_name must find the prior space within ~20s "
+                "(Genie list_spaces eventual-consistency window)"
             )
             assert existing.space_id == original_id, (
                 f"reuse must return the same space_id ({original_id}), "

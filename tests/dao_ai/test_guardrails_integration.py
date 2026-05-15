@@ -21,7 +21,6 @@ from mlflow.types.responses_helpers import Message
 from dao_ai.config import AppConfig
 from dao_ai.models import ResponsesAgent
 
-
 # =============================================================================
 # Fixtures
 # =============================================================================

@@ -363,9 +363,7 @@ def substitute_workspace_refs(
             elif path == "current_user.domain_friendly_name":
                 value = _email_domain(_email())
             else:  # pragma: no cover - guarded by _SUPPORTED_WORKSPACE_PATHS
-                raise WorkspaceVariableError(
-                    f"Unsupported workspace path: {path}"
-                )
+                raise WorkspaceVariableError(f"Unsupported workspace path: {path}")
         except WorkspaceVariableError:
             raise
         except Exception as exc:

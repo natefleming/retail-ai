@@ -196,7 +196,9 @@ def semantic_match_judge(
             return _judge_cache[cache_key]
 
     # Convert model to InferenceEndpointModel if string
-    llm_model: InferenceEndpointModel = InferenceEndpointModel(name=model) if isinstance(model, str) else model
+    llm_model: InferenceEndpointModel = (
+        InferenceEndpointModel(name=model) if isinstance(model, str) else model
+    )
 
     # Create the chat model
     chat = llm_model.as_chat_model()
@@ -447,7 +449,8 @@ def optimize_context_aware_cache_thresholds(
     original_thresholds: dict[str, float]
     | GenieContextAwareCacheParametersModel
     | None = None,
-    judge_model: InferenceEndpointModel | str = "databricks-meta-llama-3-3-70b-instruct",
+    judge_model: InferenceEndpointModel
+    | str = "databricks-meta-llama-3-3-70b-instruct",
     n_trials: int = 50,
     metric: Literal["f1", "precision", "recall", "fbeta"] = "f1",
     beta: float = 1.0,

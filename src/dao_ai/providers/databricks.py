@@ -60,8 +60,8 @@ from dao_ai.config import (
     GenieRoomModel,
     HasFullName,
     IndexModel,
-    IsDatabricksResource,
     InferenceEndpointModel,
+    IsDatabricksResource,
     PromptModel,
     SchemaModel,
     TableModel,
@@ -181,9 +181,7 @@ def _collect_resources_with_obo_flag(
     warehouses: Sequence[WarehouseModel] = list(config.resources.warehouses.values())
     genie_rooms: Sequence[GenieRoomModel] = list(config.resources.genie_rooms.values())
     functions: Sequence[FunctionModel] = list(config.resources.functions.values())
-    connections: Sequence[ConnectionModel] = list(
-        config.resources.connections.values()
-    )
+    connections: Sequence[ConnectionModel] = list(config.resources.connections.values())
     databases: Sequence[DatabaseModel] = list(config.resources.databases.values())
     volumes: Sequence[VolumeModel] = list(config.resources.volumes.values())
     apps: Sequence[DatabricksAppModel] = list(config.resources.apps.values())
@@ -245,12 +243,7 @@ def build_auth_policy(config: AppConfig) -> AuthPolicy:
         system_resources.extend(config.app.trace_location.as_resources())
 
     api_scopes: list[str] = sorted(
-        {
-            scope
-            for r in all_models
-            if r.on_behalf_of_user
-            for scope in r.api_scopes
-        }
+        {scope for r in all_models if r.on_behalf_of_user for scope in r.api_scopes}
     )
 
     return AuthPolicy(

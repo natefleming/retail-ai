@@ -23,7 +23,6 @@ from pydantic import ValidationError
 
 from dao_ai.config import InferenceEndpointModel
 
-
 # ---------------------------------------------------------------------------
 # Validator
 # ---------------------------------------------------------------------------
@@ -124,9 +123,10 @@ def test_as_chat_model_default_uses_chat_databricks() -> None:
         temperature=0.2,
         max_tokens=512,
     )
-    with patch("dao_ai.config.ChatDatabricks") as mock_chat_databricks, patch(
-        "dao_ai.config.AIGatewayChatOpenAI"
-    ) as mock_chat_openai:
+    with (
+        patch("dao_ai.config.ChatDatabricks") as mock_chat_databricks,
+        patch("dao_ai.config.AIGatewayChatOpenAI") as mock_chat_openai,
+    ):
         mock_chat_databricks.return_value = MagicMock(name="chat_databricks_instance")
         result = model.as_chat_model()
     mock_chat_databricks.assert_called_once()
@@ -146,16 +146,18 @@ def test_as_chat_model_ai_gateway_uses_chat_openai() -> None:
         max_tokens=1024,
     )
     fake_provider = lambda: "dapi-test-token"  # noqa: E731
-    with patch.object(
-        InferenceEndpointModel,
-        "_resolve_ai_gateway_credentials",
-        return_value=(
-            "https://adb-984752964297111.11.azuredatabricks.net",
-            fake_provider,
+    with (
+        patch.object(
+            InferenceEndpointModel,
+            "_resolve_ai_gateway_credentials",
+            return_value=(
+                "https://adb-984752964297111.11.azuredatabricks.net",
+                fake_provider,
+            ),
         ),
-    ), patch("dao_ai.config.AIGatewayChatOpenAI") as mock_chat_openai, patch(
-        "dao_ai.config.ChatDatabricks"
-    ) as mock_chat_databricks:
+        patch("dao_ai.config.AIGatewayChatOpenAI") as mock_chat_openai,
+        patch("dao_ai.config.ChatDatabricks") as mock_chat_databricks,
+    ):
         mock_chat_openai.return_value = MagicMock(name="chat_openai_instance")
         result = model.as_chat_model()
     mock_chat_databricks.assert_not_called()
@@ -182,11 +184,14 @@ def test_as_chat_model_ai_gateway_disables_streaming_when_requested() -> None:
         ai_gateway=True,
         disable_streaming=True,
     )
-    with patch.object(
-        InferenceEndpointModel,
-        "_resolve_ai_gateway_credentials",
-        return_value=("https://x", lambda: "tok"),
-    ), patch("dao_ai.config.AIGatewayChatOpenAI") as mock_chat_openai:
+    with (
+        patch.object(
+            InferenceEndpointModel,
+            "_resolve_ai_gateway_credentials",
+            return_value=("https://x", lambda: "tok"),
+        ),
+        patch("dao_ai.config.AIGatewayChatOpenAI") as mock_chat_openai,
+    ):
         model.as_chat_model()
     assert mock_chat_openai.call_args.kwargs["streaming"] is False
 
@@ -204,11 +209,14 @@ def test_as_open_ai_client_ai_gateway_uses_direct_chat_openai() -> None:
         max_tokens=2048,
     )
     fake_provider = lambda: "tok"  # noqa: E731
-    with patch.object(
-        InferenceEndpointModel,
-        "_resolve_ai_gateway_credentials",
-        return_value=("https://host", fake_provider),
-    ), patch("dao_ai.config.AIGatewayChatOpenAI") as mock_chat_openai:
+    with (
+        patch.object(
+            InferenceEndpointModel,
+            "_resolve_ai_gateway_credentials",
+            return_value=("https://host", fake_provider),
+        ),
+        patch("dao_ai.config.AIGatewayChatOpenAI") as mock_chat_openai,
+    ):
         mock_chat_openai.return_value = MagicMock()
         model.as_open_ai_client()
     mock_chat_openai.assert_called_once_with(
@@ -245,9 +253,10 @@ def test_chat_model_for_workspace_client_uses_ai_gateway_when_flag_set() -> None
     obo_wc.config.host = "https://obo-host.databricks.com"
     obo_wc.config.authenticate.return_value = {"Authorization": "Bearer obo-user-token"}
 
-    with patch("dao_ai.config.AIGatewayChatOpenAI") as mock_chat_openai, patch(
-        "dao_ai.config.ChatDatabricks"
-    ) as mock_chat_databricks:
+    with (
+        patch("dao_ai.config.AIGatewayChatOpenAI") as mock_chat_openai,
+        patch("dao_ai.config.ChatDatabricks") as mock_chat_databricks,
+    ):
         mock_chat_openai.return_value = MagicMock()
         model.chat_model_for_workspace_client(obo_wc)
 
@@ -273,9 +282,10 @@ def test_chat_model_for_workspace_client_legacy_path_passes_workspace_client() -
     )
     obo_wc = MagicMock()
 
-    with patch("dao_ai.config.ChatDatabricks") as mock_chat_databricks, patch(
-        "dao_ai.config.AIGatewayChatOpenAI"
-    ) as mock_chat_openai:
+    with (
+        patch("dao_ai.config.ChatDatabricks") as mock_chat_databricks,
+        patch("dao_ai.config.AIGatewayChatOpenAI") as mock_chat_openai,
+    ):
         mock_chat_databricks.return_value = MagicMock()
         model.chat_model_for_workspace_client(obo_wc)
 
@@ -321,12 +331,14 @@ def test_heterogeneous_fallbacks_compose() -> None:
     chained = MagicMock(name="with_fallbacks-result")
     chat_openai_instance.with_fallbacks.return_value = chained
 
-    with patch.object(
-        InferenceEndpointModel,
-        "_resolve_ai_gateway_credentials",
-        return_value=("https://h", lambda: "t"),
-    ), patch("dao_ai.config.AIGatewayChatOpenAI", return_value=chat_openai_instance), patch(
-        "dao_ai.config.ChatDatabricks", return_value=chat_databricks_instance
+    with (
+        patch.object(
+            InferenceEndpointModel,
+            "_resolve_ai_gateway_credentials",
+            return_value=("https://h", lambda: "t"),
+        ),
+        patch("dao_ai.config.AIGatewayChatOpenAI", return_value=chat_openai_instance),
+        patch("dao_ai.config.ChatDatabricks", return_value=chat_databricks_instance),
     ):
         result = primary.as_chat_model()
 
@@ -346,7 +358,7 @@ def test_heterogeneous_fallbacks_compose() -> None:
 # ---------------------------------------------------------------------------
 
 
-def _build_ai_gateway_chat() -> "AIGatewayChatOpenAI":  # type: ignore[name-defined]
+def _build_ai_gateway_chat():
     from dao_ai.config import AIGatewayChatOpenAI
 
     return AIGatewayChatOpenAI(
@@ -370,7 +382,9 @@ def test_ai_gateway_chat_strips_name_from_assistant_messages() -> None:
     from langchain_core.messages import AIMessage
 
     chat = _build_ai_gateway_chat()
-    payload = chat._get_request_payload([AIMessage(content="hello there", name="agent_a")])
+    payload = chat._get_request_payload(
+        [AIMessage(content="hello there", name="agent_a")]
+    )
     assistant_msgs = [m for m in payload["messages"] if m.get("role") == "assistant"]
     assert assistant_msgs
     assert all("name" not in m for m in assistant_msgs)
@@ -380,7 +394,9 @@ def test_ai_gateway_chat_strips_name_from_system_messages() -> None:
     from langchain_core.messages import SystemMessage
 
     chat = _build_ai_gateway_chat()
-    payload = chat._get_request_payload([SystemMessage(content="you are helpful", name="sys")])
+    payload = chat._get_request_payload(
+        [SystemMessage(content="you are helpful", name="sys")]
+    )
     system_msgs = [m for m in payload["messages"] if m.get("role") == "system"]
     assert system_msgs
     assert all("name" not in m for m in system_msgs)
