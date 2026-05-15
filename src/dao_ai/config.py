@@ -837,7 +837,7 @@ class BestOfNConfig(BaseModel):
         return v
 
 
-class _AIGatewayChatOpenAI(ChatOpenAI):
+class AIGatewayChatOpenAI(ChatOpenAI):
     """ChatOpenAI variant for the Databricks AI Gateway.
 
     The Gateway's OpenAI-compatible validator rejects ``name`` on
@@ -1037,7 +1037,7 @@ class InferenceEndpointModel(IsDatabricksResource):
                     )
                 return auth.split(" ", 1)[1]
 
-            return _AIGatewayChatOpenAI(
+            return AIGatewayChatOpenAI(
                 model=self.name,
                 base_url=f"{host}/ai-gateway/mlflow/v1",
                 api_key=token_provider,
@@ -1069,7 +1069,7 @@ class InferenceEndpointModel(IsDatabricksResource):
         chat_client: LanguageModelLike
         if self.ai_gateway:
             host, token_provider = self._resolve_ai_gateway_credentials()
-            chat_client = _AIGatewayChatOpenAI(
+            chat_client = AIGatewayChatOpenAI(
                 model=self.name,
                 base_url=f"{host}/ai-gateway/mlflow/v1",
                 api_key=token_provider,
@@ -1127,7 +1127,7 @@ class InferenceEndpointModel(IsDatabricksResource):
         chat_client: ChatOpenAI
         if self.ai_gateway:
             host, token_provider = self._resolve_ai_gateway_credentials()
-            chat_client = _AIGatewayChatOpenAI(
+            chat_client = AIGatewayChatOpenAI(
                 model=self.name,
                 base_url=f"{host}/ai-gateway/mlflow/v1",
                 api_key=token_provider,
