@@ -185,16 +185,10 @@ resources:
           name: customer_features
           on_behalf_of_user: false
         description: "Customer 360 features per loyalty member: tier, RFM, brand/category preferences, price tolerance, redemption history, promo response rate."
-      - table:
-          schema: *loyalty_schema
-          name: receipts
-          on_behalf_of_user: false
-        description: "Receipt headers (channel, store, basket total, promo flag)."
-      - table:
-          schema: *loyalty_schema
-          name: receipt_lines
-          on_behalf_of_user: false
-        description: "Receipt line items (SKU, brand, category, qty, price, line discount). Joins to receipts via receipt_id."
+      # receipts + receipt_lines are intentionally NOT exposed to Genie:
+      # they're the raw transactional source for the customer_features
+      # aggregate and add little value to cross-segment analytics. Dropping
+      # them keeps the app under the Apps 20-resource budget.
       - table:
           schema: *loyalty_schema
           name: redemptions
