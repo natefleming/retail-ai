@@ -41,7 +41,7 @@ from langchain_core.messages import (
 )
 from langgraph.errors import GraphInterrupt
 from langgraph.graph.state import CompiledStateGraph
-from langgraph.types import Interrupt, StateSnapshot
+from langgraph.types import Command, Interrupt, StateSnapshot
 from loguru import logger
 from mlflow import MlflowClient
 from mlflow.pyfunc import ChatAgent, ChatModel, ResponsesAgent
@@ -66,6 +66,7 @@ from mlflow.types.responses_helpers import (
 )
 from pydantic import BaseModel, Field, create_model
 
+from dao_ai.hitl import decide_graph_turn
 from dao_ai.messages import (
     has_langchain_messages,
     has_mlflow_messages,
@@ -1045,8 +1046,6 @@ class LanggraphResponsesAgent(ResponsesAgent):
                   arguments: {...}
                   description: "..."
         """
-        from langgraph.types import Command
-
         # Extract conversation_id for logging
         conversation_id_for_log: str | None = None
         if request.context and hasattr(request.context, "conversation_id"):
@@ -1091,123 +1090,30 @@ class LanggraphResponsesAgent(ResponsesAgent):
         session_input: dict[str, Any] = self._extract_session_from_request(request)
 
         try:
-            # Check if this is a resume request (HITL)
-            if request.custom_inputs and "decisions" in request.custom_inputs:
-                # Explicit structured decisions
-                decisions: list[Decision] = request.custom_inputs["decisions"]
-                logger.info(
-                    "HITL: Resuming with explicit decisions",
-                    decisions_count=len(decisions),
-                )
+            turn = await decide_graph_turn(
+                graph=self.graph,
+                messages=messages,
+                custom_inputs=request.custom_inputs,
+                runtime_config=custom_inputs,
+                session_input=session_input,
+            )
 
-                # Resume interrupted graph with decisions
+            if turn.should_skip_graph:
+                response = {
+                    "messages": [
+                        AIMessage(
+                            content=f"❌ **Invalid Response**\n\n{turn.validation_error_message}"
+                        )
+                    ]
+                }
+            else:
                 response = await self.graph.ainvoke(
-                    Command(resume={"decisions": decisions}),
+                    turn.stream_input,
                     context=context,
                     config=custom_inputs,
                 )
                 logger.debug(
-                    "HITL: ainvoke resume response received",
-                    response_keys=list(response.keys())
-                    if isinstance(response, dict)
-                    else type(response).__name__,
-                    has_interrupt="__interrupt__" in response
-                    if isinstance(response, dict)
-                    else False,
-                )
-            elif self.graph.checkpointer:
-                # Check if graph is currently interrupted
-                snapshot: StateSnapshot = await self.graph.aget_state(
-                    config=custom_inputs
-                )
-                if is_interrupted(snapshot):
-                    logger.info("HITL: Graph interrupted, checking for user response")
-
-                    # Convert message dicts to BaseMessage objects
-                    message_objects: list[BaseMessage] = convert_openai_messages(
-                        messages
-                    )
-
-                    # Parse user's message with LLM to extract decisions
-                    parsed_result: dict[str, Any] = handle_interrupt_response(
-                        snapshot=snapshot,
-                        messages=message_objects,
-                        model=None,
-                    )
-
-                    if not parsed_result.get("is_valid", False):
-                        validation_message: str = parsed_result.get(
-                            "validation_message",
-                            "Your response was unclear. Please provide a clear decision for each action.",
-                        )
-                        logger.warning(
-                            "HITL: Invalid response from user",
-                            validation_message=validation_message,
-                        )
-
-                        # Return error message without resuming
-                        response = {
-                            "messages": [
-                                AIMessage(
-                                    content=f"❌ **Invalid Response**\n\n{validation_message}"
-                                )
-                            ]
-                        }
-                    else:
-                        decisions = parsed_result.get("decisions", [])
-                        logger.info(
-                            "HITL: LLM parsed valid decisions from user message",
-                            decisions_count=len(decisions),
-                        )
-
-                        # Resume interrupted graph with parsed decisions
-                        response = await self.graph.ainvoke(
-                            Command(resume={"decisions": decisions}),
-                            context=context,
-                            config=custom_inputs,
-                        )
-                        logger.debug(
-                            "HITL: ainvoke LLM-parsed resume response received",
-                            response_keys=list(response.keys())
-                            if isinstance(response, dict)
-                            else type(response).__name__,
-                            has_interrupt="__interrupt__" in response
-                            if isinstance(response, dict)
-                            else False,
-                        )
-                else:
-                    # Normal invocation
-                    graph_input: dict[str, Any] = {"messages": messages}
-                    if "genie_conversation_ids" in session_input:
-                        graph_input["genie_conversation_ids"] = session_input[
-                            "genie_conversation_ids"
-                        ]
-
-                    response = await self.graph.ainvoke(
-                        graph_input, context=context, config=custom_inputs
-                    )
-                    logger.debug(
-                        "HITL: ainvoke response received",
-                        response_keys=list(response.keys())
-                        if isinstance(response, dict)
-                        else type(response).__name__,
-                        has_interrupt="__interrupt__" in response
-                        if isinstance(response, dict)
-                        else False,
-                    )
-            else:
-                # No checkpointer, use normal invocation
-                graph_input = {"messages": messages}
-                if "genie_conversation_ids" in session_input:
-                    graph_input["genie_conversation_ids"] = session_input[
-                        "genie_conversation_ids"
-                    ]
-
-                response = await self.graph.ainvoke(
-                    graph_input, context=context, config=custom_inputs
-                )
-                logger.debug(
-                    "HITL: ainvoke response received (no checkpointer)",
+                    "HITL: ainvoke response received",
                     response_keys=list(response.keys())
                     if isinstance(response, dict)
                     else type(response).__name__,
@@ -1376,8 +1282,6 @@ class LanggraphResponsesAgent(ResponsesAgent):
         Uses same input/output structure as apredict() for consistency.
         Supports Human-in-the-Loop (HITL) interrupts.
         """
-        from langgraph.types import Command
-
         # Extract conversation_id for logging
         conversation_id_for_log: str | None = None
         if request.context and hasattr(request.context, "conversation_id"):
@@ -1429,85 +1333,32 @@ class LanggraphResponsesAgent(ResponsesAgent):
         structured_response: Any = None
 
         try:
-            # Check if this is a resume request (HITL)
-            if request.custom_inputs and "decisions" in request.custom_inputs:
-                decisions: list[Decision] = request.custom_inputs["decisions"]
-                logger.info(
-                    "HITL: Resuming stream with explicit decisions",
-                    decisions_count=len(decisions),
+            turn = await decide_graph_turn(
+                graph=self.graph,
+                messages=messages,
+                custom_inputs=request.custom_inputs,
+                runtime_config=custom_inputs,
+                session_input=session_input,
+            )
+
+            if turn.should_skip_graph:
+                custom_outputs: dict[str, Any] = await self._build_custom_outputs_async(
+                    context=context,
+                    thread_id=context.thread_id,
                 )
-                stream_input: Command | dict[str, Any] = Command(
-                    resume={"decisions": decisions}
+                error_message: str = (
+                    f"❌ **Invalid Response**\n\n{turn.validation_error_message}"
                 )
-            elif self.graph.checkpointer:
-                snapshot: StateSnapshot = await self.graph.aget_state(
-                    config=custom_inputs
+                yield ResponsesAgentStreamEvent(
+                    type="response.output_item.done",
+                    item=self.create_text_output_item(
+                        text=error_message, id=item_id
+                    ),
+                    custom_outputs=custom_outputs,
                 )
-                if is_interrupted(snapshot):
-                    logger.info(
-                        "HITL: Graph interrupted, checking for user response in stream"
-                    )
+                return
 
-                    message_objects: list[BaseMessage] = convert_openai_messages(
-                        messages
-                    )
-
-                    parsed_result: dict[str, Any] = handle_interrupt_response(
-                        snapshot=snapshot,
-                        messages=message_objects,
-                        model=None,
-                    )
-
-                    if not parsed_result.get("is_valid", False):
-                        validation_message: str = parsed_result.get(
-                            "validation_message",
-                            "Your response was unclear. Please provide a clear decision for each action.",
-                        )
-                        logger.warning(
-                            "HITL: Invalid response from user in stream",
-                            validation_message=validation_message,
-                        )
-
-                        custom_outputs: dict[
-                            str, Any
-                        ] = await self._build_custom_outputs_async(
-                            context=context,
-                            thread_id=context.thread_id,
-                        )
-
-                        error_message: str = (
-                            f"❌ **Invalid Response**\n\n{validation_message}"
-                        )
-                        yield ResponsesAgentStreamEvent(
-                            type="response.output_item.done",
-                            item=self.create_text_output_item(
-                                text=error_message, id=item_id
-                            ),
-                            custom_outputs=custom_outputs,
-                        )
-                        return
-
-                    decisions = parsed_result.get("decisions", [])
-                    logger.info(
-                        "HITL: LLM parsed valid decisions from user message in stream",
-                        decisions_count=len(decisions),
-                    )
-
-                    stream_input = Command(resume={"decisions": decisions})
-                else:
-                    graph_input: dict[str, Any] = {"messages": messages}
-                    if "genie_conversation_ids" in session_input:
-                        graph_input["genie_conversation_ids"] = session_input[
-                            "genie_conversation_ids"
-                        ]
-                    stream_input = graph_input
-            else:
-                graph_input = {"messages": messages}
-                if "genie_conversation_ids" in session_input:
-                    graph_input["genie_conversation_ids"] = session_input[
-                        "genie_conversation_ids"
-                    ]
-                stream_input = graph_input
+            stream_input: Command | dict[str, Any] = turn.stream_input
 
             # Stream the graph execution
             try:
