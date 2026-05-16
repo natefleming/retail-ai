@@ -1,0 +1,95 @@
+# yaml-language-server: $schema=../../../schemas/model_config_schema.json
+#
+# Long-running variant of the A2A demo: ``app.long_running`` is configured
+# with a Lakebase autoscaling project, which (via ``a2a.task_store: auto``)
+# routes the A2A TaskStore through ``LakebaseTaskStore`` instead of the
+# in-memory default. Every ``message/send`` persists a task row in the
+# ``dao_ai_a2a_tasks`` Lakebase table; ``tasks/get`` round-trips through
+# the same row. State survives worker restarts and is shared across
+# replicas.
+#
+# Auth: ambient. The Databricks Apps runtime gives the app's service
+# principal access to the bound Lakebase project automatically, so no
+# client_id / client_secret / OBO declaration is needed on the
+# DatabaseModel for the task-store path. (For OBO at the LLM layer, see
+# the per-resource ``on_behalf_of_user: true`` on ``default_llm``.)
+
+resources:
+  models:
+    default_llm: &default_llm
+      name: databricks-gpt-5-4-mini
+      on_behalf_of_user: true
+
+  databases:
+    a2a_demo_db: &a2a_demo_db
+      name: dao-ai-a2a-demo
+      project: dao-ai-a2a-demo
+      description: Lakebase project for A2A task persistence + LangGraph checkpointer.
+
+tools:
+  current_time: &current_time
+    name: current_time
+    function:
+      type: python
+      name: dao_ai.tools.current_time_tool
+      human_in_the_loop:
+        review_prompt: |
+          Long-running A2A demo: approve / edit / reject the current_time call.
+          The Task lifecycle (including this input-required state) is
+          persisted in the Lakebase ``dao_ai_a2a_tasks`` table, so
+          ``tasks/get`` works across worker restarts.
+        allowed_decisions: [approve, edit, reject]
+
+  say_hello: &say_hello
+    name: say_hello
+    function:
+      type: python
+      name: dao_ai.tools.say_hello_tool
+      human_in_the_loop:
+        review_prompt: |
+          Long-running A2A demo: approve / edit / reject the say_hello call.
+        allowed_decisions: [approve, edit, reject]
+
+agents:
+  hitl_obo_agent: &hitl_obo_agent
+    name: hitl_obo_agent
+    description: Demo agent showing live HITL + OBO + Lakebase-persisted A2A tasks.
+    model: *default_llm
+    tools:
+      - *current_time
+      - *say_hello
+    prompt: |
+      You are a demo agent. You have two tools (current_time and
+      say_hello) — both are tagged for human-in-the-loop review. When
+      the user asks for the time or asks you to say hello, ALWAYS call
+      the tool (do not answer from memory). The system will pause and
+      ask the caller to approve. Keep responses short.
+
+memory: &memory
+  # Postgres-backed checkpointer reuses the same Lakebase project as the
+  # A2A task store — single connection pool via AsyncPostgresPoolManager.
+  checkpointer:
+    name: a2a_demo_checkpointer
+    database: *a2a_demo_db
+
+app:
+  name: a2a-long-running
+  description: dao-ai A2A demo with Lakebase-persisted Tasks + HITL + OBO.
+  log_level: INFO
+  deployment_target: apps
+  on_behalf_of_user: true
+  agents:
+    - *hitl_obo_agent
+  orchestration:
+    memory: *memory
+  # Lakebase-backed A2A task store + Responses long-running, sharing one
+  # DatabaseModel.
+  long_running:
+    database: *a2a_demo_db
+  a2a:
+    enabled: true
+    # ``auto`` picks lakebase because app.long_running is set above.
+    # Equivalent to ``task_store: lakebase`` here; auto is the idiomatic
+    # spelling.
+    task_store: auto
+    tasks_table_name: dao_ai_a2a_tasks
