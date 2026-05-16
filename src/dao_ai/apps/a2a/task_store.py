@@ -1,0 +1,209 @@
+"""A2A :class:`TaskStore` implementations for dao-ai.
+
+Two stores:
+
+* :class:`a2a.server.tasks.InMemoryTaskStore` (from a2a-sdk) — process-local,
+  tasks lost on restart.
+* :class:`LakebaseTaskStore` — persists tasks in Lakebase (or any Postgres),
+  reusing the same :class:`AsyncPostgresPoolManager` pool the LangGraph
+  checkpointer and :class:`dao_ai.long_running.LongRunningStore` use. This
+  lets A2A tasks survive worker restarts and stay consistent across replicas.
+
+Selection is driven by :func:`build_task_store`, which honors
+``config.app.a2a.task_store`` (``auto`` | ``in_memory`` | ``lakebase``).
+"""
+
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Optional
+
+from a2a.server.tasks import InMemoryTaskStore, TaskStore
+from a2a.types import Task
+from loguru import logger
+from psycopg.rows import dict_row
+from psycopg.types.json import Json
+
+from dao_ai.long_running.store import _valid_identifier  # reuse the validator
+from dao_ai.memory.postgres import AsyncPostgresPoolManager
+
+if TYPE_CHECKING:
+    from a2a.server.context import ServerCallContext
+
+    from dao_ai.config import AppConfig, DatabaseModel
+
+
+class LakebaseTaskStore(TaskStore):
+    """Persist A2A :class:`Task` objects in a Lakebase (Postgres) table.
+
+    Shares the connection pool with :class:`dao_ai.long_running.LongRunningStore`
+    and the LangGraph Postgres checkpointer via
+    :class:`dao_ai.memory.postgres.AsyncPostgresPoolManager`, so there is no
+    additional connection footprint when ``app.long_running`` is also
+    configured.
+
+    The table is created idempotently on first use via :meth:`ensure_schema`.
+    """
+
+    def __init__(
+        self,
+        database: "DatabaseModel",
+        *,
+        table_name: str = "dao_ai_a2a_tasks",
+    ) -> None:
+        self.database = database
+        self.table_name = _valid_identifier(table_name)
+        self._schema_ready = False
+
+    async def _pool(self):
+        return await AsyncPostgresPoolManager.get_pool(self.database)
+
+    async def ensure_schema(self) -> None:
+        """Create the tasks table + indexes if they don't exist."""
+        if self._schema_ready:
+            return
+
+        ddl_tasks = f"""
+        CREATE TABLE IF NOT EXISTS {self.table_name} (
+            task_id    TEXT PRIMARY KEY,
+            context_id TEXT NOT NULL,
+            state      TEXT NOT NULL,
+            task_json  JSONB NOT NULL,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )
+        """
+        ddl_idx_ctx = (
+            f"CREATE INDEX IF NOT EXISTS idx_{self.table_name}_context_id "
+            f"ON {self.table_name} (context_id)"
+        )
+        ddl_idx_upd = (
+            f"CREATE INDEX IF NOT EXISTS idx_{self.table_name}_updated_at "
+            f"ON {self.table_name} (updated_at)"
+        )
+
+        pool = await self._pool()
+        async with pool.connection() as conn:
+            async with conn.cursor() as cur:
+                await cur.execute(ddl_tasks)
+                await cur.execute(ddl_idx_ctx)
+                await cur.execute(ddl_idx_upd)
+            await conn.commit()
+
+        self._schema_ready = True
+        logger.info(
+            "A2A task store schema ready",
+            table=self.table_name,
+            database=self.database.name,
+        )
+
+    async def save(
+        self,
+        task: Task,
+        context: "Optional[ServerCallContext]" = None,
+    ) -> None:
+        """Upsert a task by ``task_id``."""
+        await self.ensure_schema()
+        sql = f"""
+        INSERT INTO {self.table_name} (task_id, context_id, state, task_json)
+        VALUES (%s, %s, %s, %s)
+        ON CONFLICT (task_id) DO UPDATE
+            SET context_id = EXCLUDED.context_id,
+                state      = EXCLUDED.state,
+                task_json  = EXCLUDED.task_json,
+                updated_at = NOW()
+        """
+        pool = await self._pool()
+        async with pool.connection() as conn:
+            async with conn.cursor() as cur:
+                await cur.execute(
+                    sql,
+                    (
+                        task.id,
+                        task.context_id,
+                        task.status.state.value,
+                        Json(task.model_dump(mode="json")),
+                    ),
+                )
+            await conn.commit()
+
+    async def get(
+        self,
+        task_id: str,
+        context: "Optional[ServerCallContext]" = None,
+    ) -> Task | None:
+        await self.ensure_schema()
+        sql = f"SELECT task_json FROM {self.table_name} WHERE task_id = %s"
+        pool = await self._pool()
+        async with pool.connection() as conn:
+            async with conn.cursor(row_factory=dict_row) as cur:
+                await cur.execute(sql, (task_id,))
+                row = await cur.fetchone()
+        if row is None:
+            return None
+        return Task.model_validate(row["task_json"])
+
+    async def delete(
+        self,
+        task_id: str,
+        context: "Optional[ServerCallContext]" = None,
+    ) -> None:
+        await self.ensure_schema()
+        sql = f"DELETE FROM {self.table_name} WHERE task_id = %s"
+        pool = await self._pool()
+        async with pool.connection() as conn:
+            async with conn.cursor() as cur:
+                await cur.execute(sql, (task_id,))
+            await conn.commit()
+
+
+def build_task_store(config: "AppConfig") -> TaskStore:
+    """Pick a :class:`TaskStore` based on config.
+
+    Resolution:
+
+    * ``app.a2a.task_store == "in_memory"`` → :class:`InMemoryTaskStore`.
+    * ``app.a2a.task_store == "lakebase"`` → :class:`LakebaseTaskStore`
+      against ``app.long_running.database``. Raises if ``app.long_running``
+      is unset.
+    * ``app.a2a.task_store == "auto"`` (default) →
+      :class:`LakebaseTaskStore` when ``app.long_running`` is configured,
+      :class:`InMemoryTaskStore` otherwise.
+    """
+    from dao_ai.apps.a2a.agent_card import effective_a2a
+
+    a2a = effective_a2a(config)
+    long_running = config.app.long_running if config.app else None
+
+    if a2a.task_store == "in_memory":
+        logger.info("A2A task store: in-memory (explicit)")
+        return InMemoryTaskStore()
+
+    if a2a.task_store == "lakebase":
+        if long_running is None:
+            raise ValueError(
+                "app.a2a.task_store='lakebase' requires app.long_running "
+                "to be configured (the database is shared)."
+            )
+        logger.info(
+            "A2A task store: Lakebase (explicit)",
+            table=a2a.tasks_table_name,
+            database=long_running.database.name,
+        )
+        return LakebaseTaskStore(
+            database=long_running.database,
+            table_name=a2a.tasks_table_name,
+        )
+
+    # auto
+    if long_running is not None:
+        logger.info(
+            "A2A task store: Lakebase (auto — app.long_running is set)",
+            table=a2a.tasks_table_name,
+            database=long_running.database.name,
+        )
+        return LakebaseTaskStore(
+            database=long_running.database,
+            table_name=a2a.tasks_table_name,
+        )
+    logger.info("A2A task store: in-memory (auto — app.long_running not set)")
+    return InMemoryTaskStore()
