@@ -149,18 +149,25 @@ def message_stream(client: httpx.Client, base_url: str, text: str) -> list[dict]
     return events
 
 
-def hitl_round_trip(client: httpx.Client, base_url: str) -> None:
+def hitl_round_trip(client: httpx.Client, base_url: str, prompt: str | None = None) -> None:
     """Run a HITL flow: send → if input-required, resume via DataPart decisions.
 
     Whether your agent actually emits an interrupt depends on its tools and
     middleware; this demo just shows the wire shape. If the first
     ``message/send`` completes immediately, we print that and skip the
     resume step.
+
+    For agents whose tools are tagged ``human_in_the_loop`` (see
+    ``config/examples/20_a2a_protocol/a2a_hitl_obo.yaml``), supply a
+    prompt that forces a tool call — e.g. ``--hitl-message "What time is it?"``
+    on the demo HITL+OBO agent.
     """
+    text = prompt or "Run a task that requires my approval before continuing."
     print(f"\n[4/4] HITL demo (interrupt → input-required → resume)")
+    print(f"      prompt: {text!r}")
     payload = _jsonrpc(
         "message/send",
-        _text_message("Run a task that requires my approval before continuing."),
+        _text_message(text),
     )
     resp = client.post(f"{base_url}/a2a", json=payload)
     resp.raise_for_status()
@@ -215,6 +222,16 @@ def main() -> int:
         default="Say hi in one sentence.",
         help="Text payload for the message/send and message/stream calls",
     )
+    parser.add_argument(
+        "--hitl-message",
+        default=None,
+        help=(
+            "Prompt for the HITL probe. Set to something that forces the "
+            "agent to call a HITL-tagged tool, e.g. 'What time is it?' for "
+            "the a2a_hitl_obo demo. Defaults to a generic 'requires my "
+            "approval' prompt."
+        ),
+    )
     args = parser.parse_args()
 
     headers: dict[str, str] = {}
@@ -229,7 +246,7 @@ def main() -> int:
         if not args.skip_stream:
             message_stream(client, base_url, args.message)
         if not args.skip_hitl:
-            hitl_round_trip(client, base_url)
+            hitl_round_trip(client, base_url, prompt=args.hitl_message)
 
     print("\n✓ Done.")
     return 0
