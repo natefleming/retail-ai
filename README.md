@@ -49,6 +49,8 @@ DAO AI Builder generates valid YAML configurations that work seamlessly with thi
 - **[Key Capabilities](docs/key-capabilities.md)** - Explore 15 powerful features for production agents
 - **[Configuration Reference](docs/configuration-reference.md)** - Complete YAML configuration guide
 - **[Examples](docs/examples.md)** - Ready-to-use example configurations
+- **[A2A Protocol](docs/a2a_protocol.md)** - Google Agent2Agent endpoints on every Apps deployment
+- **[Long-Running Agents](docs/long_running_agents.md)** - kickoff/poll/cancel for multi-minute graph runs
 
 ### Reference
 - **[CLI Reference](docs/cli-reference.md)** - Command-line interface documentation

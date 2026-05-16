@@ -2085,6 +2085,65 @@ end-to-end demo notebook.
 
 ---
 
+## 19. Google A2A (Agent2Agent) Protocol Support
+
+**What is this?** Every dao-ai agent deployed to **Databricks Apps**
+automatically exposes a fully [A2A v0.3-compliant](https://a2a-protocol.org)
+endpoint *alongside* the existing OpenAI Responses contract — same agent,
+same LangGraph, same checkpointer, two protocols on one FastAPI app.
+
+**Why this matters:**
+- **Ecosystem interop.** Once your agent speaks A2A, any A2A-aware client
+  (LangChain, AutoGen, Strands, OpenAI Agents SDK, custom Python clients)
+  can discover and call it without bespoke glue.
+- **Zero config to enable.** A2A is on by default when
+  `app.deployment_target: apps`. Set `app.a2a.enabled: false` to opt out.
+- **Same dao-ai capabilities, exposed on a different wire.** HITL, OBO,
+  conversation history (`thread_id`↔`contextId`), custom inputs (via
+  `DataPart`), and long-running task persistence (via Lakebase-backed
+  `TaskStore`) all flow through A2A unchanged.
+- **No duplication.** The HITL decision logic is shared between the
+  Responses and A2A paths via a common helper (`dao_ai.hitl.decide_graph_turn`),
+  so the two contracts cannot drift.
+
+**What you get on every Apps deployment:**
+- `GET  /.well-known/agent-card.json` — discovery card with skills,
+  capabilities, and security schemes auto-derived from your config.
+- `POST /a2a` — JSON-RPC 2.0 implementing `message/send`, `message/stream`
+  (SSE), `tasks/get`, `tasks/list`, `tasks/cancel`, `tasks/subscribe`.
+
+**Minimal config:**
+
+```yaml
+app:
+  name: my_agent
+  description: My agent's job
+  deployment_target: apps
+  agents: [*my_agent]
+  # No app.a2a block required — A2A is on by default with sensible
+  # defaults. To customise:
+  # a2a:
+  #   task_store: auto                # auto | in_memory | lakebase
+  #   skills: [...]                   # override Agent Card skills
+  #   security_schemes: {...}         # override Agent Card security
+```
+
+**Documentation:**
+- **[A2A Protocol Support](a2a_protocol.md)** — full reference covering
+  the wire mappings, configuration surface, HITL/OBO semantics, task
+  store selection, and scope of v0.3 compliance.
+
+**Example:** [`config/examples/20_a2a_protocol/a2a_minimal.yaml`](../config/examples/20_a2a_protocol/a2a_minimal.yaml)
+is a deploy-ready, dependency-free A2A agent; [`examples/a2a/client.py`](../examples/a2a/client.py)
+is an end-to-end Python A2A client that exercises agent card, message/send,
+message/stream, and HITL resume.
+
+> ⚠️ **Apps-only.** The Databricks Model Serving runtime can only route
+> `/invocations`, so A2A is not available on Model Serving deployments.
+> Model Serving keeps the OpenAI Responses contract unchanged.
+
+---
+
 ## Navigation
 
 - [← Previous: Architecture](architecture.md)

@@ -1,0 +1,225 @@
+# Google A2A (Agent2Agent) Protocol Support
+
+## Overview
+
+dao-ai agents deployed to **Databricks Apps** automatically expose
+[Google's A2A v0.3 protocol](https://a2a-protocol.org) alongside the
+existing OpenAI Responses contract. The same agent — same configuration,
+same LangGraph, same checkpointer — answers both protocols on the same
+FastAPI app:
+
+| Route                                 | Protocol                                 |
+| ------------------------------------- | ---------------------------------------- |
+| `POST /invocations`                   | MLflow Responses (OpenAI-style)          |
+| `POST /v1/responses*`                 | OpenAI Responses long-running (opt-in)   |
+| `POST /v1/chat/completions`           | OpenAI Chat Completions proxy            |
+| **`GET  /.well-known/agent-card.json`** | **A2A Agent Card discovery**           |
+| **`POST /a2a`**                       | **A2A JSON-RPC 2.0 (message/send, message/stream, tasks/get, tasks/list, tasks/cancel)** |
+
+Model Serving deployments only mount `/invocations` — A2A is Apps-only
+because the MLflow Model Serving runtime cannot serve arbitrary routes.
+
+A2A is **enabled by default** on every Databricks Apps deployment. No
+config change is required; opt out via `app.a2a.enabled: false`.
+
+## Why A2A?
+
+A2A is the open, vendor-neutral protocol for agent-to-agent collaboration
+governed by the Linux Foundation. Once an agent speaks A2A, it can:
+
+- Be discovered automatically by any A2A-aware client (via the well-known
+  Agent Card).
+- Stream task progress over Server-Sent Events.
+- Resume from human-in-the-loop interrupts using the same `taskId`.
+- Participate in multi-agent workflows alongside agents built on other
+  stacks (LangGraph, AutoGen, OpenAI Agents SDK, Strands, etc.).
+
+## What you get out of the box
+
+When you set `app.deployment_target: apps` and deploy, your agent's
+Agent Card automatically advertises:
+
+- **`name`** — `app.name`.
+- **`description`** — `app.description`.
+- **`url`** — `$DATABRICKS_APP_URL/a2a` if the env var is set, otherwise
+  the relative path `/a2a`.
+- **`skills`** — one [`AgentSkill`](https://a2a-protocol.org) per entry
+  in `app.agents`. Each sub-agent's `name` and `description` are
+  surfaced verbatim.
+- **`securitySchemes`** — a single `bearer` HTTP scheme. The
+  `bearerFormat` description is conditioned on `app.on_behalf_of_user`
+  to tell A2A clients whether the deployment supports OBO.
+- **`capabilities`** — streaming enabled, state transition history
+  enabled, push notifications disabled.
+
+Every field is overridable from config. See [Configuration](#configuration).
+
+## Configuration
+
+A minimal config that enables A2A (and gets sensible defaults for
+everything):
+
+```yaml
+app:
+  name: my_agent
+  description: My helpful assistant.
+  deployment_target: apps
+  agents:
+    - *my_agent
+```
+
+Yes, that's it. `app.a2a` is implicitly enabled.
+
+To customise:
+
+```yaml
+app:
+  name: my_agent
+  description: My helpful assistant.
+  deployment_target: apps
+  on_behalf_of_user: true                # advisory hint; surfaces in Agent Card
+  a2a:
+    enabled: true                        # default; set false to skip mounting
+    server_url: null                     # default: derive from $DATABRICKS_APP_URL
+    task_store: auto                     # auto | in_memory | lakebase
+    tasks_table_name: dao_ai_a2a_tasks   # Lakebase table name when task_store resolves to lakebase
+    default_input_modes: [text/plain, application/json]
+    default_output_modes: [text/plain, application/json]
+    skills:                              # default: derive from app.agents
+      - id: classify
+        name: Classify
+        description: Classify customer emails into categories.
+        tags: [email, classification]
+        examples:
+          - Is this an urgent support request?
+    security_schemes:                    # default: bearer
+      databricks_oauth:
+        type: oauth2
+        flows:
+          authorizationCode:
+            authorizationUrl: https://<workspace>.cloud.databricks.com/oidc/v1/authorize
+            tokenUrl:         https://<workspace>.cloud.databricks.com/oidc/v1/token
+            scopes:
+              all-apis: Call all Databricks workspace APIs
+  agents:
+    - *my_agent
+```
+
+## Semantic mappings
+
+dao-ai's existing capabilities flow through A2A without any agent-side
+changes. The mapping is:
+
+| dao-ai concept                                  | A2A concept                                        |
+| ----------------------------------------------- | -------------------------------------------------- |
+| `thread_id` / `conversation_id`                 | `contextId`                                        |
+| In-flight invocation                            | `Task` (`taskId`)                                  |
+| LangGraph `interrupt()` raised                  | `TaskStatusUpdateEvent(state=INPUT_REQUIRED, final=True)` with payload as `DataPart` |
+| `custom_inputs["decisions"]: list[Decision]`    | Resume `Message` carrying `DataPart` `{"decisions": [...]}` |
+| Free-text resume (existing LLM-parser path)     | Resume `Message` with only a `TextPart` — `handle_interrupt_response()` parses it the same way |
+| `custom_inputs` (arbitrary dict)                | `DataPart` on inbound `Message`                    |
+| OBO via `x-forwarded-access-token`              | Read from request headers; injected into `configurable.headers` (same as Responses path) |
+| Structured agent output                         | `TaskArtifactUpdateEvent` with `DataPart`          |
+| Streamed AIMessage chunks                       | `TaskStatusUpdateEvent(state=WORKING)`             |
+| Terminal AIMessage                              | `TaskStatusUpdateEvent(state=COMPLETED, final=True)` + final `TaskArtifactUpdateEvent` |
+
+## Task persistence
+
+The A2A `Task` lifecycle is a separate concept from the LangGraph
+conversation state. dao-ai picks where to store the task lifecycle
+metadata based on `app.a2a.task_store`:
+
+| Setting       | Behavior                                                                                                                            |
+| ------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| `auto` (default) | **Lakebase-backed** when `app.long_running` is configured (reuses the same `DatabaseModel` + pool). **In-memory** otherwise.    |
+| `in_memory`   | Process-local. Tasks survive within a worker; lost on restart. Best for short-task demos.                                            |
+| `lakebase`    | Always Lakebase-backed. Requires `app.long_running` to be set; raises at startup otherwise.                                          |
+
+The Lakebase-backed store ships a `dao_ai_a2a_tasks` table (rename via
+`a2a.tasks_table_name`) with `task_id PRIMARY KEY`, `context_id`,
+lifecycle `state`, the full task JSON, and `created_at` / `updated_at`
+timestamps. It shares the connection pool with `LongRunningStore` and
+the LangGraph Postgres checkpointer, so no additional connection
+footprint when long-running is also enabled.
+
+## HITL over A2A
+
+The dao-ai HITL contract is preserved over A2A unchanged:
+
+1. The agent reaches a LangGraph `interrupt()` mid-execution.
+2. A2A emits a terminal `TaskStatusUpdateEvent` with
+   `state=INPUT_REQUIRED`. The `status.message` body contains a
+   `DataPart` with `{"interrupts": [...]}` so machine clients can act
+   on it programmatically.
+3. The client supplies the resume payload by sending another
+   `message/send` for the same `taskId` + `contextId`. Two shapes work:
+   * **Structured**: a `DataPart` with
+     `{"decisions": [{"type": "approve"}, ...]}` — bypasses the LLM
+     parser and is the canonical machine-to-machine contract.
+   * **Free-text**: a `TextPart` carrying a natural-language response.
+     dao-ai's `handle_interrupt_response()` LLM parser converts it to
+     decisions, same as on the Responses path.
+4. The agent resumes with `Command(resume={"decisions": ...})` and
+   transitions back to `WORKING`, eventually `COMPLETED`.
+
+## OBO over A2A
+
+Databricks Apps forwards the caller's bearer token via the
+`x-forwarded-access-token` header. dao-ai's A2A executor reads it from
+the FastAPI request (via a2a-sdk's `DefaultCallContextBuilder`) and
+injects it into `configurable.headers`, exactly mirroring the
+Responses-path handler. Downstream tools (UC functions, Vector Search,
+Genie, model invocations) that have `on_behalf_of_user: true` see the
+end-user's token unchanged.
+
+To advertise OBO on the Agent Card, either:
+* set `app.on_behalf_of_user: true` (the bearer scheme's description
+  will mention OBO), or
+* set `app.a2a.security_schemes` to declare `oauth2` explicitly.
+
+## End-to-end example
+
+See `examples/a2a/client.py` for a Python script that:
+
+1. Fetches the Agent Card.
+2. Calls `message/send` and prints the artifact.
+3. Calls `message/stream` and prints each SSE event.
+4. Demonstrates a HITL flow: triggers an interrupt, then resumes with a
+   `DataPart` decisions payload.
+
+And `config/examples/20_a2a_protocol/a2a_minimal.yaml` for the deploy-
+ready agent config.
+
+## Disabling A2A
+
+```yaml
+app:
+  a2a:
+    enabled: false
+```
+
+This is the only knob that prevents the routes from being mounted. The
+A2A executor and task store are not constructed when disabled, so the
+opt-out is also a perf/cost-of-zero opt-out.
+
+## Spec compliance
+
+dao-ai targets [A2A v0.3](https://a2a-protocol.org) (matching the
+installed `a2a-sdk` 0.3.x pin in dao-ai's `pyproject.toml`). The
+implementation passes the protocol's mandatory verbs:
+
+* `message/send` (single-shot)
+* `message/stream` (SSE)
+* `tasks/get`
+* `tasks/list`
+* `tasks/cancel`
+* `tasks/subscribe`
+
+Out-of-scope for the initial release (defer to future work):
+
+* gRPC binding (HTTP + JSON-RPC over SSE is sufficient for v0.3 compliance).
+* Signed Agent Cards (an enterprise v1.0 feature; dao-ai pins to v0.3).
+* `FilePart` input/output (TextPart + DataPart are supported; FilePart
+  is currently ignored on input).
+* Bridging the A2A `taskId` to the dao-ai long-running `response_id` —
+  in Phase 1 they're parallel views over the same checkpointer state.
