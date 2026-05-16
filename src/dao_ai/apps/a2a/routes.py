@@ -73,11 +73,12 @@ def mount_a2a_routes(app: "FastAPI", config: "AppConfig") -> bool:
         rpc_url=DEFAULT_A2A_RPC_PATH,
     )
 
-    logger.info(
+    logger.success(
         "A2A routes mounted",
         agent_card_url=DEFAULT_AGENT_CARD_PATH,
         rpc_url=DEFAULT_A2A_RPC_PATH,
         skills_count=len(agent_card.skills),
         task_store_type=type(task_store).__name__,
+        security_schemes=list((agent_card.security_schemes or {}).keys()),
     )
     return True

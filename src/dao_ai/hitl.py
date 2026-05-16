@@ -150,4 +150,9 @@ async def decide_graph_turn(
     graph_input: dict[str, Any] = {"messages": messages}
     if "genie_conversation_ids" in session_input:
         graph_input["genie_conversation_ids"] = session_input["genie_conversation_ids"]
+    logger.trace(
+        "HITL: fresh graph invocation",
+        message_count=len(messages),
+        has_genie_session=("genie_conversation_ids" in session_input),
+    )
     return GraphTurn(graph_input=graph_input)

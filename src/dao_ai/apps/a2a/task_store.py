@@ -17,6 +17,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Optional
 
+import mlflow
 from a2a.server.tasks import InMemoryTaskStore, TaskStore
 from a2a.types import Task
 from loguru import logger
@@ -57,6 +58,7 @@ class LakebaseTaskStore(TaskStore):
     async def _pool(self):
         return await AsyncPostgresPoolManager.get_pool(self.database)
 
+    @mlflow.trace(name="a2a.task_store.ensure_schema", span_type="INTERNAL")
     async def ensure_schema(self) -> None:
         """Create the tasks table + indexes if they don't exist.
 
@@ -68,6 +70,11 @@ class LakebaseTaskStore(TaskStore):
         the agent SP can run with read/write-only privileges.
         """
         if self._schema_ready:
+            logger.trace(
+                "A2A task store schema cache hit; skipping probe",
+                table=self.table_name,
+                database=self.database.name,
+            )
             return
 
         pool = await self._pool()
@@ -120,13 +127,14 @@ class LakebaseTaskStore(TaskStore):
             await conn.commit()
 
         self._schema_ready = True
-        logger.info(
+        logger.success(
             "A2A task store schema ready",
             table=self.table_name,
             database=self.database.name,
             pre_existing=table_present,
         )
 
+    @mlflow.trace(name="a2a.task_store.save", span_type="INTERNAL")
     async def save(
         self,
         task: Task,
@@ -156,7 +164,15 @@ class LakebaseTaskStore(TaskStore):
                     ),
                 )
             await conn.commit()
+        logger.debug(
+            "A2A task persisted",
+            table=self.table_name,
+            task_id=task.id,
+            context_id=task.context_id,
+            state=task.status.state.value,
+        )
 
+    @mlflow.trace(name="a2a.task_store.get", span_type="INTERNAL")
     async def get(
         self,
         task_id: str,
@@ -170,9 +186,22 @@ class LakebaseTaskStore(TaskStore):
                 await cur.execute(sql, (task_id,))
                 row = await cur.fetchone()
         if row is None:
+            logger.trace(
+                "A2A task store miss",
+                table=self.table_name,
+                task_id=task_id,
+            )
             return None
-        return Task.model_validate(row["task_json"])
+        task = Task.model_validate(row["task_json"])
+        logger.trace(
+            "A2A task store hit",
+            table=self.table_name,
+            task_id=task_id,
+            state=task.status.state.value,
+        )
+        return task
 
+    @mlflow.trace(name="a2a.task_store.delete", span_type="INTERNAL")
     async def delete(
         self,
         task_id: str,
@@ -184,7 +213,14 @@ class LakebaseTaskStore(TaskStore):
         async with pool.connection() as conn:
             async with conn.cursor() as cur:
                 await cur.execute(sql, (task_id,))
+                rowcount = cur.rowcount
             await conn.commit()
+        logger.debug(
+            "A2A task deleted",
+            table=self.table_name,
+            task_id=task_id,
+            rowcount=rowcount,
+        )
 
 
 def build_task_store(config: "AppConfig") -> TaskStore:

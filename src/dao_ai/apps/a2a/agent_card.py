@@ -90,6 +90,11 @@ def _derive_skills(config: "AppConfig", a2a: "A2AModel") -> list[AgentSkill]:
       3. Single fallback skill named after ``config.app.name``.
     """
     if a2a.skills:
+        logger.trace(
+            "Agent Card skills from explicit override",
+            count=len(a2a.skills),
+            skill_ids=[s.id for s in a2a.skills],
+        )
         return [
             AgentSkill(
                 id=s.id,
@@ -130,10 +135,20 @@ def _derive_skills(config: "AppConfig", a2a: "A2AModel") -> list[AgentSkill]:
         )
 
     if derived:
+        logger.trace(
+            "Agent Card skills derived from sub-agents",
+            count=len(derived),
+            skill_ids=[s.id for s in derived],
+        )
         return derived
 
     # Last-resort fallback.
     name = config.app.name if config.app else "agent"
+    logger.warning(
+        "Agent Card skills fell back to single app-level entry",
+        app_name=name,
+        reason="no a2a.skills and no config.agents",
+    )
     return [
         AgentSkill(
             id=name,

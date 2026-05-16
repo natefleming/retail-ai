@@ -75,15 +75,29 @@ class A2AAgentExecutor(AgentExecutor):
     async def execute(
         self, context: RequestContext, event_queue: EventQueue
     ) -> None:
+        task_id = context.task_id
+        context_id = context.context_id
+        is_new_task = context.current_task is None
+        message_parts_count = (
+            len(context.message.parts) if context.message and context.message.parts else 0
+        )
+        logger.info(
+            "A2A: execute start",
+            task_id=task_id,
+            context_id=context_id,
+            new_task=is_new_task,
+            message_parts=message_parts_count,
+        )
+
         updater = TaskUpdater(
             event_queue,
-            task_id=context.task_id,
-            context_id=context.context_id,
+            task_id=task_id,
+            context_id=context_id,
         )
 
         # Surface a 'submitted' event for brand-new tasks so streaming
         # clients see the lifecycle start.
-        if context.current_task is None:
+        if is_new_task:
             await updater.submit()
         await updater.start_work()
 
@@ -93,6 +107,14 @@ class A2AAgentExecutor(AgentExecutor):
             runtime_config: dict[str, Any] = {
                 "configurable": dao_context.model_dump()
             }
+            logger.trace(
+                "A2A: request translated to graph input",
+                task_id=task_id,
+                context_id=context_id,
+                message_count=len(messages),
+                custom_input_keys=sorted(custom_inputs.keys()),
+                has_obo_headers=bool(dao_context.headers),
+            )
 
             turn = await decide_graph_turn(
                 graph=self.graph,
@@ -104,6 +126,12 @@ class A2AAgentExecutor(AgentExecutor):
             if turn.should_skip_graph:
                 # User's resume input couldn't be parsed; surface the
                 # validation message and complete without re-driving.
+                logger.warning(
+                    "A2A: validation_error short-circuit",
+                    task_id=task_id,
+                    context_id=context_id,
+                    message=turn.validation_error_message,
+                )
                 await updater.complete(
                     message=updater.new_agent_message(
                         parts=[
@@ -127,7 +155,11 @@ class A2AAgentExecutor(AgentExecutor):
                     config=runtime_config,
                 )
             except GraphInterrupt:
-                logger.info("A2A: GraphInterrupt raised mid-invocation")
+                logger.info(
+                    "A2A: GraphInterrupt raised mid-invocation",
+                    task_id=task_id,
+                    context_id=context_id,
+                )
                 if self.graph.checkpointer is not None:
                     snapshot = await self.graph.aget_state(config=runtime_config)
                     await self._emit_input_required(
@@ -138,13 +170,29 @@ class A2AAgentExecutor(AgentExecutor):
 
             interrupts = self._detect_interrupts_post_invoke(response, runtime_config)
             if interrupts:
+                logger.info(
+                    "A2A: interrupts detected post-invoke",
+                    task_id=task_id,
+                    context_id=context_id,
+                    interrupts_count=len(interrupts),
+                )
                 await self._emit_input_required(updater, interrupts)
                 return
 
             await self._emit_completed(updater, response)
+            logger.success(
+                "A2A: execute completed",
+                task_id=task_id,
+                context_id=context_id,
+            )
 
-        except Exception as exc:  # pragma: no cover — defensive
-            logger.exception("A2A executor error")
+        except Exception as exc:
+            logger.exception(
+                "A2A executor error",
+                task_id=task_id,
+                context_id=context_id,
+                error=str(exc),
+            )
             await updater.failed(
                 message=updater.new_agent_message(
                     parts=[Part(root=TextPart(text=f"Agent error: {exc}"))]
@@ -154,6 +202,11 @@ class A2AAgentExecutor(AgentExecutor):
     async def cancel(
         self, context: RequestContext, event_queue: EventQueue
     ) -> None:
+        logger.info(
+            "A2A: cancel requested",
+            task_id=context.task_id,
+            context_id=context.context_id,
+        )
         updater = TaskUpdater(
             event_queue,
             task_id=context.task_id,
@@ -255,6 +308,12 @@ class A2AAgentExecutor(AgentExecutor):
         """Emit a terminal ``input-required`` status with the interrupt
         payload as a ``DataPart`` for machine clients."""
         payload = [self._interrupt_to_dict(i) for i in interrupts]
+        logger.info(
+            "A2A: emitting input-required",
+            task_id=updater.task_id,
+            context_id=updater.context_id,
+            interrupts_count=len(payload),
+        )
         await updater.requires_input(
             message=updater.new_agent_message(
                 parts=[
@@ -316,6 +375,12 @@ class A2AAgentExecutor(AgentExecutor):
         if not parts:
             parts.append(Part(root=TextPart(text="")))
 
+        logger.debug(
+            "A2A: emitting terminal artifact",
+            task_id=updater.task_id,
+            context_id=updater.context_id,
+            part_kinds=[type(p.root).__name__ for p in parts],
+        )
         await updater.add_artifact(
             parts=parts,
             name="response",
