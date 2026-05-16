@@ -1,5 +1,181 @@
 {
   "$defs": {
+    "A2AModel": {
+      "additionalProperties": false,
+      "description": "Google A2A (Agent2Agent) protocol endpoint configuration.\n\nWhen ``app.a2a`` is unset OR ``app.a2a.enabled`` is True (the default),\nevery Databricks Apps deployment exposes:\n\n* ``GET  /.well-known/agent-card.json``  \u2014 Agent Card discovery.\n* ``POST /a2a``                          \u2014 JSON-RPC 2.0 (message/send,\n  message/stream, tasks/get, tasks/list, tasks/cancel, tasks/subscribe).\n\nThese run alongside the existing OpenAI Responses contract on\n``/invocations`` and ``/v1/responses*`` \u2014 both protocols share the same\nLangGraph instance via :meth:`AppConfig.as_graph` and the same\ncheckpointer, so conversations are consistent across contracts.\n\nSet ``enabled: false`` to skip mounting the A2A routes entirely.\n\nTask persistence is chosen via ``task_store``:\n* ``auto`` (default) \u2014 Lakebase-backed when ``app.long_running`` is set\n  (shares the same database + pool), in-memory otherwise.\n* ``in_memory`` \u2014 process-local; tasks lost on restart.\n* ``lakebase`` \u2014 Lakebase-backed; requires ``app.long_running``.\n\nSkills and security schemes are derived from the rest of the config\n(one skill per entry in ``config.agents``; ``oauth2`` when\n``on_behalf_of_user`` is True, else ``bearer``). Override either by\nsetting the field explicitly here.",
+      "properties": {
+        "enabled": {
+          "default": true,
+          "description": "When False, A2A routes are NOT mounted on the Databricks Apps FastAPI app.",
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "server_url": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Public base URL advertised on the Agent Card. If unset, derived from $DATABRICKS_APP_URL at startup; otherwise a relative '/a2a' URL is published.",
+          "title": "Server Url"
+        },
+        "skills": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/A2ASkillModel"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Overrides the Agent Card 'skills' list. When unset, one skill is derived per entry in config.agents.",
+          "title": "Skills"
+        },
+        "security_schemes": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Overrides the Agent Card 'securitySchemes'. Keys are scheme names; values are OpenAPI-style scheme dicts forwarded to a2a-sdk for validation. When unset, derived from app.on_behalf_of_user (oauth2 if True, bearer otherwise).",
+          "title": "Security Schemes"
+        },
+        "default_input_modes": {
+          "description": "Default supported input MIME types on the Agent Card.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Default Input Modes",
+          "type": "array"
+        },
+        "default_output_modes": {
+          "description": "Default supported output MIME types on the Agent Card.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Default Output Modes",
+          "type": "array"
+        },
+        "task_store": {
+          "default": "auto",
+          "description": "A2A task persistence strategy. See class docstring for the semantics.",
+          "enum": [
+            "auto",
+            "in_memory",
+            "lakebase"
+          ],
+          "title": "Task Store",
+          "type": "string"
+        },
+        "tasks_table_name": {
+          "default": "dao_ai_a2a_tasks",
+          "description": "Lakebase table name for A2A task persistence (used when task_store resolves to lakebase).",
+          "title": "Tasks Table Name",
+          "type": "string"
+        }
+      },
+      "title": "A2AModel",
+      "type": "object"
+    },
+    "A2ASkillModel": {
+      "additionalProperties": false,
+      "description": "Single skill advertised on the A2A Agent Card.",
+      "properties": {
+        "id": {
+          "description": "Stable skill identifier (often the sub-agent name).",
+          "title": "Id",
+          "type": "string"
+        },
+        "name": {
+          "description": "Human-readable skill name.",
+          "title": "Name",
+          "type": "string"
+        },
+        "description": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Short summary of what this skill does.",
+          "title": "Description"
+        },
+        "tags": {
+          "description": "Free-form tags shown on the Agent Card for skill discovery.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Tags",
+          "type": "array"
+        },
+        "examples": {
+          "description": "Example prompts illustrating how to invoke the skill.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Examples",
+          "type": "array"
+        },
+        "input_modes": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Supported input MIME types for this skill. Falls back to A2AModel.default_input_modes.",
+          "title": "Input Modes"
+        },
+        "output_modes": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Supported output MIME types for this skill. Falls back to A2AModel.default_output_modes.",
+          "title": "Output Modes"
+        }
+      },
+      "required": [
+        "id",
+        "name"
+      ],
+      "title": "A2ASkillModel",
+      "type": "object"
+    },
     "AgentModel": {
       "additionalProperties": false,
       "description": "Configuration model for an agent in the DAO AI framework.\n\nAgents combine an LLM with tools and middleware to create systems that can\nreason about tasks, decide which tools to use, and iteratively work towards solutions.\n\nMiddleware replaces the previous pre_agent_hook and post_agent_hook patterns,\nproviding a more flexible and composable way to customize agent behavior.",
@@ -250,6 +426,19 @@
           "default": true,
           "description": "Whether the MLflow AgentServer enables the chat proxy endpoint for Databricks Apps.",
           "title": "Enable Chat Proxy"
+        },
+        "on_behalf_of_user": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Advisory flag declaring that this deployment runs in On-Behalf-Of-User (OBO) mode. Resources are still configured per-model via their own ``on_behalf_of_user`` fields; this app-level hint is used by the A2A Agent Card and downstream docs to advertise the expected auth flow. Does NOT toggle OBO on any resource.",
+          "title": "On Behalf Of User"
         },
         "environment_vars": {
           "anyOf": [
@@ -532,6 +721,18 @@
           ],
           "default": null,
           "description": "Opt-in long-running agent configuration. When set, the ResponsesAgent is wrapped so that requests with background=True or custom_inputs.operation are persisted in the referenced Lakebase database. In Databricks Apps, strict Responses API routes (/v1/responses, /v1/responses/{id}, /v1/responses/{id}/cancel) are additionally exposed. See config/examples/19_long_running_agents/."
+        },
+        "a2a": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/A2AModel"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Google A2A protocol endpoint configuration for Databricks Apps deployments. When unset, A2A is enabled with sensible defaults (skills derived from sub-agents, security from on_behalf_of_user). Set a2a.enabled=false to opt out. Ignored for Model Serving deployments. See A2AModel for the full schema."
         }
       },
       "required": [

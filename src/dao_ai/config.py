@@ -6672,6 +6672,102 @@ class LongRunningModel(BaseModel):
     )
 
 
+class A2ASkillModel(BaseModel):
+    """Single skill advertised on the A2A Agent Card."""
+
+    model_config = ConfigDict(extra="forbid")
+    id: str = Field(description="Stable skill identifier (often the sub-agent name).")
+    name: str = Field(description="Human-readable skill name.")
+    description: Optional[str] = Field(
+        default=None, description="Short summary of what this skill does."
+    )
+    tags: list[str] = Field(
+        default_factory=list,
+        description="Free-form tags shown on the Agent Card for skill discovery.",
+    )
+    examples: list[str] = Field(
+        default_factory=list,
+        description="Example prompts illustrating how to invoke the skill.",
+    )
+    input_modes: Optional[list[str]] = Field(
+        default=None,
+        description="Supported input MIME types for this skill. Falls back to A2AModel.default_input_modes.",
+    )
+    output_modes: Optional[list[str]] = Field(
+        default=None,
+        description="Supported output MIME types for this skill. Falls back to A2AModel.default_output_modes.",
+    )
+
+
+class A2AModel(BaseModel):
+    """Google A2A (Agent2Agent) protocol endpoint configuration.
+
+    When ``app.a2a`` is unset OR ``app.a2a.enabled`` is True (the default),
+    every Databricks Apps deployment exposes:
+
+    * ``GET  /.well-known/agent-card.json``  — Agent Card discovery.
+    * ``POST /a2a``                          — JSON-RPC 2.0 (message/send,
+      message/stream, tasks/get, tasks/list, tasks/cancel, tasks/subscribe).
+
+    These run alongside the existing OpenAI Responses contract on
+    ``/invocations`` and ``/v1/responses*`` — both protocols share the same
+    LangGraph instance via :meth:`AppConfig.as_graph` and the same
+    checkpointer, so conversations are consistent across contracts.
+
+    Set ``enabled: false`` to skip mounting the A2A routes entirely.
+
+    Task persistence is chosen via ``task_store``:
+    * ``auto`` (default) — Lakebase-backed when ``app.long_running`` is set
+      (shares the same database + pool), in-memory otherwise.
+    * ``in_memory`` — process-local; tasks lost on restart.
+    * ``lakebase`` — Lakebase-backed; requires ``app.long_running``.
+
+    Skills and security schemes are derived from the rest of the config
+    (one skill per entry in ``config.agents``; ``oauth2`` when
+    ``on_behalf_of_user`` is True, else ``bearer``). Override either by
+    setting the field explicitly here.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+    enabled: bool = Field(
+        default=True,
+        description="When False, A2A routes are NOT mounted on the Databricks Apps FastAPI app.",
+    )
+    server_url: Optional[str] = Field(
+        default=None,
+        description="Public base URL advertised on the Agent Card. If unset, derived from "
+        "$DATABRICKS_APP_URL at startup; otherwise a relative '/a2a' URL is published.",
+    )
+    skills: Optional[list[A2ASkillModel]] = Field(
+        default=None,
+        description="Overrides the Agent Card 'skills' list. When unset, one skill is "
+        "derived per entry in config.agents.",
+    )
+    security_schemes: Optional[dict[str, dict[str, Any]]] = Field(
+        default=None,
+        description="Overrides the Agent Card 'securitySchemes'. Keys are scheme names; "
+        "values are OpenAPI-style scheme dicts forwarded to a2a-sdk for validation. "
+        "When unset, derived from app.on_behalf_of_user (oauth2 if True, bearer otherwise).",
+    )
+    default_input_modes: list[str] = Field(
+        default_factory=lambda: ["text/plain", "application/json"],
+        description="Default supported input MIME types on the Agent Card.",
+    )
+    default_output_modes: list[str] = Field(
+        default_factory=lambda: ["text/plain", "application/json"],
+        description="Default supported output MIME types on the Agent Card.",
+    )
+    task_store: Literal["auto", "in_memory", "lakebase"] = Field(
+        default="auto",
+        description="A2A task persistence strategy. See class docstring for the semantics.",
+    )
+    tasks_table_name: str = Field(
+        default="dao_ai_a2a_tasks",
+        description="Lakebase table name for A2A task persistence (used when task_store "
+        "resolves to lakebase).",
+    )
+
+
 class AppModel(BaseModel):
     """Application-level configuration for deployment, model registration, and orchestration."""
 
@@ -6712,6 +6808,14 @@ class AppModel(BaseModel):
     enable_chat_proxy: Optional[bool] = Field(
         default=True,
         description="Whether the MLflow AgentServer enables the chat proxy endpoint for Databricks Apps.",
+    )
+    on_behalf_of_user: Optional[bool] = Field(
+        default=None,
+        description="Advisory flag declaring that this deployment runs in On-Behalf-Of-User "
+        "(OBO) mode. Resources are still configured per-model via their own "
+        "``on_behalf_of_user`` fields; this app-level hint is used by the A2A Agent Card "
+        "and downstream docs to advertise the expected auth flow. Does NOT toggle OBO "
+        "on any resource.",
     )
     environment_vars: Optional[dict[str, AnyVariable]] = Field(
         default_factory=dict,
@@ -6798,6 +6902,13 @@ class AppModel(BaseModel):
         "persisted in the referenced Lakebase database. In Databricks Apps, strict "
         "Responses API routes (/v1/responses, /v1/responses/{id}, /v1/responses/{id}/cancel) "
         "are additionally exposed. See config/examples/19_long_running_agents/.",
+    )
+    a2a: Optional[A2AModel] = Field(
+        default=None,
+        description="Google A2A protocol endpoint configuration for Databricks Apps "
+        "deployments. When unset, A2A is enabled with sensible defaults (skills derived "
+        "from sub-agents, security from on_behalf_of_user). Set a2a.enabled=false to opt "
+        "out. Ignored for Model Serving deployments. See A2AModel for the full schema.",
     )
 
     @model_validator(mode="after")
