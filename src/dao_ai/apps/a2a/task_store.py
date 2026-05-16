@@ -58,35 +58,65 @@ class LakebaseTaskStore(TaskStore):
         return await AsyncPostgresPoolManager.get_pool(self.database)
 
     async def ensure_schema(self) -> None:
-        """Create the tasks table + indexes if they don't exist."""
+        """Create the tasks table + indexes if they don't exist.
+
+        Skips DDL entirely when the table is already present so the
+        connecting role only needs ``CREATE`` on schema public for the
+        first-ever boot. In deployments where the platform or a
+        provisioning notebook pre-creates the table (as
+        ``03_provision_lakebase.py`` should for any persisted store),
+        the agent SP can run with read/write-only privileges.
+        """
         if self._schema_ready:
             return
-
-        ddl_tasks = f"""
-        CREATE TABLE IF NOT EXISTS {self.table_name} (
-            task_id    TEXT PRIMARY KEY,
-            context_id TEXT NOT NULL,
-            state      TEXT NOT NULL,
-            task_json  JSONB NOT NULL,
-            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-            updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-        )
-        """
-        ddl_idx_ctx = (
-            f"CREATE INDEX IF NOT EXISTS idx_{self.table_name}_context_id "
-            f"ON {self.table_name} (context_id)"
-        )
-        ddl_idx_upd = (
-            f"CREATE INDEX IF NOT EXISTS idx_{self.table_name}_updated_at "
-            f"ON {self.table_name} (updated_at)"
-        )
 
         pool = await self._pool()
         async with pool.connection() as conn:
             async with conn.cursor() as cur:
-                await cur.execute(ddl_tasks)
-                await cur.execute(ddl_idx_ctx)
-                await cur.execute(ddl_idx_upd)
+                # Cheap existence probe; uses to_regclass which returns
+                # NULL when the table doesn't exist instead of raising.
+                await cur.execute(
+                    "SELECT to_regclass(%s) AS reg",
+                    (f"public.{self.table_name}",),
+                )
+                row = await cur.fetchone()
+                if row is None:
+                    # No rows shouldn't happen, but stay safe.
+                    table_present = False
+                elif isinstance(row, dict):
+                    table_present = row.get("reg") is not None
+                else:
+                    table_present = row[0] is not None
+
+                if not table_present:
+                    ddl_tasks = f"""
+                    CREATE TABLE IF NOT EXISTS {self.table_name} (
+                        task_id    TEXT PRIMARY KEY,
+                        context_id TEXT NOT NULL,
+                        state      TEXT NOT NULL,
+                        task_json  JSONB NOT NULL,
+                        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                    )
+                    """
+                    ddl_idx_ctx = (
+                        f"CREATE INDEX IF NOT EXISTS "
+                        f"idx_{self.table_name}_context_id "
+                        f"ON {self.table_name} (context_id)"
+                    )
+                    ddl_idx_upd = (
+                        f"CREATE INDEX IF NOT EXISTS "
+                        f"idx_{self.table_name}_updated_at "
+                        f"ON {self.table_name} (updated_at)"
+                    )
+                    await cur.execute(ddl_tasks)
+                    await cur.execute(ddl_idx_ctx)
+                    await cur.execute(ddl_idx_upd)
+                    logger.info(
+                        "A2A task store DDL applied",
+                        table=self.table_name,
+                        database=self.database.name,
+                    )
             await conn.commit()
 
         self._schema_ready = True
@@ -94,6 +124,7 @@ class LakebaseTaskStore(TaskStore):
             "A2A task store schema ready",
             table=self.table_name,
             database=self.database.name,
+            pre_existing=table_present,
         )
 
     async def save(
