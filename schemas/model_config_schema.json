@@ -76,10 +76,17 @@
           "description": "A2A task persistence configuration. Defaults to an empty A2ATaskStoreModel (no database \u2192 InMemoryTaskStore). Set ``task_store.database`` to a DatabaseModel to persist tasks in Lakebase. Independent of app.long_running."
         },
         "on_behalf_of_user": {
-          "default": false,
-          "description": "Advisory flag declaring that this deployment runs in On-Behalf-Of-User (OBO) mode. Drives the Agent Card's default bearer-scheme description so callers know to expect OBO. Resource-level OBO is still configured per resource via the resource's own ``on_behalf_of_user`` field; this flag does NOT toggle OBO on any resource.",
-          "title": "On Behalf Of User",
-          "type": "boolean"
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Three-state advisory controlling how the Agent Card advertises On-Behalf-Of-User (OBO) auth. None (default) \u2192 auto-derive: True iff any Databricks resource in the config has ``on_behalf_of_user=True``. True \u2192 force-advertise OBO (Agent Card emits oauth2 + bearer schemes). False \u2192 force-suppress (Agent Card emits a single PAT/M2M bearer scheme). This flag does NOT toggle OBO on any resource; resource-level OBO is still configured per resource via the resource's own ``on_behalf_of_user`` field.",
+          "title": "On Behalf Of User"
         }
       },
       "title": "A2AModel",

@@ -28,9 +28,11 @@ from a2a.types import (
     AgentCapabilities,
     AgentCard,
     AgentSkill,
+    HTTPAuthSecurityScheme,
     SecurityScheme,
 )
 from loguru import logger
+from pydantic import BaseModel
 
 if TYPE_CHECKING:
     from dao_ai.config import A2AModel, AppConfig
@@ -159,35 +161,99 @@ def _derive_skills(config: "AppConfig", a2a: "A2AModel") -> list[AgentSkill]:
     ]
 
 
+def _any_resource_obo(config: "AppConfig") -> bool:
+    """True iff any ``IsDatabricksResource`` in the config has ``on_behalf_of_user=True``.
+
+    Walks the AppConfig Pydantic tree (BaseModel fields, lists, dicts, tuples,
+    sets) and short-circuits on the first OBO-enabled resource. Cycle-safe
+    via an identity-tracking ``seen`` set.
+
+    Anchored on the :class:`dao_ai.config.IsDatabricksResource` base class so
+    every current and future OBO-capable subclass (InferenceEndpointModel,
+    GenieRoomModel, VectorStoreModel, WarehouseModel, FunctionModel, etc.)
+    is covered without enumeration.
+    """
+    from dao_ai.config import IsDatabricksResource
+
+    seen: set[int] = set()
+
+    def visit(obj: object) -> bool:
+        if obj is None:
+            return False
+        oid = id(obj)
+        if oid in seen:
+            return False
+        seen.add(oid)
+        if isinstance(obj, IsDatabricksResource) and obj.on_behalf_of_user is True:
+            return True
+        if isinstance(obj, BaseModel):
+            return any(visit(getattr(obj, f, None)) for f in obj.model_fields)
+        if isinstance(obj, (list, tuple, set)):
+            return any(visit(v) for v in obj)
+        if isinstance(obj, dict):
+            return any(visit(v) for v in obj.values())
+        return False
+
+    return visit(config)
+
+
 def _derive_security_schemes(
     config: "AppConfig", a2a: "A2AModel"
 ) -> dict[str, SecurityScheme] | None:
     """Derive Agent Card security_schemes.
 
-    Explicit ``a2a.security_schemes`` wins (already validated against
-    a2a-sdk's SecurityScheme discriminated union at config-load time).
-    Otherwise, emit a single ``bearer`` HTTP scheme whose ``bearer_format``
-    documents whether the deployment supports OBO (when
-    ``a2a.on_behalf_of_user`` is True).
+    Resolution:
+
+    1. Explicit ``a2a.security_schemes`` wins (already validated against
+       a2a-sdk's SecurityScheme discriminated union at config-load time).
+    2. Otherwise resolve effective OBO:
+       * ``a2a.on_behalf_of_user`` is True/False — use that.
+       * ``a2a.on_behalf_of_user`` is None (default) — scan resources for
+         any ``on_behalf_of_user=True`` (see :func:`_any_resource_obo`).
+    3. Effective OBO True → emit BOTH an ``oauth2`` declaration (the actual
+       authorization-code flow the Apps proxy carries out) and a
+       ``bearer`` scheme (the wire-level shape clients send). If the
+       workspace host can't be resolved at boot, fall back to the
+       OBO-aware bearer constant alone and log a warning.
+    4. Effective OBO False → single bearer scheme advertising PAT / M2M.
     """
     if a2a.security_schemes is not None:
         return a2a.security_schemes or None
 
-    bearer_format = (
-        "Databricks OAuth (forwarded by Apps proxy via x-forwarded-access-token; OBO supported)"
-        if a2a.on_behalf_of_user
-        else "Databricks PAT or OAuth M2M token"
+    obo = a2a.on_behalf_of_user
+    if obo is None:
+        obo = _any_resource_obo(config)
+
+    if not obo:
+        return {
+            "bearer": HTTPAuthSecurityScheme(
+                scheme="bearer",
+                bearer_format="Databricks PAT or OAuth M2M token",
+                description=(
+                    "Databricks Apps forwards the caller's bearer token via "
+                    "``x-forwarded-access-token`` to the dao-ai agent."
+                ),
+            )
+        }
+
+    # OBO in play — full OAuth2 declaration + bearer wire-shape, paired.
+    from dao_ai.apps.a2a.security import (
+        BEARER_DATABRICKS_OBO,
+        oauth2_databricks_obo,
     )
-    scheme_dict: dict[str, object] = {
-        "type": "http",
-        "scheme": "bearer",
-        "bearerFormat": bearer_format,
-        "description": (
-            "Databricks Apps forwards the caller's bearer token via "
-            "``x-forwarded-access-token`` to the dao-ai agent."
-        ),
-    }
-    return {"bearer": SecurityScheme.model_validate(scheme_dict)}
+
+    try:
+        return {
+            "oauth2": oauth2_databricks_obo(),
+            "bearer": BEARER_DATABRICKS_OBO,
+        }
+    except ValueError as exc:
+        logger.warning(
+            "A2A Agent Card: workspace host unresolvable; "
+            "falling back to OBO bearer-only scheme. {err}",
+            err=exc,
+        )
+        return {"bearer": BEARER_DATABRICKS_OBO}
 
 
 def build_agent_card(config: "AppConfig") -> AgentCard:

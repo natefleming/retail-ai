@@ -88,9 +88,9 @@ app:
     database: *a2a_demo_db
   a2a:
     enabled: true
-    # Advisory flag — bearer scheme's description on the Agent Card will
-    # call out OBO. Actual OBO behavior is configured per-resource.
-    on_behalf_of_user: true
+    # OBO auto-derived from default_llm.on_behalf_of_user above — the
+    # Agent Card emits both oauth2 and bearer schemes. Pin
+    # a2a.on_behalf_of_user explicitly to override.
     # Lakebase-backed A2A task store. The DatabaseModel anchor (*a2a_demo_db)
     # is the SAME object referenced by memory.checkpointer.database and
     # app.long_running.database above; AsyncPostgresPoolManager dedupes by

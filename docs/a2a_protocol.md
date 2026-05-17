@@ -210,11 +210,58 @@ Responses-path handler. Downstream tools (UC functions, Vector Search,
 Genie, model invocations) that have `on_behalf_of_user: true` see the
 end-user's token unchanged.
 
-To advertise OBO on the Agent Card, either:
-* set `app.a2a.on_behalf_of_user: true` (the bearer scheme's description
-  will mention OBO), or
-* set `app.a2a.security_schemes` to declare an OAuth2 / OBO scheme
-  explicitly. See [Security scheme recipes](#security-scheme-recipes).
+### Agent Card auto-derivation
+
+`app.a2a.on_behalf_of_user` is a three-state flag:
+
+| Value | Meaning | Agent Card emits |
+|---|---|---|
+| `null` (default) | Auto-derive from resources | `oauth2` + `bearer` schemes iff **any** resource in the config has `on_behalf_of_user: true` |
+| `true` (explicit) | Force-advertise OBO | `oauth2` + `bearer` schemes |
+| `false` (explicit) | Force-suppress OBO | single PAT/M2M `bearer` scheme |
+
+When effective OBO is True, the Agent Card emits **both**:
+
+* `oauth2` — the declarative auth flow (`authorizationCode` against
+  `${workspace.host}/oidc/v1/authorize` + `oidc/v1/token`, scope
+  `user_impersonation`). This is what OAuth2-aware A2A clients consume.
+* `bearer` — the wire-level shape callers actually send. The
+  Apps proxy forwards via `x-forwarded-access-token` regardless of which
+  scheme the client thinks it's satisfying.
+
+A2A's `security` requirement array lists both schemes; clients pick
+whichever their auth machinery supports. Workspace host comes from
+`$DATABRICKS_HOST` (auto-set in the Apps runtime). If unresolvable at
+boot, the Agent Card falls back to the OBO-aware `bearer` scheme alone
+and logs a warning.
+
+### Example: auto-derived OBO from a resource
+
+```yaml
+resources:
+  models:
+    default_llm: &default_llm
+      name: databricks-gpt-5-4-mini
+      on_behalf_of_user: true       # resource-level OBO
+
+agents:
+  - name: my_agent
+    model: *default_llm
+
+app:
+  name: my-app
+  deployment_target: apps
+  agents: [...]
+  # No a2a block — Agent Card auto-emits oauth2 + bearer
+```
+
+This produces the same Agent Card as setting
+`app.a2a.on_behalf_of_user: true` explicitly. The convenience factory
+`oauth2_databricks_obo()` is the building block used internally.
+
+To declare a custom OAuth2 scheme set (different scopes, additional
+flows, etc.), set `app.a2a.security_schemes` explicitly — see
+[Security scheme recipes](#security-scheme-recipes).
 
 ## Security scheme recipes
 

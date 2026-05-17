@@ -67,7 +67,8 @@ def test_effective_a2a_defaults_when_unset():
     assert isinstance(a2a.task_store, A2ATaskStoreModel)
     assert a2a.task_store.database is None
     assert a2a.task_store.table == "dao_ai_a2a_tasks"
-    assert a2a.on_behalf_of_user is False
+    # on_behalf_of_user defaults to None (auto-derive from resources).
+    assert a2a.on_behalf_of_user is None
 
 
 @pytest.mark.unit
@@ -145,10 +146,75 @@ def test_agent_card_security_default_bearer():
 
 
 @pytest.mark.unit
-def test_agent_card_security_obo_hint():
-    """With ``a2a.on_behalf_of_user=True`` → bearer description references OBO."""
+def test_agent_card_security_obo_hint(monkeypatch):
+    """With ``a2a.on_behalf_of_user=True`` → Agent Card emits oauth2 + bearer schemes."""
+    monkeypatch.setenv("DATABRICKS_HOST", "https://test.cloud.databricks.com")
     cfg = _minimal_config(a2a=A2AModel(on_behalf_of_user=True))
     card = build_agent_card(cfg)
+    assert set(card.security_schemes.keys()) == {"oauth2", "bearer"}
+    bearer = card.security_schemes["bearer"].root
+    assert "OBO" in (bearer.bearer_format or "")
+    oauth2 = card.security_schemes["oauth2"].root
+    assert oauth2.type == "oauth2"
+    flow = oauth2.flows.authorization_code
+    assert flow is not None
+    assert "user_impersonation" in flow.scopes
+
+
+@pytest.mark.unit
+def test_obo_auto_derived_from_resource_model(monkeypatch):
+    """Resource-level ``on_behalf_of_user=True`` alone triggers OBO advertisement."""
+    monkeypatch.setenv("DATABRICKS_HOST", "https://test.cloud.databricks.com")
+    agents = [
+        AgentModel(
+            name="greeter",
+            description="says hi",
+            model=InferenceEndpointModel(
+                name="databricks-gpt-5-4-mini",
+                on_behalf_of_user=True,
+            ),
+        ),
+    ]
+    cfg = _minimal_config(agents=agents)  # NO a2a block at all
+    card = build_agent_card(cfg)
+    assert set(card.security_schemes.keys()) == {"oauth2", "bearer"}
+
+
+@pytest.mark.unit
+def test_obo_explicit_false_suppresses_resource_derivation():
+    """``a2a.on_behalf_of_user=False`` wins over a resource carrying OBO."""
+    agents = [
+        AgentModel(
+            name="greeter",
+            description="says hi",
+            model=InferenceEndpointModel(
+                name="databricks-gpt-5-4-mini",
+                on_behalf_of_user=True,
+            ),
+        ),
+    ]
+    cfg = _minimal_config(agents=agents, a2a=A2AModel(on_behalf_of_user=False))
+    card = build_agent_card(cfg)
+    assert list(card.security_schemes.keys()) == ["bearer"]
+    bearer = card.security_schemes["bearer"].root
+    assert "PAT" in (bearer.bearer_format or "") or "M2M" in (
+        bearer.bearer_format or ""
+    )
+
+
+@pytest.mark.unit
+def test_obo_fallback_to_bearer_only_when_host_unresolvable(monkeypatch):
+    """When OBO is on but no host resolves, fall back to bearer-only with OBO description."""
+    monkeypatch.delenv("DATABRICKS_HOST", raising=False)
+    from unittest.mock import patch as mock_patch
+
+    with mock_patch(
+        "dao_ai.apps.a2a.security.get_default_databricks_host",
+        return_value=None,
+    ):
+        cfg = _minimal_config(a2a=A2AModel(on_behalf_of_user=True))
+        card = build_agent_card(cfg)
+    assert list(card.security_schemes.keys()) == ["bearer"]
     bearer = card.security_schemes["bearer"].root
     assert "OBO" in (bearer.bearer_format or "")
 

@@ -95,10 +95,9 @@ app:
     memory: *memory  # CRITICAL: memory.checkpointer required for HITL
   a2a:
     enabled: true
-    # Advisory flag — the A2A Agent Card's bearer scheme description will
-    # mention OBO. Resource-level OBO is still configured per resource
-    # (see default_llm above).
-    on_behalf_of_user: true
+    # No explicit on_behalf_of_user — the Agent Card auto-derives OBO from
+    # default_llm.on_behalf_of_user above, emitting both oauth2 and bearer
+    # schemes. Pin a2a.on_behalf_of_user explicitly to override.
     # task_store omitted → in-memory (process-local). Sufficient for HITL
     # demos within a single worker; persist by setting task_store.database
     # for cross-restart / multi-replica state.
