@@ -32,6 +32,7 @@ if TYPE_CHECKING:
     )
     from dao_ai.state import Context
 
+from a2a.types import SecurityScheme
 from databricks.sdk import WorkspaceClient
 from databricks.sdk.credentials_provider import (
     CredentialsStrategy,
@@ -6672,6 +6673,155 @@ class LongRunningModel(BaseModel):
     )
 
 
+class A2ATaskStoreModel(BaseModel):
+    """A2A protocol task persistence configuration.
+
+    Mirrors the dao-ai idiom shared by :class:`CheckpointerModel` and
+    :class:`StoreModel`: an optional :class:`DatabaseModel` toggles the
+    backing store. Absent → in-memory (tasks lost on restart); present →
+    Lakebase/Postgres, persisted in ``table``. This is independent of
+    :class:`LongRunningModel` — the two concepts (A2A task lifecycle vs
+    Responses-API kickoff/poll/cancel) are configured separately.
+
+    When the same ``DatabaseModel`` is referenced here, on
+    ``memory.checkpointer.database``, and on ``app.long_running.database``,
+    :class:`dao_ai.memory.postgres.AsyncPostgresPoolManager` dedupes by
+    connection-string value, so all three share a single connection pool.
+    """
+
+    model_config = ConfigDict(use_enum_values=True, extra="forbid")
+    database: Optional[DatabaseModel] = Field(
+        default=None,
+        description=(
+            "Database for persistent task storage. When omitted, A2A tasks "
+            "are held in process memory and lost on restart. When set, "
+            "tasks persist in the configured ``table`` and share the "
+            "AsyncPostgresPoolManager pool with the LangGraph checkpointer "
+            "and LongRunningStore whenever those point at the same "
+            "DatabaseModel."
+        ),
+    )
+    table: str = Field(
+        default="dao_ai_a2a_tasks",
+        description="Table name for task persistence. Ignored when `database` is None.",
+    )
+
+    @property
+    def storage_type(self) -> StorageType:
+        """Infer storage type from database presence."""
+        return StorageType.POSTGRES if self.database else StorageType.MEMORY
+
+
+class A2ASkillModel(BaseModel):
+    """Single skill advertised on the A2A Agent Card."""
+
+    model_config = ConfigDict(extra="forbid")
+    id: str = Field(description="Stable skill identifier (often the sub-agent name).")
+    name: str = Field(description="Human-readable skill name.")
+    description: Optional[str] = Field(
+        default=None, description="Short summary of what this skill does."
+    )
+    tags: list[str] = Field(
+        default_factory=list,
+        description="Free-form tags shown on the Agent Card for skill discovery.",
+    )
+    examples: list[str] = Field(
+        default_factory=list,
+        description="Example prompts illustrating how to invoke the skill.",
+    )
+    input_modes: Optional[list[str]] = Field(
+        default=None,
+        description="Supported input MIME types for this skill. Falls back to A2AModel.default_input_modes.",
+    )
+    output_modes: Optional[list[str]] = Field(
+        default=None,
+        description="Supported output MIME types for this skill. Falls back to A2AModel.default_output_modes.",
+    )
+
+
+class A2AModel(BaseModel):
+    """Google A2A (Agent2Agent) protocol endpoint configuration.
+
+    Every Databricks Apps deployment exposes the following routes by default
+    (``AppModel.a2a`` defaults to a fresh ``A2AModel`` with ``enabled=True``):
+
+    * ``GET  /.well-known/agent-card.json``  — Agent Card discovery.
+    * ``POST /a2a``                          — JSON-RPC 2.0 (message/send,
+      message/stream, tasks/get, tasks/list, tasks/cancel, tasks/subscribe).
+
+    These run alongside the existing OpenAI Responses contract on
+    ``/invocations`` and ``/v1/responses*`` — both protocols share the same
+    LangGraph instance via :meth:`AppConfig.as_graph` and the same
+    checkpointer, so conversations are consistent across contracts.
+
+    Set ``enabled: false`` to skip mounting the A2A routes entirely.
+
+    Task persistence is configured via :attr:`task_store` — an
+    :class:`A2ATaskStoreModel` whose ``database`` field toggles between
+    in-memory (default) and Lakebase-backed storage. This is independent
+    of :class:`LongRunningModel`; point both at the same
+    :class:`DatabaseModel` to share the connection pool.
+
+    Skills and security schemes are derived from the rest of the config
+    (one skill per entry in ``config.agents``; bearer scheme with an OBO-
+    aware description when :attr:`on_behalf_of_user` is True). Override
+    either by setting the field explicitly here. The
+    :attr:`security_schemes` field is typed against a2a-sdk's
+    :class:`a2a.types.SecurityScheme` discriminated union, so malformed
+    schemes fail at config load instead of at request time.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+    enabled: bool = Field(
+        default=True,
+        description="When False, A2A routes are NOT mounted on the Databricks Apps FastAPI app.",
+    )
+    server_url: Optional[str] = Field(
+        default=None,
+        description="Public base URL advertised on the Agent Card. If unset, derived from "
+        "$DATABRICKS_APP_URL at startup; otherwise a relative '/a2a' URL is published.",
+    )
+    skills: Optional[list[A2ASkillModel]] = Field(
+        default=None,
+        description="Overrides the Agent Card 'skills' list. When unset, one skill is "
+        "derived per entry in config.agents.",
+    )
+    security_schemes: Optional[dict[str, SecurityScheme]] = Field(
+        default=None,
+        description="Overrides the Agent Card 'securitySchemes'. Keys are scheme names; "
+        "values are validated against a2a-sdk's SecurityScheme discriminated union at "
+        "config-load time. See ``dao_ai.apps.a2a.security`` for ready-made constants "
+        "(BEARER_DATABRICKS_PAT, BEARER_DATABRICKS_M2M, BEARER_DATABRICKS_OBO) and "
+        "factories (oauth2_databricks_authorization_code, oauth2_databricks_obo, "
+        "openid_connect_databricks, api_key_header). When unset, derived from "
+        ":attr:`on_behalf_of_user` (bearer scheme with OBO-aware description).",
+    )
+    default_input_modes: list[str] = Field(
+        default_factory=lambda: ["text/plain", "application/json"],
+        description="Default supported input MIME types on the Agent Card.",
+    )
+    default_output_modes: list[str] = Field(
+        default_factory=lambda: ["text/plain", "application/json"],
+        description="Default supported output MIME types on the Agent Card.",
+    )
+    task_store: A2ATaskStoreModel = Field(
+        default_factory=A2ATaskStoreModel,
+        description="A2A task persistence configuration. Defaults to an empty "
+        "A2ATaskStoreModel (no database → InMemoryTaskStore). Set ``task_store.database`` "
+        "to a DatabaseModel to persist tasks in Lakebase. Independent of app.long_running.",
+    )
+    on_behalf_of_user: Optional[bool] = Field(
+        default=None,
+        description="Three-state advisory controlling how the Agent Card advertises "
+        "On-Behalf-Of-User (OBO) auth. None (default) → auto-derive: True iff any "
+        "Databricks resource in the config has ``on_behalf_of_user=True``. True → "
+        "force-advertise OBO (Agent Card emits oauth2 + bearer schemes). False → "
+        "force-suppress (Agent Card emits a single PAT/M2M bearer scheme). This flag "
+        "does NOT toggle OBO on any resource; resource-level OBO is still configured "
+        "per resource via the resource's own ``on_behalf_of_user`` field.",
+    )
+
+
 class AppModel(BaseModel):
     """Application-level configuration for deployment, model registration, and orchestration."""
 
@@ -6798,6 +6948,14 @@ class AppModel(BaseModel):
         "persisted in the referenced Lakebase database. In Databricks Apps, strict "
         "Responses API routes (/v1/responses, /v1/responses/{id}, /v1/responses/{id}/cancel) "
         "are additionally exposed. See config/examples/19_long_running_agents/.",
+    )
+    a2a: A2AModel = Field(
+        default_factory=A2AModel,
+        description="Google A2A protocol endpoint configuration for Databricks Apps "
+        "deployments. Defaults to a fresh A2AModel — enabled with sensible defaults "
+        "(skills derived from sub-agents, bearer scheme derived from "
+        "a2a.on_behalf_of_user). Set a2a.enabled=false to opt out. Ignored for Model "
+        "Serving deployments. See A2AModel for the full schema.",
     )
 
     @model_validator(mode="after")

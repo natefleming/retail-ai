@@ -1,5 +1,242 @@
 {
   "$defs": {
+    "A2AModel": {
+      "additionalProperties": false,
+      "description": "Google A2A (Agent2Agent) protocol endpoint configuration.\n\nEvery Databricks Apps deployment exposes the following routes by default\n(``AppModel.a2a`` defaults to a fresh ``A2AModel`` with ``enabled=True``):\n\n* ``GET  /.well-known/agent-card.json``  \u2014 Agent Card discovery.\n* ``POST /a2a``                          \u2014 JSON-RPC 2.0 (message/send,\n  message/stream, tasks/get, tasks/list, tasks/cancel, tasks/subscribe).\n\nThese run alongside the existing OpenAI Responses contract on\n``/invocations`` and ``/v1/responses*`` \u2014 both protocols share the same\nLangGraph instance via :meth:`AppConfig.as_graph` and the same\ncheckpointer, so conversations are consistent across contracts.\n\nSet ``enabled: false`` to skip mounting the A2A routes entirely.\n\nTask persistence is configured via :attr:`task_store` \u2014 an\n:class:`A2ATaskStoreModel` whose ``database`` field toggles between\nin-memory (default) and Lakebase-backed storage. This is independent\nof :class:`LongRunningModel`; point both at the same\n:class:`DatabaseModel` to share the connection pool.\n\nSkills and security schemes are derived from the rest of the config\n(one skill per entry in ``config.agents``; bearer scheme with an OBO-\naware description when :attr:`on_behalf_of_user` is True). Override\neither by setting the field explicitly here. The\n:attr:`security_schemes` field is typed against a2a-sdk's\n:class:`a2a.types.SecurityScheme` discriminated union, so malformed\nschemes fail at config load instead of at request time.",
+      "properties": {
+        "enabled": {
+          "default": true,
+          "description": "When False, A2A routes are NOT mounted on the Databricks Apps FastAPI app.",
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "server_url": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Public base URL advertised on the Agent Card. If unset, derived from $DATABRICKS_APP_URL at startup; otherwise a relative '/a2a' URL is published.",
+          "title": "Server Url"
+        },
+        "skills": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/A2ASkillModel"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Overrides the Agent Card 'skills' list. When unset, one skill is derived per entry in config.agents.",
+          "title": "Skills"
+        },
+        "security_schemes": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "$ref": "#/$defs/SecurityScheme"
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Overrides the Agent Card 'securitySchemes'. Keys are scheme names; values are validated against a2a-sdk's SecurityScheme discriminated union at config-load time. See ``dao_ai.apps.a2a.security`` for ready-made constants (BEARER_DATABRICKS_PAT, BEARER_DATABRICKS_M2M, BEARER_DATABRICKS_OBO) and factories (oauth2_databricks_authorization_code, oauth2_databricks_obo, openid_connect_databricks, api_key_header). When unset, derived from :attr:`on_behalf_of_user` (bearer scheme with OBO-aware description).",
+          "title": "Security Schemes"
+        },
+        "default_input_modes": {
+          "description": "Default supported input MIME types on the Agent Card.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Default Input Modes",
+          "type": "array"
+        },
+        "default_output_modes": {
+          "description": "Default supported output MIME types on the Agent Card.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Default Output Modes",
+          "type": "array"
+        },
+        "task_store": {
+          "$ref": "#/$defs/A2ATaskStoreModel",
+          "description": "A2A task persistence configuration. Defaults to an empty A2ATaskStoreModel (no database \u2192 InMemoryTaskStore). Set ``task_store.database`` to a DatabaseModel to persist tasks in Lakebase. Independent of app.long_running."
+        },
+        "on_behalf_of_user": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Three-state advisory controlling how the Agent Card advertises On-Behalf-Of-User (OBO) auth. None (default) \u2192 auto-derive: True iff any Databricks resource in the config has ``on_behalf_of_user=True``. True \u2192 force-advertise OBO (Agent Card emits oauth2 + bearer schemes). False \u2192 force-suppress (Agent Card emits a single PAT/M2M bearer scheme). This flag does NOT toggle OBO on any resource; resource-level OBO is still configured per resource via the resource's own ``on_behalf_of_user`` field.",
+          "title": "On Behalf Of User"
+        }
+      },
+      "title": "A2AModel",
+      "type": "object"
+    },
+    "A2ASkillModel": {
+      "additionalProperties": false,
+      "description": "Single skill advertised on the A2A Agent Card.",
+      "properties": {
+        "id": {
+          "description": "Stable skill identifier (often the sub-agent name).",
+          "title": "Id",
+          "type": "string"
+        },
+        "name": {
+          "description": "Human-readable skill name.",
+          "title": "Name",
+          "type": "string"
+        },
+        "description": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Short summary of what this skill does.",
+          "title": "Description"
+        },
+        "tags": {
+          "description": "Free-form tags shown on the Agent Card for skill discovery.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Tags",
+          "type": "array"
+        },
+        "examples": {
+          "description": "Example prompts illustrating how to invoke the skill.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Examples",
+          "type": "array"
+        },
+        "input_modes": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Supported input MIME types for this skill. Falls back to A2AModel.default_input_modes.",
+          "title": "Input Modes"
+        },
+        "output_modes": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Supported output MIME types for this skill. Falls back to A2AModel.default_output_modes.",
+          "title": "Output Modes"
+        }
+      },
+      "required": [
+        "id",
+        "name"
+      ],
+      "title": "A2ASkillModel",
+      "type": "object"
+    },
+    "A2ATaskStoreModel": {
+      "additionalProperties": false,
+      "description": "A2A protocol task persistence configuration.\n\nMirrors the dao-ai idiom shared by :class:`CheckpointerModel` and\n:class:`StoreModel`: an optional :class:`DatabaseModel` toggles the\nbacking store. Absent \u2192 in-memory (tasks lost on restart); present \u2192\nLakebase/Postgres, persisted in ``table``. This is independent of\n:class:`LongRunningModel` \u2014 the two concepts (A2A task lifecycle vs\nResponses-API kickoff/poll/cancel) are configured separately.\n\nWhen the same ``DatabaseModel`` is referenced here, on\n``memory.checkpointer.database``, and on ``app.long_running.database``,\n:class:`dao_ai.memory.postgres.AsyncPostgresPoolManager` dedupes by\nconnection-string value, so all three share a single connection pool.",
+      "properties": {
+        "database": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/DatabaseModel"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Database for persistent task storage. When omitted, A2A tasks are held in process memory and lost on restart. When set, tasks persist in the configured ``table`` and share the AsyncPostgresPoolManager pool with the LangGraph checkpointer and LongRunningStore whenever those point at the same DatabaseModel."
+        },
+        "table": {
+          "default": "dao_ai_a2a_tasks",
+          "description": "Table name for task persistence. Ignored when `database` is None.",
+          "title": "Table",
+          "type": "string"
+        }
+      },
+      "title": "A2ATaskStoreModel",
+      "type": "object"
+    },
+    "APIKeySecurityScheme": {
+      "description": "Defines a security scheme using an API key.",
+      "properties": {
+        "description": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Description"
+        },
+        "in": {
+          "$ref": "#/$defs/In"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "type": {
+          "const": "apiKey",
+          "default": "apiKey",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "in",
+        "name"
+      ],
+      "title": "APIKeySecurityScheme",
+      "type": "object"
+    },
     "AgentModel": {
       "additionalProperties": false,
       "description": "Configuration model for an agent in the DAO AI framework.\n\nAgents combine an LLM with tools and middleware to create systems that can\nreason about tasks, decide which tools to use, and iteratively work towards solutions.\n\nMiddleware replaces the previous pre_agent_hook and post_agent_hook patterns,\nproviding a more flexible and composable way to customize agent behavior.",
@@ -532,6 +769,10 @@
           ],
           "default": null,
           "description": "Opt-in long-running agent configuration. When set, the ResponsesAgent is wrapped so that requests with background=True or custom_inputs.operation are persisted in the referenced Lakebase database. In Databricks Apps, strict Responses API routes (/v1/responses, /v1/responses/{id}, /v1/responses/{id}/cancel) are additionally exposed. See config/examples/19_long_running_agents/."
+        },
+        "a2a": {
+          "$ref": "#/$defs/A2AModel",
+          "description": "Google A2A protocol endpoint configuration for Databricks Apps deployments. Defaults to a fresh A2AModel \u2014 enabled with sensible defaults (skills derived from sub-agents, bearer scheme derived from a2a.on_behalf_of_user). Set a2a.enabled=false to opt out. Ignored for Model Serving deployments. See A2AModel for the full schema."
         }
       },
       "required": [
@@ -572,6 +813,45 @@
         "entitlements"
       ],
       "title": "AppPermissionModel",
+      "type": "object"
+    },
+    "AuthorizationCodeOAuthFlow": {
+      "description": "Defines configuration details for the OAuth 2.0 Authorization Code flow.",
+      "properties": {
+        "authorizationUrl": {
+          "title": "Authorizationurl",
+          "type": "string"
+        },
+        "refreshUrl": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Refreshurl"
+        },
+        "scopes": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Scopes",
+          "type": "object"
+        },
+        "tokenUrl": {
+          "title": "Tokenurl",
+          "type": "string"
+        }
+      },
+      "required": [
+        "authorizationUrl",
+        "scopes",
+        "tokenUrl"
+      ],
+      "title": "AuthorizationCodeOAuthFlow",
       "type": "object"
     },
     "BackendModel": {
@@ -767,6 +1047,40 @@
         "name"
       ],
       "title": "CheckpointerModel",
+      "type": "object"
+    },
+    "ClientCredentialsOAuthFlow": {
+      "description": "Defines configuration details for the OAuth 2.0 Client Credentials flow.",
+      "properties": {
+        "refreshUrl": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Refreshurl"
+        },
+        "scopes": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Scopes",
+          "type": "object"
+        },
+        "tokenUrl": {
+          "title": "Tokenurl",
+          "type": "string"
+        }
+      },
+      "required": [
+        "scopes",
+        "tokenUrl"
+      ],
+      "title": "ClientCredentialsOAuthFlow",
       "type": "object"
     },
     "ColumnInfo": {
@@ -4052,6 +4366,50 @@
       "title": "GuidelineModel",
       "type": "object"
     },
+    "HTTPAuthSecurityScheme": {
+      "description": "Defines a security scheme using HTTP authentication.",
+      "properties": {
+        "bearerFormat": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Bearerformat"
+        },
+        "description": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Description"
+        },
+        "scheme": {
+          "title": "Scheme",
+          "type": "string"
+        },
+        "type": {
+          "const": "http",
+          "default": "http",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "scheme"
+      ],
+      "title": "HTTPAuthSecurityScheme",
+      "type": "object"
+    },
     "HandoffRouteModel": {
       "additionalProperties": false,
       "description": "Configuration model for a handoff route in a swarm.\n\nA handoff route specifies a target agent and whether the handoff should be\ndeterministic (always route to this agent) or agentic (LLM decides via tool call).\n\nWhen ``is_deterministic`` is ``True``, the source agent will **always** transfer\ncontrol to this target agent after completing its turn, without requiring the\nLLM to invoke a handoff tool. This is useful for pipeline-style workflows\nwhere the routing order is predetermined.\n\nWhen ``is_deterministic`` is ``False`` (the default), a handoff tool is created\nfor the target agent and the LLM decides when to invoke it. This is the\nstandard agentic handoff behavior.\n\nExample YAML::\n\n    handoffs:\n      triage_agent:\n        - agent: billing_agent\n          is_deterministic: true\n      billing_agent:\n        - support_agent            # shorthand for agentic handoff",
@@ -4115,6 +4473,50 @@
       },
       "title": "HumanInTheLoopModel",
       "type": "object"
+    },
+    "ImplicitOAuthFlow": {
+      "description": "Defines configuration details for the OAuth 2.0 Implicit flow.",
+      "properties": {
+        "authorizationUrl": {
+          "title": "Authorizationurl",
+          "type": "string"
+        },
+        "refreshUrl": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Refreshurl"
+        },
+        "scopes": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Scopes",
+          "type": "object"
+        }
+      },
+      "required": [
+        "authorizationUrl",
+        "scopes"
+      ],
+      "title": "ImplicitOAuthFlow",
+      "type": "object"
+    },
+    "In": {
+      "description": "The location of the API key.",
+      "enum": [
+        "cookie",
+        "header",
+        "query"
+      ],
+      "title": "In",
+      "type": "string"
     },
     "IndexModel": {
       "additionalProperties": false,
@@ -5431,6 +5833,157 @@
       "title": "MonitoringModel",
       "type": "object"
     },
+    "MutualTLSSecurityScheme": {
+      "description": "Defines a security scheme using mTLS authentication.",
+      "properties": {
+        "description": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Description"
+        },
+        "type": {
+          "const": "mutualTLS",
+          "default": "mutualTLS",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "title": "MutualTLSSecurityScheme",
+      "type": "object"
+    },
+    "OAuth2SecurityScheme": {
+      "description": "Defines a security scheme using OAuth 2.0.",
+      "properties": {
+        "description": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Description"
+        },
+        "flows": {
+          "$ref": "#/$defs/OAuthFlows"
+        },
+        "oauth2MetadataUrl": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Oauth2Metadataurl"
+        },
+        "type": {
+          "const": "oauth2",
+          "default": "oauth2",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "flows"
+      ],
+      "title": "OAuth2SecurityScheme",
+      "type": "object"
+    },
+    "OAuthFlows": {
+      "description": "Defines the configuration for the supported OAuth 2.0 flows.",
+      "properties": {
+        "authorizationCode": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/AuthorizationCodeOAuthFlow"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "clientCredentials": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ClientCredentialsOAuthFlow"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "implicit": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ImplicitOAuthFlow"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "password": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PasswordOAuthFlow"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "title": "OAuthFlows",
+      "type": "object"
+    },
+    "OpenIdConnectSecurityScheme": {
+      "description": "Defines a security scheme using OpenID Connect.",
+      "properties": {
+        "description": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Description"
+        },
+        "openIdConnectUrl": {
+          "title": "Openidconnecturl",
+          "type": "string"
+        },
+        "type": {
+          "const": "openIdConnect",
+          "default": "openIdConnect",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "openIdConnectUrl"
+      ],
+      "title": "OpenIdConnectSecurityScheme",
+      "type": "object"
+    },
     "OptimizationsModel": {
       "additionalProperties": false,
       "description": "Container for prompt and cache threshold optimization configurations.",
@@ -5566,6 +6119,40 @@
         }
       },
       "title": "ParameterDeclarationModel",
+      "type": "object"
+    },
+    "PasswordOAuthFlow": {
+      "description": "Defines configuration details for the OAuth 2.0 Resource Owner Password flow.",
+      "properties": {
+        "refreshUrl": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Refreshurl"
+        },
+        "scopes": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Scopes",
+          "type": "object"
+        },
+        "tokenUrl": {
+          "title": "Tokenurl",
+          "type": "string"
+        }
+      },
+      "required": [
+        "scopes",
+        "tokenUrl"
+      ],
+      "title": "PasswordOAuthFlow",
       "type": "object"
     },
     "PermissionModel": {
@@ -6342,6 +6929,26 @@
       ],
       "title": "SecretVariableModel",
       "type": "object"
+    },
+    "SecurityScheme": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/APIKeySecurityScheme"
+        },
+        {
+          "$ref": "#/$defs/HTTPAuthSecurityScheme"
+        },
+        {
+          "$ref": "#/$defs/OAuth2SecurityScheme"
+        },
+        {
+          "$ref": "#/$defs/OpenIdConnectSecurityScheme"
+        },
+        {
+          "$ref": "#/$defs/MutualTLSSecurityScheme"
+        }
+      ],
+      "title": "SecurityScheme"
     },
     "ServicePrincipalModel": {
       "description": "Databricks service principal credentials for OAuth M2M authentication.",

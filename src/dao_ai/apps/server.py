@@ -173,6 +173,32 @@ def _mount_long_running_routes() -> None:
 _mount_long_running_routes()
 
 
+def _mount_a2a_routes() -> None:
+    """Register A2A protocol routes alongside the OpenAI Responses contract.
+
+    No-op when ``app.a2a.enabled=false``. The mount adds:
+
+    * ``GET  /.well-known/agent-card.json``
+    * ``POST /a2a``
+
+    See :mod:`dao_ai.apps.a2a` for the executor, task store, and Agent Card
+    machinery.
+    """
+    from dao_ai.apps.a2a import mount_a2a_routes
+
+    try:
+        mount_a2a_routes(app, _config)
+    except Exception as exc:  # pragma: no cover — defensive at startup
+        from loguru import logger
+
+        logger.warning(
+            f"Failed to mount A2A routes; Responses contract still served. Error: {exc}"
+        )
+
+
+_mount_a2a_routes()
+
+
 def main() -> None:
     """Entry point for running the agent server."""
     agent_server.run(app_import_string="dao_ai.apps.server:app")

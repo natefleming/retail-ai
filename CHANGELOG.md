@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Google A2A (Agent2Agent) protocol support on Databricks Apps deployments.** Every dao-ai agent deployed to Databricks Apps now automatically exposes a fully [A2A v0.3](https://a2a-protocol.org)-compliant endpoint alongside the existing OpenAI Responses contract. Two new routes are mounted on the same FastAPI app:
+  - `GET  /.well-known/agent-card.json` — public Agent Card discovery.
+  - `POST /a2a`                          — A2A JSON-RPC 2.0 (`message/send`, `message/stream` over SSE, `tasks/get`, `tasks/list`, `tasks/cancel`, `tasks/subscribe`).
+
+  Both protocols share one compiled LangGraph and one checkpointer, so conversations stay consistent across contracts. No config change is required to enable A2A — set `app.deployment_target: apps` and you're done. Opt out via `app.a2a.enabled: false`.
+
+  Highlights:
+  - **Agent Card auto-derivation.** Skills default to one `AgentSkill` per entry in `app.agents`. The `bearer` security scheme description is conditioned on `app.a2a.on_behalf_of_user` to advertise OBO support. The card `url` derives from `$DATABRICKS_APP_URL` at startup. Override any field via `app.a2a.skills` / `app.a2a.security_schemes` / `app.a2a.server_url`.
+  - **HITL parity.** A LangGraph `interrupt()` raises a terminal `TaskStatusUpdateEvent(state=INPUT_REQUIRED)` with the interrupt payload as a `DataPart`. Clients resume by sending another `message/send` for the same `taskId`+`contextId` carrying either a structured `DataPart {"decisions": [...]}` (machine-to-machine) or a free-text `TextPart` (the existing dao-ai `handle_interrupt_response()` LLM parser handles it).
+  - **OBO parity.** The Databricks Apps proxy's `x-forwarded-access-token` header is captured by a2a-sdk's `DefaultCallContextBuilder` and injected into `configurable.headers` so OBO tools see the end-user's token unchanged.
+  - **Task persistence.** `app.a2a.task_store` is an `A2ATaskStoreModel { database, table }` — independent of `app.long_running`. No `database` → in-memory; set `database` → Lakebase persistence in the configured `table`. Share a connection pool with `LongRunningStore` and the LangGraph Postgres checkpointer by pointing all three at the same `DatabaseModel`; `AsyncPostgresPoolManager` dedupes by connection-string value.
+  - **Typed security schemes.** `A2AModel.security_schemes` is typed against a2a-sdk's `SecurityScheme` discriminated union, so malformed schemes fail at config-load time. dao-ai ships ready-made constants and factories in `dao_ai.apps.a2a.security` (`BEARER_DATABRICKS_PAT`, `BEARER_DATABRICKS_M2M`, `BEARER_DATABRICKS_OBO`, `api_key_header`, `oauth2_databricks_authorization_code`, `oauth2_databricks_client_credentials`, `oauth2_databricks_obo`, `openid_connect_databricks`). YAML users can author the equivalents inline using `${workspace.host}` substitution.
+  - **Auto-derived OBO advertisement.** `A2AModel.on_behalf_of_user` is now three-state (`Optional[bool]`, default `None`). With `None`, dao-ai scans the config for any `IsDatabricksResource` with `on_behalf_of_user: true` and auto-advertises OBO on the Agent Card. When effective OBO is True, the Agent Card emits **both** an `oauth2` scheme (the declarative authorization-code flow with `user_impersonation` scope, URLs from `$DATABRICKS_HOST`) and a `bearer` scheme (the wire shape); A2A clients pick the one their auth machinery supports. Users can pin `a2a.on_behalf_of_user: true|false` to override.
+  - **Shared HITL helper.** Both the Responses path (`LanggraphResponsesAgent.apredict` / `apredict_stream`) and the A2A executor delegate to a new `dao_ai.hitl.decide_graph_turn`, eliminating ~150 lines of duplicated HITL decision logic.
+  - **New config models.** `A2AModel`, `A2ASkillModel`, `A2ATaskStoreModel`. `A2AModel.on_behalf_of_user: bool` replaces the previously-proposed (unshipped) `AppModel.on_behalf_of_user` advisory flag — A2A's Agent Card was its only consumer. Per-resource `on_behalf_of_user` fields elsewhere (AgentModel, GenieRoomModel, VectorStoreModel, etc.) are unchanged. Schema regenerated.
+  - **New `app.a2a` field on AppModel** (`Optional[A2AModel]`). Default `None` is treated as `A2AModel()` (enabled with sensible defaults).
+  - **Worked examples.** `config/examples/20_a2a_protocol/a2a_minimal.yaml` (deploy-ready, dependency-free), `a2a_long_running.yaml` (Lakebase-persistent task store), and `a2a_hitl_obo.yaml` (HITL + OBO over A2A). `examples/a2a/client.py` is an end-to-end Python client that exercises the agent card, message/send, message/stream, and HITL resume flows.
+  - **Docs.** New `docs/a2a_protocol.md` covers the wire-shape mappings, configuration surface, HITL/OBO semantics, task-store configuration, security-scheme recipes (Python + YAML), and spec-compliance scope.
+
+  Model Serving deployments are unchanged — A2A is Apps-only because the MLflow Model Serving runtime cannot mount arbitrary FastAPI routes.
+
 ## [0.1.76]
 
 ### Fixed
