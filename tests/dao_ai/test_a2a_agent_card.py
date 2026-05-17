@@ -44,13 +44,16 @@ def _minimal_config(
                 model=InferenceEndpointModel(name="databricks-gpt-5-4-mini"),
             ),
         ]
+    extra: dict = {}
+    if a2a is not None:
+        extra["a2a"] = a2a
     return AppConfig(
         app=AppModel(
             name="dao-ai-test",
             description=description,
             deployment_target=DeploymentTarget.APPS,
-            a2a=a2a,
             agents=agents,
+            **extra,
         ),
     )
 

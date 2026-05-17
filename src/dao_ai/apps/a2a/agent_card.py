@@ -44,16 +44,16 @@ DEFAULT_AGENT_CARD_PATH = "/.well-known/agent-card.json"
 def effective_a2a(config: "AppConfig") -> "A2AModel":
     """Return the :class:`A2AModel` to use for this config.
 
-    When ``config.app.a2a`` is unset, returns an :class:`A2AModel` populated
-    with defaults (``enabled=True``, auto task store, etc.). This is the
-    single seam used throughout the A2A package so unset and default-on are
-    indistinguishable at runtime.
+    ``AppModel.a2a`` is concrete-by-default (``default_factory=A2AModel``),
+    so it's always populated when ``config.app`` exists. This helper only
+    handles the edge case of ``config.app`` itself being unset — every other
+    A2A code path can read ``config.app.a2a`` directly.
     """
     from dao_ai.config import A2AModel
 
-    if config.app is not None and config.app.a2a is not None:
-        return config.app.a2a
-    return A2AModel()
+    if config.app is None:
+        return A2AModel()
+    return config.app.a2a
 
 
 def _dao_ai_version() -> str:

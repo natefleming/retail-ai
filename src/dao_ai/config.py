@@ -6742,8 +6742,8 @@ class A2ASkillModel(BaseModel):
 class A2AModel(BaseModel):
     """Google A2A (Agent2Agent) protocol endpoint configuration.
 
-    When ``app.a2a`` is unset OR ``app.a2a.enabled`` is True (the default),
-    every Databricks Apps deployment exposes:
+    Every Databricks Apps deployment exposes the following routes by default
+    (``AppModel.a2a`` defaults to a fresh ``A2AModel`` with ``enabled=True``):
 
     * ``GET  /.well-known/agent-card.json``  — Agent Card discovery.
     * ``POST /a2a``                          — JSON-RPC 2.0 (message/send,
@@ -6947,13 +6947,13 @@ class AppModel(BaseModel):
         "Responses API routes (/v1/responses, /v1/responses/{id}, /v1/responses/{id}/cancel) "
         "are additionally exposed. See config/examples/19_long_running_agents/.",
     )
-    a2a: Optional[A2AModel] = Field(
-        default=None,
+    a2a: A2AModel = Field(
+        default_factory=A2AModel,
         description="Google A2A protocol endpoint configuration for Databricks Apps "
-        "deployments. When unset, A2A is enabled with sensible defaults (skills derived "
-        "from sub-agents, bearer scheme derived from a2a.on_behalf_of_user). Set "
-        "a2a.enabled=false to opt out. Ignored for Model Serving deployments. See "
-        "A2AModel for the full schema.",
+        "deployments. Defaults to a fresh A2AModel — enabled with sensible defaults "
+        "(skills derived from sub-agents, bearer scheme derived from "
+        "a2a.on_behalf_of_user). Set a2a.enabled=false to opt out. Ignored for Model "
+        "Serving deployments. See A2AModel for the full schema.",
     )
 
     @model_validator(mode="after")

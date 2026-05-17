@@ -2,7 +2,7 @@
   "$defs": {
     "A2AModel": {
       "additionalProperties": false,
-      "description": "Google A2A (Agent2Agent) protocol endpoint configuration.\n\nWhen ``app.a2a`` is unset OR ``app.a2a.enabled`` is True (the default),\nevery Databricks Apps deployment exposes:\n\n* ``GET  /.well-known/agent-card.json``  \u2014 Agent Card discovery.\n* ``POST /a2a``                          \u2014 JSON-RPC 2.0 (message/send,\n  message/stream, tasks/get, tasks/list, tasks/cancel, tasks/subscribe).\n\nThese run alongside the existing OpenAI Responses contract on\n``/invocations`` and ``/v1/responses*`` \u2014 both protocols share the same\nLangGraph instance via :meth:`AppConfig.as_graph` and the same\ncheckpointer, so conversations are consistent across contracts.\n\nSet ``enabled: false`` to skip mounting the A2A routes entirely.\n\nTask persistence is configured via :attr:`task_store` \u2014 an\n:class:`A2ATaskStoreModel` whose ``database`` field toggles between\nin-memory (default) and Lakebase-backed storage. This is independent\nof :class:`LongRunningModel`; point both at the same\n:class:`DatabaseModel` to share the connection pool.\n\nSkills and security schemes are derived from the rest of the config\n(one skill per entry in ``config.agents``; bearer scheme with an OBO-\naware description when :attr:`on_behalf_of_user` is True). Override\neither by setting the field explicitly here. The\n:attr:`security_schemes` field is typed against a2a-sdk's\n:class:`a2a.types.SecurityScheme` discriminated union, so malformed\nschemes fail at config load instead of at request time.",
+      "description": "Google A2A (Agent2Agent) protocol endpoint configuration.\n\nEvery Databricks Apps deployment exposes the following routes by default\n(``AppModel.a2a`` defaults to a fresh ``A2AModel`` with ``enabled=True``):\n\n* ``GET  /.well-known/agent-card.json``  \u2014 Agent Card discovery.\n* ``POST /a2a``                          \u2014 JSON-RPC 2.0 (message/send,\n  message/stream, tasks/get, tasks/list, tasks/cancel, tasks/subscribe).\n\nThese run alongside the existing OpenAI Responses contract on\n``/invocations`` and ``/v1/responses*`` \u2014 both protocols share the same\nLangGraph instance via :meth:`AppConfig.as_graph` and the same\ncheckpointer, so conversations are consistent across contracts.\n\nSet ``enabled: false`` to skip mounting the A2A routes entirely.\n\nTask persistence is configured via :attr:`task_store` \u2014 an\n:class:`A2ATaskStoreModel` whose ``database`` field toggles between\nin-memory (default) and Lakebase-backed storage. This is independent\nof :class:`LongRunningModel`; point both at the same\n:class:`DatabaseModel` to share the connection pool.\n\nSkills and security schemes are derived from the rest of the config\n(one skill per entry in ``config.agents``; bearer scheme with an OBO-\naware description when :attr:`on_behalf_of_user` is True). Override\neither by setting the field explicitly here. The\n:attr:`security_schemes` field is typed against a2a-sdk's\n:class:`a2a.types.SecurityScheme` discriminated union, so malformed\nschemes fail at config load instead of at request time.",
       "properties": {
         "enabled": {
           "default": true,
@@ -764,16 +764,8 @@
           "description": "Opt-in long-running agent configuration. When set, the ResponsesAgent is wrapped so that requests with background=True or custom_inputs.operation are persisted in the referenced Lakebase database. In Databricks Apps, strict Responses API routes (/v1/responses, /v1/responses/{id}, /v1/responses/{id}/cancel) are additionally exposed. See config/examples/19_long_running_agents/."
         },
         "a2a": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/A2AModel"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "description": "Google A2A protocol endpoint configuration for Databricks Apps deployments. When unset, A2A is enabled with sensible defaults (skills derived from sub-agents, bearer scheme derived from a2a.on_behalf_of_user). Set a2a.enabled=false to opt out. Ignored for Model Serving deployments. See A2AModel for the full schema."
+          "$ref": "#/$defs/A2AModel",
+          "description": "Google A2A protocol endpoint configuration for Databricks Apps deployments. Defaults to a fresh A2AModel \u2014 enabled with sensible defaults (skills derived from sub-agents, bearer scheme derived from a2a.on_behalf_of_user). Set a2a.enabled=false to opt out. Ignored for Model Serving deployments. See A2AModel for the full schema."
         }
       },
       "required": [

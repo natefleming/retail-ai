@@ -45,14 +45,17 @@ def _config(
     a2a: A2AModel | None = None,
     long_running: LongRunningModel | None = None,
 ) -> AppConfig:
+    extra: dict = {}
+    if a2a is not None:
+        extra["a2a"] = a2a
     return AppConfig(
         app=AppModel(
             name="dao-ai-test",
             description="test",
             deployment_target=DeploymentTarget.APPS,
-            a2a=a2a,
             long_running=long_running,
             agents=[_agent()],
+            **extra,
         ),
     )
 

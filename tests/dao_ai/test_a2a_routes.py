@@ -30,13 +30,16 @@ def _agent(name: str = "greeter") -> AgentModel:
 
 
 def _config(*, a2a: A2AModel | None = None) -> AppConfig:
+    extra: dict = {}
+    if a2a is not None:
+        extra["a2a"] = a2a
     return AppConfig(
         app=AppModel(
             name="dao-ai-routes-test",
             description="test agent",
             deployment_target=DeploymentTarget.APPS,
-            a2a=a2a,
             agents=[_agent()],
+            **extra,
         ),
     )
 
