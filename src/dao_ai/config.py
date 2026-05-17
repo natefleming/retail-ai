@@ -32,6 +32,7 @@ if TYPE_CHECKING:
     )
     from dao_ai.state import Context
 
+from a2a.types import SecurityScheme
 from databricks.sdk import WorkspaceClient
 from databricks.sdk.credentials_provider import (
     CredentialsStrategy,
@@ -92,8 +93,6 @@ from pydantic import (
     field_validator,
     model_validator,
 )
-
-from a2a.types import SecurityScheme
 
 from dao_ai.config_vars import (
     ParameterDeclarationModel,

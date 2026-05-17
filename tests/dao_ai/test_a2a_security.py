@@ -9,7 +9,6 @@ Covers each constant + factory in the convenience module:
 * Host resolution precedence for factories.
 """
 
-import os
 from unittest.mock import patch
 
 import pytest
@@ -95,7 +94,9 @@ def test_oauth2_databricks_authorization_code_factory():
     assert isinstance(scheme, OAuth2SecurityScheme)
     flow = scheme.flows.authorization_code
     assert flow is not None
-    assert flow.authorization_url == "https://my-ws.cloud.databricks.com/oidc/v1/authorize"
+    assert (
+        flow.authorization_url == "https://my-ws.cloud.databricks.com/oidc/v1/authorize"
+    )
     assert flow.token_url == "https://my-ws.cloud.databricks.com/oidc/v1/token"
     assert "all-apis" in flow.scopes
 
@@ -137,7 +138,9 @@ def test_host_resolution_normalizes_protocol():
 def test_host_resolution_strips_trailing_slash():
     scheme = oauth2_databricks_authorization_code("https://my-ws.cloud.databricks.com/")
     flow = scheme.flows.authorization_code
-    assert flow.authorization_url == "https://my-ws.cloud.databricks.com/oidc/v1/authorize"
+    assert (
+        flow.authorization_url == "https://my-ws.cloud.databricks.com/oidc/v1/authorize"
+    )
 
 
 @pytest.mark.unit
@@ -146,7 +149,10 @@ def test_host_resolution_uses_env_var(monkeypatch):
     monkeypatch.setenv("DATABRICKS_HOST", "https://from-env.cloud.databricks.com")
     scheme = oauth2_databricks_authorization_code()
     flow = scheme.flows.authorization_code
-    assert flow.authorization_url == "https://from-env.cloud.databricks.com/oidc/v1/authorize"
+    assert (
+        flow.authorization_url
+        == "https://from-env.cloud.databricks.com/oidc/v1/authorize"
+    )
 
 
 @pytest.mark.unit
@@ -154,7 +160,9 @@ def test_host_resolution_raises_when_unresolvable(monkeypatch):
     """No host arg + no env var + no ambient → ValueError with a clear message."""
     monkeypatch.delenv("DATABRICKS_HOST", raising=False)
     # Force get_default_databricks_host to return None.
-    with patch("dao_ai.apps.a2a.security.get_default_databricks_host", return_value=None):
+    with patch(
+        "dao_ai.apps.a2a.security.get_default_databricks_host", return_value=None
+    ):
         with pytest.raises(ValueError, match="Workspace host could not be resolved"):
             oauth2_databricks_authorization_code()
 

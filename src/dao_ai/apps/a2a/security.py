@@ -153,7 +153,9 @@ def _resolve_host(host: Optional[str]) -> str:
     )
 
 
-def api_key_header(name: str, *, description: Optional[str] = None) -> APIKeySecurityScheme:
+def api_key_header(
+    name: str, *, description: Optional[str] = None
+) -> APIKeySecurityScheme:
     """Generic API-key-in-header scheme.
 
     YAML equivalent::
