@@ -24,13 +24,31 @@ See :class:`dao_ai.config.A2AModel` for the full configuration surface.
 from dao_ai.apps.a2a.agent_card import build_agent_card, effective_a2a
 from dao_ai.apps.a2a.executor import A2AAgentExecutor
 from dao_ai.apps.a2a.routes import mount_a2a_routes
+from dao_ai.apps.a2a.security import (
+    BEARER_DATABRICKS_M2M,
+    BEARER_DATABRICKS_OBO,
+    BEARER_DATABRICKS_PAT,
+    api_key_header,
+    oauth2_databricks_authorization_code,
+    oauth2_databricks_client_credentials,
+    oauth2_databricks_obo,
+    openid_connect_databricks,
+)
 from dao_ai.apps.a2a.task_store import LakebaseTaskStore, build_task_store
 
 __all__ = [
     "A2AAgentExecutor",
+    "BEARER_DATABRICKS_M2M",
+    "BEARER_DATABRICKS_OBO",
+    "BEARER_DATABRICKS_PAT",
     "LakebaseTaskStore",
+    "api_key_header",
     "build_agent_card",
     "build_task_store",
     "effective_a2a",
     "mount_a2a_routes",
+    "oauth2_databricks_authorization_code",
+    "oauth2_databricks_client_credentials",
+    "oauth2_databricks_obo",
+    "openid_connect_databricks",
 ]
