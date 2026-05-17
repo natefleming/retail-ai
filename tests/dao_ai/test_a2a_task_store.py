@@ -29,7 +29,9 @@ def _agent() -> AgentModel:
     )
 
 
-def _config(*, a2a: A2AModel | None, long_running: LongRunningModel | None) -> AppConfig:
+def _config(
+    *, a2a: A2AModel | None, long_running: LongRunningModel | None
+) -> AppConfig:
     return AppConfig(
         app=AppModel(
             name="dao-ai-test",

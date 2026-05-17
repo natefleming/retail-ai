@@ -72,14 +72,14 @@ class A2AAgentExecutor(AgentExecutor):
             self._graph = self.config.as_graph()
         return self._graph
 
-    async def execute(
-        self, context: RequestContext, event_queue: EventQueue
-    ) -> None:
+    async def execute(self, context: RequestContext, event_queue: EventQueue) -> None:
         task_id = context.task_id
         context_id = context.context_id
         is_new_task = context.current_task is None
         message_parts_count = (
-            len(context.message.parts) if context.message and context.message.parts else 0
+            len(context.message.parts)
+            if context.message and context.message.parts
+            else 0
         )
         logger.info(
             "A2A: execute start",
@@ -104,9 +104,7 @@ class A2AAgentExecutor(AgentExecutor):
         try:
             messages, custom_inputs = self._extract_request(context)
             dao_context = self._build_dao_context(context, custom_inputs)
-            runtime_config: dict[str, Any] = {
-                "configurable": dao_context.model_dump()
-            }
+            runtime_config: dict[str, Any] = {"configurable": dao_context.model_dump()}
             logger.trace(
                 "A2A: request translated to graph input",
                 task_id=task_id,
@@ -199,9 +197,7 @@ class A2AAgentExecutor(AgentExecutor):
                 )
             )
 
-    async def cancel(
-        self, context: RequestContext, event_queue: EventQueue
-    ) -> None:
+    async def cancel(self, context: RequestContext, event_queue: EventQueue) -> None:
         logger.info(
             "A2A: cancel requested",
             task_id=context.task_id,
@@ -267,11 +263,15 @@ class A2AAgentExecutor(AgentExecutor):
         headers: dict[str, str] = {}
         call_context = getattr(context, "call_context", None)
         if call_context is not None:
-            state_headers = call_context.state.get("headers") if call_context.state else None
+            state_headers = (
+                call_context.state.get("headers") if call_context.state else None
+            )
             if isinstance(state_headers, dict):
                 headers.update(state_headers)
         configurable = (
-            custom_inputs.get("configurable") if isinstance(custom_inputs, dict) else None
+            custom_inputs.get("configurable")
+            if isinstance(custom_inputs, dict)
+            else None
         )
         if isinstance(configurable, dict):
             user_headers = configurable.get("headers")

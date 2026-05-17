@@ -177,8 +177,7 @@ def _derive_security_schemes(
         return result if result else None
 
     obo = bool(
-        config.app is not None
-        and getattr(config.app, "on_behalf_of_user", False)
+        config.app is not None and getattr(config.app, "on_behalf_of_user", False)
     )
     bearer_format = (
         "Databricks OAuth (forwarded by Apps proxy via x-forwarded-access-token; OBO supported)"
@@ -207,9 +206,8 @@ def build_agent_card(config: "AppConfig") -> AgentCard:
 
     name = config.app.name if config.app else "dao-ai-agent"
     description = (
-        (config.app.description if config.app else None)
-        or f"dao-ai agent: {name}"
-    )
+        config.app.description if config.app else None
+    ) or f"dao-ai agent: {name}"
 
     skills = _derive_skills(config, a2a)
     security_schemes = _derive_security_schemes(config, a2a)

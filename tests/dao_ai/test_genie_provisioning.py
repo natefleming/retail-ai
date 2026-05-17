@@ -502,9 +502,7 @@ class TestRefresh:
         # index — the order in serialized_space isn't part of the public
         # contract.
         products_source = next(
-            t
-            for t in fresh.table_sources
-            if t.table.full_name == "cat.sch.products"
+            t for t in fresh.table_sources if t.table.full_name == "cat.sch.products"
         )
         assert products_source.description == "Product catalog."
         assert products_source.column_configs[0].synonyms == [

@@ -129,7 +129,9 @@ def test_agent_card_security_default_bearer():
     bearer = card.security_schemes["bearer"].root
     assert bearer.type == "http"
     assert bearer.scheme == "bearer"
-    assert "PAT" in (bearer.bearer_format or "") or "M2M" in (bearer.bearer_format or "")
+    assert "PAT" in (bearer.bearer_format or "") or "M2M" in (
+        bearer.bearer_format or ""
+    )
 
 
 @pytest.mark.unit

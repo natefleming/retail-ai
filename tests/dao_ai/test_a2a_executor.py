@@ -166,7 +166,9 @@ def _run_cancel(executor: A2AAgentExecutor, context: RequestContext) -> list:
 def test_extract_text_only_message():
     cfg = _minimal_config()
     executor = A2AAgentExecutor(cfg, graph=_make_graph())
-    messages, custom_inputs = executor._extract_request(_make_context(text="hello world"))
+    messages, custom_inputs = executor._extract_request(
+        _make_context(text="hello world")
+    )
     assert messages == [{"role": "user", "content": "hello world"}]
     assert custom_inputs == {}
 
@@ -234,16 +236,12 @@ def test_build_dao_context_custom_inputs_override_call_context():
 @pytest.mark.unit
 def test_execute_happy_path_emits_completed():
     cfg = _minimal_config()
-    graph = _make_graph(
-        ainvoke_return={"messages": [AIMessage(content="hello back")]}
-    )
+    graph = _make_graph(ainvoke_return={"messages": [AIMessage(content="hello back")]})
     executor = A2AAgentExecutor(cfg, graph=graph)
 
     events = _run_execute(executor, _make_context(text="hi"))
 
-    states = [
-        e.status.state for e in events if isinstance(e, TaskStatusUpdateEvent)
-    ]
+    states = [e.status.state for e in events if isinstance(e, TaskStatusUpdateEvent)]
     assert TaskState.submitted in states
     assert TaskState.working in states
     assert TaskState.completed in states
@@ -300,9 +298,7 @@ def test_execute_hitl_resume_with_datapart_decisions():
     assert isinstance(first_arg, Command)
     assert first_arg.resume == {"decisions": decisions}
 
-    states = [
-        e.status.state for e in events if isinstance(e, TaskStatusUpdateEvent)
-    ]
+    states = [e.status.state for e in events if isinstance(e, TaskStatusUpdateEvent)]
     assert states[-1] == TaskState.completed
 
 
@@ -363,9 +359,7 @@ def test_execute_graph_interrupt_mid_invoke_emits_input_required():
     executor = A2AAgentExecutor(cfg, graph=graph)
     events = _run_execute(executor, _make_context(text="run"))
 
-    states = [
-        e.status.state for e in events if isinstance(e, TaskStatusUpdateEvent)
-    ]
+    states = [e.status.state for e in events if isinstance(e, TaskStatusUpdateEvent)]
     assert TaskState.input_required in states
 
 
@@ -380,9 +374,7 @@ def test_cancel_emits_canceled_state():
     executor = A2AAgentExecutor(cfg, graph=_make_graph())
 
     events = _run_cancel(executor, _make_context(text=""))
-    states = [
-        e.status.state for e in events if isinstance(e, TaskStatusUpdateEvent)
-    ]
+    states = [e.status.state for e in events if isinstance(e, TaskStatusUpdateEvent)]
     assert states == [TaskState.canceled]
 
 
@@ -398,8 +390,6 @@ def test_execute_unexpected_exception_emits_failed():
     executor = A2AAgentExecutor(cfg, graph=graph)
 
     events = _run_execute(executor, _make_context(text="hi"))
-    states = [
-        e.status.state for e in events if isinstance(e, TaskStatusUpdateEvent)
-    ]
+    states = [e.status.state for e in events if isinstance(e, TaskStatusUpdateEvent)]
     assert TaskState.failed in states
     assert states[-1] == TaskState.failed

@@ -449,8 +449,7 @@ def optimize_context_aware_cache_thresholds(
     original_thresholds: dict[str, float]
     | GenieContextAwareCacheParametersModel
     | None = None,
-    judge_model: InferenceEndpointModel
-    | str = "databricks-gpt-5-4-mini",
+    judge_model: InferenceEndpointModel | str = "databricks-gpt-5-4-mini",
     n_trials: int = 50,
     metric: Literal["f1", "precision", "recall", "fbeta"] = "f1",
     beta: float = 1.0,

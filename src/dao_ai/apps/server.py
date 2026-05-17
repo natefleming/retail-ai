@@ -192,8 +192,7 @@ def _mount_a2a_routes() -> None:
         from loguru import logger
 
         logger.warning(
-            "Failed to mount A2A routes; Responses contract still served. "
-            f"Error: {exc}"
+            f"Failed to mount A2A routes; Responses contract still served. Error: {exc}"
         )
 
 

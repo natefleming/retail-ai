@@ -125,9 +125,7 @@ def _user_message(
 
 @pytest.mark.integration
 def test_get_agent_card_well_known_returns_card():
-    app = _build_app_with_stub_graph(
-        {"messages": [AIMessage(content="hello")]}
-    )
+    app = _build_app_with_stub_graph({"messages": [AIMessage(content="hello")]})
     client = TestClient(app)
 
     resp = client.get(DEFAULT_AGENT_CARD_PATH)
@@ -208,9 +206,7 @@ def test_jsonrpc_tasks_get_roundtrips_saved_task():
 
 @pytest.mark.integration
 def test_jsonrpc_message_stream_emits_sse_completed():
-    app = _build_app_with_stub_graph(
-        {"messages": [AIMessage(content="streamed back")]}
-    )
+    app = _build_app_with_stub_graph({"messages": [AIMessage(content="streamed back")]})
     client = TestClient(app)
 
     context_id = uuid.uuid4().hex

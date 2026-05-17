@@ -29,7 +29,6 @@ from langchain.agents.middleware.human_in_the_loop import (
     RespondDecision,
     ReviewConfig,
 )
-from langchain_community.adapters.openai import convert_openai_messages
 from langchain_core.language_models import LanguageModelLike
 from langchain_core.messages import (
     AIMessage,
@@ -1351,9 +1350,7 @@ class LanggraphResponsesAgent(ResponsesAgent):
                 )
                 yield ResponsesAgentStreamEvent(
                     type="response.output_item.done",
-                    item=self.create_text_output_item(
-                        text=error_message, id=item_id
-                    ),
+                    item=self.create_text_output_item(text=error_message, id=item_id),
                     custom_outputs=custom_outputs,
                 )
                 return
