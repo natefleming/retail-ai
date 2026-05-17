@@ -6,11 +6,14 @@ Two stores:
   tasks lost on restart.
 * :class:`LakebaseTaskStore` — persists tasks in Lakebase (or any Postgres),
   reusing the same :class:`AsyncPostgresPoolManager` pool the LangGraph
-  checkpointer and :class:`dao_ai.long_running.LongRunningStore` use. This
-  lets A2A tasks survive worker restarts and stay consistent across replicas.
+  checkpointer and :class:`dao_ai.long_running.LongRunningStore` use whenever
+  those point at the same :class:`dao_ai.config.DatabaseModel`. This lets A2A
+  tasks survive worker restarts and stay consistent across replicas.
 
-Selection is driven by :func:`build_task_store`, which honors
-``config.app.a2a.task_store`` (``auto`` | ``in_memory`` | ``lakebase``).
+Selection is driven by :func:`build_task_store`, which reads
+``config.app.a2a.task_store`` (an :class:`A2ATaskStoreModel`): absent
+``database`` → in-memory, present → Lakebase. The A2A task store is
+configured independently of :class:`dao_ai.config.LongRunningModel`.
 """
 
 from __future__ import annotations
@@ -228,49 +231,27 @@ def build_task_store(config: "AppConfig") -> TaskStore:
 
     Resolution:
 
-    * ``app.a2a.task_store == "in_memory"`` → :class:`InMemoryTaskStore`.
-    * ``app.a2a.task_store == "lakebase"`` → :class:`LakebaseTaskStore`
-      against ``app.long_running.database``. Raises if ``app.long_running``
-      is unset.
-    * ``app.a2a.task_store == "auto"`` (default) →
-      :class:`LakebaseTaskStore` when ``app.long_running`` is configured,
-      :class:`InMemoryTaskStore` otherwise.
+    * ``app.a2a.task_store.database`` is ``None`` (default) →
+      :class:`InMemoryTaskStore`.
+    * ``app.a2a.task_store.database`` is set →
+      :class:`LakebaseTaskStore` against that :class:`DatabaseModel`,
+      using ``app.a2a.task_store.table`` for the table name.
+
+    Independent of ``app.long_running``: point this and the long-running
+    store at the same :class:`DatabaseModel` to share a connection pool.
     """
     from dao_ai.apps.a2a.agent_card import effective_a2a
 
     a2a = effective_a2a(config)
-    long_running = config.app.long_running if config.app else None
+    db = a2a.task_store.database
 
-    if a2a.task_store == "in_memory":
-        logger.info("A2A task store: in-memory (explicit)")
+    if db is None:
+        logger.info("A2A task store: in-memory")
         return InMemoryTaskStore()
 
-    if a2a.task_store == "lakebase":
-        if long_running is None:
-            raise ValueError(
-                "app.a2a.task_store='lakebase' requires app.long_running "
-                "to be configured (the database is shared)."
-            )
-        logger.info(
-            "A2A task store: Lakebase (explicit)",
-            table=a2a.tasks_table_name,
-            database=long_running.database.name,
-        )
-        return LakebaseTaskStore(
-            database=long_running.database,
-            table_name=a2a.tasks_table_name,
-        )
-
-    # auto
-    if long_running is not None:
-        logger.info(
-            "A2A task store: Lakebase (auto — app.long_running is set)",
-            table=a2a.tasks_table_name,
-            database=long_running.database.name,
-        )
-        return LakebaseTaskStore(
-            database=long_running.database,
-            table_name=a2a.tasks_table_name,
-        )
-    logger.info("A2A task store: in-memory (auto — app.long_running not set)")
-    return InMemoryTaskStore()
+    logger.info(
+        "A2A task store: Lakebase",
+        table=a2a.task_store.table,
+        database=db.name,
+    )
+    return LakebaseTaskStore(database=db, table_name=a2a.task_store.table)

@@ -93,6 +93,8 @@ from pydantic import (
     model_validator,
 )
 
+from a2a.types import SecurityScheme
+
 from dao_ai.config_vars import (
     ParameterDeclarationModel,
     substitute_params,
@@ -6672,6 +6674,45 @@ class LongRunningModel(BaseModel):
     )
 
 
+class A2ATaskStoreModel(BaseModel):
+    """A2A protocol task persistence configuration.
+
+    Mirrors the dao-ai idiom shared by :class:`CheckpointerModel` and
+    :class:`StoreModel`: an optional :class:`DatabaseModel` toggles the
+    backing store. Absent → in-memory (tasks lost on restart); present →
+    Lakebase/Postgres, persisted in ``table``. This is independent of
+    :class:`LongRunningModel` — the two concepts (A2A task lifecycle vs
+    Responses-API kickoff/poll/cancel) are configured separately.
+
+    When the same ``DatabaseModel`` is referenced here, on
+    ``memory.checkpointer.database``, and on ``app.long_running.database``,
+    :class:`dao_ai.memory.postgres.AsyncPostgresPoolManager` dedupes by
+    connection-string value, so all three share a single connection pool.
+    """
+
+    model_config = ConfigDict(use_enum_values=True, extra="forbid")
+    database: Optional[DatabaseModel] = Field(
+        default=None,
+        description=(
+            "Database for persistent task storage. When omitted, A2A tasks "
+            "are held in process memory and lost on restart. When set, "
+            "tasks persist in the configured ``table`` and share the "
+            "AsyncPostgresPoolManager pool with the LangGraph checkpointer "
+            "and LongRunningStore whenever those point at the same "
+            "DatabaseModel."
+        ),
+    )
+    table: str = Field(
+        default="dao_ai_a2a_tasks",
+        description="Table name for task persistence. Ignored when `database` is None.",
+    )
+
+    @property
+    def storage_type(self) -> StorageType:
+        """Infer storage type from database presence."""
+        return StorageType.POSTGRES if self.database else StorageType.MEMORY
+
+
 class A2ASkillModel(BaseModel):
     """Single skill advertised on the A2A Agent Card."""
 
@@ -6716,16 +6757,19 @@ class A2AModel(BaseModel):
 
     Set ``enabled: false`` to skip mounting the A2A routes entirely.
 
-    Task persistence is chosen via ``task_store``:
-    * ``auto`` (default) — Lakebase-backed when ``app.long_running`` is set
-      (shares the same database + pool), in-memory otherwise.
-    * ``in_memory`` — process-local; tasks lost on restart.
-    * ``lakebase`` — Lakebase-backed; requires ``app.long_running``.
+    Task persistence is configured via :attr:`task_store` — an
+    :class:`A2ATaskStoreModel` whose ``database`` field toggles between
+    in-memory (default) and Lakebase-backed storage. This is independent
+    of :class:`LongRunningModel`; point both at the same
+    :class:`DatabaseModel` to share the connection pool.
 
     Skills and security schemes are derived from the rest of the config
-    (one skill per entry in ``config.agents``; ``oauth2`` when
-    ``on_behalf_of_user`` is True, else ``bearer``). Override either by
-    setting the field explicitly here.
+    (one skill per entry in ``config.agents``; bearer scheme with an OBO-
+    aware description when :attr:`on_behalf_of_user` is True). Override
+    either by setting the field explicitly here. The
+    :attr:`security_schemes` field is typed against a2a-sdk's
+    :class:`a2a.types.SecurityScheme` discriminated union, so malformed
+    schemes fail at config load instead of at request time.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -6743,11 +6787,15 @@ class A2AModel(BaseModel):
         description="Overrides the Agent Card 'skills' list. When unset, one skill is "
         "derived per entry in config.agents.",
     )
-    security_schemes: Optional[dict[str, dict[str, Any]]] = Field(
+    security_schemes: Optional[dict[str, SecurityScheme]] = Field(
         default=None,
         description="Overrides the Agent Card 'securitySchemes'. Keys are scheme names; "
-        "values are OpenAPI-style scheme dicts forwarded to a2a-sdk for validation. "
-        "When unset, derived from app.on_behalf_of_user (oauth2 if True, bearer otherwise).",
+        "values are validated against a2a-sdk's SecurityScheme discriminated union at "
+        "config-load time. See ``dao_ai.apps.a2a.security`` for ready-made constants "
+        "(BEARER_DATABRICKS_PAT, BEARER_DATABRICKS_M2M, BEARER_DATABRICKS_OBO) and "
+        "factories (oauth2_databricks_authorization_code, oauth2_databricks_obo, "
+        "openid_connect_databricks, api_key_header). When unset, derived from "
+        ":attr:`on_behalf_of_user` (bearer scheme with OBO-aware description).",
     )
     default_input_modes: list[str] = Field(
         default_factory=lambda: ["text/plain", "application/json"],
@@ -6757,14 +6805,19 @@ class A2AModel(BaseModel):
         default_factory=lambda: ["text/plain", "application/json"],
         description="Default supported output MIME types on the Agent Card.",
     )
-    task_store: Literal["auto", "in_memory", "lakebase"] = Field(
-        default="auto",
-        description="A2A task persistence strategy. See class docstring for the semantics.",
+    task_store: A2ATaskStoreModel = Field(
+        default_factory=A2ATaskStoreModel,
+        description="A2A task persistence configuration. Defaults to an empty "
+        "A2ATaskStoreModel (no database → InMemoryTaskStore). Set ``task_store.database`` "
+        "to a DatabaseModel to persist tasks in Lakebase. Independent of app.long_running.",
     )
-    tasks_table_name: str = Field(
-        default="dao_ai_a2a_tasks",
-        description="Lakebase table name for A2A task persistence (used when task_store "
-        "resolves to lakebase).",
+    on_behalf_of_user: bool = Field(
+        default=False,
+        description="Advisory flag declaring that this deployment runs in On-Behalf-Of-"
+        "User (OBO) mode. Drives the Agent Card's default bearer-scheme description so "
+        "callers know to expect OBO. Resource-level OBO is still configured per resource "
+        "via the resource's own ``on_behalf_of_user`` field; this flag does NOT toggle "
+        "OBO on any resource.",
     )
 
 
@@ -6808,14 +6861,6 @@ class AppModel(BaseModel):
     enable_chat_proxy: Optional[bool] = Field(
         default=True,
         description="Whether the MLflow AgentServer enables the chat proxy endpoint for Databricks Apps.",
-    )
-    on_behalf_of_user: Optional[bool] = Field(
-        default=None,
-        description="Advisory flag declaring that this deployment runs in On-Behalf-Of-User "
-        "(OBO) mode. Resources are still configured per-model via their own "
-        "``on_behalf_of_user`` fields; this app-level hint is used by the A2A Agent Card "
-        "and downstream docs to advertise the expected auth flow. Does NOT toggle OBO "
-        "on any resource.",
     )
     environment_vars: Optional[dict[str, AnyVariable]] = Field(
         default_factory=dict,
@@ -6907,8 +6952,9 @@ class AppModel(BaseModel):
         default=None,
         description="Google A2A protocol endpoint configuration for Databricks Apps "
         "deployments. When unset, A2A is enabled with sensible defaults (skills derived "
-        "from sub-agents, security from on_behalf_of_user). Set a2a.enabled=false to opt "
-        "out. Ignored for Model Serving deployments. See A2AModel for the full schema.",
+        "from sub-agents, bearer scheme derived from a2a.on_behalf_of_user). Set "
+        "a2a.enabled=false to opt out. Ignored for Model Serving deployments. See "
+        "A2AModel for the full schema.",
     )
 
     @model_validator(mode="after")

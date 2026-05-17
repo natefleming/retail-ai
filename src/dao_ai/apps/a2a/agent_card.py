@@ -164,24 +164,18 @@ def _derive_security_schemes(
 ) -> dict[str, SecurityScheme] | None:
     """Derive Agent Card security_schemes.
 
-    Explicit ``a2a.security_schemes`` wins. Otherwise, emit a single
-    ``bearer`` HTTP scheme whose ``bearer_format`` documents whether the
-    deployment supports OBO (when ``app.on_behalf_of_user`` is True).
+    Explicit ``a2a.security_schemes`` wins (already validated against
+    a2a-sdk's SecurityScheme discriminated union at config-load time).
+    Otherwise, emit a single ``bearer`` HTTP scheme whose ``bearer_format``
+    documents whether the deployment supports OBO (when
+    ``a2a.on_behalf_of_user`` is True).
     """
     if a2a.security_schemes is not None:
-        # Pass through; a2a-sdk validates the dicts via its SecurityScheme
-        # discriminated union when AgentCard is instantiated.
-        result: dict[str, SecurityScheme] = {}
-        for key, value in a2a.security_schemes.items():
-            result[key] = SecurityScheme.model_validate(value)
-        return result if result else None
+        return a2a.security_schemes or None
 
-    obo = bool(
-        config.app is not None and getattr(config.app, "on_behalf_of_user", False)
-    )
     bearer_format = (
         "Databricks OAuth (forwarded by Apps proxy via x-forwarded-access-token; OBO supported)"
-        if obo
+        if a2a.on_behalf_of_user
         else "Databricks PAT or OAuth M2M token"
     )
     scheme_dict: dict[str, object] = {

@@ -1,11 +1,17 @@
 """Unit tests for :mod:`dao_ai.apps.a2a.agent_card`.
 
 Covers default skill derivation, security scheme conditional on
-``on_behalf_of_user``, explicit override paths, and the
+``a2a.on_behalf_of_user``, explicit override paths, and the
 ``DATABRICKS_APP_URL`` env / ``a2a.server_url`` precedence rules.
 """
 
 import pytest
+from a2a.types import (
+    APIKeySecurityScheme,
+    HTTPAuthSecurityScheme,
+    SecurityScheme,
+)
+from pydantic import ValidationError
 
 from dao_ai.apps.a2a.agent_card import (
     DEFAULT_A2A_RPC_PATH,
@@ -15,6 +21,7 @@ from dao_ai.apps.a2a.agent_card import (
 from dao_ai.config import (
     A2AModel,
     A2ASkillModel,
+    A2ATaskStoreModel,
     AgentModel,
     AppConfig,
     AppModel,
@@ -25,7 +32,6 @@ from dao_ai.config import (
 
 def _minimal_config(
     *,
-    on_behalf_of_user: bool | None = None,
     a2a: A2AModel | None = None,
     agents: list[AgentModel] | None = None,
     description: str = "test agent",
@@ -43,7 +49,6 @@ def _minimal_config(
             name="dao-ai-test",
             description=description,
             deployment_target=DeploymentTarget.APPS,
-            on_behalf_of_user=on_behalf_of_user,
             a2a=a2a,
             agents=agents,
         ),
@@ -56,14 +61,16 @@ def test_effective_a2a_defaults_when_unset():
     cfg = _minimal_config(a2a=None)
     a2a = effective_a2a(cfg)
     assert a2a.enabled is True
-    assert a2a.task_store == "auto"
-    assert a2a.tasks_table_name == "dao_ai_a2a_tasks"
+    assert isinstance(a2a.task_store, A2ATaskStoreModel)
+    assert a2a.task_store.database is None
+    assert a2a.task_store.table == "dao_ai_a2a_tasks"
+    assert a2a.on_behalf_of_user is False
 
 
 @pytest.mark.unit
 def test_effective_a2a_returns_existing():
     """``effective_a2a`` returns the configured A2AModel when set."""
-    custom = A2AModel(enabled=False, task_store="in_memory")
+    custom = A2AModel(enabled=False, task_store=A2ATaskStoreModel())
     cfg = _minimal_config(a2a=custom)
     assert effective_a2a(cfg) is custom
 
@@ -122,7 +129,7 @@ def test_agent_card_skills_explicit_override():
 @pytest.mark.unit
 def test_agent_card_security_default_bearer():
     """No OBO → bearer scheme advertising PAT/M2M."""
-    cfg = _minimal_config(on_behalf_of_user=False)
+    cfg = _minimal_config(a2a=A2AModel(on_behalf_of_user=False))
     card = build_agent_card(cfg)
     assert card.security_schemes is not None
     assert list(card.security_schemes.keys()) == ["bearer"]
@@ -136,8 +143,8 @@ def test_agent_card_security_default_bearer():
 
 @pytest.mark.unit
 def test_agent_card_security_obo_hint():
-    """With OBO=True → bearer description references OBO."""
-    cfg = _minimal_config(on_behalf_of_user=True)
+    """With ``a2a.on_behalf_of_user=True`` → bearer description references OBO."""
+    cfg = _minimal_config(a2a=A2AModel(on_behalf_of_user=True))
     card = build_agent_card(cfg)
     bearer = card.security_schemes["bearer"].root
     assert "OBO" in (bearer.bearer_format or "")
@@ -158,6 +165,43 @@ def test_agent_card_security_explicit_override():
     cfg = _minimal_config(a2a=custom)
     card = build_agent_card(cfg)
     assert list(card.security_schemes.keys()) == ["api_key"]
+
+
+@pytest.mark.unit
+def test_agent_card_security_schemes_typed_construction():
+    """A2AModel accepts a2a-sdk typed SecurityScheme instances directly."""
+    typed_bearer = HTTPAuthSecurityScheme(
+        scheme="bearer",
+        bearer_format="Custom Bearer",
+        description="custom",
+    )
+    typed_api_key = APIKeySecurityScheme(
+        type="apiKey",
+        name="X-Custom-Key",
+        **{"in": "header"},
+    )
+    custom = A2AModel(
+        security_schemes={
+            "bearer": SecurityScheme(typed_bearer),
+            "api_key": SecurityScheme(typed_api_key),
+        }
+    )
+    cfg = _minimal_config(a2a=custom)
+    card = build_agent_card(cfg)
+    assert set(card.security_schemes.keys()) == {"bearer", "api_key"}
+    assert card.security_schemes["bearer"].root.bearer_format == "Custom Bearer"
+
+
+@pytest.mark.unit
+def test_agent_card_security_schemes_invalid_dict_fails_at_config_load():
+    """Malformed scheme dicts fail at A2AModel construction, not at agent-card build."""
+    with pytest.raises(ValidationError):
+        # `apiKey` requires both `name` and `in`; missing `in` fails the union.
+        A2AModel(
+            security_schemes={
+                "bad": {"type": "apiKey", "name": "X-Missing-In"},
+            }
+        )
 
 
 @pytest.mark.unit
