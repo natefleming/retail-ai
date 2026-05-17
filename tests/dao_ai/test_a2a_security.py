@@ -144,10 +144,35 @@ def test_host_resolution_strips_trailing_slash():
 
 
 @pytest.mark.unit
-def test_host_resolution_uses_env_var(monkeypatch):
-    """When `host` is omitted, $DATABRICKS_HOST wins."""
+def test_host_resolution_uses_workspace_client():
+    """When `host` is omitted, WorkspaceClient().config.host wins (preferred over env var)."""
+    fake_client = type(
+        "FakeWsClient",
+        (),
+        {
+            "config": type(
+                "C", (), {"host": "https://from-ws-client.cloud.databricks.com"}
+            )()
+        },
+    )
+    with patch("databricks.sdk.WorkspaceClient", return_value=fake_client()):
+        scheme = oauth2_databricks_authorization_code()
+    flow = scheme.flows.authorization_code
+    assert (
+        flow.authorization_url
+        == "https://from-ws-client.cloud.databricks.com/oidc/v1/authorize"
+    )
+
+
+@pytest.mark.unit
+def test_host_resolution_falls_back_to_env_when_workspace_client_fails(monkeypatch):
+    """If WorkspaceClient construction fails, $DATABRICKS_HOST is the fallback."""
     monkeypatch.setenv("DATABRICKS_HOST", "https://from-env.cloud.databricks.com")
-    scheme = oauth2_databricks_authorization_code()
+    with patch(
+        "databricks.sdk.WorkspaceClient",
+        side_effect=RuntimeError("no profile"),
+    ):
+        scheme = oauth2_databricks_authorization_code()
     flow = scheme.flows.authorization_code
     assert (
         flow.authorization_url
@@ -159,9 +184,9 @@ def test_host_resolution_uses_env_var(monkeypatch):
 def test_host_resolution_raises_when_unresolvable(monkeypatch):
     """No host arg + no env var + no ambient → ValueError with a clear message."""
     monkeypatch.delenv("DATABRICKS_HOST", raising=False)
-    # Force get_default_databricks_host to return None.
     with patch(
-        "dao_ai.apps.a2a.security.get_default_databricks_host", return_value=None
+        "databricks.sdk.WorkspaceClient",
+        side_effect=RuntimeError("no profile"),
     ):
         with pytest.raises(ValueError, match="Workspace host could not be resolved"):
             oauth2_databricks_authorization_code()

@@ -145,12 +145,27 @@ def test_agent_card_security_default_bearer():
     )
 
 
+def _mocked_workspace_client(host: str = "https://test.cloud.databricks.com"):
+    """Patch context that makes `WorkspaceClient()` return a stub with the given host.
+
+    Bypasses any real network / auth probing the SDK may do at construction.
+    """
+    from unittest.mock import patch as mock_patch
+
+    fake = type(
+        "FakeWsClient",
+        (),
+        {"config": type("C", (), {"host": host})()},
+    )
+    return mock_patch("databricks.sdk.WorkspaceClient", return_value=fake())
+
+
 @pytest.mark.unit
-def test_agent_card_security_obo_hint(monkeypatch):
+def test_agent_card_security_obo_hint():
     """With ``a2a.on_behalf_of_user=True`` → Agent Card emits oauth2 + bearer schemes."""
-    monkeypatch.setenv("DATABRICKS_HOST", "https://test.cloud.databricks.com")
-    cfg = _minimal_config(a2a=A2AModel(on_behalf_of_user=True))
-    card = build_agent_card(cfg)
+    with _mocked_workspace_client():
+        cfg = _minimal_config(a2a=A2AModel(on_behalf_of_user=True))
+        card = build_agent_card(cfg)
     assert set(card.security_schemes.keys()) == {"oauth2", "bearer"}
     bearer = card.security_schemes["bearer"].root
     assert "OBO" in (bearer.bearer_format or "")
@@ -162,9 +177,8 @@ def test_agent_card_security_obo_hint(monkeypatch):
 
 
 @pytest.mark.unit
-def test_obo_auto_derived_from_resource_model(monkeypatch):
+def test_obo_auto_derived_from_resource_model():
     """Resource-level ``on_behalf_of_user=True`` alone triggers OBO advertisement."""
-    monkeypatch.setenv("DATABRICKS_HOST", "https://test.cloud.databricks.com")
     agents = [
         AgentModel(
             name="greeter",
@@ -175,8 +189,9 @@ def test_obo_auto_derived_from_resource_model(monkeypatch):
             ),
         ),
     ]
-    cfg = _minimal_config(agents=agents)  # NO a2a block at all
-    card = build_agent_card(cfg)
+    with _mocked_workspace_client():
+        cfg = _minimal_config(agents=agents)  # NO a2a block at all
+        card = build_agent_card(cfg)
     assert set(card.security_schemes.keys()) == {"oauth2", "bearer"}
 
 
@@ -209,8 +224,8 @@ def test_obo_fallback_to_bearer_only_when_host_unresolvable(monkeypatch):
     from unittest.mock import patch as mock_patch
 
     with mock_patch(
-        "dao_ai.apps.a2a.security.get_default_databricks_host",
-        return_value=None,
+        "databricks.sdk.WorkspaceClient",
+        side_effect=RuntimeError("no profile"),
     ):
         cfg = _minimal_config(a2a=A2AModel(on_behalf_of_user=True))
         card = build_agent_card(cfg)

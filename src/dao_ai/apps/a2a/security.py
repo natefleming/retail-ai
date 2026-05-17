@@ -52,6 +52,7 @@ smoke test against a2a-sdk's typed validators.
 
 from __future__ import annotations
 
+import os
 from typing import Optional
 
 from a2a.types import (
@@ -66,7 +67,7 @@ from a2a.types import (
     SecurityScheme,
 )
 
-from dao_ai.utils import get_default_databricks_host, normalize_host
+from dao_ai.utils import normalize_host
 
 __all__ = [
     # Re-exports for convenience.
@@ -134,22 +135,53 @@ BEARER_DATABRICKS_OBO: HTTPAuthSecurityScheme = HTTPAuthSecurityScheme(
 
 
 def _resolve_host(host: Optional[str]) -> str:
-    """Resolve a Databricks workspace host, preferring an explicit override.
+    """Resolve a Databricks workspace host.
 
-    Order:
+    Order — prefer the authoritative source over the raw env var:
+
       1. ``host`` argument (whitespace-trimmed, normalized to https://).
-      2. ``$DATABRICKS_HOST`` env var, then the ambient ``WorkspaceClient``
-         config (via :func:`dao_ai.utils.get_default_databricks_host`).
+      2. ``WorkspaceClient().config.host`` — the ambient Databricks SDK
+         client. Honors ``DATABRICKS_CONFIG_PROFILE``, ``~/.databrickscfg``,
+         and the Apps runtime's injected credentials. This is the
+         authoritative source whenever an ambient client is constructible.
+      3. ``$DATABRICKS_HOST`` env var as a last-ditch fallback for
+         environments where the SDK cannot be initialized.
+
+    YAML configs should NOT call this — they should use dao-ai's
+    ``${workspace.host}`` template, which is resolved at
+    :meth:`dao_ai.config.AppConfig.from_file` load time.
     """
-    explicit = normalize_host(host) if host is not None else None
-    if explicit:
-        return explicit.rstrip("/")
-    fallback = get_default_databricks_host()
-    if fallback:
-        return fallback.rstrip("/")
+    if host:
+        normalized = normalize_host(host)
+        if normalized:
+            return normalized.rstrip("/")
+
+    try:
+        from databricks.sdk import WorkspaceClient
+
+        ws_host = WorkspaceClient().config.host
+        if ws_host:
+            normalized = normalize_host(ws_host)
+            if normalized:
+                return normalized.rstrip("/")
+    except Exception as exc:  # pragma: no cover — covered via mocking in tests
+        from loguru import logger
+
+        logger.trace(
+            "Ambient WorkspaceClient unavailable in _resolve_host; "
+            "falling back to $DATABRICKS_HOST. {err}",
+            err=exc,
+        )
+
+    env_host = os.environ.get("DATABRICKS_HOST")
+    if env_host:
+        normalized = normalize_host(env_host)
+        if normalized:
+            return normalized.rstrip("/")
+
     raise ValueError(
         "Workspace host could not be resolved. Pass `host=` explicitly, "
-        "set $DATABRICKS_HOST, or run with an ambient Databricks profile."
+        "run with an ambient Databricks profile, or set $DATABRICKS_HOST."
     )
 
 
