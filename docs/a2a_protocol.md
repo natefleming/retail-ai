@@ -46,9 +46,12 @@ Agent Card automatically advertises:
 - **`skills`** — one [`AgentSkill`](https://a2a-protocol.org) per entry
   in `app.agents`. Each sub-agent's `name` and `description` are
   surfaced verbatim.
-- **`securitySchemes`** — a single `bearer` HTTP scheme. The
-  `bearerFormat` description is conditioned on `app.on_behalf_of_user`
-  to tell A2A clients whether the deployment supports OBO.
+- **`securitySchemes`** — a single `bearer` HTTP scheme, validated at
+  config-load time against a2a-sdk's typed `SecurityScheme` discriminated
+  union. The `bearerFormat` description is conditioned on
+  `app.a2a.on_behalf_of_user` to tell A2A clients whether the deployment
+  supports OBO. See [Security scheme recipes](#security-scheme-recipes)
+  for ready-made Databricks-flavored schemes.
 - **`capabilities`** — streaming enabled, state transition history
   enabled, push notifications disabled.
 
@@ -77,12 +80,13 @@ app:
   name: my_agent
   description: My helpful assistant.
   deployment_target: apps
-  on_behalf_of_user: true                # advisory hint; surfaces in Agent Card
   a2a:
     enabled: true                        # default; set false to skip mounting
     server_url: null                     # default: derive from $DATABRICKS_APP_URL
-    task_store: auto                     # auto | in_memory | lakebase
-    tasks_table_name: dao_ai_a2a_tasks   # Lakebase table name when task_store resolves to lakebase
+    on_behalf_of_user: true              # advisory hint; surfaces in Agent Card
+    task_store:                          # default: empty (no database → in-memory)
+      database: *my_lakebase_db          # DatabaseModel reference; omit for in-memory
+      table: dao_ai_a2a_tasks            # default; only used when database is set
     default_input_modes: [text/plain, application/json]
     default_output_modes: [text/plain, application/json]
     skills:                              # default: derive from app.agents
@@ -97,13 +101,18 @@ app:
         type: oauth2
         flows:
           authorizationCode:
-            authorizationUrl: https://<workspace>.cloud.databricks.com/oidc/v1/authorize
-            tokenUrl:         https://<workspace>.cloud.databricks.com/oidc/v1/token
+            authorizationUrl: ${workspace.host}/oidc/v1/authorize
+            tokenUrl:         ${workspace.host}/oidc/v1/token
             scopes:
               all-apis: Call all Databricks workspace APIs
   agents:
     - *my_agent
 ```
+
+The `${workspace.host}` token is resolved at config-load time by dao-ai's
+built-in workspace-variable substitution — no hardcoding required. See
+[Security scheme recipes](#security-scheme-recipes) for the full set of
+ready-made schemes.
 
 ## Semantic mappings
 
@@ -127,20 +136,49 @@ changes. The mapping is:
 
 The A2A `Task` lifecycle is a separate concept from the LangGraph
 conversation state. dao-ai picks where to store the task lifecycle
-metadata based on `app.a2a.task_store`:
+metadata based on `app.a2a.task_store`, which mirrors the
+`CheckpointerModel` / `StoreModel` idiom: an optional `database` toggles
+the backing store.
 
-| Setting       | Behavior                                                                                                                            |
-| ------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
-| `auto` (default) | **Lakebase-backed** when `app.long_running` is configured (reuses the same `DatabaseModel` + pool). **In-memory** otherwise.    |
-| `in_memory`   | Process-local. Tasks survive within a worker; lost on restart. Best for short-task demos.                                            |
-| `lakebase`    | Always Lakebase-backed. Requires `app.long_running` to be set; raises at startup otherwise.                                          |
+| `app.a2a.task_store` shape                          | Behavior                                                                                                                            |
+| --------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| Omitted / `{}` (default)                            | **In-memory** (`InMemoryTaskStore`). Process-local; tasks lost on restart. Suitable for short demos and dev loops.                  |
+| `{ database: <DatabaseModel> }`                     | **Lakebase-backed** (`LakebaseTaskStore`). Tasks persist in `dao_ai_a2a_tasks` (or `table:`-override) on the referenced database.   |
 
-The Lakebase-backed store ships a `dao_ai_a2a_tasks` table (rename via
-`a2a.tasks_table_name`) with `task_id PRIMARY KEY`, `context_id`,
-lifecycle `state`, the full task JSON, and `created_at` / `updated_at`
-timestamps. It shares the connection pool with `LongRunningStore` and
-the LangGraph Postgres checkpointer, so no additional connection
-footprint when long-running is also enabled.
+A2A task persistence is **independent** of `app.long_running` — the two
+concepts (A2A task lifecycle vs Responses-API kickoff/poll/cancel) are
+configured separately. To share a connection pool with the long-running
+store and the LangGraph Postgres checkpointer, point all three at the
+same `DatabaseModel` anchor; `AsyncPostgresPoolManager` dedupes by
+connection-string value.
+
+The Lakebase table is `(task_id PRIMARY KEY, context_id, state,
+task_json, created_at, updated_at)`. `LakebaseTaskStore.ensure_schema()`
+creates the table idempotently on first use (skipped when a provisioning
+notebook has already created it).
+
+Example — Lakebase-backed task store sharing the long-running pool:
+
+```yaml
+resources:
+  databases:
+    a2a_db: &a2a_db
+      name: dao-ai-a2a-demo
+      project: dao-ai-a2a-demo
+
+memory: &memory
+  checkpointer:
+    name: a2a_checkpointer
+    database: *a2a_db          # shared pool anchor
+
+app:
+  long_running:
+    database: *a2a_db          # shared pool anchor
+  a2a:
+    task_store:
+      database: *a2a_db        # shared pool anchor
+      table: dao_ai_a2a_tasks  # default; override if multiple apps share the DB
+```
 
 ## HITL over A2A
 
@@ -173,9 +211,165 @@ Genie, model invocations) that have `on_behalf_of_user: true` see the
 end-user's token unchanged.
 
 To advertise OBO on the Agent Card, either:
-* set `app.on_behalf_of_user: true` (the bearer scheme's description
+* set `app.a2a.on_behalf_of_user: true` (the bearer scheme's description
   will mention OBO), or
-* set `app.a2a.security_schemes` to declare `oauth2` explicitly.
+* set `app.a2a.security_schemes` to declare an OAuth2 / OBO scheme
+  explicitly. See [Security scheme recipes](#security-scheme-recipes).
+
+## Security scheme recipes
+
+`A2AModel.security_schemes` is typed against a2a-sdk's
+`SecurityScheme` discriminated union, so any dict you write in YAML is
+validated at config-load time (malformed schemes fail at boot, not at
+first request). dao-ai ships ready-made schemes in
+`dao_ai.apps.a2a.security` for the most common Databricks-flavored
+cases.
+
+### Python (programmatic config)
+
+```python
+from dao_ai.apps.a2a.security import (
+    BEARER_DATABRICKS_PAT,
+    BEARER_DATABRICKS_M2M,
+    BEARER_DATABRICKS_OBO,
+    api_key_header,
+    oauth2_databricks_authorization_code,
+    oauth2_databricks_client_credentials,
+    oauth2_databricks_obo,
+    openid_connect_databricks,
+)
+from dao_ai.config import A2AModel
+
+a2a = A2AModel(
+    security_schemes={
+        "bearer": BEARER_DATABRICKS_OBO,
+        "oauth2": oauth2_databricks_obo(),  # host auto-resolved from $DATABRICKS_HOST
+    }
+)
+```
+
+Each factory takes an optional `host` argument; when omitted, the host
+is resolved from `$DATABRICKS_HOST` (auto-set in the Databricks Apps
+runtime) or the ambient `WorkspaceClient` config.
+
+### YAML (declarative config)
+
+The same recipes inlined in YAML — `${workspace.host}` is resolved at
+config load by dao-ai's built-in substitution.
+
+#### Bearer (Databricks PAT)
+
+```yaml
+a2a:
+  security_schemes:
+    bearer:
+      type: http
+      scheme: bearer
+      bearerFormat: Databricks PAT
+      description: Bearer token issued by a Databricks workspace user.
+```
+
+#### Bearer (Databricks OAuth M2M / service principal)
+
+```yaml
+a2a:
+  security_schemes:
+    bearer:
+      type: http
+      scheme: bearer
+      bearerFormat: Databricks OAuth M2M
+      description: |
+        Bearer token minted via OAuth M2M client-credentials for a
+        Databricks service principal.
+```
+
+#### Bearer (OBO via Apps proxy)
+
+Equivalent to setting `app.a2a.on_behalf_of_user: true`:
+
+```yaml
+a2a:
+  on_behalf_of_user: true   # short form — derives a bearer scheme like the one below
+```
+
+…or set the scheme explicitly:
+
+```yaml
+a2a:
+  security_schemes:
+    bearer:
+      type: http
+      scheme: bearer
+      bearerFormat: Databricks OAuth (forwarded by Apps proxy via x-forwarded-access-token; OBO supported)
+      description: |
+        Databricks Apps forwards the calling user's bearer token via
+        the x-forwarded-access-token header.
+```
+
+#### API key in a header
+
+```yaml
+a2a:
+  security_schemes:
+    api_key:
+      type: apiKey
+      in: header
+      name: X-API-Key
+```
+
+#### OAuth2 authorization_code (three-legged)
+
+```yaml
+a2a:
+  security_schemes:
+    oauth2:
+      type: oauth2
+      flows:
+        authorizationCode:
+          authorizationUrl: ${workspace.host}/oidc/v1/authorize
+          tokenUrl:         ${workspace.host}/oidc/v1/token
+          scopes:
+            all-apis: Full Databricks REST API surface.
+```
+
+#### OAuth2 client_credentials (M2M)
+
+```yaml
+a2a:
+  security_schemes:
+    oauth2_m2m:
+      type: oauth2
+      flows:
+        clientCredentials:
+          tokenUrl: ${workspace.host}/oidc/v1/token
+          scopes:
+            all-apis: Full Databricks REST API surface.
+```
+
+#### OAuth2 OBO (advertise user_impersonation)
+
+```yaml
+a2a:
+  security_schemes:
+    oauth2_obo:
+      type: oauth2
+      flows:
+        authorizationCode:
+          authorizationUrl: ${workspace.host}/oidc/v1/authorize
+          tokenUrl:         ${workspace.host}/oidc/v1/token
+          scopes:
+            user_impersonation: Act on behalf of the calling user.
+```
+
+#### OpenID Connect discovery
+
+```yaml
+a2a:
+  security_schemes:
+    oidc:
+      type: openIdConnect
+      openIdConnectUrl: ${workspace.host}/oidc/.well-known/openid-configuration
+```
 
 ## End-to-end example
 

@@ -35,9 +35,9 @@ app:
     - *greeter
   # A2A is enabled by default on Databricks Apps deployments. The block below
   # is purely illustrative — every field has a sensible default. Set
-  # ``a2a.enabled: false`` to opt out entirely.
+  # ``a2a.enabled: false`` to opt out entirely. The default ``task_store`` is
+  # an empty A2ATaskStoreModel (no ``database`` → InMemoryTaskStore), which is
+  # fine for this demo. To persist tasks in Lakebase, set
+  # ``task_store.database`` to a DatabaseModel (see a2a_long_running.yaml).
   a2a:
     enabled: true
-    # Default ``auto`` task_store picks Lakebase when app.long_running is
-    # configured, in-memory otherwise. ``in_memory`` is fine for this demo.
-    task_store: in_memory

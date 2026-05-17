@@ -1,18 +1,20 @@
 # yaml-language-server: $schema=../../../schemas/model_config_schema.json
 #
-# Long-running variant of the A2A demo: ``app.long_running`` is configured
-# with a Lakebase autoscaling project, which (via ``a2a.task_store: auto``)
-# routes the A2A TaskStore through ``LakebaseTaskStore`` instead of the
-# in-memory default. Every ``message/send`` persists a task row in the
-# ``dao_ai_a2a_tasks`` Lakebase table; ``tasks/get`` round-trips through
-# the same row. State survives worker restarts and is shared across
-# replicas.
+# Lakebase-backed A2A demo. ``a2a.task_store.database`` points at a
+# Lakebase autoscaling project, persisting the A2A task lifecycle in the
+# ``dao_ai_a2a_tasks`` table. Every ``message/send`` writes a row;
+# ``tasks/get`` round-trips through the same row. State survives worker
+# restarts and is shared across replicas.
+#
+# Pool sharing: the same DatabaseModel anchor is referenced from three
+# places — A2A task store, LangGraph checkpointer, and the long-running
+# Responses store — so AsyncPostgresPoolManager keeps a single pool open
+# across all three.
 #
 # Auth: ambient. The Databricks Apps runtime gives the app's service
-# principal access to the bound Lakebase project automatically, so no
-# client_id / client_secret / OBO declaration is needed on the
-# DatabaseModel for the task-store path. (For OBO at the LLM layer, see
-# the per-resource ``on_behalf_of_user: true`` on ``default_llm``.)
+# principal access to the bound Lakebase project automatically. For OBO at
+# the LLM layer, see the per-resource ``on_behalf_of_user: true`` on
+# ``default_llm``.
 
 resources:
   models:
@@ -77,19 +79,22 @@ app:
   description: dao-ai A2A demo with Lakebase-persisted Tasks + HITL + OBO.
   log_level: INFO
   deployment_target: apps
-  on_behalf_of_user: true
   agents:
     - *hitl_obo_agent
   orchestration:
     memory: *memory
-  # Lakebase-backed A2A task store + Responses long-running, sharing one
-  # DatabaseModel.
+  # Responses-API long-running store sharing the same DatabaseModel.
   long_running:
     database: *a2a_demo_db
   a2a:
     enabled: true
-    # ``auto`` picks lakebase because app.long_running is set above.
-    # Equivalent to ``task_store: lakebase`` here; auto is the idiomatic
-    # spelling.
-    task_store: auto
-    tasks_table_name: dao_ai_a2a_tasks
+    # Advisory flag — bearer scheme's description on the Agent Card will
+    # call out OBO. Actual OBO behavior is configured per-resource.
+    on_behalf_of_user: true
+    # Lakebase-backed A2A task store. The DatabaseModel anchor (*a2a_demo_db)
+    # is the SAME object referenced by memory.checkpointer.database and
+    # app.long_running.database above; AsyncPostgresPoolManager dedupes by
+    # connection-string value, so all three share one pool.
+    task_store:
+      database: *a2a_demo_db
+      table: dao_ai_a2a_tasks

@@ -20,7 +20,9 @@
 # so this config deploys to fevm without any Lakebase setup. State is
 # process-local; if the worker bounces between an interrupt and the
 # resume, the conversation will not resume. For a production HITL
-# deployment, attach a Lakebase ``DatabaseModel`` to the checkpointer.
+# deployment, attach a Lakebase ``DatabaseModel`` to the checkpointer and
+# also persist the A2A task store via ``a2a.task_store.database``
+# (see a2a_long_running.yaml).
 
 resources:
   models:
@@ -87,14 +89,16 @@ app:
   description: dao-ai A2A demo with live HITL + OBO inference.
   log_level: INFO
   deployment_target: apps
-  # Advisory flag — the A2A Agent Card's bearer scheme description will
-  # mention OBO. Resource-level OBO is still configured per resource
-  # (see default_llm above).
-  on_behalf_of_user: true
   agents:
     - *hitl_obo_agent
   orchestration:
     memory: *memory  # CRITICAL: memory.checkpointer required for HITL
   a2a:
     enabled: true
-    task_store: in_memory
+    # Advisory flag — the A2A Agent Card's bearer scheme description will
+    # mention OBO. Resource-level OBO is still configured per resource
+    # (see default_llm above).
+    on_behalf_of_user: true
+    # task_store omitted → in-memory (process-local). Sufficient for HITL
+    # demos within a single worker; persist by setting task_store.database
+    # for cross-restart / multi-replica state.
