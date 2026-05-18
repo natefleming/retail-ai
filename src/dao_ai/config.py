@@ -427,8 +427,16 @@ class IsDatabricksResource(ABC, BaseModel):
         2. Service Principal (client_id + client_secret + workspace_host)
         3. PAT (pat + workspace_host)
         4. Ambient/default authentication
+
+        Diagnostics: when client_id or client_secret are configured but
+        resolve to None (e.g. the running identity lacks read access to
+        the secret scope), a warning is logged before the silent fall-
+        through to ambient -- otherwise the SP intent disappears without
+        any signal, producing confusing "password authentication failed
+        for user '<my-email>'" errors downstream from
+        ``databricks_ai_bridge.lakebase.AsyncLakebasePool``.
         """
-        from dao_ai.utils import normalize_host
+        from dao_ai.utils import get_default_databricks_host, normalize_host
 
         # Check for OBO first (highest priority)
         if self.on_behalf_of_user:
@@ -436,6 +444,9 @@ class IsDatabricksResource(ABC, BaseModel):
             logger.debug(
                 f"Creating WorkspaceClient for {self.__class__.__name__} "
                 f"with OBO credentials strategy (Model Serving)"
+            )
+            logger.trace(
+                f"{self.__class__.__name__} auth method=obo",
             )
             return WorkspaceClient(credentials_strategy=credentials_strategy)
 
@@ -452,17 +463,36 @@ class IsDatabricksResource(ABC, BaseModel):
             else None
         )
 
+        # SP creds were configured but resolved to None -- typical cause
+        # is a missing READ grant on the secret scope. Warn loudly so the
+        # ensuing ambient fall-through is debuggable instead of silent.
+        if self.client_id and not client_id_value:
+            logger.warning(
+                f"{self.__class__.__name__}.client_id is configured but resolves "
+                f"to None -- falling through to non-SP auth. Check secret scope "
+                f"READ grant for the running identity."
+            )
+        if self.client_secret and not client_secret_value:
+            logger.warning(
+                f"{self.__class__.__name__}.client_secret is configured but "
+                f"resolves to None -- falling through to non-SP auth. Check "
+                f"secret scope READ grant for the running identity."
+            )
+
         if client_id_value and client_secret_value:
-            # If workspace_host is not provided, check DATABRICKS_HOST env var first,
-            # then fall back to WorkspaceClient().config.host
+            # If workspace_host is not provided, default to the current
+            # workspace via the same resolver dao-ai uses elsewhere
+            # (env var first, then ambient WorkspaceClient).
             if not workspace_host_value:
-                workspace_host_value = os.getenv("DATABRICKS_HOST")
-                if not workspace_host_value:
-                    workspace_host_value = WorkspaceClient().config.host
+                workspace_host_value = get_default_databricks_host()
 
             logger.debug(
                 f"Creating WorkspaceClient for {self.__class__.__name__} with service principal: "
                 f"client_id={client_id_value}, host={workspace_host_value}"
+            )
+            logger.trace(
+                f"{self.__class__.__name__} auth method=service_principal "
+                f"client_id={client_id_value} host={workspace_host_value}",
             )
             return WorkspaceClient(
                 host=workspace_host_value,
@@ -473,9 +503,18 @@ class IsDatabricksResource(ABC, BaseModel):
 
         # Check for PAT authentication
         pat_value: str | None = value_of(self.pat) if self.pat else None
+        if self.pat and not pat_value:
+            logger.warning(
+                f"{self.__class__.__name__}.pat is configured but resolves to "
+                f"None -- falling through to ambient auth. Check secret scope "
+                f"READ grant for the running identity."
+            )
         if pat_value:
             logger.debug(
                 f"Creating WorkspaceClient for {self.__class__.__name__} with PAT"
+            )
+            logger.trace(
+                f"{self.__class__.__name__} auth method=pat host={workspace_host_value}",
             )
             return WorkspaceClient(
                 host=workspace_host_value,
@@ -487,6 +526,9 @@ class IsDatabricksResource(ABC, BaseModel):
         logger.debug(
             f"Creating WorkspaceClient for {self.__class__.__name__} "
             "with default/ambient authentication"
+        )
+        logger.trace(
+            f"{self.__class__.__name__} auth method=ambient",
         )
         return WorkspaceClient()
 
