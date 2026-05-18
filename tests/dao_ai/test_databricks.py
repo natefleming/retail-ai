@@ -1483,22 +1483,17 @@ def test_database_model_workspace_client_oauth_without_workspace_host():
     """Test that OAuth works even when workspace_host is not provided.
 
     When client_id and client_secret are provided but workspace_host is not,
-    the WorkspaceClient should check DATABRICKS_HOST env var first, then fall
-    back to WorkspaceClient().config.host if not set.
+    the WorkspaceClient defaults the host via
+    :func:`dao_ai.utils.get_default_databricks_host` (env var first, then
+    ambient WorkspaceClient).
     """
     from unittest.mock import MagicMock, patch
 
-    # Mock the WorkspaceClient
-    mock_ws_client_instance = MagicMock()
-    mock_ws_client_instance.config.host = "https://default.databricks.com"
-
     with patch("dao_ai.config.WorkspaceClient") as mock_ws_client:
-        with patch("dao_ai.config.os.getenv") as mock_getenv:
-            mock_ws_client.return_value = mock_ws_client_instance
-            # DATABRICKS_HOST is not set
-            mock_getenv.return_value = None
+        with patch("dao_ai.utils.get_default_databricks_host") as mock_resolver:
+            mock_ws_client.return_value = MagicMock()
+            mock_resolver.return_value = "https://default.databricks.com"
 
-            # Create database with OAuth credentials but NO workspace_host
             database = DatabaseModel(
                 name="test_db",
                 project="test_db",
@@ -1508,47 +1503,38 @@ def test_database_model_workspace_client_oauth_without_workspace_host():
                 # workspace_host is intentionally NOT provided
             )
 
-            # Access workspace_client property - should use OAuth with default host
             _ = database.workspace_client
 
-            # Verify DATABRICKS_HOST was checked
-            mock_getenv.assert_called_with("DATABRICKS_HOST")
+            mock_resolver.assert_called_once()
 
-            # Verify WorkspaceClient was called twice:
-            # 1. First to get the default host (WorkspaceClient().config.host)
-            # 2. Second with OAuth credentials
-            assert mock_ws_client.call_count == 2
-
-            # Get the second call (the OAuth one)
-            second_call_kwargs = mock_ws_client.call_args_list[1].kwargs
-
-            # Should have client_id/client_secret for service principal auth
-            assert second_call_kwargs.get("client_id") == "test_client_id"
-            assert second_call_kwargs.get("client_secret") == "test_client_secret"
-            assert second_call_kwargs.get("auth_type") == "oauth-m2m"
-            # host should be the default from WorkspaceClient().config.host
-            assert second_call_kwargs.get("host") == "https://default.databricks.com"
+            # WorkspaceClient is constructed once (with OAuth creds). The
+            # ambient client construction that would normally back the
+            # resolver is mocked out, so no extra call should fire here.
+            assert mock_ws_client.call_count == 1
+            call_kwargs = mock_ws_client.call_args.kwargs
+            assert call_kwargs.get("client_id") == "test_client_id"
+            assert call_kwargs.get("client_secret") == "test_client_secret"
+            assert call_kwargs.get("auth_type") == "oauth-m2m"
+            assert call_kwargs.get("host") == "https://default.databricks.com"
 
 
 @pytest.mark.unit
 def test_database_model_workspace_client_oauth_uses_databricks_host_env():
-    """Test that OAuth uses DATABRICKS_HOST env var when set.
+    """Test that OAuth host defaults via the shared resolver.
 
-    When client_id and client_secret are provided and DATABRICKS_HOST is set,
-    it should use that instead of creating a WorkspaceClient to get the host.
+    When client_id and client_secret are provided and the resolver
+    returns a value (typically because DATABRICKS_HOST is set in the
+    environment), the constructed WorkspaceClient uses that host -- no
+    ambient WorkspaceClient is constructed for host discovery here
+    because the resolver itself is mocked.
     """
     from unittest.mock import MagicMock, patch
 
-    # Mock the WorkspaceClient
-    mock_ws_client_instance = MagicMock()
-
     with patch("dao_ai.config.WorkspaceClient") as mock_ws_client:
-        with patch("dao_ai.config.os.getenv") as mock_getenv:
-            mock_ws_client.return_value = mock_ws_client_instance
-            # DATABRICKS_HOST is set
-            mock_getenv.return_value = "https://env-host.databricks.com"
+        with patch("dao_ai.utils.get_default_databricks_host") as mock_resolver:
+            mock_ws_client.return_value = MagicMock()
+            mock_resolver.return_value = "https://env-host.databricks.com"
 
-            # Create database with OAuth credentials but NO workspace_host
             database = DatabaseModel(
                 name="test_db",
                 project="test_db",
@@ -1558,24 +1544,14 @@ def test_database_model_workspace_client_oauth_uses_databricks_host_env():
                 # workspace_host is intentionally NOT provided
             )
 
-            # Access workspace_client property
             _ = database.workspace_client
 
-            # Verify DATABRICKS_HOST was checked
-            mock_getenv.assert_called_with("DATABRICKS_HOST")
-
-            # Verify WorkspaceClient was only called once (for OAuth)
-            # Should NOT be called to get default host since env var is set
+            mock_resolver.assert_called_once()
             assert mock_ws_client.call_count == 1
-
-            # Get the OAuth call
             call_kwargs = mock_ws_client.call_args.kwargs
-
-            # Should have client_id/client_secret for service principal auth
             assert call_kwargs.get("client_id") == "test_client_id"
             assert call_kwargs.get("client_secret") == "test_client_secret"
             assert call_kwargs.get("auth_type") == "oauth-m2m"
-            # host should be from DATABRICKS_HOST env var
             assert call_kwargs.get("host") == "https://env-host.databricks.com"
 
 
