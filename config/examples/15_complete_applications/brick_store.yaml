@@ -97,10 +97,10 @@ resources:
       max_tokens: 4096
       on_behalf_of_user: true
       fallbacks:
-      - databricks-claude-sonnet-4-6
+      - databricks-claude-sonnet-4-5
 
     judge_llm: &judge_llm
-      name: databricks-claude-3-7-sonnet
+      name: databricks-claude-sonnet-4-5
       temperature: 0.5
       max_tokens: 8192
       on_behalf_of_user: true
