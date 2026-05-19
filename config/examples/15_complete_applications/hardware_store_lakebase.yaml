@@ -64,12 +64,13 @@ resources:
 
 
     fast_llm: &fast_llm
-      # NOTE: must support parallel tool calls in message history because
-      # worker agents (Claude-family) emit parallel tool_calls and the
-      # supervisor (this model) ingests that history on follow-up turns.
-      # `databricks-gpt-oss-120b` 400s with "Multiple tool calls are not
-      # supported" — see trace tr-fd4dfaea04c4517f43081e2c3bf0df25.
-      name: databricks-claude-sonnet-4-5            # Databricks serving endpoint name
+      # Reverted to gpt-oss-120b after PR #95 flipped the orchestration
+      # output_mode default to `last_message` — the supervisor no longer
+      # ingests worker tool-call history, so the original
+      # "Multiple tool calls are not supported" issue
+      # (trace tr-fd4dfaea04c4517f43081e2c3bf0df25) can't recur.
+      # Restores the cheaper/faster supervisor for routing decisions.
+      name: databricks-gpt-oss-120b                 # Databricks serving endpoint name
       temperature: 0.1                              # Low temperature for consistent responses
       max_tokens: 8192                              # Maximum tokens per response
 
