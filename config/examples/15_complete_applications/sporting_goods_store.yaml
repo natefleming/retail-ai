@@ -11,6 +11,18 @@ parameters:
   schema:
     description: Schema within the catalog
     default: sporting_goods_store
+  genie_parent_path:
+    description: Workspace folder where Genie spaces are created. Must already exist.
+    default: "/Users/${workspace.current_user.userName}"
+  warehouse_id:
+    description: SQL Warehouse id used by Genie + provisioning. Override per workspace via --var.
+    default: d58e5fb998498840
+  merchandising_genie_space_id:
+    description: Genie space id for the merchandising analytics room, forwarded from the provision-genie task (taskValue). Leave empty for first deploy; the bundle deploy_job fills it in at runtime.
+    default: ""
+  sales_pricing_genie_space_id:
+    description: Genie space id for the sales & pricing analytics room, forwarded from the provision-genie task (taskValue). Leave empty for first deploy; the bundle deploy_job fills it in at runtime.
+    default: ""
 
 # =============================================================================
 # Sporting Goods Store - Merchandiser 360
@@ -115,7 +127,7 @@ resources:
   vector_stores:
     products_vector_store: &products_vector_store
       embedding_model: *embedding_model
-      on_behalf_of_user: false
+      on_behalf_of_user: true
       endpoint:
         name: dbdemos_vs_endpoint
         type: STANDARD
@@ -145,26 +157,97 @@ resources:
   # ---------------------------------------------------------------------------
   warehouses:
     shared_warehouse: &shared_warehouse
-      # name: "Shared Endpoint"
-      name: "Shared Unity Catalog Serverless"
-      warehouse_id: 4b9b953939869799
-      on_behalf_of_user: false
+      name: "Shared Warehouse"
+      warehouse_id: ${var.warehouse_id}
+      on_behalf_of_user: true
+
+  # ---------------------------------------------------------------------------
+  # TABLES
+  # ---------------------------------------------------------------------------
+  # Declarations needed to reference these tables from Genie auto-provisioning.
+  # Source data is materialized by the `datasets:` block at the bottom of this
+  # file; this section is just the resource refs.
+  tables:
+    products_table: &products_table
+      schema: *sporting_goods_schema
+      name: products
+    inventory_table: &inventory_table
+      schema: *sporting_goods_schema
+      name: inventory
+    dim_stores_table: &dim_stores_table
+      schema: *sporting_goods_schema
+      name: dim_stores
+    sales_orders_table: &sales_orders_table
+      schema: *sporting_goods_schema
+      name: sales_orders
+    purchase_orders_table: &purchase_orders_table
+      schema: *sporting_goods_schema
+      name: purchase_orders
+    pricing_history_table: &pricing_history_table
+      schema: *sporting_goods_schema
+      name: pricing_history
 
   # ---------------------------------------------------------------------------
   # GENIE ROOMS
   # ---------------------------------------------------------------------------
   genie_rooms:
+    # SP-backed (on_behalf_of_user: false) so we don't have to pre-populate
+    # space_id for a brand-new room. GenieRoomModel.create() will provision
+    # the space on first deploy. Override --var=merchandising_genie_space_id
+    # to repoint at an existing space.
     merchandising_analytics_room: &merchandising_analytics_room
       name: "Merchandising Analytics - Sporting Goods"
+      space_id: "${var.merchandising_genie_space_id}"
       description: "Genie room for merchandising analytics including assortment planning, demand forecasting, purchase order tracking, category performance, and seasonal trend analysis"
       on_behalf_of_user: false
-      space_id: 01f124c2646f1ed4846cae3f8b36df02
+      parent_path: "${var.genie_parent_path}"
+      warehouse: *shared_warehouse
+      table_sources:
+        - table: *products_table
+          description: "Sporting goods product catalog with SKU, UPC, brand, department, sport category, and pricing."
+        - table: *inventory_table
+          description: "Per-product inventory snapshot: stock levels, on-hand units, replenishment status."
+        - table: *purchase_orders_table
+          description: "Purchase orders to vendors: order quantities, expected delivery dates, vendor and status."
+        - table: *dim_stores_table
+          description: "Store dimension: store id, region, format, square footage, store hierarchy."
+      text_instructions:
+        - "Use products.merchandise_class for product type filtering (Footwear, Apparel, Equipment, Accessories)."
+        - "Use products.sport_category for sport-based queries (Running, Basketball, Football, Soccer, Golf, etc.)."
+        - "Join inventory to products via sku for stock-level analysis."
+        - "Join purchase_orders to products via sku to track vendor replenishment."
+      sample_questions:
+        - "Which sport categories have the lowest on-hand inventory?"
+        - "Show me purchase orders for Nike footwear in the last 30 days."
+        - "Which brands have the most product SKUs in the catalog?"
+        - "What is the total inventory value by department?"
 
     sales_pricing_room: &sales_pricing_room
       name: "Sales and Pricing Analytics - Sporting Goods"
+      space_id: "${var.sales_pricing_genie_space_id}"
       description: "Genie room for sales performance analysis, pricing strategy, margin analytics, promotional effectiveness, and revenue tracking across stores and channels"
       on_behalf_of_user: false
-      space_id: 01f124c2690f1dcb93a15057c2a74339
+      parent_path: "${var.genie_parent_path}"
+      warehouse: *shared_warehouse
+      table_sources:
+        - table: *products_table
+          description: "Sporting goods product catalog: base_price, brand, merchandise_class, sport_category."
+        - table: *sales_orders_table
+          description: "Sales order line items: store, sku, qty, unit_price, discount, order_date."
+        - table: *pricing_history_table
+          description: "Historical price changes per SKU with effective dates and price points."
+        - table: *dim_stores_table
+          description: "Store dimension for slicing sales by region, store format, or hierarchy."
+      text_instructions:
+        - "Join sales_orders to products via sku to compute revenue by brand/category/department."
+        - "Use pricing_history.effective_date and end_date to find the price in effect on a given sale date."
+        - "Total revenue = SUM(sales_orders.qty * sales_orders.unit_price - sales_orders.discount_amount)."
+        - "Margin = (sales_orders.unit_price - products.base_cost) / sales_orders.unit_price."
+      sample_questions:
+        - "Top 10 SKUs by revenue last quarter."
+        - "Which stores have the highest sell-through rate for Nike running shoes?"
+        - "How did revenue change after the Q4 price increase on Patagonia jackets?"
+        - "Average discount percentage by sport_category."
 
   # ---------------------------------------------------------------------------
   # FUNCTIONS
