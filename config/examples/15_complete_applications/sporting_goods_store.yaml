@@ -199,7 +199,7 @@ resources:
       name: "Merchandising Analytics - Sporting Goods"
       space_id: "${var.merchandising_genie_space_id}"
       description: "Genie room for merchandising analytics including assortment planning, demand forecasting, purchase order tracking, category performance, and seasonal trend analysis"
-      on_behalf_of_user: true
+      on_behalf_of_user: false
       parent_path: "${var.genie_parent_path}"
       warehouse: *shared_warehouse
       table_sources:
@@ -226,7 +226,7 @@ resources:
       name: "Sales and Pricing Analytics - Sporting Goods"
       space_id: "${var.sales_pricing_genie_space_id}"
       description: "Genie room for sales performance analysis, pricing strategy, margin analytics, promotional effectiveness, and revenue tracking across stores and channels"
-      on_behalf_of_user: true
+      on_behalf_of_user: false
       parent_path: "${var.genie_parent_path}"
       warehouse: *shared_warehouse
       table_sources:
