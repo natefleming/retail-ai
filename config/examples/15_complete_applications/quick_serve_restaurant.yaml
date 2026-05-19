@@ -78,7 +78,7 @@ resources:
 
     # LLM optimized for tool calling and function execution
     tool_calling_llm: &tool_calling_llm
-      name: databricks-claude-3-7-sonnet
+      name: databricks-claude-sonnet-4-5
       temperature: 0.1
       max_tokens: 8192
       fallbacks:                                     # Fallback models if primary fails
@@ -86,13 +86,13 @@ resources:
 
     # LLM for complex reasoning tasks
     reasoning_llm:
-      name: databricks-claude-3-7-sonnet
+      name: databricks-claude-sonnet-4-5
       temperature: 0.1
       max_tokens: 8192
 
     # LLM for evaluating and judging responses (guardrails)
     judge_llm: &judge_llm
-      name: databricks-claude-3-7-sonnet
+      name: databricks-claude-sonnet-4-5
       temperature: 0.5                              # Higher temperature for diverse judgments
       max_tokens: 8192
 
