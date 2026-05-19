@@ -35,6 +35,7 @@ from dao_ai.apps.chat_ui import (
     CHAT_APP_DIR,
     ChatUIBuildError,
     ensure_chat_ui_built,
+    sanitized_npm_env,
 )
 
 BACKEND_READY_PATTERNS = [
@@ -170,6 +171,7 @@ class ProcessManager:
         log_file,
         patterns: list[str],
         cwd: str | None = None,
+        env: dict[str, str] | None = None,
     ) -> subprocess.Popen:
         print(f"Starting {name}...")
         process = subprocess.Popen(
@@ -179,6 +181,7 @@ class ProcessManager:
             text=True,
             bufsize=1,
             cwd=cwd,
+            env=env,
         )
 
         thread = threading.Thread(
@@ -265,6 +268,7 @@ class ProcessManager:
                             cwd=frontend_dir,
                             capture_output=True,
                             text=True,
+                            env=sanitized_npm_env(),
                         )
                         if result.returncode != 0:
                             print(f"npm {desc} failed: {result.stderr}")
@@ -279,6 +283,7 @@ class ProcessManager:
                         self.frontend_log,
                         FRONTEND_READY_PATTERNS,
                         cwd=str(frontend_dir),
+                        env=sanitized_npm_env(),
                     )
                     print(
                         f"\nMonitoring processes "

@@ -9,6 +9,7 @@ container (which has Node.js 20 + npm + git pre-installed), following the same
 pattern as the official Databricks agent templates.
 """
 
+import os
 import shutil
 import subprocess
 from pathlib import Path
@@ -22,6 +23,44 @@ REPO_URL_SSH: str = "git@github.com:databricks/app-templates.git"
 _DEFAULT_BACKEND_PORT: int = 8000
 _DEFAULT_FRONTEND_PORT: int = 3000
 _DEFAULT_PROXY_TIMEOUT: int = 300
+
+# Env-var prefixes whose presence triggers the chat UI's drizzle migration at
+# npm-build time (and its runtime persistence code paths). The bundled
+# e2e-chatbot-app-next template's migrator hits a "drizzle" schema that isn't
+# auto-created, so the build fails when these are set. Stripping them forces
+# the chat UI's isDatabaseAvailable() check to return false, routing into
+# ephemeral mode for both build and runtime — the SPA renders without
+# persisting chat history.
+_DB_ENV_VAR_PREFIXES: tuple[str, ...] = (
+    "PG",
+    "POSTGRES",
+    "DATABASE_URL",
+    "DATABRICKS_LAKEBASE",
+    "DATABRICKS_DATABASE",
+)
+
+
+def sanitized_npm_env() -> dict[str, str]:
+    """Return a copy of os.environ with DB-binding env vars stripped.
+
+    Used when invoking the chat UI's npm subprocesses so the bundled
+    e2e-chatbot-app-next template skips its drizzle migration and runs in
+    ephemeral mode regardless of whether a postgres resource is bound to the
+    Databricks App.
+    """
+    stripped = sorted(
+        k for k in os.environ if k.startswith(_DB_ENV_VAR_PREFIXES)
+    )
+    if stripped:
+        logger.debug(
+            "Stripping DB-binding env vars from npm subprocess",
+            keys=stripped,
+        )
+    return {
+        k: v
+        for k, v in os.environ.items()
+        if not k.startswith(_DB_ENV_VAR_PREFIXES)
+    }
 
 
 class ChatUIBuildError(Exception):
@@ -105,6 +144,7 @@ def _npm_run(chat_dir: Path, args: list[str], description: str) -> None:
         cwd=chat_dir,
         capture_output=True,
         text=True,
+        env=sanitized_npm_env(),
     )
     if result.returncode != 0:
         stderr = result.stderr or result.stdout
