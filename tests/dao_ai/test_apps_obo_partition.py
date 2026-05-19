@@ -371,12 +371,13 @@ class TestSportingGoodsConfigPartition:
     ) -> None:
         resources = generate_app_resources(config)
         names_in_resources = {r["name"] for r in resources}
-        # Pick representative non-OBO resources from the canonical config
+        # Pick representative non-OBO resources from the canonical config.
+        # Note: ``products_vector_store`` and ``shared_warehouse`` were
+        # flipped to OBO in PR #93 to fit under the 20-resource Apps cap, so
+        # they are intentionally absent from app-level resources.
         for name in (
             "judge_llm",
             "embedding_model",
-            "products_vector_store",
-            "shared_warehouse",
             "merchandising_analytics_room",
             "sales_pricing_room",
             "find_product_by_sku",

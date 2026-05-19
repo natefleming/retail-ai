@@ -6256,16 +6256,22 @@ class OrchestrationModel(BaseModel):
         description="Memory configuration scoped to the orchestration layer (checkpointer, store, extraction).",
     )
     output_mode: Literal["full_history", "last_message"] = Field(
-        default="full_history",
+        default="last_message",
         description=(
             "How an agent's response flows back into parent state. "
-            "``full_history`` returns the agent's full local history including "
-            "intermediate AI/tool messages, which lets the same agent see its "
-            "own prior tool results across multi-turn conversations. "
-            "``last_message`` returns only the final AI response, which trims "
-            "tokens but loses intermediate content. Default flipped to "
-            "``full_history`` so per-agent ToolMessage tagging actually has "
-            "messages to identify."
+            "``last_message`` (default) returns only the final AI response "
+            "from each agent, isolating downstream consumers (supervisor or "
+            "peer swarm agents) from worker-side message corruption — "
+            "middleware mutations that interleave system/tool messages, "
+            "parallel tool calls that some strict-validation LLMs reject in "
+            "history, or orphan tool_result blocks. "
+            "``full_history`` returns the agent's full local history, "
+            "preserving cross-agent tool context (one agent can see another's "
+            "structured tool outputs) at the cost of exposing downstream "
+            "consumers to any worker-side malformed messages. Override per "
+            "app via ``orchestration.output_mode: full_history`` when cross-"
+            "agent tool context is required and the worker-side message-"
+            "assembly path is known to be clean."
         ),
     )
 
