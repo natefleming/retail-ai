@@ -383,9 +383,30 @@ class TestMergeSessionGeneric:
 
 @pytest.mark.unit
 class TestOrchestrationOutputMode:
-    def test_default_is_full_history(self) -> None:
+    def test_default_is_last_message(self) -> None:
+        """Default flipped to ``last_message`` so the supervisor (or any
+        downstream consumer) never sees worker-side malformed history —
+        memory middleware interleaves, parallel tool calls in worker
+        history that strict LLMs reject, or orphan tool_result blocks.
+        See the orphan-tool_result regression captured in trace
+        ``tr-7f30e2da4c02accfc11bc08cae54eef2`` (fevm) for the bug class
+        this prevents."""
         m = OrchestrationModel(
             supervisor=SupervisorModel(model=LLMModel(name="test-model"))
+        )
+        assert m.output_mode == "last_message"
+
+    def test_default_is_last_message_for_swarm(self) -> None:
+        """Same default applies to swarm orchestration. Swarm configs
+        that genuinely need cross-agent tool context can opt in via an
+        explicit ``output_mode: full_history`` at the YAML level."""
+        m = OrchestrationModel(swarm=SwarmModel())
+        assert m.output_mode == "last_message"
+
+    def test_accepts_full_history(self) -> None:
+        m = OrchestrationModel(
+            supervisor=SupervisorModel(model=LLMModel(name="test-model")),
+            output_mode="full_history",
         )
         assert m.output_mode == "full_history"
 
