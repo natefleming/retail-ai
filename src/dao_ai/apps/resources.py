@@ -97,7 +97,12 @@ DEFAULT_PERMISSIONS: dict[str, list[str]] = {
     "connection": ["USE_CONNECTION"],
     "database": ["CAN_CONNECT_AND_CREATE"],  # deprecated provisioned Lakebase
     "postgres": ["CAN_CONNECT_AND_CREATE"],  # autoscaling Lakebase project
-    "app": ["CAN_VIEW"],
+    # Databricks Apps API rejects CAN_VIEW for cross-app resource
+    # bindings — the only accepted permission on ``app`` resources is
+    # CAN_USE. Sending CAN_VIEW results in
+    # ``APP_PERMISSION_UNSPECIFIED. Only CAN_USE is supported.`` from
+    # ``POST /api/2.0/apps``.
+    "app": ["CAN_USE"],
 }
 
 # Valid user API scopes for Databricks Apps

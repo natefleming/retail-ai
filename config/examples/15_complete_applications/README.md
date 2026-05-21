@@ -67,6 +67,7 @@ flowchart TB
 | [`hardware_store_lakebase.yaml`](./hardware_store_lakebase.yaml) | 👔 Supervisor + 🧠 Lakebase | Supervisor with PostgreSQL memory persistence |
 | [`hardware_store_instructed.yaml`](./hardware_store_instructed.yaml) | 🎯 Instructed | Hardware store with instructed retrieval |
 | [`sporting_goods_store.yaml`](./sporting_goods_store.yaml) | 👔 Supervisor + 🧠 Lakebase | Merchandiser 360 multi-agent system for sporting goods lifecycle management |
+| [`procurement_supplier_a2a/`](./procurement_supplier_a2a/) | 🔁 A2A pair | Procurement officer agent calls a wholesale-supplier agent over the Google A2A protocol — two coordinated Databricks Apps deployments |
 
 ## Hardware Store Supervisor Architecture
 
