@@ -70,23 +70,32 @@ URL lazily via `DatabricksAppModel.url` on first invocation and caches
 it for the lifetime of the worker). In practice that means: deploy
 supplier first, then procurement, then exercise.
 
+Each app is generated into its own bundle directory so the outputs
+don't clobber each other.
+
 ### 1. Deploy the supplier app
 
 ```bash
 cd <repo root>
 
-uv run dao-ai validate \
-  -c config/examples/15_complete_applications/procurement_supplier_a2a/supplier.yaml
+# Generate the supplier bundle.
+uv run dao-ai generate-bundle \
+  -c config/examples/15_complete_applications/procurement_supplier_a2a/supplier.yaml \
+  -o ../output-supplier-a2a \
+  -p fevm
 
-uv run dao-ai pipeline --deploy --run \
-  -c config/examples/15_complete_applications/procurement_supplier_a2a/supplier.yaml
+# Deploy + start.
+cd ../output-supplier-a2a
+databricks bundle deploy --target dev -p fevm
+databricks bundle run dao-ai-supplier-a2a --target dev -p fevm
+cd -
 ```
 
 ### 2. (Optional) Sanity-check the supplier
 
 ```bash
-SUPPLIER_URL=$(databricks apps get dao-ai-supplier-a2a --output json | jq -r .url)
-TOKEN=$(databricks auth token | jq -r .access_token)
+SUPPLIER_URL=$(databricks apps get dao-ai-supplier-a2a -p fevm --output json | jq -r .url)
+TOKEN=$(databricks auth token -p fevm | jq -r .access_token)
 curl -sf "$SUPPLIER_URL/.well-known/agent-card.json" \
   -H "Authorization: Bearer $TOKEN" | jq '.name, .version'
 ```
@@ -94,11 +103,17 @@ curl -sf "$SUPPLIER_URL/.well-known/agent-card.json" \
 ### 3. Deploy the procurement app
 
 ```bash
-uv run dao-ai validate \
-  -c config/examples/15_complete_applications/procurement_supplier_a2a/procurement.yaml
+# Generate the procurement bundle into a separate output dir.
+uv run dao-ai generate-bundle \
+  -c config/examples/15_complete_applications/procurement_supplier_a2a/procurement.yaml \
+  -o ../output-procurement-a2a \
+  -p fevm
 
-uv run dao-ai pipeline --deploy --run \
-  -c config/examples/15_complete_applications/procurement_supplier_a2a/procurement.yaml
+# Deploy + start.
+cd ../output-procurement-a2a
+databricks bundle deploy --target dev -p fevm
+databricks bundle run dao-ai-procurement-a2a --target dev -p fevm
+cd -
 ```
 
 No env vars, no secret scopes, no manual token minting — the
@@ -110,8 +125,8 @@ rest at runtime.
 ### 4. Try it end-to-end
 
 ```bash
-PROC_URL=$(databricks apps get dao-ai-procurement-a2a --output json | jq -r .url)
-TOKEN=$(databricks auth token | jq -r .access_token)
+PROC_URL=$(databricks apps get dao-ai-procurement-a2a -p fevm --output json | jq -r .url)
+TOKEN=$(databricks auth token -p fevm | jq -r .access_token)
 
 # Responses-API form (uses ``input``, not ``messages``).
 curl -sf -X POST "$PROC_URL/invocations" \
@@ -170,8 +185,8 @@ in a second terminal — `create_a2a_agent_tool` logs an
 `Invoking A2A agent` line before every hop:
 
 ```bash
-PROC_URL=$(databricks apps get dao-ai-procurement-a2a --output json | jq -r .url)
-TOKEN=$(databricks auth token | jq -r .access_token)
+PROC_URL=$(databricks apps get dao-ai-procurement-a2a -p fevm --output json | jq -r .url)
+TOKEN=$(databricks auth token -p fevm | jq -r .access_token)
 
 curl -sN -H "Authorization: Bearer $TOKEN" "$PROC_URL/logz/stream?source=APP" \
   | grep --line-buffered -E "Invoking A2A agent|query_supplier|dao_ai.a2a"
@@ -248,15 +263,21 @@ uv run dao-ai chat \
   -c config/examples/15_complete_applications/procurement_supplier_a2a/procurement.yaml
 ```
 
-For deploy iteration on either app:
+For deploy iteration on either app, re-run `generate-bundle` against
+the same output directory and redeploy:
 
 ```bash
-# Re-upload source + reapply resources (no full app restart).
-cd <generated-bundle-dir>
-databricks bundle deploy --target dev -p fevm
+# Supplier:
+uv run dao-ai generate-bundle \
+  -c config/examples/15_complete_applications/procurement_supplier_a2a/supplier.yaml \
+  -o ../output-supplier-a2a -p fevm
+(cd ../output-supplier-a2a && databricks bundle deploy --target dev -p fevm)
 
-# Or, if only the source code changed, just redeploy the app body.
-databricks apps deploy <app-name> --source-code-path ${WORKSPACE_BUNDLE_FILES_PATH} -p fevm
+# Procurement:
+uv run dao-ai generate-bundle \
+  -c config/examples/15_complete_applications/procurement_supplier_a2a/procurement.yaml \
+  -o ../output-procurement-a2a -p fevm
+(cd ../output-procurement-a2a && databricks bundle deploy --target dev -p fevm)
 ```
 
 ---
