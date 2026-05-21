@@ -64,8 +64,11 @@ variant.
 
 ## Deployment workflow
 
-The supplier MUST be deployed first so its URL is resolvable by
-`DatabricksAppModel.url` when the procurement app boots.
+The supplier must be deployed before the procurement app makes its
+first `query_supplier` tool call (the A2A tool resolves the supplier
+URL lazily via `DatabricksAppModel.url` on first invocation and caches
+it for the lifetime of the worker). In practice that means: deploy
+supplier first, then procurement, then exercise.
 
 ### 1. Deploy the supplier app
 
@@ -100,7 +103,7 @@ uv run dao-ai pipeline --deploy --run \
 
 No env vars, no secret scopes, no manual token minting — the
 `resources.apps.supplier_app` binding gives the procurement SP
-`CAN_VIEW` on the supplier (the platform may prompt you to approve
+`CAN_USE` on the supplier (the platform may prompt you to approve
 this on first deploy in the Apps UI), and the A2A tool handles the
 rest at runtime.
 
@@ -110,12 +113,12 @@ rest at runtime.
 PROC_URL=$(databricks apps get dao-ai-procurement-a2a --output json | jq -r .url)
 TOKEN=$(databricks auth token | jq -r .access_token)
 
-# Responses-API form.
+# Responses-API form (uses ``input``, not ``messages``).
 curl -sf -X POST "$PROC_URL/invocations" \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
-    "messages": [
+    "input": [
       {"role": "user",
        "content": "Quote 1,200 of ACM-HB-08 and confirm whether the lead time works for an Aug-15 build."}
     ]
@@ -145,6 +148,46 @@ curl -sf -X POST "$PROC_URL/a2a" \
 
 `examples/a2a/client.py` in the dao-ai repo is a slightly fuller A2A
 client; it works against either app.
+
+---
+
+## Verifying the supplier was actually called
+
+The agent's prompt forbids answering supplier-domain questions from
+memory (rule 1 in `procurement.yaml`), and all SKUs in the supplier
+catalog are fictional (`ACM-*`). So any reply containing a real
+catalog fact must have come from a live A2A call. Pick a prompt with a
+unique tell:
+
+| Prompt | Catalog fact only the supplier knows |
+|---|---|
+| "What is the current stock and lead time on ACM-DR-3?" | Stock = **72**, lead time = **14 days** |
+| "Quote me 2,500 of ACM-LT-25 at the highest bulk tier." | Tier-2 price = **$0.37**, MOQ 100, stock 3,150 |
+| "List every SKU Acme carries with its lead time." | Should enumerate all 7 SKUs in `supplier.yaml`'s embedded table |
+
+To watch it happen in real time, tail the procurement app's log stream
+in a second terminal — `create_a2a_agent_tool` logs an
+`Invoking A2A agent` line before every hop:
+
+```bash
+PROC_URL=$(databricks apps get dao-ai-procurement-a2a --output json | jq -r .url)
+TOKEN=$(databricks auth token | jq -r .access_token)
+
+curl -sN -H "Authorization: Bearer $TOKEN" "$PROC_URL/logz/stream?source=APP" \
+  | grep --line-buffered -E "Invoking A2A agent|query_supplier|dao_ai.a2a"
+```
+
+You should see something like:
+
+```
+INFO  dao_ai.tools.a2a_agent:a2a_agent - Invoking A2A agent
+  endpoint=https://dao-ai-supplier-a2a-<workspace-id>.aws.databricksapps.com
+  prompt_chars=… context_id=… user_id=… streaming=True
+```
+
+For a negative control, ask a non-supplier question (e.g. *"What's our
+internal PO approval policy?"*) — rule 4 says the agent should answer
+directly. No `Invoking A2A agent` line should appear.
 
 ---
 
@@ -196,15 +239,25 @@ re-deploy. No code edits needed.
 uv run dao-ai chat \
   -c config/examples/15_complete_applications/procurement_supplier_a2a/supplier.yaml
 
-# Local chat against the procurement agent. Requires the supplier app
-# to be deployed (so DatabricksAppModel.url can resolve at startup).
+# Local chat against the procurement agent. The supplier app does NOT
+# need to be deployed for the chat to start (the A2A tool resolves the
+# supplier URL lazily on first call). It does need to be deployed
+# before you ask any supplier-domain question, otherwise the first
+# tool call errors out.
 uv run dao-ai chat \
   -c config/examples/15_complete_applications/procurement_supplier_a2a/procurement.yaml
 ```
 
-For deploy iteration on either app, prefer
-`databricks jobs repair-run` on the failed task over a full
-`--deploy --run` cycle.
+For deploy iteration on either app:
+
+```bash
+# Re-upload source + reapply resources (no full app restart).
+cd <generated-bundle-dir>
+databricks bundle deploy --target dev -p fevm
+
+# Or, if only the source code changed, just redeploy the app body.
+databricks apps deploy <app-name> --source-code-path ${WORKSPACE_BUNDLE_FILES_PATH} -p fevm
+```
 
 ---
 

@@ -135,10 +135,6 @@ agents:
       - *query_supplier
     prompt: *procurement_prompt
 
-memory: &memory
-  checkpointer:
-    name: procurement_checkpointer
-
 app:
   name: dao-ai-procurement-a2a
   description: >
@@ -148,13 +144,10 @@ app:
   deployment_target: apps
   agents:
     - *procurement_agent
-  orchestration:
-    memory: *memory
-  # Procurement app ALSO exposes the A2A surface so it can itself be
-  # called by an upstream agent (e.g. a finance or planning agent) —
-  # A2A is bidirectional by default.
-  a2a:
-    enabled: true
+  # ``a2a`` is omitted — every Databricks Apps deployment exposes A2A
+  # by default, so the procurement app is itself reachable as an A2A
+  # agent (e.g. by an upstream finance / planning agent).
+  # ``orchestration.memory`` is omitted — no HITL, no deep-agent state.
   input_example:
     messages:
       - role: user

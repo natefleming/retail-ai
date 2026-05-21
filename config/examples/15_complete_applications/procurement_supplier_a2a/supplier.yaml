@@ -71,36 +71,24 @@ agents:
       5. Keep replies short and structured (bullets or a quote table). No
          marketing language. You are talking to procurement officers.
 
-memory: &memory
-  # In-memory checkpointer keeps the demo deployable without Lakebase.
-  # For production HITL or multi-replica deployments, attach a
-  # DatabaseModel (see config/examples/20_a2a_protocol/a2a_long_running.yaml).
-  checkpointer:
-    name: supplier_checkpointer
-
 app:
   name: dao-ai-supplier-a2a
   description: >
-    Acme Industrial Supply — wholesale supplier-side A2A agent. Paired with
-    the procurement app in this directory; see README.md for deployment.
+    Acme Industrial Supply — wholesale supplier-side A2A agent. Paired
+    with the procurement app in this directory; see README.md for
+    deployment.
   log_level: INFO
   deployment_target: apps
   agents:
     - *supplier_agent
-  orchestration:
-    memory: *memory
-  # A2A is enabled by default on Databricks Apps deployments. The block
-  # below is illustrative — every field has a sensible default. The
-  # ``on_behalf_of_user`` flag on supplier_llm above causes the auto-
-  # generated Agent Card to advertise an OAuth2 + bearer scheme with the
-  # OBO-aware description. Pin ``a2a.on_behalf_of_user`` to override.
-  a2a:
-    enabled: true
-  # No service principal here — the Databricks Apps platform provisions an
-  # app SP automatically. The procurement app authenticates to THIS app
-  # using either the calling user's forwarded token (when both apps run
-  # under the same Apps proxy and the procurement A2A tool is configured
-  # to forward it) or an OAuth M2M token minted by the procurement app SP.
+  # ``a2a`` is omitted — A2AModel.enabled defaults to True on every
+  # Databricks Apps deployment (see ``AppModel.a2a`` in dao_ai/config.py).
+  # ``orchestration.memory`` is omitted — this agent has no HITL, no
+  # deep-agent state, and A2A handles multi-turn continuity via
+  # server-side ``context_id`` independent of the LangGraph checkpointer.
+  # ``supplier_llm.on_behalf_of_user: true`` above is what causes the
+  # auto-generated Agent Card to advertise both bearer and oauth2
+  # schemes with the OBO-aware description.
   input_example:
     messages:
       - role: user
