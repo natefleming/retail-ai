@@ -55,7 +55,7 @@ from __future__ import annotations
 
 import asyncio
 from textwrap import dedent
-from typing import Annotated, Any, Callable, Literal, Optional
+from typing import Annotated, Any, Callable, Literal, Mapping, Optional
 
 import httpx
 import mlflow
@@ -82,7 +82,7 @@ from langchain_core.tools import InjectedToolArg, StructuredTool
 from loguru import logger
 from mlflow.entities import SpanType
 
-from dao_ai.config import AnyVariable, value_of
+from dao_ai.config import AnyVariable, DatabricksAppModel, value_of
 from dao_ai.state import Context
 from dao_ai.tools._gcp_auth import (
     coerce_any_variable,
@@ -120,8 +120,25 @@ from dao_ai.tools.tracing import (
 # don't need this but it costs nothing and saves one class of surprise.
 nest_asyncio.apply()
 
-_AuthMode = Literal["bearer", "gcp_service_account", "none"]
-_VALID_AUTH_MODES: tuple[str, ...] = ("bearer", "gcp_service_account", "none")
+_AuthMode = Literal[
+    "bearer",
+    "gcp_service_account",
+    "none",
+    "forwarded_user_token",
+    "databricks_app_sp",
+]
+_VALID_AUTH_MODES: tuple[str, ...] = (
+    "bearer",
+    "gcp_service_account",
+    "none",
+    "forwarded_user_token",
+    "databricks_app_sp",
+)
+
+_FORWARDED_USER_TOKEN_HEADERS: tuple[str, ...] = (
+    "x-forwarded-access-token",
+    "X-Forwarded-Access-Token",
+)
 
 _DEFAULT_DESCRIPTION: str = dedent("""
     Send a message to a remote agent over the Google A2A (Agent-to-Agent)
@@ -134,10 +151,11 @@ _EMPTY_REPLY_SENTINEL: str = "(no agent response)"
 
 
 def create_a2a_agent_tool(
-    endpoint: AnyVariable,
+    endpoint: Optional[AnyVariable] = None,
     *,
+    app: Optional[Any] = None,
     auth: Optional[AnyVariable] = None,
-    auth_type: AnyVariable = "bearer",
+    auth_type: Optional[AnyVariable] = None,
     streaming: AnyVariable = True,
     timeout_seconds: AnyVariable = 300,
     card_path: AnyVariable = AGENT_CARD_WELL_KNOWN_PATH,
@@ -149,32 +167,62 @@ def create_a2a_agent_tool(
 ) -> Callable[..., str]:
     """Create a tool that calls a remote A2A (Agent-to-Agent) agent.
 
+    Two configuration modes are supported side-by-side:
+
+    **Mode 1 — manual endpoint (external A2A agents)**
+
+    Pass ``endpoint`` (and ``auth`` / ``auth_type`` for non-public agents).
+    Use this for Vertex AI Agent Engine, Crew.ai, Google ADK, or any
+    third-party A2A agent that lives outside Databricks Apps.
+
+    **Mode 2 — Databricks AppResource (dao-ai app to dao-ai app)**
+
+    Pass ``app`` referencing a ``DatabricksAppModel`` (typically declared
+    under ``resources.apps.<key>`` and referenced via YAML anchor). The
+    endpoint is resolved from the bound app's URL and ``auth_type``
+    defaults from ``app.on_behalf_of_user``:
+
+    - ``on_behalf_of_user=True`` → ``forwarded_user_token`` (reads the
+      calling user's ``x-forwarded-access-token`` from
+      ``runtime.context.headers`` per call).
+    - ``on_behalf_of_user=False/None`` → ``databricks_app_sp`` (mints a
+      fresh M2M header per call from the ambient ``WorkspaceClient`` —
+      i.e. the app's own service-principal credentials auto-injected by
+      the Databricks Apps runtime).
+
     Args:
-        endpoint: Base URL of the A2A agent, e.g. ``https://agent.example.com``.
-            The agent card is resolved at ``<endpoint><card_path>`` with
-            fallback to ``<endpoint><card_fallback_path>`` on 404.
-        auth: Auth material resolved to a string. Interpretation depends on
-            ``auth_type``. Any ``AnyVariable`` form supported (env, secret,
-            composite, inline value).
-        auth_type: One of ``"bearer"`` (default), ``"gcp_service_account"``,
-            or ``"none"``. ``bearer`` uses the resolved ``auth`` verbatim as
-            the bearer token. ``gcp_service_account`` passes ``auth`` through
-            ``load_gcp_credentials`` and mints a fresh access token per call.
-            ``none`` suppresses the ``Authorization`` header (public agents).
+        endpoint: Base URL of the A2A agent, e.g.
+            ``https://agent.example.com``. Mode-1 entry point. Mutually
+            exclusive with ``app`` (``app`` wins if both are provided).
+        app: Databricks App resource model (``DatabricksAppModel``) for
+            the remote dao-ai app. Mode-2 entry point. May also be passed
+            as the raw dict that Pydantic would validate into one (factory
+            args arrive as dicts when delivered via YAML).
+        auth: Auth material resolved to a string. Interpretation depends
+            on ``auth_type``. Required for ``bearer`` and
+            ``gcp_service_account``. Ignored by ``none``,
+            ``forwarded_user_token``, and ``databricks_app_sp``.
+        auth_type: One of ``"bearer"``, ``"gcp_service_account"``,
+            ``"none"``, ``"forwarded_user_token"``, or
+            ``"databricks_app_sp"``. Default is ``"bearer"`` in Mode 1 and
+            derived from ``app.on_behalf_of_user`` in Mode 2. Passing this
+            in Mode 2 overrides the app-derived default.
         streaming: If true (default) the A2A client negotiates streaming;
             responses are still aggregated internally and returned as one
             string. Set false to force request/response.
         timeout_seconds: httpx client timeout (default 300s).
-        card_path: Primary agent-card discovery path relative to ``endpoint``.
-            Defaults to the current spec's ``/.well-known/agent-card.json``.
-        card_fallback_path: Fallback path if the primary 404s. Defaults to the
-            pre-1.0 spec's ``/.well-known/agent.json``. Set to ``None`` to
-            disable fallback.
-        user_id: Static value forwarded as ``Message.metadata["dao_ai.user_id"]``.
-            If omitted, falls back to ``runtime.context.user_id``.
-        extra_metadata: Static metadata merged into ``Message.metadata`` on
-            every call. Keys collide: static ``extra_metadata`` wins over the
-            built-in ``dao_ai.user_id``.
+        card_path: Primary agent-card discovery path relative to
+            ``endpoint``. Defaults to the current spec's
+            ``/.well-known/agent-card.json``.
+        card_fallback_path: Fallback path if the primary 404s. Defaults
+            to the pre-1.0 spec's ``/.well-known/agent.json``. Set to
+            ``None`` to disable fallback.
+        user_id: Static value forwarded as
+            ``Message.metadata["dao_ai.user_id"]``. If omitted, falls
+            back to ``runtime.context.user_id``.
+        extra_metadata: Static metadata merged into ``Message.metadata``
+            on every call. Keys collide: static ``extra_metadata`` wins
+            over the built-in ``dao_ai.user_id``.
         name: Tool name shown to the LLM. Defaults to ``a2a_agent``.
         description: Tool description shown to the LLM.
 
@@ -184,17 +232,67 @@ def create_a2a_agent_tool(
 
     Notes:
         Session continuity: ``runtime.context.thread_id`` is forwarded as
-        ``Message.context_id``. If the remote agent rejects or ignores the
-        context id (empty stream or failed Task referencing context), the
-        tool retries once without a ``context_id`` to force a fresh session.
+        ``Message.context_id``. If the remote agent rejects or ignores
+        the context id (empty stream or failed Task referencing context),
+        the tool retries once without a ``context_id`` to force a fresh
+        session.
+
+        Cross-app OBO at the Databricks Apps **platform** level is not
+        supported today (``apps.apps`` has no user_api_scope). The
+        ``forwarded_user_token`` mode here forwards the user's bearer at
+        the **tool** layer — the supplier app then sees a user-bearer
+        incoming request and any OBO-tagged resources on the supplier
+        side resolve as that user.
     """
-    resolved_endpoint: str = str(value_of(coerce_any_variable(endpoint))).rstrip("/")
-    resolved_auth_type: str = str(value_of(coerce_any_variable(auth_type))).lower()
+    coerced_app: Optional[DatabricksAppModel] = _coerce_app(app)
+    if coerced_app is not None and endpoint is not None:
+        logger.warning(
+            "create_a2a_agent_tool: both ``app`` and ``endpoint`` were "
+            "supplied; ``app`` wins. Drop one to silence this warning.",
+            app_name=coerced_app.name,
+        )
+
+    explicit_auth_type: Optional[str] = (
+        str(value_of(coerce_any_variable(auth_type))).lower()
+        if auth_type is not None
+        else None
+    )
+
+    # Endpoint resolution is deferred when an ``app`` is supplied so that
+    # ``dao-ai validate`` (and any other tooling that builds the factory
+    # without a running workspace) works even if the bound app is not yet
+    # deployed. The endpoint is resolved on first invocation and cached
+    # in the closure thereafter. For Mode 1 (manual endpoint string),
+    # resolution is trivial and happens eagerly.
+    if coerced_app is not None:
+        endpoint_resolver: Callable[[], str] = _make_lazy_app_endpoint_resolver(
+            coerced_app
+        )
+        resolved_auth_type: str = explicit_auth_type or (
+            "forwarded_user_token"
+            if coerced_app.on_behalf_of_user
+            else "databricks_app_sp"
+        )
+        # Best-effort display value for logs and spans BEFORE the first
+        # call. Never used to dial out — :func:`endpoint_resolver` is the
+        # authoritative source.
+        endpoint_display: str = f"<app:{coerced_app.name}>"
+    else:
+        if endpoint is None:
+            raise ValueError(
+                "create_a2a_agent_tool: one of ``endpoint`` or ``app`` is required."
+            )
+        _eager_endpoint: str = str(value_of(coerce_any_variable(endpoint))).rstrip("/")
+        endpoint_resolver = lambda: _eager_endpoint  # noqa: E731
+        resolved_auth_type = explicit_auth_type or "bearer"
+        endpoint_display = _eager_endpoint
+
     if resolved_auth_type not in _VALID_AUTH_MODES:
         raise ValueError(
             f"create_a2a_agent_tool: auth_type must be one of "
             f"{_VALID_AUTH_MODES}, got {resolved_auth_type!r}"
         )
+
     resolved_streaming: bool = bool(value_of(coerce_any_variable(streaming)))
     resolved_timeout: int = int(value_of(coerce_any_variable(timeout_seconds)))
     resolved_card_path: str = _normalize_card_path(
@@ -217,18 +315,20 @@ def create_a2a_agent_tool(
     logger.debug(
         "Creating A2A agent tool",
         name=tool_name,
-        endpoint=resolved_endpoint,
+        endpoint=endpoint_display,
         auth_type=resolved_auth_type,
+        app_name=coerced_app.name if coerced_app else None,
         streaming=resolved_streaming,
         card_path=resolved_card_path,
         card_fallback_path=resolved_card_fallback,
     )
 
-    # Resolve auth once at factory time. Static bearer tokens are cached in
-    # the closure; GCP credentials are held as a refreshable ``Credentials``
-    # object and minted per-invocation so expired tokens refresh. None of
-    # these values are ever logged or persisted to spans.
-    header_provider: Callable[[], dict[str, str]]
+    # Resolve auth once at factory time. Static bearer tokens are cached
+    # in the closure; refreshable modes (gcp_service_account,
+    # forwarded_user_token, databricks_app_sp) mint headers per call so
+    # token rotation is automatic. None of these values are ever logged
+    # or persisted to spans.
+    header_provider: Callable[[Context | None], dict[str, str]]
     if resolved_auth_type == "none":
         header_provider = _no_auth_headers
     elif resolved_auth_type == "bearer":
@@ -239,17 +339,22 @@ def create_a2a_agent_tool(
         _resolved_token: str = str(value_of(coerce_any_variable(auth)))
         if not _resolved_token:
             raise ValueError("create_a2a_agent_tool: resolved bearer token is empty.")
-        header_provider = lambda: {"Authorization": f"Bearer {_resolved_token}"}  # noqa: E731
-    else:  # gcp_service_account
+        header_provider = lambda _ctx: {"Authorization": f"Bearer {_resolved_token}"}  # noqa: E731
+    elif resolved_auth_type == "gcp_service_account":
         if auth is None:
             raise ValueError(
                 "create_a2a_agent_tool: auth_type='gcp_service_account' "
                 "requires auth to be set."
             )
         _gcp_creds = load_gcp_credentials(auth)
-        header_provider = lambda: {  # noqa: E731
+        header_provider = lambda _ctx: {  # noqa: E731
             "Authorization": f"Bearer {mint_gcp_access_token(_gcp_creds)}"
         }
+    elif resolved_auth_type == "forwarded_user_token":
+        header_provider = _forwarded_user_token_headers
+    else:  # databricks_app_sp
+        _ws_client = _ambient_workspace_client()
+        header_provider = lambda _ctx: _app_sp_headers(_ws_client)  # noqa: E731
 
     logger.debug(
         "Resolved A2A auth mode",
@@ -281,11 +386,14 @@ def create_a2a_agent_tool(
         resolved_user_id: Optional[str] = _resolve_user_id(context)
         session_id: Optional[str] = context.thread_id if context else None
 
-        set_resource_attributes(ResourceInfo("a2a_agent", False, resolved_endpoint))
+        invocation_endpoint: str = endpoint_resolver()
+        set_resource_attributes(
+            ResourceInfo("a2a_agent", False, invocation_endpoint)
+        )
 
         tool_span = mlflow.get_current_active_span()
         if tool_span:
-            tool_span.set_attribute(ATTR_A2A_ENDPOINT_URL, resolved_endpoint)
+            tool_span.set_attribute(ATTR_A2A_ENDPOINT_URL, invocation_endpoint)
             tool_span.set_attribute(ATTR_A2A_AUTH_MODE, resolved_auth_type)
             tool_span.set_attribute(ATTR_A2A_STREAMING, resolved_streaming)
             if resolved_user_id:
@@ -297,7 +405,7 @@ def create_a2a_agent_tool(
 
         logger.info(
             "Invoking A2A agent",
-            endpoint=resolved_endpoint,
+            endpoint=invocation_endpoint,
             prompt_chars=len(prompt),
             context_id=session_id,
             user_id=resolved_user_id,
@@ -310,11 +418,19 @@ def create_a2a_agent_tool(
         if extra_metadata:
             metadata.update(extra_metadata)
 
+        # Bind ``context`` into a 0-arg callable so the downstream async
+        # plumbing can stay context-agnostic. ``forwarded_user_token``
+        # needs the per-invocation context to read the user's forwarded
+        # bearer; everything else just ignores the arg.
+        bound_header_provider: Callable[[], dict[str, str]] = (
+            lambda: header_provider(context)  # noqa: E731
+        )
+
         try:
             return asyncio.run(
                 _invoke_a2a(
-                    endpoint=resolved_endpoint,
-                    header_provider=header_provider,
+                    endpoint=invocation_endpoint,
+                    header_provider=bound_header_provider,
                     prompt=prompt,
                     context_id=session_id,
                     metadata=metadata or None,
@@ -350,8 +466,107 @@ def _normalize_card_path(path: str) -> str:
     return "/" + stripped.lstrip("/")
 
 
-def _no_auth_headers() -> dict[str, str]:
+def _no_auth_headers(context: Context | None = None) -> dict[str, str]:
     return {}
+
+
+def _forwarded_user_token_headers(context: Context | None) -> dict[str, str]:
+    """Read the calling user's forwarded bearer from ``context.headers``.
+
+    Mirrors :meth:`IsDatabricksResource.workspace_client_from` in
+    ``dao_ai.config``: prefer the lowercase header name (canonical
+    Databricks Apps proxy form) but accept the title-cased variant for
+    callers that normalize headers differently.
+    """
+    headers: Mapping[str, str] = context.headers if context and context.headers else {}
+    token: Optional[str] = None
+    for key in _FORWARDED_USER_TOKEN_HEADERS:
+        candidate = headers.get(key)
+        if candidate:
+            token = candidate
+            break
+    if not token:
+        raise RuntimeError(
+            "create_a2a_agent_tool: auth_type='forwarded_user_token' requires "
+            "``x-forwarded-access-token`` in the inbound request headers. "
+            "Is this app running behind the Databricks Apps proxy, and is the "
+            "incoming caller passing a user OAuth token (not a service-principal "
+            "M2M token)?"
+        )
+    return {"Authorization": f"Bearer {token}"}
+
+
+def _ambient_workspace_client() -> Any:
+    """Construct a ``WorkspaceClient`` from the ambient runtime credentials.
+
+    Imported lazily so unit tests can monkey-patch this symbol without
+    paying the ``databricks-sdk`` import cost up front, and so the import
+    failure mode (missing SDK) is surfaced at factory build time rather
+    than at module import.
+    """
+    from databricks.sdk import WorkspaceClient
+
+    return WorkspaceClient()
+
+
+def _app_sp_headers(workspace_client: Any) -> dict[str, str]:
+    """Mint a fresh M2M Authorization header from the app SP credentials.
+
+    Mirrors the pattern at ``config.py:1032`` and
+    ``providers/databricks.py:422``. The SDK's ``config.authenticate()``
+    returns the ``Authorization`` header among any auth-related headers,
+    refreshing OAuth tokens internally as needed.
+    """
+    auth_headers: Mapping[str, str] = workspace_client.config.authenticate()
+    return dict(auth_headers)
+
+
+def _make_lazy_app_endpoint_resolver(
+    app: DatabricksAppModel,
+) -> Callable[[], str]:
+    """Return a callable that resolves ``app.url`` on first call and caches.
+
+    Lazy resolution means ``dao-ai validate`` (and any other static
+    tooling that exercises ``create_a2a_agent_tool``) does not require
+    the bound Databricks App to be deployed yet. The URL is fetched on
+    first invocation via ``DatabricksAppModel.url`` (which calls
+    ``workspace_client.apps.get(name).url``); subsequent invocations
+    reuse the cached value. App URLs are stable across an app's
+    lifetime so a single fetch is sufficient.
+    """
+    cache: dict[str, str] = {}
+
+    def resolve() -> str:
+        if "url" not in cache:
+            cache["url"] = str(app.url).rstrip("/")
+            logger.debug(
+                "Resolved A2A AppResource endpoint",
+                app_name=app.name,
+                endpoint=cache["url"],
+            )
+        return cache["url"]
+
+    return resolve
+
+
+def _coerce_app(value: Any) -> Optional[DatabricksAppModel]:
+    """Coerce a raw factory-arg into a ``DatabricksAppModel`` if possible.
+
+    Factory args come in as ``dict[str, Any]`` (no schema), so a YAML
+    anchor pointing at ``resources.apps.<key>`` arrives here as the raw
+    dict that backed the original ``DatabricksAppModel`` validation.
+    Re-validate so the downstream code can rely on the typed model.
+    """
+    if value is None:
+        return None
+    if isinstance(value, DatabricksAppModel):
+        return value
+    if isinstance(value, dict):
+        return DatabricksAppModel.model_validate(value)
+    raise TypeError(
+        f"create_a2a_agent_tool: ``app`` must be a DatabricksAppModel or dict, "
+        f"got {type(value).__name__}."
+    )
 
 
 async def _invoke_a2a(

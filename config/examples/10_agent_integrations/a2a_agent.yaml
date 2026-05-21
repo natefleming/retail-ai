@@ -105,6 +105,33 @@ tools:
         #   auth_type: none
         #   (omit the ``auth`` arg)
         #
+        # --- Calling another dao-ai Databricks App (AppResource mode) ----
+        #
+        # If the remote agent is itself a dao-ai app deployed on Databricks
+        # Apps, declare it under ``resources.apps`` and reference it via
+        # the ``app`` arg instead of ``endpoint`` / ``auth`` / ``auth_type``.
+        # The factory resolves the URL from ``DatabricksAppModel.url`` and
+        # picks the auth mode from ``app.on_behalf_of_user``:
+        #
+        #     resources:
+        #       apps:
+        #         remote_dao_ai_app: &remote_dao_ai_app
+        #           name: dao-ai-some-other-app
+        #           on_behalf_of_user: true   # -> forwarded_user_token
+        #                                     # false / unset -> databricks_app_sp
+        #
+        #     tools:
+        #       remote_a2a_tool:
+        #         function:
+        #           type: factory
+        #           name: dao_ai.tools.create_a2a_agent_tool
+        #           args:
+        #             app: *remote_dao_ai_app
+        #             # ``endpoint``, ``auth``, ``auth_type`` all auto-derived.
+        #
+        # See ``config/examples/15_complete_applications/procurement_supplier_a2a/``
+        # for a full procurement <-> supplier walkthrough.
+        #
         # --- Card path overrides -----------------------------------------
         #
         # Some deployments expose the agent card at a non-standard path. Both
