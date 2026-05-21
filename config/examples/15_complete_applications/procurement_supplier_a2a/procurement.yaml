@@ -1,0 +1,178 @@
+# yaml-language-server: $schema=../../../../schemas/model_config_schema.json
+#
+# Procurement-side dao-ai app for the A2A procurement <-> supplier demo.
+#
+# This app deploys as a Databricks App. Its agent persona is a procurement
+# officer who delegates supplier-domain questions to the **supplier** dao-ai
+# app (``supplier.yaml`` in this directory) over the Google A2A
+# (Agent-to-Agent) protocol.
+#
+# Architecture:
+#
+#     [user] -> procurement app (Databricks App)
+#                   |
+#                   |  HTTP A2A (POST /a2a, GET /.well-known/agent-card.json)
+#                   v
+#               supplier app (Databricks App)
+#                   |
+#                   |  Foundation Model API
+#                   v
+#                databricks-gpt-5-4-mini
+#
+# The supplier app is declared as a first-class ``resources.apps`` resource
+# below so the procurement app's deployment carries an explicit dependency
+# binding (visible in the Apps UI and surfaced to the Apps platform). Note:
+# Databricks Apps does NOT yet support cross-app OBO scopes — see the
+# comment at ``src/dao_ai/apps/resources.py:124``. So the resources.apps
+# entry omits ``on_behalf_of_user`` (it would be a no-op). OBO stays on
+# the procurement LLM, where the platform DOES support it.
+#
+# Pair with ``supplier.yaml``. See ``README.md`` for the deploy workflow.
+
+variables:
+  # Base URL of the deployed supplier app. After the supplier app is
+  # deployed, its URL is available via:
+  #     databricks apps get dao-ai-supplier-a2a --output json | jq -r .url
+  # Set the env var ``SUPPLIER_A2A_ENDPOINT`` before ``dao-ai pipeline``,
+  # OR pre-populate the ``procurement_supplier_a2a`` secret scope with
+  # ``SUPPLIER_A2A_ENDPOINT``. The fallback inline value is the conventional
+  # ``-<workspace-id>.aws.databricksapps.com`` pattern but should be
+  # overridden in any real deployment.
+  supplier_endpoint: &supplier_endpoint
+    options:
+      - env: SUPPLIER_A2A_ENDPOINT
+      - scope: procurement_supplier_a2a
+        secret: SUPPLIER_A2A_ENDPOINT
+
+  # OAuth M2M token the procurement app SP uses to call the supplier app.
+  # Cross-app OBO is not supported today, so the procurement app calls the
+  # supplier with its own SP token. The token is minted via
+  # ``databricks auth token --profile <procurement-m2m-profile>`` and
+  # stored in the secret scope below — OR injected as an env var at
+  # ``app.yaml`` resource time once the supplier-app resource binding
+  # surfaces credentials (Apps platform feature).
+  supplier_token: &supplier_token
+    options:
+      - env: SUPPLIER_A2A_TOKEN
+      - scope: procurement_supplier_a2a
+        secret: SUPPLIER_A2A_TOKEN
+
+resources:
+  models:
+    procurement_llm: &procurement_llm
+      name: databricks-gpt-5-4-mini
+      temperature: 0.1
+      max_tokens: 4096
+      # OBO on the procurement-side LLM. The Databricks Apps proxy forwards
+      # the calling user's token, so inference traces are attributed to the
+      # actual user. The downstream A2A call to the supplier is still SP-
+      # authenticated until cross-app OBO ships.
+      on_behalf_of_user: true
+
+  # Declare the supplier app as a Databricks App resource of the procurement
+  # app. This becomes an ``app`` entry in the generated app.yaml resources
+  # list (see _extract_app_resources in src/dao_ai/apps/resources.py) so the
+  # cross-app dependency is explicit in the Apps UI. We intentionally do
+  # NOT set ``on_behalf_of_user`` here because cross-app OBO is not yet
+  # supported by the Databricks Apps platform — the api_scope ``apps.apps``
+  # has no corresponding user_api_scope and would be silently dropped.
+  apps:
+    supplier_app: &supplier_app
+      name: dao-ai-supplier-a2a
+
+prompts:
+  procurement_prompt: &procurement_prompt
+    name: procurement_agent_prompt
+    description: >
+      System prompt for the procurement officer agent that delegates
+      supplier-specific questions to the Acme Industrial Supply A2A agent.
+    default_template: |
+      You are a **procurement officer** for a mid-size manufacturing
+      company. You shepherd material requests from internal stakeholders
+      through the supplier-quote process.
+
+      You have one delegation tool: ``query_supplier``. It reaches the
+      ``Acme Industrial Supply`` agent over the Google A2A protocol.
+
+      # Rules
+
+      1. **Always call ``query_supplier`` for supplier-domain questions**:
+         pricing, lead times, MOQs, stock, SKU lookups, bulk quotes.
+         Do NOT answer from memory — the supplier is authoritative.
+      2. Pass the user's question through verbatim (or a lightly
+         restructured version) so the supplier has full context.
+      3. After receiving the supplier's reply:
+         - Restate the quote / answer back to the user.
+         - Add a **procurement recommendation** (1-2 sentences): is this
+           a good deal, are there alternatives to consider, do we need
+           multiple suppliers, is the lead time acceptable for our
+           typical reorder cadence?
+         - Surface any **flags** (MOQ violations, lead-time risks, stock
+           constraints) that the supplier raised.
+      4. For non-supplier questions (policy, internal process, general
+         procurement guidance), answer directly without calling the tool.
+      5. Be concise. Procurement officers value signal over filler.
+
+tools:
+  query_supplier: &query_supplier
+    name: query_supplier
+    function:
+      type: factory
+      name: dao_ai.tools.create_a2a_agent_tool
+      args:
+        name: query_supplier
+        description: |
+          Delegate a question to the Acme Industrial Supply wholesale
+          supplier agent over the Google A2A (Agent-to-Agent) protocol.
+          Use for any supplier-domain question: SKU lookups, unit and
+          bulk pricing, lead times, MOQs, and live stock. Pass the
+          procurement officer's question through as the ``prompt``
+          argument.
+        endpoint: *supplier_endpoint
+        # OAuth M2M token for the procurement app SP. Cross-app OBO is
+        # not yet supported by Databricks Apps (see header comment); the
+        # supplier-side LLM still runs as the calling user thanks to its
+        # own ``on_behalf_of_user: true`` flag and the Apps proxy chain.
+        auth: *supplier_token
+        auth_type: bearer
+        # Multi-turn continuity: runtime.context.thread_id is forwarded
+        # as A2A ``Message.context_id`` automatically, and the user_id is
+        # forwarded as ``Message.metadata["dao_ai.user_id"]``.
+        streaming: true
+
+agents:
+  procurement_agent: &procurement_agent
+    name: procurement_agent
+    description: >
+      Procurement officer agent. Delegates supplier-domain questions to
+      the Acme Industrial Supply A2A agent and adds a procurement-side
+      recommendation on top of every quote.
+    model: *procurement_llm
+    tools:
+      - *query_supplier
+    prompt: *procurement_prompt
+
+memory: &memory
+  checkpointer:
+    name: procurement_checkpointer
+
+app:
+  name: dao-ai-procurement-a2a
+  description: >
+    Procurement officer agent that calls Acme Industrial Supply via A2A.
+    Paired with supplier.yaml in this directory; see README.md.
+  log_level: INFO
+  deployment_target: apps
+  agents:
+    - *procurement_agent
+  orchestration:
+    memory: *memory
+  # Procurement app ALSO exposes the A2A surface so it can itself be
+  # called by an upstream agent (e.g. a finance or planning agent) — A2A
+  # is bidirectional by default.
+  a2a:
+    enabled: true
+  input_example:
+    messages:
+      - role: user
+        content: "We need 1,200 of M8 hex bolts (zinc, 30mm) for the Q3 line. Quote it and tell me if the lead time works for an Aug-15 build."
