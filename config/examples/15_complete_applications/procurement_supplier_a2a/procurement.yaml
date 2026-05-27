@@ -137,17 +137,39 @@ agents:
 
 app:
   name: dao-ai-procurement-a2a
-  description: >
+  description: >-
     Procurement officer agent that calls Acme Industrial Supply via
     A2A. Paired with supplier.yaml in this directory; see README.md.
   log_level: INFO
   deployment_target: apps
   agents:
     - *procurement_agent
-  # ``a2a`` is omitted — every Databricks Apps deployment exposes A2A
-  # by default, so the procurement app is itself reachable as an A2A
-  # agent (e.g. by an upstream finance / planning agent).
   # ``orchestration.memory`` is omitted — no HITL, no deep-agent state.
+  #
+  # The ``a2a`` block is fully optional — every Databricks Apps
+  # deployment exposes A2A by default. Populated here so this procurement
+  # app is also discoverable as an A2A agent by an upstream finance /
+  # planning agent.
+  a2a:
+    provider:
+      organization: Databricks Field Engineering
+      url: https://github.com/databrickslabs/dao-ai
+    documentation_url: >-
+      https://github.com/databrickslabs/dao-ai/blob/main/config/examples/15_complete_applications/procurement_supplier_a2a/README.md
+    skills:
+      - id: procurement_agent
+        name: Procurement Officer — Supplier Sourcing
+        description: >-
+          Procurement officer agent. Delegates supplier-domain questions to
+          the Acme Industrial Supply A2A agent and layers a procurement-side
+          recommendation, flags, and alternatives on top of every quote.
+        tags: [dao-ai, procurement, sourcing, supplier-mediation]
+        examples:
+          - We need 1,200 M8 hex bolts (zinc, 30mm) for the Q3 line. Quote it.
+          - Source 5,000 stainless flat washers and tell me if the lead time works for an Aug-15 build.
+          - Find the best bulk price for 3,000 M10 hex bolts and flag any MOQ issues.
+        input_modes: [text/plain, application/json]
+        output_modes: [text/plain, application/json]
   input_example:
     messages:
       - role: user

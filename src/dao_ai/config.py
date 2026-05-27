@@ -6718,6 +6718,22 @@ class A2ATaskStoreModel(BaseModel):
         return StorageType.POSTGRES if self.database else StorageType.MEMORY
 
 
+class ProviderModel(BaseModel):
+    """Service-provider information advertised on the A2A Agent Card.
+
+    Mirrors :class:`a2a.types.AgentProvider`. Both fields are required by
+    the A2A spec.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+    organization: str = Field(
+        description="Name of the organization providing the agent (e.g., 'Databricks Field Engineering').",
+    )
+    url: str = Field(
+        description="URL for the provider's site or relevant documentation.",
+    )
+
+
 class A2ASkillModel(BaseModel):
     """Single skill advertised on the A2A Agent Card."""
 
@@ -6825,6 +6841,40 @@ class A2AModel(BaseModel):
         "force-suppress (Agent Card emits a single PAT/M2M bearer scheme). This flag "
         "does NOT toggle OBO on any resource; resource-level OBO is still configured "
         "per resource via the resource's own ``on_behalf_of_user`` field.",
+    )
+    streaming: bool = Field(
+        default=True,
+        description="Advertise streaming support (message/stream JSON-RPC) on the Agent "
+        "Card capabilities object. dao-ai's a2a-sdk integration supports streaming, so "
+        "this defaults True.",
+    )
+    push_notifications: bool = Field(
+        default=False,
+        description="Advertise push-notification webhook support on the Agent Card "
+        "capabilities object. dao-ai does not currently implement A2A push notifications, "
+        "so this defaults False; flip to True only after wiring an external notifier.",
+    )
+    state_transition_history: Optional[bool] = Field(
+        default=None,
+        description="Advertise task state-transition history retention on the Agent Card "
+        "capabilities object. None (default) auto-derives: True iff the app has a "
+        "configured A2A task store backed by a database OR an orchestration checkpointer "
+        "that persists task state across requests. Set explicitly to override.",
+    )
+    provider: Optional[ProviderModel] = Field(
+        default=None,
+        description="Optional service-provider block shown on the Agent Card. "
+        "Recommended for production agents so callers can identify the maintainer.",
+    )
+    documentation_url: Optional[str] = Field(
+        default=None,
+        description="Optional URL to public documentation for this agent. Surfaced on "
+        "the Agent Card so callers can find usage docs.",
+    )
+    icon_url: Optional[str] = Field(
+        default=None,
+        description="Optional URL to a hosted icon image for this agent. Surfaced on "
+        "the Agent Card.",
     )
 
 
