@@ -247,6 +247,117 @@ re-deploy. No code edits needed.
 
 ---
 
+## Agent Card customization
+
+Both apps publish a v0.3.x A2A **Agent Card** at
+`/.well-known/agent-card.json`. The card is auto-derived from the rest of
+the config — every field below has a fallback, so omitting the `app.a2a`
+block produces a working (if minimal) card. Populate `app.a2a` to ship a
+richer, discovery-friendly card.
+
+### Auto-derivation map
+
+| Card field | Source when `app.a2a` is unset |
+|---|---|
+| `name` | `app.name` |
+| `description` | `app.description` (trailing whitespace stripped) |
+| `version` | Installed `dao-ai` package version |
+| `url` | `$DATABRICKS_APP_URL/a2a` at startup, else `/a2a` |
+| `protocolVersion`, `preferredTransport` | a2a-sdk defaults (`0.3.0`, `JSONRPC`) |
+| `defaultInputModes` / `defaultOutputModes` | `["text/plain", "application/json"]` |
+| `capabilities.streaming` | `true` (a2a-sdk supports `message/stream`) |
+| `capabilities.pushNotifications` | `false` (dao-ai has no push-notification webhook) |
+| `capabilities.stateTransitionHistory` | `true` iff `a2a.task_store.database` is set |
+| `skills` | One `AgentSkill` per entry in `agents` — `id`/`name` = agent name, `description` from agent, `tags=["dao-ai", "sub-agent"]`, no `examples` |
+| `securitySchemes` | Auto: scans config for any `on_behalf_of_user: true` → emits `oauth2` (authorization-code, `user_impersonation` scope) + `bearer`; else single `bearer` (PAT/M2M) |
+| `security` | One OR-alternative per scheme; `oauth2` requirement lists the scopes declared on the scheme (e.g. `["user_impersonation"]`); other schemes list `[]` |
+| `provider`, `documentationUrl`, `iconUrl` | Omitted unless set under `app.a2a` |
+
+### Override block (`app.a2a`)
+
+```yaml
+app:
+  a2a:
+    # Service provider — strongly recommended for production. Both fields required.
+    provider:
+      organization: Databricks Field Engineering
+      url: https://github.com/databrickslabs/dao-ai
+
+    # Optional URLs surfaced on the card.
+    documentation_url: https://example.com/docs
+    icon_url: https://example.com/icon.png
+
+    # Capability advertisements. None of these change runtime behavior;
+    # they just describe what the server supports to A2A clients.
+    streaming: true               # default true
+    push_notifications: false     # default false; flip only after wiring a notifier
+    state_transition_history: null  # null (default) auto-derives from task_store.database
+
+    # Force-toggle the OBO security model independent of resource-level
+    # on_behalf_of_user flags. null (default) → auto-derive.
+    on_behalf_of_user: null
+
+    # Default I/O modes for skills that don't declare their own.
+    default_input_modes:  [text/plain, application/json]
+    default_output_modes: [text/plain, application/json]
+
+    # Per-skill overrides. When provided, replaces the auto-derived
+    # one-skill-per-agent list. Use to ship human-readable names,
+    # tags, examples, and per-skill I/O modes.
+    skills:
+      - id: supplier_agent                          # programmatic id
+        name: Acme Industrial Supply — Catalog Specialist   # human-readable
+        description: >-
+          What this skill does, surfaced in discovery clients.
+        tags: [dao-ai, supplier, procurement, catalog]
+        examples:
+          - Quote 750 units of ACM-HB-08 and confirm lead time.
+        input_modes:  [text/plain, application/json]
+        output_modes: [text/plain, application/json]
+
+    # Full override of the security schemes block. Typed against
+    # a2a-sdk's SecurityScheme discriminated union, so malformed schemes
+    # fail at config load. See ``dao_ai.apps.a2a.security`` for ready-made
+    # bearer/oauth2/OIDC/apiKey constants and factories.
+    security_schemes: null
+```
+
+This demo populates `provider`, `documentation_url`, and the `skills` list
+on both apps (`supplier.yaml`, `procurement.yaml`) — diff against the
+auto-derived card to see the effect.
+
+### OBO security model
+
+Both apps in this demo set `on_behalf_of_user: true` on their LLM, which
+causes the auto-derivation to emit **both** an `oauth2` and a `bearer`
+scheme:
+
+- **`oauth2`** — authorization-code flow against the workspace's
+  `/oidc/v1/authorize` and `/oidc/v1/token` endpoints, with a single
+  `user_impersonation` scope. This is documentation for A2A callers:
+  "the resources behind this agent will act as the caller, and here is
+  the OAuth2 dance that produces the right token."
+- **`bearer`** — HTTP bearer scheme with an OBO-aware `bearerFormat`
+  hint. This is the wire-level shape: clients send
+  `Authorization: Bearer <token>`. The Databricks Apps proxy unwraps it
+  and re-forwards as `x-forwarded-access-token` to dao-ai.
+
+The card's `security` array lists these as **two OR-alternatives** —
+clients satisfy one or the other (in practice they're the same token at
+different layers).
+
+To suppress OBO advertisement (run the apps as their service principal
+end-to-end), set `app.a2a.on_behalf_of_user: false` and also flip the
+resource-level `on_behalf_of_user` flags on the LLM / app resources.
+
+### v1.0 spec migration
+
+dao-ai pins `a2a-sdk>=0.3.0,<1.0.0`. A2A v1.0 restructures the card
+(`supportedInterfaces`, `protocolBinding`) and is tracked as a separate
+upgrade — no action required for users of this demo today.
+
+---
+
 ## Iterating
 
 ```bash

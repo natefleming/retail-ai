@@ -27,8 +27,10 @@ from typing import TYPE_CHECKING
 from a2a.types import (
     AgentCapabilities,
     AgentCard,
+    AgentProvider,
     AgentSkill,
     HTTPAuthSecurityScheme,
+    OAuth2SecurityScheme,
     SecurityScheme,
 )
 from loguru import logger
@@ -101,7 +103,7 @@ def _derive_skills(config: "AppConfig", a2a: "A2AModel") -> list[AgentSkill]:
             AgentSkill(
                 id=s.id,
                 name=s.name,
-                description=s.description or s.name,
+                description=(s.description or s.name).rstrip(),
                 tags=list(s.tags),
                 examples=list(s.examples) if s.examples else None,
                 input_modes=list(s.input_modes) if s.input_modes else None,
@@ -126,13 +128,31 @@ def _derive_skills(config: "AppConfig", a2a: "A2AModel") -> list[AgentSkill]:
         if isinstance(app_agents, list):
             sub_agent_iter = list(app_agents)
     for sub in sub_agent_iter:
+        sub_name = str(getattr(sub, "name", ""))
+        raw_desc = getattr(sub, "description", None) or f"dao-ai sub-agent: {sub_name or 'agent'}"
+        # YAML ``>`` folding appends a trailing newline; strip so the card
+        # doesn't carry visible whitespace into consumers.
+        description = raw_desc.rstrip()
+        # Pick up tags / examples from the AgentModel only if they exist as
+        # real list-valued attributes — keeps backward compatibility while
+        # future-proofing for an AgentModel that adopts these fields.
+        extra_tags = getattr(sub, "tags", None)
+        extra_examples = getattr(sub, "examples", None)
+        tags = ["dao-ai", "sub-agent"]
+        if isinstance(extra_tags, list) and all(isinstance(t, str) for t in extra_tags):
+            tags = list(dict.fromkeys([*tags, *extra_tags]))
+        examples = None
+        if isinstance(extra_examples, list) and all(
+            isinstance(e, str) for e in extra_examples
+        ):
+            examples = list(extra_examples) or None
         derived.append(
             AgentSkill(
-                id=str(getattr(sub, "name", "")),
-                name=str(getattr(sub, "name", "")),
-                description=getattr(sub, "description", None)
-                or f"dao-ai sub-agent: {getattr(sub, 'name', 'agent')}",
-                tags=["dao-ai", "sub-agent"],
+                id=sub_name,
+                name=sub_name,
+                description=description,
+                tags=tags,
+                examples=examples,
             )
         )
 
@@ -256,6 +276,40 @@ def _derive_security_schemes(
         return {"bearer": BEARER_DATABRICKS_OBO}
 
 
+def _scheme_inner(scheme: object) -> object:
+    """Unwrap an ``a2a.types.SecurityScheme`` RootModel to its concrete
+    discriminated-union member. Pass-through for already-concrete schemes."""
+    return getattr(scheme, "root", scheme)
+
+
+def _scheme_scopes(scheme: object) -> list[str]:
+    """Return the scope names declared on a scheme, in spec-correct order.
+
+    For OAuth2 schemes that publish a ``flows.authorization_code.scopes``
+    map, returns its keys. For all other scheme kinds, returns an empty
+    list (matches OpenAPI 3 'no scopes required').
+    """
+    inner = _scheme_inner(scheme)
+    if isinstance(inner, OAuth2SecurityScheme):
+        flows = getattr(inner, "flows", None)
+        ac = getattr(flows, "authorization_code", None) if flows else None
+        if ac is not None and getattr(ac, "scopes", None):
+            return list(ac.scopes.keys())
+    return []
+
+
+def _derive_state_transition_history(config: "AppConfig", a2a: "A2AModel") -> bool:
+    """Auto-derive whether the agent retains A2A task state transitions.
+
+    True iff the A2A task store is backed by a database — i.e., tasks
+    persist across restarts and clients can fetch their state history.
+    """
+    task_store = getattr(a2a, "task_store", None)
+    if task_store is None:
+        return False
+    return getattr(task_store, "database", None) is not None
+
+
 def build_agent_card(config: "AppConfig") -> AgentCard:
     """Build the public A2A Agent Card for this config.
 
@@ -265,22 +319,38 @@ def build_agent_card(config: "AppConfig") -> AgentCard:
     a2a = effective_a2a(config)
 
     name = config.app.name if config.app else "dao-ai-agent"
-    description = (
+    raw_description = (
         config.app.description if config.app else None
     ) or f"dao-ai agent: {name}"
+    # YAML ``>`` block-folding always appends a trailing newline; strip it
+    # so consumers don't render a visible blank line.
+    description = raw_description.rstrip()
 
     skills = _derive_skills(config, a2a)
     security_schemes = _derive_security_schemes(config, a2a)
     security: list[dict[str, list[str]]] | None = None
     if security_schemes:
-        # Single requirement OR over the declared schemes, no extra scopes.
-        security = [{key: [] for key in security_schemes}]
+        # One requirement object per scheme so the array is interpreted as
+        # OR-of-AND (per OpenAPI 3 / A2A spec): callers can satisfy any
+        # single entry. For oauth2 schemes, advertise the required scope
+        # names declared on the scheme's authorization_code flow.
+        security = [{key: _scheme_scopes(scheme)} for key, scheme in security_schemes.items()]
 
+    sth = a2a.state_transition_history
+    if sth is None:
+        sth = _derive_state_transition_history(config, a2a)
     capabilities = AgentCapabilities(
-        streaming=True,
-        push_notifications=False,
-        state_transition_history=True,
+        streaming=a2a.streaming,
+        push_notifications=a2a.push_notifications,
+        state_transition_history=sth,
     )
+
+    provider = None
+    if a2a.provider is not None:
+        provider = AgentProvider(
+            organization=a2a.provider.organization,
+            url=a2a.provider.url,
+        )
 
     card = AgentCard(
         name=name,
@@ -293,6 +363,9 @@ def build_agent_card(config: "AppConfig") -> AgentCard:
         skills=skills,
         security_schemes=security_schemes,
         security=security,
+        provider=provider,
+        documentation_url=a2a.documentation_url,
+        icon_url=a2a.icon_url,
     )
 
     logger.debug(

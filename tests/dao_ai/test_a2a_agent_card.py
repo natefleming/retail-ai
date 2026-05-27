@@ -25,8 +25,10 @@ from dao_ai.config import (
     AgentModel,
     AppConfig,
     AppModel,
+    DatabaseModel,
     DeploymentTarget,
     InferenceEndpointModel,
+    ProviderModel,
 )
 
 
@@ -89,9 +91,14 @@ def test_agent_card_basic_fields():
     assert card.url.endswith(DEFAULT_A2A_RPC_PATH)
     assert card.version  # dao-ai version string
     assert card.capabilities.streaming is True
-    assert card.capabilities.state_transition_history is True
+    # Default config has no A2A task store database → no persisted task
+    # state-transition history is retained.
+    assert card.capabilities.state_transition_history is False
+    assert card.capabilities.push_notifications is False
     assert card.default_input_modes == ["text/plain", "application/json"]
     assert card.default_output_modes == ["text/plain", "application/json"]
+    # Top-level description has no trailing whitespace.
+    assert card.description == card.description.rstrip()
 
 
 @pytest.mark.unit
@@ -317,7 +324,11 @@ def test_agent_card_url_falls_back_to_relative(monkeypatch):
 
 @pytest.mark.unit
 def test_agent_card_security_requirement_lists_schemes():
-    """``security`` array lists every declared scheme name."""
+    """``security`` array has one OR-alternative per declared scheme (OpenAPI 3 semantics).
+
+    Each entry maps a single scheme to its required scope list. Non-OAuth2
+    schemes get an empty list (no scopes required).
+    """
     custom = A2AModel(
         security_schemes={
             "bearer": {"type": "http", "scheme": "bearer"},
@@ -327,5 +338,100 @@ def test_agent_card_security_requirement_lists_schemes():
     cfg = _minimal_config(a2a=custom)
     card = build_agent_card(cfg)
     assert card.security is not None
-    requirement = card.security[0]
-    assert set(requirement.keys()) == {"bearer", "api_key"}
+    # One requirement object per scheme (OR-of-AND form).
+    keys = [list(r.keys())[0] for r in card.security]
+    assert sorted(keys) == ["api_key", "bearer"]
+    # Neither scheme is OAuth2 → all scope lists empty.
+    for req in card.security:
+        for scopes in req.values():
+            assert scopes == []
+
+
+@pytest.mark.unit
+def test_agent_card_security_obo_lists_user_impersonation_scope():
+    """OBO Agent Card lists ``user_impersonation`` under the oauth2 requirement."""
+    with _mocked_workspace_client():
+        cfg = _minimal_config(a2a=A2AModel(on_behalf_of_user=True))
+        card = build_agent_card(cfg)
+    assert card.security is not None
+    # Two requirements: one per scheme.
+    assert len(card.security) == 2
+    by_scheme = {list(r.keys())[0]: list(r.values())[0] for r in card.security}
+    assert by_scheme["oauth2"] == ["user_impersonation"]
+    assert by_scheme["bearer"] == []
+
+
+@pytest.mark.unit
+def test_agent_card_provider_and_docs_flow_through():
+    """``provider``, ``documentation_url``, ``icon_url`` on A2AModel surface on the card."""
+    cfg = _minimal_config(
+        a2a=A2AModel(
+            provider=ProviderModel(
+                organization="Databricks Field Engineering",
+                url="https://github.com/databrickslabs/dao-ai",
+            ),
+            documentation_url="https://example.com/docs",
+            icon_url="https://example.com/icon.png",
+        )
+    )
+    card = build_agent_card(cfg)
+    assert card.provider is not None
+    assert card.provider.organization == "Databricks Field Engineering"
+    assert card.provider.url == "https://github.com/databrickslabs/dao-ai"
+    assert card.documentation_url == "https://example.com/docs"
+    assert card.icon_url == "https://example.com/icon.png"
+
+
+@pytest.mark.unit
+def test_agent_card_capability_overrides():
+    """Capability flags on A2AModel override the auto-derived defaults."""
+    cfg = _minimal_config(
+        a2a=A2AModel(
+            streaming=False,
+            push_notifications=True,
+            state_transition_history=True,
+        )
+    )
+    card = build_agent_card(cfg)
+    assert card.capabilities.streaming is False
+    assert card.capabilities.push_notifications is True
+    assert card.capabilities.state_transition_history is True
+
+
+@pytest.mark.unit
+def test_agent_card_state_transition_history_auto_derived_from_task_store():
+    """STH auto-derives True when the A2A task store has a database configured."""
+    cfg = _minimal_config(
+        a2a=A2AModel(
+            task_store=A2ATaskStoreModel(
+                database=DatabaseModel(project="dao-ai-test-lakebase"),
+            ),
+        )
+    )
+    card = build_agent_card(cfg)
+    assert card.capabilities.state_transition_history is True
+
+
+@pytest.mark.unit
+def test_agent_card_skill_description_trims_trailing_whitespace():
+    """YAML ``>`` block-folded descriptions land on the card without trailing newlines."""
+    agents = [
+        AgentModel(
+            name="greeter",
+            # Mimic YAML ``>`` folding which appends a final newline.
+            description="says hi\n",
+            model=InferenceEndpointModel(name="databricks-gpt-5-4-mini"),
+        ),
+    ]
+    cfg = _minimal_config(agents=agents)
+    card = build_agent_card(cfg)
+    assert card.skills[0].description == "says hi"
+    assert not card.skills[0].description.endswith("\n")
+
+
+@pytest.mark.unit
+def test_agent_card_top_level_description_trims_trailing_whitespace():
+    """App-level descriptions are rstripped on the card."""
+    cfg = _minimal_config(description="a sporting goods agent\n")
+    card = build_agent_card(cfg)
+    assert card.description == "a sporting goods agent"

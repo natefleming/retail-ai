@@ -73,7 +73,7 @@ agents:
 
 app:
   name: dao-ai-supplier-a2a
-  description: >
+  description: >-
     Acme Industrial Supply — wholesale supplier-side A2A agent. Paired
     with the procurement app in this directory; see README.md for
     deployment.
@@ -81,14 +81,38 @@ app:
   deployment_target: apps
   agents:
     - *supplier_agent
-  # ``a2a`` is omitted — A2AModel.enabled defaults to True on every
-  # Databricks Apps deployment (see ``AppModel.a2a`` in dao_ai/config.py).
   # ``orchestration.memory`` is omitted — this agent has no HITL, no
   # deep-agent state, and A2A handles multi-turn continuity via
   # server-side ``context_id`` independent of the LangGraph checkpointer.
   # ``supplier_llm.on_behalf_of_user: true`` above is what causes the
   # auto-generated Agent Card to advertise both bearer and oauth2
   # schemes with the OBO-aware description.
+  #
+  # The ``a2a`` block below is fully optional — every Databricks Apps
+  # deployment exposes A2A by default and auto-derives reasonable
+  # discovery metadata from ``app.name`` / ``app.description`` /
+  # ``agents``. Populated here to demonstrate the full set of override
+  # knobs and to ship a richer Agent Card for discovery clients.
+  a2a:
+    provider:
+      organization: Databricks Field Engineering
+      url: https://github.com/databrickslabs/dao-ai
+    documentation_url: >-
+      https://github.com/databrickslabs/dao-ai/blob/main/config/examples/15_complete_applications/procurement_supplier_a2a/README.md
+    skills:
+      - id: supplier_agent
+        name: Acme Industrial Supply — Catalog Specialist
+        description: >-
+          Wholesale-supplier specialist for Acme Industrial Supply. Answers
+          procurement-officer questions about catalog SKUs, unit pricing,
+          bulk discount tiers, lead times, MOQs, and live stock availability.
+        tags: [dao-ai, supplier, procurement, catalog, wholesale, fasteners]
+        examples:
+          - Quote 750 units of ACM-HB-08 and confirm lead time.
+          - Is the M10 hex bolt in stock for a 5,000 unit order?
+          - What's the MOQ on the 3/8" cordless impact driver?
+        input_modes: [text/plain, application/json]
+        output_modes: [text/plain, application/json]
   input_example:
     messages:
       - role: user
