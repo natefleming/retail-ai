@@ -37,6 +37,7 @@ from dao_ai.config import (
     IsDatabricksResource,
     McpFunctionModel,
     TransportType,
+    value_of,
 )
 from dao_ai.state import Context
 from dao_ai.tools.tracing import ResourceInfo, set_resource_attributes
@@ -151,6 +152,17 @@ def _should_include_tool(
 
     # Default: include all tools
     return True
+
+
+def _resolve_meta(meta: dict[str, Any] | None) -> dict[str, Any] | None:
+    """Resolve AnyVariable values in a meta dict to concrete primitives.
+
+    Returns None if meta is unset or empty so we don't send an empty _meta
+    on the wire (which would still be valid but adds noise).
+    """
+    if not meta:
+        return None
+    return {key: value_of(val) for key, val in meta.items()}
 
 
 def _has_auth_configured(resource: IsDatabricksResource) -> bool:
@@ -589,7 +601,7 @@ async def acreate_mcp_tools(
             try:
                 async with invocation_client.session("mcp_function") as session:
                     result: CallToolResult = await session.call_tool(
-                        mcp_tool.name, kwargs
+                        mcp_tool.name, kwargs, meta=_resolve_meta(function.meta)
                     )
 
                     text_result: str = _extract_text_content(result)
@@ -719,7 +731,7 @@ def create_mcp_tools(
             try:
                 async with invocation_client.session("mcp_function") as session:
                     result: CallToolResult = await session.call_tool(
-                        mcp_tool.name, kwargs
+                        mcp_tool.name, kwargs, meta=_resolve_meta(function.meta)
                     )
 
                     # Extract text content, avoiding extra fields

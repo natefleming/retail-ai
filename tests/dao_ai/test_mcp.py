@@ -202,7 +202,7 @@ def test_mcp_function_validation_requires_url_or_connection():
     # Should raise ValueError when no URL source is provided
     with pytest.raises(
         ValidationError,
-        match="url, app, connection, genie_room, sql, vector_search, or functions",
+        match="url, app, connection, genie_room, genie, sql, vector_search, or functions",
     ):
         McpFunctionModel(
             transport=TransportType.STREAMABLE_HTTP,
