@@ -4,6 +4,7 @@ Integration tests for MCP tool filtering and list_mcp_tools.
 Tests the end-to-end filtering behavior with mock MCP servers.
 """
 
+import asyncio
 from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
 import pytest
@@ -13,6 +14,7 @@ from dao_ai.config import DatabricksAppModel, McpFunctionModel
 from dao_ai.tools.mcp import (
     MCPToolInfo,
     _build_connection_config,
+    _resolve_meta,
     create_mcp_tools,
     list_mcp_tools,
 )
@@ -984,3 +986,86 @@ class TestBuildConnectionConfigUnifiedAuth:
 
                 # Verify app's workspace client was used, not function's
                 mock_provider_class.assert_called_once_with(app_ws)
+
+
+class TestResolveMeta:
+    """Unit tests for _resolve_meta helper that resolves AnyVariable values."""
+
+    def test_returns_none_for_unset(self):
+        """None input returns None — caller should not send an empty _meta."""
+        assert _resolve_meta(None) is None
+
+    def test_returns_none_for_empty_dict(self):
+        """Empty dict input returns None to avoid empty wire payload."""
+        assert _resolve_meta({}) is None
+
+    def test_passes_plain_values_through(self):
+        """Plain str/int/bool values resolve to themselves via value_of()."""
+        result = _resolve_meta(
+            {"warehouse_id": "abc123", "num_results": 5, "include_score": True}
+        )
+        assert result == {
+            "warehouse_id": "abc123",
+            "num_results": 5,
+            "include_score": True,
+        }
+
+    def test_resolves_environment_variable(self, monkeypatch):
+        """AnyVariable env references are resolved at call time."""
+        monkeypatch.setenv("TEST_WAREHOUSE_ID", "wh_from_env")
+        # Construct an McpFunctionModel so Pydantic parses the env-var spec
+        # into an EnvironmentVariableModel via the AnyVariable union.
+        function = McpFunctionModel(
+            type="mcp",
+            url="http://test.com/mcp",
+            meta={"warehouse_id": {"env": "TEST_WAREHOUSE_ID"}},
+        )
+        result = _resolve_meta(function.meta)
+        assert result == {"warehouse_id": "wh_from_env"}
+
+
+class TestMCPMetaInjection:
+    """Verify configured _meta is passed to session.call_tool()."""
+
+    @patch("dao_ai.tools.mcp.MultiServerMCPClient")
+    def test_call_tool_receives_meta_when_configured(
+        self, mock_client_class, mock_mcp_tools
+    ):
+        """meta from config is forwarded to ClientSession.call_tool()."""
+        mock_client = _setup_mock_client(mock_client_class, mock_mcp_tools)
+        mock_session = mock_client.session.return_value.__aenter__.return_value
+
+        function = McpFunctionModel(
+            type="mcp",
+            url="http://test.com/mcp",
+            meta={"warehouse_id": "abc123"},
+            include_tools=["query_sales"],
+        )
+
+        tools = create_mcp_tools(function)
+        assert len(tools) == 1
+        asyncio.run(tools[0].ainvoke({}))
+
+        mock_session.call_tool.assert_called_once()
+        call_kwargs = mock_session.call_tool.call_args.kwargs
+        assert call_kwargs.get("meta") == {"warehouse_id": "abc123"}
+
+    @patch("dao_ai.tools.mcp.MultiServerMCPClient")
+    def test_call_tool_meta_is_none_when_not_configured(
+        self, mock_client_class, mock_mcp_tools
+    ):
+        """meta is None on call_tool when not configured — no empty _meta on wire."""
+        mock_client = _setup_mock_client(mock_client_class, mock_mcp_tools)
+        mock_session = mock_client.session.return_value.__aenter__.return_value
+
+        function = McpFunctionModel(
+            type="mcp",
+            url="http://test.com/mcp",
+            include_tools=["query_sales"],
+        )
+
+        tools = create_mcp_tools(function)
+        asyncio.run(tools[0].ainvoke({}))
+
+        mock_session.call_tool.assert_called_once()
+        assert mock_session.call_tool.call_args.kwargs.get("meta") is None

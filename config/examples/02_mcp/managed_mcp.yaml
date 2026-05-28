@@ -83,6 +83,10 @@ tools:
       type: mcp                                  # MCP function type
       vector_search: *retail_vector_store
                                                  # Use vector search convenience object
+      meta:                                      # Per-call _meta for Vector Search MCP
+        num_results: 5                           # Cap results to 5
+        query_type: HYBRID                       # Use hybrid search
+        include_score: true                      # Include similarity scores
       client_id: *client_id
       client_secret: *client_secret
       workspace_host: *workspace_host
@@ -93,6 +97,10 @@ tools:
     function:
       type: mcp                                  # MCP function type
       sql: true                                  # Use serverless DBSQL MCP server (no warehouse needed)
+      meta:                                      # Per-call _meta for DBSQL MCP
+        warehouse_id:                            # Pin a specific DBSQL warehouse
+          options:
+          - env: RETAIL_AI_DATABRICKS_WAREHOUSE_ID
       client_id: *client_id
       client_secret: *client_secret
       workspace_host: *workspace_host
@@ -109,12 +117,22 @@ tools:
       workspace_host: *workspace_host
 
   genie_mcp: &genie_mcp
-                                                 # Genie MCP tool configuration
+                                                 # Genie MCP tool configuration (per-space)
     name: genie_mcp
     function:
       type: mcp                                  # MCP function type
       genie_room: *retail_genie_room
                                                  # Use genie_room convenience object
+      client_id: *client_id
+      client_secret: *client_secret
+      workspace_host: *workspace_host
+
+  genie_all_mcp: &genie_all_mcp
+                                                 # Workspace-wide Genie MCP tool (all spaces)
+    name: genie_all_mcp
+    function:
+      type: mcp                                  # MCP function type
+      genie: true                                # Workspace-wide managed Genie MCP (no space_id)
       client_id: *client_id
       client_secret: *client_secret
       workspace_host: *workspace_host
@@ -132,10 +150,13 @@ agents:
     - *sql_mcp
     - *functions_mcp
     - *genie_mcp
+    - *genie_all_mcp
     prompt: |                                    # System prompt defining agent behavior
       You are a multi-purpose agent that can perform vector search, execute SQL queries via DBSQL,
-      call Unity Catalog functions, and interact with Genie rooms. Use the tools provided to answer
-      questions and perform tasks. You may need to use the tools in combination to achieve complex tasks.
+      call Unity Catalog functions, interact with a specific Genie room, and query across all Genie
+      spaces in the workspace via the workspace-wide Genie MCP server. Use the tools provided to
+      answer questions and perform tasks. You may need to use the tools in combination to achieve
+      complex tasks.
 
 app:
   name: managed_mcp_dao                                # Application name  

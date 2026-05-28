@@ -1,5 +1,3 @@
-Resolved 280 packages in 7ms
-Checked 249 packages in 82ms
 {
   "$defs": {
     "A2AModel": {
@@ -5503,7 +5501,7 @@ Checked 249 packages in 82ms
             }
           ],
           "default": null,
-          "description": "Direct MCP server URL. Mutually exclusive with app, connection, genie_room, sql, vector_search, functions.",
+          "description": "Direct MCP server URL. Mutually exclusive with app, connection, genie_room, genie, sql, vector_search, functions.",
           "title": "Url"
         },
         "headers": {
@@ -5595,6 +5593,19 @@ Checked 249 packages in 82ms
           "default": null,
           "description": "Genie space exposed as an MCP server for natural-language SQL."
         },
+        "genie": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Enable the workspace-wide Databricks Genie MCP server (queries across all Genie spaces in the workspace, no space_id required).",
+          "title": "Genie"
+        },
         "sql": {
           "anyOf": [
             {
@@ -5651,6 +5662,47 @@ Checked 249 packages in 82ms
           "default": null,
           "description": "Optional list of tool names or glob patterns to exclude from the MCP server. Tools matching these patterns will not be loaded. Takes precedence over include_tools. Supports glob patterns: * (any chars), ? (single char), [abc] (char set). Examples: ['drop_*', 'delete_*', 'execute_ddl']",
           "title": "Exclude Tools"
+        },
+        "meta": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/CompositeVariableModel"
+                  },
+                  {
+                    "$ref": "#/$defs/EnvironmentVariableModel"
+                  },
+                  {
+                    "$ref": "#/$defs/SecretVariableModel"
+                  },
+                  {
+                    "$ref": "#/$defs/PrimitiveVariableModel"
+                  },
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "boolean"
+                  }
+                ]
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Per-MCP-server `_meta` parameters (MCP spec). Sent as `_meta` on every tools/call request to this server. Common Databricks keys: warehouse_id (DBSQL); num_results, filters, query_type, columns, score_threshold, include_score, columns_to_rerank (Vector Search). Values support AnyVariable (env vars, secrets, defaults).",
+          "title": "Meta"
         }
       },
       "title": "McpFunctionModel",

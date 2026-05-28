@@ -182,7 +182,7 @@ class TestFunctionModelParsing:
 
         with pytest.raises(
             ValidationError,
-            match="url, app, connection, genie_room, sql, vector_search, or functions",
+            match="url, app, connection, genie_room, genie, sql, vector_search, or functions",
         ):
             ToolModel(**yaml_data)
 

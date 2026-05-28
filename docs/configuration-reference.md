@@ -158,10 +158,15 @@ tools:
       connection: *connection   # UC Connection for MCP
       sql: bool                 # Use DBSQL MCP server
       functions: *my_schema     # Use UC Functions MCP
-      genie_room: *genie        # Use Genie MCP
+      genie_room: *genie        # Use Genie MCP for a single space (per-space URL)
+      genie: bool               # Use workspace-wide Genie MCP (all spaces, no space_id)
       vector_search: *store     # Use Vector Search MCP
       include_tools: [string]   # Tools to load (allowlist, supports glob)
       exclude_tools: [string]   # Tools to exclude (denylist, supports glob)
+      meta:                     # _meta sent on every tool call (MCP spec, public preview on Databricks)
+        warehouse_id: string    # DBSQL: pin a specific warehouse
+        num_results: int        # Vector Search: cap result count
+        # ... any other server-specific keys (see Databricks managed MCP docs)
       human_in_the_loop:        # Optional approval gate
         review_prompt: string
         allowed_decisions: [approve, edit, reject]

@@ -26,7 +26,7 @@ class TestMcpFunctionModelValidation:
         """Test that missing URL source raises validation error."""
         with pytest.raises(
             ValidationError,
-            match="url, app, connection, genie_room, sql, vector_search, or functions",
+            match="url, app, connection, genie_room, genie, sql, vector_search, or functions",
         ):
             McpFunctionModel(
                 transport=TransportType.STREAMABLE_HTTP,
@@ -67,6 +67,18 @@ class TestMcpFunctionModelValidation:
                 transport=TransportType.STREAMABLE_HTTP,
                 genie_room=GenieRoomModel(name="test_genie", space_id="space_123"),
                 sql=True,
+                workspace_host="https://workspace.com",
+            )
+
+    def test_genie_and_genie_room_mutually_exclusive(self):
+        """Test that genie (workspace-wide) and genie_room (per-space) cannot be provided together."""
+        with pytest.raises(
+            ValidationError, match="only one URL source can be provided"
+        ):
+            McpFunctionModel(
+                transport=TransportType.STREAMABLE_HTTP,
+                genie=True,
+                genie_room=GenieRoomModel(name="test_genie", space_id="space_123"),
                 workspace_host="https://workspace.com",
             )
 
@@ -141,6 +153,17 @@ class TestMcpFunctionModelUrlGeneration:
         )
         # Per Databricks MCP documentation, the DBSQL MCP server is serverless and workspace-level
         expected = "https://adb-123.azuredatabricks.net/api/2.0/mcp/sql"
+        assert model.mcp_url == expected
+
+    def test_genie_workspace_wide_url_generation(self):
+        """Test URL generation for workspace-wide Genie MCP server (no space_id)."""
+        model = McpFunctionModel(
+            transport=TransportType.STREAMABLE_HTTP,
+            genie=True,
+            workspace_host="https://adb-123.azuredatabricks.net",
+        )
+        # Workspace-wide Genie MCP server has no space_id; it queries across all spaces
+        expected = "https://adb-123.azuredatabricks.net/api/2.0/mcp/genie"
         assert model.mcp_url == expected
 
     @patch("dao_ai.providers.databricks.VectorSearchClient")
@@ -272,6 +295,56 @@ class TestMcpFunctionModelProperties:
             == "streamable_http"
         )
         assert model.serialize_transport(TransportType.STDIO) == "stdio"
+
+
+class TestMcpFunctionModelMeta:
+    """Test the _meta parameter field (MCP spec, public preview on Databricks)."""
+
+    def test_meta_defaults_to_none(self):
+        """Test that meta defaults to None when not provided."""
+        model = McpFunctionModel(
+            transport=TransportType.STREAMABLE_HTTP,
+            sql=True,
+            workspace_host="https://workspace.com",
+        )
+        assert model.meta is None
+
+    def test_meta_parses_plain_values(self):
+        """Test that plain string/int/bool values in meta are preserved."""
+        model = McpFunctionModel(
+            transport=TransportType.STREAMABLE_HTTP,
+            sql=True,
+            meta={
+                "warehouse_id": "abc123",
+                "num_results": 5,
+                "include_score": True,
+            },
+            workspace_host="https://workspace.com",
+        )
+        assert model.meta == {
+            "warehouse_id": "abc123",
+            "num_results": 5,
+            "include_score": True,
+        }
+
+    def test_meta_compatible_with_other_url_sources(self):
+        """Test that meta can be combined with any URL source (not mutually exclusive)."""
+        # Plain url source
+        m1 = McpFunctionModel(
+            transport=TransportType.STREAMABLE_HTTP,
+            url="https://example.com/mcp",
+            meta={"warehouse_id": "abc"},
+        )
+        assert m1.meta == {"warehouse_id": "abc"}
+
+        # Genie workspace-wide
+        m2 = McpFunctionModel(
+            transport=TransportType.STREAMABLE_HTTP,
+            genie=True,
+            meta={"some_key": "value"},
+            workspace_host="https://workspace.com",
+        )
+        assert m2.meta == {"some_key": "value"}
 
 
 class TestMcpFunctionModelAuthValidation:

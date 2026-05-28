@@ -1,0 +1,80 @@
+# yaml-language-server: $schema=../../../schemas/model_config_schema.json
+#
+# Lean test config for validating the two new MCP features in dao-ai:
+#   1. `genie: true`  — workspace-wide managed Genie MCP server (no space_id)
+#   2. `meta: {...}`  — per-MCP-server `_meta` parameters (MCP spec)
+#
+# Designed to deploy cleanly to a fresh fevm workspace with minimal pre-provisioned
+# resources. Uses OBO auth so the deploying user's credentials drive every MCP call.
+#
+# Required env vars (set before `dao-ai pipeline ... -d`):
+#   DAO_AI_WAREHOUSE_ID   - a SQL warehouse ID in the target workspace (for DBSQL meta)
+#
+# Optional env vars:
+#   DAO_AI_CATALOG        - UC catalog for MLflow model registration (default: main)
+#   DAO_AI_SCHEMA         - UC schema for MLflow model registration (default: default)
+
+schemas:
+  registry_schema: &registry_schema
+    catalog_name: retail_consumer_goods
+    schema_name: dao_ai_mcp_meta_test
+
+resources:
+  models:
+    default_llm: &default_llm
+      name: databricks-claude-sonnet-4
+
+tools:
+  # Feature 1: workspace-wide Genie MCP (the new `genie: true` field)
+  genie_all_mcp: &genie_all_mcp
+    name: genie_all_mcp
+    function:
+      type: mcp
+      genie: true                                      # NEW: workspace-wide Genie endpoint
+      # Use the app's own service principal (auto-injected by Databricks Apps).
+      # Omitting auth fields makes the MCP client fall back to the default
+      # Databricks SDK auth chain, which inside an App resolves to the SP token.
+
+  # Feature 2: DBSQL MCP with `_meta.warehouse_id` (the new `meta` field)
+  sql_mcp_with_meta: &sql_mcp_with_meta
+    name: sql_mcp_with_meta
+    function:
+      type: mcp
+      sql: true                                        # serverless DBSQL MCP
+      meta:                                            # NEW: per-call _meta sent on every tools/call
+        warehouse_id:                                  # pin a specific SQL warehouse
+          env: DAO_AI_WAREHOUSE_ID
+      # Use the app's own service principal (auto-injected by Databricks Apps).
+
+agents:
+  mcp_meta_test_agent: &mcp_meta_test_agent
+    name: mcp_meta_test_agent
+    model: *default_llm
+    tools:
+    - *genie_all_mcp
+    - *sql_mcp_with_meta
+    prompt: |
+      You are a Databricks data assistant for end-to-end validation of two new MCP
+      capabilities in dao-ai:
+
+        1. `genie_all_mcp` — workspace-wide Genie MCP server that can query any
+           Genie space in the workspace (no space_id needed).
+        2. `sql_mcp_with_meta` — the DBSQL MCP server with a pinned `warehouse_id`
+           injected via the `_meta` parameter.
+
+      When the user asks a SQL question, use `sql_mcp_with_meta` and call
+      `execute_sql`. When the user asks a natural-language data question that
+      spans Genie spaces, use `genie_all_mcp`. Be concise.
+
+app:
+  name: dao_ai_mcp_meta_test
+  log_level: TRACE
+  registered_model:
+    schema: *registry_schema
+    name: dao_ai_mcp_meta_test
+  agents:
+  - *mcp_meta_test_agent
+  deployment_target: apps                              # Deploy as a Databricks App
+  environment_vars:
+    DAO_AI_WAREHOUSE_ID:                               # Forwarded to the deployed app env
+      env: DAO_AI_WAREHOUSE_ID

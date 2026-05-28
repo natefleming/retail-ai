@@ -4723,7 +4723,7 @@ class McpFunctionModel(BaseFunctionModel, IsDatabricksResource):
     )
     url: Optional[AnyVariable] = Field(
         default=None,
-        description="Direct MCP server URL. Mutually exclusive with app, connection, genie_room, sql, vector_search, functions.",
+        description="Direct MCP server URL. Mutually exclusive with app, connection, genie_room, genie, sql, vector_search, functions.",
     )
     headers: dict[str, AnyVariable] = Field(
         default_factory=dict,
@@ -4748,6 +4748,10 @@ class McpFunctionModel(BaseFunctionModel, IsDatabricksResource):
     genie_room: Optional[GenieRoomModel] = Field(
         default=None,
         description="Genie space exposed as an MCP server for natural-language SQL.",
+    )
+    genie: Optional[bool] = Field(
+        default=None,
+        description="Enable the workspace-wide Databricks Genie MCP server (queries across all Genie spaces in the workspace, no space_id required).",
     )
     sql: Optional[bool] = Field(
         default=None,
@@ -4775,6 +4779,16 @@ class McpFunctionModel(BaseFunctionModel, IsDatabricksResource):
             "Takes precedence over include_tools. "
             "Supports glob patterns: * (any chars), ? (single char), [abc] (char set). "
             "Examples: ['drop_*', 'delete_*', 'execute_ddl']"
+        ),
+    )
+    meta: Optional[dict[str, AnyVariable]] = Field(
+        default=None,
+        description=(
+            "Per-MCP-server `_meta` parameters (MCP spec). Sent as `_meta` on every "
+            "tools/call request to this server. Common Databricks keys: "
+            "warehouse_id (DBSQL); num_results, filters, query_type, columns, "
+            "score_threshold, include_score, columns_to_rerank (Vector Search). "
+            "Values support AnyVariable (env vars, secrets, defaults)."
         ),
     )
 
@@ -4842,12 +4856,14 @@ class McpFunctionModel(BaseFunctionModel, IsDatabricksResource):
         - If app is set, retrieves URL from Databricks App via workspace client
         - If connection is set, constructs URL from connection
         - If genie_room is set, constructs Genie MCP URL
+        - If genie is set, constructs workspace-wide Genie MCP URL (no space_id)
         - If sql is set, constructs DBSQL MCP URL (serverless)
         - If vector_search is set, constructs Vector Search MCP URL
         - If functions is set, constructs UC Functions MCP URL
 
         URL patterns (per https://docs.databricks.com/aws/en/generative-ai/mcp/managed-mcp):
-        - Genie: https://{host}/api/2.0/mcp/genie/{space_id}
+        - Genie (per-space): https://{host}/api/2.0/mcp/genie/{space_id}
+        - Genie (workspace-wide): https://{host}/api/2.0/mcp/genie (all spaces)
         - DBSQL: https://{host}/api/2.0/mcp/sql (serverless, workspace-level)
         - Vector Search: https://{host}/api/2.0/mcp/vector-search/{catalog}/{schema}
         - UC Functions: https://{host}/api/2.0/mcp/functions/{catalog}/{schema}
@@ -4866,10 +4882,14 @@ class McpFunctionModel(BaseFunctionModel, IsDatabricksResource):
             connection_name: str = self.connection.name
             return f"{workspace_host}/api/2.0/mcp/external/{connection_name}"
 
-        # Genie Room
+        # Genie Room (per-space)
         if self.genie_room:
             space_id: str = value_of(self.genie_room.space_id)
             return f"{workspace_host}/api/2.0/mcp/genie/{space_id}"
+
+        # Workspace-wide Genie MCP server (serverless, no space_id)
+        if self.genie:
+            return f"{workspace_host}/api/2.0/mcp/genie"
 
         # DBSQL MCP server (serverless, workspace-level)
         if self.sql:
@@ -4939,7 +4959,7 @@ class McpFunctionModel(BaseFunctionModel, IsDatabricksResource):
 
         raise ValueError(
             "No URL source configured. Provide one of: url, app, connection, genie_room, "
-            "sql, vector_search, or functions"
+            "genie, sql, vector_search, or functions"
         )
 
     @field_serializer("transport")
@@ -4958,6 +4978,7 @@ class McpFunctionModel(BaseFunctionModel, IsDatabricksResource):
             ("app", self.app),
             ("connection", self.connection),
             ("genie_room", self.genie_room),
+            ("genie", self.genie),
             ("sql", self.sql),
             ("vector_search", self.vector_search),
             ("functions", self.functions),
@@ -4971,13 +4992,13 @@ class McpFunctionModel(BaseFunctionModel, IsDatabricksResource):
             if len(provided_sources) == 0:
                 raise ValueError(
                     "For STREAMABLE_HTTP transport, exactly one of the following must be provided: "
-                    "url, app, connection, genie_room, sql, vector_search, or functions"
+                    "url, app, connection, genie_room, genie, sql, vector_search, or functions"
                 )
             if len(provided_sources) > 1:
                 raise ValueError(
                     f"For STREAMABLE_HTTP transport, only one URL source can be provided. "
                     f"Found: {', '.join(provided_sources)}. "
-                    f"Please provide only one of: url, app, connection, genie_room, sql, vector_search, or functions"
+                    f"Please provide only one of: url, app, connection, genie_room, genie, sql, vector_search, or functions"
                 )
 
         if self.transport == TransportType.STDIO:
