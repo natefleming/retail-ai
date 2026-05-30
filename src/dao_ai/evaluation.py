@@ -9,10 +9,12 @@ via the MLflow 3 scorer lifecycle API.
 from __future__ import annotations
 
 import json
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
+import mlflow
 import pandas as pd
 from loguru import logger
+from mlflow.entities import AssessmentSource
 from mlflow.genai.datasets import create_dataset, delete_dataset, get_dataset
 from mlflow.genai.datasets.evaluation_dataset import EvaluationDataset
 from mlflow.genai.scorers import (
@@ -27,6 +29,8 @@ from mlflow.genai.scorers import (
     list_scorers,
 )
 from mlflow.models.evaluation.base import EvaluationResult
+
+FeedbackValue = Literal["up", "down"]
 
 if TYPE_CHECKING:
     from dao_ai.config import (
@@ -534,3 +538,36 @@ def delete_monitoring_scorers() -> list[str]:
         logger.info(f"Deleted scorer: {name}")
     logger.info(f"Deleted {len(deleted)} monitoring scorers")
     return deleted
+
+
+def log_user_feedback(
+    *,
+    trace_id: str,
+    value: FeedbackValue | bool,
+    comment: str | None = None,
+    user_id: str,
+) -> None:
+    """Log a human thumbs-up/down assessment against a dao-ai trace.
+
+    The ``trace_id`` MUST come from ``response.custom_outputs["trace_id"]``
+    on the agent response. Reading it from ``mlflow.get_last_active_trace_id()``
+    or ``mlflow.get_current_active_span()`` in the caller is unsafe — those
+    desync under concurrency or return ``None`` after the agent function
+    returns.
+
+    Args:
+        trace_id: The MLflow trace_id pulled from ``custom_outputs``.
+        value: ``"up"``, ``"down"``, or a bool. Coerced to a bool internally.
+        comment: Optional free-text rationale (the user's written feedback).
+        user_id: Identifier for the human providing feedback (typically email).
+    """
+    bool_value: bool = (
+        value if isinstance(value, bool) else (value == "up")
+    )
+    mlflow.log_feedback(
+        trace_id=trace_id,
+        name="user_feedback",
+        value=bool_value,
+        rationale=comment,
+        source=AssessmentSource(source_type="HUMAN", source_id=user_id),
+    )
