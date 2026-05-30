@@ -1298,9 +1298,35 @@ custom_outputs = {
                 }
             }
         }
-    }
+    },
+    "trace_id": "tr-abc123def456...",  # MLflow trace_id for this turn
 }
 ```
+
+**`trace_id` in `custom_outputs`:**
+
+Every dao-ai response exposes the outer MLflow trace_id for the user turn.
+In multi-agent flows (supervisor / swarm / handoffs), this is the single
+root trace whose children include every sub-agent invocation — feedback
+logged against this id attaches at the root, not at a sub-agent leg.
+
+Use it to log thumbs-up/down without reading from MLflow global state:
+
+```python
+from dao_ai.evaluation import log_user_feedback
+
+resp = await agent.apredict(request)
+log_user_feedback(
+    trace_id=resp.custom_outputs["trace_id"],
+    value="up",  # or "down", or bool
+    comment="Multi-agent answer was correct.",
+    user_id="user@example.com",
+)
+```
+
+Never call `mlflow.get_last_active_trace_id()` or
+`mlflow.get_current_active_span()` in the caller — those race under
+concurrency or return `None` after the agent function returns.
 
 **Using configurable values in prompts:**
 
