@@ -13,6 +13,7 @@ from typing import (
     Union,
 )
 
+import mlflow
 from databricks_langchain import ChatDatabricks
 
 if TYPE_CHECKING:
@@ -1160,6 +1161,12 @@ class LanggraphResponsesAgent(ResponsesAgent):
             thread_id=context.thread_id,
         )
 
+        # Expose the outer (autolog) trace_id so callers can attach feedback
+        # without reading from MLflow global state. See dao_ai.evaluation.log_user_feedback.
+        trace_id: str | None = mlflow.get_active_trace_id()
+        if trace_id:
+            custom_outputs["trace_id"] = trace_id
+
         # Extract visualization specs from tool messages in this turn
         visualizations: list[dict[str, Any]] = _extract_visualizations_from_messages(
             all_messages, item_id
@@ -1240,7 +1247,6 @@ class LanggraphResponsesAgent(ResponsesAgent):
         # so they appear as linked prompts when autolog finalizes the trace.
         if self._prompt_versions:
             try:
-                import mlflow
                 from mlflow.tracing.trace_manager import InMemoryTraceManager
 
                 trace_id: str | None = mlflow.get_active_trace_id()
@@ -1345,6 +1351,9 @@ class LanggraphResponsesAgent(ResponsesAgent):
                     context=context,
                     thread_id=context.thread_id,
                 )
+                trace_id: str | None = mlflow.get_active_trace_id()
+                if trace_id:
+                    custom_outputs["trace_id"] = trace_id
                 error_message: str = (
                     f"❌ **Invalid Response**\n\n{turn.validation_error_message}"
                 )
@@ -1461,6 +1470,12 @@ class LanggraphResponsesAgent(ResponsesAgent):
                 context=context,
                 thread_id=context.thread_id,
             )
+
+            # Expose the outer (autolog) trace_id on the streamed response so
+            # the UI can attach feedback to the right trace.
+            trace_id = mlflow.get_active_trace_id()
+            if trace_id:
+                custom_outputs["trace_id"] = trace_id
 
             # Extract visualization specs from tool messages collected during streaming
             visualizations: list[dict[str, Any]] = (

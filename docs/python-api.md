@@ -278,6 +278,60 @@ with open("schemas/model_config_schema.json", "w") as f:
     json.dump(schema, f, indent=2)
 ```
 
+## User Feedback (Thumbs-Up / Thumbs-Down)
+
+Every dao-ai response exposes the outer MLflow trace_id on
+`response.custom_outputs["trace_id"]`. Pass it to `log_user_feedback` to
+attach a `user_feedback` assessment to the trace — works the same for
+single-agent and multi-agent (supervisor / swarm) flows.
+
+```python
+from dao_ai.evaluation import log_user_feedback
+
+resp = await agent.apredict(request)
+
+# Happy path: pull trace_id from the response, not MLflow global state
+trace_id = resp.custom_outputs["trace_id"]
+
+log_user_feedback(
+    trace_id=trace_id,
+    value="up",                       # "up" / "down" / bool
+    comment="Multi-agent answer was correct.",
+    user_id="user@example.com",
+)
+```
+
+### Why not read trace_id from MLflow global state?
+
+| Anti-pattern | Failure mode |
+|---|---|
+| `mlflow.get_last_active_trace_id()` in caller | Races under concurrency — desyncs from the trace this call produced |
+| `mlflow.get_current_active_span()` in caller | Returns `None` once the agent function returns; `.trace_id` raises `AttributeError` |
+| `mlflow.log_assessment(...)` / legacy `Assessment(...)` | MLflow 2.x preview API, deprecated in MLflow 3 |
+
+### Querying traces with feedback
+
+```python
+import mlflow
+
+traces = mlflow.search_traces(locations=[experiment_id], max_results=100)
+# `assessments` column has the user_feedback rows
+has_pos = traces["assessments"].apply(
+    lambda assess: any(
+        a.get("assessment_name") == "user_feedback"
+        and a.get("feedback", {}).get("value") is True
+        for a in (assess or [])
+    )
+)
+positive = traces[has_pos]
+```
+
+For SQL-side analysis, see
+[`notebooks/15_feedback_demo.py`](../notebooks/15_feedback_demo.py) — it
+registers `mlflow.search_traces` results as a Spark temp view and
+demonstrates `LATERAL VIEW EXPLODE(assessments)` queries for daily
+up/down volume and feedback-by-trace.
+
 ---
 
 ## Navigation
