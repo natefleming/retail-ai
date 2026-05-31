@@ -30,9 +30,10 @@ import sys
 import nest_asyncio
 nest_asyncio.apply()
 
-# Force synchronous trace export so log_feedback never races the async exporter
-# in notebook workloads. Set BEFORE importing dao_ai.
-os.environ.setdefault("MLFLOW_ENABLE_ASYNC_TRACE_LOGGING", "false")
+# Force synchronous trace export so log_feedback never races the async exporter.
+# `setdefault` won't override a job-context "true" so use direct assignment.
+# Set BEFORE importing mlflow / dao_ai.
+os.environ["MLFLOW_ENABLE_ASYNC_TRACE_LOGGING"] = "false"
 
 sys.path.insert(0, "../src")
 
@@ -112,6 +113,8 @@ trace_id_positive = resp_positive.custom_outputs["trace_id"]
 print("assistant:", resp_positive.output[0].model_dump()["content"][0]["text"][:300])
 print("trace_id:", trace_id_positive)
 
+# Flush async trace logging so log_feedback sees the trace.
+mlflow.flush_trace_async_logging()
 log_user_feedback(
     trace_id=trace_id_positive,
     value="up",
@@ -143,6 +146,7 @@ trace_id_negative = resp_negative.custom_outputs["trace_id"]
 print("assistant:", resp_negative.output[0].model_dump()["content"][0]["text"][:300])
 print("trace_id:", trace_id_negative)
 
+mlflow.flush_trace_async_logging()
 log_user_feedback(
     trace_id=trace_id_negative,
     value="down",
@@ -167,23 +171,27 @@ from databricks.sdk import WorkspaceClient
 w = WorkspaceClient()
 endpoint_name = config.app.endpoint_name
 
-served = w.serving_endpoints.query(
-    name=endpoint_name,
-    inputs={
-        "input": [
-            {"role": "user", "content": "What aisle has 1/2 inch PVC elbows?"},
-        ],
+# Note: w.serving_endpoints.query() doesn't pass a ResponsesAgent body shape
+# cleanly — it wraps under "inputs" and the endpoint rejects with
+# "Invalid input. One of 'instances' and 'inputs' must be specified".
+# Use the raw POST to /serving-endpoints/{name}/invocations instead.
+served_dict = w.api_client.do(
+    "POST",
+    f"/serving-endpoints/{endpoint_name}/invocations",
+    body={
+        "input": [{"role": "user", "content": "What aisle has 1/2 inch PVC elbows?"}],
         "custom_inputs": {
             "configurable": {"user_id": USER, "store_num": "87887"},
             "session": {},
         },
     },
+    headers={"Content-Type": "application/json"},
 )
-served_dict = served.as_dict() if hasattr(served, "as_dict") else dict(served)
-served_trace_id = served_dict.get("custom_outputs", {}).get("trace_id")
+served_trace_id = (served_dict.get("custom_outputs") or {}).get("trace_id")
 print("Served endpoint trace_id:", served_trace_id)
 
 if served_trace_id:
+    mlflow.flush_trace_async_logging()
     log_user_feedback(
         trace_id=served_trace_id,
         value="up",
