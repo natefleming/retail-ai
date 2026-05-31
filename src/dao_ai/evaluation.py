@@ -546,10 +546,8 @@ def log_user_feedback(
     value: FeedbackValue | bool,
     comment: str | None = None,
     user_id: str,
-    max_attempts: int = 6,
-    backoff_seconds: float = 0.5,
 ) -> None:
-    """Log a human thumbs-up/down assessment against a dao-ai trace.
+    """Attach a human ``user_feedback`` assessment to a dao-ai trace.
 
     The ``trace_id`` MUST come from ``response.custom_outputs["trace_id"]``
     on the agent response. Reading it from ``mlflow.get_last_active_trace_id()``
@@ -557,48 +555,29 @@ def log_user_feedback(
     desync under concurrency or return ``None`` after the agent function
     returns.
 
-    The function flushes pending async trace exports and retries on
-    transient ``NOT_FOUND`` because, under async trace export (the default
-    for Databricks job and Model Serving workloads), the trace may not yet
-    be queryable when this function is called immediately after the agent
-    response is received.
-
     Args:
         trace_id: The MLflow trace_id pulled from ``custom_outputs``.
         value: ``"up"``, ``"down"``, or a bool. Coerced to a bool internally.
         comment: Optional free-text rationale (the user's written feedback).
         user_id: Identifier for the human providing feedback (typically email).
-        max_attempts: How many times to retry on transient NOT_FOUND.
-        backoff_seconds: Initial backoff; doubles each attempt.
     """
-    import time
-
-    from mlflow.exceptions import RestException
-
-    bool_value: bool = (
-        value if isinstance(value, bool) else (value == "up")
+    bool_value: bool = value if isinstance(value, bool) else value == "up"
+    logger.info(
+        "Logging user_feedback assessment",
+        trace_id=trace_id,
+        value=bool_value,
+        user_id=user_id,
     )
-
-    try:
-        mlflow.flush_trace_async_logging()
-    except Exception:
-        pass
-
-    attempt = 0
-    delay = backoff_seconds
-    while True:
-        try:
-            mlflow.log_feedback(
-                trace_id=trace_id,
-                name="user_feedback",
-                value=bool_value,
-                rationale=comment,
-                source=AssessmentSource(source_type="HUMAN", source_id=user_id),
-            )
-            return
-        except RestException as exc:
-            attempt += 1
-            if attempt >= max_attempts or "NOT_FOUND" not in str(exc):
-                raise
-            time.sleep(delay)
-            delay *= 2
+    # Flush pending async trace exports so the trace is queryable on the
+    # tracking server before we attach an assessment to it. This is the
+    # supported MLflow 3 sync barrier for async logging contexts (jobs,
+    # Model Serving, Databricks Apps).
+    mlflow.flush_trace_async_logging()
+    mlflow.log_feedback(
+        trace_id=trace_id,
+        name="user_feedback",
+        value=bool_value,
+        rationale=comment,
+        source=AssessmentSource(source_type="HUMAN", source_id=user_id),
+    )
+    logger.info("Logged user_feedback assessment", trace_id=trace_id)
