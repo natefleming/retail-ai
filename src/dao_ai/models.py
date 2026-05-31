@@ -15,6 +15,7 @@ from typing import (
 
 import mlflow
 from databricks_langchain import ChatDatabricks
+from mlflow.entities.span import SpanType
 
 if TYPE_CHECKING:
     pass
@@ -1009,6 +1010,7 @@ class LanggraphResponsesAgent(ResponsesAgent):
         self.graph = graph
         self._prompt_versions: list = prompt_versions or []
 
+    @mlflow.trace(span_type=SpanType.AGENT, name="dao_ai_apredict")
     async def apredict(self, request: ResponsesAgentRequest) -> ResponsesAgentResponse:
         """
         Async version of predict - primary implementation for Databricks Apps.
@@ -1275,6 +1277,7 @@ class LanggraphResponsesAgent(ResponsesAgent):
             output=[output_item], custom_outputs=custom_outputs
         )
 
+    @mlflow.trace(span_type=SpanType.AGENT, name="dao_ai_apredict_stream")
     async def apredict_stream(
         self, request: ResponsesAgentRequest
     ) -> AsyncGenerator[ResponsesAgentStreamEvent, None]:
