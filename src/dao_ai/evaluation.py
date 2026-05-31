@@ -540,6 +540,47 @@ def delete_monitoring_scorers() -> list[str]:
     return deleted
 
 
+def _wait_for_trace(
+    trace_id: str,
+    *,
+    timeout_seconds: float = 30.0,
+    initial_delay_seconds: float = 0.5,
+) -> None:
+    """Block until a remote trace is queryable on the MLflow tracking server.
+
+    When the trace is created by a different process (a Databricks App or
+    Model Serving endpoint), there is a short propagation delay between
+    the response coming back with ``custom_outputs["trace_id"]`` and the
+    trace being visible to ``mlflow.get_trace``. This polls with
+    exponential backoff until the trace is queryable or the timeout
+    elapses. Returns immediately if the trace is already there.
+    """
+    import time
+
+    from mlflow.exceptions import MlflowException, RestException
+
+    deadline: float = time.monotonic() + timeout_seconds
+    delay: float = initial_delay_seconds
+    while True:
+        try:
+            mlflow.get_trace(trace_id)
+            return
+        except (RestException, MlflowException) as exc:
+            if "NOT_FOUND" not in str(exc) and "not found" not in str(exc).lower():
+                raise
+            if time.monotonic() >= deadline:
+                raise TimeoutError(
+                    f"Trace {trace_id} not queryable after {timeout_seconds}s"
+                ) from exc
+            logger.debug(
+                "Trace not yet queryable, waiting",
+                trace_id=trace_id,
+                delay_seconds=delay,
+            )
+            time.sleep(delay)
+            delay = min(delay * 2, 4.0)
+
+
 def log_user_feedback(
     *,
     trace_id: str,
@@ -555,6 +596,10 @@ def log_user_feedback(
     desync under concurrency or return ``None`` after the agent function
     returns.
 
+    Waits for the trace to be queryable on the MLflow tracking server
+    before attaching the assessment (handles the small propagation window
+    between an agent response returning and the trace being visible).
+
     Args:
         trace_id: The MLflow trace_id pulled from ``custom_outputs``.
         value: ``"up"``, ``"down"``, or a bool. Coerced to a bool internally.
@@ -568,11 +613,7 @@ def log_user_feedback(
         value=bool_value,
         user_id=user_id,
     )
-    # Flush pending async trace exports so the trace is queryable on the
-    # tracking server before we attach an assessment to it. This is the
-    # supported MLflow 3 sync barrier for async logging contexts (jobs,
-    # Model Serving, Databricks Apps).
-    mlflow.flush_trace_async_logging()
+    _wait_for_trace(trace_id)
     mlflow.log_feedback(
         trace_id=trace_id,
         name="user_feedback",
