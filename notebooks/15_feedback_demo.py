@@ -63,20 +63,6 @@ print(f"App:       {config.app.name}")
 print(f"Endpoint:  {config.app.endpoint_name}")
 print(f"Agents:    {[a.name for a in config.app.agents]}")
 
-# Resolve the experiment this agent writes traces to
-EXPERIMENT_PATH = (
-    config.app.registered_model.experiment_name
-    if hasattr(config.app.registered_model, "experiment_name")
-    and config.app.registered_model.experiment_name
-    else f"/Shared/{config.app.name}"
-)
-experiment = mlflow.get_experiment_by_name(EXPERIMENT_PATH) or mlflow.set_experiment(
-    EXPERIMENT_PATH
-)
-EXPERIMENT_ID = experiment.experiment_id
-mlflow.set_experiment(experiment_id=EXPERIMENT_ID)
-print(f"Experiment: {EXPERIMENT_PATH} → id={EXPERIMENT_ID}")
-
 w = WorkspaceClient()
 USER = w.current_user.me().user_name
 print(f"User: {USER}")
@@ -227,7 +213,7 @@ for label, tid in [
 
 import pandas as pd
 
-traces = mlflow.search_traces(locations=[EXPERIMENT_ID], max_results=100)
+traces = mlflow.search_traces(max_results=100)
 print(f"total traces: {len(traces)}")
 
 
