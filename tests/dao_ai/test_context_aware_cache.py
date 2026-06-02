@@ -937,3 +937,101 @@ class TestPostgresContextAwareCacheGetEntries:
         assert entry["description"] == "Total sales query"
         assert entry["conversation_id"] == "conv-1"
         assert entry["created_at"] == now
+
+
+# =====================================================================
+# Diagnostic for the Lakebase orphaned-table failure mode
+# =====================================================================
+
+
+class TestDiagnoseTableOwnership:
+    """Verifies _diagnose_table_ownership emits a clear log on orphan detection."""
+
+    @pytest.fixture
+    def mock_parameters(self) -> Mock:
+        params = Mock()
+        params.table_name = "genie_context_aware_cache"
+        params.prompt_history_table = "genie_prompt_history"
+        params.embedding_model = "databricks-gte-large-en"
+        params.embedding_dims = 1024
+        params.database = Mock()
+        params.warehouse = Mock(spec=WarehouseModel)
+        return params
+
+    @pytest.fixture
+    def mock_workspace_client(self) -> Mock:
+        return Mock(spec=WorkspaceClient)
+
+    @pytest.mark.unit
+    def test_silent_when_current_user_owns_table(
+        self, mock_workspace_client: Mock, mock_parameters: Mock
+    ) -> None:
+        """If the current connection owns the table, no diagnostic is emitted."""
+        service = PostgresContextAwareGenieService(
+            impl=Mock(),
+            parameters=mock_parameters,
+            workspace_client=mock_workspace_client,
+        )
+        cur = Mock()
+        cur.fetchone.return_value = {
+            "can_insert": True,
+            "owner": "sp-current",
+            "me": "sp-current",
+        }
+        from dao_ai.genie.cache.context_aware.postgres import logger as pg_logger
+
+        with patch.object(pg_logger, "error") as mock_error:
+            service._diagnose_table_ownership(cur)
+        mock_error.assert_not_called()
+
+    @pytest.mark.unit
+    def test_diagnostic_emitted_when_table_is_orphaned(
+        self, mock_workspace_client: Mock, mock_parameters: Mock
+    ) -> None:
+        """If a prior SP owns the table, the operator sees the actionable diagnostic."""
+        service = PostgresContextAwareGenieService(
+            impl=Mock(),
+            parameters=mock_parameters,
+            workspace_client=mock_workspace_client,
+        )
+        cur = Mock()
+        # PUBLIC INSERT granted (can_insert=True) but a different SP owns the
+        # table — writes still fail on the underlying sequence ACL.
+        cur.fetchone.return_value = {
+            "can_insert": True,
+            "owner": "sp-previous-deploy",
+            "me": "sp-current",
+        }
+        from dao_ai.genie.cache.context_aware.postgres import logger as pg_logger
+
+        with patch.object(pg_logger, "error") as mock_error:
+            service._diagnose_table_ownership(cur)
+        mock_error.assert_called_once()
+        kwargs = mock_error.call_args.kwargs
+        assert kwargs["table"] == "genie_context_aware_cache"
+        assert kwargs["owner"] == "sp-previous-deploy"
+        assert kwargs["current_user"] == "sp-current"
+        diagnostic = kwargs["diagnostic"]
+        # Must name the cause and both remediation paths
+        assert "NOINHERIT" in diagnostic
+        assert "DROP TABLE" in diagnostic
+        assert "table_name" in diagnostic
+        assert "prompt_history_table" in diagnostic
+
+    @pytest.mark.unit
+    def test_silent_when_no_table_found(
+        self, mock_workspace_client: Mock, mock_parameters: Mock
+    ) -> None:
+        """First-ever deploy (table doesnt exist yet) -> no diagnostic."""
+        service = PostgresContextAwareGenieService(
+            impl=Mock(),
+            parameters=mock_parameters,
+            workspace_client=mock_workspace_client,
+        )
+        cur = Mock()
+        cur.fetchone.return_value = None
+        from dao_ai.genie.cache.context_aware.postgres import logger as pg_logger
+
+        with patch.object(pg_logger, "error") as mock_error:
+            service._diagnose_table_ownership(cur)
+        mock_error.assert_not_called()
