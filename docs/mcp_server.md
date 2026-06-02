@@ -36,8 +36,10 @@ dao-ai generate-mcp \
 # 3. Deploy to Databricks Apps
 cd sporting-goods-mcp
 databricks bundle deploy -t dev -p <profile>
-databricks bundle run dao_ai_mcp -t dev -p <profile>
+databricks bundle run mcp_dao_ai -t dev -p <profile>
 ```
+
+The default Databricks App name is `mcp-dao-ai` (with the underscore-form `mcp_dao_ai` for the bundle resource key). The `mcp-` prefix is a discovery signal for Databricks Multi-Agent Supervisor (MAS), which pattern-matches it when enumerating MCP-hosted Apps across an account. Override the name explicitly by setting `app.name` in your dao-ai config.
 
 The bundle ships with `bundle.engine: direct`. The app exposes a single Streamable HTTP endpoint at `/mcp/` and serves `/healthz` + `/readyz` for platform probes.
 
@@ -151,7 +153,7 @@ The MCP server's YAML is a (subset of a) dao-ai `AppConfig`. It needs:
 - `retrievers:` — only needed for vector-search tools.
 - `tools:` — one entry per MCP tool to expose. Each `tools.<name>.function` must be a `factory` whose `name` matches a registered adapter (`dao_ai.tools.create_genie_toolkit` or `dao_ai.tools.create_vector_search_tool`).
 
-The `app:` and `agents:` blocks are **intentionally omitted** — the MCP server has no agent runtime to configure. Server name and log level come from env vars `DAO_AI_MCP_SERVER_NAME` (default `dao-ai-mcp`) and `DAO_AI_MCP_LOG_LEVEL` (default `INFO`).
+The `app:` and `agents:` blocks are **intentionally omitted** — the MCP server has no agent runtime to configure. Server name and log level come from env vars `DAO_AI_MCP_SERVER_NAME` (default `mcp-dao-ai` — chosen so Databricks Multi-Agent Supervisor's `mcp-` discovery prefix matches) and `DAO_AI_MCP_LOG_LEVEL` (default `INFO`).
 
 See `config/examples/15_complete_applications/sporting_goods_store_mcp.yaml` for a worked example.
 
