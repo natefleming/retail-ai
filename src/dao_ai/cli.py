@@ -446,6 +446,56 @@ Examples:
         help="The Databricks profile to use for config loading",
     )
 
+    # Generate MCP-server bundle command
+    generate_mcp_parser: ArgumentParser = subparsers.add_parser(
+        "generate-mcp",
+        help="Generate a Databricks Apps bundle that runs the dao-ai MCP server",
+        description="""
+Generate a deploy-ready Databricks Apps bundle from a dao-ai config that exposes
+the configured Genie cache + Vector Search retriever tools as MCP tools over
+Streamable HTTP. Mirrors `generate-bundle` but emits the MCP-only artifact
+(databricks.yml, app.yaml, pyproject.toml, requirements.txt, README.md).
+        """,
+        epilog="""
+Examples:
+  dao-ai generate-mcp -c config/retail.yaml -o ./retail-mcp
+  dao-ai generate-mcp -c config/retail.yaml -o ./retail-mcp --force
+        """,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    generate_mcp_parser.add_argument(
+        "-c",
+        "--config",
+        type=str,
+        required=True,
+        metavar="FILE",
+        help="Path to the dao-ai configuration file",
+    )
+    generate_mcp_parser.add_argument(
+        "-o",
+        "--output-dir",
+        type=str,
+        default=".",
+        metavar="DIR",
+        help="Directory to write the generated MCP bundle files to (default: current directory)",
+    )
+    generate_mcp_parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Overwrite existing files in the output directory",
+    )
+    generate_mcp_parser.add_argument(
+        "--development",
+        action="store_true",
+        help="Reserved for parity with generate-bundle (no effect today).",
+    )
+    generate_mcp_parser.add_argument(
+        "-p",
+        "--profile",
+        type=str,
+        help="The Databricks profile to use for config loading",
+    )
+
     # Deploy command
     deploy_parser: ArgumentParser = subparsers.add_parser(
         "deploy",
@@ -654,6 +704,7 @@ Examples:
         graph_parser,
         pipeline_parser,
         generate_bundle_parser,
+        generate_mcp_parser,
         deploy_parser,
         list_mcp_parser,
         monitor_parser,
@@ -1788,6 +1839,38 @@ def handle_generate_bundle_command(options: Namespace) -> None:
     write_bundle(config, Path(output_dir), force=force, development=development)
 
 
+def handle_generate_mcp_command(options: Namespace) -> None:
+    """Emit a Databricks Apps bundle that runs the dao-ai MCP server.
+
+    Unlike ``generate-bundle``, this does NOT require ``config.app`` (the MCP
+    server has no agent runtime to configure). It only requires at least one
+    ``tools.<name>`` entry whose factory has a registered MCP adapter.
+    """
+    logger.debug("Generating MCP bundle...")
+    config_path: str = options.config
+    output_dir: str = options.output_dir
+    force: bool = options.force
+    development: bool = options.development
+    profile: str | None = options.profile
+
+    _apply_profile_context(profile)
+
+    try:
+        config: AppConfig = AppConfig.from_file(
+            config_path, params=_parse_var_args(options.var), initialize=False
+        )
+    except ConfigVariableError as e:
+        _print_config_variable_error(e)
+        sys.exit(1)
+
+    # Resolve resources so any Genie / VS lookups can fully bind.
+    config._resolve_all_resources()
+
+    from dao_ai.mcp.generate import write_mcp_bundle
+
+    write_mcp_bundle(config, Path(output_dir), force=force, development=development)
+
+
 def handle_vars_command(options: Namespace) -> None:
     """Handle ``dao-ai vars list`` -- inspect declared parameters in a config.
 
@@ -1892,6 +1975,8 @@ def main() -> None:
             handle_pipeline_command(options)
         case "generate-bundle":
             handle_generate_bundle_command(options)
+        case "generate-mcp":
+            handle_generate_mcp_command(options)
         case "deploy":
             handle_deploy_command(options)
         case "monitor":
