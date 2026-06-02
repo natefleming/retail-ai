@@ -51,14 +51,19 @@ def build_app(config: AppConfig) -> FastAPI:
     """
     server_name = server_name_for(config)
 
-    # streamable_http_path="/" makes the FastMCP inner app handle requests at
-    # its root, so mounting at "/mcp" gives a single clean "/mcp" endpoint
-    # rather than the SDK's default "/mcp/mcp" nesting.
+    # Keep FastMCP's default ``streamable_http_path="/mcp"`` and mount the
+    # inner app at the parent's root. This makes the external endpoint
+    # ``/mcp`` (no trailing slash) match the inner Starlette route exactly,
+    # so requests don't hit FastAPI's trailing-slash redirect machinery —
+    # which would otherwise emit a 307 to ``http://localhost:8000/mcp/``
+    # (the internal host name), breaking clients that don't follow redirects.
+    # Databricks Agent Bricks Supervisor is one such client: it POSTs to
+    # ``<app-url>/mcp`` verbatim and treats anything other than 200 as a
+    # registration failure.
     mcp = FastMCP(
         server_name,
         stateless_http=True,
         json_response=True,
-        streamable_http_path="/",
     )
     registered_names = register_tools_from_config(mcp, config)
 
@@ -91,9 +96,10 @@ def build_app(config: AppConfig) -> FastAPI:
     def readyz() -> JSONResponse:
         return JSONResponse({"ok": True, "version": __version__})
 
-    # Mount MCP at /mcp (not /). This separates the MCP transport from the
-    # FastAPI health routes and matches the SDK convention.
-    app.mount("/mcp", mcp.streamable_http_app())
+    # Mount FastMCP's ASGI app at root. /healthz + /readyz remain accessible
+    # because FastAPI matches @app.get-registered routes before the mount in
+    # the routes list, so they win over the catch-all mount.
+    app.mount("/", mcp.streamable_http_app())
     return app
 
 
