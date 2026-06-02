@@ -216,6 +216,15 @@ tools:
           database: *retail_database
           warehouse: *shared_warehouse
           embedding_model: *embedding_model
+          # Use unique table names per MCP deployment so the App SP creates +
+          # owns its own tables in Lakebase. Lakebase doesn't let one SP
+          # take over another SP's tables (NOINHERIT on DATABRICKS_SUPERUSER
+          # blocks superuser elevation), so renaming or redeploying the App
+          # with the default `genie_context_aware_cache` name will silently
+          # fall back to fresh-only mode if the prior deploy's tables exist.
+          # Pattern: <app_name>_cache / <app_name>_prompt_history.
+          table_name: mcp_sporting_goods_cache
+          prompt_history_table: mcp_sporting_goods_prompt_history
           similarity_threshold: 0.85
           time_to_live_seconds: 86400
           invalidate_on_empty_result: true
@@ -239,6 +248,8 @@ tools:
           database: *retail_database
           warehouse: *shared_warehouse
           embedding_model: *embedding_model
+          table_name: mcp_sporting_goods_sales_pricing_cache
+          prompt_history_table: mcp_sporting_goods_sales_pricing_prompt_history
           similarity_threshold: 0.85
           time_to_live_seconds: 86400
           invalidate_on_empty_result: true
