@@ -1,0 +1,229 @@
+# yaml-language-server: $schema=../../../schemas/model_config_schema.json
+
+# =============================================================================
+# Sporting Goods Store — MCP-only flavor
+# =============================================================================
+# Inspired by sporting_goods_store_slim.yaml but stripped to just the bits the
+# dao-ai MCP server needs: Genie cache toolkits and the instructed vector-search
+# retriever. No agents, no app block, no evaluation/optimizations/datasets.
+#
+# Generate a deployable Databricks Apps bundle for the MCP server:
+#
+#   dao-ai generate-mcp \
+#     -c config/examples/15_complete_applications/sporting_goods_store_mcp.yaml \
+#     -o /tmp/sporting-goods-mcp \
+#     --var "warehouse_id=<from workspace>" \
+#     --var "merchandising_genie_space_id=<from workspace>" \
+#     --var "sales_pricing_genie_space_id=<from workspace>" \
+#     --var "vector_search_endpoint=<endpoint name>" \
+#     --var "products_index_name=<catalog>.<schema>.products_description_index"
+
+# =============================================================================
+# PARAMETERS
+# =============================================================================
+parameters:
+  warehouse_id:
+    description: SQL warehouse ID used by Genie + cached-SQL re-execution
+  merchandising_genie_space_id:
+    description: Genie space UUID for merchandising analytics
+  sales_pricing_genie_space_id:
+    description: Genie space UUID for sales / pricing analytics
+  lakebase_instance_name:
+    description: Lakebase project name (semantic-cache backing store)
+    default: retail-consumer-goods
+  lakebase_branch:
+    description: Lakebase branch
+    default: production
+  vector_search_endpoint:
+    description: Databricks Vector Search endpoint hosting the product index
+  products_index_name:
+    description: Fully-qualified VS index name (catalog.schema.index)
+
+# =============================================================================
+# VARIABLES
+# =============================================================================
+variables:
+  client_id: &client_id
+    options:
+    - scope: retail_consumer_goods
+      secret: RETAIL_AI_DATABRICKS_CLIENT_ID
+    - env: RETAIL_AI_DATABRICKS_CLIENT_ID
+
+  client_secret: &client_secret
+    options:
+    - scope: retail_consumer_goods
+      secret: RETAIL_AI_DATABRICKS_CLIENT_SECRET
+    - env: RETAIL_AI_DATABRICKS_CLIENT_SECRET
+
+# =============================================================================
+# RESOURCES
+# =============================================================================
+resources:
+  models:
+    embedding_model: &embedding_model
+      name: databricks-gte-large-en
+
+    decomposition_llm: &decomposition_llm
+      name: databricks-gpt-5-4-mini
+      temperature: 0.0
+      max_tokens: 1024
+
+  warehouses:
+    shared_warehouse: &shared_warehouse
+      name: "Shared Warehouse"
+      warehouse_id: ${var.warehouse_id}
+      on_behalf_of_user: false
+
+  genie_rooms:
+    merchandising_analytics_room: &merchandising_analytics_room
+      name: "Merchandising Analytics — Sporting Goods"
+      description: "Merchandising: assortment planning, demand forecasting, purchase order tracking, category performance, seasonal trends."
+      on_behalf_of_user: false
+      space_id: ${var.merchandising_genie_space_id}
+
+    sales_pricing_room: &sales_pricing_room
+      name: "Sales and Pricing Analytics — Sporting Goods"
+      description: "Sales performance, pricing strategy, margin analytics, promotional effectiveness, revenue tracking."
+      on_behalf_of_user: false
+      space_id: ${var.sales_pricing_genie_space_id}
+
+  databases:
+    retail_database: &retail_database
+      name: ${var.lakebase_instance_name}
+      project: ${var.lakebase_instance_name}
+      branch: ${var.lakebase_branch}
+      description: "Lakebase Postgres backing the dao-ai semantic cache."
+      client_id: *client_id
+      client_secret: *client_secret
+      on_behalf_of_user: false
+
+  vector_stores:
+    products_vector_store: &products_vector_store
+      embedding_model: *embedding_model
+      on_behalf_of_user: false
+      endpoint:
+        name: ${var.vector_search_endpoint}
+        type: STANDARD
+      index:
+        name: ${var.products_index_name}
+      primary_key: product_id
+      embedding_source_column: long_description
+      columns:
+      - product_id
+      - sku
+      - brand_name
+      - product_name
+      - merchandise_class
+      - department_name
+      - sport_category
+      - base_price
+      - long_description
+
+# =============================================================================
+# RETRIEVERS — referenced from the create_vector_search_tool tool below.
+# =============================================================================
+retrievers:
+  products_retriever: &products_retriever
+    vector_store: *products_vector_store
+    columns:
+    - product_id
+    - sku
+    - brand_name
+    - product_name
+    - merchandise_class
+    - department_name
+    - sport_category
+    - base_price
+    - long_description
+    search_parameters:
+      num_results: 50
+      filters: {}
+      query_type: HYBRID
+    instructed:
+      columns:
+      - name: product_id
+        type: number
+        description: "Unique product identifier"
+      - name: brand_name
+        type: string
+        description: "Brand / manufacturer (Nike, Adidas, Under Armour, ...)"
+      - name: product_name
+        type: string
+        description: "Product display name"
+      - name: merchandise_class
+        type: string
+        description: "Product category (Footwear, Apparel, Equipment, Accessories, ...)"
+      - name: sport_category
+        type: string
+        description: "Sport or activity (Running, Basketball, Football, Soccer, Golf, ...)"
+      constraints:
+      - "Use brand_name for brand filtering"
+      - "Use sport_category for sport-based queries"
+      - "Use merchandise_class for product type filtering"
+      decomposition:
+        model: *decomposition_llm
+        max_subqueries: 3
+        rrf_k: 60
+        normalize_filter_case: uppercase
+
+# =============================================================================
+# TOOLS — only factories with a registered MCP adapter get exposed.
+# =============================================================================
+tools:
+  # ---- Vector Search tool — exposes instructed retrieval over the products index ----
+  product_vector_search:
+    name: product_vector_search
+    function:
+      type: factory
+      name: dao_ai.tools.create_vector_search_tool
+      args:
+        retriever: *products_retriever
+        name: product_vector_search
+        description: "Search for sporting goods products by description, brand, sport, or category."
+
+  # ---- Genie toolkits (each exposes a query + a feedback MCP tool) ----
+  merchandising_analytics:
+    name: merchandising_analytics
+    function:
+      type: factory
+      name: dao_ai.tools.create_genie_toolkit
+      args:
+        name: merchandising_analytics
+        description: "Query merchandising analytics for assortment planning, demand forecasting, purchase orders, category performance, seasonal trends, and vendor analysis."
+        genie_room: *merchandising_analytics_room
+        lru_cache_parameters:
+          warehouse: *shared_warehouse
+          capacity: 100
+          time_to_live_seconds: 3600
+          invalidate_on_empty_result: true
+        context_aware_cache_parameters:
+          database: *retail_database
+          warehouse: *shared_warehouse
+          embedding_model: *embedding_model
+          similarity_threshold: 0.85
+          time_to_live_seconds: 86400
+          invalidate_on_empty_result: true
+        persist_conversation: true
+
+  sales_pricing_analytics:
+    name: sales_pricing_analytics
+    function:
+      type: factory
+      name: dao_ai.tools.create_genie_toolkit
+      args:
+        name: sales_pricing_analytics
+        description: "Query sales performance, pricing analytics, margin analysis, promotional effectiveness, revenue by store/channel."
+        genie_room: *sales_pricing_room
+        lru_cache_parameters:
+          warehouse: *shared_warehouse
+          capacity: 100
+          time_to_live_seconds: 3600
+          invalidate_on_empty_result: true
+        context_aware_cache_parameters:
+          database: *retail_database
+          warehouse: *shared_warehouse
+          embedding_model: *embedding_model
+          similarity_threshold: 0.85
+          time_to_live_seconds: 86400
+          invalidate_on_empty_result: true
+        persist_conversation: true
