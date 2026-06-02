@@ -80,6 +80,7 @@ dependencies = [
 
 [project.scripts]
 dao-ai = "dao_ai.cli:main"
+dao-ai-mcp-server = "dao_ai.mcp.server:main"
 
 [project.urls]
 Homepage = "https://github.com/natefleming/dao-ai"
@@ -112,6 +113,10 @@ databricks = [
     "pyspark>=3.5.0",
     "databricks-connect>=16.0.0",
 ]
+mcp = [
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.32.0",
+]
 [dependency-groups]
 dev = [
     "pytest>=9.0.2",
@@ -136,6 +141,10 @@ databricks = [
     "databricks-vectorsearch>=0.67",
     "pyspark>=3.5.0",
     "databricks-connect>=16.0.0",
+]
+mcp = [
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.32.0",
 ]
 all = [
     { include-group = "dev" },
