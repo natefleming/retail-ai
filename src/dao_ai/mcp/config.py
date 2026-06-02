@@ -23,7 +23,11 @@ from loguru import logger
 from dao_ai.config import AppConfig
 
 DEFAULT_LOG_LEVEL = "INFO"
-DEFAULT_SERVER_NAME = "dao-ai-mcp"
+# Server identity advertised back to MCP clients via `serverInfo.name` on the
+# `initialize` handshake. The `mcp-` prefix is a discovery signal for
+# Databricks Multi-Agent Supervisor (MAS), which pattern-matches it when
+# enumerating MCP-hosted tools across an account's Apps.
+DEFAULT_SERVER_NAME = "mcp-dao-ai"
 
 SERVER_NAME_ENV = "DAO_AI_MCP_SERVER_NAME"
 LOG_LEVEL_ENV = "DAO_AI_MCP_LOG_LEVEL"

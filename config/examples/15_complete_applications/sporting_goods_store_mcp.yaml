@@ -40,6 +40,22 @@ parameters:
     description: Fully-qualified VS index name (catalog.schema.index)
 
 # =============================================================================
+# APP — name flows through to:
+#   - the deployed Databricks App name (via `dao-ai generate-mcp`),
+#   - the MCP `serverInfo.name` returned by `initialize`.
+# The `mcp-` prefix lets Databricks Multi-Agent Supervisor pattern-match
+# this app when enumerating MCP-hosted tools across an account.
+# `mcp_only: true` skips the AppModel validators that normally require
+# `agents:` or a `registered_model:` — both meaningless for an MCP-only
+# deployment.
+# =============================================================================
+app:
+  name: mcp-sporting-goods
+  description: dao-ai MCP server exposing sporting-goods Genie + VS retrieval.
+  log_level: INFO
+  mcp_only: true
+
+# =============================================================================
 # VARIABLES
 # =============================================================================
 variables:
@@ -200,6 +216,15 @@ tools:
           database: *retail_database
           warehouse: *shared_warehouse
           embedding_model: *embedding_model
+          # The cache table is multi-tenant via the space_id column — multiple
+          # Genie spaces (and multiple MCP/agent deployments pointing at the
+          # same Lakebase) coexist in one shared table with row-level isolation.
+          # The dao-ai default table names (genie_context_aware_cache /
+          # genie_prompt_history) are correct for that pattern. Only override
+          # table_name + prompt_history_table when you've hit Lakebase's
+          # NOINHERIT-on-DATABRICKS_SUPERUSER ownership lock-down and the
+          # easier path (have the project owner drop the orphaned tables or
+          # promote the new App SP) isn't available — see docs/mcp_server.md.
           similarity_threshold: 0.85
           time_to_live_seconds: 86400
           invalidate_on_empty_result: true
@@ -223,6 +248,8 @@ tools:
           database: *retail_database
           warehouse: *shared_warehouse
           embedding_model: *embedding_model
+          # Shares the same default cache tables with the merchandising
+          # toolkit above — entries are isolated via the space_id column.
           similarity_threshold: 0.85
           time_to_live_seconds: 86400
           invalidate_on_empty_result: true

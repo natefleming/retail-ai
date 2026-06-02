@@ -551,6 +551,12 @@
           "description": "Whether the MLflow AgentServer enables the chat proxy endpoint for Databricks Apps.",
           "title": "Enable Chat Proxy"
         },
+        "mcp_only": {
+          "default": false,
+          "description": "If True, this app:`` block configures an MCP-only deployment (consumed by ``dao-ai generate-mcp`` / ``dao_ai.mcp.server``) and the validators that normally require ``agents`` or a ``registered_model`` are skipped. Use this when you want to set ``app.name`` (which the MCP server reads as ``serverInfo.name`` and as the deployed Databricks App name) without also having to declare a stub agent.",
+          "title": "Mcp Only",
+          "type": "boolean"
+        },
         "environment_vars": {
           "anyOf": [
             {

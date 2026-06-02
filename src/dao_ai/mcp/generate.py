@@ -146,11 +146,16 @@ def _mcp_recognized_tool_names(config: AppConfig) -> set[str]:
 
 
 def _derive_app_name(config: AppConfig) -> str:
-    """Pick a Databricks App name. Prefer ``config.app.name`` for parity with
-    ``generate-bundle``, fall back to a sensible default."""
+    """Pick a Databricks App name.
+
+    Prefer ``config.app.name`` for parity with ``generate-bundle``, fall back
+    to ``mcp-dao-ai``. The ``mcp-`` prefix is a discovery signal for
+    Databricks Multi-Agent Supervisor (MAS), which pattern-matches it when
+    enumerating MCP-hosted Apps across an account.
+    """
     if config.app is not None and config.app.name:
         return str(config.app.name).lower().replace("_", "-")
-    return "dao-ai-mcp"
+    return "mcp-dao-ai"
 
 
 def _render_databricks_yml(

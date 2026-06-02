@@ -36,8 +36,10 @@ dao-ai generate-mcp \
 # 3. Deploy to Databricks Apps
 cd sporting-goods-mcp
 databricks bundle deploy -t dev -p <profile>
-databricks bundle run dao_ai_mcp -t dev -p <profile>
+databricks bundle run mcp_dao_ai -t dev -p <profile>
 ```
+
+The default Databricks App name is `mcp-dao-ai` (with the underscore-form `mcp_dao_ai` for the bundle resource key). The `mcp-` prefix is a discovery signal for Databricks Multi-Agent Supervisor (MAS), which pattern-matches it when enumerating MCP-hosted Apps across an account. Override the name explicitly by setting `app.name` in your dao-ai config.
 
 The bundle ships with `bundle.engine: direct`. The app exposes a single Streamable HTTP endpoint at `/mcp/` and serves `/healthz` + `/readyz` for platform probes.
 
@@ -151,7 +153,7 @@ The MCP server's YAML is a (subset of a) dao-ai `AppConfig`. It needs:
 - `retrievers:` — only needed for vector-search tools.
 - `tools:` — one entry per MCP tool to expose. Each `tools.<name>.function` must be a `factory` whose `name` matches a registered adapter (`dao_ai.tools.create_genie_toolkit` or `dao_ai.tools.create_vector_search_tool`).
 
-The `app:` and `agents:` blocks are **intentionally omitted** — the MCP server has no agent runtime to configure. Server name and log level come from env vars `DAO_AI_MCP_SERVER_NAME` (default `dao-ai-mcp`) and `DAO_AI_MCP_LOG_LEVEL` (default `INFO`).
+The `app:` and `agents:` blocks are **intentionally omitted** — the MCP server has no agent runtime to configure. Server name and log level come from env vars `DAO_AI_MCP_SERVER_NAME` (default `mcp-dao-ai` — chosen so Databricks Multi-Agent Supervisor's `mcp-` discovery prefix matches) and `DAO_AI_MCP_LOG_LEVEL` (default `INFO`).
 
 See `config/examples/15_complete_applications/sporting_goods_store_mcp.yaml` for a worked example.
 
@@ -284,9 +286,11 @@ Now any `tools.<name>` whose factory is `dao_ai.tools.create_my_thing` becomes a
 |---|---|---|
 | App boots but `/healthz` returns empty body. | Databricks Apps' edge proxy intercepts `/healthz` for its own platform health check. | Use `/readyz` (or any other path) to verify the app's own routes. |
 | `Task group is not initialized` 500 on every request. | FastMCP's session manager wasn't started. | Already fixed in `dao_ai.mcp.server.build_app` via FastAPI lifespan. |
-| 307 on `POST /mcp` (no trailing slash). | Standard ASGI redirect to `/mcp/`. | Make sure your client follows redirects, or POST to `/mcp/` directly. |
+| Databricks Agent Bricks Supervisor fails to register the app with `INVALID_PARAMETER_VALUE: Failed to register tools from Databricks App MCP server '<name>'. Verify the app exists, is running, and exposes MCP tools.` | MAS POSTs to `<app-url>/mcp` (no trailing slash) and treats anything other than 200 as failure. The dao-ai MCP server serves MCP at exactly `/mcp` — confirm with `curl -X POST <app-url>/mcp -d '{"jsonrpc":"2.0","id":1,"method":"initialize",...}'` and expect a 200. If you see 307, you're on a pre-fix build; redeploy. |
+| 307 on `POST /mcp/` (with trailing slash). | The MCP route is at `/mcp` (no slash); requests to `/mcp/` get FastAPI's standard slash-redirect. | Strip the trailing slash, or follow the redirect. |
 | MCP returns no SQL → LRU never caches (`Not caching: response has no SQL query`). | Genie returned a free-text response, not a SQL query. Often means the question isn't SQL-eliciting or the Genie space lacks the relevant tables. | Use a more concrete question matching the space's data sources. |
-| `permission denied for schema public` at semantic-cache init. | The App SP can connect to Lakebase but doesn't have `CREATE` on `public`. | Grant `CREATE` to the App SP in the target schema, or pre-create `genie_context_aware_cache` and `genie_prompt_history`. |
+| `permission denied for schema public` at semantic-cache init. | The App SP can connect to Lakebase but doesn't have `CREATE` on `public`. | A Lakebase superuser must `GRANT CREATE ON SCHEMA public TO "<app-sp-role>"`. |
+| `permission denied for table genie_context_aware_cache` or `permission denied for sequence genie_context_aware_cache_id_seq` at semantic-cache write — even though `CAN_CONNECT_AND_CREATE` is bound and table-level GRANTs appear to succeed. | The cache table already exists in this Lakebase but was created by a **different** SP (typically a prior App deploy under a different name). The dao-ai cache table is designed to be **shared across spaces and apps** — entries are isolated by the `space_id` column with a `(space_id, question)` unique index. But Lakebase enforces NOINHERIT on `DATABRICKS_SUPERUSER`, so neither role membership nor `GRANT` from a non-owner can transfer ownership or write rights on the orphaned sequence. | **Preferred fix:** a Lakebase project owner (or `cloud_admin`) drops the orphaned tables (`DROP TABLE genie_context_aware_cache, genie_prompt_history CASCADE`); the next App boot recreates them under the current SP, and all subsequent deploys on the same SP keep working. **Emergency unblock:** set explicit `table_name` + `prompt_history_table` (e.g. `<app_name>_cache`, `<app_name>_prompt_history`) on `context_aware_cache_parameters` so the current App SP creates fresh tables it owns — accepts table sprawl in exchange for not needing project-owner access. dao-ai's `PostgresContextAwareGenieService` will detect this exact failure mode and emit a diagnostic with the same guidance. |
 | Lakebase resource path wrong on `bundle deploy` (`database does not exist`). | `dao-ai generate-mcp` resolved against the wrong workspace's Lakebase project. | Pass `-p <profile>` to `dao-ai generate-mcp` so the resource resolver targets the right workspace. |
 | `trace_id=null` in every `_meta`. | App isn't bound to an MLflow experiment. | Set `MLFLOW_EXPERIMENT_ID` env var on the App resource (mirror `generate-bundle`'s experiment-resource pattern). Future enhancement. |
 
