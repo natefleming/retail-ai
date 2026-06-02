@@ -40,6 +40,22 @@ parameters:
     description: Fully-qualified VS index name (catalog.schema.index)
 
 # =============================================================================
+# APP — name flows through to:
+#   - the deployed Databricks App name (via `dao-ai generate-mcp`),
+#   - the MCP `serverInfo.name` returned by `initialize`.
+# The `mcp-` prefix lets Databricks Multi-Agent Supervisor pattern-match
+# this app when enumerating MCP-hosted tools across an account.
+# `mcp_only: true` skips the AppModel validators that normally require
+# `agents:` or a `registered_model:` — both meaningless for an MCP-only
+# deployment.
+# =============================================================================
+app:
+  name: mcp-sporting-goods
+  description: dao-ai MCP server exposing sporting-goods Genie + VS retrieval.
+  log_level: INFO
+  mcp_only: true
+
+# =============================================================================
 # VARIABLES
 # =============================================================================
 variables:
