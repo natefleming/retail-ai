@@ -50,6 +50,7 @@ DAO AI Builder generates valid YAML configurations that work seamlessly with thi
 - **[Configuration Reference](docs/configuration-reference.md)** - Complete YAML configuration guide
 - **[Examples](docs/examples.md)** - Ready-to-use example configurations
 - **[A2A Protocol](docs/a2a_protocol.md)** - Google Agent2Agent endpoints on every Apps deployment
+- **[MCP Server](docs/mcp_server.md)** - Expose dao-ai Genie + Vector Search tools as MCP via `dao-ai generate-mcp`
 - **[Long-Running Agents](docs/long_running_agents.md)** - kickoff/poll/cancel for multi-minute graph runs
 
 ### Reference
