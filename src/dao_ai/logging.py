@@ -27,6 +27,13 @@ def suppress_autolog_context_warnings() -> None:
 
     Call this after ``mlflow.langchain.autolog()`` in entry-point modules
     (e.g., ``model_serving.py``, ``handlers.py``).
+
+    Defense-in-depth: the primary fix for these warnings is
+    ``mlflow.langchain.autolog(run_tracer_inline=True)``, which keeps
+    LangChain callbacks on the main async task so the active-span
+    ``ContextVar`` doesn't get reset across thread-pool boundaries. This
+    filter remains as a safety net for code paths where autolog runs
+    without that flag.
     """
     logging.getLogger("mlflow.utils.autologging_utils").addFilter(
         _ContextVarWarningFilter()
