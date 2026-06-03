@@ -54,7 +54,7 @@ from mlflow.types.responses import ResponsesAgentRequest
 from dao_ai.config import AppConfig
 from dao_ai.evaluation import log_user_feedback
 
-mlflow.langchain.autolog()
+mlflow.langchain.autolog(run_tracer_inline=True)
 
 # COMMAND ----------
 

@@ -83,7 +83,7 @@ from dao_ai.config import AppConfig
 
 from loguru import logger
 
-mlflow.langchain.autolog()
+mlflow.langchain.autolog(run_tracer_inline=True)
 
 config: AppConfig = AppConfig.from_file(path=config_path)
 

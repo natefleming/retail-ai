@@ -91,7 +91,7 @@ from mlflow import MlflowClient
 from mlflow.entities.model_registry.model_version import ModelVersion
 from dao_ai.models import get_latest_model_version
 
-mlflow.langchain.autolog(log_traces=True)
+mlflow.langchain.autolog(log_traces=True, run_tracer_inline=True)
 
 mlflow.set_registry_uri("databricks-uc")
 mlflow_client = MlflowClient()
