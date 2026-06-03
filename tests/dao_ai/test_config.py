@@ -582,3 +582,94 @@ class TestBuildHitlPromptGuidance:
             self._make_tool_model("file_ticket", hitl),
         ]
         assert _build_hitl_prompt_guidance(tools) is None
+
+
+# =====================================================================
+# Diagnostic warning when client_id is configured but doesn't resolve
+# =====================================================================
+
+
+class TestUnresolvedClientIdWarning:
+    """Verifies IsDatabricksResource.workspace_client emits a clear WARNING
+    when client_id is set in YAML but value_of() returns None (silent
+    fallback to ambient auth — the root cause of the FEVM MCP server's
+    "permission denied for sequence" failure mode)."""
+
+    @pytest.mark.unit
+    def test_warning_emitted_when_client_id_configured_but_unresolved(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from unittest.mock import patch
+
+        from dao_ai.config import DatabaseModel, SecretVariableModel, logger
+
+        # client_id points at a secret scope that won't resolve (no env,
+        # no real workspace_client) → value_of returns None.
+        db = DatabaseModel(
+            project="test-lakebase",
+            client_id=SecretVariableModel(
+                scope="nonexistent-scope", secret="NONEXISTENT_KEY"
+            ),
+        )
+
+        with (
+            patch("dao_ai.config.value_of", return_value=None),
+            patch("dao_ai.config.WorkspaceClient") as mock_ws,
+            patch.object(logger, "warning") as mock_warning,
+        ):
+            mock_ws.return_value = MagicMock()
+            db.workspace_client  # access the property
+        mock_warning.assert_called_once()
+        kwargs = mock_warning.call_args.kwargs
+        assert kwargs["resource"] == "DatabaseModel"
+        assert "client_id is configured" in kwargs["note"]
+        assert "scope" in kwargs["note"]  # mentions remediation surface
+
+    @pytest.mark.unit
+    def test_no_warning_when_client_id_unset(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from unittest.mock import patch
+
+        from dao_ai.config import DatabaseModel, logger
+
+        # Pure ambient — no client_id set. Falling through to ambient is
+        # intentional, not a misconfiguration.
+        db = DatabaseModel(project="test-lakebase")
+
+        with (
+            patch("dao_ai.config.WorkspaceClient") as mock_ws,
+            patch.object(logger, "warning") as mock_warning,
+        ):
+            mock_ws.return_value = MagicMock()
+            db.workspace_client
+        mock_warning.assert_not_called()
+
+    @pytest.mark.unit
+    def test_no_warning_when_client_id_resolves(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from unittest.mock import patch
+
+        from dao_ai.config import DatabaseModel, SecretVariableModel, logger
+
+        db = DatabaseModel(
+            project="test-lakebase",
+            client_id=SecretVariableModel(scope="s", secret="cid"),
+            client_secret=SecretVariableModel(scope="s", secret="csec"),
+        )
+
+        # Both resolve — service-principal path taken, no warning.
+        with (
+            patch(
+                "dao_ai.config.value_of",
+                side_effect=lambda v: "resolved-cid"
+                if getattr(v, "secret", None) == "cid"
+                else "resolved-csec",
+            ),
+            patch("dao_ai.config.WorkspaceClient") as mock_ws,
+            patch.object(logger, "warning") as mock_warning,
+        ):
+            mock_ws.return_value = MagicMock()
+            db.workspace_client
+        mock_warning.assert_not_called()

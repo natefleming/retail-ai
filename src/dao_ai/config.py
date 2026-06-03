@@ -471,6 +471,30 @@ class IsDatabricksResource(ABC, BaseModel):
                 auth_type="oauth-m2m",
             )
 
+        # Operator-set client_id / client_secret that failed to resolve is the
+        # silent-misconfiguration footgun that bit us during the FEVM testing
+        # for the MCP server (PR #105/#106): the YAML references a secret-scope
+        # path, the App SP doesn't have READ on the scope, value_of() returns
+        # None, we fall through to ambient (the App's auto-SP) instead of the
+        # stable SP the operator intended. Surface this loudly.
+        if self.client_id is not None and client_id_value is None:
+            logger.warning(
+                "dao_ai.auth.client_id.unresolved",
+                resource=self.__class__.__name__,
+                client_id_spec=str(self.client_id)[:300],
+                note=(
+                    "client_id is configured but value_of() returned None — "
+                    "falling back to PAT or ambient auth. On Databricks Apps "
+                    "this means the App's auto-injected SP, not the stable SP "
+                    "you intended. Likely causes: (a) the App SP doesn't have "
+                    "READ on the referenced secret scope, (b) the env-var "
+                    "fallback isn't set, or (c) the scope/key was renamed. "
+                    "For DatabaseModel + Lakebase, this is the most common "
+                    "cause of 'permission denied for sequence' errors on the "
+                    "Postgres semantic cache. See docs/mcp_server.md."
+                ),
+            )
+
         # Check for PAT authentication
         pat_value: str | None = value_of(self.pat) if self.pat else None
         if pat_value:
