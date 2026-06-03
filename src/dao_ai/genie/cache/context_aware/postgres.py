@@ -139,6 +139,13 @@ class PostgresContextAwareGenieService(PersistentContextAwareGenieCacheService):
         # Get connection pool
         self._pool = PostgresPoolManager.get_pool(self.parameters.database)
 
+        # Surface auth-mode at boot so operators can spot the common
+        # misconfiguration "I set client_id but the cache is connecting as the
+        # ambient App SP" without digging through pg_stat_activity. Reading
+        # value_of() on the DatabaseModel here matches what
+        # IsDatabricksResource.workspace_client does internally (config.py:443).
+        self._log_cache_auth_mode()
+
         # Ensure table exists
         self._create_table_if_not_exists()
 
@@ -150,6 +157,55 @@ class PostgresContextAwareGenieService(PersistentContextAwareGenieCacheService):
             table_name=self.table_name,
             dims=self._embedding_dims,
         )
+
+    def _log_cache_auth_mode(self) -> None:
+        """INFO log naming the Postgres auth identity at cache-pool setup.
+
+        Two outcomes:
+          * ``mode=service_principal`` when ``DatabaseModel.client_id``
+            resolved to a concrete value via the configured options
+            (scope+secret or env var). All Apps configured against this
+            ``DatabaseModel`` will connect to Lakebase as this stable SP,
+            so cache tables are owned + writable by one identity across
+            multi-app deployments. **This is the correct path.**
+          * ``mode=ambient`` when ``client_id`` is unset or didn't resolve.
+            The pool will use whichever auth the Databricks SDK's default
+            credential chain picks — on Databricks Apps that's the App's
+            auto-injected SP, which differs per-App and causes the
+            "permission denied for sequence …_id_seq" symptom on the
+            second App's first cache write. See docs/mcp_server.md
+            troubleshooting for the fix.
+        """
+        from dao_ai.config import value_of
+
+        db = self.parameters.database
+        client_id_value: str | None = (
+            value_of(db.client_id) if db.client_id is not None else None
+        )
+
+        if client_id_value:
+            logger.info(
+                "dao_ai.cache.auth.mode",
+                layer=self.name,
+                mode="service_principal",
+                sp_client_id=client_id_value,
+                database=db.name,
+                project=getattr(db, "project", None),
+            )
+        else:
+            logger.info(
+                "dao_ai.cache.auth.mode",
+                layer=self.name,
+                mode="ambient",
+                database=db.name,
+                project=getattr(db, "project", None),
+                note=(
+                    "DatabaseModel.client_id not resolved — falling back to "
+                    "ambient (App SP) auth. Configure client_id + "
+                    "client_secret on the DatabaseModel for a stable Lakebase "
+                    "identity shared across apps. See docs/mcp_server.md."
+                ),
+            )
 
     # Property implementations
     @property

@@ -939,3 +939,124 @@ class TestPostgresContextAwareCacheGetEntries:
         assert entry["created_at"] == now
 
 
+
+
+# =====================================================================
+# Boot-time auth-mode log for the Postgres cache
+# =====================================================================
+
+
+class TestLogCacheAuthMode:
+    """Verifies _log_cache_auth_mode emits a structured INFO line naming
+    the cache's Postgres auth identity at pool setup — service_principal
+    when DatabaseModel.client_id resolves, ambient otherwise."""
+
+    @pytest.fixture
+    def mock_parameters(self) -> Mock:
+        params = Mock()
+        params.table_name = "genie_context_aware_cache"
+        params.prompt_history_table = "genie_prompt_history"
+        params.embedding_model = "databricks-gte-large-en"
+        params.embedding_dims = 1024
+        params.warehouse = Mock(spec=WarehouseModel)
+        return params
+
+    @pytest.mark.unit
+    def test_service_principal_when_client_id_resolves(
+        self, mock_parameters: Mock
+    ) -> None:
+        from dao_ai.genie.cache.context_aware.postgres import (
+            PostgresContextAwareGenieService,
+            logger,
+        )
+
+        db = Mock()
+        db.client_id = Mock()   # non-None means "operator configured"
+        db.client_secret = Mock()
+        db.name = "test-lakebase"
+        db.project = "test-lakebase"
+        mock_parameters.database = db
+
+        svc = PostgresContextAwareGenieService(
+            impl=Mock(), parameters=mock_parameters, workspace_client=Mock(),
+        )
+
+        with (
+            patch(
+                "dao_ai.config.value_of",
+                return_value="resolved-sp-client-id",
+            ),
+            patch.object(logger, "info") as mock_info,
+        ):
+            svc._log_cache_auth_mode()
+
+        assert mock_info.called
+        # Find the call that matches our event signature
+        match = next(
+            call for call in mock_info.call_args_list
+            if call.args and call.args[0] == "dao_ai.cache.auth.mode"
+        )
+        assert match.kwargs["mode"] == "service_principal"
+        assert match.kwargs["sp_client_id"] == "resolved-sp-client-id"
+
+    @pytest.mark.unit
+    def test_ambient_when_client_id_unset(self, mock_parameters: Mock) -> None:
+        from dao_ai.genie.cache.context_aware.postgres import (
+            PostgresContextAwareGenieService,
+            logger,
+        )
+
+        db = Mock()
+        db.client_id = None
+        db.client_secret = None
+        db.name = "test-lakebase"
+        db.project = "test-lakebase"
+        mock_parameters.database = db
+
+        svc = PostgresContextAwareGenieService(
+            impl=Mock(), parameters=mock_parameters, workspace_client=Mock(),
+        )
+
+        with patch.object(logger, "info") as mock_info:
+            svc._log_cache_auth_mode()
+
+        match = next(
+            call for call in mock_info.call_args_list
+            if call.args and call.args[0] == "dao_ai.cache.auth.mode"
+        )
+        assert match.kwargs["mode"] == "ambient"
+        assert "note" in match.kwargs
+        assert "ambient" in match.kwargs["note"]
+
+    @pytest.mark.unit
+    def test_ambient_when_client_id_configured_but_unresolved(
+        self, mock_parameters: Mock
+    ) -> None:
+        from dao_ai.genie.cache.context_aware.postgres import (
+            PostgresContextAwareGenieService,
+            logger,
+        )
+
+        db = Mock()
+        db.client_id = Mock()       # operator declared it
+        db.client_secret = Mock()
+        db.name = "test-lakebase"
+        db.project = "test-lakebase"
+        mock_parameters.database = db
+
+        svc = PostgresContextAwareGenieService(
+            impl=Mock(), parameters=mock_parameters, workspace_client=Mock(),
+        )
+
+        # value_of() returns None — secret didn't resolve.
+        with (
+            patch("dao_ai.config.value_of", return_value=None),
+            patch.object(logger, "info") as mock_info,
+        ):
+            svc._log_cache_auth_mode()
+
+        match = next(
+            call for call in mock_info.call_args_list
+            if call.args and call.args[0] == "dao_ai.cache.auth.mode"
+        )
+        assert match.kwargs["mode"] == "ambient"
