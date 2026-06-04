@@ -1617,8 +1617,12 @@ class DatabricksProvider(ServiceProvider):
                 data_path = data_path.resolve()
                 logger.trace("Data path resolved", path=str(data_path))
 
+                # Parquet intentionally routed to Spark's distributed reader
+                # below — pd.read_parquet on the driver OOMs on serverless for
+                # text-heavy datasets (e.g. hardware_store products.parquet:
+                # 17 MB on disk → 45 MB in pandas, dominated by the description
+                # column).
                 pandas_readers: dict[str, Callable[..., pd.DataFrame]] = {
-                    "parquet": lambda p, **kw: pd.read_parquet(p, **kw),
                     "csv": lambda p, **kw: pd.read_csv(p, **kw),
                     "json": lambda p, **kw: pd.read_json(p, **kw),
                     "excel": lambda p, **kw: pd.read_excel(p, **kw),
