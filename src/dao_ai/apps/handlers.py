@@ -49,7 +49,7 @@ load_dotenv(dotenv_path=".env.local", override=True)
 # Configure MLflow
 mlflow.set_registry_uri("databricks-uc")
 mlflow.set_tracking_uri("databricks")
-mlflow.langchain.autolog()
+mlflow.langchain.autolog(run_tracer_inline=True)
 suppress_autolog_context_warnings()
 
 # Get config path from environment or use default
