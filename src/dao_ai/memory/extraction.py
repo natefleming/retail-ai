@@ -39,6 +39,7 @@ Usage::
 
 from __future__ import annotations
 
+import contextvars
 import threading
 from typing import TYPE_CHECKING, Any, Union
 
@@ -54,6 +55,56 @@ if TYPE_CHECKING:
     from langmem.knowledge.extraction import MemoryStoreManager
     from langmem.reflection import LocalReflectionExecutor
     from pydantic import BaseModel
+
+
+class _ContextAwareReflector:
+    """Proxy reflector that runs ``invoke()`` inside a per-payload captured context.
+
+    ``langmem.LocalReflectionExecutor.submit(payload, ...)`` is data-based:
+    the worker thread later calls ``self._reflector.invoke(task.payload)``
+    with no propagation of the caller's ``contextvars.Context``. Because
+    MLflow's active-span association is stored in a ``ContextVar``, the
+    inner ``query_gen.invoke(...)`` call sees no parent span and opens a
+    new root trace.
+
+    This proxy sits between ``LocalReflectionExecutor`` and the real
+    ``MemoryStoreManager``. ``LazyReflectionExecutor.submit`` captures the
+    caller's ``Context`` at submit time and ``attach(payload, ctx)`` stores
+    it keyed by ``id(payload)``. When the langmem worker thread eventually
+    calls our ``invoke(payload)``, we pop that context and run the inner
+    ``invoke`` via ``ctx.run(...)`` so MLflow's active-span ContextVar is
+    set during the LLM call, and the autolog spans nest under the parent.
+
+    Pass-through of every other attribute (including ``namespace``,
+    ``search``, ``asearch``, ``__enter__``, ``__exit__``) keeps langmem's
+    own protocol intact.
+    """
+
+    def __init__(self, inner: Any) -> None:
+        self._inner = inner
+        # langmem.LocalReflectionExecutor.__init__ reads .namespace directly.
+        self.namespace = inner.namespace
+        # Keyed by id(payload) — langmem queues the dict by reference and
+        # the worker passes the SAME object into invoke().
+        self._ctx_by_payload_id: dict[int, contextvars.Context] = {}
+        self._ctx_lock = threading.Lock()
+
+    def attach(self, payload: Any, ctx: contextvars.Context) -> None:
+        """Associate ``payload`` (by identity) with a captured ``ctx``."""
+        with self._ctx_lock:
+            self._ctx_by_payload_id[id(payload)] = ctx
+
+    def invoke(self, payload: Any, *args: Any, **kwargs: Any) -> Any:
+        with self._ctx_lock:
+            ctx = self._ctx_by_payload_id.pop(id(payload), None)
+        if ctx is None:
+            return self._inner.invoke(payload, *args, **kwargs)
+        return ctx.run(self._inner.invoke, payload, *args, **kwargs)
+
+    def __getattr__(self, name: str) -> Any:
+        # Pass through every other attribute (namespace properties,
+        # search, asearch, store, etc.) to the real manager.
+        return getattr(self._inner, name)
 
 ModelSpec = Union[str, LanguageModelLike]
 
@@ -170,6 +221,10 @@ class LazyReflectionExecutor:
 
     def __init__(self, manager: MemoryStoreManager, store: BaseStore) -> None:
         self._manager = manager
+        # Wrap the real manager so the langmem worker thread executes the
+        # invoke() under the caller's captured contextvars (preserves the
+        # active MLflow span). See _ContextAwareReflector docstring.
+        self._proxy_manager = _ContextAwareReflector(manager)
         self._store = store
         self._executor: LocalReflectionExecutor | None = None
         self._lock = threading.Lock()
@@ -179,14 +234,21 @@ class LazyReflectionExecutor:
             with self._lock:
                 if self._executor is None:
                     self._executor = ReflectionExecutor(
-                        self._manager, store=self._store
+                        self._proxy_manager, store=self._store
                     )
                     logger.debug("ReflectionExecutor created (deferred)")
         return self._executor
 
-    def submit(self, *args: Any, **kwargs: Any) -> Any:
-        """Forward to the real executor, creating it on first call."""
-        return self._ensure_executor().submit(*args, **kwargs)
+    def submit(self, payload: Any, /, *args: Any, **kwargs: Any) -> Any:
+        """Forward to the real executor, creating it on first call.
+
+        Captures the caller's contextvars and associates it with ``payload``
+        by identity. The proxy reflector replays the context when langmem's
+        worker thread invokes the manager.
+        """
+        ctx = contextvars.copy_context()
+        self._proxy_manager.attach(payload, ctx)
+        return self._ensure_executor().submit(payload, *args, **kwargs)
 
 
 def create_reflection_executor(

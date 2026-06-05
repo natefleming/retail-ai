@@ -18,7 +18,7 @@ UV := uv
 SYNC := $(UV) sync 
 BUILD := $(UV) build 
 PYTHON := $(UV) run python 
-EXPORT := $(UV) pip freeze --exclude-editable | grep -v -E "(databricks-vectorsearch|pyspark|databricks-connect)" 
+EXPORT := $(UV) pip freeze --exclude-editable | grep -v -E "(pyspark|databricks-connect)"
 PUBLISH := $(UV) run twine upload
 PYTEST := $(UV) run pytest -v -s --timeout=120 --timeout-method=thread
 RUFF_CHECK := $(UV) run ruff check --fix --ignore E501 
