@@ -48,6 +48,13 @@ dependencies = [
     "databricks-langchain[memory]>=0.19.0",
     "databricks-mcp>=0.9.0",
     "databricks-sdk[openai]>=0.108.0",
+    # Pinned in main deps (not optional extra) because dao-ai source
+    # imports databricks.vector_search.{client,index,reranker}
+    # unconditionally. Without this pin, requirements.txt omits the
+    # package, the serverless env's resolver may leave a stale
+    # pre-installed version, and databricks_openai.vector_search_retriever_tool
+    # fails to import VectorSearchIndex from databricks.vector_search.client.
+    "databricks-vectorsearch>=0.67",
     "ddgs>=9.10.0",
     "dspy>=2.6.27",
     "flashrank>=0.2.10",
@@ -109,7 +116,7 @@ test = [
     "pytest-xdist>=3.6.1",
 ]
 databricks = [
-    "databricks-vectorsearch>=0.67",
+    # databricks-vectorsearch moved to main dependencies (used unconditionally).
     "pyspark>=3.5.0",
     "databricks-connect>=16.0.0",
 ]
@@ -138,7 +145,7 @@ test = [
     "pytest-xdist>=3.6.1",
 ]
 databricks = [
-    "databricks-vectorsearch>=0.67",
+    # databricks-vectorsearch moved to main dependencies (used unconditionally).
     "pyspark>=3.5.0",
     "databricks-connect>=16.0.0",
 ]

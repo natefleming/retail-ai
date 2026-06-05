@@ -859,6 +859,7 @@ dependencies = [
     { name = "databricks-langchain", extra = ["memory"] },
     { name = "databricks-mcp" },
     { name = "databricks-sdk", extra = ["openai"] },
+    { name = "databricks-vectorsearch" },
     { name = "ddgs" },
     { name = "deepagents" },
     { name = "dspy" },
@@ -893,7 +894,6 @@ dependencies = [
 databricks = [
     { name = "databricks-connect", version = "16.1.7", source = { registry = "https://pypi-proxy.dev.databricks.com/simple/" }, marker = "python_full_version < '3.12'" },
     { name = "databricks-connect", version = "17.0.10", source = { registry = "https://pypi-proxy.dev.databricks.com/simple/" }, marker = "python_full_version >= '3.12'" },
-    { name = "databricks-vectorsearch" },
     { name = "pyspark" },
 ]
 dev = [
@@ -937,7 +937,6 @@ all = [
 databricks = [
     { name = "databricks-connect", version = "16.1.7", source = { registry = "https://pypi-proxy.dev.databricks.com/simple/" }, marker = "python_full_version < '3.12'" },
     { name = "databricks-connect", version = "17.0.10", source = { registry = "https://pypi-proxy.dev.databricks.com/simple/" }, marker = "python_full_version >= '3.12'" },
-    { name = "databricks-vectorsearch" },
     { name = "pyspark" },
 ]
 dev = [
@@ -972,7 +971,7 @@ requires-dist = [
     { name = "databricks-langchain", extras = ["memory"], specifier = ">=0.19.0" },
     { name = "databricks-mcp", specifier = ">=0.9.0" },
     { name = "databricks-sdk", extras = ["openai"], specifier = ">=0.108.0" },
-    { name = "databricks-vectorsearch", marker = "extra == 'databricks'", specifier = ">=0.67" },
+    { name = "databricks-vectorsearch", specifier = ">=0.67" },
     { name = "ddgs", specifier = ">=9.10.0" },
     { name = "deepagents", specifier = ">=0.5.7" },
     { name = "dspy", specifier = ">=2.6.27" },
@@ -1036,7 +1035,6 @@ all = [
 ]
 databricks = [
     { name = "databricks-connect", specifier = ">=16.0.0" },
-    { name = "databricks-vectorsearch", specifier = ">=0.67" },
     { name = "pyspark", specifier = ">=3.5.0" },
 ]
 dev = [
