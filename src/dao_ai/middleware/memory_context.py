@@ -30,10 +30,12 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
+import mlflow
 from langchain.agents.middleware import AgentMiddleware
 from langchain_core.messages import BaseMessage, SystemMessage
 from langgraph.runtime import Runtime
 from loguru import logger
+from mlflow.entities import SpanType
 
 if TYPE_CHECKING:
     from langmem.knowledge.extraction import MemoryStoreManager
@@ -122,17 +124,23 @@ class MemoryContextMiddleware(AgentMiddleware):
             logger.debug("Skipping memory search: user_id not available in context")
             return None
 
-        try:
-            memories = await self._manager.asearch(
-                query=query,
-                limit=self._limit,
-                config=config,
-            )
-        except Exception:
-            logger.opt(exception=True).warning(
-                "Memory search failed, continuing without memory context"
-            )
-            return None
+        with mlflow.start_span(
+            name="memory_context_search",
+            span_type=SpanType.MEMORY,
+        ) as span:
+            span.set_inputs({"query": query, "limit": self._limit})
+            try:
+                memories = await self._manager.asearch(
+                    query=query,
+                    limit=self._limit,
+                    config=config,
+                )
+            except Exception:
+                logger.opt(exception=True).warning(
+                    "Memory search failed, continuing without memory context"
+                )
+                return None
+            span.set_outputs({"memories_count": len(memories or [])})
 
         if not memories:
             logger.trace("No relevant memories found", query=query[:80])
