@@ -26,6 +26,8 @@ from databricks.sdk import WorkspaceClient
 from loguru import logger
 from mcp.server.fastmcp import Context, FastMCP
 
+from dao_ai._tracing import to_thread_in_context
+
 from dao_ai.config import (
     DatabaseModel,
     GenieContextAwareCacheParametersModel,
@@ -220,7 +222,11 @@ async def _invoke_query(
         target = service if not disable_cache else _innermost(service)
         start = time.perf_counter()
         try:
-            result: CacheResult = await asyncio.to_thread(
+            # to_thread_in_context propagates the caller's contextvars so
+            # MLflow's active-span ContextVar reaches the worker thread
+            # and any MLflow-traced calls inside ``target.ask_question``
+            # nest under the parent trace.
+            result: CacheResult = await to_thread_in_context(
                 target.ask_question, question, conversation_id
             )
         except Exception as exc:

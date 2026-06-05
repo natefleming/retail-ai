@@ -10,6 +10,8 @@ query routing, result verification, and instruction-aware reranking.
 import json
 import os
 from concurrent.futures import ThreadPoolExecutor
+
+from dao_ai._tracing import in_caller_context
 from typing import Annotated, Any, Literal, Optional
 
 import mlflow
@@ -508,7 +510,13 @@ def create_vector_search_tool(
             with ThreadPoolExecutor(
                 max_workers=decomposition_config.max_subqueries
             ) as executor:
-                all_results = list(executor.map(execute_search, subqueries))
+                # Wrap once: every subquery thread runs inside the caller's
+                # captured contextvars so the MLflow active-span ContextVar
+                # propagates and the per-subquery autolog spans nest under
+                # the parent decomposed-retrieval span.
+                all_results = list(
+                    executor.map(in_caller_context(execute_search), subqueries)
+                )
 
             merged = rrf_merge(
                 all_results,

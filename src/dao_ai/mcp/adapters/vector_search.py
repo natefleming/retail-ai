@@ -18,6 +18,7 @@ from databricks.sdk import WorkspaceClient
 from loguru import logger
 from mcp.server.fastmcp import Context, FastMCP
 
+from dao_ai._tracing import to_thread_in_context
 from dao_ai.mcp._request_context import current_request_headers, current_request_id
 from dao_ai.mcp.adapters import McpAdapter, register_adapter
 from dao_ai.tools.vector_search import create_vector_search_tool
@@ -65,7 +66,10 @@ def register_vector_search(
             )
             start = time.perf_counter()
             try:
-                raw: Any = await asyncio.to_thread(
+                # to_thread_in_context propagates the caller's contextvars so
+                # MLflow's active-span ContextVar reaches the worker thread
+                # and the LangChain tool's autolog spans nest correctly.
+                raw: Any = await to_thread_in_context(
                     lc_tool.invoke, {"query": query, "filters": filters or []}
                 )
             except Exception as exc:

@@ -22,6 +22,7 @@ end-to-end example.
 from __future__ import annotations
 
 import asyncio
+import contextvars
 import math
 import threading
 import traceback
@@ -34,6 +35,8 @@ from typing import Any, AsyncGenerator, Coroutine, Generator, Literal, Optional
 import mlflow
 from loguru import logger
 from mlflow.pyfunc import ResponsesAgent
+
+from dao_ai._tracing import to_thread_in_context
 from mlflow.types.responses import (
     ResponsesAgentRequest,
     ResponsesAgentResponse,
@@ -134,18 +137,29 @@ class _BackgroundLoop:
         fut: Future = Future()
         task_holder: dict[str, asyncio.Task] = {}
         task_ready = threading.Event()
+        # Capture the caller's contextvars so the asyncio.Task created in the
+        # background loop inherits them (asyncio.Task copies the *current*
+        # context at create_task() time). Without this the bg-loop task would
+        # start with an empty context and MLflow's active-span ContextVar
+        # would not propagate, producing orphan trace roots.
+        caller_ctx = contextvars.copy_context()
 
         def _schedule() -> None:
-            task = self._loop.create_task(coro)
-            task_holder["task"] = task
-            task.add_done_callback(
-                lambda t: (
-                    fut.set_exception(t.exception())
-                    if t.exception()
-                    else fut.set_result(t.result() if not t.cancelled() else None)
+            def _create_and_register() -> None:
+                task = self._loop.create_task(coro)
+                task_holder["task"] = task
+                task.add_done_callback(
+                    lambda t: (
+                        fut.set_exception(t.exception())
+                        if t.exception()
+                        else fut.set_result(
+                            t.result() if not t.cancelled() else None
+                        )
+                    )
                 )
-            )
-            task_ready.set()
+                task_ready.set()
+
+            caller_ctx.run(_create_and_register)
 
         self._loop.call_soon_threadsafe(_schedule)
         task_ready.wait(timeout=5.0)
@@ -375,7 +389,9 @@ class LongRunningResponsesAgent(ResponsesAgent):
     ) -> ResponsesAgentResponse:
         if hasattr(self.inner, "apredict"):
             return await self.inner.apredict(request)  # type: ignore[attr-defined]
-        return await asyncio.to_thread(self.inner.predict, request)
+        # to_thread_in_context preserves contextvars so MLflow active-span
+        # propagates into the sync predict() call.
+        return await to_thread_in_context(self.inner.predict, request)
 
     async def _delegate_apredict_stream(
         self, request: ResponsesAgentRequest
@@ -388,7 +404,9 @@ class LongRunningResponsesAgent(ResponsesAgent):
         def _sync_collect() -> list[ResponsesAgentStreamEvent]:
             return list(self.inner.predict_stream(request))
 
-        for ev in await asyncio.to_thread(_sync_collect):
+        # to_thread_in_context preserves contextvars so MLflow active-span
+        # propagates into the sync predict_stream() call.
+        for ev in await to_thread_in_context(_sync_collect):
             yield ev
 
     # --------------------------------------------------------------- helpers
