@@ -111,20 +111,52 @@ Loaded a real (existing) dao-ai OBO example config through both surfaces and con
 - Model Serving `UserAuthPolicy.api_scopes` = same list (identical)
 - FEVM Apps API accepted the full set in a real update call
 
-## What was NOT exercised in this pass (deferred)
+## Phase 2b — Real end-to-end deploys against FEVM existing resources
 
-The plan also called for: real end-to-end inference against active endpoints using a forwarded user token, JWT scope-claim decoding, and MLflow trace identity inspection. Those require:
+Two real dao-ai bundles built via `dao-ai generate-bundle --development` and deployed to FEVM via `databricks bundle deploy`. Both used existing FEVM resources (Genie space `01f164d91cb71e63a36d9545d86c7424` "dao-ai genie provisioning test", vector index `retail_consumer_goods.hardware_store.products_index`, UC functions `find_product_by_sku/upc`).
 
-- The target downstream resources to actually exist on FEVM with the right UC grants (warehouse, vector search index, Genie space, Lakebase project, etc.).
-- A consenting user session on each app (OBO apps require explicit user consent on first access).
-- A real MLflow agent log + register + serving-endpoint create cycle (~10 min/scenario).
+| App | `ai_gateway` flag | Deployed `user_api_scopes` (read from `/api/2.0/apps`) |
+|---|---|---|
+| `obo-validation-gw-on` | `true` | `[ai-gateway, catalog.catalogs:read, catalog.schemas:read, catalog.tables:read, genie, mcp.functions, mcp.genie, mcp.vectorsearch, serving.serving-endpoints, sql, vector-search]` |
+| `obo-validation-gw-off` | `false` | `[catalog.catalogs:read, catalog.schemas:read, catalog.tables:read, genie, mcp.functions, mcp.genie, serving.serving-endpoints, sql]` |
 
-The scope-string contract has been fully proven: every string dao-ai emits is accepted by the Apps platform, and Apps and Model Serving emit identical sets. Downstream inference + trace identity is a fuller end-to-end test that should run as its own campaign with the resource inventory provisioned first.
+Both apps reached `compute=ACTIVE` and `deploy=SUCCEEDED`. Logs show: OBO middleware enabled, agent created with the expected tool counts (gw-on: 3 tools, gw-off: 2), uvicorn listening on 8000. Expected `_create_obo_uc_tool` warnings appeared at startup ("User does not have USE CATALOG …") — the **app SP correctly cannot introspect** OBO-marked functions, which is the intended OBO behavior (introspection happens with the user token at runtime).
+
+### JWT scope-claim decoding from live `x-forwarded-access-token`
+
+A real inference probe (`POST /invocations` with my user token) was made against each running app. The dao-ai server reflects the request headers into `custom_outputs.configurable.headers`, including the platform's `x-forwarded-access-token` JWT. Decoding the `scope` claim:
+
+```
+gw-on:  ai-gateway catalog.catalogs:read catalog.schemas:read catalog.tables:read
+        genie iam.access-control:read iam.current-user:read mcp.functions
+        mcp.genie mcp.vectorsearch serving.serving-endpoints sql vector-search
+        → contains ai-gateway? True
+
+gw-off: catalog.catalogs:read catalog.schemas:read catalog.tables:read genie
+        iam.access-control:read iam.current-user:read mcp.functions mcp.genie
+        serving.serving-endpoints sql
+        → contains ai-gateway? False
+```
+
+The JWT claim matches the deployed app's `user_api_scopes` plus the two platform-auto-granted defaults (`iam.access-control:read`, `iam.current-user:read`). **AI Gateway gating works end-to-end**: dao-ai config → bundle generation → Apps platform → user token claim.
+
+### MLflow traces
+
+Both apps produced complete MLflow traces in their experiments:
+
+- `gw-on` experiment `3360342003324839`: trace `tr-c0a358f6b90dd31c569efdaca2272d78` — state `OK`, 3.413s, 9 spans, 15525 tokens. Request `"hi"`, response is Claude's retail assistant greeting.
+- `gw-on` second trace `tr-ae483066379d51c2bdd58ed65fb990ce` — `What is 2+2?`, response confirms inference path works.
+- `mlflow.user` tag = the app SP UUID — this is the trace **author**, not the OBO end user. End-user identity lives in the JWT `sub` claim (`nate.fleming@databricks.com` here), which the app code can read off `x-forwarded-access-token` and propagate to its own request log if needed.
+
+### Apps platform acceptance — bundle path proven
+
+The `databricks bundle deploy` path goes: `dao-ai generate-bundle` → `databricks.yaml` → `databricks bundle deploy` → `POST /api/2.0/apps` (create or update). The deployed apps' actual `user_api_scopes` (read back from `/api/2.0/apps`) match what `generate_user_api_scopes` produced. End-to-end contract proven on the path users actually deploy with.
 
 ## Cleanup
 
-- Probe app `scope-probe-nf` deleted from FEVM after Phase 0/2.
-- No other temporary resources created in the workspace.
+- Probe app `scope-probe-nf` deleted (Phase 0/2).
+- `obo-validation-gw-on` and `obo-validation-gw-off` apps + experiments deleted via `databricks bundle destroy`.
+- Local bundle dirs `/tmp/obo-val-gw-*` removed.
 
 ## Test counts
 
