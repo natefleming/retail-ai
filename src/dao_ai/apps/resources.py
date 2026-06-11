@@ -105,55 +105,87 @@ DEFAULT_PERMISSIONS: dict[str, list[str]] = {
     "app": ["CAN_USE"],
 }
 
-# Valid user API scopes for Databricks Apps
-# These are the only scopes that can be requested for on-behalf-of-user access
+# Valid user API scopes for Databricks Apps OBO authorization.
+#
+# Verified June 2026 against FEVM workspace via /api/2.0/apps update probes.
+# Both canonical short names (e.g. ``files``, ``genie``, ``vector-search``)
+# and the older dotted aliases (e.g. ``files.files``, ``dashboards.genie``,
+# ``vectorsearch.vector-search-*``) are accepted by the Apps API today. We
+# keep both in the allowlist so configs that still emit the old strings
+# don't get rejected; the mapping below biases new emissions toward the
+# canonical short names.
+#
+# NOT settable manually (auto-granted): ``iam.access-control:read``,
+# ``iam.current-user:read``.
+# NOT valid OBO scopes (probe-rejected): ``catalog.volumes``, ``apps.apps``,
+# ``vector-search.search``.
 VALID_USER_API_SCOPES: set[str] = {
+    # Canonical
     "sql",
+    "genie",
+    "files",
+    "vector-search",
+    "ai-gateway",
+    "model-serving",
     "serving.serving-endpoints",
-    "vectorsearch.vector-search-indexes",
-    "files.files",
-    "dashboards.genie",
+    "postgres",
+    "workspace.workspace",
+    "mcp.external",
+    "mcp.functions",
+    "mcp.genie",
+    "mcp.vectorsearch",
     "catalog.connections",
     "catalog.catalogs:read",
     "catalog.schemas:read",
     "catalog.tables:read",
+    # Accepted aliases — older dotted forms still pass platform validation.
+    "files.files",
+    "dashboards.genie",
+    "vectorsearch.vector-search-indexes",
+    "vectorsearch.vector-search-endpoints",
 }
 
-# Mapping from resource api_scopes to valid user_api_scopes
-# Some resource scopes map directly, others need translation.
+# Resource-level api_scope -> set of user OBO scopes emitted for that resource.
 #
-# Resource-level api_scopes that have *no* corresponding user_api_scope
-# (Databricks Apps does not expose an OBO scope for them today) are
-# deliberately omitted and fall through to the no-op branch in
-# generate_user_api_scopes:
-#   - "apps.apps"                      (DatabricksAppModel — no cross-app OBO)
-#   - "postgres" / "database.database-instances"  (Lakebase — no OBO scope;
-#     non-OBO SP access is granted via the AppResourceDatabase resource
-#     binding emitted by _extract_database_resources)
-#   - "mcp.genie" / "mcp.functions" / "mcp.vectorsearch" / "mcp.external"
-#     (MCP resource scopes; OBO falls back to the underlying Databricks
-#      scopes on the same resource, e.g. catalog.connections +
-#      serving.serving-endpoints on a ConnectionModel)
-API_SCOPE_TO_USER_SCOPE: dict[str, str] = {
-    # Direct mappings
-    "serving.serving-endpoints": "serving.serving-endpoints",
-    "vectorsearch.vector-search-indexes": "vectorsearch.vector-search-indexes",
-    "files.files": "files.files",
-    "dashboards.genie": "dashboards.genie",
-    "catalog.connections": "catalog.connections",
-    # SQL-related scopes map to "sql"
-    "sql.warehouses": "sql",
-    "sql.statement-execution": "sql",
-    # Vector search endpoints also need serving
-    "vectorsearch.vector-search-endpoints": "serving.serving-endpoints",
-    # Catalog scopes
-    "catalog.volumes": "files.files",
-    # MCP resource scopes: an OBO MCP server is reached via serving
-    # endpoints / UC connections, so surface the matching platform scopes.
-    "mcp.genie": "dashboards.genie",
-    "mcp.functions": "sql",
-    "mcp.vectorsearch": "vectorsearch.vector-search-indexes",
-    "mcp.external": "serving.serving-endpoints",
+# Pairing rule (user-confirmed): when a resource is accessible via MCP on the
+# Apps platform, its MCP companion scope is emitted *alongside* the native
+# scope. ``mcp.external`` is scoped to UC Connections only; other MCP
+# companions pair with their native sibling.
+#
+# ``ai-gateway`` is NOT in this static map — it's emitted dynamically by
+# ``generate_user_api_scopes`` only when an ``InferenceEndpointModel`` has
+# BOTH ``on_behalf_of_user=True`` AND ``ai_gateway=True``.
+#
+# Resource-level api_scopes not present here have no OBO emission:
+#   - ``apps.apps``           (DatabricksAppModel — no cross-app OBO)
+#   - bare ``mcp.*`` strings  (companions are derived from the native scope;
+#                              listing them on a resource is now a no-op)
+API_SCOPE_TO_USER_SCOPES: dict[str, frozenset[str]] = {
+    # SQL family — companion is mcp.functions
+    "sql.warehouses": frozenset({"sql", "mcp.functions"}),
+    "sql.statement-execution": frozenset({"sql", "mcp.functions"}),
+    # Vector Search — companion is mcp.vectorsearch
+    "vectorsearch.vector-search-indexes": frozenset(
+        {"vector-search", "mcp.vectorsearch"}
+    ),
+    "vectorsearch.vector-search-endpoints": frozenset(
+        {"vector-search", "mcp.vectorsearch"}
+    ),
+    # Genie — companion is mcp.genie
+    "dashboards.genie": frozenset({"genie", "mcp.genie"}),
+    # UC Connection — companion is mcp.external (ConnectionModel only)
+    "catalog.connections": frozenset({"catalog.connections", "mcp.external"}),
+    # Model Serving — no MCP companion at this layer; ai-gateway is dynamic
+    "serving.serving-endpoints": frozenset({"serving.serving-endpoints"}),
+    # Volumes / files
+    "files.files": frozenset({"files"}),
+    "catalog.volumes": frozenset({"files"}),
+    # Catalog read scopes (passed through)
+    "catalog.catalogs:read": frozenset({"catalog.catalogs:read"}),
+    "catalog.schemas:read": frozenset({"catalog.schemas:read"}),
+    "catalog.tables:read": frozenset({"catalog.tables:read"}),
+    # Lakebase Postgres — now a first-class OBO scope
+    "postgres": frozenset({"postgres"}),
 }
 
 
@@ -765,14 +797,21 @@ def generate_user_api_scopes(config: AppConfig) -> list[str]:
     # Collect api_scopes from all OBO resources and map to user_api_scopes
     for resource in obo_resources:
         for api_scope in resource.api_scopes:
-            # Map the api_scope to a valid user_api_scope
-            if api_scope in API_SCOPE_TO_USER_SCOPE:
-                user_scope = API_SCOPE_TO_USER_SCOPE[api_scope]
-                if user_scope in VALID_USER_API_SCOPES:
-                    scopes.add(user_scope)
+            companions = API_SCOPE_TO_USER_SCOPES.get(api_scope)
+            if companions is not None:
+                scopes.update(s for s in companions if s in VALID_USER_API_SCOPES)
             elif api_scope in VALID_USER_API_SCOPES:
-                # Direct match
+                # Direct match (e.g., a resource emits a user-scope verbatim)
                 scopes.add(api_scope)
+
+    # Dynamic gating: emit ``ai-gateway`` only when an InferenceEndpointModel
+    # has BOTH on_behalf_of_user=True AND ai_gateway=True. SP-side
+    # ``serving.serving-endpoints`` is unaffected — it's already emitted by
+    # the resource's api_scopes property.
+    for resource in obo_resources:
+        if isinstance(resource, InferenceEndpointModel) and resource.ai_gateway:
+            scopes.add("ai-gateway")
+            break
 
     # Always add catalog read scopes if we have any table or function access
     if any(isinstance(r, (TableModel, FunctionModel)) for r in obo_resources):

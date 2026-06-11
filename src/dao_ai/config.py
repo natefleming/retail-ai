@@ -3323,13 +3323,13 @@ class ConnectionModel(IsDatabricksResource, HasFullName):
 
     @property
     def api_scopes(self) -> Sequence[str]:
+        # ``catalog.connections`` and ``serving.serving-endpoints`` cover the
+        # SP-side surface; OBO emission expands ``catalog.connections`` to
+        # include the ``mcp.external`` companion automatically (see
+        # apps/resources.py:API_SCOPE_TO_USER_SCOPES).
         return [
             "catalog.connections",
             "serving.serving-endpoints",
-            "mcp.genie",
-            "mcp.functions",
-            "mcp.vectorsearch",
-            "mcp.external",
         ]
 
     def as_resources(self) -> Sequence[DatabricksResource]:
@@ -4818,13 +4818,14 @@ class McpFunctionModel(BaseFunctionModel, IsDatabricksResource):
 
     @property
     def api_scopes(self) -> Sequence[str]:
-        """API scopes for MCP connections."""
+        """API scopes for an MCP connection.
+
+        OBO emission derives ``mcp.*`` companion scopes from the underlying
+        platform scope (see apps/resources.py:API_SCOPE_TO_USER_SCOPES), so
+        the resource itself just declares ``serving.serving-endpoints``.
+        """
         return [
             "serving.serving-endpoints",
-            "mcp.genie",
-            "mcp.functions",
-            "mcp.vectorsearch",
-            "mcp.external",
         ]
 
     def as_resources(self) -> Sequence[DatabricksResource]:

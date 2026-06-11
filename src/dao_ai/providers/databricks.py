@@ -242,9 +242,16 @@ def build_auth_policy(config: AppConfig) -> AuthPolicy:
     if config.app and config.app.trace_location:
         system_resources.extend(config.app.trace_location.as_resources())
 
-    api_scopes: list[str] = sorted(
-        {scope for r in all_models if r.on_behalf_of_user for scope in r.api_scopes}
-    )
+    # Translate resource-level api_scopes to canonical OBO user scopes — the
+    # same translation used by the Databricks Apps path — so the deployed
+    # model's forwarded user token carries the strings the Apps platform
+    # recognizes (e.g. ``sql``, ``genie``, ``files``, ``vector-search``).
+    # Without this, the user token would claim dao-ai's internal
+    # ``sql.warehouses`` / ``dashboards.genie`` strings, which the platform
+    # rejects.
+    from dao_ai.apps.resources import generate_user_api_scopes
+
+    api_scopes: list[str] = generate_user_api_scopes(config)
 
     return AuthPolicy(
         system_auth_policy=SystemAuthPolicy(resources=system_resources),
