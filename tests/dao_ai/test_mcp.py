@@ -174,11 +174,10 @@ def test_mcp_function_with_uc_connection():
         == "https://workspace.databricks.com/api/2.0/mcp/external/github_u2m_connection"
     )
 
-    # Verify that connection has the expected API scopes
-    assert "mcp.genie" in connection.api_scopes
-    assert "mcp.functions" in connection.api_scopes
-    assert "mcp.vectorsearch" in connection.api_scopes
-    assert "mcp.external" in connection.api_scopes
+    # ConnectionModel declares only its native SP-side scopes;
+    # ``mcp.external`` (the MCP companion) is emitted automatically at the
+    # OBO user-scope layer via API_SCOPE_TO_USER_SCOPES (see
+    # tests/dao_ai/test_auth_policy.py::TestMcpCompanionPairing).
     assert "catalog.connections" in connection.api_scopes
     assert "serving.serving-endpoints" in connection.api_scopes
 
@@ -228,11 +227,9 @@ def test_mcp_function_with_connection_only():
     assert mcp_function_model.connection.name == "github_u2m_connection"
     assert mcp_function_model.url is None  # URL will be constructed at runtime
 
-    # Verify that connection has the expected API scopes
-    assert "mcp.genie" in connection.api_scopes
-    assert "mcp.functions" in connection.api_scopes
-    assert "mcp.vectorsearch" in connection.api_scopes
-    assert "mcp.external" in connection.api_scopes
+    # ConnectionModel declares only its native SP-side scopes; ``mcp.external``
+    # (the MCP companion) is emitted automatically at the OBO user-scope
+    # layer via API_SCOPE_TO_USER_SCOPES.
     assert "catalog.connections" in connection.api_scopes
     assert "serving.serving-endpoints" in connection.api_scopes
 
