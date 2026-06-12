@@ -52,6 +52,7 @@ DAO AI Builder generates valid YAML configurations that work seamlessly with thi
 - **[A2A Protocol](docs/a2a_protocol.md)** - Google Agent2Agent endpoints on every Apps deployment
 - **[MCP Server](docs/mcp_server.md)** - Expose dao-ai Genie + Vector Search tools as MCP via `dao-ai generate-mcp`
 - **[Long-Running Agents](docs/long_running_agents.md)** - kickoff/poll/cancel for multi-minute graph runs
+- **[WhatsApp Channel](docs/whatsapp_channel.md)** - Inbound WhatsApp Cloud API webhook for chatting with agents over WhatsApp
 
 ### Reference
 - **[CLI Reference](docs/cli-reference.md)** - Command-line interface documentation
@@ -313,6 +314,7 @@ DAO provides powerful capabilities for building production-ready AI agents:
 |---------|-------------|
 | **Dual Deployment Targets** | Deploy to Databricks Model Serving or Databricks Apps with a single config |
 | **Long-Running Agents** | OpenAI Responses API–compatible background kickoff + poll / stream retrieve backed by Lakebase; survives Model Serving's 5 min worker timeout and Databricks Apps' 120 s proxy timeout |
+| **WhatsApp Channel** | Inbound Meta Cloud API webhook on every Apps deployment — HMAC verification, idempotent dedup, wa_id↔thread_id mapping, outbound chunking. See `app.channels.whatsapp` |
 | **Multi-Tool Support** | Python functions, Unity Catalog, MCP, Agent Endpoints |
 | **Orchestration Patterns** | Supervisor, Swarm, **Deep Agent** (langgraph deepagents — todo, filesystem, shell, sub-agents, skills, AGENTS.md memory) |
 | **On-Behalf-Of User** | Per-user permissions and governance |

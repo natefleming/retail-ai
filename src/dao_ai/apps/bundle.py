@@ -459,10 +459,25 @@ def generate_databricks_yaml(
 
     if development:
         # In dev mode the pre-built wheel lives in dist/ and must be
-        # uploaded as a regular source file. The bundle CLI excludes
-        # .whl files by default, so we add an explicit sync include.
+        # uploaded as a regular source file. ``.whl`` files are excluded
+        # from sync by default, so we name them explicitly.
+        #
+        # IMPORTANT: ``sync.include`` is treated as the FULL set of
+        # patterns to sync (it replaces the default rather than adding
+        # to it), so we must list every runtime artifact the app needs
+        # at startup. Anything missing here will be absent from the
+        # deployed App's source_code_path, and the app process will
+        # crash trying to read it (e.g. the dao-ai YAML config).
         bundle["sync"] = {
-            "include": ["dist/*.whl"],
+            "include": [
+                "dist/*.whl",
+                f"{config_filename}",
+                "pyproject.toml",
+                "uv.lock",
+                "requirements.txt",
+                ".python-version",
+                "src/**",
+            ],
         }
     else:
         bundle["artifacts"] = {

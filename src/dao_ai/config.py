@@ -6924,6 +6924,151 @@ class A2AModel(BaseModel):
     )
 
 
+class WhatsAppChannelModel(BaseModel):
+    """Meta WhatsApp Cloud API inbound channel configuration.
+
+    When present on ``AppModel.channels.whatsapp``, two FastAPI routes are
+    mounted on the Databricks Apps server:
+
+    * ``GET  {webhook_path}`` — Meta verification handshake. Returns
+      ``hub.challenge`` when ``hub.verify_token`` matches :attr:`verify_token`.
+    * ``POST {webhook_path}`` — Inbound message delivery. The handler verifies
+      ``X-Hub-Signature-256`` (HMAC-SHA256 with :attr:`app_secret`), dedupes on
+      Meta's message id via the configured :attr:`database`, returns 200
+      immediately, and dispatches the agent call as a background task.
+
+    Outbound replies are POSTed to
+    ``https://graph.facebook.com/{graph_api_version}/{phone_number_id}/messages``
+    with :attr:`access_token` as the Bearer credential.
+
+    Thread continuity: each inbound delivery is mapped to a LangGraph
+    ``thread_id`` derived from the WhatsApp ``wa_id`` (the sender's phone) per
+    :attr:`default_thread_strategy`, and persisted in the same database so
+    follow-up messages re-enter the same conversation.
+
+    Security: phone numbers (``wa_id``) are PII. The handler hashes them
+    before they are emitted as MLflow trace attributes.
+    """
+
+    model_config = ConfigDict(use_enum_values=True, extra="forbid")
+    verify_token: AnyVariable = Field(
+        description="Meta-issued webhook verification token (returned by the GET "
+        "handshake). AnyVariable — can be a SecretVariableModel ({scope, secret}), "
+        "EnvironmentVariableModel ({env}), composite fallback chain, or a literal. "
+        "Production deployments should use a secret scope ref; never check this "
+        "into config in plaintext.",
+    )
+    app_secret: AnyVariable = Field(
+        description="Meta App Secret used to verify the HMAC-SHA256 signature on "
+        "inbound webhook deliveries (``X-Hub-Signature-256`` header). AnyVariable; "
+        "MUST be a secret scope or env var in production.",
+    )
+    access_token: AnyVariable = Field(
+        description="Meta Cloud API access token used as the Bearer credential on "
+        "outbound calls to graph.facebook.com. AnyVariable; MUST be a secret in "
+        "production.",
+    )
+    phone_number_id: AnyVariable = Field(
+        description="Meta-issued phone number id (NOT the E.164 phone). Used as the "
+        "path segment when sending outbound messages. AnyVariable — accepts a "
+        "literal, env var, secret scope ref, or composite fallback.",
+    )
+    graph_api_version: AnyVariable = Field(
+        default="v22.0",
+        description="Meta Graph API version segment, e.g. 'v22.0'. AnyVariable.",
+    )
+    webhook_path: AnyVariable = Field(
+        default="/channels/whatsapp/webhook",
+        description="Path the FastAPI app mounts for the webhook (both GET verify "
+        "and POST delivery). Must be unique across all channels and start with '/'. "
+        "AnyVariable — resolved once at app startup.",
+    )
+    database: Optional[DatabaseModel] = Field(
+        default=None,
+        description="Lakebase/Postgres database used to persist inbound-message "
+        "dedup and the wa_id->thread_id mapping. If unset, the handler falls back "
+        "to ``app.long_running.database`` when present, otherwise to an in-process "
+        "store (not production-safe — restarts will replay deliveries).",
+    )
+    dedup_table_name: AnyVariable = Field(
+        default="dao_ai_whatsapp_inbound_dedup",
+        description="Lakebase table that records every processed Meta message id "
+        "with a UNIQUE constraint, used for at-most-once dispatch. AnyVariable.",
+    )
+    threads_table_name: AnyVariable = Field(
+        default="dao_ai_whatsapp_threads",
+        description="Lakebase table that maps wa_id (+ phone_number_id) to a "
+        "LangGraph thread_id so conversations resume across messages. AnyVariable.",
+    )
+    default_thread_strategy: Literal[
+        "wa_id", "wa_id+phone_number_id", "static"
+    ] = Field(
+        default="wa_id",
+        description="How thread_ids are derived from inbound messages. 'wa_id' "
+        "keys on the sender only (one thread per user). 'wa_id+phone_number_id' "
+        "scopes per receiving business number too. 'static' uses a single shared "
+        "thread (debug only). Not an AnyVariable — must be one of the literal "
+        "strategies above.",
+    )
+    static_thread_id: Optional[AnyVariable] = Field(
+        default=None,
+        description="Thread id used when default_thread_strategy='static'. Ignored otherwise. AnyVariable.",
+    )
+    max_outbound_chunk_chars: AnyVariable = Field(
+        default=4000,
+        description="Maximum characters per outbound text message. WhatsApp's hard "
+        "limit is 4096; the default leaves headroom for emoji surrogates. "
+        "AnyVariable — resolves to an int at use site.",
+    )
+    redact_phone_in_traces: AnyVariable = Field(
+        default=True,
+        description="If truthy, wa_id is SHA-256-hashed before being emitted as an "
+        "MLflow trace attribute. AnyVariable — resolves to a bool at use site. "
+        "Disable only in trusted development.",
+    )
+
+    @model_validator(mode="after")
+    def validate_static_thread(self) -> Self:
+        # static_thread_id must be present (any non-None value) when strategy='static'.
+        # We don't try to resolve secrets/env vars at config-load time.
+        if (
+            self.default_thread_strategy == "static"
+            and self.static_thread_id is None
+        ):
+            raise ValueError(
+                "static_thread_id is required when default_thread_strategy='static'"
+            )
+        # webhook_path: enforce the leading slash only when the field is a literal
+        # string. AnyVariable can be a secret/env ref whose resolved value is only
+        # known at runtime — handled by the route-mount sanity check.
+        if (
+            isinstance(self.webhook_path, str)
+            and not self.webhook_path.startswith("/")
+        ):
+            raise ValueError("webhook_path must start with '/'")
+        return self
+
+
+class ChannelsModel(BaseModel):
+    """Inbound messaging channel configuration.
+
+    Channels mount additional FastAPI routes on the Databricks Apps server
+    that translate inbound platform-specific messages into the same agent
+    invocation path used by ``/v1/responses`` and ``/invocations``. They are
+    independent of :class:`A2AModel` (agent-to-agent) and outbound tools
+    (e.g. ``send_slack_message`` in :mod:`dao_ai.tools.slack`).
+
+    Set one or more channel sub-blocks to opt in.
+    """
+
+    model_config = ConfigDict(use_enum_values=True, extra="forbid")
+    whatsapp: Optional[WhatsAppChannelModel] = Field(
+        default=None,
+        description="Meta WhatsApp Cloud API channel. When set, the inbound webhook "
+        "routes are mounted on the Databricks Apps FastAPI server.",
+    )
+
+
 class AppModel(BaseModel):
     """Application-level configuration for deployment, model registration, and orchestration."""
 
@@ -7069,6 +7214,14 @@ class AppModel(BaseModel):
         "(skills derived from sub-agents, bearer scheme derived from "
         "a2a.on_behalf_of_user). Set a2a.enabled=false to opt out. Ignored for Model "
         "Serving deployments. See A2AModel for the full schema.",
+    )
+    channels: Optional[ChannelsModel] = Field(
+        default=None,
+        description="Opt-in inbound messaging channels (WhatsApp, etc.). When set, "
+        "platform-specific webhook routes are mounted on the Databricks Apps FastAPI "
+        "server and forward incoming messages into the same agent invocation path "
+        "used by /v1/responses. Ignored for Model Serving deployments. See "
+        "config/examples/21_channels/.",
     )
 
     @model_validator(mode="after")
