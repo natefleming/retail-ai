@@ -30,7 +30,6 @@ app:
   description: "WhatsApp channel smoke test for dao-ai"
   log_level: INFO
   deployment_target: apps
-  enable_chat_proxy: false  # webhook-only test; skip the chat UI build
   agents:
   - *concierge
 

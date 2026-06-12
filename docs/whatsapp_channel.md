@@ -71,7 +71,6 @@ A minimal config (no Lakebase — in-memory dedup, OK for smoke tests):
 app:
   name: whatsapp-bot
   deployment_target: apps
-  enable_chat_proxy: false   # webhook-only; skip the chat UI build
   agents:
     - *my_agent
   channels:
@@ -106,7 +105,6 @@ memory:
 app:
   name: whatsapp-concierge
   deployment_target: apps
-  enable_chat_proxy: false
   agents:
     - *concierge
   channels:
@@ -322,7 +320,7 @@ Message the test number from your verified phone. Expect:
 | ------- | ------------ |
 | Meta *Verify and Save* fails with 302/login HTML | Databricks App requires workspace auth. Grant `All workspace users → CAN_USE` and enable unauthenticated access on the app. |
 | 403 *Invalid signature* on every POST after verify works | App Secret mismatch. Signing uses the **App Secret**, not the access token. |
-| 502 *Bad Gateway* | App container is up but FastAPI isn't bound to port 8000. Common cause: `enable_chat_proxy: true` (default) is trying to build the chat UI on first boot. Set `enable_chat_proxy: false` if you only need the webhook. |
+| 502 *Bad Gateway* immediately after deploy | The App container is still building the chat UI on first boot (a few minutes). Wait, then retry. |
 | Inbound 200s but no reply on WhatsApp | (a) Recipient not on the verified test-number list, (b) outside the 24h window with no template, (c) access token missing `whatsapp_business_messaging` scope. |
 | Agent runs but `reply` is empty | Final assistant message had no text. Check the MLflow trace and the agent prompt. |
 | 500 *psycopg* errors in App logs | Service principal lacks `USE CATALOG`/`USE SCHEMA` on the Lakebase database. Grant via UC. |
