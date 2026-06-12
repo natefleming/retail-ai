@@ -6951,32 +6951,37 @@ class WhatsAppChannelModel(BaseModel):
     """
 
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
-    verify_token: SecretVariableModel = Field(
+    verify_token: AnyVariable = Field(
         description="Meta-issued webhook verification token (returned by the GET "
-        "handshake). Stored in a Databricks secret scope.",
+        "handshake). AnyVariable — can be a SecretVariableModel ({scope, secret}), "
+        "EnvironmentVariableModel ({env}), composite fallback chain, or a literal. "
+        "Production deployments should use a secret scope ref; never check this "
+        "into config in plaintext.",
     )
-    app_secret: SecretVariableModel = Field(
+    app_secret: AnyVariable = Field(
         description="Meta App Secret used to verify the HMAC-SHA256 signature on "
-        "inbound webhook deliveries (``X-Hub-Signature-256`` header).",
+        "inbound webhook deliveries (``X-Hub-Signature-256`` header). AnyVariable; "
+        "MUST be a secret scope or env var in production.",
     )
-    access_token: SecretVariableModel = Field(
+    access_token: AnyVariable = Field(
         description="Meta Cloud API access token used as the Bearer credential on "
-        "outbound calls to graph.facebook.com.",
+        "outbound calls to graph.facebook.com. AnyVariable; MUST be a secret in "
+        "production.",
     )
-    phone_number_id: str = Field(
-        min_length=1,
+    phone_number_id: AnyVariable = Field(
         description="Meta-issued phone number id (NOT the E.164 phone). Used as the "
-        "path segment when sending outbound messages.",
+        "path segment when sending outbound messages. AnyVariable — accepts a "
+        "literal, env var, secret scope ref, or composite fallback.",
     )
-    graph_api_version: str = Field(
+    graph_api_version: AnyVariable = Field(
         default="v22.0",
-        pattern=r"^v\d+\.\d+$",
-        description="Meta Graph API version segment, e.g. 'v22.0'.",
+        description="Meta Graph API version segment, e.g. 'v22.0'. AnyVariable.",
     )
-    webhook_path: str = Field(
+    webhook_path: AnyVariable = Field(
         default="/channels/whatsapp/webhook",
         description="Path the FastAPI app mounts for the webhook (both GET verify "
-        "and POST delivery). Must be unique across all channels and start with '/'.",
+        "and POST delivery). Must be unique across all channels and start with '/'. "
+        "AnyVariable — resolved once at app startup.",
     )
     database: Optional[DatabaseModel] = Field(
         default=None,
@@ -6985,15 +6990,15 @@ class WhatsAppChannelModel(BaseModel):
         "to ``app.long_running.database`` when present, otherwise to an in-process "
         "store (not production-safe — restarts will replay deliveries).",
     )
-    dedup_table_name: str = Field(
+    dedup_table_name: AnyVariable = Field(
         default="dao_ai_whatsapp_inbound_dedup",
         description="Lakebase table that records every processed Meta message id "
-        "with a UNIQUE constraint, used for at-most-once dispatch.",
+        "with a UNIQUE constraint, used for at-most-once dispatch. AnyVariable.",
     )
-    threads_table_name: str = Field(
+    threads_table_name: AnyVariable = Field(
         default="dao_ai_whatsapp_threads",
         description="Lakebase table that maps wa_id (+ phone_number_id) to a "
-        "LangGraph thread_id so conversations resume across messages.",
+        "LangGraph thread_id so conversations resume across messages. AnyVariable.",
     )
     default_thread_strategy: Literal[
         "wa_id", "wa_id+phone_number_id", "static"
@@ -7002,35 +7007,44 @@ class WhatsAppChannelModel(BaseModel):
         description="How thread_ids are derived from inbound messages. 'wa_id' "
         "keys on the sender only (one thread per user). 'wa_id+phone_number_id' "
         "scopes per receiving business number too. 'static' uses a single shared "
-        "thread (debug only).",
+        "thread (debug only). Not an AnyVariable — must be one of the literal "
+        "strategies above.",
     )
-    static_thread_id: Optional[str] = Field(
+    static_thread_id: Optional[AnyVariable] = Field(
         default=None,
-        description="Thread id used when default_thread_strategy='static'. Ignored otherwise.",
+        description="Thread id used when default_thread_strategy='static'. Ignored otherwise. AnyVariable.",
     )
-    max_outbound_chunk_chars: int = Field(
+    max_outbound_chunk_chars: AnyVariable = Field(
         default=4000,
-        ge=1,
-        le=4096,
         description="Maximum characters per outbound text message. WhatsApp's hard "
-        "limit is 4096; the default leaves headroom for emoji surrogates.",
+        "limit is 4096; the default leaves headroom for emoji surrogates. "
+        "AnyVariable — resolves to an int at use site.",
     )
-    redact_phone_in_traces: bool = Field(
+    redact_phone_in_traces: AnyVariable = Field(
         default=True,
-        description="If True, wa_id is SHA-256-hashed before being emitted as an "
-        "MLflow trace attribute. Disable only in trusted development.",
+        description="If truthy, wa_id is SHA-256-hashed before being emitted as an "
+        "MLflow trace attribute. AnyVariable — resolves to a bool at use site. "
+        "Disable only in trusted development.",
     )
 
     @model_validator(mode="after")
     def validate_static_thread(self) -> Self:
+        # static_thread_id must be present (any non-None value) when strategy='static'.
+        # We don't try to resolve secrets/env vars at config-load time.
         if (
             self.default_thread_strategy == "static"
-            and not self.static_thread_id
+            and self.static_thread_id is None
         ):
             raise ValueError(
                 "static_thread_id is required when default_thread_strategy='static'"
             )
-        if not self.webhook_path.startswith("/"):
+        # webhook_path: enforce the leading slash only when the field is a literal
+        # string. AnyVariable can be a secret/env ref whose resolved value is only
+        # known at runtime — handled by the route-mount sanity check.
+        if (
+            isinstance(self.webhook_path, str)
+            and not self.webhook_path.startswith("/")
+        ):
             raise ValueError("webhook_path must start with '/'")
         return self
 

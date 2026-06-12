@@ -38,7 +38,7 @@ from loguru import logger
 from mlflow.types.responses import ResponsesAgentRequest, ResponsesAgentResponse
 
 from dao_ai.apps.channels.store import ChannelStore
-from dao_ai.config import WhatsAppChannelModel
+from dao_ai.config import WhatsAppChannelModel, value_of
 
 if TYPE_CHECKING:
     from fastapi import FastAPI
@@ -80,9 +80,9 @@ def _thread_key(
     if config.default_thread_strategy == "static":
         # Validated in WhatsAppChannelModel.validate_static_thread
         assert config.static_thread_id is not None
-        return f"static:{config.static_thread_id}"
+        return f"static:{value_of(config.static_thread_id)}"
     if config.default_thread_strategy == "wa_id+phone_number_id":
-        return f"{config.phone_number_id}:{wa_id}"
+        return f"{value_of(config.phone_number_id)}:{wa_id}"
     return wa_id
 
 
@@ -151,15 +151,15 @@ async def send_text(
     text: str,
 ) -> None:
     """POST one or more text messages to the WhatsApp Cloud API."""
-    url = (
-        f"{GRAPH_API_BASE}/{config.graph_api_version}"
-        f"/{config.phone_number_id}/messages"
-    )
+    graph_api_version = str(value_of(config.graph_api_version))
+    phone_number_id = str(value_of(config.phone_number_id))
+    url = f"{GRAPH_API_BASE}/{graph_api_version}/{phone_number_id}/messages"
     headers = {
         "Authorization": f"Bearer {access_token}",
         "Content-Type": "application/json",
     }
-    for chunk in _chunk_text(text, config.max_outbound_chunk_chars):
+    max_chunk_chars = int(value_of(config.max_outbound_chunk_chars))
+    for chunk in _chunk_text(text, max_chunk_chars):
         body = {
             "messaging_product": "whatsapp",
             "recipient_type": "individual",
@@ -219,10 +219,23 @@ def mount_whatsapp_routes(
     if database is None and config.app and config.app.long_running:
         database = config.app.long_running.database
 
+    # Resolve once at mount time: webhook_path is a route decorator argument,
+    # table names go into the ChannelStore constructor. Per-request resolution
+    # is reserved for credentials (verify_token / app_secret / access_token) and
+    # outbound-format values (graph_api_version / phone_number_id) so secret
+    # rotation works without an app restart.
+    webhook_path = str(value_of(whatsapp_config.webhook_path))
+    if not webhook_path.startswith("/"):
+        raise ValueError(
+            f"webhook_path must start with '/' (resolved value: {webhook_path!r})"
+        )
+    dedup_table = str(value_of(whatsapp_config.dedup_table_name))
+    threads_table = str(value_of(whatsapp_config.threads_table_name))
+
     store = ChannelStore(
         database,
-        dedup_table_name=whatsapp_config.dedup_table_name,
-        threads_table_name=whatsapp_config.threads_table_name,
+        dedup_table_name=dedup_table,
+        threads_table_name=threads_table,
     )
 
     # Single shared HTTP client for outbound Graph API calls
@@ -245,7 +258,7 @@ def mount_whatsapp_routes(
 
         wa_hash = (
             _hash_phone(wa_id)
-            if whatsapp_config.redact_phone_in_traces
+            if bool(value_of(whatsapp_config.redact_phone_in_traces))
             else wa_id
         )
 
@@ -266,7 +279,7 @@ def mount_whatsapp_routes(
                             "thread_id": thread_id,
                             "channel": CHANNEL_NAME,
                             "wa_id": wa_id,
-                            "phone_number_id": whatsapp_config.phone_number_id,
+                            "phone_number_id": str(value_of(whatsapp_config.phone_number_id)),
                             "message_id": message_id,
                         }
                     },
@@ -280,7 +293,7 @@ def mount_whatsapp_routes(
                     )
                     return
 
-                access_token = str(whatsapp_config.access_token.as_value())
+                access_token = str(value_of(whatsapp_config.access_token))
                 await send_text(
                     client=http_client,
                     config=whatsapp_config,
@@ -295,13 +308,13 @@ def mount_whatsapp_routes(
                     error=str(exc),
                 )
 
-    @app.get(whatsapp_config.webhook_path)
+    @app.get(webhook_path)
     async def whatsapp_verify(
         hub_mode: str = Query(default="", alias="hub.mode"),
         hub_verify_token: str = Query(default="", alias="hub.verify_token"),
         hub_challenge: str = Query(default="", alias="hub.challenge"),
     ) -> PlainTextResponse:
-        expected_token = str(whatsapp_config.verify_token.as_value())
+        expected_token = str(value_of(whatsapp_config.verify_token))
         if hub_mode == "subscribe" and hmac.compare_digest(
             hub_verify_token, expected_token
         ):
@@ -312,14 +325,14 @@ def mount_whatsapp_routes(
         )
         raise HTTPException(status_code=403, detail="Verification failed")
 
-    @app.post(whatsapp_config.webhook_path)
+    @app.post(webhook_path)
     async def whatsapp_inbound(
         request: Request,
         x_hub_signature_256: Optional[str] = Header(default=None),
     ) -> JSONResponse:
         raw = await request.body()
 
-        app_secret = str(whatsapp_config.app_secret.as_value())
+        app_secret = str(value_of(whatsapp_config.app_secret))
         if not verify_signature(
             raw_body=raw,
             header_value=x_hub_signature_256 or "",
@@ -387,8 +400,8 @@ def mount_whatsapp_routes(
 
     logger.success(
         "WhatsApp channel routes mounted",
-        webhook_path=whatsapp_config.webhook_path,
-        phone_number_id=whatsapp_config.phone_number_id,
+        webhook_path=webhook_path,
+        phone_number_id=str(value_of(whatsapp_config.phone_number_id)),
         store=("lakebase" if database is not None else "in-memory"),
     )
 

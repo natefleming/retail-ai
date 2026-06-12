@@ -128,21 +128,33 @@ with the full schema layered on the standard dao-ai config blocks.
 
 ### Configuration reference
 
-| Field                       | Type                  | Default                                | Notes |
-| --------------------------- | --------------------- | -------------------------------------- | ----- |
-| `verify_token`              | `SecretVariableModel` | (required)                             | Meta webhook verify token. |
-| `app_secret`                | `SecretVariableModel` | (required)                             | Meta App Secret for HMAC. |
-| `access_token`              | `SecretVariableModel` | (required)                             | Bearer for outbound Graph API. |
-| `phone_number_id`           | `str`                 | (required)                             | Meta-issued phone-number id. Not the E.164 phone. |
-| `graph_api_version`         | `str`                 | `v22.0`                                | Pattern: `v\d+\.\d+`. |
-| `webhook_path`              | `str`                 | `/channels/whatsapp/webhook`           | Must start with `/`. |
-| `database`                  | `DatabaseModel?`      | falls back to `app.long_running.database` then in-memory | Persist dedup + threads. |
-| `dedup_table_name`          | `str`                 | `dao_ai_whatsapp_inbound_dedup`        | Created idempotently. |
-| `threads_table_name`        | `str`                 | `dao_ai_whatsapp_threads`              | Created idempotently. |
-| `default_thread_strategy`   | `Literal[…]`          | `wa_id`                                | `wa_id` / `wa_id+phone_number_id` / `static`. |
-| `static_thread_id`          | `str?`                | None                                   | Required iff strategy is `static`. |
-| `max_outbound_chunk_chars`  | `int`                 | `4000`                                 | 1–4096. |
-| `redact_phone_in_traces`    | `bool`                | `true`                                 | SHA-256 hash `wa_id` for trace attrs. |
+Every field except `database` and `default_thread_strategy` is typed as
+[`AnyVariable`](configuration-reference.md), the standard dao-ai value
+type. That means each one accepts the full union of value sources — pick
+the one that fits the field's sensitivity and rotation needs:
+
+| Form                                | Use it for | Resolves at |
+| ----------------------------------- | ---------- | ----------- |
+| `{scope: …, secret: …}`             | Credentials in production | Request time (rotation without restart) |
+| `{env: NAME}`                       | Local dev, FEVM testing | Process start |
+| `{options: [...]}` (composite)      | Fallback chains (secret → env → literal) | First non-None at request time |
+| `"literal-string"` / `4000` / `true`| Tests, non-sensitive fields | Config load |
+
+| Field                       | Type                       | Default                                                  | Notes |
+| --------------------------- | -------------------------- | -------------------------------------------------------- | ----- |
+| `verify_token`              | `AnyVariable`              | (required)                                               | Meta webhook verify token. Use a secret scope in prod. |
+| `app_secret`                | `AnyVariable`              | (required)                                               | Meta App Secret for HMAC. Use a secret scope in prod. |
+| `access_token`              | `AnyVariable`              | (required)                                               | Bearer for outbound Graph API. Use a secret scope in prod. |
+| `phone_number_id`           | `AnyVariable`              | (required)                                               | Meta-issued phone-number id. Not the E.164 phone. |
+| `graph_api_version`         | `AnyVariable`              | `v22.0`                                                  | Resolved value should match `v\d+\.\d+`. |
+| `webhook_path`              | `AnyVariable`              | `/channels/whatsapp/webhook`                             | Resolved value must start with `/` (checked at mount time). |
+| `database`                  | `DatabaseModel?`           | falls back to `app.long_running.database`, then in-memory | Persist dedup + threads. NOT AnyVariable — typed config block. |
+| `dedup_table_name`          | `AnyVariable`              | `dao_ai_whatsapp_inbound_dedup`                          | Created idempotently. |
+| `threads_table_name`        | `AnyVariable`              | `dao_ai_whatsapp_threads`                                | Created idempotently. |
+| `default_thread_strategy`   | `Literal[…]`               | `wa_id`                                                  | `wa_id` / `wa_id+phone_number_id` / `static`. NOT AnyVariable — must be one of the three. |
+| `static_thread_id`          | `AnyVariable?`             | None                                                     | Required iff strategy is `static`. |
+| `max_outbound_chunk_chars`  | `AnyVariable`              | `4000`                                                   | Resolves to int. WhatsApp's hard cap is 4096. |
+| `redact_phone_in_traces`    | `AnyVariable`              | `true`                                                   | Resolves to bool. SHA-256 hash `wa_id` for trace attrs. |
 
 ## Request lifecycle
 

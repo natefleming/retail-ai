@@ -30,7 +30,13 @@ from dao_ai.apps.channels.whatsapp import (
     mount_whatsapp_routes,
     verify_signature,
 )
-from dao_ai.config import SecretVariableModel, WhatsAppChannelModel
+from dao_ai.config import (
+    CompositeVariableModel,
+    EnvironmentVariableModel,
+    PrimitiveVariableModel,
+    SecretVariableModel,
+    WhatsAppChannelModel,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -256,6 +262,119 @@ def test_whatsapp_config_rejects_webhook_path_without_slash() -> None:
             phone_number_id="x",
             webhook_path="channels/whatsapp/webhook",
         )
+
+
+# ---------------------------------------------------------------------------
+# AnyVariable: prove the credential and primitive fields accept the full union
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+def test_anyvariable_fields_accept_literal_strings(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Plain string credentials and ids should work (handy for unit tests)."""
+    cfg = WhatsAppChannelModel(
+        verify_token="literal-verify",
+        app_secret="literal-secret",
+        access_token="literal-access",
+        phone_number_id="9999",
+        graph_api_version="v23.0",
+        webhook_path="/wh",
+        max_outbound_chunk_chars=1000,
+        redact_phone_in_traces=False,
+    )
+    # value_of is called inside the channel runtime; here we just confirm the
+    # config built and the literals round-trip.
+    assert cfg.verify_token == "literal-verify"
+    assert cfg.phone_number_id == "9999"
+    assert cfg.graph_api_version == "v23.0"
+    assert cfg.max_outbound_chunk_chars == 1000
+    assert cfg.redact_phone_in_traces is False
+
+
+@pytest.mark.unit
+def test_anyvariable_fields_accept_environment_variables(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """EnvironmentVariableModel resolves at request time, not config-load."""
+    from dao_ai.config import value_of
+
+    monkeypatch.setenv("MY_VERIFY", "env-verify-value")
+    monkeypatch.setenv("MY_PHONE", "1234567890")
+
+    cfg = WhatsAppChannelModel(
+        verify_token=EnvironmentVariableModel(env="MY_VERIFY"),
+        app_secret=_make_secret("s"),
+        access_token=_make_secret("a"),
+        phone_number_id=EnvironmentVariableModel(env="MY_PHONE"),
+    )
+
+    assert value_of(cfg.verify_token) == "env-verify-value"
+    assert value_of(cfg.phone_number_id) == "1234567890"
+
+
+@pytest.mark.unit
+def test_anyvariable_fields_accept_composite_fallback(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """CompositeVariableModel tries options in order; first non-None wins."""
+    from dao_ai.config import value_of
+
+    # MY_TOKEN is not set, so the env option resolves to None and the literal
+    # fallback wins.
+    monkeypatch.delenv("MY_TOKEN", raising=False)
+
+    composite = CompositeVariableModel(
+        options=[
+            EnvironmentVariableModel(env="MY_TOKEN"),
+            PrimitiveVariableModel(value="literal-fallback"),
+        ]
+    )
+    cfg = WhatsAppChannelModel(
+        verify_token=composite,
+        app_secret=_make_secret("s"),
+        access_token=_make_secret("a"),
+        phone_number_id="123",
+    )
+    assert value_of(cfg.verify_token) == "literal-fallback"
+
+    # When the env var IS set, it takes precedence.
+    monkeypatch.setenv("MY_TOKEN", "from-env")
+    cfg2 = WhatsAppChannelModel(
+        verify_token=CompositeVariableModel(
+            options=[
+                EnvironmentVariableModel(env="MY_TOKEN"),
+                PrimitiveVariableModel(value="literal-fallback"),
+            ]
+        ),
+        app_secret=_make_secret("s"),
+        access_token=_make_secret("a"),
+        phone_number_id="123",
+    )
+    assert value_of(cfg2.verify_token) == "from-env"
+
+
+@pytest.mark.unit
+def test_anyvariable_numeric_field_round_trips_through_value_of() -> None:
+    """max_outbound_chunk_chars accepts a literal int OR a primitive var."""
+    from dao_ai.config import value_of
+
+    cfg_int = WhatsAppChannelModel(
+        verify_token=_make_secret("v"),
+        app_secret=_make_secret("s"),
+        access_token=_make_secret("a"),
+        phone_number_id="x",
+        max_outbound_chunk_chars=2048,
+    )
+    assert int(value_of(cfg_int.max_outbound_chunk_chars)) == 2048
+
+    cfg_var = WhatsAppChannelModel(
+        verify_token=_make_secret("v"),
+        app_secret=_make_secret("s"),
+        access_token=_make_secret("a"),
+        phone_number_id="x",
+        max_outbound_chunk_chars=PrimitiveVariableModel(value=3500),
+    )
+    assert int(value_of(cfg_var.max_outbound_chunk_chars)) == 3500
 
 
 # ---------------------------------------------------------------------------
