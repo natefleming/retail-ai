@@ -282,6 +282,7 @@ databricks.yaml
 
 # Deployment directory for local source code
 deploy/
+deploy-*/
 .guardrails/
 
 # Chat UI build artifacts (cloned/built by dao-ai when enable_chat_proxy is true)

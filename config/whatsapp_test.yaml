@@ -1,0 +1,53 @@
+# yaml-language-server: $schema=../schemas/model_config_schema.json
+
+# =============================================================================
+# WhatsApp Channel Smoke Test
+# =============================================================================
+# Minimal config to validate the WhatsApp inbound channel end-to-end on FEVM.
+# No Lakebase (in-memory dedup) — production use should add `database`.
+# Placeholder Meta secrets — the GET verify handshake works as long as the
+# verify_token matches what's sent in the query string.
+# =============================================================================
+
+resources:
+  models:
+    default_llm: &default_llm
+      name: databricks-claude-sonnet-4
+      temperature: 0.3
+      max_tokens: 512
+
+agents:
+  concierge: &concierge
+    name: concierge
+    description: "WhatsApp concierge smoke-test agent"
+    model: *default_llm
+    prompt: |
+      You are a helpful concierge replying over WhatsApp. Keep answers short
+      and friendly (under 500 characters). If you don't know something, say so.
+
+app:
+  name: whatsapp-test-nf
+  description: "WhatsApp channel smoke test for dao-ai"
+  log_level: INFO
+  deployment_target: apps
+  enable_chat_proxy: false  # webhook-only test; skip the chat UI build
+  agents:
+  - *concierge
+
+  channels:
+    whatsapp:
+      verify_token:
+        scope: whatsapp_test
+        secret: WHATSAPP_VERIFY_TOKEN
+      app_secret:
+        scope: whatsapp_test
+        secret: WHATSAPP_APP_SECRET
+      access_token:
+        scope: whatsapp_test
+        secret: WHATSAPP_ACCESS_TOKEN
+      phone_number_id: "000000000000000"  # placeholder; replace with Meta value
+      graph_api_version: "v22.0"
+      webhook_path: "/channels/whatsapp/webhook"
+      default_thread_strategy: wa_id
+      max_outbound_chunk_chars: 4000
+      redact_phone_in_traces: true

@@ -6924,6 +6924,137 @@ class A2AModel(BaseModel):
     )
 
 
+class WhatsAppChannelModel(BaseModel):
+    """Meta WhatsApp Cloud API inbound channel configuration.
+
+    When present on ``AppModel.channels.whatsapp``, two FastAPI routes are
+    mounted on the Databricks Apps server:
+
+    * ``GET  {webhook_path}`` — Meta verification handshake. Returns
+      ``hub.challenge`` when ``hub.verify_token`` matches :attr:`verify_token`.
+    * ``POST {webhook_path}`` — Inbound message delivery. The handler verifies
+      ``X-Hub-Signature-256`` (HMAC-SHA256 with :attr:`app_secret`), dedupes on
+      Meta's message id via the configured :attr:`database`, returns 200
+      immediately, and dispatches the agent call as a background task.
+
+    Outbound replies are POSTed to
+    ``https://graph.facebook.com/{graph_api_version}/{phone_number_id}/messages``
+    with :attr:`access_token` as the Bearer credential.
+
+    Thread continuity: each inbound delivery is mapped to a LangGraph
+    ``thread_id`` derived from the WhatsApp ``wa_id`` (the sender's phone) per
+    :attr:`default_thread_strategy`, and persisted in the same database so
+    follow-up messages re-enter the same conversation.
+
+    Security: phone numbers (``wa_id``) are PII. The handler hashes them
+    before they are emitted as MLflow trace attributes.
+    """
+
+    model_config = ConfigDict(use_enum_values=True, extra="forbid")
+    verify_token: SecretVariableModel = Field(
+        description="Meta-issued webhook verification token (returned by the GET "
+        "handshake). Stored in a Databricks secret scope.",
+    )
+    app_secret: SecretVariableModel = Field(
+        description="Meta App Secret used to verify the HMAC-SHA256 signature on "
+        "inbound webhook deliveries (``X-Hub-Signature-256`` header).",
+    )
+    access_token: SecretVariableModel = Field(
+        description="Meta Cloud API access token used as the Bearer credential on "
+        "outbound calls to graph.facebook.com.",
+    )
+    phone_number_id: str = Field(
+        min_length=1,
+        description="Meta-issued phone number id (NOT the E.164 phone). Used as the "
+        "path segment when sending outbound messages.",
+    )
+    graph_api_version: str = Field(
+        default="v22.0",
+        pattern=r"^v\d+\.\d+$",
+        description="Meta Graph API version segment, e.g. 'v22.0'.",
+    )
+    webhook_path: str = Field(
+        default="/channels/whatsapp/webhook",
+        description="Path the FastAPI app mounts for the webhook (both GET verify "
+        "and POST delivery). Must be unique across all channels and start with '/'.",
+    )
+    database: Optional[DatabaseModel] = Field(
+        default=None,
+        description="Lakebase/Postgres database used to persist inbound-message "
+        "dedup and the wa_id->thread_id mapping. If unset, the handler falls back "
+        "to ``app.long_running.database`` when present, otherwise to an in-process "
+        "store (not production-safe — restarts will replay deliveries).",
+    )
+    dedup_table_name: str = Field(
+        default="dao_ai_whatsapp_inbound_dedup",
+        description="Lakebase table that records every processed Meta message id "
+        "with a UNIQUE constraint, used for at-most-once dispatch.",
+    )
+    threads_table_name: str = Field(
+        default="dao_ai_whatsapp_threads",
+        description="Lakebase table that maps wa_id (+ phone_number_id) to a "
+        "LangGraph thread_id so conversations resume across messages.",
+    )
+    default_thread_strategy: Literal[
+        "wa_id", "wa_id+phone_number_id", "static"
+    ] = Field(
+        default="wa_id",
+        description="How thread_ids are derived from inbound messages. 'wa_id' "
+        "keys on the sender only (one thread per user). 'wa_id+phone_number_id' "
+        "scopes per receiving business number too. 'static' uses a single shared "
+        "thread (debug only).",
+    )
+    static_thread_id: Optional[str] = Field(
+        default=None,
+        description="Thread id used when default_thread_strategy='static'. Ignored otherwise.",
+    )
+    max_outbound_chunk_chars: int = Field(
+        default=4000,
+        ge=1,
+        le=4096,
+        description="Maximum characters per outbound text message. WhatsApp's hard "
+        "limit is 4096; the default leaves headroom for emoji surrogates.",
+    )
+    redact_phone_in_traces: bool = Field(
+        default=True,
+        description="If True, wa_id is SHA-256-hashed before being emitted as an "
+        "MLflow trace attribute. Disable only in trusted development.",
+    )
+
+    @model_validator(mode="after")
+    def validate_static_thread(self) -> Self:
+        if (
+            self.default_thread_strategy == "static"
+            and not self.static_thread_id
+        ):
+            raise ValueError(
+                "static_thread_id is required when default_thread_strategy='static'"
+            )
+        if not self.webhook_path.startswith("/"):
+            raise ValueError("webhook_path must start with '/'")
+        return self
+
+
+class ChannelsModel(BaseModel):
+    """Inbound messaging channel configuration.
+
+    Channels mount additional FastAPI routes on the Databricks Apps server
+    that translate inbound platform-specific messages into the same agent
+    invocation path used by ``/v1/responses`` and ``/invocations``. They are
+    independent of :class:`A2AModel` (agent-to-agent) and outbound tools
+    (e.g. ``send_slack_message`` in :mod:`dao_ai.tools.slack`).
+
+    Set one or more channel sub-blocks to opt in.
+    """
+
+    model_config = ConfigDict(use_enum_values=True, extra="forbid")
+    whatsapp: Optional[WhatsAppChannelModel] = Field(
+        default=None,
+        description="Meta WhatsApp Cloud API channel. When set, the inbound webhook "
+        "routes are mounted on the Databricks Apps FastAPI server.",
+    )
+
+
 class AppModel(BaseModel):
     """Application-level configuration for deployment, model registration, and orchestration."""
 
@@ -7069,6 +7200,14 @@ class AppModel(BaseModel):
         "(skills derived from sub-agents, bearer scheme derived from "
         "a2a.on_behalf_of_user). Set a2a.enabled=false to opt out. Ignored for Model "
         "Serving deployments. See A2AModel for the full schema.",
+    )
+    channels: Optional[ChannelsModel] = Field(
+        default=None,
+        description="Opt-in inbound messaging channels (WhatsApp, etc.). When set, "
+        "platform-specific webhook routes are mounted on the Databricks Apps FastAPI "
+        "server and forward incoming messages into the same agent invocation path "
+        "used by /v1/responses. Ignored for Model Serving deployments. See "
+        "config/examples/21_channels/.",
     )
 
     @model_validator(mode="after")

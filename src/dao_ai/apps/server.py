@@ -199,6 +199,29 @@ def _mount_a2a_routes() -> None:
 _mount_a2a_routes()
 
 
+def _mount_channel_routes() -> None:
+    """Register inbound messaging channel routes (WhatsApp, etc.).
+
+    No-op when ``app.channels`` is unset. Each configured sub-block mounts
+    its own webhook routes on the same FastAPI app so the agent is reachable
+    from consumer messaging platforms in addition to ``/v1/responses`` and
+    ``/a2a``. See :mod:`dao_ai.apps.channels`.
+    """
+    from dao_ai.apps.channels import mount_channel_routes
+
+    try:
+        mount_channel_routes(app, _config)
+    except Exception as exc:  # pragma: no cover — defensive at startup
+        from loguru import logger
+
+        logger.warning(
+            f"Failed to mount channel routes; other protocols still served. Error: {exc}"
+        )
+
+
+_mount_channel_routes()
+
+
 def main() -> None:
     """Entry point for running the agent server."""
     agent_server.run(app_import_string="dao_ai.apps.server:app")

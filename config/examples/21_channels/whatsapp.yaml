@@ -1,0 +1,130 @@
+# yaml-language-server: $schema=../../../schemas/model_config_schema.json
+
+
+# =============================================================================
+# WhatsApp Channel Integration (Meta Cloud API)
+# =============================================================================
+# Mounts an inbound webhook on the Databricks Apps server that receives
+# WhatsApp messages, dispatches them to the agent via the same code path as
+# /v1/responses, and replies on WhatsApp by POSTing to graph.facebook.com.
+#
+# This block is layered on top of any standard dao-ai agent configuration —
+# everything else (memory, tools, guardrails, orchestration) works unchanged.
+#
+# DEPLOYMENT TARGET: Databricks Apps only. Model Serving cannot host inbound
+# webhooks because it doesn't expose a stable public HTTPS URL.
+#
+# PREREQUISITES
+# -------------
+# 1. Meta Business Manager account with a WhatsApp Business Account (WABA).
+# 2. A WhatsApp Cloud API "phone number id" (NOT the E.164 phone). Visible in
+#    Meta Developers > Your App > WhatsApp > API Setup.
+# 3. Three values in a Databricks secret scope (`retail_consumer_goods` in this
+#    example — substitute your own scope name):
+#       * WHATSAPP_VERIFY_TOKEN  — any random string you also give Meta
+#       * WHATSAPP_APP_SECRET    — Meta App Secret (under App Settings > Basic)
+#       * WHATSAPP_ACCESS_TOKEN  — System User access token with whatsapp_business_messaging
+# 4. After `databricks bundle deploy`, open the Apps URL and copy it. Then in
+#    Meta > WhatsApp > Configuration > Webhook, set:
+#       Callback URL: <apps_url>/channels/whatsapp/webhook
+#       Verify token: <the WHATSAPP_VERIFY_TOKEN value>
+#       Subscribe to: "messages"
+# =============================================================================
+
+parameters:
+  catalog:
+    description: Unity Catalog catalog name
+    default: retail_consumer_goods
+  schema:
+    description: Schema within the catalog
+    default: hardware_store
+
+variables:
+  client_id: &client_id
+    options:
+    - scope: retail_consumer_goods
+      secret: RETAIL_AI_DATABRICKS_CLIENT_ID
+    - env: RETAIL_AI_DATABRICKS_CLIENT_ID
+
+  client_secret: &client_secret
+    options:
+    - scope: retail_consumer_goods
+      secret: RETAIL_AI_DATABRICKS_CLIENT_SECRET
+    - env: RETAIL_AI_DATABRICKS_CLIENT_SECRET
+
+schemas:
+  retail_schema: &retail_schema
+    catalog_name: ${var.catalog}
+    schema_name: ${var.schema}
+
+resources:
+  models:
+    default_llm: &default_llm
+      name: databricks-claude-sonnet-4
+      temperature: 0.3
+      max_tokens: 1024
+
+  databases:
+    whatsapp_database: &whatsapp_database
+      name: "WhatsApp Channel Database"
+      project: "retail-consumer-goods"
+      description: "Lakebase for inbound dedup + wa_id->thread_id mapping"
+      client_id: *client_id
+      client_secret: *client_secret
+      on_behalf_of_user: false
+
+memory:
+  checkpointer:
+    name: whatsapp_checkpointer
+    database: *whatsapp_database
+
+agents:
+  concierge: &concierge
+    name: concierge
+    description: "Concierge agent reachable over WhatsApp"
+    model: *default_llm
+    prompt: |
+      You are a helpful concierge replying over WhatsApp. Keep answers concise
+      (under 1000 characters where possible) and friendly. If you don't know
+      something, say so plainly — don't fabricate.
+
+app:
+  name: whatsapp_concierge_dao
+  description: "Concierge agent reachable via WhatsApp Cloud API webhook"
+  log_level: INFO
+  deployment_target: apps
+  registered_model:
+    schema: *retail_schema
+    name: whatsapp_concierge_dao
+  endpoint_name: whatsapp_concierge_dao
+  tags:
+    integration: whatsapp
+    channel: inbound
+  permissions:
+  - principals: [users]
+    entitlements:
+    - CAN_QUERY
+  agents:
+  - *concierge
+
+  channels:
+    whatsapp:
+      # The three Meta secrets live in a Databricks secret scope.
+      verify_token:
+        scope: retail_consumer_goods
+        secret: WHATSAPP_VERIFY_TOKEN
+      app_secret:
+        scope: retail_consumer_goods
+        secret: WHATSAPP_APP_SECRET
+      access_token:
+        scope: retail_consumer_goods
+        secret: WHATSAPP_ACCESS_TOKEN
+      # Phone number id from Meta > WhatsApp > API Setup. NOT the E.164 number.
+      phone_number_id: "REPLACE_WITH_META_PHONE_NUMBER_ID"
+      graph_api_version: "v22.0"
+      webhook_path: "/channels/whatsapp/webhook"
+      # Reuse the same Lakebase as memory; pool is shared via AsyncPostgresPoolManager.
+      database: *whatsapp_database
+      default_thread_strategy: wa_id
+      max_outbound_chunk_chars: 4000
+      redact_phone_in_traces: true
