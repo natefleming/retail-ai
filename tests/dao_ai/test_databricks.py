@@ -2347,9 +2347,7 @@ def test_deploy_model_serving_links_experiment_and_grants_permissions():
         patch("dao_ai.providers.databricks.agents.deploy"),
         patch("dao_ai.providers.databricks.get_latest_model_version", return_value=1),
         patch("dao_ai.providers.databricks.mlflow.set_registry_uri"),
-        patch(
-            "mlflow.tracing.enablement.set_experiment_trace_location"
-        ) as mock_set_loc,
+        patch("dao_ai.providers.databricks.mlflow.set_experiment") as mock_set_exp,
     ):
         with patch.object(DatabricksProvider, "__init__", return_value=None):
             provider = DatabricksProvider()
@@ -2360,12 +2358,17 @@ def test_deploy_model_serving_links_experiment_and_grants_permissions():
             ):
                 provider.deploy_model_serving_agent(mock_config)
 
-                # set_experiment_trace_location wires the experiment to UC.
-                # Per-OTEL-table grant calls were removed — MLflow auto-
-                # creates the tables at first trace write, and the App SP
-                # gets schema-level privileges via the bundle/auth_policy
-                # path (or a one-time manual grant for Apps deploys).
-                mock_set_loc.assert_called_once()
-                call_kwargs = mock_set_loc.call_args.kwargs
+                # mlflow.set_experiment(experiment_id=..., trace_location=
+                # UnityCatalog(...)) is the post-3.11 blessed API for linking
+                # an experiment to UC trace storage. Replaces the older
+                # set_destination(UCSchemaLocation) + set_experiment_trace_location
+                # pair (both of which emit deprecation warnings).
+                # Per-OTEL-table grant calls were also removed earlier —
+                # MLflow auto-creates the tables at first trace write.
+                mock_set_exp.assert_called_once()
+                call_kwargs = mock_set_exp.call_args.kwargs
                 assert call_kwargs["experiment_id"] == "exp123"
-                assert call_kwargs["sql_warehouse_id"] == "wh123"
+                # trace_location is UnityCatalog(catalog_name=..., schema_name=...)
+                trace_loc = call_kwargs["trace_location"]
+                assert trace_loc.catalog_name == "trace_cat"
+                assert trace_loc.schema_name == "trace_sch"

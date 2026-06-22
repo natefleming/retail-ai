@@ -1,7 +1,3 @@
-   Building dao-ai @ file:///Users/nate.fleming/development/databricks/dao-ai
-      Built dao-ai @ file:///Users/nate.fleming/development/databricks/dao-ai
-Uninstalled 1 package in 2ms
-Installed 1 package in 4ms
 {
   "$defs": {
     "A2AModel": {
@@ -817,7 +813,7 @@ Installed 1 package in 4ms
             }
           ],
           "default": null,
-          "description": "Unity Catalog location for storing MLflow traces in OTEL-format Delta tables. Accepts a schema reference or 'catalog.schema' string. When set, set_experiment_trace_location() is called at startup for both Model Serving and Databricks Apps deployments."
+          "description": "Unity Catalog location for storing MLflow traces in OTEL-format Delta tables. Accepts a schema reference or 'catalog.schema' string, with an optional ``table_prefix`` to namespace the OTEL tables. When set, ``mlflow.set_experiment(trace_location=UnityCatalog(...))`` is called at startup and at deploy time for both Model Serving and Databricks Apps deployments."
         },
         "monitoring": {
           "anyOf": [
@@ -7764,7 +7760,7 @@ Installed 1 package in 4ms
     },
     "TraceLocationModel": {
       "additionalProperties": false,
-      "description": "Unity Catalog location for storing MLflow traces in OTEL-format Delta tables.\n\nAccepts either a SchemaModel reference (aliased to \"schema\") or a string\nin \"catalog.schema\" format. When configured on AppModel, traces are stored\nin UC Delta tables via set_experiment_trace_location().",
+      "description": "Unity Catalog location for storing MLflow traces in OTEL-format Delta tables.\n\nWhen configured on AppModel, traces are stored in UC Delta tables via\n``mlflow.set_experiment(experiment_id=..., trace_location=UnityCatalog(...))``.\nProvide an optional ``table_prefix`` to namespace the OTEL tables when\nmultiple agents share a single UC schema. Without a prefix, MLflow uses\nthe experiment_id as the prefix \u2014 table names become\n``<catalog>.<schema>.<experiment_id>_otel_{spans,logs,metrics,annotations}``\nrather than a stable shared name.\n\ndao-ai does NOT include the OTEL trace tables in the model's auth_policy\nor App resources list because the table names depend on the experiment_id\n(no prefix) or table_prefix and aren't fully predictable at deploy time.\nInstead, users grant the deployed serving identity USE_CATALOG +\nUSE_SCHEMA + SELECT + MODIFY on the trace schema as a one-time post-deploy\nstep (mirrors the Apps SP grant pattern documented in README).",
       "properties": {
         "schema": {
           "$ref": "#/$defs/SchemaModel",
@@ -7802,6 +7798,40 @@ Installed 1 package in 4ms
           ],
           "description": "SQL warehouse for creating views and querying traces. Accepts a WarehouseModel reference, a bare warehouse-id string, or an AnyVariable (env var / secret / composite / primitive) \u2014 useful when the warehouse id is environment-specific or held in a secret scope rather than baked into the YAML.",
           "title": "Warehouse"
+        },
+        "table_prefix": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CompositeVariableModel"
+            },
+            {
+              "$ref": "#/$defs/EnvironmentVariableModel"
+            },
+            {
+              "$ref": "#/$defs/SecretVariableModel"
+            },
+            {
+              "$ref": "#/$defs/PrimitiveVariableModel"
+            },
+            {
+              "type": "string"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Optional table-prefix passed into MLflow's ``UnityCatalog`` trace location. When set, OTEL trace tables are named ``<catalog>.<schema>.<table_prefix>_otel_{spans,logs,metrics}`` instead of the unprefixed default \u2014 useful when multiple agents share a single trace schema and you want each agent's traces in its own table set. Leave unset (None) to fall back to the shared default (all experiments writing to this schema share one table set, distinguished by experiment_id rows inside the tables).",
+          "title": "Table Prefix"
         }
       },
       "required": [

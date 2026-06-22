@@ -84,10 +84,12 @@ app:
   # `schema` accepts a SchemaModel anchor (preferred) — reusing *retail_schema
   # keeps the OTEL trace tables in the same UC schema as your app data.
   # `warehouse` accepts a WarehouseModel anchor or a bare warehouse-id string.
-  # Replace "your-warehouse-id" with the id of a SQL warehouse the app SP
-  # can be granted CAN_USE on; the generator auto-attaches the warehouse +
-  # UC OTEL tables as app resources when this block is uncommented.
+  # `table_prefix` (optional) namespaces the OTEL tables — final names become
+  # ``<catalog>.<schema>.<prefix>_otel_{spans,logs,metrics,annotations}``.
+  # Without a prefix, MLflow uses the experiment_id as the prefix, which
+  # works but is less readable when multiple agents share a schema.
   #
   # trace_location:
   #   schema: *retail_schema
   #   warehouse: "your-warehouse-id"
+  #   table_prefix: ai_gateway_example   # optional

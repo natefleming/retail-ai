@@ -10,7 +10,7 @@ with both Databricks Model Serving and Databricks Apps environments.
 """
 
 import os
-from typing import AsyncGenerator
+from typing import Any, AsyncGenerator
 
 import mlflow
 from dotenv import load_dotenv
@@ -62,35 +62,41 @@ config: AppConfig = AppConfig.from_file(config_path)
 if config.app and config.app.log_level:
     configure_logging(level=config.app.log_level)
 
-# Configure UC-based trace storage if trace_location is set
+# Configure UC-based trace storage if trace_location is set.
+# Uses mlflow.set_experiment(trace_location=UnityCatalog(...)) — the post-3.11
+# blessed API. Replaces the older
+# mlflow.tracing.set_destination(UCSchemaLocation(...)) +
+# mlflow.tracing.enablement.set_experiment_trace_location combo, both of
+# which emit deprecation warnings on every call.
 if config.app and config.app.trace_location:
-    from mlflow.entities import UCSchemaLocation
-    from mlflow.tracing.enablement import set_experiment_trace_location
+    from mlflow.entities import UnityCatalog
 
     _loc = config.app.trace_location
-    _uc_schema_location = UCSchemaLocation(
-        catalog_name=_loc.catalog_name,
-        schema_name=_loc.schema_name,
-    )
+    _trace_loc_kwargs: dict[str, Any] = {
+        "catalog_name": _loc.catalog_name,
+        "schema_name": _loc.schema_name,
+    }
+    _table_prefix = _loc.resolved_table_prefix
+    if _table_prefix:
+        _trace_loc_kwargs["table_prefix"] = _table_prefix
+    _trace_location = UnityCatalog(**_trace_loc_kwargs)
 
     _experiment_id: str | None = os.environ.get("MLFLOW_EXPERIMENT_ID")
     if _experiment_id:
         try:
-            set_experiment_trace_location(
-                location=_uc_schema_location,
+            mlflow.set_experiment(
                 experiment_id=_experiment_id,
-                sql_warehouse_id=_loc.warehouse_id,
+                trace_location=_trace_location,
             )
         except Exception as _trace_loc_err:
-            # This is typically already configured at deploy time.
-            # At app runtime the auto-created SP may lack USE CATALOG,
-            # which is not fatal — set_destination below handles routing.
+            # This is typically already configured at deploy time. At app
+            # runtime the auto-created SP may lack USE CATALOG, which is
+            # not fatal — the existing UC tables remain the export
+            # destination from when the experiment was first linked.
             logger.warning(
                 "Could not set experiment trace location at app startup "
                 f"(usually already configured at deploy time): {_trace_loc_err}"
             )
-
-    mlflow.tracing.set_destination(destination=_uc_schema_location)
 
 # Create the ResponsesAgent - cast to LanggraphResponsesAgent to access async methods
 _responses_agent: LanggraphResponsesAgent = config.as_responses_agent()  # type: ignore[assignment]
