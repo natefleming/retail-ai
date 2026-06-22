@@ -108,10 +108,29 @@ The command creates a self-contained bundle directory with everything needed to 
 | `databricks.yaml` | Bundle definition with app config, resources, and scopes |
 | `<config>.yaml` | Copy of your dao-ai agent configuration (retains its original filename) |
 | `pyproject.toml` | Python project with dao-ai dependency |
-| `uv.lock` | Locked dependency resolution |
 | `.gitignore` | Ignore patterns for build artifacts |
 | `.python-version` | Python version pin (3.11) |
 | `src/<package>/` | Stub package for custom code |
+
+### Lock file: user-owned
+
+`dao-ai generate-bundle` does **not** create `uv.lock`. The lock encodes URLs and version pins that depend on the index your environment uses, so the user owns it. After `generate-bundle`, run:
+
+```bash
+cd ./my-bundle
+uv sync           # produces uv.lock from pyproject.toml against your default index
+```
+
+Apps' native uv support activates when both `pyproject.toml` and `uv.lock` are present and `requirements.txt` is absent — the BUILD phase runs `uv sync --locked --no-dev` for you.
+
+> **Databricks-internal users**: if your local `uv` config defaults to the internal `pypi-proxy.dev.databricks.com` mirror, your generated lock will contain URLs that Apps containers cannot reach. Rewrite them before deploy (hashes don't change — proxy is a transparent mirror):
+>
+> ```bash
+> sed -i '' \
+>   -e 's|pypi-proxy\.dev\.databricks\.com/packages/|files.pythonhosted.org/packages/|g' \
+>   -e 's|pypi-proxy\.dev\.databricks\.com/simple/|pypi.org/simple/|g' \
+>   uv.lock
+> ```
 
 When `app.enable_chat_proxy` is `true` (the default), the deployed app automatically clones and builds the Databricks [e2e-chatbot-app-next](https://github.com/databricks/app-templates/tree/main/e2e-chatbot-app-next) chat UI at startup. The Apps runtime has Node.js pre-installed, so no Node.js is needed on your development machine. Set `enable_chat_proxy: false` to deploy without the chat UI.
 

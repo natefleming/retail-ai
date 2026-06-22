@@ -6,11 +6,10 @@ of :func:`dao_ai.apps.bundle.write_bundle` but produces an MCP-only artifact:
 * ``databricks.yml`` — DAB with ``bundle.engine: direct`` and the App resource
   bindings derived from ``config.tools`` (filtered to entries with registered
   MCP adapters).
-* ``app.yaml`` — ``command: ["uv", "run", "dao-ai-mcp-server"]`` plus env vars
-  matching the App resource bindings.
+* ``app.yaml`` — ``command: ["dao-ai-mcp-server"]`` plus env vars matching the
+  App resource bindings.
 * ``pyproject.toml`` — single dep ``dao-ai[mcp]>=<current-version>``; declares
   ``dao-ai-mcp-server`` as a re-exported script.
-* ``requirements.txt`` — ``uv`` only.
 * ``dao_ai.yaml`` — the rendered (param-substituted) config, stripped of its
   top-level ``parameters:`` block.
 * ``README.md`` — generated deploy snippet listing required ``--var`` flags.
@@ -38,7 +37,10 @@ from dao_ai.mcp.adapters import get_adapter
 from dao_ai.mcp.adapters import vector_search as _vector_search_adapter  # noqa: F401
 
 DEFAULT_CONFIG_FILENAME = "dao_ai.yaml"
-APP_COMMAND: list[str] = ["uv", "run", "dao-ai-mcp-server"]
+# Bare console-script entry. Apps' native uv support runs `uv sync --locked
+# --no-dev` at BUILD phase, which installs `dao-ai-mcp-server` into
+# .venv/bin/ and puts that on PATH for the runtime.
+APP_COMMAND: list[str] = ["dao-ai-mcp-server"]
 
 
 def write_mcp_bundle(
@@ -101,7 +103,6 @@ def write_mcp_bundle(
         output_dir / "pyproject.toml",
         _render_pyproject(app_name=app_name, wheel_filename=wheel_filename),
     )
-    _write(output_dir / "requirements.txt", "uv\n")
 
     rendered: str | None = getattr(config, "_rendered_yaml", None)
     if rendered is not None:
@@ -128,6 +129,9 @@ def write_mcp_bundle(
 
     print("\nNext steps:")
     print(f"  cd {output_dir}")
+    print("  uv sync                              # generate uv.lock against your env")
+    print("  # Databricks-internal users only: rewrite internal-proxy URLs in the lock")
+    print("  # so Apps containers can fetch from public PyPI (see README).")
     print("  databricks bundle validate -t dev -p <profile>")
     print("  databricks bundle deploy -t dev -p <profile>")
     print()

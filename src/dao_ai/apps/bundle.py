@@ -89,11 +89,6 @@ bundle_config_schema.json
 dao_ai_schema.json
 """
 
-# Databricks Apps' runtime auto-installs Python deps from requirements.txt.
-# We ship just `uv` so the rest of the dependency graph (including dao-ai)
-# resolves from pyproject.toml + uv.lock at app startup via `uv run`.
-_REQUIREMENTS_TXT_CONTENT = "uv\n"
-
 _PYPROJECT_TEMPLATE = """\
 [build-system]
 requires = ["hatchling"]
@@ -370,10 +365,13 @@ def _build_app_block(
 
     user_api_scopes = generate_user_api_scopes(config)
 
+    # Bare `python -m` — no `uv run` wrapper. Apps' native uv support runs
+    # `uv sync --locked --no-dev` at BUILD phase and puts .venv/bin on PATH,
+    # so the runtime `python` is already venv-python with dao-ai installed.
     app_command: list[str] = (
-        ["uv", "run", "python", "-m", "dao_ai.apps.start_app"]
+        ["python", "-m", "dao_ai.apps.start_app"]
         if enable_chat_proxy
-        else ["uv", "run", "python", "-m", "dao_ai.apps.server"]
+        else ["python", "-m", "dao_ai.apps.server"]
     )
 
     app_def: dict[str, Any] = {
@@ -721,39 +719,11 @@ def write_bundle(
             logger.info(f"Created stub package src/{package_name}/")
             written.append(f"src/{package_name}/__init__.py")
 
-    # Generate uv.lock so the app runtime uses uv to install from pyproject.toml.
-    # When force=True, delete any existing lock first. Otherwise `uv lock` is
-    # a no-op when pyproject.toml hasn't changed, even if the local wheel it
-    # points at has been rebuilt with a new hash — leading to hash-mismatch
-    # failures on deploy.
-    lock_path: Path = output_dir / "uv.lock"
-    if force and lock_path.exists():
-        lock_path.unlink()
-        logger.info("Removed existing uv.lock for regeneration (force)")
-
-    logger.info("Resolving dependencies with uv lock...")
-    result = subprocess.run(
-        ["uv", "lock"],
-        cwd=output_dir,
-        capture_output=True,
-        text=True,
-    )
-    if result.returncode == 0:
-        written.append("uv.lock")
-        logger.info("Generated uv.lock")
-    else:
-        logger.error(f"Failed to generate uv.lock: {result.stderr.strip()}")
-        print(
-            f"  ERROR: uv lock failed. The app will not install dependencies correctly.\n"
-            f"         {result.stderr.strip()}"
-        )
-
     _track(
         output_dir / ".gitignore",
         _GITIGNORE_DEV_CONTENT if development else _GITIGNORE_CONTENT,
     )
     _track(output_dir / ".python-version", "3.11\n")
-    _track(output_dir / "requirements.txt", _REQUIREMENTS_TXT_CONTENT)
 
     print(f"\nBundle generated in {output_dir}/\n")
     for name in written:
@@ -766,7 +736,9 @@ def write_bundle(
 
     print("\nNext steps:")
     print(f"  cd {output_dir}")
-    print("  uv sync")
+    print("  uv sync                              # generate uv.lock against your env")
+    print("  # Databricks-internal users only: rewrite internal-proxy URLs in the lock")
+    print("  # so Apps containers can fetch from public PyPI (see README).")
     print("  databricks bundle deploy --target dev")
     print(f"  databricks bundle run {app_name} --target dev")
     print()

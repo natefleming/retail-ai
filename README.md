@@ -408,6 +408,8 @@ dao-ai pipeline --deploy -c config/my_config.yaml --profile azure-retail
 
 # Generate a deployable Databricks Apps bundle
 dao-ai generate-bundle -c config/my_config.yaml -o ./my-bundle
+# Then `cd` in and run `uv sync` to produce uv.lock — see "Deploying to
+# Databricks Apps" below for the full two-step workflow.
 
 # Interactive chat with agent
 dao-ai chat -c config/my_config.yaml
@@ -415,6 +417,36 @@ dao-ai chat -c config/my_config.yaml
 # Inspect declared parameters and resolved values
 dao-ai parameters list -c config/my_config.yaml --param catalog=nfleming
 ```
+
+### Deploying to Databricks Apps
+
+`dao-ai generate-bundle` produces a bundle skeleton (`pyproject.toml` + app/resource YAML + your config), but it deliberately does **not** generate `uv.lock`. The lock encodes URLs and pins specific to your environment, so you own it.
+
+**External users** (default index = public PyPI):
+
+```bash
+dao-ai generate-bundle -c config/my_config.yaml -o ./my-bundle
+cd ./my-bundle
+uv sync                                # produces uv.lock from public PyPI
+databricks bundle deploy -t dev -p <profile>
+databricks bundle run <app-name> -t dev -p <profile>
+```
+
+**Databricks-internal users** (local `uv` config defaults to the internal `pypi-proxy.dev.databricks.com` mirror): you need one extra step. The mirror is not reachable from Apps containers, so the lock URLs must be rewritten to public PyPI before deploy. The mirror is transparent, so hashes match — only the URLs need to change:
+
+```bash
+dao-ai generate-bundle -c config/my_config.yaml -o ./my-bundle
+cd ./my-bundle
+uv sync                                # produces uv.lock with internal-proxy URLs
+sed -i '' \
+  -e 's|pypi-proxy\.dev\.databricks\.com/packages/|files.pythonhosted.org/packages/|g' \
+  -e 's|pypi-proxy\.dev\.databricks\.com/simple/|pypi.org/simple/|g' \
+  uv.lock
+databricks bundle deploy -t dev -p <profile>
+databricks bundle run <app-name> -t dev -p <profile>
+```
+
+Apps' native uv support (announced 2026) activates automatically when `pyproject.toml` + `uv.lock` are present and `requirements.txt` is absent. The BUILD phase runs `uv sync --locked --no-dev`; the runtime command is bare `python -m dao_ai.apps.start_app` (chat-proxy variant) or `python -m dao_ai.apps.server` (no chat UI). No `uv run` wrapper needed.
 
 ### Multi-Cloud Deployment
 
