@@ -475,6 +475,47 @@ class DatabricksProvider(ServiceProvider):
             experiment_id=experiment.experiment_id,
         )
 
+        # Link experiment to UC trace location BEFORE log_model + register_model.
+        # When the model is logged with auth_policy listing the 3 OTEL trace
+        # tables (via TraceLocationModel.as_resources()), MLflow's
+        # mlflow.register_model validates those resources by calling
+        # generate-temporary-credentials on the model version. If the OTEL
+        # tables don't exist yet, that call returns 404 / TABLE_DOES_NOT_EXIST
+        # and the registration fails. set_experiment_trace_location is what
+        # creates the tables — it also auto-starts a STOPPED warehouse and
+        # waits for it. Calling it here, before log_model, guarantees the
+        # tables exist when the model is registered. The same step is repeated
+        # idempotently in deploy_model_serving_agent so that re-deploys (which
+        # skip create_agent) still set up the link.
+        if config.app and config.app.trace_location:
+            from mlflow.entities import UCSchemaLocation
+            from mlflow.tracing.enablement import set_experiment_trace_location
+
+            loc = config.app.trace_location
+            try:
+                set_experiment_trace_location(
+                    location=UCSchemaLocation(
+                        catalog_name=loc.catalog_name,
+                        schema_name=loc.schema_name,
+                    ),
+                    experiment_id=experiment.experiment_id,
+                    sql_warehouse_id=loc.warehouse_id,
+                )
+                logger.info(
+                    "Linked experiment to UC trace location",
+                    catalog=loc.catalog_name,
+                    schema=loc.schema_name,
+                )
+            except mlflow.exceptions.RestException as e:
+                if "already contains traces" in str(e):
+                    logger.warning(
+                        "UC trace destination already linked or experiment "
+                        "has existing traces, skipping",
+                        experiment_id=experiment.experiment_id,
+                    )
+                else:
+                    raise
+
         auth_policy: AuthPolicy = build_auth_policy(config)
         logger.debug(
             "Auth policy created",
@@ -784,6 +825,54 @@ class DatabricksProvider(ServiceProvider):
 
         tags_kw: dict[str, str] | None = None if serving_exists else tags
 
+        # Link experiment to UC trace location BEFORE agents.deploy. The
+        # logged model's auth_policy declares the OTEL trace tables as
+        # databricks_resources (via TraceLocationModel.as_resources()), and
+        # agents.deploy validates the resource list when it calls
+        # generate-temporary-credentials on the model version. If the OTEL
+        # tables don't exist yet, that lookup returns
+        # TABLE_DOES_NOT_EXIST and agents.deploy aborts. Calling
+        # set_experiment_trace_location here triggers MLflow to create the
+        # OTEL tables (auto-starts the warehouse if STOPPED, waits for it).
+        # Order matters: this must precede agents.deploy.
+        if config.app.trace_location:
+            from mlflow.entities import UCSchemaLocation
+            from mlflow.tracing.enablement import set_experiment_trace_location
+
+            experiment: Experiment = self.get_or_create_experiment(config)
+            loc = config.app.trace_location
+
+            try:
+                set_experiment_trace_location(
+                    location=UCSchemaLocation(
+                        catalog_name=loc.catalog_name,
+                        schema_name=loc.schema_name,
+                    ),
+                    experiment_id=experiment.experiment_id,
+                    sql_warehouse_id=loc.warehouse_id,
+                )
+                logger.info(
+                    "Linked experiment to UC trace location for Model Serving",
+                    catalog=loc.catalog_name,
+                    schema=loc.schema_name,
+                )
+            except mlflow.exceptions.RestException as e:
+                # Tolerate idempotent-link cases. The link is harmless to
+                # repeat in principle, but the platform rejects re-linking
+                # if the experiment already has traces. Surface other
+                # errors so the deploy fails loudly rather than producing
+                # a broken serving endpoint.
+                if "already contains traces" in str(e):
+                    logger.warning(
+                        "UC trace destination already linked or experiment "
+                        "has existing traces, skipping",
+                        experiment_id=experiment.experiment_id,
+                        catalog=loc.catalog_name,
+                        schema=loc.schema_name,
+                    )
+                else:
+                    raise
+
         max_attempts: int = 6
         for attempt in range(1, max_attempts + 1):
             try:
@@ -835,39 +924,6 @@ class DatabricksProvider(ServiceProvider):
                     users=principals,
                     permission_level=PermissionLevel[entitlement],
                 )
-
-        # Link experiment to UC trace location if configured
-        if config.app.trace_location:
-            from mlflow.entities import UCSchemaLocation
-            from mlflow.tracing.enablement import set_experiment_trace_location
-
-            experiment: Experiment = self.get_or_create_experiment(config)
-            loc = config.app.trace_location
-
-            try:
-                set_experiment_trace_location(
-                    location=UCSchemaLocation(
-                        catalog_name=loc.catalog_name,
-                        schema_name=loc.schema_name,
-                    ),
-                    experiment_id=experiment.experiment_id,
-                    sql_warehouse_id=loc.warehouse_id,
-                )
-                logger.info(
-                    "Linked experiment to UC trace location for Model Serving",
-                    catalog=loc.catalog_name,
-                    schema=loc.schema_name,
-                )
-            except mlflow.exceptions.RestException as e:
-                if "already contains traces" in str(e):
-                    logger.warning(
-                        "UC trace destination already linked or experiment has existing traces, skipping",
-                        experiment_id=experiment.experiment_id,
-                        catalog=loc.catalog_name,
-                        schema=loc.schema_name,
-                    )
-                else:
-                    raise
 
         # Register production monitoring scorers if configured
         if config.app.monitoring:
