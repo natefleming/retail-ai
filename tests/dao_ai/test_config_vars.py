@@ -1005,12 +1005,15 @@ def test_write_bundle_bakes_resolved_values_and_drops_parameters(
 
 
 @pytest.mark.unit
-def test_write_bundle_emits_requirements_txt_and_uv_run_command(
+def test_write_bundle_uses_apps_native_uv_path(
     parameterised_config_path: Path, tmp_path: Path
 ) -> None:
-    """The generated bundle must ship a requirements.txt (so Databricks Apps
-    auto-installs `uv`) and an app `command:` that starts with `uv run`.
-    Without both, the App container's runtime venv is missing dao_ai.
+    """The generated bundle must NOT ship requirements.txt and must NOT ship
+    a uv.lock. Both would short-circuit Apps' native uv support (which
+    activates when pyproject.toml + uv.lock are present AND requirements.txt
+    is absent). The user runs `uv sync` themselves to produce their own lock.
+    The app `command:` must be bare `python -m …` — no `uv run` wrapper —
+    because Apps' native uv BUILD populates .venv/ and venv-python is on PATH.
     """
     from dao_ai.apps.bundle import write_bundle
 
@@ -1024,8 +1027,19 @@ def test_write_bundle_emits_requirements_txt_and_uv_run_command(
 
     write_bundle(config, out_dir, force=True, development=False)
 
-    req = (out_dir / "requirements.txt").read_text().strip().splitlines()
-    assert req == ["uv"], f"requirements.txt should contain only `uv`; got {req!r}"
+    assert not (out_dir / "requirements.txt").exists(), (
+        "Generated bundle must not ship requirements.txt — its presence "
+        "would force Apps onto the legacy pip-install path and skip "
+        "native uv support."
+    )
+    assert not (out_dir / "uv.lock").exists(), (
+        "Generated bundle must not ship uv.lock — lock is user-owned and "
+        "should be produced by `uv sync` after generate-bundle."
+    )
+    assert (out_dir / "pyproject.toml").exists(), (
+        "pyproject.toml must be present so `uv sync` has something to "
+        "resolve from."
+    )
 
     # The trimmed databricks.yaml carries bundle/include/targets/artifacts only;
     # the App + experiment block lives in resources/app.yml so users can drop
@@ -1042,11 +1056,8 @@ def test_write_bundle_emits_requirements_txt_and_uv_run_command(
     app_yaml = yaml.safe_load((out_dir / "resources" / "app.yml").read_text())
     app_name = next(iter(app_yaml["resources"]["apps"]))
     cmd = app_yaml["resources"]["apps"][app_name]["config"]["command"]
-    assert cmd[:2] == ["uv", "run"], (
-        f"App command must start with `uv run`; got {cmd!r}"
-    )
-    assert cmd[2:] == ["python", "-m", "dao_ai.apps.start_app"], (
-        f"App command tail unexpected: {cmd!r}"
+    assert cmd == ["python", "-m", "dao_ai.apps.start_app"], (
+        f"App command must be bare python (no uv run wrapper); got {cmd!r}"
     )
 
 

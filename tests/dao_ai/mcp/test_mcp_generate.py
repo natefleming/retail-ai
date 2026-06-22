@@ -25,13 +25,19 @@ def test_write_mcp_bundle_emits_expected_files(tmp_path: Path) -> None:
         "databricks.yml",
         "app.yaml",
         "pyproject.toml",
-        "requirements.txt",
         "README.md",
     }
     produced = {p.name for p in out.iterdir() if p.is_file()}
     assert expected.issubset(produced)
+    assert "requirements.txt" not in produced, (
+        "MCP bundle must not ship requirements.txt — its presence would "
+        "force Apps onto the legacy pip-install path and skip native uv."
+    )
+    assert "uv.lock" not in produced, (
+        "MCP bundle must not ship uv.lock — lock is user-owned and "
+        "produced by `uv sync` after generate-mcp."
+    )
 
-    assert (out / "requirements.txt").read_text().strip() == "uv"
     pyproject = (out / "pyproject.toml").read_text()
     assert "dao-ai[mcp]" in pyproject
     assert 'dao-ai-mcp-server = "dao_ai.mcp.server:main"' in pyproject
@@ -41,8 +47,12 @@ def test_write_mcp_bundle_emits_expected_files(tmp_path: Path) -> None:
     assert "apps:" in databricks
 
     app_yaml = (out / "app.yaml").read_text()
-    assert 'uv' in app_yaml
+    # Bare console-script command — no `uv run` wrapper. Apps' native uv
+    # BUILD installs the console script into .venv/bin/ for the runtime.
     assert 'dao-ai-mcp-server' in app_yaml
+    assert 'uv' not in app_yaml, (
+        f"app.yaml must not reference `uv` in the runtime command; got:\n{app_yaml}"
+    )
 
 
 @pytest.mark.unit

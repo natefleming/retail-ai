@@ -201,12 +201,13 @@ The vector-search adapter passes the entire `args.retriever` block straight thro
 ```
 output/
 ├── databricks.yml        # bundle.engine: direct; App + bound resources
-├── app.yaml              # command: ["uv", "run", "dao-ai-mcp-server"]
+├── app.yaml              # command: ["dao-ai-mcp-server"]
 ├── pyproject.toml        # dao-ai[mcp]>=<version>
-├── requirements.txt      # uv
 ├── <your-config>.yaml    # rendered with parameters: stripped
 └── README.md             # generated deploy snippet
 ```
+
+After `generate-mcp`, run `uv sync` in the output directory to produce `uv.lock` from your environment. Databricks Apps' native uv support then activates at deploy: BUILD runs `uv sync --locked --no-dev` and the runtime command `["dao-ai-mcp-server"]` invokes the console script installed in `.venv/bin/`. Databricks-internal users need to rewrite internal-proxy URLs in the lock before deploy — see `docs/cli-reference.md` for the sed one-liner.
 
 ### CLI flags
 
