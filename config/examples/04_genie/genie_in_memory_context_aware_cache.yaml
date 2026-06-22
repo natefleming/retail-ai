@@ -10,6 +10,12 @@ parameters:
   schema:
     description: Schema within the catalog
     default: quick_serve_restaurant
+  warehouse_id:
+    description: SQL Warehouse id used by the Genie cache to re-execute cached SQL.
+    default: 148ccb90800933a1
+  endpoint_name:
+    description: Model serving endpoint name.
+    default: dao_genie_in_memory_context_aware_cache
 
 #
 # Example configuration for Genie with in-memory context-aware caching:
@@ -51,7 +57,7 @@ resources:
     shared_endpoint_warehouse: &shared_endpoint_warehouse
       name: "Shared Endpoint Warehouse"             # Human-readable name
       description: "A warehouse for shared endpoints"  # Description
-      warehouse_id: 148ccb90800933a1                # Databricks warehouse ID
+      warehouse_id: ${var.warehouse_id}             # Databricks warehouse ID
       on_behalf_of_user: false
 
   genie_rooms:
@@ -155,7 +161,7 @@ app:
     schema: *quick_serve_restaurant_schema
                                                     # Schema where model will be registered
     name: dao_genie_in_memory_context_aware_cache   # Model name in MLflow registry
-  endpoint_name: dao_genie_in_memory_context_aware_cache # Model serving endpoint name
+  endpoint_name: ${var.endpoint_name}               # Model serving endpoint name
   tags:                                             # Tags for resource organization
     business: rcg                                   # Business unit identifier
     streaming: true                                 # Indicates streaming capabilities
