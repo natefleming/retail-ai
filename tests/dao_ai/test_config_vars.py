@@ -1062,6 +1062,76 @@ def test_write_bundle_uses_apps_native_uv_path(
 
 
 @pytest.mark.unit
+def test_write_bundle_attaches_trace_location_resources(
+    parameterised_config_path: Path, tmp_path: Path
+) -> None:
+    """When app.trace_location is set, the generated bundle must attach the
+    SQL warehouse + the 3 OTEL trace tables as app resources with the right
+    permissions, so the App SP gets CAN_USE on the warehouse and SELECT on
+    the OTEL tables (which auto-grants USE CATALOG + USE SCHEMA via the
+    Apps platform). Without these grants, UC-backed tracing silently fails.
+
+    Also asserts that MLFLOW_TRACING_SQL_WAREHOUSE_ID is set in the App's
+    env vars.
+    """
+    import yaml as _yaml
+
+    from dao_ai.apps.bundle import write_bundle
+    from dao_ai.config import SchemaModel, TraceLocationModel
+
+    config = AppConfig.from_file(
+        parameterised_config_path,
+        params={"module_id": "09", "catalog": "nfleming"},
+        initialize=False,
+    )
+    config.app.trace_location = TraceLocationModel(
+        schema=SchemaModel(catalog_name="nfleming", schema_name="traces"),
+        warehouse="148ccb90800933a1",
+    )
+
+    out_dir = tmp_path / "bundle"
+    out_dir.mkdir()
+    write_bundle(config, out_dir, force=True, development=False)
+
+    app_yaml = _yaml.safe_load((out_dir / "resources" / "app.yml").read_text())
+    app_name = next(iter(app_yaml["resources"]["apps"]))
+    app_block = app_yaml["resources"]["apps"][app_name]
+
+    resource_names = {r.get("name") for r in app_block["resources"]}
+    assert "trace_warehouse" in resource_names, (
+        "Missing trace_warehouse app-resource (App SP won't have CAN_USE on "
+        "the warehouse and UC OTEL trace writes will fail silently)."
+    )
+    expected_otel_resources = {
+        "trace_otel_spans",
+        "trace_otel_logs",
+        "trace_otel_metrics",
+    }
+    assert expected_otel_resources.issubset(resource_names), (
+        f"Missing OTEL table app-resources (App SP needs SELECT on each so "
+        f"USE CATALOG + USE SCHEMA are auto-granted). Got: {resource_names}"
+    )
+
+    warehouse_resource = next(
+        r for r in app_block["resources"] if r["name"] == "trace_warehouse"
+    )
+    assert warehouse_resource["sql_warehouse"]["permission"] == "CAN_USE"
+
+    for otel_name in expected_otel_resources:
+        otel_resource = next(
+            r for r in app_block["resources"] if r["name"] == otel_name
+        )
+        assert otel_resource["uc_securable"]["securable_type"] == "TABLE"
+        assert otel_resource["uc_securable"]["permission"] == "SELECT"
+
+    env_var_names = {e["name"] for e in app_block["config"]["env"]}
+    assert "MLFLOW_TRACING_SQL_WAREHOUSE_ID" in env_var_names, (
+        "App's env must include MLFLOW_TRACING_SQL_WAREHOUSE_ID so handlers.py "
+        "can route trace export through the configured warehouse."
+    )
+
+
+@pytest.mark.unit
 def test_write_bundle_preserves_user_resources_yml(
     parameterised_config_path: Path, tmp_path: Path
 ) -> None:

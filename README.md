@@ -448,6 +448,21 @@ databricks bundle run <app-name> -t dev -p <profile>
 
 Apps' native uv support (announced 2026) activates automatically when `pyproject.toml` + `uv.lock` are present and `requirements.txt` is absent. The BUILD phase runs `uv sync --locked --no-dev`; the runtime command is bare `python -m dao_ai.apps.start_app` (chat-proxy variant) or `python -m dao_ai.apps.server` (no chat UI). No `uv run` wrapper needed.
 
+#### Trace persistence on Apps
+
+MLflow's default control-plane trace export does **not** work on Databricks Apps today: the artifact-storage host (`us-east-1.storage.cloud.databricks.com`) is unreachable from App containers, so trace spans are silently dropped (you'll see `WARNING mlflow.tracing.export.mlflow_v3: ... Connection refused` in the App logs). To capture traces, set `app.trace_location` in your config so traces export through a SQL warehouse → UC OTEL tables (reachable from Apps):
+
+```yaml
+app:
+  name: my_app
+  # ...
+  trace_location:
+    schema: *retail_schema                   # reference an existing SchemaModel anchor
+    warehouse: "your-warehouse-id"           # or a *warehouse anchor
+```
+
+When `trace_location` is set, `generate-bundle` automatically attaches the SQL warehouse + the UC OTEL trace tables as app resources (with `CAN_USE` + `SELECT` grants for the App SP) and adds `MLFLOW_TRACING_SQL_WAREHOUSE_ID` to the App's env. When `trace_location` is unset, `generate-bundle` emits a loud warning. Local notebook/CLI runs and Model Serving deploys are unaffected and continue to use the default control-plane path. See `config/examples/01_getting_started/ai_gateway.yaml` for a commented example.
+
 ### Multi-Cloud Deployment
 
 DAO AI supports deploying to Azure, AWS, and GCP workspaces with automatic cloud detection:

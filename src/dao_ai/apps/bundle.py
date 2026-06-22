@@ -31,7 +31,7 @@ from dao_ai.apps.resources import (
     generate_app_resources,
     generate_user_api_scopes,
 )
-from dao_ai.config import AppConfig
+from dao_ai.config import AppConfig, value_of
 
 _BUNDLE_RESOURCE_CONVERTERS: dict[str, str] = {
     "serving-endpoint": "serving_endpoint",
@@ -334,6 +334,18 @@ def _build_app_block(
         {"name": "DAO_AI_CONFIG_PATH", "value": config_filename},
     ]
 
+    # When trace_location is configured, expose the warehouse id so handlers.py
+    # can route MLflow trace export through it. Must be the bare warehouse id
+    # (a `value_from: trace_warehouse` would inject the HTTP path, which the
+    # MLflow tracing exporter rejects).
+    if config.app and config.app.trace_location:
+        env_vars.append(
+            {
+                "name": "MLFLOW_TRACING_SQL_WAREHOUSE_ID",
+                "value": value_of(config.app.trace_location.warehouse_id),
+            }
+        )
+
     if enable_chat_proxy:
         from dao_ai.apps.chat_ui import chat_ui_env_vars
 
@@ -352,6 +364,32 @@ def _build_app_block(
 
     app_resources = generate_app_resources(config)
     bundle_resources = _convert_to_bundle_resources(app_resources)
+
+    # When trace_location is configured, attach the SQL warehouse + the 3
+    # OTEL trace tables as app resources so the platform grants the App SP
+    # CAN_USE on the warehouse and SELECT on the OTEL tables (which auto-
+    # grants USE CATALOG + USE SCHEMA). generate_app_resources above already
+    # emits the flat-format resources for everything declared in
+    # config.resources.{warehouses,tables,...}, but the trace-location-
+    # synthesized warehouse + OTEL tables come from app.trace_location and
+    # _extract_raw_trace_location_resources returns them already in the
+    # nested bundle format, so we append them directly here.
+    if config.app and config.app.trace_location:
+        from dao_ai.apps.resources import _extract_raw_trace_location_resources
+
+        existing_wh_ids: set[str] = set()
+        if config.resources:
+            for _wh in config.resources.warehouses.values():
+                try:
+                    existing_wh_ids.add(value_of(_wh.warehouse_id))
+                except Exception:
+                    pass
+        bundle_resources.extend(
+            _extract_raw_trace_location_resources(
+                config.app.trace_location,
+                existing_warehouse_ids=existing_wh_ids,
+            )
+        )
 
     experiment_key: str = f"{app_name}-experiment"
     experiment_app_resource: dict[str, Any] = {
@@ -526,6 +564,27 @@ def write_bundle(
     app_name: str = config.app.name.lower().replace("_", "-")
     written: list[str] = []
     skipped: list[str] = []
+
+    # Warn loudly when the bundle is being built without `trace_location`:
+    # Databricks Apps containers cannot reach the artifact-storage host the
+    # default MLflow control-plane trace exporter PUTs spans to, so spans
+    # silently fail to persist on Apps. Configuring `app.trace_location`
+    # routes export through a SQL warehouse → UC OTEL tables (reachable
+    # from Apps). Model Serving deploys aren't affected. The warning is
+    # informational — generate-bundle still emits a working bundle either way.
+    if config.app is None or config.app.trace_location is None:
+        _trace_location_warning = (
+            "app.trace_location is NOT set. MLflow trace SPANS will NOT "
+            "persist when this bundle runs on Databricks Apps — control-plane "
+            "trace export targets a storage host that Apps containers cannot "
+            "reach, so spans are silently dropped. To capture traces, set "
+            "`app.trace_location` in your config (see "
+            "config/examples/01_getting_started/ai_gateway.yaml for the YAML "
+            "shape). Local notebook/CLI runs and Model Serving deploys are "
+            "not affected by this."
+        )
+        logger.warning(_trace_location_warning)
+        print(f"\n  ⚠  {_trace_location_warning}\n")
 
     def _track(path: Path, content: str) -> None:
         if _write_file(path, content, force):

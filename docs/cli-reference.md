@@ -134,6 +134,31 @@ Apps' native uv support activates when both `pyproject.toml` and `uv.lock` are p
 
 When `app.enable_chat_proxy` is `true` (the default), the deployed app automatically clones and builds the Databricks [e2e-chatbot-app-next](https://github.com/databricks/app-templates/tree/main/e2e-chatbot-app-next) chat UI at startup. The Apps runtime has Node.js pre-installed, so no Node.js is needed on your development machine. Set `enable_chat_proxy: false` to deploy without the chat UI.
 
+### Trace persistence on Apps requires `trace_location`
+
+The default MLflow control-plane trace exporter does not work on Databricks Apps today: the artifact-storage host (`us-east-1.storage.cloud.databricks.com`) is unreachable from Apps containers and spans silently fail to upload. Watch for this line in `databricks apps logs`:
+
+```
+WARNING mlflow.tracing.export.mlflow_v3: Failed to send trace to MLflow backend:
+HTTPSConnectionPool(host='us-east-1.storage.cloud.databricks.com', port=443):
+... Connection refused
+```
+
+To capture traces, configure `app.trace_location` in your config so traces route through a SQL warehouse to UC OTEL tables (a path Apps CAN reach):
+
+```yaml
+app:
+  name: my_app
+  # ...
+  trace_location:
+    schema: *retail_schema                   # reference an existing SchemaModel anchor
+    warehouse: "your-warehouse-id"           # or a *warehouse anchor reference
+```
+
+When `trace_location` is set, `generate-bundle` automatically wires up the SQL warehouse + the OTEL trace tables as App resources (CAN_USE + SELECT grants for the App SP) and adds `MLFLOW_TRACING_SQL_WAREHOUSE_ID` to the App's `env`. When `trace_location` is unset, `generate-bundle` emits a `⚠` warning to alert you. Local notebook/CLI runs and Model Serving deploys are unaffected.
+
+See `config/examples/01_getting_started/ai_gateway.yaml` for a drop-in example.
+
 ### Overwriting Existing Files
 
 If the output directory already contains generated files, they are skipped by default. Use `--force` to overwrite:
