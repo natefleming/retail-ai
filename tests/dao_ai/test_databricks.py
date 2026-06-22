@@ -2358,78 +2358,14 @@ def test_deploy_model_serving_links_experiment_and_grants_permissions():
             with patch.object(
                 provider, "get_or_create_experiment", return_value=mock_experiment
             ):
-                with patch.object(
-                    provider, "grant_otel_table_permissions"
-                ) as mock_grant:
-                    provider.deploy_model_serving_agent(mock_config)
+                provider.deploy_model_serving_agent(mock_config)
 
-                    mock_set_loc.assert_called_once()
-                    call_kwargs = mock_set_loc.call_args.kwargs
-                    assert call_kwargs["experiment_id"] == "exp123"
-                    assert call_kwargs["sql_warehouse_id"] == "wh123"
-
-                    mock_grant.assert_called_once_with(mock_config)
-
-
-@pytest.mark.unit
-def test_grant_otel_table_permissions_grants_modify_and_select():
-    """Test that grant_otel_table_permissions grants MODIFY and SELECT on each OTEL table."""
-    from dao_ai.config import (
-        AppConfig,
-        AppModel,
-        ServicePrincipalModel,
-        TraceLocationModel,
-    )
-    from dao_ai.providers.databricks import DatabricksProvider
-
-    mock_config = MagicMock(spec=AppConfig)
-    mock_app = MagicMock(spec=AppModel)
-
-    trace_loc = MagicMock(spec=TraceLocationModel)
-    trace_loc.catalog_name = "cat"
-    trace_loc.schema_name = "sch"
-    trace_loc.warehouse_id = "wh1"
-    mock_app.trace_location = trace_loc
-
-    mock_sp = MagicMock(spec=ServicePrincipalModel)
-    mock_sp.client_id = "sp-client-id-123"
-    mock_app.service_principal = mock_sp
-
-    mock_config.app = mock_app
-
-    with patch.object(DatabricksProvider, "__init__", return_value=None):
-        with patch("dao_ai.config.value_of", return_value="sp-client-id-123"):
-            provider = DatabricksProvider()
-            provider.w = MagicMock()
-
-            provider.grant_otel_table_permissions(mock_config)
-
-            expected_table_count = len(TraceLocationModel.OTEL_TABLE_SUFFIXES)
-            # 2 privileges per table (MODIFY and SELECT)
-            assert provider.w.grants.update.call_count == expected_table_count * 2
-
-
-@pytest.mark.unit
-def test_grant_otel_table_permissions_skips_without_service_principal():
-    """Test that grant_otel_table_permissions does nothing without a service principal."""
-    from dao_ai.config import AppConfig, AppModel, TraceLocationModel
-    from dao_ai.providers.databricks import DatabricksProvider
-
-    mock_config = MagicMock(spec=AppConfig)
-    mock_app = MagicMock(spec=AppModel)
-
-    trace_loc = MagicMock(spec=TraceLocationModel)
-    trace_loc.catalog_name = "cat"
-    trace_loc.schema_name = "sch"
-    mock_app.trace_location = trace_loc
-    mock_app.service_principal = None
-
-    mock_config.app = mock_app
-
-    with patch.object(DatabricksProvider, "__init__", return_value=None):
-        provider = DatabricksProvider()
-        provider.w = MagicMock()
-
-        provider.grant_otel_table_permissions(mock_config)
-
-        provider.w.grants.update.assert_not_called()
+                # set_experiment_trace_location wires the experiment to UC.
+                # Per-OTEL-table grant calls were removed — MLflow auto-
+                # creates the tables at first trace write, and the App SP
+                # gets schema-level privileges via the bundle/auth_policy
+                # path (or a one-time manual grant for Apps deploys).
+                mock_set_loc.assert_called_once()
+                call_kwargs = mock_set_loc.call_args.kwargs
+                assert call_kwargs["experiment_id"] == "exp123"
+                assert call_kwargs["sql_warehouse_id"] == "wh123"

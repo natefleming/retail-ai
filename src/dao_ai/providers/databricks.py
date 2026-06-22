@@ -869,8 +869,6 @@ class DatabricksProvider(ServiceProvider):
                 else:
                     raise
 
-            self.grant_otel_table_permissions(config)
-
         # Register production monitoring scorers if configured
         if config.app.monitoring:
             from dao_ai.evaluation import register_monitoring_scorers
@@ -892,78 +890,6 @@ class DatabricksProvider(ServiceProvider):
                 "Production monitoring scorers registered for Model Serving",
                 scorer_count=len(registered_scorers),
             )
-
-    def grant_otel_table_permissions(self, config: AppConfig) -> None:
-        """Grant explicit MODIFY and SELECT on OTEL trace tables.
-
-        Per Databricks docs, ALL_PRIVILEGES is not sufficient for OTEL trace
-        table access. The ingestion path requires explicit MODIFY and SELECT
-        grants on each table.
-        """
-        if not config.app.trace_location:
-            return
-
-        loc = config.app.trace_location
-        schema_prefix: str = f"{loc.catalog_name}.{loc.schema_name}"
-
-        # Determine grantee: service principal application ID or current user
-        grantee: str | None = None
-        if config.app.service_principal and config.app.service_principal.client_id:
-            from dao_ai.config import value_of
-
-            grantee = value_of(config.app.service_principal.client_id)
-
-        if not grantee:
-            logger.debug("No service principal configured, skipping OTEL table grants")
-            return
-
-        from databricks.sdk.service.catalog import (
-            PermissionsChange,
-            Privilege,
-            SecurableType,
-        )
-
-        from dao_ai.config import TraceLocationModel
-
-        for suffix in TraceLocationModel.OTEL_TABLE_SUFFIXES:
-            table_name: str = f"{schema_prefix}.{suffix}"
-            for privilege in ("MODIFY", "SELECT"):
-                try:
-                    self.w.grants.update(
-                        full_name=table_name,
-                        securable_type=SecurableType.TABLE,
-                        changes=[
-                            PermissionsChange(
-                                add=[Privilege(privilege)],
-                                principal=grantee,
-                            )
-                        ],
-                    )
-                except Exception as e:
-                    error_msg: str = str(e)
-                    if (
-                        "already has" in error_msg.lower()
-                        or "ALREADY_EXISTS" in error_msg
-                    ):
-                        logger.trace(
-                            "Grant already exists",
-                            table=table_name,
-                            privilege=privilege,
-                        )
-                    else:
-                        logger.warning(
-                            "Could not grant privilege on OTEL table",
-                            table=table_name,
-                            privilege=privilege,
-                            grantee=grantee,
-                            error=error_msg,
-                        )
-
-        logger.info(
-            "Granted MODIFY and SELECT on OTEL trace tables",
-            grantee=grantee,
-            table_count=len(TraceLocationModel.OTEL_TABLE_SUFFIXES),
-        )
 
     def deploy_apps_agent(self, config: AppConfig) -> None:
         """
@@ -1054,8 +980,6 @@ class DatabricksProvider(ServiceProvider):
                     )
                 else:
                     raise
-
-            self.grant_otel_table_permissions(config)
 
         # Register production monitoring scorers if configured
         if config.app.monitoring:
