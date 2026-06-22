@@ -6639,9 +6639,12 @@ class TraceLocationModel(BaseModel):
         alias="schema",
         description="Unity Catalog schema (catalog.schema) where OTEL trace tables are stored.",
     )
-    warehouse: Union[WarehouseModel, str] = Field(
+    warehouse: Union[WarehouseModel, AnyVariable] = Field(
         description="SQL warehouse for creating views and querying traces. "
-        "Accepts a WarehouseModel reference or a warehouse ID string.",
+        "Accepts a WarehouseModel reference, a bare warehouse-id string, or "
+        "an AnyVariable (env var / secret / composite / primitive) — useful "
+        "when the warehouse id is environment-specific or held in a secret "
+        "scope rather than baked into the YAML.",
     )
 
     @model_validator(mode="before")
@@ -6659,10 +6662,16 @@ class TraceLocationModel(BaseModel):
 
     @property
     def warehouse_id(self) -> str:
-        """Resolve warehouse to a warehouse ID string."""
+        """Resolve warehouse to a warehouse ID string.
+
+        Handles all warehouse field shapes: WarehouseModel (resolve through
+        the embedded warehouse_id), AnyVariable (env/secret/composite/
+        primitive — resolved via value_of), or plain str (passed through
+        by value_of unchanged).
+        """
         if isinstance(self.warehouse, WarehouseModel):
             return value_of(self.warehouse.warehouse_id)
-        return self.warehouse
+        return value_of(self.warehouse)
 
     @property
     def catalog_name(self) -> str:

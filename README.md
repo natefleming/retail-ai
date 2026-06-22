@@ -461,7 +461,17 @@ app:
     warehouse: "your-warehouse-id"           # or a *warehouse anchor
 ```
 
-When `trace_location` is set, `generate-bundle` automatically attaches the SQL warehouse + the UC OTEL trace tables as app resources (with `CAN_USE` + `SELECT` grants for the App SP) and adds `MLFLOW_TRACING_SQL_WAREHOUSE_ID` to the App's env. When `trace_location` is unset, `generate-bundle` emits a loud warning. Local notebook/CLI runs and Model Serving deploys are unaffected and continue to use the default control-plane path. See `config/examples/01_getting_started/ai_gateway.yaml` for a commented example.
+When `trace_location` is set, `generate-bundle` automatically attaches the SQL warehouse as an App resource (with `CAN_USE` for the App SP) and adds `MLFLOW_TRACING_SQL_WAREHOUSE_ID` to the App's env. The OTEL trace tables themselves are auto-created by MLflow at first trace write — dao-ai does not emit per-table grants because the tables don't exist at deploy time and the Apps platform would reject the bundle. After deploy, grant the App SP schema-level privileges so MLflow can create + write to the OTEL tables (one-time setup):
+
+```bash
+SP=$(databricks apps get <app-name> -p <profile> --output json | jq -r .service_principal_client_id)
+databricks grants update catalog <catalog> -p <profile> \
+  --json "{\"changes\":[{\"principal\":\"$SP\",\"add\":[\"USE_CATALOG\"]}]}"
+databricks grants update schema <catalog>.<schema> -p <profile> \
+  --json "{\"changes\":[{\"principal\":\"$SP\",\"add\":[\"USE_SCHEMA\",\"CREATE_TABLE\",\"MODIFY\",\"SELECT\"]}]}"
+```
+
+When `trace_location` is unset, `generate-bundle` emits a loud warning. Local notebook/CLI runs and Model Serving deploys are unaffected and continue to use the default control-plane path. See `config/examples/01_getting_started/ai_gateway.yaml` for a commented example.
 
 ### Multi-Cloud Deployment
 

@@ -1066,13 +1066,18 @@ def test_write_bundle_attaches_trace_location_resources(
     parameterised_config_path: Path, tmp_path: Path
 ) -> None:
     """When app.trace_location is set, the generated bundle must attach the
-    SQL warehouse + the 3 OTEL trace tables as app resources with the right
-    permissions, so the App SP gets CAN_USE on the warehouse and SELECT on
-    the OTEL tables (which auto-grants USE CATALOG + USE SCHEMA via the
-    Apps platform). Without these grants, UC-backed tracing silently fails.
+    SQL warehouse as an app-resource (so the App SP gets CAN_USE on it) and
+    must add MLFLOW_TRACING_SQL_WAREHOUSE_ID to the App's env vars. The
+    OTEL trace tables themselves are auto-created by MLflow at first trace
+    write — dao-ai does NOT emit per-table securables for them because the
+    Apps platform validates table existence at deploy time and the tables
+    don't exist yet. Users must manually grant the App SP USE_SCHEMA +
+    CREATE_TABLE + MODIFY + SELECT on the trace schema after deploy (one-
+    time setup, documented in README "Trace persistence on Apps").
 
-    Also asserts that MLFLOW_TRACING_SQL_WAREHOUSE_ID is set in the App's
-    env vars.
+    End-to-end verified on fevm 2026-06-22: traces persist to UC OTEL
+    tables, search_traces returns them, and the 9-span agent trace is
+    fully queryable.
     """
     import yaml as _yaml
 
@@ -1102,27 +1107,26 @@ def test_write_bundle_attaches_trace_location_resources(
         "Missing trace_warehouse app-resource (App SP won't have CAN_USE on "
         "the warehouse and UC OTEL trace writes will fail silently)."
     )
-    expected_otel_resources = {
+
+    # The OTEL tables must NOT appear as TABLE securables — they don't exist
+    # at deploy time (MLflow auto-creates them at first trace write) and the
+    # Apps platform rejects securables that point at non-existent tables.
+    forbidden_table_resources = {
         "trace_otel_spans",
         "trace_otel_logs",
         "trace_otel_metrics",
     }
-    assert expected_otel_resources.issubset(resource_names), (
-        f"Missing OTEL table app-resources (App SP needs SELECT on each so "
-        f"USE CATALOG + USE SCHEMA are auto-granted). Got: {resource_names}"
+    leaked = forbidden_table_resources & resource_names
+    assert not leaked, (
+        f"Bundle must not emit TABLE securables for the OTEL trace tables — "
+        f"they're auto-created by MLflow at runtime, so the Apps deploy "
+        f"validator will reject them as non-existent. Found: {leaked}"
     )
 
     warehouse_resource = next(
         r for r in app_block["resources"] if r["name"] == "trace_warehouse"
     )
     assert warehouse_resource["sql_warehouse"]["permission"] == "CAN_USE"
-
-    for otel_name in expected_otel_resources:
-        otel_resource = next(
-            r for r in app_block["resources"] if r["name"] == otel_name
-        )
-        assert otel_resource["uc_securable"]["securable_type"] == "TABLE"
-        assert otel_resource["uc_securable"]["permission"] == "SELECT"
 
     env_var_names = {e["name"] for e in app_block["config"]["env"]}
     assert "MLFLOW_TRACING_SQL_WAREHOUSE_ID" in env_var_names, (

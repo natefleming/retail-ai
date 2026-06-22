@@ -1,3 +1,7 @@
+   Building dao-ai @ file:///Users/nate.fleming/development/databricks/dao-ai
+      Built dao-ai @ file:///Users/nate.fleming/development/databricks/dao-ai
+Uninstalled 1 package in 2ms
+Installed 1 package in 4ms
 {
   "$defs": {
     "A2AModel": {
@@ -7772,10 +7776,31 @@
               "$ref": "#/$defs/WarehouseModel"
             },
             {
+              "$ref": "#/$defs/CompositeVariableModel"
+            },
+            {
+              "$ref": "#/$defs/EnvironmentVariableModel"
+            },
+            {
+              "$ref": "#/$defs/SecretVariableModel"
+            },
+            {
+              "$ref": "#/$defs/PrimitiveVariableModel"
+            },
+            {
               "type": "string"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "boolean"
             }
           ],
-          "description": "SQL warehouse for creating views and querying traces. Accepts a WarehouseModel reference or a warehouse ID string.",
+          "description": "SQL warehouse for creating views and querying traces. Accepts a WarehouseModel reference, a bare warehouse-id string, or an AnyVariable (env var / secret / composite / primitive) \u2014 useful when the warehouse id is environment-specific or held in a secret scope rather than baked into the YAML.",
           "title": "Warehouse"
         }
       },
