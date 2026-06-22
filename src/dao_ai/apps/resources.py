@@ -1339,31 +1339,18 @@ def _extract_raw_trace_location_resources(
         resources.append(resource)
         logger.debug(f"Extracted trace warehouse resource: trace_warehouse -> {wh_id}")
 
-    # Add OTEL trace tables as TABLE UC securables
-    # Use short names to stay within the 30-char resource name limit
-    SHORT_SUFFIX_NAMES: dict[str, str] = {
-        "mlflow_experiment_trace_otel_spans": "trace_otel_spans",
-        "mlflow_experiment_trace_otel_logs": "trace_otel_logs",
-        "mlflow_experiment_trace_otel_metrics": "trace_otel_metrics",
-    }
-    schema_prefix = f"{trace_location.catalog_name}.{trace_location.schema_name}"
-    for suffix in TraceLocationModel.OTEL_TABLE_SUFFIXES:
-        table_full_name = f"{schema_prefix}.{suffix}"
-        short_name = SHORT_SUFFIX_NAMES.get(suffix, suffix)
-        sanitized_name = _sanitize_resource_name(short_name)
-        table_resource: dict[str, Any] = {
-            "name": sanitized_name,
-            "uc_securable": {
-                "securable_full_name": table_full_name,
-                "securable_type": "TABLE",
-                "permission": "SELECT",
-            },
-        }
-        resources.append(table_resource)
-        logger.debug(
-            f"Extracted trace table resource: {sanitized_name} -> {table_full_name}"
-        )
-
+    # Note: we previously emitted TABLE securables for the 3 OTEL trace tables
+    # here, but Apps' uc_securable validates that the target table exists at
+    # deploy time. The OTEL tables are auto-created by MLflow at FIRST trace
+    # write — they don't exist yet — so the platform rejects the deploy with
+    # "Table ... does not exist". The right pattern (kroger-sands) is a top-
+    # level `resources.schemas.<key>.grants` block giving the App SP
+    # USE_SCHEMA + CREATE_TABLE + MODIFY + SELECT, which the Apps platform
+    # honors before any tables exist. dao-ai doesn't emit schema grants from
+    # generate-bundle yet — users must manually grant these privileges on the
+    # trace schema to the App SP after deploy (see README "Trace persistence
+    # on Apps"). The sql_warehouse resource above is still emitted because
+    # it's an existing resource that the platform CAN validate at deploy.
     return resources
 
 

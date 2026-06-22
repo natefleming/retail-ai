@@ -6621,16 +6621,21 @@ class MonitoringModel(BaseModel):
 class TraceLocationModel(BaseModel):
     """Unity Catalog location for storing MLflow traces in OTEL-format Delta tables.
 
-    Accepts either a SchemaModel reference (aliased to "schema") or a string
-    in "catalog.schema" format. When configured on AppModel, traces are stored
-    in UC Delta tables via set_experiment_trace_location().
-    """
+    When configured on AppModel, traces are stored in UC Delta tables via
+    ``mlflow.set_experiment(experiment_id=..., trace_location=UnityCatalog(...))``.
+    Provide an optional ``table_prefix`` to namespace the OTEL tables when
+    multiple agents share a single UC schema. Without a prefix, MLflow uses
+    the experiment_id as the prefix — table names become
+    ``<catalog>.<schema>.<experiment_id>_otel_{spans,logs,metrics,annotations}``
+    rather than a stable shared name.
 
-    OTEL_TABLE_SUFFIXES: ClassVar[Sequence[str]] = (
-        "mlflow_experiment_trace_otel_spans",
-        "mlflow_experiment_trace_otel_logs",
-        "mlflow_experiment_trace_otel_metrics",
-    )
+    dao-ai does NOT include the OTEL trace tables in the model's auth_policy
+    or App resources list because the table names depend on the experiment_id
+    (no prefix) or table_prefix and aren't fully predictable at deploy time.
+    Instead, users grant the deployed serving identity USE_CATALOG +
+    USE_SCHEMA + SELECT + MODIFY on the trace schema as a one-time post-deploy
+    step (mirrors the Apps SP grant pattern documented in README).
+    """
 
     model_config = ConfigDict(
         use_enum_values=True, extra="forbid", populate_by_name=True
@@ -6639,9 +6644,25 @@ class TraceLocationModel(BaseModel):
         alias="schema",
         description="Unity Catalog schema (catalog.schema) where OTEL trace tables are stored.",
     )
-    warehouse: Union[WarehouseModel, str] = Field(
+    warehouse: Union[WarehouseModel, AnyVariable] = Field(
         description="SQL warehouse for creating views and querying traces. "
-        "Accepts a WarehouseModel reference or a warehouse ID string.",
+        "Accepts a WarehouseModel reference, a bare warehouse-id string, or "
+        "an AnyVariable (env var / secret / composite / primitive) — useful "
+        "when the warehouse id is environment-specific or held in a secret "
+        "scope rather than baked into the YAML.",
+    )
+    table_prefix: Optional[AnyVariable] = Field(
+        default=None,
+        description=(
+            "Optional table-prefix passed into MLflow's ``UnityCatalog`` "
+            "trace location. When set, OTEL trace tables are named "
+            "``<catalog>.<schema>.<table_prefix>_otel_{spans,logs,metrics}`` "
+            "instead of the unprefixed default — useful when multiple agents "
+            "share a single trace schema and you want each agent's traces in "
+            "its own table set. Leave unset (None) to fall back to the shared "
+            "default (all experiments writing to this schema share one table "
+            "set, distinguished by experiment_id rows inside the tables)."
+        ),
     )
 
     @model_validator(mode="before")
@@ -6659,10 +6680,16 @@ class TraceLocationModel(BaseModel):
 
     @property
     def warehouse_id(self) -> str:
-        """Resolve warehouse to a warehouse ID string."""
+        """Resolve warehouse to a warehouse ID string.
+
+        Handles all warehouse field shapes: WarehouseModel (resolve through
+        the embedded warehouse_id), AnyVariable (env/secret/composite/
+        primitive — resolved via value_of), or plain str (passed through
+        by value_of unchanged).
+        """
         if isinstance(self.warehouse, WarehouseModel):
             return value_of(self.warehouse.warehouse_id)
-        return self.warehouse
+        return value_of(self.warehouse)
 
     @property
     def catalog_name(self) -> str:
@@ -6672,18 +6699,39 @@ class TraceLocationModel(BaseModel):
     def schema_name(self) -> str:
         return value_of(self.schema_model.schema_name)
 
-    def as_resources(self) -> Sequence[DatabricksResource]:
-        """Return DatabricksTable resources for the OTEL trace tables.
+    @property
+    def resolved_table_prefix(self) -> Optional[str]:
+        """Resolve ``table_prefix`` (if set) to a concrete string via value_of.
 
-        Model serving needs SELECT on these tables for set_experiment_trace_location()
-        to succeed at startup. Including them as system resources ensures the
-        auth policy grants the serving identity appropriate permissions.
+        Returns None when no prefix is configured. When None is passed to
+        MLflow's ``UnityCatalog`` constructor, MLflow falls back to using
+        the experiment_id as the table prefix.
         """
-        schema_prefix = f"{self.catalog_name}.{self.schema_name}"
-        return [
-            DatabricksTable(table_name=f"{schema_prefix}.{suffix}")
-            for suffix in self.OTEL_TABLE_SUFFIXES
-        ]
+        if self.table_prefix is None:
+            return None
+        resolved = value_of(self.table_prefix)
+        return resolved if resolved else None
+
+    def as_resources(self) -> Sequence[DatabricksResource]:
+        """OTEL trace tables intentionally not declared in the auth_policy.
+
+        MLflow's ``UnityCatalog`` trace location creates table names based on
+        either ``table_prefix`` (when set) or the experiment_id (when not).
+        Neither is fully predictable at config-resolution time:
+        ``table_prefix`` may be an unresolved AnyVariable, and the
+        experiment_id is only assigned when the experiment is created at
+        deploy time. Declaring concrete table names in the auth_policy that
+        don't match what MLflow actually creates causes ``agents.deploy``'s
+        ``generate-temporary-credentials`` lookup to return
+        ``TABLE_DOES_NOT_EXIST`` and the deploy aborts.
+
+        Instead, dao-ai relies on schema-level grants to the deployed serving
+        identity (Model Serving) or App SP (Apps), granted as a one-time
+        post-deploy step. The grants give the runtime identity USE_CATALOG +
+        USE_SCHEMA + SELECT + MODIFY on the trace schema, which lets MLflow
+        create + write the OTEL tables at first trace export.
+        """
+        return []
 
 
 class LongRunningModel(BaseModel):
@@ -7043,9 +7091,10 @@ class AppModel(BaseModel):
     trace_location: Optional[TraceLocationModel] = Field(
         default=None,
         description="Unity Catalog location for storing MLflow traces in OTEL-format Delta tables. "
-        "Accepts a schema reference or 'catalog.schema' string. "
-        "When set, set_experiment_trace_location() is called at startup for both "
-        "Model Serving and Databricks Apps deployments.",
+        "Accepts a schema reference or 'catalog.schema' string, with an optional "
+        "``table_prefix`` to namespace the OTEL tables. When set, "
+        "``mlflow.set_experiment(trace_location=UnityCatalog(...))`` is called at startup "
+        "and at deploy time for both Model Serving and Databricks Apps deployments.",
     )
     monitoring: Optional[MonitoringModel] = Field(
         default=None,

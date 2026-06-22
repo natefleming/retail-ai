@@ -1062,6 +1062,80 @@ def test_write_bundle_uses_apps_native_uv_path(
 
 
 @pytest.mark.unit
+def test_write_bundle_attaches_trace_location_resources(
+    parameterised_config_path: Path, tmp_path: Path
+) -> None:
+    """When app.trace_location is set, the generated bundle must attach the
+    SQL warehouse as an app-resource (so the App SP gets CAN_USE on it) and
+    must add MLFLOW_TRACING_SQL_WAREHOUSE_ID to the App's env vars. The
+    OTEL trace tables themselves are auto-created by MLflow at first trace
+    write — dao-ai does NOT emit per-table securables for them because the
+    Apps platform validates table existence at deploy time and the tables
+    don't exist yet. Users must manually grant the App SP USE_SCHEMA +
+    CREATE_TABLE + MODIFY + SELECT on the trace schema after deploy (one-
+    time setup, documented in README "Trace persistence on Apps").
+
+    End-to-end verified on fevm 2026-06-22: traces persist to UC OTEL
+    tables, search_traces returns them, and the 9-span agent trace is
+    fully queryable.
+    """
+    import yaml as _yaml
+
+    from dao_ai.apps.bundle import write_bundle
+    from dao_ai.config import SchemaModel, TraceLocationModel
+
+    config = AppConfig.from_file(
+        parameterised_config_path,
+        params={"module_id": "09", "catalog": "nfleming"},
+        initialize=False,
+    )
+    config.app.trace_location = TraceLocationModel(
+        schema=SchemaModel(catalog_name="nfleming", schema_name="traces"),
+        warehouse="148ccb90800933a1",
+    )
+
+    out_dir = tmp_path / "bundle"
+    out_dir.mkdir()
+    write_bundle(config, out_dir, force=True, development=False)
+
+    app_yaml = _yaml.safe_load((out_dir / "resources" / "app.yml").read_text())
+    app_name = next(iter(app_yaml["resources"]["apps"]))
+    app_block = app_yaml["resources"]["apps"][app_name]
+
+    resource_names = {r.get("name") for r in app_block["resources"]}
+    assert "trace_warehouse" in resource_names, (
+        "Missing trace_warehouse app-resource (App SP won't have CAN_USE on "
+        "the warehouse and UC OTEL trace writes will fail silently)."
+    )
+
+    # The OTEL tables must NOT appear as TABLE securables — they don't exist
+    # at deploy time (MLflow auto-creates them at first trace write) and the
+    # Apps platform rejects securables that point at non-existent tables.
+    forbidden_table_resources = {
+        "trace_otel_spans",
+        "trace_otel_logs",
+        "trace_otel_metrics",
+    }
+    leaked = forbidden_table_resources & resource_names
+    assert not leaked, (
+        f"Bundle must not emit TABLE securables for the OTEL trace tables — "
+        f"they're auto-created by MLflow at runtime, so the Apps deploy "
+        f"validator will reject them as non-existent. Found: {leaked}"
+    )
+
+    warehouse_resource = next(
+        r for r in app_block["resources"] if r["name"] == "trace_warehouse"
+    )
+    assert warehouse_resource["sql_warehouse"]["permission"] == "CAN_USE"
+
+    env_var_names = {e["name"] for e in app_block["config"]["env"]}
+    assert "MLFLOW_TRACING_SQL_WAREHOUSE_ID" in env_var_names, (
+        "App's env must include MLFLOW_TRACING_SQL_WAREHOUSE_ID so handlers.py "
+        "can route trace export through the configured warehouse."
+    )
+
+
+@pytest.mark.unit
 def test_write_bundle_preserves_user_resources_yml(
     parameterised_config_path: Path, tmp_path: Path
 ) -> None:

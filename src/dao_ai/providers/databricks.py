@@ -259,6 +259,72 @@ def build_auth_policy(config: AppConfig) -> AuthPolicy:
     )
 
 
+def _link_experiment_trace_location(config: AppConfig, experiment_id: str) -> None:
+    """Link an MLflow experiment to its UC trace location.
+
+    Wraps ``mlflow.set_experiment(experiment_id=..., trace_location=
+    UnityCatalog(...))`` — the post-MLflow-3.11 blessed API. Replaces the
+    deprecated combination of ``mlflow.tracing.set_destination(
+    UCSchemaLocation(...))`` + ``mlflow.tracing.enablement.
+    set_experiment_trace_location(...)`` which emit deprecation warnings.
+
+    This call (when reaching a runnable warehouse) creates the OTEL trace
+    Delta tables in the configured UC schema and registers the experiment
+    as a writer of those tables. It auto-starts a STOPPED warehouse and
+    waits up to 1200s for RUNNING.
+
+    The behavior is identical for Model Serving and Apps callers — both
+    paths need the experiment linked to its UC trace destination before
+    any code path that reads the model's auth_policy resources (Model
+    Serving register_model / agents.deploy) or before the App's runtime
+    handlers.py reaches its first request.
+
+    Args:
+        config: The AppConfig. No-op if ``config.app.trace_location`` is None.
+        experiment_id: The MLflow experiment ID to link.
+    """
+    if not (config.app and config.app.trace_location):
+        return
+
+    from mlflow.entities import UnityCatalog
+
+    loc = config.app.trace_location
+    uc_kwargs: dict[str, Any] = {
+        "catalog_name": loc.catalog_name,
+        "schema_name": loc.schema_name,
+    }
+    table_prefix = loc.resolved_table_prefix
+    if table_prefix:
+        uc_kwargs["table_prefix"] = table_prefix
+
+    try:
+        mlflow.set_experiment(
+            experiment_id=experiment_id,
+            trace_location=UnityCatalog(**uc_kwargs),
+        )
+        logger.info(
+            "Linked experiment to UC trace location",
+            catalog=loc.catalog_name,
+            schema=loc.schema_name,
+            table_prefix=table_prefix,
+        )
+    except mlflow.exceptions.RestException as e:
+        # The link is idempotent for our purposes — re-linking a schema
+        # that the experiment already writes to is a no-op. The platform
+        # rejects re-linking when the experiment already has traces with
+        # the "already contains traces" error, which we tolerate. Other
+        # RestExceptions (warehouse timeouts, schema permission errors)
+        # surface so the caller can fail loudly.
+        if "already contains traces" in str(e):
+            logger.warning(
+                "UC trace destination already linked or experiment has "
+                "existing traces, skipping",
+                experiment_id=experiment_id,
+            )
+        else:
+            raise
+
+
 def _build_wheel(project_root: Path) -> Path:
     """Build a dao-ai wheel from source using uv."""
     import subprocess
@@ -474,6 +540,20 @@ class DatabricksProvider(ServiceProvider):
             experiment_name=experiment.name,
             experiment_id=experiment.experiment_id,
         )
+
+        # Link experiment to UC trace location BEFORE log_model + register_model.
+        # When the model is logged with auth_policy listing the 3 OTEL trace
+        # tables (via TraceLocationModel.as_resources()), MLflow's
+        # mlflow.register_model validates those resources by calling
+        # generate-temporary-credentials on the model version. If the OTEL
+        # tables don't exist yet, that call returns 404 / TABLE_DOES_NOT_EXIST
+        # and the registration fails. mlflow.set_experiment(trace_location=...)
+        # is what creates the tables — it also auto-starts a STOPPED warehouse
+        # and waits for it. Calling it here, before log_model, guarantees the
+        # tables exist when the model is registered. The same step is repeated
+        # idempotently in deploy_model_serving_agent so that re-deploys (which
+        # skip create_agent) still set up the link.
+        _link_experiment_trace_location(config, experiment.experiment_id)
 
         auth_policy: AuthPolicy = build_auth_policy(config)
         logger.debug(
@@ -784,6 +864,19 @@ class DatabricksProvider(ServiceProvider):
 
         tags_kw: dict[str, str] | None = None if serving_exists else tags
 
+        # Link experiment to UC trace location BEFORE agents.deploy. The
+        # logged model's auth_policy declares the OTEL trace tables as
+        # databricks_resources (via TraceLocationModel.as_resources()), and
+        # agents.deploy validates the resource list when it calls
+        # generate-temporary-credentials on the model version. If the OTEL
+        # tables don't exist yet, that lookup returns TABLE_DOES_NOT_EXIST
+        # and agents.deploy aborts. Idempotent re-link — create_agent
+        # normally handles this first, but re-deploys that skip create_agent
+        # still need the setup.
+        if config.app.trace_location:
+            experiment: Experiment = self.get_or_create_experiment(config)
+            _link_experiment_trace_location(config, experiment.experiment_id)
+
         max_attempts: int = 6
         for attempt in range(1, max_attempts + 1):
             try:
@@ -836,41 +929,6 @@ class DatabricksProvider(ServiceProvider):
                     permission_level=PermissionLevel[entitlement],
                 )
 
-        # Link experiment to UC trace location if configured
-        if config.app.trace_location:
-            from mlflow.entities import UCSchemaLocation
-            from mlflow.tracing.enablement import set_experiment_trace_location
-
-            experiment: Experiment = self.get_or_create_experiment(config)
-            loc = config.app.trace_location
-
-            try:
-                set_experiment_trace_location(
-                    location=UCSchemaLocation(
-                        catalog_name=loc.catalog_name,
-                        schema_name=loc.schema_name,
-                    ),
-                    experiment_id=experiment.experiment_id,
-                    sql_warehouse_id=loc.warehouse_id,
-                )
-                logger.info(
-                    "Linked experiment to UC trace location for Model Serving",
-                    catalog=loc.catalog_name,
-                    schema=loc.schema_name,
-                )
-            except mlflow.exceptions.RestException as e:
-                if "already contains traces" in str(e):
-                    logger.warning(
-                        "UC trace destination already linked or experiment has existing traces, skipping",
-                        experiment_id=experiment.experiment_id,
-                        catalog=loc.catalog_name,
-                        schema=loc.schema_name,
-                    )
-                else:
-                    raise
-
-            self.grant_otel_table_permissions(config)
-
         # Register production monitoring scorers if configured
         if config.app.monitoring:
             from dao_ai.evaluation import register_monitoring_scorers
@@ -892,78 +950,6 @@ class DatabricksProvider(ServiceProvider):
                 "Production monitoring scorers registered for Model Serving",
                 scorer_count=len(registered_scorers),
             )
-
-    def grant_otel_table_permissions(self, config: AppConfig) -> None:
-        """Grant explicit MODIFY and SELECT on OTEL trace tables.
-
-        Per Databricks docs, ALL_PRIVILEGES is not sufficient for OTEL trace
-        table access. The ingestion path requires explicit MODIFY and SELECT
-        grants on each table.
-        """
-        if not config.app.trace_location:
-            return
-
-        loc = config.app.trace_location
-        schema_prefix: str = f"{loc.catalog_name}.{loc.schema_name}"
-
-        # Determine grantee: service principal application ID or current user
-        grantee: str | None = None
-        if config.app.service_principal and config.app.service_principal.client_id:
-            from dao_ai.config import value_of
-
-            grantee = value_of(config.app.service_principal.client_id)
-
-        if not grantee:
-            logger.debug("No service principal configured, skipping OTEL table grants")
-            return
-
-        from databricks.sdk.service.catalog import (
-            PermissionsChange,
-            Privilege,
-            SecurableType,
-        )
-
-        from dao_ai.config import TraceLocationModel
-
-        for suffix in TraceLocationModel.OTEL_TABLE_SUFFIXES:
-            table_name: str = f"{schema_prefix}.{suffix}"
-            for privilege in ("MODIFY", "SELECT"):
-                try:
-                    self.w.grants.update(
-                        full_name=table_name,
-                        securable_type=SecurableType.TABLE,
-                        changes=[
-                            PermissionsChange(
-                                add=[Privilege(privilege)],
-                                principal=grantee,
-                            )
-                        ],
-                    )
-                except Exception as e:
-                    error_msg: str = str(e)
-                    if (
-                        "already has" in error_msg.lower()
-                        or "ALREADY_EXISTS" in error_msg
-                    ):
-                        logger.trace(
-                            "Grant already exists",
-                            table=table_name,
-                            privilege=privilege,
-                        )
-                    else:
-                        logger.warning(
-                            "Could not grant privilege on OTEL table",
-                            table=table_name,
-                            privilege=privilege,
-                            grantee=grantee,
-                            error=error_msg,
-                        )
-
-        logger.info(
-            "Granted MODIFY and SELECT on OTEL trace tables",
-            grantee=grantee,
-            table_count=len(TraceLocationModel.OTEL_TABLE_SUFFIXES),
-        )
 
     def deploy_apps_agent(self, config: AppConfig) -> None:
         """
@@ -1024,38 +1010,11 @@ class DatabricksProvider(ServiceProvider):
             experiment_id=experiment.experiment_id,
         )
 
-        # Link experiment to UC trace location if configured
-        if config.app.trace_location:
-            from mlflow.entities import UCSchemaLocation
-            from mlflow.tracing.enablement import set_experiment_trace_location
-
-            loc = config.app.trace_location
-            try:
-                set_experiment_trace_location(
-                    location=UCSchemaLocation(
-                        catalog_name=loc.catalog_name,
-                        schema_name=loc.schema_name,
-                    ),
-                    experiment_id=experiment.experiment_id,
-                    sql_warehouse_id=loc.warehouse_id,
-                )
-                logger.info(
-                    "Linked experiment to UC trace location",
-                    catalog=loc.catalog_name,
-                    schema=loc.schema_name,
-                )
-            except mlflow.exceptions.RestException as e:
-                if "already contains traces" in str(e):
-                    logger.warning(
-                        "UC trace destination already linked or experiment has existing traces, skipping",
-                        experiment_id=experiment.experiment_id,
-                        catalog=loc.catalog_name,
-                        schema=loc.schema_name,
-                    )
-                else:
-                    raise
-
-            self.grant_otel_table_permissions(config)
+        # Link experiment to UC trace location BEFORE App creation. Apps'
+        # auto-created SP needs the experiment-trace destination configured
+        # ahead of the first request, otherwise control-plane export
+        # (unreachable from Apps) is what handlers.py would pick up.
+        _link_experiment_trace_location(config, experiment.experiment_id)
 
         # Register production monitoring scorers if configured
         if config.app.monitoring:

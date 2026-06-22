@@ -72,3 +72,24 @@ app:
     name: ai_gateway_example
   agents:
   - *gateway_agent
+
+  # MLflow trace persistence on Databricks Apps requires `trace_location` —
+  # the default control-plane trace export targets a storage host
+  # (us-east-1.storage.cloud.databricks.com) that Apps containers cannot
+  # reach, so spans are silently dropped. Setting `trace_location` routes
+  # export through a SQL warehouse to UC OTEL tables, which Apps CAN reach.
+  # Local notebook/CLI runs and Model Serving deploys are unaffected and
+  # continue using the default control-plane path regardless of this setting.
+  #
+  # `schema` accepts a SchemaModel anchor (preferred) — reusing *retail_schema
+  # keeps the OTEL trace tables in the same UC schema as your app data.
+  # `warehouse` accepts a WarehouseModel anchor or a bare warehouse-id string.
+  # `table_prefix` (optional) namespaces the OTEL tables — final names become
+  # ``<catalog>.<schema>.<prefix>_otel_{spans,logs,metrics,annotations}``.
+  # Without a prefix, MLflow uses the experiment_id as the prefix, which
+  # works but is less readable when multiple agents share a schema.
+  #
+  # trace_location:
+  #   schema: *retail_schema
+  #   warehouse: "your-warehouse-id"
+  #   table_prefix: ai_gateway_example   # optional
