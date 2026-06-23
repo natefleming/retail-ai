@@ -263,9 +263,92 @@ class TestAgentToolModel:
         assert m.function.type == FunctionType.AGENT.value
         assert m.function.endpoint == "ka-customer-reviews"
 
-    def test_agent_requires_endpoint(self) -> None:
+    def test_agent_requires_endpoint_or_app(self) -> None:
+        """At least one of endpoint / app must be set."""
         with pytest.raises(Exception):
             ToolModel.model_validate({"name": "x", "function": {"type": "agent"}})
+
+    def test_agent_rejects_both_endpoint_and_app(self) -> None:
+        """Endpoint and app are mutually exclusive."""
+        # Direct validation gives the clean error; ToolModel dispatch produces
+        # a union error (existing dao-ai behavior — see GenieToolModel tests).
+        from dao_ai.config import AgentToolModel as _ATM
+
+        with pytest.raises(Exception):
+            _ATM(
+                type=FunctionType.AGENT,
+                endpoint="my-ep",
+                app={"name": "my-app"},
+            )
+
+    def test_agent_app_dispatch_to_a2a(self) -> None:
+        """type: agent with app: dispatches via A2A internally."""
+        from dao_ai.config import DatabricksAppModel
+
+        m = ToolModel.model_validate(
+            {
+                "name": "delegate",
+                "function": {
+                    "type": "agent",
+                    # on_behalf_of_user=True → forwarded_user_token (no
+                    # ambient WorkspaceClient needed at factory time).
+                    "app": {"name": "dao-ai-some-app", "on_behalf_of_user": True},
+                    "name": "delegate_tool",
+                    "description": "Delegate to the deployed dao-ai app.",
+                },
+            }
+        )
+        assert isinstance(m.function, AgentToolModel)
+        assert isinstance(m.function.app, DatabricksAppModel)
+        assert m.function.app.name == "dao-ai-some-app"
+        assert m.function.endpoint is None
+
+        tools = m.function.as_tools()
+        assert len(tools) == 1
+        assert tools[0].name == "delegate_tool"
+
+    def test_agent_app_rejects_mcp_prefix_at_factory_time(self) -> None:
+        """mcp- prefix apps should error with a clear pointer to type: mcp."""
+        m = AgentToolModel(
+            type=FunctionType.AGENT,
+            app={"name": "mcp-hardware-store"},
+        )
+        with pytest.raises(ValueError, match="type: mcp"):
+            m.as_tools()
+
+    def test_agent_app_parity_with_type_a2a(self) -> None:
+        """type: agent with app: produces the same tool as type: a2a with app:.
+
+        Uses on_behalf_of_user=True so the A2A factory picks
+        forwarded_user_token auth mode, which (unlike databricks_app_sp)
+        does not require ambient Databricks credentials at factory time.
+        """
+        app_dict = {"name": "dao-ai-supplier-app", "on_behalf_of_user": True}
+
+        agent = ToolModel.model_validate(
+            {
+                "name": "a",
+                "function": {
+                    "type": "agent",
+                    "app": app_dict,
+                    "name": "supplier_tool",
+                },
+            }
+        )
+        a2a = ToolModel.model_validate(
+            {
+                "name": "a",
+                "function": {
+                    "type": "a2a",
+                    "app": app_dict,
+                    "name": "supplier_tool",
+                },
+            }
+        )
+        agent_tools = agent.function.as_tools()
+        a2a_tools = a2a.function.as_tools()
+        assert len(agent_tools) == len(a2a_tools) == 1
+        assert [t.name for t in agent_tools] == [t.name for t in a2a_tools]
 
     def test_agent_accepts_obo_toggle(self) -> None:
         m = ToolModel.model_validate(

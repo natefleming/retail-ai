@@ -5292,34 +5292,37 @@ class SearchToolModel(BaseFunctionModel):
 
 
 class AgentToolModel(BaseFunctionModel):
-    """First-class tool that calls a deployed chat-shape agent endpoint.
+    """First-class tool that calls a deployed agent — seamlessly.
 
-    Covers the Supervisor API ``knowledge_assistant`` and ``serving_endpoint``
-    tool types: any Model Serving endpoint that speaks chat completions or
-    ChatAgent (including Knowledge Assistants, which deploy as serving
-    endpoints with a known prefix).
+    Targets ANY Databricks-deployed agent:
 
-    For Databricks Apps:
+    - **Model Serving endpoint** (Knowledge Assistant, ChatCompletions,
+      ChatAgent, Foundation Model API, Agent Bricks) — set ``endpoint:``.
+      Calls ``POST /serving-endpoints/{name}/invocations`` via
+      ``ChatDatabricks``.
+    - **Databricks App** (any dao-ai app since v0.1.80, which auto-mounts
+      A2A endpoints) — set ``app:``. Internally dispatches to the A2A
+      protocol so the user doesn't need to know about wire format,
+      OAuth-M2M, or agent-card discovery.
 
-    - MCP apps (``mcp-`` prefix): use ``type: mcp`` with ``app:``.
-    - A2A apps: use ``type: a2a`` with ``app:``.
+    Exactly one of ``endpoint:`` or ``app:`` must be set.
 
-    Equivalent to ``type: factory + name: dao_ai.tools.create_agent_endpoint_tool``,
-    but with typed fields so beginners get IDE autocomplete and JSON-schema
-    validation.
+    For specialized cases use the explicit shapes instead:
+
+    - **External A2A agents** (Vertex AI Agent Engine, Crew.ai, ADK,
+      third-party) — use ``type: a2a`` with ``endpoint:`` for explicit
+      protocol control, custom auth modes (bearer / GCP), card paths.
+    - **MCP apps** (``mcp-`` prefix) — use ``type: mcp`` with ``app:``.
+      ``type: agent`` rejects ``mcp-`` apps at factory time.
 
     ``endpoint`` accepts two shapes:
 
-    - **String / variable** (the sugar form) — just the endpoint name. dao-ai
-      promotes it to a minimal ``InferenceEndpointModel`` internally. Use
-      this when you only need the endpoint name and OBO toggle.
+    - **String / variable** (sugar) — just the endpoint name. dao-ai
+      promotes it to a minimal ``InferenceEndpointModel`` internally.
     - **Full ``InferenceEndpointModel``** — when you need ``temperature``,
-      ``max_tokens``, ``ai_gateway``, or any other endpoint-level
-      configuration. Mirrors how ``GenieToolModel`` takes a full
-      ``GenieRoomModel`` and ``VectorSearchToolModel`` takes a
-      ``RetrieverModel`` / ``VectorStoreModel``. The model's
-      ``on_behalf_of_user`` overrides this tool's ``on_behalf_of_user``
-      when both are set.
+      ``max_tokens``, ``ai_gateway``, or ``on_behalf_of_user`` on the
+      endpoint itself. Mirrors how ``GenieToolModel`` takes a full
+      ``GenieRoomModel``.
     """
 
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
@@ -5327,18 +5330,28 @@ class AgentToolModel(BaseFunctionModel):
         default=FunctionType.AGENT,
         description="Function type discriminator. Must be 'agent'.",
     )
-    endpoint: Union[InferenceEndpointModel, AnyVariable] = Field(
+    endpoint: Optional[Union[InferenceEndpointModel, AnyVariable]] = Field(
+        default=None,
         description=(
             "Model Serving endpoint to call. Accepts either an endpoint "
             "name string (sugar) or a full InferenceEndpointModel with "
             "temperature / max_tokens / ai_gateway / on_behalf_of_user. "
-            "For a Knowledge Assistant this is the KA endpoint name "
-            "(e.g., 'ka-customer-reviews')."
+            "Mutually exclusive with ``app``."
+        ),
+    )
+    app: Optional[DatabricksAppModel] = Field(
+        default=None,
+        description=(
+            "Databricks App resource to call. Used when delegating to "
+            "another dao-ai app (auto-mounts A2A endpoints since v0.1.80). "
+            "OBO and endpoint URL are auto-derived from the app. Mutually "
+            "exclusive with ``endpoint``. MCP apps (``mcp-`` prefix) are "
+            "rejected — use ``type: mcp`` instead."
         ),
     )
     name: Optional[str] = Field(
         default=None,
-        description="Tool name visible to the LLM. Defaults to the endpoint name.",
+        description="Tool name visible to the LLM. Defaults to the endpoint or app name.",
     )
     description: Optional[str] = Field(
         default=None,
@@ -5347,16 +5360,36 @@ class AgentToolModel(BaseFunctionModel):
     on_behalf_of_user: Optional[bool] = Field(
         default=None,
         description=(
-            "If True, call the endpoint on behalf of the calling user by "
+            "If True, call the agent on behalf of the calling user by "
             "forwarding their bearer token. If False or None, the agent's "
-            "service principal calls the endpoint. Ignored when ``endpoint`` "
-            "is a full InferenceEndpointModel that sets on_behalf_of_user "
-            "itself."
+            "service principal calls. Ignored when ``endpoint`` is a full "
+            "InferenceEndpointModel that sets on_behalf_of_user, or when "
+            "``app`` is set (OBO derives from app.on_behalf_of_user)."
         ),
     )
 
+    @model_validator(mode="after")
+    def _exactly_one_target(self) -> Self:
+        if self.endpoint is None and self.app is None:
+            raise ValueError(
+                "AgentToolModel requires exactly one of 'endpoint' or 'app'."
+            )
+        if self.endpoint is not None and self.app is not None:
+            raise ValueError(
+                "AgentToolModel cannot set both 'endpoint' and 'app'."
+            )
+        return self
+
     def _resolved_llm(self) -> "InferenceEndpointModel":
-        """Normalize the endpoint field to an InferenceEndpointModel."""
+        """Normalize the endpoint field to an InferenceEndpointModel.
+
+        Only valid when ``endpoint`` is set. Callers must check
+        ``self.app is None`` first (or use ``as_tools`` which dispatches).
+        """
+        if self.endpoint is None:
+            raise ValueError(
+                "_resolved_llm called on AgentToolModel with no endpoint set."
+            )
         if isinstance(self.endpoint, InferenceEndpointModel):
             return self.endpoint
         endpoint_name: str = str(value_of(self.endpoint))
@@ -5368,6 +5401,26 @@ class AgentToolModel(BaseFunctionModel):
         )
 
     def as_tools(self, **kwargs: Any) -> Sequence[RunnableLike]:
+        # App path: dispatch to A2A. dao-ai apps speak A2A natively since
+        # v0.1.80, so this is the seamless "call another dao-ai app as a
+        # tool" surface — caller doesn't need to know about A2A.
+        if self.app is not None:
+            from dao_ai.tools import create_a2a_agent_tool
+
+            if self.app.name.startswith("mcp-"):
+                raise ValueError(
+                    f"AgentToolModel: app '{self.app.name}' looks like an MCP "
+                    f"app (mcp- prefix). Use 'type: mcp' with 'app:' instead "
+                    f"of 'type: agent'."
+                )
+            return [
+                create_a2a_agent_tool(
+                    app=self.app,
+                    name=self.name or self.app.name,
+                    description=self.description,
+                )
+            ]
+
         from dao_ai.tools import create_agent_endpoint_tool
 
         llm: InferenceEndpointModel = self._resolved_llm()

@@ -749,7 +749,7 @@
     },
     "AgentToolModel": {
       "additionalProperties": false,
-      "description": "First-class tool that calls a deployed chat-shape agent endpoint.\n\nCovers the Supervisor API ``knowledge_assistant`` and ``serving_endpoint``\ntool types: any Model Serving endpoint that speaks chat completions or\nChatAgent (including Knowledge Assistants, which deploy as serving\nendpoints with a known prefix).\n\nFor Databricks Apps:\n\n- MCP apps (``mcp-`` prefix): use ``type: mcp`` with ``app:``.\n- A2A apps: use ``type: a2a`` with ``app:``.\n\nEquivalent to ``type: factory + name: dao_ai.tools.create_agent_endpoint_tool``,\nbut with typed fields so beginners get IDE autocomplete and JSON-schema\nvalidation.\n\n``endpoint`` accepts two shapes:\n\n- **String / variable** (the sugar form) \u2014 just the endpoint name. dao-ai\n  promotes it to a minimal ``InferenceEndpointModel`` internally. Use\n  this when you only need the endpoint name and OBO toggle.\n- **Full ``InferenceEndpointModel``** \u2014 when you need ``temperature``,\n  ``max_tokens``, ``ai_gateway``, or any other endpoint-level\n  configuration. Mirrors how ``GenieToolModel`` takes a full\n  ``GenieRoomModel`` and ``VectorSearchToolModel`` takes a\n  ``RetrieverModel`` / ``VectorStoreModel``. The model's\n  ``on_behalf_of_user`` overrides this tool's ``on_behalf_of_user``\n  when both are set.",
+      "description": "First-class tool that calls a deployed agent \u2014 seamlessly.\n\nTargets ANY Databricks-deployed agent:\n\n- **Model Serving endpoint** (Knowledge Assistant, ChatCompletions,\n  ChatAgent, Foundation Model API, Agent Bricks) \u2014 set ``endpoint:``.\n  Calls ``POST /serving-endpoints/{name}/invocations`` via\n  ``ChatDatabricks``.\n- **Databricks App** (any dao-ai app since v0.1.80, which auto-mounts\n  A2A endpoints) \u2014 set ``app:``. Internally dispatches to the A2A\n  protocol so the user doesn't need to know about wire format,\n  OAuth-M2M, or agent-card discovery.\n\nExactly one of ``endpoint:`` or ``app:`` must be set.\n\nFor specialized cases use the explicit shapes instead:\n\n- **External A2A agents** (Vertex AI Agent Engine, Crew.ai, ADK,\n  third-party) \u2014 use ``type: a2a`` with ``endpoint:`` for explicit\n  protocol control, custom auth modes (bearer / GCP), card paths.\n- **MCP apps** (``mcp-`` prefix) \u2014 use ``type: mcp`` with ``app:``.\n  ``type: agent`` rejects ``mcp-`` apps at factory time.\n\n``endpoint`` accepts two shapes:\n\n- **String / variable** (sugar) \u2014 just the endpoint name. dao-ai\n  promotes it to a minimal ``InferenceEndpointModel`` internally.\n- **Full ``InferenceEndpointModel``** \u2014 when you need ``temperature``,\n  ``max_tokens``, ``ai_gateway``, or ``on_behalf_of_user`` on the\n  endpoint itself. Mirrors how ``GenieToolModel`` takes a full\n  ``GenieRoomModel``.",
       "properties": {
         "type": {
           "const": "agent",
@@ -798,10 +798,26 @@
             },
             {
               "type": "boolean"
+            },
+            {
+              "type": "null"
             }
           ],
-          "description": "Model Serving endpoint to call. Accepts either an endpoint name string (sugar) or a full InferenceEndpointModel with temperature / max_tokens / ai_gateway / on_behalf_of_user. For a Knowledge Assistant this is the KA endpoint name (e.g., 'ka-customer-reviews').",
+          "default": null,
+          "description": "Model Serving endpoint to call. Accepts either an endpoint name string (sugar) or a full InferenceEndpointModel with temperature / max_tokens / ai_gateway / on_behalf_of_user. Mutually exclusive with ``app``.",
           "title": "Endpoint"
+        },
+        "app": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/DatabricksAppModel"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Databricks App resource to call. Used when delegating to another dao-ai app (auto-mounts A2A endpoints since v0.1.80). OBO and endpoint URL are auto-derived from the app. Mutually exclusive with ``endpoint``. MCP apps (``mcp-`` prefix) are rejected \u2014 use ``type: mcp`` instead."
         },
         "name": {
           "anyOf": [
@@ -813,7 +829,7 @@
             }
           ],
           "default": null,
-          "description": "Tool name visible to the LLM. Defaults to the endpoint name.",
+          "description": "Tool name visible to the LLM. Defaults to the endpoint or app name.",
           "title": "Name"
         },
         "description": {
@@ -839,13 +855,10 @@
             }
           ],
           "default": null,
-          "description": "If True, call the endpoint on behalf of the calling user by forwarding their bearer token. If False or None, the agent's service principal calls the endpoint. Ignored when ``endpoint`` is a full InferenceEndpointModel that sets on_behalf_of_user itself.",
+          "description": "If True, call the agent on behalf of the calling user by forwarding their bearer token. If False or None, the agent's service principal calls. Ignored when ``endpoint`` is a full InferenceEndpointModel that sets on_behalf_of_user, or when ``app`` is set (OBO derives from app.on_behalf_of_user).",
           "title": "On Behalf Of User"
         }
       },
-      "required": [
-        "endpoint"
-      ],
       "title": "AgentToolModel",
       "type": "object"
     },
