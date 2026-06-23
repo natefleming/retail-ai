@@ -42,12 +42,14 @@ flowchart TB
 
 | File | Description |
 |------|-------------|
+| [`agent_first_class.yaml`](./agent_first_class.yaml) | **First-class `type: agent`** — call a Knowledge Assistant or Model Serving endpoint with a typed shape |
+| [`a2a_first_class.yaml`](./a2a_first_class.yaml) | **First-class `type: a2a`** — call a remote Google A2A agent with a typed shape |
 | [`nested_agents.yaml`](./nested_agents.yaml) | Main agent calling specialized sub-agents |
 | [`parallel_agents.yaml`](./parallel_agents.yaml) | Parallel agent execution pattern |
-| [`agent_bricks.yaml`](./agent_bricks.yaml) | Delegate to Databricks Agent Bricks endpoints |
+| [`agent_bricks.yaml`](./agent_bricks.yaml) | Delegate to Databricks Agent Bricks endpoints (verbose `type: factory` form) |
 | [`kasal.yaml`](./kasal.yaml) | Delegate to Kasal specialist agents |
 | [`vertex_agent_engine.yaml`](./vertex_agent_engine.yaml) | Call a Google Cloud ADK agent on Vertex AI Agent Engine |
-| [`a2a_agent.yaml`](./a2a_agent.yaml) | Call any remote agent over Google's open A2A (Agent-to-Agent) protocol |
+| [`a2a_agent.yaml`](./a2a_agent.yaml) | Call any remote agent over Google's open A2A protocol (verbose `type: factory` form) |
 
 ## Vertex AI Agent Engine (Google ADK)
 

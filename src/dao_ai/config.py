@@ -4528,6 +4528,8 @@ class FunctionType(str, Enum):
     GENIE = "genie"
     VECTOR_SEARCH = "vector_search"
     SEARCH = "search"
+    AGENT = "agent"
+    A2A = "a2a"
 
 
 class HumanInTheLoopModel(BaseModel):
@@ -4589,7 +4591,7 @@ class BaseFunctionModel(ABC, BaseModel):
         discriminator="type",
     )
     type: FunctionType = Field(
-        description="Function type discriminator (python, factory, inline, mcp, unity_catalog, genie, vector_search, search).",
+        description="Function type discriminator (python, factory, inline, mcp, unity_catalog, genie, vector_search, search, agent, a2a).",
     )
     human_in_the_loop: Optional[HumanInTheLoopModel] = Field(
         default=None,
@@ -5289,6 +5291,209 @@ class SearchToolModel(BaseFunctionModel):
         return [create_search_tool()]
 
 
+class AgentToolModel(BaseFunctionModel):
+    """First-class tool that calls a deployed chat-shape agent endpoint.
+
+    Covers the Supervisor API ``knowledge_assistant`` and ``serving_endpoint``
+    tool types: any Model Serving endpoint that speaks chat completions or
+    ChatAgent (including Knowledge Assistants, which deploy as serving
+    endpoints with a known prefix).
+
+    For Databricks Apps:
+
+    - MCP apps (``mcp-`` prefix): use ``type: mcp`` with ``app:``.
+    - A2A apps: use ``type: a2a`` with ``app:``.
+
+    Equivalent to ``type: factory + name: dao_ai.tools.create_agent_endpoint_tool``,
+    but with typed fields so beginners get IDE autocomplete and JSON-schema
+    validation. OBO is opt-in via ``on_behalf_of_user``.
+    """
+
+    model_config = ConfigDict(use_enum_values=True, extra="forbid")
+    type: Literal[FunctionType.AGENT] = Field(
+        default=FunctionType.AGENT,
+        description="Function type discriminator. Must be 'agent'.",
+    )
+    endpoint: AnyVariable = Field(
+        description=(
+            "Model Serving endpoint name. For a Knowledge Assistant this is the "
+            "KA endpoint name (e.g., 'ka-customer-reviews')."
+        ),
+    )
+    name: Optional[str] = Field(
+        default=None,
+        description="Tool name visible to the LLM. Defaults to the endpoint name.",
+    )
+    description: Optional[str] = Field(
+        default=None,
+        description="Tool description shown to the LLM during function calling.",
+    )
+    on_behalf_of_user: Optional[bool] = Field(
+        default=None,
+        description=(
+            "If True, call the endpoint on behalf of the calling user by "
+            "forwarding their bearer token. If False or None, the agent's "
+            "service principal calls the endpoint."
+        ),
+    )
+
+    def as_tools(self, **kwargs: Any) -> Sequence[RunnableLike]:
+        from dao_ai.tools import create_agent_endpoint_tool
+
+        endpoint_name: str = str(value_of(self.endpoint))
+        llm = InferenceEndpointModel(
+            name=endpoint_name,
+            on_behalf_of_user=bool(self.on_behalf_of_user)
+            if self.on_behalf_of_user is not None
+            else None,
+        )
+        return [
+            create_agent_endpoint_tool(
+                llm=llm,
+                name=self.name or endpoint_name,
+                description=self.description,
+            )
+        ]
+
+
+class A2AToolModel(BaseFunctionModel):
+    """First-class tool that calls a Google A2A v0.3 agent.
+
+    Equivalent to ``type: factory + name: dao_ai.tools.create_a2a_agent_tool``,
+    but with typed fields. Two configuration modes match the underlying
+    factory:
+
+    - **Mode 1 (external A2A)**: set ``endpoint`` + ``auth_type``
+      (default ``bearer``). Use for Vertex AI Agent Engine, Crew.ai, Google
+      ADK, or any third-party A2A agent outside Databricks Apps.
+    - **Mode 2 (Databricks App)**: set ``app`` referencing a
+      ``DatabricksAppModel``. ``auth_type`` defaults from
+      ``app.on_behalf_of_user``: True → ``forwarded_user_token``;
+      False/None → ``databricks_app_sp``.
+    """
+
+    model_config = ConfigDict(use_enum_values=True, extra="forbid")
+    type: Literal[FunctionType.A2A] = Field(
+        default=FunctionType.A2A,
+        description="Function type discriminator. Must be 'a2a'.",
+    )
+    endpoint: Optional[AnyVariable] = Field(
+        default=None,
+        description=(
+            "Base URL of the A2A agent (e.g., 'https://agent.example.com'). "
+            "Mode 1 entry point. Mutually exclusive with ``app`` (``app`` wins "
+            "if both are provided)."
+        ),
+    )
+    app: Optional[DatabricksAppModel] = Field(
+        default=None,
+        description=(
+            "Databricks App resource for the remote dao-ai app. Mode 2 entry "
+            "point. Endpoint and auth mode derived from the bound app."
+        ),
+    )
+    auth: Optional[AnyVariable] = Field(
+        default=None,
+        description=(
+            "Auth material resolved to a string. Required for ``bearer`` and "
+            "``gcp_service_account``. Ignored by ``none``, "
+            "``forwarded_user_token``, and ``databricks_app_sp``."
+        ),
+    )
+    auth_type: Optional[
+        Literal[
+            "bearer",
+            "gcp_service_account",
+            "none",
+            "forwarded_user_token",
+            "databricks_app_sp",
+        ]
+    ] = Field(
+        default=None,
+        description=(
+            "Auth mode. Default is 'bearer' in Mode 1 and derived from "
+            "``app.on_behalf_of_user`` in Mode 2. Passing this in Mode 2 "
+            "overrides the app-derived default."
+        ),
+    )
+    streaming: bool = Field(
+        default=True,
+        description=(
+            "If true (default) the A2A client negotiates streaming; responses "
+            "are still aggregated internally and returned as one string."
+        ),
+    )
+    timeout_seconds: int = Field(
+        default=300,
+        description="httpx client timeout in seconds.",
+    )
+    card_path: Optional[str] = Field(
+        default=None,
+        description=(
+            "Primary agent-card discovery path relative to ``endpoint``. "
+            "Defaults to the current spec's '/.well-known/agent-card.json'."
+        ),
+    )
+    card_fallback_path: Optional[str] = Field(
+        default=None,
+        description=(
+            "Fallback agent-card path if the primary 404s. Defaults to the "
+            "pre-1.0 spec's '/.well-known/agent.json'. Pass empty string to "
+            "disable fallback."
+        ),
+    )
+    user_id: Optional[AnyVariable] = Field(
+        default=None,
+        description=(
+            "Static value forwarded as ``Message.metadata['dao_ai.user_id']``. "
+            "If omitted, falls back to ``runtime.context.user_id``."
+        ),
+    )
+    extra_metadata: Optional[dict[str, AnyVariable]] = Field(
+        default=None,
+        description="Static metadata merged into ``Message.metadata`` on every call.",
+    )
+    name: Optional[AnyVariable] = Field(
+        default=None,
+        description="Tool name visible to the LLM. Defaults to 'a2a_agent'.",
+    )
+    description: Optional[AnyVariable] = Field(
+        default=None,
+        description="Tool description shown to the LLM during function calling.",
+    )
+
+    @model_validator(mode="after")
+    def _endpoint_or_app(self) -> Self:
+        if self.endpoint is None and self.app is None:
+            raise ValueError(
+                "A2AToolModel requires one of 'endpoint' or 'app'."
+            )
+        return self
+
+    def as_tools(self, **kwargs: Any) -> Sequence[RunnableLike]:
+        from dao_ai.tools import create_a2a_agent_tool
+
+        factory_kwargs: dict[str, Any] = {
+            "endpoint": self.endpoint,
+            "app": self.app,
+            "auth": self.auth,
+            "auth_type": self.auth_type,
+            "streaming": self.streaming,
+            "timeout_seconds": self.timeout_seconds,
+            "user_id": self.user_id,
+            "extra_metadata": self.extra_metadata,
+            "name": self.name,
+            "description": self.description,
+        }
+        if self.card_path is not None:
+            factory_kwargs["card_path"] = self.card_path
+        if self.card_fallback_path is not None:
+            factory_kwargs["card_fallback_path"] = (
+                self.card_fallback_path if self.card_fallback_path else None
+            )
+        return [create_a2a_agent_tool(**factory_kwargs)]
+
+
 AnyTool: TypeAlias = (
     Union[
         PythonFunctionModel,
@@ -5299,6 +5504,8 @@ AnyTool: TypeAlias = (
         GenieToolModel,
         VectorSearchToolModel,
         SearchToolModel,
+        AgentToolModel,
+        A2AToolModel,
     ]
     | str
 )

@@ -264,6 +264,314 @@
       "title": "A2ATaskStoreModel",
       "type": "object"
     },
+    "A2AToolModel": {
+      "additionalProperties": false,
+      "description": "First-class tool that calls a Google A2A v0.3 agent.\n\nEquivalent to ``type: factory + name: dao_ai.tools.create_a2a_agent_tool``,\nbut with typed fields. Two configuration modes match the underlying\nfactory:\n\n- **Mode 1 (external A2A)**: set ``endpoint`` + ``auth_type``\n  (default ``bearer``). Use for Vertex AI Agent Engine, Crew.ai, Google\n  ADK, or any third-party A2A agent outside Databricks Apps.\n- **Mode 2 (Databricks App)**: set ``app`` referencing a\n  ``DatabricksAppModel``. ``auth_type`` defaults from\n  ``app.on_behalf_of_user``: True \u2192 ``forwarded_user_token``;\n  False/None \u2192 ``databricks_app_sp``.",
+      "properties": {
+        "type": {
+          "const": "a2a",
+          "default": "a2a",
+          "description": "Function type discriminator. Must be 'a2a'.",
+          "title": "Type",
+          "type": "string"
+        },
+        "human_in_the_loop": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/HumanInTheLoopModel"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Human-in-the-loop approval configuration for this tool."
+        },
+        "endpoint": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CompositeVariableModel"
+            },
+            {
+              "$ref": "#/$defs/EnvironmentVariableModel"
+            },
+            {
+              "$ref": "#/$defs/SecretVariableModel"
+            },
+            {
+              "$ref": "#/$defs/PrimitiveVariableModel"
+            },
+            {
+              "type": "string"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Base URL of the A2A agent (e.g., 'https://agent.example.com'). Mode 1 entry point. Mutually exclusive with ``app`` (``app`` wins if both are provided).",
+          "title": "Endpoint"
+        },
+        "app": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/DatabricksAppModel"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Databricks App resource for the remote dao-ai app. Mode 2 entry point. Endpoint and auth mode derived from the bound app."
+        },
+        "auth": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CompositeVariableModel"
+            },
+            {
+              "$ref": "#/$defs/EnvironmentVariableModel"
+            },
+            {
+              "$ref": "#/$defs/SecretVariableModel"
+            },
+            {
+              "$ref": "#/$defs/PrimitiveVariableModel"
+            },
+            {
+              "type": "string"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Auth material resolved to a string. Required for ``bearer`` and ``gcp_service_account``. Ignored by ``none``, ``forwarded_user_token``, and ``databricks_app_sp``.",
+          "title": "Auth"
+        },
+        "auth_type": {
+          "anyOf": [
+            {
+              "enum": [
+                "bearer",
+                "gcp_service_account",
+                "none",
+                "forwarded_user_token",
+                "databricks_app_sp"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Auth mode. Default is 'bearer' in Mode 1 and derived from ``app.on_behalf_of_user`` in Mode 2. Passing this in Mode 2 overrides the app-derived default.",
+          "title": "Auth Type"
+        },
+        "streaming": {
+          "default": true,
+          "description": "If true (default) the A2A client negotiates streaming; responses are still aggregated internally and returned as one string.",
+          "title": "Streaming",
+          "type": "boolean"
+        },
+        "timeout_seconds": {
+          "default": 300,
+          "description": "httpx client timeout in seconds.",
+          "title": "Timeout Seconds",
+          "type": "integer"
+        },
+        "card_path": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Primary agent-card discovery path relative to ``endpoint``. Defaults to the current spec's '/.well-known/agent-card.json'.",
+          "title": "Card Path"
+        },
+        "card_fallback_path": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Fallback agent-card path if the primary 404s. Defaults to the pre-1.0 spec's '/.well-known/agent.json'. Pass empty string to disable fallback.",
+          "title": "Card Fallback Path"
+        },
+        "user_id": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CompositeVariableModel"
+            },
+            {
+              "$ref": "#/$defs/EnvironmentVariableModel"
+            },
+            {
+              "$ref": "#/$defs/SecretVariableModel"
+            },
+            {
+              "$ref": "#/$defs/PrimitiveVariableModel"
+            },
+            {
+              "type": "string"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Static value forwarded as ``Message.metadata['dao_ai.user_id']``. If omitted, falls back to ``runtime.context.user_id``.",
+          "title": "User Id"
+        },
+        "extra_metadata": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/CompositeVariableModel"
+                  },
+                  {
+                    "$ref": "#/$defs/EnvironmentVariableModel"
+                  },
+                  {
+                    "$ref": "#/$defs/SecretVariableModel"
+                  },
+                  {
+                    "$ref": "#/$defs/PrimitiveVariableModel"
+                  },
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "boolean"
+                  }
+                ]
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Static metadata merged into ``Message.metadata`` on every call.",
+          "title": "Extra Metadata"
+        },
+        "name": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CompositeVariableModel"
+            },
+            {
+              "$ref": "#/$defs/EnvironmentVariableModel"
+            },
+            {
+              "$ref": "#/$defs/SecretVariableModel"
+            },
+            {
+              "$ref": "#/$defs/PrimitiveVariableModel"
+            },
+            {
+              "type": "string"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Tool name visible to the LLM. Defaults to 'a2a_agent'.",
+          "title": "Name"
+        },
+        "description": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CompositeVariableModel"
+            },
+            {
+              "$ref": "#/$defs/EnvironmentVariableModel"
+            },
+            {
+              "$ref": "#/$defs/SecretVariableModel"
+            },
+            {
+              "$ref": "#/$defs/PrimitiveVariableModel"
+            },
+            {
+              "type": "string"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Tool description shown to the LLM during function calling.",
+          "title": "Description"
+        }
+      },
+      "title": "A2AToolModel",
+      "type": "object"
+    },
     "APIKeySecurityScheme": {
       "description": "Defines a security scheme using an API key.",
       "properties": {
@@ -437,6 +745,105 @@
         "model"
       ],
       "title": "AgentModel",
+      "type": "object"
+    },
+    "AgentToolModel": {
+      "additionalProperties": false,
+      "description": "First-class tool that calls a deployed chat-shape agent endpoint.\n\nCovers the Supervisor API ``knowledge_assistant`` and ``serving_endpoint``\ntool types: any Model Serving endpoint that speaks chat completions or\nChatAgent (including Knowledge Assistants, which deploy as serving\nendpoints with a known prefix).\n\nFor Databricks Apps:\n\n- MCP apps (``mcp-`` prefix): use ``type: mcp`` with ``app:``.\n- A2A apps: use ``type: a2a`` with ``app:``.\n\nEquivalent to ``type: factory + name: dao_ai.tools.create_agent_endpoint_tool``,\nbut with typed fields so beginners get IDE autocomplete and JSON-schema\nvalidation. OBO is opt-in via ``on_behalf_of_user``.",
+      "properties": {
+        "type": {
+          "const": "agent",
+          "default": "agent",
+          "description": "Function type discriminator. Must be 'agent'.",
+          "title": "Type",
+          "type": "string"
+        },
+        "human_in_the_loop": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/HumanInTheLoopModel"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Human-in-the-loop approval configuration for this tool."
+        },
+        "endpoint": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CompositeVariableModel"
+            },
+            {
+              "$ref": "#/$defs/EnvironmentVariableModel"
+            },
+            {
+              "$ref": "#/$defs/SecretVariableModel"
+            },
+            {
+              "$ref": "#/$defs/PrimitiveVariableModel"
+            },
+            {
+              "type": "string"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "boolean"
+            }
+          ],
+          "description": "Model Serving endpoint name. For a Knowledge Assistant this is the KA endpoint name (e.g., 'ka-customer-reviews').",
+          "title": "Endpoint"
+        },
+        "name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Tool name visible to the LLM. Defaults to the endpoint name.",
+          "title": "Name"
+        },
+        "description": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Tool description shown to the LLM during function calling.",
+          "title": "Description"
+        },
+        "on_behalf_of_user": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "If True, call the endpoint on behalf of the calling user by forwarding their bearer token. If False or None, the agent's service principal calls the endpoint.",
+          "title": "On Behalf Of User"
+        }
+      },
+      "required": [
+        "endpoint"
+      ],
+      "title": "AgentToolModel",
       "type": "object"
     },
     "AppModel": {
@@ -8070,6 +8477,12 @@
               "$ref": "#/$defs/SearchToolModel"
             },
             {
+              "$ref": "#/$defs/AgentToolModel"
+            },
+            {
+              "$ref": "#/$defs/A2AToolModel"
+            },
+            {
               "type": "string"
             }
           ],
@@ -8086,7 +8499,7 @@
     },
     "TraceLocationModel": {
       "additionalProperties": false,
-      "description": "Unity Catalog location for storing MLflow traces in OTEL-format Delta tables.\n\nWhen configured on AppModel, traces are stored in UC Delta tables via\n``mlflow.set_experiment(experiment_id=..., trace_location=UnityCatalog(...))``.\nProvide an optional ``table_prefix`` to namespace the OTEL tables when\nmultiple agents share a single UC schema. Without a prefix, MLflow uses\nthe experiment_id as the prefix \u2014 table names become\n``<catalog>.<schema>.<experiment_id>_otel_{spans,logs,metrics,annotations}``\nrather than a stable shared name.\n\ndao-ai does NOT include the OTEL trace tables in the model's auth_policy\nor App resources list because the table names depend on the experiment_id\n(no prefix) or table_prefix and aren't fully predictable at deploy time.\nInstead, users grant the deployed serving identity USE_CATALOG +\nUSE_SCHEMA + SELECT + MODIFY on the trace schema as a one-time post-deploy\nstep (mirrors the Apps SP grant pattern documented in README).",
+      "description": "Unity Catalog location for storing MLflow traces in OTEL-format Delta tables.\n\nWhen configured on AppModel, traces are stored in UC Delta tables via\n``mlflow.set_experiment(experiment_id=..., trace_location=UnityCatalog(...))``.\nProvide an optional ``table_prefix`` to namespace the OTEL tables when\nmultiple agents share a single UC schema. Without a prefix, MLflow uses\nthe literal default ``mlflow_experiment_trace`` \u2014 table names become\n``<catalog>.<schema>.mlflow_experiment_trace_otel_{spans,logs,metrics,annotations}``\n(see ``mlflow.entities.trace_location._UC_SCHEMA_DEFAULT_SPANS_TABLE_NAME``).\nAll experiments linked to the same schema with no prefix end up writing\nto the same shared table set, distinguished by the ``experiment_id``\ncolumn inside the tables \u2014 convenient for cross-experiment analytics,\nbut ambiguous if you want per-app isolation. Set ``table_prefix`` to\nnamespace the tables per agent (e.g. ``table_prefix: sales_genie`` yields\n``<catalog>.<schema>.sales_genie_otel_spans``).\n\ndao-ai does NOT include the OTEL trace tables in the model's auth_policy\nor App resources list because the table names depend on the configured\n``table_prefix`` and aren't fully predictable at deploy time. Instead,\nusers grant the deployed serving identity USE_CATALOG + USE_SCHEMA +\nSELECT + MODIFY on the trace schema as a one-time post-deploy step\n(mirrors the Apps SP grant pattern documented in README).",
       "properties": {
         "schema": {
           "$ref": "#/$defs/SchemaModel",
