@@ -5306,7 +5306,20 @@ class AgentToolModel(BaseFunctionModel):
 
     Equivalent to ``type: factory + name: dao_ai.tools.create_agent_endpoint_tool``,
     but with typed fields so beginners get IDE autocomplete and JSON-schema
-    validation. OBO is opt-in via ``on_behalf_of_user``.
+    validation.
+
+    ``endpoint`` accepts two shapes:
+
+    - **String / variable** (the sugar form) — just the endpoint name. dao-ai
+      promotes it to a minimal ``InferenceEndpointModel`` internally. Use
+      this when you only need the endpoint name and OBO toggle.
+    - **Full ``InferenceEndpointModel``** — when you need ``temperature``,
+      ``max_tokens``, ``ai_gateway``, or any other endpoint-level
+      configuration. Mirrors how ``GenieToolModel`` takes a full
+      ``GenieRoomModel`` and ``VectorSearchToolModel`` takes a
+      ``RetrieverModel`` / ``VectorStoreModel``. The model's
+      ``on_behalf_of_user`` overrides this tool's ``on_behalf_of_user``
+      when both are set.
     """
 
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
@@ -5314,10 +5327,13 @@ class AgentToolModel(BaseFunctionModel):
         default=FunctionType.AGENT,
         description="Function type discriminator. Must be 'agent'.",
     )
-    endpoint: AnyVariable = Field(
+    endpoint: Union[InferenceEndpointModel, AnyVariable] = Field(
         description=(
-            "Model Serving endpoint name. For a Knowledge Assistant this is the "
-            "KA endpoint name (e.g., 'ka-customer-reviews')."
+            "Model Serving endpoint to call. Accepts either an endpoint "
+            "name string (sugar) or a full InferenceEndpointModel with "
+            "temperature / max_tokens / ai_gateway / on_behalf_of_user. "
+            "For a Knowledge Assistant this is the KA endpoint name "
+            "(e.g., 'ka-customer-reviews')."
         ),
     )
     name: Optional[str] = Field(
@@ -5333,24 +5349,32 @@ class AgentToolModel(BaseFunctionModel):
         description=(
             "If True, call the endpoint on behalf of the calling user by "
             "forwarding their bearer token. If False or None, the agent's "
-            "service principal calls the endpoint."
+            "service principal calls the endpoint. Ignored when ``endpoint`` "
+            "is a full InferenceEndpointModel that sets on_behalf_of_user "
+            "itself."
         ),
     )
 
-    def as_tools(self, **kwargs: Any) -> Sequence[RunnableLike]:
-        from dao_ai.tools import create_agent_endpoint_tool
-
+    def _resolved_llm(self) -> "InferenceEndpointModel":
+        """Normalize the endpoint field to an InferenceEndpointModel."""
+        if isinstance(self.endpoint, InferenceEndpointModel):
+            return self.endpoint
         endpoint_name: str = str(value_of(self.endpoint))
-        llm = InferenceEndpointModel(
+        return InferenceEndpointModel(
             name=endpoint_name,
             on_behalf_of_user=bool(self.on_behalf_of_user)
             if self.on_behalf_of_user is not None
             else None,
         )
+
+    def as_tools(self, **kwargs: Any) -> Sequence[RunnableLike]:
+        from dao_ai.tools import create_agent_endpoint_tool
+
+        llm: InferenceEndpointModel = self._resolved_llm()
         return [
             create_agent_endpoint_tool(
                 llm=llm,
-                name=self.name or endpoint_name,
+                name=self.name or llm.name,
                 description=self.description,
             )
         ]

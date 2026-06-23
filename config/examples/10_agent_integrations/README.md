@@ -42,14 +42,14 @@ flowchart TB
 
 | File | Description |
 |------|-------------|
-| [`agent_first_class.yaml`](./agent_first_class.yaml) | **First-class `type: agent`** — call a Knowledge Assistant or Model Serving endpoint with a typed shape |
-| [`a2a_first_class.yaml`](./a2a_first_class.yaml) | **First-class `type: a2a`** — call a remote Google A2A agent with a typed shape |
+| [`agent_first_class.yaml`](./agent_first_class.yaml) | **First-class `type: agent`** — minimal example calling a KA or Model Serving endpoint with a typed shape |
+| [`a2a_first_class.yaml`](./a2a_first_class.yaml) | **First-class `type: a2a`** — minimal example calling a remote Google A2A agent with a typed shape |
 | [`nested_agents.yaml`](./nested_agents.yaml) | Main agent calling specialized sub-agents |
 | [`parallel_agents.yaml`](./parallel_agents.yaml) | Parallel agent execution pattern |
-| [`agent_bricks.yaml`](./agent_bricks.yaml) | Delegate to Databricks Agent Bricks endpoints (verbose `type: factory` form) |
-| [`kasal.yaml`](./kasal.yaml) | Delegate to Kasal specialist agents |
+| [`agent_bricks.yaml`](./agent_bricks.yaml) | Delegate to Databricks Agent Bricks endpoints using `type: agent` with full `InferenceEndpointModel` (temperature / max_tokens per tool) |
+| [`kasal.yaml`](./kasal.yaml) | Delegate to Kasal specialist agents using `type: agent` |
 | [`vertex_agent_engine.yaml`](./vertex_agent_engine.yaml) | Call a Google Cloud ADK agent on Vertex AI Agent Engine |
-| [`a2a_agent.yaml`](./a2a_agent.yaml) | Call any remote agent over Google's open A2A protocol (verbose `type: factory` form) |
+| [`a2a_agent.yaml`](./a2a_agent.yaml) | Comprehensive `type: a2a` walkthrough — bearer / GCP / none auth, AppResource mode, card-path overrides |
 
 ## Vertex AI Agent Engine (Google ADK)
 

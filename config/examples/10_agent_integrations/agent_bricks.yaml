@@ -48,45 +48,43 @@ resources:
       max_tokens: 800
 
 tools:
-  # Agent Bricks Customer Support Tool
+  # Agent Bricks Customer Support Tool — first-class `type: agent` (dao-ai
+  # 0.1.97+). `endpoint:` accepts the full InferenceEndpointModel anchor so
+  # temperature / max_tokens / ai_gateway from the resource flow through.
   customer_support_tool: &customer_support_tool
     name: customer_support_agent
     function:
-      type: factory
-      name: dao_ai.tools.create_agent_endpoint_tool
-      args:
-        llm: *agent_bricks_customer_support
-        name: customer_support_specialist
-        description: |
-          Delegate customer support queries to a specialized Agent Bricks customer support agent.
-          Use this tool for:
-          - Handling customer complaints and issues
-          - Processing returns and refunds
-          - Managing customer satisfaction concerns
-          - Escalation handling
+      type: agent
+      endpoint: *agent_bricks_customer_support
+      name: customer_support_specialist
+      description: |
+        Delegate customer support queries to a specialized Agent Bricks customer support agent.
+        Use this tool for:
+        - Handling customer complaints and issues
+        - Processing returns and refunds
+        - Managing customer satisfaction concerns
+        - Escalation handling
 
-          The agent is trained on customer support best practices and your company's policies.
-          Pass the customer's question or issue as the prompt.
+        The agent is trained on customer support best practices and your company's policies.
+        Pass the customer's question or issue as the prompt.
 
   # Agent Bricks Product Expert Tool
   product_expert_tool: &product_expert_tool
     name: product_expert_agent
     function:
-      type: factory
-      name: dao_ai.tools.create_agent_endpoint_tool
-      args:
-        llm: *agent_bricks_product_expert
-        name: product_knowledge_expert
-        description: |
-          Consult with a specialized Agent Bricks product expert for detailed product information.
-          Use this tool for:
-          - Technical product specifications
-          - Product comparisons and recommendations
-          - Compatibility questions
-          - Usage instructions and best practices
+      type: agent
+      endpoint: *agent_bricks_product_expert
+      name: product_knowledge_expert
+      description: |
+        Consult with a specialized Agent Bricks product expert for detailed product information.
+        Use this tool for:
+        - Technical product specifications
+        - Product comparisons and recommendations
+        - Compatibility questions
+        - Usage instructions and best practices
 
-          This agent has deep knowledge of your product catalog and can provide
-          expert-level guidance on product selection and usage.
+        This agent has deep knowledge of your product catalog and can provide
+        expert-level guidance on product selection and usage.
 
 agents:
   # Main orchestrator agent that delegates to Agent Bricks specialists

@@ -10,7 +10,7 @@ End-to-end demo of two dao-ai apps speaking the
 | App | YAML | Role |
 |-----|------|------|
 | `dao-ai-supplier-a2a` | `supplier.yaml` | Wholesale-supplier specialist. Answers SKU, pricing, lead-time, MOQ, and stock questions from an embedded catalog. Exposes A2A by default. |
-| `dao-ai-procurement-a2a` | `procurement.yaml` | Procurement-officer agent. Holds one tool — `query_supplier` — built from `dao_ai.tools.create_a2a_agent_tool` in **AppResource mode**: the supplier app is passed in directly via `app: *supplier_app`, and the tool resolves both the endpoint and the auth mode from it. |
+| `dao-ai-procurement-a2a` | `procurement.yaml` | Procurement-officer agent. Holds one tool — `query_supplier` — declared as a first-class `type: a2a` tool in **AppResource mode**: the supplier app is passed in directly via `app: *supplier_app`, and the tool resolves both the endpoint and the auth mode from it. |
 
 Both apps run on Foundation Model API only — no Unity Catalog tables,
 Vector Search indexes, or Genie rooms required.
@@ -32,10 +32,8 @@ resources:
 tools:
   query_supplier:
     function:
-      type: factory
-      name: dao_ai.tools.create_a2a_agent_tool
-      args:
-        app: *supplier_app
+      type: a2a
+      app: *supplier_app
 ```
 
 The factory then:

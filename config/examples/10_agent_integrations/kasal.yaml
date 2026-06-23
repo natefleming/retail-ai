@@ -54,71 +54,67 @@ resources:
       max_tokens: 800
 
 tools:
-  # Kasal Financial Analysis Tool
+  # Kasal Financial Analysis Tool — first-class `type: agent` (dao-ai
+  # 0.1.97+). `endpoint:` accepts the full InferenceEndpointModel anchor so
+  # temperature / max_tokens flow through from the resource definition.
   financial_analyst_tool: &financial_analyst_tool
     name: financial_analyst
     function:
-      type: factory
-      name: dao_ai.tools.create_agent_endpoint_tool
-      args:
-        llm: *kasal_financial_agent
-        name: kasal_financial_expert
-        description: |
-          Access a Kasal financial analyst agent for financial queries and analysis.
+      type: agent
+      endpoint: *kasal_financial_agent
+      name: kasal_financial_expert
+      description: |
+        Access a Kasal financial analyst agent for financial queries and analysis.
 
-          Capabilities:
-          - Revenue and profit analysis
-          - Financial forecasting and projections
-          - Budget planning and variance analysis
-          - Cost optimization recommendations
-          - Financial report generation
+        Capabilities:
+        - Revenue and profit analysis
+        - Financial forecasting and projections
+        - Budget planning and variance analysis
+        - Cost optimization recommendations
+        - Financial report generation
 
-          The agent has access to financial data and follows GAAP standards.
-          Provide your financial question or analysis request as the prompt.
+        The agent has access to financial data and follows GAAP standards.
+        Provide your financial question or analysis request as the prompt.
 
   # Kasal Compliance Tool
   compliance_checker_tool: &compliance_checker_tool
     name: compliance_checker
     function:
-      type: factory
-      name: dao_ai.tools.create_agent_endpoint_tool
-      args:
-        llm: *kasal_compliance_agent
-        name: kasal_compliance_validator
-        description: |
-          Consult with a Kasal compliance agent to validate regulatory adherence.
+      type: agent
+      endpoint: *kasal_compliance_agent
+      name: kasal_compliance_validator
+      description: |
+        Consult with a Kasal compliance agent to validate regulatory adherence.
 
-          Use this for:
-          - Regulatory requirement validation
-          - Policy compliance checks
-          - Audit trail generation
-          - Risk assessment
-          - Industry standards verification (SOC2, HIPAA, GDPR, etc.)
+        Use this for:
+        - Regulatory requirement validation
+        - Policy compliance checks
+        - Audit trail generation
+        - Risk assessment
+        - Industry standards verification (SOC2, HIPAA, GDPR, etc.)
 
-          This agent ensures all recommendations and decisions meet regulatory requirements.
-          Describe the action or decision you need validated.
+        This agent ensures all recommendations and decisions meet regulatory requirements.
+        Describe the action or decision you need validated.
 
   # Kasal Data Privacy Tool
   privacy_specialist_tool: &privacy_specialist_tool
     name: privacy_specialist
     function:
-      type: factory
-      name: dao_ai.tools.create_agent_endpoint_tool
-      args:
-        llm: *kasal_privacy_agent
-        name: kasal_privacy_expert
-        description: |
-          Engage with a Kasal data privacy specialist for PII and data handling guidance.
+      type: agent
+      endpoint: *kasal_privacy_agent
+      name: kasal_privacy_expert
+      description: |
+        Engage with a Kasal data privacy specialist for PII and data handling guidance.
 
-          Capabilities:
-          - PII detection and classification
-          - Data retention policy guidance
-          - Privacy impact assessments
-          - GDPR/CCPA compliance validation
-          - Data anonymization strategies
+        Capabilities:
+        - PII detection and classification
+        - Data retention policy guidance
+        - Privacy impact assessments
+        - GDPR/CCPA compliance validation
+        - Data anonymization strategies
 
-          The agent helps ensure data privacy best practices are followed.
-          Ask your data privacy or PII-related question.
+        The agent helps ensure data privacy best practices are followed.
+        Ask your data privacy or PII-related question.
 
 agents:
   # Enterprise coordinator agent with Kasal specialist agents
