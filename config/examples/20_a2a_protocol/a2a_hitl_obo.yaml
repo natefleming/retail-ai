@@ -22,7 +22,7 @@
 # resume, the conversation will not resume. For a production HITL
 # deployment, attach a Lakebase ``DatabaseModel`` to the checkpointer and
 # also persist the A2A task store via ``a2a.task_store.database``
-# (see a2a_long_running.yaml).
+# (see a2a_background.yaml).
 
 resources:
   models:

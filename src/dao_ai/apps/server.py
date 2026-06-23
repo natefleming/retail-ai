@@ -4,7 +4,7 @@ This module provides the entry point for deploying dao-ai agents as Databricks A
 using MLflow's AgentServer. It follows the same pattern as model_serving.py but
 uses the AgentServer for the Databricks Apps runtime.
 
-When ``app.long_running`` is configured, strict OpenAI Responses API routes
+When ``app.background`` is configured, strict OpenAI Responses API routes
 (``/v1/responses``, ``/v1/responses/{id}``, ``/v1/responses/{id}/cancel``) are
 mounted on the underlying FastAPI app so clients can use standard Responses
 clients without having to encode operations into ``custom_inputs`` by hand.
@@ -38,8 +38,8 @@ agent_server = AgentServer("ResponsesAgent", enable_chat_proxy=_enable_chat_prox
 app = agent_server.app
 
 
-def _mount_long_running_routes() -> None:
-    """Register /v1/responses* routes when long_running is configured.
+def _mount_background_routes() -> None:
+    """Register /v1/responses* routes when background is configured.
 
     These routes are sugar over ``/invocations``: they build a
     ``ResponsesAgentRequest`` whose ``custom_inputs`` carry the kickoff /
@@ -47,7 +47,7 @@ def _mount_long_running_routes() -> None:
     Model Serving clients, which only see ``/invocations``, can use the
     same ``custom_inputs`` shape directly.
     """
-    if not _config.app or _config.app.long_running is None:
+    if not _config.app or _config.app.background is None:
         return
 
     from fastapi import HTTPException, Query, Request
@@ -56,7 +56,7 @@ def _mount_long_running_routes() -> None:
     from mlflow.types.responses import ResponsesAgentRequest
 
     from dao_ai.apps.handlers import non_streaming, streaming
-    from dao_ai.long_running import (
+    from dao_ai.background import (
         CUSTOM_INPUT_CURSOR,
         CUSTOM_INPUT_OPERATION,
         CUSTOM_INPUT_RESPONSE_ID,
@@ -161,7 +161,7 @@ def _mount_long_running_routes() -> None:
         return JSONResponse(body)
 
     logger.info(
-        "Long-running Responses API routes mounted",
+        "Background Responses API routes mounted",
         routes=[
             "POST /v1/responses",
             "GET /v1/responses/{id}",
@@ -170,7 +170,7 @@ def _mount_long_running_routes() -> None:
     )
 
 
-_mount_long_running_routes()
+_mount_background_routes()
 
 
 def _mount_a2a_routes() -> None:

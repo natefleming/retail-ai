@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **BREAKING — Renamed `long_running` → `background` throughout the API.** Aligns dao-ai with OpenAI's "background" terminology for async/fire-and-forget Responses. No backwards-compatibility shims. Specifically:
+  - **Pydantic class.** `LongRunningModel` → `BackgroundModel`. Field `default_background` → `default_enabled` (removes the `BackgroundModel.default_background` redundancy).
+  - **Config field.** `AppModel.long_running` → `AppModel.background`; YAML key `app.long_running:` → `app.background:`.
+  - **Wrapper class + store.** `LongRunningResponsesAgent` → `BackgroundResponsesAgent`; `LongRunningStore` → `BackgroundStore`.
+  - **Module path.** `dao_ai.long_running` → `dao_ai.background`. Imports like `from dao_ai.long_running import LongRunningResponsesAgent` must become `from dao_ai.background import BackgroundResponsesAgent`.
+  - **Wire-protocol envelope key.** `custom_outputs["long_running"]` → `custom_outputs["background"]`. Any client reading `response.custom_outputs.long_running.status` must update to `.background.status`.
+  - **Example configs renamed.** `config/examples/19_long_running_agents/` → `19_background_agents/`; `config/examples/20_a2a_protocol/a2a_long_running.yaml` → `a2a_background.yaml`.
+  - **Docs renamed.** `docs/long_running_agents.md` → `docs/background_agents.md`.
+  - **Demo notebook renamed.** `notebooks/14_long_running_agents_demo.py` → `14_background_agents_demo.py`.
+  - The external request field `ResponsesAgentRequest.background: bool` (from MLflow SDK) is unchanged — dao-ai now mirrors that name end-to-end.
+
 ### Added
 
 - **Diagnostic visibility for cache auth-mode resolution.** Two new structured log lines surface the root cause of the most common Postgres semantic-cache permission failure — operators configuring `DatabaseModel.client_id` but having the secret resolution silently fail back to ambient (App SP) auth. (1) `PostgresContextAwareGenieService._setup` now emits an INFO line `dao_ai.cache.auth.mode | mode=service_principal\|ambient | sp_client_id=...` at boot so operators can see at a glance whether the cache is connecting as the stable configured SP or as the App's auto-injected SP. (2) `IsDatabricksResource.workspace_client` now emits a WARNING `dao_ai.auth.client_id.unresolved` when `client_id` is configured in YAML but `value_of()` returns `None` (silent fallback) — naming the resource class + the scope/key the operator likely needs to grant the App SP `READ` on. Closes [#107](https://github.com/natefleming/dao-ai/issues/107) — the previously-suspected "Lakebase orphaned cache tables" failure mode was actually misconfigured `DatabaseModel.client_id`/`client_secret`; the existing dao-ai auth chain in `IsDatabricksResource.workspace_client:416-490` already prefers configured SP creds over ambient, and `dao-ai generate-mcp` already auto-emits the corresponding `secret` App-resource bindings so the App SP can read the scope at deploy time. End-to-end verified on FEVM: with `client_id`/`client_secret`/`workspace_host` restored to the `DatabaseModel` referencing `retail_consumer_goods` scope, all Apps connect as the stable cache SP `ad1118d0-...` (visible in `pg_stat_activity.usename`), and multi-tenant cache works without any operator-side `GRANT` statements.

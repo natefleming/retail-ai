@@ -34,7 +34,7 @@ all: dist
 install: depends 
 	$(SYNC) 
 
-dist: install
+dist:
 	$(BUILD)
 
 depends: 

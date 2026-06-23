@@ -16,10 +16,10 @@ from dao_ai.config import (
     AgentModel,
     AppConfig,
     AppModel,
+    BackgroundModel,
     DatabaseModel,
     DeploymentTarget,
     InferenceEndpointModel,
-    LongRunningModel,
 )
 
 
@@ -43,7 +43,7 @@ def _database() -> DatabaseModel:
 def _config(
     *,
     a2a: A2AModel | None = None,
-    long_running: LongRunningModel | None = None,
+    background: BackgroundModel | None = None,
 ) -> AppConfig:
     extra: dict = {}
     if a2a is not None:
@@ -53,7 +53,7 @@ def _config(
             name="dao-ai-test",
             description="test",
             deployment_target=DeploymentTarget.APPS,
-            long_running=long_running,
+            background=background,
             agents=[_agent()],
             **extra,
         ),
@@ -103,14 +103,14 @@ def test_build_task_store_honors_custom_table():
 
 
 @pytest.mark.unit
-def test_build_task_store_is_independent_of_long_running():
-    """A2A task store does NOT inherit a database from app.long_running.
+def test_build_task_store_is_independent_of_background():
+    """A2A task store does NOT inherit a database from app.background.
 
-    long_running has a database; task_store does not. Result: in-memory.
+    background has a database; task_store does not. Result: in-memory.
     """
     cfg = _config(
         a2a=A2AModel(),
-        long_running=LongRunningModel(database=_database()),
+        background=BackgroundModel(database=_database()),
     )
     store = build_task_store(cfg)
     assert isinstance(store, InMemoryTaskStore)

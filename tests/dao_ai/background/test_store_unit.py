@@ -1,10 +1,10 @@
-"""Pure-unit tests for LongRunningStore helpers that don't require a live DB."""
+"""Pure-unit tests for BackgroundStore helpers that don't require a live DB."""
 
 from __future__ import annotations
 
 import pytest
 
-from dao_ai.long_running.store import ResponseStatus, _coerce_json, _valid_identifier
+from dao_ai.background.store import ResponseStatus, _coerce_json, _valid_identifier
 
 
 def test_valid_identifier_allows_simple_names():

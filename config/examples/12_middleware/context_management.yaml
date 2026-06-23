@@ -228,10 +228,10 @@ agents:
       Research questions requiring multiple web searches.
 
   # ---------------------------------------------------------------------------
-  # Long-Running Agent (with full context clearing)
+  # Background Agent (with full context clearing)
   # ---------------------------------------------------------------------------
-  long_running_agent: &long_running_agent
-    name: long_running_agent
+  background_agent: &background_agent
+    name: background_agent
     description: "Agent for extended sessions with full context clearing"
     model: *default_llm
     tools:
@@ -268,7 +268,7 @@ app:
   agents:
   - *data_analyst_agent
   - *research_agent
-  - *long_running_agent
+  - *background_agent
   orchestration:
     supervisor:
       model: *default_llm

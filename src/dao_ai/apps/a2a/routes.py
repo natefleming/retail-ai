@@ -2,7 +2,7 @@
 
 This module exposes the single public entry point
 :func:`mount_a2a_routes`, which is called from
-:mod:`dao_ai.apps.server` after the long-running Responses routes have
+:mod:`dao_ai.apps.server` after the background Responses routes have
 been mounted. It is a no-op when ``config.app.a2a.enabled`` is False, so
 opting out is one config line.
 

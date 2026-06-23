@@ -145,9 +145,9 @@ the backing store.
 | Omitted / `{}` (default)                            | **In-memory** (`InMemoryTaskStore`). Process-local; tasks lost on restart. Suitable for short demos and dev loops.                  |
 | `{ database: <DatabaseModel> }`                     | **Lakebase-backed** (`LakebaseTaskStore`). Tasks persist in `dao_ai_a2a_tasks` (or `table:`-override) on the referenced database.   |
 
-A2A task persistence is **independent** of `app.long_running` — the two
+A2A task persistence is **independent** of `app.background` — the two
 concepts (A2A task lifecycle vs Responses-API kickoff/poll/cancel) are
-configured separately. To share a connection pool with the long-running
+configured separately. To share a connection pool with the background
 store and the LangGraph Postgres checkpointer, point all three at the
 same `DatabaseModel` anchor; `AsyncPostgresPoolManager` dedupes by
 connection-string value.
@@ -157,7 +157,7 @@ task_json, created_at, updated_at)`. `LakebaseTaskStore.ensure_schema()`
 creates the table idempotently on first use (skipped when a provisioning
 notebook has already created it).
 
-Example — Lakebase-backed task store sharing the long-running pool:
+Example — Lakebase-backed task store sharing the background pool:
 
 ```yaml
 resources:
@@ -172,7 +172,7 @@ memory: &memory
     database: *a2a_db          # shared pool anchor
 
 app:
-  long_running:
+  background:
     database: *a2a_db          # shared pool anchor
   a2a:
     task_store:

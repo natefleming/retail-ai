@@ -1,4 +1,4 @@
-"""Long-running wrapper around a ``ResponsesAgent``.
+"""Background wrapper around a ``ResponsesAgent``.
 
 This class composes a normal ``ResponsesAgent`` (typically the dao-ai
 ``LanggraphResponsesAgent``) and adds three operations, all delivered through
@@ -15,7 +15,7 @@ the same ``/invocations`` contract:
 If neither ``background`` nor ``operation`` is set, the call is delegated
 unchanged to the wrapped agent — the synchronous path is a passthrough.
 
-See ``config/examples/19_long_running_agents/deep_research.yaml`` for an
+See ``config/examples/19_background_agents/deep_research.yaml`` for an
 end-to-end example.
 """
 
@@ -43,8 +43,8 @@ from mlflow.types.responses import (
     ResponsesAgentStreamEvent,
 )
 
-from dao_ai.long_running.store import (
-    LongRunningStore,
+from dao_ai.background.store import (
+    BackgroundStore,
     ResponseRecord,
     ResponseStatus,
 )
@@ -54,9 +54,9 @@ from dao_ai.long_running.store import (
 # anything else. We intentionally surface ``cancelled`` in the top-level
 # ``status`` field so existing clients (including the reference notebook)
 # can treat it as a terminal state without having to read
-# ``custom_outputs.long_running.status``. Mute the helper's warning so App /
+# ``custom_outputs.background.status``. Mute the helper's warning so App /
 # Model Serving logs stay clean; the authoritative status still lives in
-# ``custom_outputs.long_running.status``.
+# ``custom_outputs.background.status``.
 warnings.filterwarnings(
     "ignore",
     message=r"Invalid status: cancelled\..*",
@@ -89,7 +89,7 @@ class _Operation(str, Enum):
 
 
 class _BackgroundLoop:
-    """Process-singleton background event loop for long-running tasks.
+    """Process-singleton background event loop for background tasks.
 
     Model Serving uses ``asyncio.run()`` per-request — when the request
     returns, the loop is torn down and any in-flight ``asyncio.create_task``
@@ -117,7 +117,7 @@ class _BackgroundLoop:
         self._ready = threading.Event()
         self._thread = threading.Thread(
             target=self._run,
-            name="dao_ai-long_running-bg",
+            name="dao_ai-background",
             daemon=True,
         )
         self._thread.start()
@@ -187,10 +187,10 @@ def _thread_id(request: ResponsesAgentRequest) -> str:
     return uuid.uuid4().hex
 
 
-def _long_running_custom_outputs(
+def _background_custom_outputs(
     record: ResponseRecord, *, extra: Optional[dict[str, Any]] = None
 ) -> dict[str, Any]:
-    """Build the ``custom_outputs.long_running`` payload for responses/events."""
+    """Build the ``custom_outputs.background`` payload for responses/events."""
     payload: dict[str, Any] = {
         "response_id": record.response_id,
         "status": record.status.value,
@@ -199,7 +199,7 @@ def _long_running_custom_outputs(
     }
     if extra:
         payload.update(extra)
-    return {"long_running": payload}
+    return {"background": payload}
 
 
 def _status_response(
@@ -211,7 +211,7 @@ def _status_response(
         id=record.response_id,
         status=record.status.value,
         output=output or [],  # type: ignore[arg-type]
-        custom_outputs=_long_running_custom_outputs(record),
+        custom_outputs=_background_custom_outputs(record),
     )
 
 
@@ -227,7 +227,7 @@ def _status_stream_event(
         {
             "type": event_type,
             "id": record.response_id,
-            "custom_outputs": _long_running_custom_outputs(record),
+            "custom_outputs": _background_custom_outputs(record),
         }
     )
 
@@ -240,7 +240,7 @@ def _not_found_payload(response_id: str) -> dict[str, Any]:
     inspect it and return HTTP 404.
     """
     return {
-        "long_running": {
+        "background": {
             "response_id": response_id,
             "status": ResponseStatus.FAILED.value,
             "thread_id": None,
@@ -278,13 +278,13 @@ def is_not_found_response(body: dict[str, Any]) -> bool:
     into an HTTP 404 or equivalent. Model Serving clients can use it to
     distinguish not-found from other failures.
     """
-    lr = (body.get("custom_outputs") or {}).get("long_running") or {}
+    lr = (body.get("custom_outputs") or {}).get("background") or {}
     err = lr.get("error") or {}
     return err.get("type") == ERROR_TYPE_NOT_FOUND
 
 
-class LongRunningResponsesAgent(ResponsesAgent):
-    """Compose a :class:`LongRunningStore` over an inner ``ResponsesAgent``.
+class BackgroundResponsesAgent(ResponsesAgent):
+    """Compose a :class:`BackgroundStore` over an inner ``ResponsesAgent``.
 
     Both sync and async entry points are implemented (``predict`` /
     ``predict_stream`` delegate to the async versions via the same pattern
@@ -294,17 +294,17 @@ class LongRunningResponsesAgent(ResponsesAgent):
     def __init__(
         self,
         inner: ResponsesAgent,
-        store: LongRunningStore,
+        store: BackgroundStore,
         *,
         max_duration_seconds: int = 1800,
         poll_interval_seconds: float = 1.0,
-        default_background: bool = False,
+        default_enabled: bool = False,
     ) -> None:
         self.inner = inner
         self.store = store
         self.max_duration_seconds = max_duration_seconds
         self.poll_interval_seconds = poll_interval_seconds
-        self.default_background = default_background
+        self.default_enabled = default_enabled
         # Same-pod task registry for best-effort cancellation.
         self._tasks: dict[str, asyncio.Task] = {}
 
@@ -339,12 +339,12 @@ class LongRunningResponsesAgent(ResponsesAgent):
                 loop.run_until_complete(agen.aclose())
             except Exception as exc:  # noqa: BLE001 — best effort teardown
                 logger.warning(
-                    "Error closing long-running async generator", error=str(exc)
+                    "Error closing background async generator", error=str(exc)
                 )
 
     # ----------------------------------------------------------------- async
 
-    @mlflow.trace(name="long_running.apredict", span_type="AGENT")
+    @mlflow.trace(name="background.apredict", span_type="AGENT")
     async def apredict(self, request: ResponsesAgentRequest) -> ResponsesAgentResponse:
         await self.store.ensure_schema()
         match self._classify(request):
@@ -357,7 +357,7 @@ class LongRunningResponsesAgent(ResponsesAgent):
             case _Operation.PASSTHROUGH:
                 return await self._delegate_apredict(request)
 
-    @mlflow.trace(name="long_running.apredict_stream", span_type="AGENT")
+    @mlflow.trace(name="background.apredict_stream", span_type="AGENT")
     async def apredict_stream(
         self, request: ResponsesAgentRequest
     ) -> AsyncGenerator[ResponsesAgentStreamEvent, None]:
@@ -436,7 +436,7 @@ class LongRunningResponsesAgent(ResponsesAgent):
             return True
         if request.background is False:
             return False
-        return self.default_background
+        return self.default_enabled
 
     def _required_response_id(self, request: ResponsesAgentRequest) -> str:
         response_id = _custom_inputs(request).get(CUSTOM_INPUT_RESPONSE_ID)
@@ -613,7 +613,7 @@ class LongRunningResponsesAgent(ResponsesAgent):
                 event_payload = dict(event_payload)
                 event_payload.setdefault("type", "response.in_progress")
                 event_payload.setdefault("id", response_id)
-                event_payload["custom_outputs"] = _long_running_custom_outputs(
+                event_payload["custom_outputs"] = _background_custom_outputs(
                     record, extra={"cursor": seq}
                 )
                 yield ResponsesAgentStreamEvent(**event_payload)
@@ -623,7 +623,7 @@ class LongRunningResponsesAgent(ResponsesAgent):
                 # ``response.completed`` in the Responses API requires a full
                 # Response payload; we stream events sourced from a DB, so
                 # emit a lightweight terminal marker whose authoritative
-                # status lives in custom_outputs.long_running.status.
+                # status lives in custom_outputs.background.status.
                 yield _status_stream_event(
                     record,
                     event_type=(
@@ -690,7 +690,7 @@ def _serialize_request(request: ResponsesAgentRequest) -> dict[str, Any]:
 
 
 def _clone_for_background(request: ResponsesAgentRequest) -> ResponsesAgentRequest:
-    """Return a shallow copy with our long-running markers removed."""
+    """Return a shallow copy with our background markers removed."""
     clone = request.model_copy(deep=True)
     if clone.custom_inputs:
         ci = dict(clone.custom_inputs)

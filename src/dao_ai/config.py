@@ -6734,8 +6734,8 @@ class TraceLocationModel(BaseModel):
         return []
 
 
-class LongRunningModel(BaseModel):
-    """Opt-in long-running agent configuration.
+class BackgroundModel(BaseModel):
+    """Opt-in background agent configuration.
 
     Enables Responses-API-compatible kickoff/poll/cancel on top of any
     dao-ai agent, persisted in the referenced Lakebase ``database``.
@@ -6749,9 +6749,9 @@ class LongRunningModel(BaseModel):
     database: DatabaseModel = Field(
         description="Lakebase (or PostgreSQL) database used to persist response rows and stream events. May be the same database used by the checkpointer.",
     )
-    default_background: bool = Field(
+    default_enabled: bool = Field(
         default=False,
-        description="If True, requests are treated as long-running even when background is not explicitly set.",
+        description="If True, requests are treated as background even when ``background: true`` is not explicitly set on the request.",
     )
     max_duration_seconds: int = Field(
         default=1800,
@@ -6780,11 +6780,11 @@ class A2ATaskStoreModel(BaseModel):
     :class:`StoreModel`: an optional :class:`DatabaseModel` toggles the
     backing store. Absent → in-memory (tasks lost on restart); present →
     Lakebase/Postgres, persisted in ``table``. This is independent of
-    :class:`LongRunningModel` — the two concepts (A2A task lifecycle vs
+    :class:`BackgroundModel` — the two concepts (A2A task lifecycle vs
     Responses-API kickoff/poll/cancel) are configured separately.
 
     When the same ``DatabaseModel`` is referenced here, on
-    ``memory.checkpointer.database``, and on ``app.long_running.database``,
+    ``memory.checkpointer.database``, and on ``app.background.database``,
     :class:`dao_ai.memory.postgres.AsyncPostgresPoolManager` dedupes by
     connection-string value, so all three share a single connection pool.
     """
@@ -6797,7 +6797,7 @@ class A2ATaskStoreModel(BaseModel):
             "are held in process memory and lost on restart. When set, "
             "tasks persist in the configured ``table`` and share the "
             "AsyncPostgresPoolManager pool with the LangGraph checkpointer "
-            "and LongRunningStore whenever those point at the same "
+            "and BackgroundStore whenever those point at the same "
             "DatabaseModel."
         ),
     )
@@ -6875,7 +6875,7 @@ class A2AModel(BaseModel):
     Task persistence is configured via :attr:`task_store` — an
     :class:`A2ATaskStoreModel` whose ``database`` field toggles between
     in-memory (default) and Lakebase-backed storage. This is independent
-    of :class:`LongRunningModel`; point both at the same
+    of :class:`BackgroundModel`; point both at the same
     :class:`DatabaseModel` to share the connection pool.
 
     Skills and security schemes are derived from the rest of the config
@@ -6924,7 +6924,7 @@ class A2AModel(BaseModel):
         default_factory=A2ATaskStoreModel,
         description="A2A task persistence configuration. Defaults to an empty "
         "A2ATaskStoreModel (no database → InMemoryTaskStore). Set ``task_store.database`` "
-        "to a DatabaseModel to persist tasks in Lakebase. Independent of app.long_running.",
+        "to a DatabaseModel to persist tasks in Lakebase. Independent of app.background.",
     )
     on_behalf_of_user: Optional[bool] = Field(
         default=None,
@@ -7103,13 +7103,13 @@ class AppModel(BaseModel):
         "experiment-based traces and UC OTEL trace tables. When trace_location is "
         "also configured, the SQL warehouse from trace_location is used for monitoring.",
     )
-    long_running: Optional[LongRunningModel] = Field(
+    background: Optional[BackgroundModel] = Field(
         default=None,
-        description="Opt-in long-running agent configuration. When set, the ResponsesAgent "
+        description="Opt-in background agent configuration. When set, the ResponsesAgent "
         "is wrapped so that requests with background=True or custom_inputs.operation are "
         "persisted in the referenced Lakebase database. In Databricks Apps, strict "
         "Responses API routes (/v1/responses, /v1/responses/{id}, /v1/responses/{id}/cancel) "
-        "are additionally exposed. See config/examples/19_long_running_agents/.",
+        "are additionally exposed. See config/examples/19_background_agents/.",
     )
     a2a: A2AModel = Field(
         default_factory=A2AModel,
@@ -8732,24 +8732,24 @@ class AppConfig(BaseModel):
             graph, prompt_versions=prompt_versions
         )
 
-        long_running = self.app.long_running if self.app else None
-        if long_running is not None:
-            from dao_ai.long_running import (
-                LongRunningResponsesAgent,
-                LongRunningStore,
+        background = self.app.background if self.app else None
+        if background is not None:
+            from dao_ai.background import (
+                BackgroundResponsesAgent,
+                BackgroundStore,
             )
 
-            store = LongRunningStore(
-                database=long_running.database,
-                responses_table_name=long_running.responses_table_name,
-                messages_table_name=long_running.messages_table_name,
+            store = BackgroundStore(
+                database=background.database,
+                responses_table_name=background.responses_table_name,
+                messages_table_name=background.messages_table_name,
             )
-            app = LongRunningResponsesAgent(
+            app = BackgroundResponsesAgent(
                 inner=app,
                 store=store,
-                max_duration_seconds=long_running.max_duration_seconds,
-                poll_interval_seconds=long_running.poll_interval_seconds,
-                default_background=long_running.default_background,
+                max_duration_seconds=background.max_duration_seconds,
+                poll_interval_seconds=background.poll_interval_seconds,
+                default_enabled=background.default_enabled,
             )
 
         return app

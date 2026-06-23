@@ -380,10 +380,10 @@ app:
         guidelines: [string]
     guidelines_sample_rate: float               # Guidelines scorers (default 0.5)
 
-  # Opt-in long-running agent (Responses-API kickoff/poll/cancel)
-  long_running:
+  # Opt-in background agent (Responses-API kickoff/poll/cancel)
+  background:
     database: *lakebase_db                       # Persistence backend (Lakebase or Postgres)
-    default_background: bool                     # default: false
+    default_enabled: bool                        # default: false
     max_duration_seconds: int                    # default: 1800
     poll_interval_seconds: float                 # default: 1.0
     responses_table_name: string                 # default: dao_ai_responses

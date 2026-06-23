@@ -2022,7 +2022,7 @@ the spec using [vega-embed](https://github.com/vega/vega-embed).
 
 ---
 
-## 18. Long-Running Agents
+## 18. Background Agents
 
 **What is this?** Agent runs that exceed Databricks' synchronous-request limits
 — Model Serving kills worker threads at ~5 min, Databricks Apps' DPAPI proxy
@@ -2047,7 +2047,7 @@ daemon thread so it survives request-loop teardown.
 ```mermaid
 flowchart LR
     Client -->|"POST /v1/responses<br/>background=true"| Route[Apps /v1/responses<br/>or MS /invocations]
-    Route --> Wrapper[LongRunningResponsesAgent]
+    Route --> Wrapper[BackgroundResponsesAgent]
     Wrapper -->|spawn on persistent loop| BG[Background daemon thread]
     Wrapper -->|INSERT| DB[(Lakebase:<br/>dao_ai_responses,<br/>dao_ai_response_messages)]
     Wrapper -.->|"id=resp_…<br/>status=in_progress"| Client
@@ -2070,9 +2070,9 @@ flowchart LR
 
 ```yaml
 app:
-  long_running:
+  background:
     database: *lakebase_db           # Lakebase to persist response state
-    default_background: false         # treat requests without explicit background flag as bg
+    default_enabled: false            # treat requests without explicit background flag as bg
     max_duration_seconds: 1800        # 30 min hard cap per task
     poll_interval_seconds: 1.0        # server-side poll cadence for streaming retrieve
 ```
@@ -2083,7 +2083,7 @@ app:
 curl -X POST "$APP_URL/v1/responses" \
   -H "Authorization: Bearer $DATABRICKS_TOKEN" \
   -d '{
-    "input": [{"role":"user","content":"Research long-running agents."}],
+    "input": [{"role":"user","content":"Research background agents."}],
     "background": true,
     "custom_inputs": {"configurable": {"thread_id": "demo"}}
   }'
@@ -2102,12 +2102,12 @@ curl -X POST "$DATABRICKS_HOST/serving-endpoints/$ENDPOINT/invocations" \
 # → {"id":"resp_…","status":"completed","output":[{"type":"message", ...}]}
 ```
 
-**See:** [Long-Running Agents — full documentation](long_running_agents.md)
+**See:** [Background Agents — full documentation](background_agents.md)
 for architecture diagrams, Lakebase schema, streaming retrieve + cursor
 resumption, cancel semantics, connection-pool OAuth refresh, and the
 end-to-end demo notebook.
 
-**Example configuration:** See [`config/examples/19_long_running_agents/`](../config/examples/19_long_running_agents/)
+**Example configuration:** See [`config/examples/19_background_agents/`](../config/examples/19_background_agents/)
 
 ---
 

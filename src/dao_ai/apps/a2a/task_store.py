@@ -6,14 +6,14 @@ Two stores:
   tasks lost on restart.
 * :class:`LakebaseTaskStore` — persists tasks in Lakebase (or any Postgres),
   reusing the same :class:`AsyncPostgresPoolManager` pool the LangGraph
-  checkpointer and :class:`dao_ai.long_running.LongRunningStore` use whenever
+  checkpointer and :class:`dao_ai.background.BackgroundStore` use whenever
   those point at the same :class:`dao_ai.config.DatabaseModel`. This lets A2A
   tasks survive worker restarts and stay consistent across replicas.
 
 Selection is driven by :func:`build_task_store`, which reads
 ``config.app.a2a.task_store`` (an :class:`A2ATaskStoreModel`): absent
 ``database`` → in-memory, present → Lakebase. The A2A task store is
-configured independently of :class:`dao_ai.config.LongRunningModel`.
+configured independently of :class:`dao_ai.config.BackgroundModel`.
 """
 
 from __future__ import annotations
@@ -27,7 +27,7 @@ from loguru import logger
 from psycopg.rows import dict_row
 from psycopg.types.json import Json
 
-from dao_ai.long_running.store import _valid_identifier  # reuse the validator
+from dao_ai.background.store import _valid_identifier  # reuse the validator
 from dao_ai.memory.postgres import AsyncPostgresPoolManager
 
 if TYPE_CHECKING:
@@ -39,10 +39,10 @@ if TYPE_CHECKING:
 class LakebaseTaskStore(TaskStore):
     """Persist A2A :class:`Task` objects in a Lakebase (Postgres) table.
 
-    Shares the connection pool with :class:`dao_ai.long_running.LongRunningStore`
+    Shares the connection pool with :class:`dao_ai.background.BackgroundStore`
     and the LangGraph Postgres checkpointer via
     :class:`dao_ai.memory.postgres.AsyncPostgresPoolManager`, so there is no
-    additional connection footprint when ``app.long_running`` is also
+    additional connection footprint when ``app.background`` is also
     configured.
 
     The table is created idempotently on first use via :meth:`ensure_schema`.
@@ -237,7 +237,7 @@ def build_task_store(config: "AppConfig") -> TaskStore:
       :class:`LakebaseTaskStore` against that :class:`DatabaseModel`,
       using ``app.a2a.task_store.table`` for the table name.
 
-    Independent of ``app.long_running``: point this and the long-running
+    Independent of ``app.background``: point this and the background
     store at the same :class:`DatabaseModel` to share a connection pool.
     """
     from dao_ai.apps.a2a.agent_card import effective_a2a

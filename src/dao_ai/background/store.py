@@ -1,11 +1,11 @@
-"""Lakebase-backed persistence for long-running agent responses.
+"""Lakebase-backed persistence for background agent responses.
 
 The store owns two tables (configurable names, defaults shown):
 
 * ``dao_ai_responses`` — one row per kicked-off background request.
 * ``dao_ai_response_messages`` — ordered event/item rows per response.
 
-Both tables are created idempotently via :meth:`LongRunningStore.ensure_schema`
+Both tables are created idempotently via :meth:`BackgroundStore.ensure_schema`
 on first use. The pool is shared with the LangGraph checkpointer pool when the
 same ``DatabaseModel`` is used, so no additional connection footprint is needed.
 """
@@ -28,7 +28,7 @@ from dao_ai.memory.postgres import AsyncPostgresPoolManager
 
 
 class ResponseStatus(str, Enum):
-    """Lifecycle state of a long-running response."""
+    """Lifecycle state of a background response."""
 
     QUEUED = "queued"
     IN_PROGRESS = "in_progress"
@@ -71,8 +71,8 @@ def _valid_identifier(name: str) -> str:
     return name
 
 
-class LongRunningStore:
-    """Async CRUD over the long-running responses + messages tables."""
+class BackgroundStore:
+    """Async CRUD over the background responses + messages tables."""
 
     def __init__(
         self,
@@ -89,7 +89,7 @@ class LongRunningStore:
     async def _pool(self):
         return await AsyncPostgresPoolManager.get_pool(self.database)
 
-    @mlflow.trace(name="long_running.store.ensure_schema", span_type="INTERNAL")
+    @mlflow.trace(name="background.store.ensure_schema", span_type="INTERNAL")
     async def ensure_schema(self) -> None:
         """Create the two tables + index if they don't exist."""
         if self._schema_ready:
@@ -137,13 +137,13 @@ class LongRunningStore:
 
         self._schema_ready = True
         logger.info(
-            "Long-running response tables ready",
+            "Background response tables ready",
             responses=self.responses_table,
             messages=self.messages_table,
             database=self.database.name,
         )
 
-    @mlflow.trace(name="long_running.store.create", span_type="INTERNAL")
+    @mlflow.trace(name="background.store.create", span_type="INTERNAL")
     async def create(
         self,
         *,
@@ -171,7 +171,7 @@ class LongRunningStore:
                 )
             await conn.commit()
         logger.info(
-            "Long-running response created",
+            "Background response created",
             response_id=response_id,
             thread_id=thread_id,
             status=status.value,
@@ -188,7 +188,7 @@ class LongRunningStore:
                 await cur.execute(sql, (task_id, response_id))
             await conn.commit()
 
-    @mlflow.trace(name="long_running.store.set_status", span_type="INTERNAL")
+    @mlflow.trace(name="background.store.set_status", span_type="INTERNAL")
     async def set_status(
         self,
         response_id: str,
@@ -215,7 +215,7 @@ class LongRunningStore:
                 )
             await conn.commit()
         logger.info(
-            "Long-running response status updated",
+            "Background response status updated",
             response_id=response_id,
             status=status.value,
             has_error=error is not None,
@@ -224,7 +224,7 @@ class LongRunningStore:
     async def mark_cancelled(self, response_id: str) -> None:
         await self.set_status(response_id, ResponseStatus.CANCELLED)
 
-    @mlflow.trace(name="long_running.store.get", span_type="INTERNAL")
+    @mlflow.trace(name="background.store.get", span_type="INTERNAL")
     async def get(self, response_id: str) -> Optional[ResponseRecord]:
         sql = (
             f"SELECT response_id, thread_id, agent_task_id, status, "
