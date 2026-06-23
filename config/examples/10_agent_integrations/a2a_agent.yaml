@@ -74,71 +74,68 @@ prompts:
       ask the user whether they want to retry.
 
 tools:
-  # Primary A2A tool — bearer-token auth variant.
+  # Primary A2A tool — bearer-token auth variant. Uses the first-class
+  # `type: a2a` shape (dao-ai 0.1.97+). For the verbose `type: factory`
+  # form see git history before this commit; it remains fully supported.
   remote_a2a_tool: &remote_a2a_tool
     name: remote_a2a_agent
     function:
-      type: factory
-      name: dao_ai.tools.create_a2a_agent_tool
-      args:
-        name: remote_a2a_agent
-        description: |
-          Delegate a prompt to a remote agent over the Google A2A
-          (Agent-to-Agent) protocol and return the agent's reply as a
-          single string. Use this tool for any question that the remote
-          A2A specialist should answer.
-        endpoint: *a2a_endpoint
-        auth: *a2a_auth
-        auth_type: bearer
-        # Multi-turn continuity: runtime.context.thread_id is forwarded as
-        # the A2A ``Message.context_id`` automatically. runtime.context.user_id
-        # is forwarded as ``Message.metadata["dao_ai.user_id"]``.
-        streaming: true
+      type: a2a
+      name: remote_a2a_agent
+      description: |
+        Delegate a prompt to a remote agent over the Google A2A
+        (Agent-to-Agent) protocol and return the agent's reply as a
+        single string. Use this tool for any question that the remote
+        A2A specialist should answer.
+      endpoint: *a2a_endpoint
+      auth: *a2a_auth
+      auth_type: bearer
+      # Multi-turn continuity: runtime.context.thread_id is forwarded as
+      # the A2A ``Message.context_id`` automatically. runtime.context.user_id
+      # is forwarded as ``Message.metadata["dao_ai.user_id"]``.
+      streaming: true
 
-        # --- Alternate auth configurations -------------------------------
-        #
-        # For Vertex-AI-hosted A2A agents, swap bearer for gcp_service_account:
-        #   auth_type: gcp_service_account
-        #   auth: *a2a_gcp_credentials
-        #
-        # For public / unauthenticated A2A agents:
-        #   auth_type: none
-        #   (omit the ``auth`` arg)
-        #
-        # --- Calling another dao-ai Databricks App (AppResource mode) ----
-        #
-        # If the remote agent is itself a dao-ai app deployed on Databricks
-        # Apps, declare it under ``resources.apps`` and reference it via
-        # the ``app`` arg instead of ``endpoint`` / ``auth`` / ``auth_type``.
-        # The factory resolves the URL from ``DatabricksAppModel.url`` and
-        # picks the auth mode from ``app.on_behalf_of_user``:
-        #
-        #     resources:
-        #       apps:
-        #         remote_dao_ai_app: &remote_dao_ai_app
-        #           name: dao-ai-some-other-app
-        #           on_behalf_of_user: true   # -> forwarded_user_token
-        #                                     # false / unset -> databricks_app_sp
-        #
-        #     tools:
-        #       remote_a2a_tool:
-        #         function:
-        #           type: factory
-        #           name: dao_ai.tools.create_a2a_agent_tool
-        #           args:
-        #             app: *remote_dao_ai_app
-        #             # ``endpoint``, ``auth``, ``auth_type`` all auto-derived.
-        #
-        # See ``config/examples/15_complete_applications/procurement_supplier_a2a/``
-        # for a full procurement <-> supplier walkthrough.
-        #
-        # --- Card path overrides -----------------------------------------
-        #
-        # Some deployments expose the agent card at a non-standard path. Both
-        # paths accept AnyVariable so they can be sourced from env / secrets:
-        #
-        #   card_path: "/.well-known/agent-card.json"
-        #   card_fallback_path: "/.well-known/agent.json"
+      # --- Alternate auth configurations -------------------------------
+      #
+      # For Vertex-AI-hosted A2A agents, swap bearer for gcp_service_account:
+      #   auth_type: gcp_service_account
+      #   auth: *a2a_gcp_credentials
+      #
+      # For public / unauthenticated A2A agents:
+      #   auth_type: none
+      #   (omit the ``auth`` arg)
+      #
+      # --- Calling another dao-ai Databricks App (AppResource mode) ----
+      #
+      # If the remote agent is itself a dao-ai app deployed on Databricks
+      # Apps, declare it under ``resources.apps`` and reference it via
+      # the ``app`` field instead of ``endpoint`` / ``auth`` / ``auth_type``.
+      # The factory resolves the URL from ``DatabricksAppModel.url`` and
+      # picks the auth mode from ``app.on_behalf_of_user``:
+      #
+      #     resources:
+      #       apps:
+      #         remote_dao_ai_app: &remote_dao_ai_app
+      #           name: dao-ai-some-other-app
+      #           on_behalf_of_user: true   # -> forwarded_user_token
+      #                                     # false / unset -> databricks_app_sp
+      #
+      #     tools:
+      #       remote_a2a_tool:
+      #         function:
+      #           type: a2a
+      #           app: *remote_dao_ai_app
+      #           # ``endpoint``, ``auth``, ``auth_type`` all auto-derived.
+      #
+      # See ``config/examples/15_complete_applications/procurement_supplier_a2a/``
+      # for a full procurement <-> supplier walkthrough.
+      #
+      # --- Card path overrides -----------------------------------------
+      #
+      # Some deployments expose the agent card at a non-standard path:
+      #
+      #   card_path: "/.well-known/agent-card.json"
+      #   card_fallback_path: "/.well-known/agent.json"
 
 agents:
   a2a_delegate_agent: &a2a_delegate_agent

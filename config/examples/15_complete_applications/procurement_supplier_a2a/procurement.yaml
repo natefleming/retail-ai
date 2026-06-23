@@ -101,27 +101,25 @@ tools:
   query_supplier: &query_supplier
     name: query_supplier
     function:
-      type: factory
-      name: dao_ai.tools.create_a2a_agent_tool
-      args:
-        name: query_supplier
-        description: |
-          Delegate a question to the Acme Industrial Supply wholesale
-          supplier agent over the Google A2A (Agent-to-Agent) protocol.
-          Use for any supplier-domain question: SKU lookups, unit and
-          bulk pricing, lead times, MOQs, and live stock. Pass the
-          procurement officer's question through as the ``prompt``
-          argument.
-        # Mode 2 — AppResource. Resolves the supplier endpoint from
-        # ``supplier_app.url`` and the auth mode from
-        # ``supplier_app.on_behalf_of_user``. To pin a specific mode
-        # (e.g. force App-SP M2M even though the app is OBO-tagged),
-        # add ``auth_type: databricks_app_sp`` below.
-        app: *supplier_app
-        # Multi-turn continuity: runtime.context.thread_id is forwarded
-        # as A2A ``Message.context_id`` automatically, and user_id is
-        # forwarded as ``Message.metadata["dao_ai.user_id"]``.
-        streaming: true
+      type: a2a
+      name: query_supplier
+      description: |
+        Delegate a question to the Acme Industrial Supply wholesale
+        supplier agent over the Google A2A (Agent-to-Agent) protocol.
+        Use for any supplier-domain question: SKU lookups, unit and
+        bulk pricing, lead times, MOQs, and live stock. Pass the
+        procurement officer's question through as the ``prompt``
+        argument.
+      # Mode 2 — AppResource. Resolves the supplier endpoint from
+      # ``supplier_app.url`` and the auth mode from
+      # ``supplier_app.on_behalf_of_user``. To pin a specific mode
+      # (e.g. force App-SP M2M even though the app is OBO-tagged),
+      # add ``auth_type: databricks_app_sp`` below.
+      app: *supplier_app
+      # Multi-turn continuity: runtime.context.thread_id is forwarded
+      # as A2A ``Message.context_id`` automatically, and user_id is
+      # forwarded as ``Message.metadata["dao_ai.user_id"]``.
+      streaming: true
 
 agents:
   procurement_agent: &procurement_agent
