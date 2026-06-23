@@ -2438,24 +2438,41 @@ def test_deploy_apps_agent_uploads_pyproject_with_dao_ai_version_pin(tmp_path):
 
             provider.deploy_apps_agent(mock_config)
 
-    # pyproject.toml must be uploaded with a hard dao-ai version pin
+    # requirements.txt is the file Apps' build phase recognizes directly
+    # (``pyproject.toml`` alone, without ``uv.lock``, is logged as ``No
+    # dependencies file found``). Both files are uploaded so Apps installs
+    # the right dao-ai version on every deploy.
+    requirements_uploads = [
+        c
+        for c in provider.w.workspace.upload.call_args_list
+        if c.kwargs.get("path", "").endswith("/requirements.txt")
+    ]
+    assert requirements_uploads, (
+        "Published deploy_apps_agent must upload a requirements.txt so Apps' "
+        "build phase recognizes the bundle's pinned dao-ai version (rather "
+        "than the runtime command silently reusing a cached venv from a "
+        "prior deploy)."
+    )
+    requirements_text = (
+        requirements_uploads[0].kwargs["content"].getvalue().decode("utf-8")
+    )
+    assert f"dao-ai>={dao_ai_version()}" in requirements_text, (
+        f"requirements.txt must pin dao-ai>={dao_ai_version()}; got: {requirements_text!r}"
+    )
+
+    # pyproject.toml is also uploaded with the same pin (for uv-native
+    # builds + IDE awareness) but isn't the file Apps' build phase keys on.
     pyproject_uploads = [
         c
         for c in provider.w.workspace.upload.call_args_list
         if c.kwargs.get("path", "").endswith("/pyproject.toml")
     ]
-    assert pyproject_uploads, (
-        "Published deploy_apps_agent must upload a pyproject.toml so Apps' "
-        "native uv build phase installs dao-ai (rather than the runtime "
-        "command silently reusing a cached venv from a prior deploy)."
-    )
+    assert pyproject_uploads
     pyproject_text = pyproject_uploads[0].kwargs["content"].getvalue().decode("utf-8")
-    assert f"dao-ai>={dao_ai_version()}" in pyproject_text, (
-        f"pyproject.toml must pin dao-ai>={dao_ai_version()}; got:\n{pyproject_text}"
-    )
+    assert f"dao-ai>={dao_ai_version()}" in pyproject_text
 
     # app.yaml's command must be a bare ``python -m ...`` (no runtime pip
-    # install) so Apps' build-phase ``uv sync`` is the sole installer.
+    # install) so Apps' build-phase install is the sole installer.
     app_yaml_uploads = [
         c
         for c in provider.w.workspace.upload.call_args_list
@@ -2465,6 +2482,6 @@ def test_deploy_apps_agent_uploads_pyproject_with_dao_ai_version_pin(tmp_path):
     app_yaml_text = app_yaml_uploads[0].kwargs["content"].getvalue().decode("utf-8")
     assert "uv pip install dao-ai" not in app_yaml_text, (
         "app.yaml must NOT issue a runtime ``uv pip install dao-ai`` — that "
-        "command audits the cached venv and never upgrades. The new path uses "
-        "the bundle's pyproject.toml + Apps' build-phase uv sync."
+        "command audits the cached venv and never upgrades. The new path "
+        "relies on Apps' build-phase install of requirements.txt."
     )
