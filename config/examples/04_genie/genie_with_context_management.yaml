@@ -35,12 +35,10 @@ tools:
   genie_tool: &genie_tool
     name: genie
     function:
-      type: factory
-      name: dao_ai.tools.create_genie_tool
-      args:
-        name: sporting_goods_analytics
-        description: Analyze sales performance, pricing strategies, margins, promotions, and revenue across stores and channels for sporting goods
-        genie_room: *genie_room
+      type: genie
+      name: sporting_goods_analytics
+      description: Analyze sales performance, pricing strategies, margins, promotions, and revenue across stores and channels for sporting goods
+      genie_room: *genie_room
 
 middleware:
   context_editor: &context_editor

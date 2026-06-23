@@ -458,22 +458,18 @@ tools:
   product_vector_search_tool: &product_vector_search_tool
     name: product_vector_search
     function:
-      type: factory
-      name: dao_ai.tools.create_vector_search_tool
-      args:
-        retriever: *products_retriever
-        name: product_vector_search_tool
-        description: "Search the product catalog by description, brand, department, color, or size. Use when the user describes the product rather than providing a SKU or UPC."
+      type: vector_search
+      retriever: *products_retriever
+      name: product_vector_search_tool
+      description: "Search the product catalog by description, brand, department, color, or size. Use when the user describes the product rather than providing a SKU or UPC."
 
   find_store_details_by_location_tool: &find_store_details_by_location_tool
     name: find_store_details_by_location
     function:
-      type: factory
-      name: dao_ai.tools.create_vector_search_tool
-      args:
-        retriever: *stores_retriever
-        name: find_store_details_by_location_tool
-        description: "Search for store details by location, neighborhood, or store name (e.g., 'Downtown Market', 'Marina'). Returns store id, address, city, state, and full details text."
+      type: vector_search
+      retriever: *stores_retriever
+      name: find_store_details_by_location_tool
+      description: "Search for store details by location, neighborhood, or store name (e.g., 'Downtown Market', 'Marina'). Returns store id, address, city, state, and full details text."
 
   # ---------------------------------------------------------------------------
   # Unity Catalog tools — product / inventory / store primitives
@@ -578,55 +574,51 @@ tools:
   store_ops_analytics_tool: &store_ops_analytics_tool
     name: query_store_ops_analytics
     function:
-      type: factory
-      name: dao_ai.tools.create_genie_toolkit
-      args:
-        name: query_store_ops_analytics
-        description: >
-          Natural-language analytics over store_ops data: sales trends,
-          inventory turnover, BOPIS performance, customer feedback,
-          appointment volume, and category-level insights. Use for
-          aggregate or trend questions, not single-SKU lookups.
-        genie_room: *brickstore_genie_room
-        lru_cache_parameters:
-          warehouse: *brickstore_warehouse
-          capacity: 100
-          time_to_live_seconds: 3600
-          invalidate_on_empty_result: true
-        context_aware_cache_parameters:
-          database: *retail_database
-          warehouse: *brickstore_warehouse
-          embedding_model: *embedding_model
-          similarity_threshold: 0.85
-          time_to_live_seconds: 86400
-          invalidate_on_empty_result: true
-        persist_conversation: true
+      type: genie
+      name: query_store_ops_analytics
+      description: >
+        Natural-language analytics over store_ops data: sales trends,
+        inventory turnover, BOPIS performance, customer feedback,
+        appointment volume, and category-level insights. Use for
+        aggregate or trend questions, not single-SKU lookups.
+      genie_room: *brickstore_genie_room
+      lru_cache:
+        warehouse: *brickstore_warehouse
+        capacity: 100
+        time_to_live_seconds: 3600
+        invalidate_on_empty_result: true
+      context_aware_cache:
+        database: *retail_database
+        warehouse: *brickstore_warehouse
+        embedding_model: *embedding_model
+        similarity_threshold: 0.85
+        time_to_live_seconds: 86400
+        invalidate_on_empty_result: true
+      persist_conversation: true
 
   employee_insights_tool: &employee_insights_tool
     name: query_employee_insights
     function:
-      type: factory
-      name: dao_ai.tools.create_genie_toolkit
-      args:
-        name: query_employee_insights
-        description: >
-          Natural-language analytics over employee performance, task
-          assignment, and manager data. Use for cross-department or
-          cross-store team questions that aren't a single-employee lookup.
-        genie_room: *brickstore_genie_room
-        lru_cache_parameters:
-          warehouse: *brickstore_warehouse
-          capacity: 100
-          time_to_live_seconds: 3600
-          invalidate_on_empty_result: true
-        context_aware_cache_parameters:
-          database: *retail_database
-          warehouse: *brickstore_warehouse
-          embedding_model: *embedding_model
-          similarity_threshold: 0.85
-          time_to_live_seconds: 86400
-          invalidate_on_empty_result: true
-        persist_conversation: true
+      type: genie
+      name: query_employee_insights
+      description: >
+        Natural-language analytics over employee performance, task
+        assignment, and manager data. Use for cross-department or
+        cross-store team questions that aren't a single-employee lookup.
+      genie_room: *brickstore_genie_room
+      lru_cache:
+        warehouse: *brickstore_warehouse
+        capacity: 100
+        time_to_live_seconds: 3600
+        invalidate_on_empty_result: true
+      context_aware_cache:
+        database: *retail_database
+        warehouse: *brickstore_warehouse
+        embedding_model: *embedding_model
+        similarity_threshold: 0.85
+        time_to_live_seconds: 86400
+        invalidate_on_empty_result: true
+      persist_conversation: true
 
   # ---------------------------------------------------------------------------
   # Utility tools

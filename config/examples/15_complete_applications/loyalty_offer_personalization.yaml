@@ -372,12 +372,10 @@ tools:
   offer_search_tool: &offer_search_tool
     name: offer_catalog_search
     function:
-      type: factory
-      name: dao_ai.tools.create_vector_search_tool
-      args:
-        retriever: *offer_catalog_retriever
-        name: offer_catalog_search
-        description: "Search the active offer catalog by description, brand, category, discount depth, or seasonal tag. Use when the operator describes the offer rather than naming an offer_id."
+      type: vector_search
+      retriever: *offer_catalog_retriever
+      name: offer_catalog_search
+      description: "Search the active offer catalog by description, brand, category, discount depth, or seasonal tag. Use when the operator describes the offer rather than naming an offer_id."
 
   # ---------------------------------------------------------------------------
   # Unity Catalog SQL function tools
@@ -428,48 +426,44 @@ tools:
   segment_analytics_tool: &segment_analytics_tool
     name: query_segment_analytics
     function:
-      type: factory
-      name: dao_ai.tools.create_genie_toolkit
-      args:
-        name: query_segment_analytics
-        description: "Genie analytics over customer_features, receipts, and offer rankings. Use for cross-segment / cross-customer questions: top-N, brand mix, segment-level aggregates."
-        genie_room: *loyalty_genie_room
-        lru_cache_parameters:
-          warehouse: *loyalty_warehouse
-          capacity: 100
-          time_to_live_seconds: 3600
-          invalidate_on_empty_result: true
-        context_aware_cache_parameters:
-          database: *loyalty_database
-          warehouse: *loyalty_warehouse
-          embedding_model: *embedding_model
-          similarity_threshold: 0.85
-          time_to_live_seconds: 86400
-          invalidate_on_empty_result: true
-        persist_conversation: true
+      type: genie
+      name: query_segment_analytics
+      description: "Genie analytics over customer_features, receipts, and offer rankings. Use for cross-segment / cross-customer questions: top-N, brand mix, segment-level aggregates."
+      genie_room: *loyalty_genie_room
+      lru_cache:
+        warehouse: *loyalty_warehouse
+        capacity: 100
+        time_to_live_seconds: 3600
+        invalidate_on_empty_result: true
+      context_aware_cache:
+        database: *loyalty_database
+        warehouse: *loyalty_warehouse
+        embedding_model: *embedding_model
+        similarity_threshold: 0.85
+        time_to_live_seconds: 86400
+        invalidate_on_empty_result: true
+      persist_conversation: true
 
   redemption_outcomes_tool: &redemption_outcomes_tool
     name: query_redemption_outcomes
     function:
-      type: factory
-      name: dao_ai.tools.create_genie_toolkit
-      args:
-        name: query_redemption_outcomes
-        description: "Genie analytics over redemptions joined to offer_catalog and customer_features. Use for 'did offer X lift...', under/over-performing offers, redemption rate by tier."
-        genie_room: *loyalty_genie_room
-        lru_cache_parameters:
-          warehouse: *loyalty_warehouse
-          capacity: 100
-          time_to_live_seconds: 3600
-          invalidate_on_empty_result: true
-        context_aware_cache_parameters:
-          database: *loyalty_database
-          warehouse: *loyalty_warehouse
-          embedding_model: *embedding_model
-          similarity_threshold: 0.85
-          time_to_live_seconds: 86400
-          invalidate_on_empty_result: true
-        persist_conversation: true
+      type: genie
+      name: query_redemption_outcomes
+      description: "Genie analytics over redemptions joined to offer_catalog and customer_features. Use for 'did offer X lift...', under/over-performing offers, redemption rate by tier."
+      genie_room: *loyalty_genie_room
+      lru_cache:
+        warehouse: *loyalty_warehouse
+        capacity: 100
+        time_to_live_seconds: 3600
+        invalidate_on_empty_result: true
+      context_aware_cache:
+        database: *loyalty_database
+        warehouse: *loyalty_warehouse
+        embedding_model: *embedding_model
+        similarity_threshold: 0.85
+        time_to_live_seconds: 86400
+        invalidate_on_empty_result: true
+      persist_conversation: true
 
   # ---------------------------------------------------------------------------
   # Utility tools

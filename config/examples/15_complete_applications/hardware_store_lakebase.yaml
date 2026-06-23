@@ -212,13 +212,10 @@ tools:
   find_product_details_by_description_tool: &find_product_details_by_description_tool
     name: vector_search
     function:
-      type: factory
-      name: dao_ai.tools.create_vector_search_tool
-      args:
-        retriever: *products_retriever
-                                                    # Reference to retriever config
-        name: product_vector_search_tool            # Tool instance name
-        description: "Search for products by description"  # Tool description
+      type: vector_search                           # First-class Vector Search tool type
+      retriever: *products_retriever                # Reference to retriever config
+      name: product_vector_search_tool              # Tool instance name
+      description: "Search for products by description"  # Tool description
 
   # ---------------------------------------------------------------------------
   # UNITY CATALOG TOOLS
