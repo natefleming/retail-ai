@@ -6817,16 +6817,22 @@ class TraceLocationModel(BaseModel):
     ``mlflow.set_experiment(experiment_id=..., trace_location=UnityCatalog(...))``.
     Provide an optional ``table_prefix`` to namespace the OTEL tables when
     multiple agents share a single UC schema. Without a prefix, MLflow uses
-    the experiment_id as the prefix — table names become
-    ``<catalog>.<schema>.<experiment_id>_otel_{spans,logs,metrics,annotations}``
-    rather than a stable shared name.
+    the literal default ``mlflow_experiment_trace`` — table names become
+    ``<catalog>.<schema>.mlflow_experiment_trace_otel_{spans,logs,metrics,annotations}``
+    (see ``mlflow.entities.trace_location._UC_SCHEMA_DEFAULT_SPANS_TABLE_NAME``).
+    All experiments linked to the same schema with no prefix end up writing
+    to the same shared table set, distinguished by the ``experiment_id``
+    column inside the tables — convenient for cross-experiment analytics,
+    but ambiguous if you want per-app isolation. Set ``table_prefix`` to
+    namespace the tables per agent (e.g. ``table_prefix: sales_genie`` yields
+    ``<catalog>.<schema>.sales_genie_otel_spans``).
 
     dao-ai does NOT include the OTEL trace tables in the model's auth_policy
-    or App resources list because the table names depend on the experiment_id
-    (no prefix) or table_prefix and aren't fully predictable at deploy time.
-    Instead, users grant the deployed serving identity USE_CATALOG +
-    USE_SCHEMA + SELECT + MODIFY on the trace schema as a one-time post-deploy
-    step (mirrors the Apps SP grant pattern documented in README).
+    or App resources list because the table names depend on the configured
+    ``table_prefix`` and aren't fully predictable at deploy time. Instead,
+    users grant the deployed serving identity USE_CATALOG + USE_SCHEMA +
+    SELECT + MODIFY on the trace schema as a one-time post-deploy step
+    (mirrors the Apps SP grant pattern documented in README).
     """
 
     model_config = ConfigDict(
@@ -6896,8 +6902,15 @@ class TraceLocationModel(BaseModel):
         """Resolve ``table_prefix`` (if set) to a concrete string via value_of.
 
         Returns None when no prefix is configured. When None is passed to
-        MLflow's ``UnityCatalog`` constructor, MLflow falls back to using
-        the experiment_id as the table prefix.
+        MLflow's ``UnityCatalog`` constructor (or omitted), MLflow falls
+        back to the literal default ``mlflow_experiment_trace`` — see
+        ``mlflow.entities.trace_location._UC_SCHEMA_DEFAULT_SPANS_TABLE_NAME``
+        (``= "mlflow_experiment_trace_otel_spans"``) and the matching logs
+        constant. The tables end up at
+        ``<catalog>.<schema>.mlflow_experiment_trace_otel_{spans,logs,metrics}``
+        and are SHARED across every experiment linked to that schema with no
+        prefix; rows are partitioned by ``experiment_id`` column. Set
+        ``table_prefix`` to get a dedicated table set per agent.
         """
         if self.table_prefix is None:
             return None
