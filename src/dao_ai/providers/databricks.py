@@ -1108,18 +1108,24 @@ class DatabricksProvider(ServiceProvider):
             "dao_ai.apps.start_app" if enable_chat_proxy else "dao_ai.apps.server"
         )
         if is_published():
-            # Upload a pyproject.toml pinning dao-ai to the version that
-            # generated the bundle. Databricks Apps' native uv support runs
-            # ``uv sync --locked --no-dev`` at BUILD phase based on this file
-            # and puts ``.venv/bin`` on PATH for runtime, so the deployed app
-            # always runs the dao-ai version the bundle declares. Without
-            # this, the runtime ``uv pip install dao-ai`` only audits the
-            # cached venv from prior deploys to the same app slot — letting
-            # the venv silently drift behind the local dao-ai. (See issue
-            # surfaced by the workshop verification on 2026-06-23: Lab 15
-            # introduced ``app.background:``, but the cached venv was a
-            # pre-rename dao-ai that rejected the new field as
-            # ``extra_forbidden`` and crashed the app at startup.)
+            # Ship a ``requirements.txt`` (pinned) + ``pyproject.toml``
+            # (pinned) so Databricks Apps' build phase installs the dao-ai
+            # version the bundle declares. Apps' build step recognizes
+            # ``requirements.txt`` directly (``pip install -r requirements.txt``)
+            # and emits ``Updated file: python/source_code/requirements.txt``
+            # in the deployment log; ``pyproject.toml`` alone (without
+            # ``uv.lock``) is NOT recognized — the build step logs ``No
+            # dependencies file found. Skipping installation.`` and the
+            # venv persists from prior deploys to the same app slot.
+            #
+            # Without this pin, the previous default startup command
+            # (``uv pip install dao-ai`` with no ``--upgrade``) only audited
+            # the cached venv and never upgraded — meaning the deployed app
+            # silently drifted behind the local dao-ai. Surfaced by the
+            # workshop verification on 2026-06-23: Lab 15 introduced
+            # ``app.background:``, but the cached venv was a pre-rename
+            # dao-ai that rejected the new field as ``extra_forbidden`` and
+            # crashed the app at startup.
             from dao_ai.apps.bundle import _PYPROJECT_TEMPLATE
 
             app_name_normalized = raw_name.lower().replace("_", "-")
@@ -1132,6 +1138,14 @@ class DatabricksProvider(ServiceProvider):
             self.w.workspace.upload(
                 path=f"{source_path}/pyproject.toml",
                 content=io.BytesIO(pyproject_content.encode("utf-8")),
+                format=ImportFormat.AUTO,
+                overwrite=True,
+            )
+
+            requirements_content = f"dao-ai>={dao_ai_version()}\n"
+            self.w.workspace.upload(
+                path=f"{source_path}/requirements.txt",
+                content=io.BytesIO(requirements_content.encode("utf-8")),
                 format=ImportFormat.AUTO,
                 overwrite=True,
             )
