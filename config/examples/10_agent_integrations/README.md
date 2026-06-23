@@ -38,13 +38,31 @@ flowchart TB
     style ActionAgent fill:#fce4ec,stroke:#c2185b
 ```
 
+## Picking the right tool shape
+
+Different deployment targets need different wire protocols. Pick by what
+the remote thing actually *is*, not by what it does:
+
+| Remote target | Use | Why |
+|---|---|---|
+| **Model Serving endpoint** (Knowledge Assistant, ChatCompletions, ChatAgent, FMAPI, Agent Bricks) | [`type: agent`](./agent_first_class.yaml) | Calls `POST /serving-endpoints/{name}/invocations` via the Databricks SDK / `ChatDatabricks`. |
+| **Databricks App (any dao-ai app, v0.1.80+)** | [`type: a2a`](./a2a_first_class.yaml) with `app:` | dao-ai apps auto-mount A2A endpoints — agent card + JSON-RPC `/a2a` on the app's URL. OBO derived from `app.on_behalf_of_user`. |
+| **Databricks App (MCP — `mcp-` prefix)** | `type: mcp` with `app:` | The MCP factory resolves the app's `/mcp` endpoint and speaks MCP. |
+| **External A2A agent** (Vertex Agent Engine, Crew.ai, ADK, third-party) | [`type: a2a`](./a2a_agent.yaml) with `endpoint:` | Same A2A protocol over an explicit URL with bearer / GCP / none auth. |
+| **Sub-agent defined in the same dao-ai config** | `type: factory + dao_ai.tools.agent.create_agent_tool` ([`nested_agents.yaml`](./nested_agents.yaml)) | In-process LangGraph delegation — no network hop. |
+
+**Common gotcha**: a *non-A2A, non-MCP* Databricks App with a custom HTTP
+shape is **not** supported. If you own the app, stand it up as a dao-ai
+app (A2A endpoints come free) and use `type: a2a`. That's better than
+hand-rolling a custom invocation path.
+
 ## Examples
 
 | File | Description |
 |------|-------------|
 | [`agent_first_class.yaml`](./agent_first_class.yaml) | **First-class `type: agent`** — minimal example calling a KA or Model Serving endpoint with a typed shape |
 | [`a2a_first_class.yaml`](./a2a_first_class.yaml) | **First-class `type: a2a`** — minimal example calling a remote Google A2A agent with a typed shape |
-| [`nested_agents.yaml`](./nested_agents.yaml) | Main agent calling specialized sub-agents |
+| [`nested_agents.yaml`](./nested_agents.yaml) | Main agent calling specialized sub-agents (in-process LangGraph delegation) |
 | [`parallel_agents.yaml`](./parallel_agents.yaml) | Parallel agent execution pattern |
 | [`agent_bricks.yaml`](./agent_bricks.yaml) | Delegate to Databricks Agent Bricks endpoints using `type: agent` with full `InferenceEndpointModel` (temperature / max_tokens per tool) |
 | [`kasal.yaml`](./kasal.yaml) | Delegate to Kasal specialist agents using `type: agent` |
