@@ -10,7 +10,7 @@ End-to-end demo of two dao-ai apps speaking the
 | App | YAML | Role |
 |-----|------|------|
 | `dao-ai-supplier-a2a` | `supplier.yaml` | Wholesale-supplier specialist. Answers SKU, pricing, lead-time, MOQ, and stock questions from an embedded catalog. Exposes A2A by default. |
-| `dao-ai-procurement-a2a` | `procurement.yaml` | Procurement-officer agent. Holds one tool — `query_supplier` — declared as a first-class `type: a2a` tool in **AppResource mode**: the supplier app is passed in directly via `app: *supplier_app`, and the tool resolves both the endpoint and the auth mode from it. |
+| `dao-ai-procurement-a2a` | `procurement.yaml` | Procurement-officer agent. Holds one tool — `query_supplier` — declared as a first-class `type: agent` tool with `app: *supplier_app`. dao-ai dispatches the call via A2A internally (dao-ai apps auto-mount A2A endpoints). Endpoint URL and auth mode are derived from the bound app. |
 
 Both apps run on Foundation Model API only — no Unity Catalog tables,
 Vector Search indexes, or Genie rooms required.
@@ -32,9 +32,11 @@ resources:
 tools:
   query_supplier:
     function:
-      type: a2a
+      type: agent
       app: *supplier_app
 ```
+
+`type: agent` is the seamless "call a deployed agent" shape — it auto-dispatches to A2A internally when `app:` is set, since dao-ai apps auto-mount A2A endpoints. (For external A2A agents or explicit A2A knobs, use `type: a2a` directly.)
 
 The factory then:
 

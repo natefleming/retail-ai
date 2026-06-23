@@ -101,25 +101,25 @@ tools:
   query_supplier: &query_supplier
     name: query_supplier
     function:
-      type: a2a
+      # `type: agent` is the seamless "call a deployed agent" shape. Set
+      # `app:` to delegate to a Databricks-deployed dao-ai app — A2A
+      # protocol is dispatched internally (dao-ai apps auto-mount A2A
+      # endpoints since v0.1.80). For external A2A agents (Vertex,
+      # Crew.ai, ADK), or to pin A2A-specific knobs (auth_type,
+      # card_path, streaming, timeout_seconds), use `type: a2a` instead.
+      type: agent
+      app: *supplier_app
       name: query_supplier
       description: |
         Delegate a question to the Acme Industrial Supply wholesale
-        supplier agent over the Google A2A (Agent-to-Agent) protocol.
-        Use for any supplier-domain question: SKU lookups, unit and
-        bulk pricing, lead times, MOQs, and live stock. Pass the
-        procurement officer's question through as the ``prompt``
-        argument.
-      # Mode 2 — AppResource. Resolves the supplier endpoint from
-      # ``supplier_app.url`` and the auth mode from
-      # ``supplier_app.on_behalf_of_user``. To pin a specific mode
-      # (e.g. force App-SP M2M even though the app is OBO-tagged),
-      # add ``auth_type: databricks_app_sp`` below.
-      app: *supplier_app
-      # Multi-turn continuity: runtime.context.thread_id is forwarded
-      # as A2A ``Message.context_id`` automatically, and user_id is
-      # forwarded as ``Message.metadata["dao_ai.user_id"]``.
-      streaming: true
+        supplier agent. Use for any supplier-domain question: SKU
+        lookups, unit and bulk pricing, lead times, MOQs, and live
+        stock. Pass the procurement officer's question through as the
+        ``prompt`` argument.
+      # OBO is auto-derived from `supplier_app.on_behalf_of_user`. With
+      # `on_behalf_of_user: true` on the app, every call to the supplier
+      # forwards the procurement user's bearer token so the supplier's
+      # downstream resources resolve as that user.
 
 agents:
   procurement_agent: &procurement_agent
