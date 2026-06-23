@@ -1,8 +1,9 @@
-"""Tests for first-class tool model types: Genie, VectorSearch, Search.
+"""Tests for first-class tool model types: Genie, VectorSearch, Search, Agent, A2A.
 
 These models are thin Pydantic wrappers around the existing factory functions
 (``dao_ai.tools.create_genie_tool``, ``create_vector_search_tool``,
-``create_search_tool``). The tests verify:
+``create_search_tool``, ``create_agent_endpoint_tool``,
+``create_a2a_agent_tool``). The tests verify:
 
 - Pydantic discriminator dispatch: ``type: genie`` deserializes to
   ``GenieToolModel``, etc.
@@ -16,6 +17,8 @@ import pytest
 from langchain_core.tools import BaseTool
 
 from dao_ai.config import (
+    A2AToolModel,
+    AgentToolModel,
     FunctionType,
     GenieToolModel,
     SearchToolModel,
@@ -237,6 +240,201 @@ class TestInheritedBehavior:
                     "type": "vector_search",
                     "vector_store": vector_store_dict,
                     "human_in_the_loop": {"review_prompt": "Approve search?"},
+                },
+            }
+        )
+        assert m.function.human_in_the_loop is not None
+
+
+# ---------------------------------------------------------------------------
+# AgentToolModel — Supervisor API knowledge_assistant / serving_endpoint
+# ---------------------------------------------------------------------------
+
+
+class TestAgentToolModel:
+    def test_type_agent_dispatches_to_agent_tool_model(self) -> None:
+        m = ToolModel.model_validate(
+            {
+                "name": "ka_reviews",
+                "function": {"type": "agent", "endpoint": "ka-customer-reviews"},
+            }
+        )
+        assert isinstance(m.function, AgentToolModel)
+        assert m.function.type == FunctionType.AGENT.value
+        assert m.function.endpoint == "ka-customer-reviews"
+
+    def test_agent_requires_endpoint(self) -> None:
+        with pytest.raises(Exception):
+            ToolModel.model_validate({"name": "x", "function": {"type": "agent"}})
+
+    def test_agent_accepts_obo_toggle(self) -> None:
+        m = ToolModel.model_validate(
+            {
+                "name": "user_agent",
+                "function": {
+                    "type": "agent",
+                    "endpoint": "my-agent",
+                    "on_behalf_of_user": True,
+                },
+            }
+        )
+        assert m.function.on_behalf_of_user is True
+
+    def test_agent_accepts_human_in_the_loop(self) -> None:
+        m = ToolModel.model_validate(
+            {
+                "name": "a",
+                "function": {
+                    "type": "agent",
+                    "endpoint": "my-agent",
+                    "human_in_the_loop": {"review_prompt": "Approve call?"},
+                },
+            }
+        )
+        assert m.function.human_in_the_loop is not None
+
+    def test_agent_as_tools_returns_structured_tool(self) -> None:
+        m = AgentToolModel(
+            type=FunctionType.AGENT,
+            endpoint="my-agent",
+            name="my_agent_tool",
+            description="Answers questions",
+        )
+        tools = m.as_tools()
+        assert len(tools) == 1
+        assert tools[0].name == "my_agent_tool"
+
+    def test_agent_parity_with_factory(self) -> None:
+        new = ToolModel.model_validate(
+            {
+                "name": "a",
+                "function": {
+                    "type": "agent",
+                    "endpoint": "my-agent",
+                    "name": "my_agent_tool",
+                },
+            }
+        )
+        old = ToolModel.model_validate(
+            {
+                "name": "a",
+                "function": {
+                    "type": "factory",
+                    "name": "dao_ai.tools.create_agent_endpoint_tool",
+                    "args": {
+                        "llm": {"name": "my-agent"},
+                        "name": "my_agent_tool",
+                    },
+                },
+            }
+        )
+        new_tools = new.function.as_tools()
+        old_tools = old.function.as_tools()
+        assert len(new_tools) == len(old_tools) == 1
+        assert [t.name for t in new_tools] == [t.name for t in old_tools]
+
+
+# ---------------------------------------------------------------------------
+# A2AToolModel — Google A2A v0.3 protocol
+# ---------------------------------------------------------------------------
+
+
+class TestA2AToolModel:
+    def test_type_a2a_dispatches_to_a2a_tool_model(self) -> None:
+        m = ToolModel.model_validate(
+            {
+                "name": "remote_agent",
+                "function": {
+                    "type": "a2a",
+                    "endpoint": "https://agent.example.com",
+                    "auth_type": "none",
+                },
+            }
+        )
+        assert isinstance(m.function, A2AToolModel)
+        assert m.function.type == FunctionType.A2A.value
+        assert m.function.endpoint == "https://agent.example.com"
+        assert m.function.auth_type == "none"
+
+    def test_a2a_requires_endpoint_or_app(self) -> None:
+        with pytest.raises(Exception, match="endpoint.*app"):
+            ToolModel.model_validate(
+                {"name": "x", "function": {"type": "a2a"}}
+            )
+
+    def test_a2a_rejects_unknown_auth_type(self) -> None:
+        with pytest.raises(Exception):
+            ToolModel.model_validate(
+                {
+                    "name": "x",
+                    "function": {
+                        "type": "a2a",
+                        "endpoint": "https://example.com",
+                        "auth_type": "magic_token",
+                    },
+                }
+            )
+
+    def test_a2a_streaming_default_true(self) -> None:
+        m = A2AToolModel(
+            type=FunctionType.A2A,
+            endpoint="https://agent.example.com",
+            auth_type="none",
+        )
+        assert m.streaming is True
+        assert m.timeout_seconds == 300
+
+    def test_a2a_as_tools_mode_1_none_auth(self) -> None:
+        m = A2AToolModel(
+            type=FunctionType.A2A,
+            endpoint="https://agent.example.com",
+            auth_type="none",
+            name="external_a2a",
+        )
+        tools = m.as_tools()
+        assert len(tools) == 1
+        assert tools[0].name == "external_a2a"
+
+    def test_a2a_parity_with_factory(self) -> None:
+        new = ToolModel.model_validate(
+            {
+                "name": "a",
+                "function": {
+                    "type": "a2a",
+                    "endpoint": "https://agent.example.com",
+                    "auth_type": "none",
+                    "name": "external_a2a",
+                },
+            }
+        )
+        old = ToolModel.model_validate(
+            {
+                "name": "a",
+                "function": {
+                    "type": "factory",
+                    "name": "dao_ai.tools.create_a2a_agent_tool",
+                    "args": {
+                        "endpoint": "https://agent.example.com",
+                        "auth_type": "none",
+                        "name": "external_a2a",
+                    },
+                },
+            }
+        )
+        new_tools = new.function.as_tools()
+        old_tools = old.function.as_tools()
+        assert len(new_tools) == len(old_tools) == 1
+        assert [t.name for t in new_tools] == [t.name for t in old_tools]
+
+    def test_a2a_accepts_human_in_the_loop(self) -> None:
+        m = ToolModel.model_validate(
+            {
+                "name": "a",
+                "function": {
+                    "type": "a2a",
+                    "endpoint": "https://agent.example.com",
+                    "auth_type": "none",
+                    "human_in_the_loop": {"review_prompt": "Approve?"},
                 },
             }
         )

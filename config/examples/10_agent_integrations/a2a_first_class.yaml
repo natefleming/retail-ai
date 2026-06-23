@@ -1,0 +1,94 @@
+# yaml-language-server: $schema=../../../schemas/model_config_schema.json
+
+# ==============================================================================
+# First-class `type: a2a` example
+# ==============================================================================
+# Demonstrates the first-class `type: a2a` tool shape — a typed Pydantic
+# wrapper over `create_a2a_agent_tool` that calls a remote agent speaking
+# Google's open A2A (Agent-to-Agent) protocol.
+#
+# Two configuration modes match the underlying factory:
+#
+#   Mode 1 — external A2A: set `endpoint` + `auth_type` (default: bearer)
+#   Mode 2 — Databricks App: set `app` (auth derived from on_behalf_of_user)
+#
+# Both shown below. Pick whichever fits your target and delete the other.
+# The verbose `type: factory` form (a2a_agent.yaml) remains fully supported.
+# ==============================================================================
+
+variables:
+  a2a_endpoint: &a2a_endpoint
+    options:
+    - env: A2A_AGENT_ENDPOINT
+    - value: "http://localhost:9999"
+
+  a2a_auth: &a2a_auth
+    options:
+    - env: A2A_AGENT_TOKEN
+    - scope: a2a_demo
+      secret: A2A_AGENT_TOKEN
+
+resources:
+  models:
+    main_llm: &main_llm
+      name: databricks-claude-sonnet-4
+      temperature: 0.1
+
+  # Mode 2 — if delegating to another dao-ai Databricks App, declare it here
+  # and reference it under tools via *remote_dao_ai_app.
+  #
+  # apps:
+  #   remote_dao_ai_app: &remote_dao_ai_app
+  #     name: dao-ai-supplier-app
+  #     on_behalf_of_user: true   # → forwarded_user_token
+  #                               # false / unset → databricks_app_sp
+
+tools:
+  # Mode 1 — external A2A agent (Vertex AI Agent Engine, Crew.ai, ADK, …).
+  remote_a2a: &remote_a2a
+    name: remote_a2a_agent
+    function:
+      type: a2a
+      endpoint: *a2a_endpoint
+      auth: *a2a_auth
+      auth_type: bearer
+      streaming: true
+      description: |
+        Delegate a prompt to a remote agent over the Google A2A protocol
+        and return the agent's reply as a single string. Use for any
+        question the remote specialist should answer.
+
+  # Mode 2 — same shape, replacing `endpoint`/`auth`/`auth_type` with `app:`.
+  #
+  # remote_app_a2a: &remote_app_a2a
+  #   name: remote_dao_ai_a2a
+  #   function:
+  #     type: a2a
+  #     app: *remote_dao_ai_app
+  #     # endpoint, auth, auth_type all auto-derived from the bound app.
+
+agents:
+  delegate_agent: &delegate_agent
+    name: a2a_delegate
+    model: *main_llm
+    tools:
+    - *remote_a2a
+    prompt: |
+      You delegate user requests to a specialist agent exposed over the
+      Google A2A protocol. For each user message, call `remote_a2a_agent`
+      with the prompt passed through as-is, then relay the response back
+      clearly and concisely. Do not paraphrase unless the user asks.
+
+app:
+  name: a2a_first_class_dao
+  description: >
+    Minimal example of the first-class `type: a2a` tool shape.
+  log_level: INFO
+  deployment_target: apps
+  agents:
+  - *delegate_agent
+
+  input_example:
+    messages:
+    - role: user
+      content: "Ask the remote agent what it specializes in."
