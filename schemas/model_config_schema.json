@@ -749,7 +749,7 @@
     },
     "AgentToolModel": {
       "additionalProperties": false,
-      "description": "First-class tool that calls a deployed chat-shape agent endpoint.\n\nCovers the Supervisor API ``knowledge_assistant`` and ``serving_endpoint``\ntool types: any Model Serving endpoint that speaks chat completions or\nChatAgent (including Knowledge Assistants, which deploy as serving\nendpoints with a known prefix).\n\nFor Databricks Apps:\n\n- MCP apps (``mcp-`` prefix): use ``type: mcp`` with ``app:``.\n- A2A apps: use ``type: a2a`` with ``app:``.\n\nEquivalent to ``type: factory + name: dao_ai.tools.create_agent_endpoint_tool``,\nbut with typed fields so beginners get IDE autocomplete and JSON-schema\nvalidation. OBO is opt-in via ``on_behalf_of_user``.",
+      "description": "First-class tool that calls a deployed chat-shape agent endpoint.\n\nCovers the Supervisor API ``knowledge_assistant`` and ``serving_endpoint``\ntool types: any Model Serving endpoint that speaks chat completions or\nChatAgent (including Knowledge Assistants, which deploy as serving\nendpoints with a known prefix).\n\nFor Databricks Apps:\n\n- MCP apps (``mcp-`` prefix): use ``type: mcp`` with ``app:``.\n- A2A apps: use ``type: a2a`` with ``app:``.\n\nEquivalent to ``type: factory + name: dao_ai.tools.create_agent_endpoint_tool``,\nbut with typed fields so beginners get IDE autocomplete and JSON-schema\nvalidation.\n\n``endpoint`` accepts two shapes:\n\n- **String / variable** (the sugar form) \u2014 just the endpoint name. dao-ai\n  promotes it to a minimal ``InferenceEndpointModel`` internally. Use\n  this when you only need the endpoint name and OBO toggle.\n- **Full ``InferenceEndpointModel``** \u2014 when you need ``temperature``,\n  ``max_tokens``, ``ai_gateway``, or any other endpoint-level\n  configuration. Mirrors how ``GenieToolModel`` takes a full\n  ``GenieRoomModel`` and ``VectorSearchToolModel`` takes a\n  ``RetrieverModel`` / ``VectorStoreModel``. The model's\n  ``on_behalf_of_user`` overrides this tool's ``on_behalf_of_user``\n  when both are set.",
       "properties": {
         "type": {
           "const": "agent",
@@ -772,6 +772,9 @@
         },
         "endpoint": {
           "anyOf": [
+            {
+              "$ref": "#/$defs/InferenceEndpointModel"
+            },
             {
               "$ref": "#/$defs/CompositeVariableModel"
             },
@@ -797,7 +800,7 @@
               "type": "boolean"
             }
           ],
-          "description": "Model Serving endpoint name. For a Knowledge Assistant this is the KA endpoint name (e.g., 'ka-customer-reviews').",
+          "description": "Model Serving endpoint to call. Accepts either an endpoint name string (sugar) or a full InferenceEndpointModel with temperature / max_tokens / ai_gateway / on_behalf_of_user. For a Knowledge Assistant this is the KA endpoint name (e.g., 'ka-customer-reviews').",
           "title": "Endpoint"
         },
         "name": {
@@ -836,7 +839,7 @@
             }
           ],
           "default": null,
-          "description": "If True, call the endpoint on behalf of the calling user by forwarding their bearer token. If False or None, the agent's service principal calls the endpoint.",
+          "description": "If True, call the endpoint on behalf of the calling user by forwarding their bearer token. If False or None, the agent's service principal calls the endpoint. Ignored when ``endpoint`` is a full InferenceEndpointModel that sets on_behalf_of_user itself.",
           "title": "On Behalf Of User"
         }
       },

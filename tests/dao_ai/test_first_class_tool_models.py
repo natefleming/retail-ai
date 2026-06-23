@@ -304,6 +304,53 @@ class TestAgentToolModel:
         assert len(tools) == 1
         assert tools[0].name == "my_agent_tool"
 
+    def test_agent_endpoint_accepts_full_inference_endpoint_model(self) -> None:
+        """endpoint: can be a full InferenceEndpointModel (with temp / max_tokens / ai_gateway)."""
+        from dao_ai.config import InferenceEndpointModel
+
+        m = ToolModel.model_validate(
+            {
+                "name": "ka",
+                "function": {
+                    "type": "agent",
+                    "endpoint": {
+                        "name": "ka-customer-reviews",
+                        "temperature": 0.7,
+                        "max_tokens": 1000,
+                    },
+                    "name": "ka_tool",
+                },
+            }
+        )
+        assert isinstance(m.function, AgentToolModel)
+        assert isinstance(m.function.endpoint, InferenceEndpointModel)
+        assert m.function.endpoint.name == "ka-customer-reviews"
+        assert m.function.endpoint.temperature == 0.7
+        assert m.function.endpoint.max_tokens == 1000
+
+        llm = m.function._resolved_llm()
+        assert isinstance(llm, InferenceEndpointModel)
+        assert llm.temperature == 0.7
+        assert llm.max_tokens == 1000
+
+        tools = m.function.as_tools()
+        assert len(tools) == 1
+        assert tools[0].name == "ka_tool"
+
+    def test_agent_endpoint_string_promoted_to_inference_endpoint_model(self) -> None:
+        """String endpoint: gets promoted to InferenceEndpointModel(name=...) internally."""
+        from dao_ai.config import InferenceEndpointModel
+
+        m = AgentToolModel(
+            type=FunctionType.AGENT,
+            endpoint="my-endpoint",
+            on_behalf_of_user=True,
+        )
+        llm = m._resolved_llm()
+        assert isinstance(llm, InferenceEndpointModel)
+        assert llm.name == "my-endpoint"
+        assert llm.on_behalf_of_user is True
+
     def test_agent_parity_with_factory(self) -> None:
         new = ToolModel.model_validate(
             {
@@ -324,6 +371,41 @@ class TestAgentToolModel:
                     "args": {
                         "llm": {"name": "my-agent"},
                         "name": "my_agent_tool",
+                    },
+                },
+            }
+        )
+        new_tools = new.function.as_tools()
+        old_tools = old.function.as_tools()
+        assert len(new_tools) == len(old_tools) == 1
+        assert [t.name for t in new_tools] == [t.name for t in old_tools]
+
+    def test_agent_parity_with_factory_full_model(self) -> None:
+        """type: agent with full InferenceEndpointModel matches the original factory shape."""
+        llm = {
+            "name": "agent-bricks-customer-support-endpoint",
+            "temperature": 0.7,
+            "max_tokens": 1000,
+        }
+        new = ToolModel.model_validate(
+            {
+                "name": "a",
+                "function": {
+                    "type": "agent",
+                    "endpoint": llm,
+                    "name": "customer_support_specialist",
+                },
+            }
+        )
+        old = ToolModel.model_validate(
+            {
+                "name": "a",
+                "function": {
+                    "type": "factory",
+                    "name": "dao_ai.tools.create_agent_endpoint_tool",
+                    "args": {
+                        "llm": llm,
+                        "name": "customer_support_specialist",
                     },
                 },
             }
