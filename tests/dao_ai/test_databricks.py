@@ -2372,3 +2372,99 @@ def test_deploy_model_serving_links_experiment_and_grants_permissions():
                 trace_loc = call_kwargs["trace_location"]
                 assert trace_loc.catalog_name == "trace_cat"
                 assert trace_loc.schema_name == "trace_sch"
+
+
+@pytest.mark.unit
+def test_deploy_apps_agent_uploads_pyproject_with_dao_ai_version_pin(tmp_path):
+    """The published deploy path must ship a pyproject.toml that pins dao-ai
+    to the version that generated the bundle. Without this pin, Databricks Apps'
+    runtime ``uv pip install dao-ai`` only audits the cached venv from prior
+    deploys to the same app slot — letting older dao-ai linger when the bundle
+    YAML uses newer fields (e.g. ``app.background:`` introduced in 0.1.92).
+    Regression guard for the workshop verification crash on 2026-06-23.
+    """
+    from unittest.mock import MagicMock, patch
+
+    from databricks.sdk.service.apps import (
+        App,
+        AppDeployment,
+        AppDeploymentState,
+        ApplicationState,
+    )
+    from databricks.sdk.service.iam import User
+
+    from dao_ai.config import AppConfig, AppModel
+    from dao_ai.providers.databricks import DatabricksProvider, dao_ai_version
+
+    raw_yaml: str = "app:\n  name: pin-test\n"
+    src_file = tmp_path / "dao_ai.yaml"
+    src_file.write_text(raw_yaml)
+
+    mock_config = MagicMock(spec=AppConfig)
+    mock_app = MagicMock(spec=AppModel)
+    mock_app.name = "pin-test"
+    mock_app.description = ""
+    mock_app.environment_vars = {}
+    mock_app.trace_location = None
+    mock_app.monitoring = None
+    mock_app.enable_chat_proxy = True
+    mock_config.app = mock_app
+    mock_config.source_config_path = str(src_file)
+    mock_config.rendered_yaml = raw_yaml
+    mock_config.resources = None
+    mock_config.agents = None
+    mock_config.retrievers = None
+
+    mock_existing_app = MagicMock(spec=App)
+    mock_existing_app.app_status = MagicMock(state=ApplicationState.RUNNING)
+    mock_deployment = MagicMock(spec=AppDeployment)
+    mock_deployment.status = MagicMock(state=AppDeploymentState.SUCCEEDED)
+    mock_user = MagicMock(spec=User, user_name="test.user@example.com")
+
+    with (
+        patch.object(DatabricksProvider, "__init__", return_value=None),
+        patch("dao_ai.providers.databricks.is_published", return_value=True),
+    ):
+        provider = DatabricksProvider()
+        provider.w = MagicMock()
+        provider.w.current_user.me.return_value = mock_user
+        with patch.object(
+            provider,
+            "get_or_create_experiment",
+            return_value=MagicMock(experiment_id="exp-1"),
+        ):
+            provider.w.apps.get.return_value = mock_existing_app
+            provider.w.apps.deploy_and_wait.return_value = mock_deployment
+
+            provider.deploy_apps_agent(mock_config)
+
+    # pyproject.toml must be uploaded with a hard dao-ai version pin
+    pyproject_uploads = [
+        c
+        for c in provider.w.workspace.upload.call_args_list
+        if c.kwargs.get("path", "").endswith("/pyproject.toml")
+    ]
+    assert pyproject_uploads, (
+        "Published deploy_apps_agent must upload a pyproject.toml so Apps' "
+        "native uv build phase installs dao-ai (rather than the runtime "
+        "command silently reusing a cached venv from a prior deploy)."
+    )
+    pyproject_text = pyproject_uploads[0].kwargs["content"].getvalue().decode("utf-8")
+    assert f"dao-ai>={dao_ai_version()}" in pyproject_text, (
+        f"pyproject.toml must pin dao-ai>={dao_ai_version()}; got:\n{pyproject_text}"
+    )
+
+    # app.yaml's command must be a bare ``python -m ...`` (no runtime pip
+    # install) so Apps' build-phase ``uv sync`` is the sole installer.
+    app_yaml_uploads = [
+        c
+        for c in provider.w.workspace.upload.call_args_list
+        if c.kwargs.get("path", "").endswith("/app.yaml")
+    ]
+    assert app_yaml_uploads, "expected an app.yaml upload"
+    app_yaml_text = app_yaml_uploads[0].kwargs["content"].getvalue().decode("utf-8")
+    assert "uv pip install dao-ai" not in app_yaml_text, (
+        "app.yaml must NOT issue a runtime ``uv pip install dao-ai`` — that "
+        "command audits the cached venv and never upgrades. The new path uses "
+        "the bundle's pyproject.toml + Apps' build-phase uv sync."
+    )

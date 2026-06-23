@@ -1108,11 +1108,49 @@ class DatabricksProvider(ServiceProvider):
             "dao_ai.apps.start_app" if enable_chat_proxy else "dao_ai.apps.server"
         )
         if is_published():
-            app_command = [
-                "/bin/bash",
-                "-c",
-                f"uv pip install dao-ai && python -m {entrypoint_module}",
-            ]
+            # Upload a pyproject.toml pinning dao-ai to the version that
+            # generated the bundle. Databricks Apps' native uv support runs
+            # ``uv sync --locked --no-dev`` at BUILD phase based on this file
+            # and puts ``.venv/bin`` on PATH for runtime, so the deployed app
+            # always runs the dao-ai version the bundle declares. Without
+            # this, the runtime ``uv pip install dao-ai`` only audits the
+            # cached venv from prior deploys to the same app slot — letting
+            # the venv silently drift behind the local dao-ai. (See issue
+            # surfaced by the workshop verification on 2026-06-23: Lab 15
+            # introduced ``app.background:``, but the cached venv was a
+            # pre-rename dao-ai that rejected the new field as
+            # ``extra_forbidden`` and crashed the app at startup.)
+            from dao_ai.apps.bundle import _PYPROJECT_TEMPLATE
+
+            app_name_normalized = raw_name.lower().replace("_", "-")
+            package_name = app_name_normalized.replace("-", "_")
+            pyproject_content = _PYPROJECT_TEMPLATE.format(
+                name=app_name_normalized,
+                package_name=package_name,
+                dao_ai_version=dao_ai_version(),
+            )
+            self.w.workspace.upload(
+                path=f"{source_path}/pyproject.toml",
+                content=io.BytesIO(pyproject_content.encode("utf-8")),
+                format=ImportFormat.AUTO,
+                overwrite=True,
+            )
+
+            # Stub package __init__.py so the hatch build target ``packages =
+            # ["src/<package_name>"]`` declared in ``_PYPROJECT_TEMPLATE``
+            # resolves during ``uv sync``.
+            try:
+                self.w.workspace.mkdirs(f"{source_path}/src/{package_name}")
+            except Exception:
+                pass
+            self.w.workspace.upload(
+                path=f"{source_path}/src/{package_name}/__init__.py",
+                content=io.BytesIO(b""),
+                format=ImportFormat.AUTO,
+                overwrite=True,
+            )
+
+            app_command = ["python", "-m", entrypoint_module]
             logger.info(
                 "dao-ai source for app: PyPI package",
                 version=dao_ai_version(),

@@ -202,6 +202,36 @@ class TestBuildSerializedSpace:
         assert fn["identifier"] == "cat.sch.find_product"
         assert "id" in fn
 
+    def test_sql_functions_sorted_by_id_identifier(
+        self,
+        schema: SchemaModel,
+        warehouse: WarehouseModel,
+    ):
+        """Genie's export-proto validator rejects ``instructions.sql_functions``
+        entries that are not sorted by ``(id, identifier)``. Verify the
+        ``GenieRoomModel`` emitter sorts regardless of YAML order."""
+        fn_a = FunctionModel(schema=schema, name="find_aardvark")
+        fn_m = FunctionModel(schema=schema, name="find_mango")
+        fn_z = FunctionModel(schema=schema, name="find_zebra")
+
+        room = GenieRoomModel(
+            name="Sort-Order Genie",
+            warehouse=warehouse,
+            parent_path="/Users/me@example.com/genie",
+            # Intentionally out of alphabetical order — the emitter must sort.
+            function_sources=[
+                GenieSqlFunctionSource(function=fn_z),
+                GenieSqlFunctionSource(function=fn_a),
+                GenieSqlFunctionSource(function=fn_m),
+            ],
+        )
+
+        sql_functions = room._build_serialized_space()["instructions"]["sql_functions"]
+        keys = [(entry["id"], entry["identifier"]) for entry in sql_functions]
+        assert keys == sorted(keys), (
+            f"sql_functions must be emitted sorted by (id, identifier); got {keys}"
+        )
+
     def test_sql_snippets_split_by_kind(self, fully_configured_room: GenieRoomModel):
         payload = fully_configured_room._build_serialized_space()
         snippets = payload["instructions"]["sql_snippets"]
