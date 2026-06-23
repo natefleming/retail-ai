@@ -1,3 +1,5 @@
+Resolved 293 packages in 6ms
+Checked 256 packages in 17ms
 {
   "$defs": {
     "A2AModel": {
@@ -3607,6 +3609,129 @@
       "title": "GenieExampleSql",
       "type": "object"
     },
+    "GenieInMemoryContextAwareCacheParametersModel": {
+      "additionalProperties": false,
+      "description": "Configuration for in-memory context-aware cache (no database required).\n\nThis cache stores embeddings and cache entries entirely in memory, providing\ncontext-aware similarity matching without requiring external database dependencies\nlike PostgreSQL or Databricks Lakebase.\n\nDefault settings are tuned for ~30 users on an 8GB machine:\n- Capacity: 10,000 entries (~200MB memory, ~330 queries per user)\n- Eviction: LRU (Least Recently Used) - keeps frequently accessed queries\n- TTL: 1 week (accommodates weekly work patterns and batch jobs)\n- Memory overhead: ~4-5% of 8GB system\n\nThe LRU eviction strategy ensures hot queries stay cached while cold queries\nare evicted, providing better hit rates than FIFO eviction.\n\nFor larger deployments or memory-constrained environments, adjust capacity and TTL accordingly.\n\nUse this when:\n- No external database access is available\n- Single-instance deployments (cache not shared across instances)\n- Cache persistence across restarts is not required\n- Cache sizes are moderate (hundreds to low thousands of entries)\n\nFor multi-instance deployments or large cache sizes, use GenieContextAwareCacheParametersModel\nwith PostgreSQL backend instead.",
+      "properties": {
+        "time_to_live_seconds": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": 604800,
+          "description": "Cache entry TTL in seconds. Default: 1 week (604800s). None or negative = never expires.",
+          "title": "Time To Live Seconds"
+        },
+        "similarity_threshold": {
+          "default": 0.85,
+          "description": "Minimum similarity score (0-1) for question matching.",
+          "title": "Similarity Threshold",
+          "type": "number"
+        },
+        "context_similarity_threshold": {
+          "default": 0.8,
+          "description": "Minimum similarity score (0-1) for conversation context matching.",
+          "title": "Context Similarity Threshold",
+          "type": "number"
+        },
+        "question_weight": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": 0.6,
+          "description": "Weight for question similarity in the combined score (0-1). Computed as 1 - context_weight if omitted.",
+          "title": "Question Weight"
+        },
+        "context_weight": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Weight for context similarity in the combined score (0-1). Computed as 1 - question_weight if omitted.",
+          "title": "Context Weight"
+        },
+        "embedding_model": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "$ref": "#/$defs/InferenceEndpointModel"
+            }
+          ],
+          "default": "databricks-gte-large-en",
+          "description": "Embedding model endpoint for generating similarity vectors.",
+          "title": "Embedding Model"
+        },
+        "embedding_dims": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Embedding vector dimensions. Auto-detected from the model if not set.",
+          "title": "Embedding Dims"
+        },
+        "warehouse": {
+          "$ref": "#/$defs/WarehouseModel",
+          "description": "SQL warehouse used by the Genie API for query execution."
+        },
+        "context_window_size": {
+          "default": 3,
+          "description": "Number of previous conversation turns included as context for matching.",
+          "title": "Context Window Size",
+          "type": "integer"
+        },
+        "max_context_tokens": {
+          "default": 2000,
+          "description": "Maximum token length for context to prevent oversized embeddings.",
+          "title": "Max Context Tokens",
+          "type": "integer"
+        },
+        "invalidate_on_empty_result": {
+          "default": false,
+          "description": "When true, cached SQL that returns an empty result set is treated as stale: the cache entry is invalidated and the question is re-sent to Genie. Useful when cached queries contain date-relative expressions like CURRENT_DATE() that become invalid as underlying data ages.",
+          "title": "Invalidate On Empty Result",
+          "type": "boolean"
+        },
+        "capacity": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": 10000,
+          "description": "Maximum cache entries (~200MB at 10000 with 1024-dim embeddings). LRU eviction when full. None = unlimited.",
+          "title": "Capacity"
+        }
+      },
+      "required": [
+        "warehouse"
+      ],
+      "title": "GenieInMemoryContextAwareCacheParametersModel",
+      "type": "object"
+    },
     "GenieJoinSpec": {
       "additionalProperties": true,
       "description": "A trusted join relationship between two Genie data sources.",
@@ -3682,6 +3807,46 @@
         "sql"
       ],
       "title": "GenieJoinSpec",
+      "type": "object"
+    },
+    "GenieLRUCacheParametersModel": {
+      "additionalProperties": false,
+      "description": "Configuration for a simple LRU (Least Recently Used) Genie response cache.",
+      "properties": {
+        "capacity": {
+          "default": 1000,
+          "description": "Maximum number of cached responses before LRU eviction.",
+          "title": "Capacity",
+          "type": "integer"
+        },
+        "time_to_live_seconds": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": 86400,
+          "description": "Cache entry TTL in seconds. None or negative = entries never expire. Default: 1 day.",
+          "title": "Time To Live Seconds"
+        },
+        "warehouse": {
+          "$ref": "#/$defs/WarehouseModel",
+          "description": "SQL warehouse used by the Genie API for query execution."
+        },
+        "invalidate_on_empty_result": {
+          "default": false,
+          "description": "When true, cached SQL that returns an empty result set is treated as stale: the cache entry is invalidated and the question is re-sent to Genie. Useful when cached queries contain date-relative expressions like CURRENT_DATE() that become invalid as underlying data ages.",
+          "title": "Invalidate On Empty Result",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "warehouse"
+      ],
+      "title": "GenieLRUCacheParametersModel",
       "type": "object"
     },
     "GenieMetricViewSource": {
@@ -4338,6 +4503,133 @@
         "table"
       ],
       "title": "GenieTableSource",
+      "type": "object"
+    },
+    "GenieToolModel": {
+      "additionalProperties": false,
+      "description": "First-class Genie tool that delegates to ``dao_ai.tools.create_genie_tool``.\n\nEquivalent to ``type: factory + name: dao_ai.tools.create_genie_tool``, but\nwith typed fields so beginners get IDE autocomplete and JSON-schema\nvalidation. Returns a single uncached tool when no caching is configured,\nor a ``GenieToolkit`` (query + feedback tools) when any cache is set or\n``enable_feedback=True``.",
+      "properties": {
+        "type": {
+          "const": "genie",
+          "default": "genie",
+          "description": "Function type discriminator. Must be 'genie'.",
+          "title": "Type",
+          "type": "string"
+        },
+        "human_in_the_loop": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/HumanInTheLoopModel"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Human-in-the-loop approval configuration for this tool."
+        },
+        "genie_room": {
+          "$ref": "#/$defs/GenieRoomModel",
+          "description": "Genie space configuration."
+        },
+        "name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Tool name visible to the LLM. Defaults to 'genie_tool'.",
+          "title": "Name"
+        },
+        "description": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Tool description shown to the LLM during function calling.",
+          "title": "Description"
+        },
+        "persist_conversation": {
+          "default": true,
+          "description": "Persist conversation IDs across calls for multi-turn Genie chats.",
+          "title": "Persist Conversation",
+          "type": "boolean"
+        },
+        "truncate_results": {
+          "default": false,
+          "description": "Truncate large query results returned by Genie.",
+          "title": "Truncate Results",
+          "type": "boolean"
+        },
+        "lru_cache": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/GenieLRUCacheParametersModel"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "LRU cache configuration for fast exact-match SQL caching."
+        },
+        "context_aware_cache": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/GenieContextAwareCacheParametersModel"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "PostgreSQL/Lakebase context-aware (semantic) cache configuration."
+        },
+        "in_memory_context_aware_cache": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/GenieInMemoryContextAwareCacheParametersModel"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "In-memory context-aware (semantic) cache configuration."
+        },
+        "max_consecutive_cache_hits": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Circuit breaker: auto-invalidate after this many consecutive identical cache hits. None disables. Suggested value: 3.",
+          "title": "Max Consecutive Cache Hits"
+        },
+        "enable_feedback": {
+          "default": false,
+          "description": "Force toolkit mode (with feedback tool) even when no cache is configured. Implicitly true whenever any cache is set.",
+          "title": "Enable Feedback",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "genie_room"
+      ],
+      "title": "GenieToolModel",
       "type": "object"
     },
     "GuardrailModel": {
@@ -7043,6 +7335,33 @@
       "title": "SearchParametersModel",
       "type": "object"
     },
+    "SearchToolModel": {
+      "additionalProperties": false,
+      "description": "First-class web search tool that delegates to ``dao_ai.tools.create_search_tool``.\n\nEquivalent to ``type: factory + name: dao_ai.tools.create_search_tool``.\nNo configuration required.",
+      "properties": {
+        "type": {
+          "const": "search",
+          "default": "search",
+          "description": "Function type discriminator. Must be 'search'.",
+          "title": "Type",
+          "type": "string"
+        },
+        "human_in_the_loop": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/HumanInTheLoopModel"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Human-in-the-loop approval configuration for this tool."
+        }
+      },
+      "title": "SearchToolModel",
+      "type": "object"
+    },
     "SecretVariableModel": {
       "description": "A variable resolved from a Databricks secret scope at runtime.",
       "properties": {
@@ -7744,6 +8063,15 @@
               "$ref": "#/$defs/McpFunctionModel"
             },
             {
+              "$ref": "#/$defs/GenieToolModel"
+            },
+            {
+              "$ref": "#/$defs/VectorSearchToolModel"
+            },
+            {
+              "$ref": "#/$defs/SearchToolModel"
+            },
+            {
               "type": "string"
             }
           ],
@@ -8034,6 +8362,83 @@
       ],
       "title": "VectorSearchEndpointType",
       "type": "string"
+    },
+    "VectorSearchToolModel": {
+      "additionalProperties": false,
+      "description": "First-class Vector Search tool that delegates to ``dao_ai.tools.create_vector_search_tool``.\n\nEquivalent to ``type: factory + name: dao_ai.tools.create_vector_search_tool``,\nbut with typed fields. Exactly one of ``retriever`` or ``vector_store`` is\nrequired.",
+      "properties": {
+        "type": {
+          "const": "vector_search",
+          "default": "vector_search",
+          "description": "Function type discriminator. Must be 'vector_search'.",
+          "title": "Type",
+          "type": "string"
+        },
+        "human_in_the_loop": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/HumanInTheLoopModel"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Human-in-the-loop approval configuration for this tool."
+        },
+        "retriever": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RetrieverModel"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Full retriever configuration with search parameters and reranking. Mutually exclusive with vector_store."
+        },
+        "vector_store": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/VectorStoreModel"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Direct vector store reference (uses default search parameters). Mutually exclusive with retriever."
+        },
+        "name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Tool name visible to the LLM.",
+          "title": "Name"
+        },
+        "description": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Tool description shown to the LLM during function calling.",
+          "title": "Description"
+        }
+      },
+      "title": "VectorSearchToolModel",
+      "type": "object"
     },
     "VectorStoreModel": {
       "additionalProperties": false,

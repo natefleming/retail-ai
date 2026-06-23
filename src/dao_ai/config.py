@@ -4525,6 +4525,9 @@ class FunctionType(str, Enum):
     UNITY_CATALOG = "unity_catalog"
     MCP = "mcp"
     INLINE = "inline"
+    GENIE = "genie"
+    VECTOR_SEARCH = "vector_search"
+    SEARCH = "search"
 
 
 class HumanInTheLoopModel(BaseModel):
@@ -4586,7 +4589,7 @@ class BaseFunctionModel(ABC, BaseModel):
         discriminator="type",
     )
     type: FunctionType = Field(
-        description="Function type discriminator (python, factory, inline, mcp, unity_catalog).",
+        description="Function type discriminator (python, factory, inline, mcp, unity_catalog, genie, vector_search, search).",
     )
     human_in_the_loop: Optional[HumanInTheLoopModel] = Field(
         default=None,
@@ -5128,6 +5131,164 @@ class UnityCatalogFunctionModel(BaseFunctionModel):
         return create_uc_tools(self)
 
 
+class GenieToolModel(BaseFunctionModel):
+    """First-class Genie tool that delegates to ``dao_ai.tools.create_genie_tool``.
+
+    Equivalent to ``type: factory + name: dao_ai.tools.create_genie_tool``, but
+    with typed fields so beginners get IDE autocomplete and JSON-schema
+    validation. Returns a single uncached tool when no caching is configured,
+    or a ``GenieToolkit`` (query + feedback tools) when any cache is set or
+    ``enable_feedback=True``.
+    """
+
+    model_config = ConfigDict(use_enum_values=True, extra="forbid")
+    type: Literal[FunctionType.GENIE] = Field(
+        default=FunctionType.GENIE,
+        description="Function type discriminator. Must be 'genie'.",
+    )
+    genie_room: GenieRoomModel = Field(
+        description="Genie space configuration.",
+    )
+    name: Optional[str] = Field(
+        default=None,
+        description="Tool name visible to the LLM. Defaults to 'genie_tool'.",
+    )
+    description: Optional[str] = Field(
+        default=None,
+        description="Tool description shown to the LLM during function calling.",
+    )
+    persist_conversation: bool = Field(
+        default=True,
+        description="Persist conversation IDs across calls for multi-turn Genie chats.",
+    )
+    truncate_results: bool = Field(
+        default=False,
+        description="Truncate large query results returned by Genie.",
+    )
+    lru_cache: Optional[GenieLRUCacheParametersModel] = Field(
+        default=None,
+        description="LRU cache configuration for fast exact-match SQL caching.",
+    )
+    context_aware_cache: Optional[GenieContextAwareCacheParametersModel] = Field(
+        default=None,
+        description="PostgreSQL/Lakebase context-aware (semantic) cache configuration.",
+    )
+    in_memory_context_aware_cache: Optional[
+        GenieInMemoryContextAwareCacheParametersModel
+    ] = Field(
+        default=None,
+        description="In-memory context-aware (semantic) cache configuration.",
+    )
+    max_consecutive_cache_hits: Optional[int] = Field(
+        default=None,
+        description=(
+            "Circuit breaker: auto-invalidate after this many consecutive "
+            "identical cache hits. None disables. Suggested value: 3."
+        ),
+    )
+    enable_feedback: bool = Field(
+        default=False,
+        description=(
+            "Force toolkit mode (with feedback tool) even when no cache is "
+            "configured. Implicitly true whenever any cache is set."
+        ),
+    )
+
+    def as_tools(self, **kwargs: Any) -> Sequence[RunnableLike]:
+        from dao_ai.tools import create_genie_tool
+        from dao_ai.tools.genie import GenieToolkit
+
+        result = create_genie_tool(
+            genie_room=self.genie_room,
+            name=self.name,
+            description=self.description,
+            persist_conversation=self.persist_conversation,
+            truncate_results=self.truncate_results,
+            lru_cache_parameters=self.lru_cache,
+            context_aware_cache_parameters=self.context_aware_cache,
+            in_memory_context_aware_cache_parameters=self.in_memory_context_aware_cache,
+            max_consecutive_cache_hits=self.max_consecutive_cache_hits,
+            enable_feedback=self.enable_feedback,
+        )
+        if isinstance(result, GenieToolkit):
+            return result.get_tools()
+        return [result]
+
+
+class VectorSearchToolModel(BaseFunctionModel):
+    """First-class Vector Search tool that delegates to ``dao_ai.tools.create_vector_search_tool``.
+
+    Equivalent to ``type: factory + name: dao_ai.tools.create_vector_search_tool``,
+    but with typed fields. Exactly one of ``retriever`` or ``vector_store`` is
+    required.
+    """
+
+    model_config = ConfigDict(use_enum_values=True, extra="forbid")
+    type: Literal[FunctionType.VECTOR_SEARCH] = Field(
+        default=FunctionType.VECTOR_SEARCH,
+        description="Function type discriminator. Must be 'vector_search'.",
+    )
+    retriever: Optional[RetrieverModel] = Field(
+        default=None,
+        description="Full retriever configuration with search parameters and reranking. Mutually exclusive with vector_store.",
+    )
+    vector_store: Optional[VectorStoreModel] = Field(
+        default=None,
+        description="Direct vector store reference (uses default search parameters). Mutually exclusive with retriever.",
+    )
+    name: Optional[str] = Field(
+        default=None,
+        description="Tool name visible to the LLM.",
+    )
+    description: Optional[str] = Field(
+        default=None,
+        description="Tool description shown to the LLM during function calling.",
+    )
+
+    @model_validator(mode="after")
+    def _retriever_or_vector_store(self) -> Self:
+        if self.retriever is None and self.vector_store is None:
+            raise ValueError(
+                "VectorSearchToolModel requires exactly one of 'retriever' or 'vector_store'."
+            )
+        if self.retriever is not None and self.vector_store is not None:
+            raise ValueError(
+                "VectorSearchToolModel cannot accept both 'retriever' and 'vector_store'."
+            )
+        return self
+
+    def as_tools(self, **kwargs: Any) -> Sequence[RunnableLike]:
+        from dao_ai.tools import create_vector_search_tool
+
+        return [
+            create_vector_search_tool(
+                retriever=self.retriever,
+                vector_store=self.vector_store,
+                name=self.name,
+                description=self.description,
+            )
+        ]
+
+
+class SearchToolModel(BaseFunctionModel):
+    """First-class web search tool that delegates to ``dao_ai.tools.create_search_tool``.
+
+    Equivalent to ``type: factory + name: dao_ai.tools.create_search_tool``.
+    No configuration required.
+    """
+
+    model_config = ConfigDict(use_enum_values=True, extra="forbid")
+    type: Literal[FunctionType.SEARCH] = Field(
+        default=FunctionType.SEARCH,
+        description="Function type discriminator. Must be 'search'.",
+    )
+
+    def as_tools(self, **kwargs: Any) -> Sequence[RunnableLike]:
+        from dao_ai.tools import create_search_tool
+
+        return [create_search_tool()]
+
+
 AnyTool: TypeAlias = (
     Union[
         PythonFunctionModel,
@@ -5135,6 +5296,9 @@ AnyTool: TypeAlias = (
         InlineFunctionModel,
         UnityCatalogFunctionModel,
         McpFunctionModel,
+        GenieToolModel,
+        VectorSearchToolModel,
+        SearchToolModel,
     ]
     | str
 )
