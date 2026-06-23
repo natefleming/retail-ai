@@ -11,7 +11,7 @@ The examples follow a natural progression:
     → 06_on_behalf_of_user → 07_human_in_the_loop → 08_guardrails → 09_structured_output
     → 10_agent_integrations → 11_prompt_engineering → 12_middleware → 13_orchestration
     → 14_basic_tools → 15_complete_applications → 16_instructed_retriever
-    → 17_parallel_tools → 18_visualization → 19_long_running_agents
+    → 17_parallel_tools → 18_visualization → 19_background_agents
 ```
 
 Start at `01_getting_started` if you're new, or jump directly to the category that matches your needs.
@@ -53,9 +53,9 @@ Start at `01_getting_started` if you're new, or jump directly to the category th
 **Charts and graphs:**
 - [`18_visualization/`](../config/examples/18_visualization/) - Vega-Lite chart generation via `custom_outputs`
 
-### ⏱️ Long-Running Tasks?
+### ⏱️ Background Tasks?
 **Background kickoff + poll/stream retrieval (deep research, multi-tool workflows):**
-- [`19_long_running_agents/`](../config/examples/19_long_running_agents/) - OpenAI Responses API–compatible `/v1/responses` on Apps + `background=true` on Model Serving, backed by Lakebase
+- [`19_background_agents/`](../config/examples/19_background_agents/) - OpenAI Responses API–compatible `/v1/responses` on Apps + `background=true` on Model Serving, backed by Lakebase
 
 ### 🏗️ Complete Solutions?
 **Full applications:**
@@ -443,13 +443,13 @@ Generate Vega-Lite chart specs from structured data, delivered to clients via `c
 
 ---
 
-### 19. Long-Running Agents [📖 Full docs](long_running_agents.md)
+### 19. Background Agents [📖 Full docs](background_agents.md)
 
 Responses API–compatible kickoff / poll / cancel for agent runs that exceed the ~5 min Model Serving worker timeout or ~120 s Databricks Apps DPAPI timeout. Persists response state + stream events to Lakebase; the background task runs on a persistent daemon thread so it survives the per-request `asyncio.run()` teardown.
 
 | Example | Description |
 |---------|-------------|
-| `deep_research.yaml` | Deep-research agent with `app.long_running` enabled, deployed to both Databricks Apps and Model Serving |
+| `deep_research.yaml` | Deep-research agent with `app.background` enabled, deployed to both Databricks Apps and Model Serving |
 
 **Prerequisites:** Configured Lakebase project  
 **Use:** Deep research, multi-agent workflows, or any single inference that may take more than ~2–5 minutes

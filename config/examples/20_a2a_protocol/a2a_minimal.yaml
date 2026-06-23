@@ -38,6 +38,6 @@ app:
   # ``a2a.enabled: false`` to opt out entirely. The default ``task_store`` is
   # an empty A2ATaskStoreModel (no ``database`` → InMemoryTaskStore), which is
   # fine for this demo. To persist tasks in Lakebase, set
-  # ``task_store.database`` to a DatabaseModel (see a2a_long_running.yaml).
+  # ``task_store.database`` to a DatabaseModel (see a2a_background.yaml).
   a2a:
     enabled: true

@@ -72,7 +72,7 @@ resources:
 # =============================================================================
 memory:
   checkpointer:
-    name: long_running_checkpointer
+    name: background_checkpointer
     database: *retail_database
 
 # =============================================================================
@@ -92,16 +92,16 @@ agents:
 # APPLICATION
 # =============================================================================
 app:
-  name: long_running_dao
-  description: "Long-running deep-research agent (demo of background kickoff + poll)"
+  name: background_dao
+  description: "Background deep-research agent (demo of background kickoff + poll)"
   log_level: INFO
   deployment_target: both
 
   registered_model:
     schema: *retail_schema
-    name: long_running_dao
+    name: background_dao
 
-  endpoint_name: long_running_dao
+  endpoint_name: background_dao
 
   environment_vars:
     RETAIL_AI_DATABRICKS_CLIENT_ID: "{{secrets/retail_consumer_goods/RETAIL_AI_DATABRICKS_CLIENT_ID}}"
@@ -109,7 +109,7 @@ app:
 
   tags:
     business: rcg
-    feature: long_running_agents
+    feature: background_agents
 
   permissions:
   - principals: [users]
@@ -119,9 +119,9 @@ app:
   agents:
   - *researcher
 
-  long_running:
+  background:
     database: *retail_database
-    default_background: false
+    default_enabled: false
     max_duration_seconds: 1800
     poll_interval_seconds: 1.0
 

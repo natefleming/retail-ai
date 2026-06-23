@@ -1,8 +1,8 @@
 # Databricks notebook source
 # MAGIC %md
-# MAGIC # Long-Running Agents — full feature demo
+# MAGIC # Background Agents — full feature demo
 # MAGIC
-# MAGIC Exercises **every** feature of dao-ai's long-running agent wrapper against
+# MAGIC Exercises **every** feature of dao-ai's background agent wrapper against
 # MAGIC two deployment targets:
 # MAGIC
 # MAGIC | # | Flow | Databricks Apps | Model Serving |
@@ -15,11 +15,11 @@
 # MAGIC
 # MAGIC Apps exposes strict OpenAI Responses API routes (`POST /v1/responses`,
 # MAGIC `GET /v1/responses/{id}`, `POST /v1/responses/{id}/cancel`) when
-# MAGIC `app.long_running` is configured. Model Serving only exposes
+# MAGIC `app.background` is configured. Model Serving only exposes
 # MAGIC `/invocations` (and `/invocations-stream` for sync SSE), so retrieve and
 # MAGIC cancel ride on `custom_inputs.operation` there.
 # MAGIC
-# MAGIC Both targets run the same `LongRunningResponsesAgent` wrapper. Background
+# MAGIC Both targets run the same `BackgroundResponsesAgent` wrapper. Background
 # MAGIC work runs on a persistent daemon thread (`_BackgroundLoop`) so the task
 # MAGIC survives Model Serving's per-request `asyncio.run()` teardown.
 
@@ -51,9 +51,9 @@ import requests
 
 APP_URL = os.environ.get(
     "APP_URL",
-    "https://long-running-dao-1444828305810485.aws.databricksapps.com",
+    "https://background-dao-1444828305810485.aws.databricksapps.com",
 ).rstrip("/")
-MS_ENDPOINT = os.environ.get("MS_ENDPOINT", "long_running_dao")
+MS_ENDPOINT = os.environ.get("MS_ENDPOINT", "background_dao")
 DATABRICKS_HOST = os.environ.get(
     "DATABRICKS_HOST", "https://e2-demo-field-eng.cloud.databricks.com"
 ).rstrip("/")
@@ -147,9 +147,9 @@ print(" output_text:", _short(_first_output_text(ms_sync), 200))
 # MAGIC by setting `"stream": true` in the request body to `/invocations`;
 # MAGIC the AgentServer returns SSE instead of a JSON envelope.
 # MAGIC
-# MAGIC This is an existing dao-ai feature — long-running doesn't change it.
+# MAGIC This is an existing dao-ai feature — the background wrapper doesn't change it.
 # MAGIC The cell confirms the wrapper's passthrough behaves identically to a
-# MAGIC deployment without `app.long_running`.
+# MAGIC deployment without `app.background`.
 
 # COMMAND ----------
 
@@ -301,7 +301,7 @@ print("\n[MS bg] final:\n", _short(_first_output_text(body), 500))
 # MAGIC
 # MAGIC `GET /v1/responses/{id}?stream=true&cursor=0` returns the stored
 # MAGIC stream events as SSE. Each event's
-# MAGIC `custom_outputs.long_running.status` is authoritative — stop when
+# MAGIC `custom_outputs.background.status` is authoritative — stop when
 # MAGIC it's terminal.
 # MAGIC
 # MAGIC Streaming retrieve is Apps-only because Model Serving can't mount
@@ -337,8 +337,8 @@ with httpx.stream(
             continue
         ev = json.loads(line[len("data:") :].strip())
         event_count += 1
-        long_running = (ev.get("custom_outputs") or {}).get("long_running") or {}
-        status = long_running.get("status", "?")
+        background = (ev.get("custom_outputs") or {}).get("background") or {}
+        status = background.get("status", "?")
         print(f"  evt#{event_count:03d} type={ev.get('type'):<28} status={status}")
         if status in {"completed", "failed", "cancelled"}:
             terminal = status
@@ -453,7 +453,7 @@ with httpx.stream(
         if not line or not line.startswith("data:"):
             continue
         ev = json.loads(line[len("data:") :].strip())
-        last_cursor = (ev.get("custom_outputs") or {}).get("long_running", {}).get(
+        last_cursor = (ev.get("custom_outputs") or {}).get("background", {}).get(
             "cursor", last_cursor
         )
         print(f"  first-pass evt#{i:02d} cursor={last_cursor}")
@@ -472,7 +472,7 @@ with httpx.stream(
         if not line or not line.startswith("data:"):
             continue
         ev = json.loads(line[len("data:") :].strip())
-        status = (ev.get("custom_outputs") or {}).get("long_running", {}).get("status")
+        status = (ev.get("custom_outputs") or {}).get("background", {}).get("status")
         print(f"  resumed evt#{i:02d} status={status}")
         if status in {"completed", "failed", "cancelled"}:
             break

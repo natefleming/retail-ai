@@ -2,7 +2,7 @@
   "$defs": {
     "A2AModel": {
       "additionalProperties": false,
-      "description": "Google A2A (Agent2Agent) protocol endpoint configuration.\n\nEvery Databricks Apps deployment exposes the following routes by default\n(``AppModel.a2a`` defaults to a fresh ``A2AModel`` with ``enabled=True``):\n\n* ``GET  /.well-known/agent-card.json``  \u2014 Agent Card discovery.\n* ``POST /a2a``                          \u2014 JSON-RPC 2.0 (message/send,\n  message/stream, tasks/get, tasks/list, tasks/cancel, tasks/subscribe).\n\nThese run alongside the existing OpenAI Responses contract on\n``/invocations`` and ``/v1/responses*`` \u2014 both protocols share the same\nLangGraph instance via :meth:`AppConfig.as_graph` and the same\ncheckpointer, so conversations are consistent across contracts.\n\nSet ``enabled: false`` to skip mounting the A2A routes entirely.\n\nTask persistence is configured via :attr:`task_store` \u2014 an\n:class:`A2ATaskStoreModel` whose ``database`` field toggles between\nin-memory (default) and Lakebase-backed storage. This is independent\nof :class:`LongRunningModel`; point both at the same\n:class:`DatabaseModel` to share the connection pool.\n\nSkills and security schemes are derived from the rest of the config\n(one skill per entry in ``config.agents``; bearer scheme with an OBO-\naware description when :attr:`on_behalf_of_user` is True). Override\neither by setting the field explicitly here. The\n:attr:`security_schemes` field is typed against a2a-sdk's\n:class:`a2a.types.SecurityScheme` discriminated union, so malformed\nschemes fail at config load instead of at request time.",
+      "description": "Google A2A (Agent2Agent) protocol endpoint configuration.\n\nEvery Databricks Apps deployment exposes the following routes by default\n(``AppModel.a2a`` defaults to a fresh ``A2AModel`` with ``enabled=True``):\n\n* ``GET  /.well-known/agent-card.json``  \u2014 Agent Card discovery.\n* ``POST /a2a``                          \u2014 JSON-RPC 2.0 (message/send,\n  message/stream, tasks/get, tasks/list, tasks/cancel, tasks/subscribe).\n\nThese run alongside the existing OpenAI Responses contract on\n``/invocations`` and ``/v1/responses*`` \u2014 both protocols share the same\nLangGraph instance via :meth:`AppConfig.as_graph` and the same\ncheckpointer, so conversations are consistent across contracts.\n\nSet ``enabled: false`` to skip mounting the A2A routes entirely.\n\nTask persistence is configured via :attr:`task_store` \u2014 an\n:class:`A2ATaskStoreModel` whose ``database`` field toggles between\nin-memory (default) and Lakebase-backed storage. This is independent\nof :class:`BackgroundModel`; point both at the same\n:class:`DatabaseModel` to share the connection pool.\n\nSkills and security schemes are derived from the rest of the config\n(one skill per entry in ``config.agents``; bearer scheme with an OBO-\naware description when :attr:`on_behalf_of_user` is True). Override\neither by setting the field explicitly here. The\n:attr:`security_schemes` field is typed against a2a-sdk's\n:class:`a2a.types.SecurityScheme` discriminated union, so malformed\nschemes fail at config load instead of at request time.",
       "properties": {
         "enabled": {
           "default": true,
@@ -73,7 +73,7 @@
         },
         "task_store": {
           "$ref": "#/$defs/A2ATaskStoreModel",
-          "description": "A2A task persistence configuration. Defaults to an empty A2ATaskStoreModel (no database \u2192 InMemoryTaskStore). Set ``task_store.database`` to a DatabaseModel to persist tasks in Lakebase. Independent of app.long_running."
+          "description": "A2A task persistence configuration. Defaults to an empty A2ATaskStoreModel (no database \u2192 InMemoryTaskStore). Set ``task_store.database`` to a DatabaseModel to persist tasks in Lakebase. Independent of app.background."
         },
         "on_behalf_of_user": {
           "anyOf": [
@@ -240,7 +240,7 @@
     },
     "A2ATaskStoreModel": {
       "additionalProperties": false,
-      "description": "A2A protocol task persistence configuration.\n\nMirrors the dao-ai idiom shared by :class:`CheckpointerModel` and\n:class:`StoreModel`: an optional :class:`DatabaseModel` toggles the\nbacking store. Absent \u2192 in-memory (tasks lost on restart); present \u2192\nLakebase/Postgres, persisted in ``table``. This is independent of\n:class:`LongRunningModel` \u2014 the two concepts (A2A task lifecycle vs\nResponses-API kickoff/poll/cancel) are configured separately.\n\nWhen the same ``DatabaseModel`` is referenced here, on\n``memory.checkpointer.database``, and on ``app.long_running.database``,\n:class:`dao_ai.memory.postgres.AsyncPostgresPoolManager` dedupes by\nconnection-string value, so all three share a single connection pool.",
+      "description": "A2A protocol task persistence configuration.\n\nMirrors the dao-ai idiom shared by :class:`CheckpointerModel` and\n:class:`StoreModel`: an optional :class:`DatabaseModel` toggles the\nbacking store. Absent \u2192 in-memory (tasks lost on restart); present \u2192\nLakebase/Postgres, persisted in ``table``. This is independent of\n:class:`BackgroundModel` \u2014 the two concepts (A2A task lifecycle vs\nResponses-API kickoff/poll/cancel) are configured separately.\n\nWhen the same ``DatabaseModel`` is referenced here, on\n``memory.checkpointer.database``, and on ``app.background.database``,\n:class:`dao_ai.memory.postgres.AsyncPostgresPoolManager` dedupes by\nconnection-string value, so all three share a single connection pool.",
       "properties": {
         "database": {
           "anyOf": [
@@ -252,7 +252,7 @@
             }
           ],
           "default": null,
-          "description": "Database for persistent task storage. When omitted, A2A tasks are held in process memory and lost on restart. When set, tasks persist in the configured ``table`` and share the AsyncPostgresPoolManager pool with the LangGraph checkpointer and LongRunningStore whenever those point at the same DatabaseModel."
+          "description": "Database for persistent task storage. When omitted, A2A tasks are held in process memory and lost on restart. When set, tasks persist in the configured ``table`` and share the AsyncPostgresPoolManager pool with the LangGraph checkpointer and BackgroundStore whenever those point at the same DatabaseModel."
         },
         "table": {
           "default": "dao_ai_a2a_tasks",
@@ -827,17 +827,17 @@
           "default": null,
           "description": "Production monitoring configuration. When present, scorers are registered to continuously evaluate production traces. Works with both experiment-based traces and UC OTEL trace tables. When trace_location is also configured, the SQL warehouse from trace_location is used for monitoring."
         },
-        "long_running": {
+        "background": {
           "anyOf": [
             {
-              "$ref": "#/$defs/LongRunningModel"
+              "$ref": "#/$defs/BackgroundModel"
             },
             {
               "type": "null"
             }
           ],
           "default": null,
-          "description": "Opt-in long-running agent configuration. When set, the ResponsesAgent is wrapped so that requests with background=True or custom_inputs.operation are persisted in the referenced Lakebase database. In Databricks Apps, strict Responses API routes (/v1/responses, /v1/responses/{id}, /v1/responses/{id}/cancel) are additionally exposed. See config/examples/19_long_running_agents/."
+          "description": "Opt-in background agent configuration. When set, the ResponsesAgent is wrapped so that requests with background=True or custom_inputs.operation are persisted in the referenced Lakebase database. In Databricks Apps, strict Responses API routes (/v1/responses, /v1/responses/{id}, /v1/responses/{id}/cancel) are additionally exposed. See config/examples/19_background_agents/."
         },
         "a2a": {
           "$ref": "#/$defs/A2AModel",
@@ -943,6 +943,53 @@
         "name"
       ],
       "title": "BackendModel",
+      "type": "object"
+    },
+    "BackgroundModel": {
+      "additionalProperties": false,
+      "description": "Opt-in background agent configuration.\n\nEnables Responses-API-compatible kickoff/poll/cancel on top of any\ndao-ai agent, persisted in the referenced Lakebase ``database``.\nWhen present on ``AppModel``, requests can set ``background: true``\n(or ``custom_inputs.operation: retrieve|cancel``) on ``/invocations``;\nin Databricks Apps, strict ``/v1/responses*`` FastAPI routes are\nadditionally mounted and translate to the same contract.",
+      "properties": {
+        "database": {
+          "$ref": "#/$defs/DatabaseModel",
+          "description": "Lakebase (or PostgreSQL) database used to persist response rows and stream events. May be the same database used by the checkpointer."
+        },
+        "default_enabled": {
+          "default": false,
+          "description": "If True, requests are treated as background even when ``background: true`` is not explicitly set on the request.",
+          "title": "Default Enabled",
+          "type": "boolean"
+        },
+        "max_duration_seconds": {
+          "default": 1800,
+          "description": "Hard cap on any single background run. Tasks exceeding this are marked failed.",
+          "minimum": 1,
+          "title": "Max Duration Seconds",
+          "type": "integer"
+        },
+        "poll_interval_seconds": {
+          "default": 1.0,
+          "description": "Interval (seconds) used by streaming retrieve to poll the database for new events.",
+          "exclusiveMinimum": 0.0,
+          "title": "Poll Interval Seconds",
+          "type": "number"
+        },
+        "responses_table_name": {
+          "default": "dao_ai_responses",
+          "description": "Name of the Lakebase table that stores one row per response.",
+          "title": "Responses Table Name",
+          "type": "string"
+        },
+        "messages_table_name": {
+          "default": "dao_ai_response_messages",
+          "description": "Name of the Lakebase table that stores streamed events / final items.",
+          "title": "Messages Table Name",
+          "type": "string"
+        }
+      },
+      "required": [
+        "database"
+      ],
+      "title": "BackgroundModel",
       "type": "object"
     },
     "BestOfNConfig": {
@@ -5226,53 +5273,6 @@
       ],
       "title": "LogLevel",
       "type": "string"
-    },
-    "LongRunningModel": {
-      "additionalProperties": false,
-      "description": "Opt-in long-running agent configuration.\n\nEnables Responses-API-compatible kickoff/poll/cancel on top of any\ndao-ai agent, persisted in the referenced Lakebase ``database``.\nWhen present on ``AppModel``, requests can set ``background: true``\n(or ``custom_inputs.operation: retrieve|cancel``) on ``/invocations``;\nin Databricks Apps, strict ``/v1/responses*`` FastAPI routes are\nadditionally mounted and translate to the same contract.",
-      "properties": {
-        "database": {
-          "$ref": "#/$defs/DatabaseModel",
-          "description": "Lakebase (or PostgreSQL) database used to persist response rows and stream events. May be the same database used by the checkpointer."
-        },
-        "default_background": {
-          "default": false,
-          "description": "If True, requests are treated as long-running even when background is not explicitly set.",
-          "title": "Default Background",
-          "type": "boolean"
-        },
-        "max_duration_seconds": {
-          "default": 1800,
-          "description": "Hard cap on any single background run. Tasks exceeding this are marked failed.",
-          "minimum": 1,
-          "title": "Max Duration Seconds",
-          "type": "integer"
-        },
-        "poll_interval_seconds": {
-          "default": 1.0,
-          "description": "Interval (seconds) used by streaming retrieve to poll the database for new events.",
-          "exclusiveMinimum": 0.0,
-          "title": "Poll Interval Seconds",
-          "type": "number"
-        },
-        "responses_table_name": {
-          "default": "dao_ai_responses",
-          "description": "Name of the Lakebase table that stores one row per response.",
-          "title": "Responses Table Name",
-          "type": "string"
-        },
-        "messages_table_name": {
-          "default": "dao_ai_response_messages",
-          "description": "Name of the Lakebase table that stores streamed events / final items.",
-          "title": "Messages Table Name",
-          "type": "string"
-        }
-      },
-      "required": [
-        "database"
-      ],
-      "title": "LongRunningModel",
-      "type": "object"
     },
     "McpFunctionModel": {
       "additionalProperties": false,

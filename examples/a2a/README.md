@@ -87,6 +87,6 @@ calls, and the client will resume with `decisions=[{"type":"approve"}]`.
 * **Custom inputs.** Send a `DataPart` alongside a `TextPart` —
   arbitrary keys land in dao-ai's `custom_inputs`. Use this for store
   number, user attributes, feature flags, etc.
-* **Lakebase task persistence.** Set `app.long_running.database` and
+* **Lakebase task persistence.** Set `app.background.database` and
   redeploy. A2A tasks now survive worker restarts (auto-selected via
   `app.a2a.task_store: auto`).

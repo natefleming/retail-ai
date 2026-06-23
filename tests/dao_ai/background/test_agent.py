@@ -1,8 +1,8 @@
-"""Unit tests for LongRunningResponsesAgent routing and lifecycle.
+"""Unit tests for BackgroundResponsesAgent routing and lifecycle.
 
 The store is mocked so these tests don't require a live Lakebase/Postgres
 instance. End-to-end coverage against real endpoints lives in
-``notebooks/14_long_running_agents_demo.py``.
+``notebooks/14_background_agents_demo.py``.
 """
 
 from __future__ import annotations
@@ -18,8 +18,8 @@ from mlflow.types.responses import (
     ResponsesAgentStreamEvent,
 )
 
-from dao_ai.long_running.agent import LongRunningResponsesAgent
-from dao_ai.long_running.store import ResponseRecord, ResponseStatus
+from dao_ai.background.agent import BackgroundResponsesAgent
+from dao_ai.background.store import ResponseRecord, ResponseStatus
 
 
 def _run(coro):
@@ -88,7 +88,7 @@ def store():
 
 def test_passthrough_non_background_delegates_to_inner(store):
     inner = _FakeInner()
-    agent = LongRunningResponsesAgent(inner=inner, store=store)
+    agent = BackgroundResponsesAgent(inner=inner, store=store)
 
     request = ResponsesAgentRequest(input=[])
     response = _run(agent.apredict(request))
@@ -116,7 +116,7 @@ def test_kickoff_returns_in_progress_and_creates_row(store):
                 yield None
 
     inner = SlowInner()
-    agent = LongRunningResponsesAgent(inner=inner, store=store)
+    agent = BackgroundResponsesAgent(inner=inner, store=store)
 
     request = ResponsesAgentRequest(
         input=[],
@@ -137,16 +137,16 @@ def test_kickoff_returns_in_progress_and_creates_row(store):
     assert response.id is not None and response.id.startswith("resp_")
     assert response.status == "in_progress"
     # Extended fields still in custom_outputs.
-    info = response.custom_outputs["long_running"]
+    info = response.custom_outputs["background"]
     assert info["status"] == "in_progress"
     assert info["response_id"] == response.id
     store.create.assert_awaited()
     assert len(registered) == 1
 
 
-def test_clone_for_background_strips_long_running_markers():
+def test_clone_for_background_strips_background_markers():
     """_clone_for_background strips markers and forces background=False."""
-    from dao_ai.long_running.agent import _clone_for_background
+    from dao_ai.background.agent import _clone_for_background
 
     request = ResponsesAgentRequest(
         input=[],
@@ -177,7 +177,7 @@ def test_kickoff_passes_cleaned_request_to_inner(store):
             seen_requests.append(request)
             yield ResponsesAgentStreamEvent(type="response.in_progress")
 
-    agent = LongRunningResponsesAgent(inner=RecordingInner(), store=store)
+    agent = BackgroundResponsesAgent(inner=RecordingInner(), store=store)
     request = ResponsesAgentRequest(
         input=[],
         background=True,
@@ -206,7 +206,7 @@ def test_kickoff_passes_cleaned_request_to_inner(store):
 
 def test_retrieve_returns_in_progress_when_not_terminal(store):
     store.get.return_value = _make_record(status=ResponseStatus.IN_PROGRESS)
-    agent = LongRunningResponsesAgent(inner=_FakeInner(), store=store)
+    agent = BackgroundResponsesAgent(inner=_FakeInner(), store=store)
 
     request = ResponsesAgentRequest(
         input=[],
@@ -215,7 +215,7 @@ def test_retrieve_returns_in_progress_when_not_terminal(store):
 
     response = _run(agent.apredict(request))
 
-    assert response.custom_outputs["long_running"]["status"] == "in_progress"
+    assert response.custom_outputs["background"]["status"] == "in_progress"
     store.get_output.assert_not_called()
 
 
@@ -230,7 +230,7 @@ def test_retrieve_returns_output_when_completed(store):
             "status": "completed",
         }
     ]
-    agent = LongRunningResponsesAgent(inner=_FakeInner(), store=store)
+    agent = BackgroundResponsesAgent(inner=_FakeInner(), store=store)
 
     request = ResponsesAgentRequest(
         input=[],
@@ -243,20 +243,20 @@ def test_retrieve_returns_output_when_completed(store):
     assert response.status == "completed"
     assert len(response.output) == 1
     assert response.output[0].id == "msg_1"
-    assert response.custom_outputs["long_running"]["status"] == "completed"
+    assert response.custom_outputs["background"]["status"] == "completed"
 
 
 def test_retrieve_unknown_id_returns_structured_not_found(store):
     """Both deployment targets surface not-found as a structured response.
 
-    Apps' /v1/responses routes inspect ``custom_outputs.long_running.error.type``
+    Apps' /v1/responses routes inspect ``custom_outputs.background.error.type``
     and translate to HTTP 404; Model Serving clients see HTTP 200 with the
     same body shape. See ``is_not_found_response``.
     """
-    from dao_ai.long_running import ERROR_TYPE_NOT_FOUND, is_not_found_response
+    from dao_ai.background import ERROR_TYPE_NOT_FOUND, is_not_found_response
 
     store.get.return_value = None
-    agent = LongRunningResponsesAgent(inner=_FakeInner(), store=store)
+    agent = BackgroundResponsesAgent(inner=_FakeInner(), store=store)
 
     request = ResponsesAgentRequest(
         input=[],
@@ -267,7 +267,7 @@ def test_retrieve_unknown_id_returns_structured_not_found(store):
 
     assert response.id == "resp_missing"
     assert response.status == "failed"
-    lr = response.custom_outputs["long_running"]
+    lr = response.custom_outputs["background"]
     assert lr["status"] == "failed"
     assert lr["error"]["type"] == ERROR_TYPE_NOT_FOUND
     assert "resp_missing" in lr["error"]["message"]
@@ -278,10 +278,10 @@ def test_retrieve_unknown_id_returns_structured_not_found(store):
 
 
 def test_cancel_unknown_id_returns_structured_not_found(store):
-    from dao_ai.long_running import ERROR_TYPE_NOT_FOUND, is_not_found_response
+    from dao_ai.background import ERROR_TYPE_NOT_FOUND, is_not_found_response
 
     store.get.return_value = None
-    agent = LongRunningResponsesAgent(inner=_FakeInner(), store=store)
+    agent = BackgroundResponsesAgent(inner=_FakeInner(), store=store)
 
     response = _run(
         agent.apredict(
@@ -296,7 +296,7 @@ def test_cancel_unknown_id_returns_structured_not_found(store):
     )
 
     assert response.status == "failed"
-    lr = response.custom_outputs["long_running"]
+    lr = response.custom_outputs["background"]
     assert lr["error"]["type"] == ERROR_TYPE_NOT_FOUND
     assert is_not_found_response(response.model_dump(mode="json"))
     # No UPDATE should have been issued for a non-existent response.
@@ -305,7 +305,7 @@ def test_cancel_unknown_id_returns_structured_not_found(store):
 
 def test_cancel_marks_cancelled_in_store(store):
     store.get.return_value = _make_record(status=ResponseStatus.CANCELLED)
-    agent = LongRunningResponsesAgent(inner=_FakeInner(), store=store)
+    agent = BackgroundResponsesAgent(inner=_FakeInner(), store=store)
 
     async def _dummy():
         await asyncio.sleep(10)
@@ -329,7 +329,7 @@ def test_cancel_marks_cancelled_in_store(store):
 
     response, task = _run(_body())
 
-    assert response.custom_outputs["long_running"]["status"] == "cancelled"
+    assert response.custom_outputs["background"]["status"] == "cancelled"
     store.mark_cancelled.assert_awaited_once_with("resp_x")
     assert task.cancelled() or task.done()
 
@@ -338,7 +338,7 @@ def test_cancel_marks_cancelled_in_store(store):
 
 
 def test_stream_kickoff_yields_response_created(store):
-    agent = LongRunningResponsesAgent(inner=_FakeInner(), store=store)
+    agent = BackgroundResponsesAgent(inner=_FakeInner(), store=store)
 
     request = ResponsesAgentRequest(
         input=[], background=True, custom_inputs={"configurable": {"thread_id": "t"}}
@@ -382,7 +382,7 @@ def test_stream_retrieve_polls_until_terminal(store):
 
     store.iter_events = _dispatcher
 
-    agent = LongRunningResponsesAgent(
+    agent = BackgroundResponsesAgent(
         inner=_FakeInner(), store=store, poll_interval_seconds=0.01
     )
 
@@ -402,9 +402,9 @@ def test_stream_retrieve_polls_until_terminal(store):
     events = _run(_collect())
     types = [ev.type for ev in events]
     assert "response.in_progress" in types
-    # Terminal marker: authoritative status lives in custom_outputs.long_running.status
+    # Terminal marker: authoritative status lives in custom_outputs.background.status
     terminal_status = (
-        events[-1].custom_outputs.get("long_running", {}).get("status")
+        events[-1].custom_outputs.get("background", {}).get("status")
         if events[-1].custom_outputs
         else None
     )
@@ -428,7 +428,7 @@ def test_run_background_persists_aggregated_output_items(store):
         async def apredict_stream(self, request):
             yield ResponsesAgentStreamEvent(type="response.output_item.done", item=item)
 
-    agent = LongRunningResponsesAgent(inner=OneItemInner(), store=store)
+    agent = BackgroundResponsesAgent(inner=OneItemInner(), store=store)
 
     request = ResponsesAgentRequest(
         input=[],
@@ -470,7 +470,7 @@ def test_retrieve_stream_bounded_iterations(store):
 
     store.iter_events = _empty_iter
 
-    agent = LongRunningResponsesAgent(
+    agent = BackgroundResponsesAgent(
         inner=_FakeInner(),
         store=store,
         # Force max_iterations = 2 so the bounded loop exits quickly.

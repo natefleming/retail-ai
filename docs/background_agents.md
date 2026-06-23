@@ -1,8 +1,8 @@
-# Long-Running Agents
+# Background Agents
 
 ## Overview
 
-Long-running agents extend dao-ai with a **kickoff → poll → retrieve** flow so
+Background agents extend dao-ai with a **kickoff → poll → retrieve** flow so
 agent runs can exceed Databricks' synchronous-request limits. It's an
 opt-in, OpenAI Responses API–compatible layer that wraps any dao-ai
 `ResponsesAgent`, persists progress to Lakebase, and runs on both
@@ -10,7 +10,7 @@ Databricks Apps and Databricks Model Serving with near-parity — the only
 difference is that **SSE retrieve is Apps-only**, because Model Serving
 can't mount custom streaming routes. Model Serving clients poll
 non-streaming retrieve instead; both targets use the same
-`LongRunningResponsesAgent` handler under the hood.
+`BackgroundResponsesAgent` handler under the hood.
 
 ## Problem Solved
 
@@ -57,7 +57,7 @@ User polls every 1-2 seconds:
   + `client.responses.retrieve(id)` work unchanged).
 - **Single agent implementation** — the same `LanggraphResponsesAgent`
   serves both the passthrough synchronous path and the background path;
-  long-running is a transparent wrapper.
+  the background wrapper is transparent.
 - **Survives the per-request event loop** — background work runs on a
   process-level daemon thread with its own persistent asyncio loop, so
   Model Serving's per-request `asyncio.run()` teardown can't cancel the
@@ -73,7 +73,7 @@ User polls every 1-2 seconds:
 sequenceDiagram
     participant Client
     participant Route as Apps /v1/responses*<br/>-- or --<br/>MS /invocations
-    participant Wrapper as LongRunningResponsesAgent
+    participant Wrapper as BackgroundResponsesAgent
     participant BgLoop as _BackgroundLoop<br/>(daemon thread)
     participant Inner as LanggraphResponsesAgent
     participant DB as Lakebase<br/>(dao_ai_responses,<br/>dao_ai_response_messages)
@@ -211,14 +211,14 @@ The wrapper uses a single contract across both deployment targets:
 | **Retrieve (stream)** | `GET /v1/responses/{id}?stream=true&cursor=N` | *Apps only — no custom SSE route on Model Serving* |
 | **Cancel** | `POST /v1/responses/{id}/cancel` | `POST /invocations` with `custom_inputs: {operation: "cancel", response_id}` |
 
-**Both targets resolve to the same `LongRunningResponsesAgent.apredict`
+**Both targets resolve to the same `BackgroundResponsesAgent.apredict`
 code path**; the Apps routes are thin FastAPI adapters that translate URL
 segments into `custom_inputs` fields before delegating to the MLflow
 `@invoke` handler.
 
 ## Configuration
 
-Opt in on `AppModel.long_running` with a `LongRunningModel` mapping.
+Opt in on `AppModel.background` with a `BackgroundModel` mapping.
 
 ### Minimal
 
@@ -226,12 +226,12 @@ Opt in on `AppModel.long_running` with a `LongRunningModel` mapping.
 memory:
   checkpointer:
     name: ckpt
-    database: *lakebase_db   # required — long-running reuses a configured DatabaseModel
+    database: *lakebase_db   # required — background reuses a configured DatabaseModel
 
 app:
   name: deep_research_dao
   # …
-  long_running:
+  background:
     database: *lakebase_db   # the Lakebase to persist responses/messages in
 ```
 
@@ -243,9 +243,9 @@ Model Serving.
 
 ```yaml
 app:
-  long_running:
+  background:
     database: *lakebase_db            # required
-    default_background: false         # if true, requests default to background=true
+    default_enabled: false            # if true, requests default to background=true
     max_duration_seconds: 1800        # hard cap per task; background task is cancelled past this
     poll_interval_seconds: 1.0        # server-side poll cadence during streaming retrieve
     responses_table_name: dao_ai_responses           # override if you need multi-tenant isolation
@@ -257,7 +257,7 @@ app:
 | Parameter | Default | Description |
 |---|---|---|
 | `database` | **required** | `DatabaseModel` ref — typically the same Lakebase used by `memory.checkpointer` |
-| `default_background` | `false` | When `true`, requests without an explicit `background` flag are treated as long-running |
+| `default_enabled` | `false` | When `true`, requests without an explicit `background` flag are treated as background |
 | `max_duration_seconds` | `1800` (30 min) | Upper bound on a single background run. The background task is cancelled and marked `failed` past this |
 | `poll_interval_seconds` | `1.0` | Server-side poll cadence for streaming retrieve (`GET /v1/responses/{id}?stream=true`) |
 | `responses_table_name` | `dao_ai_responses` | Override for multi-tenant isolation within a shared Lakebase |
@@ -293,7 +293,7 @@ curl -X POST "$APP_URL/v1/responses" \
   "status": "in_progress",
   "output": [],
   "custom_outputs": {
-    "long_running": {
+    "background": {
       "response_id": "resp_a7f2d02fe9d4465d88b85230471641a7",
       "status": "in_progress",
       "thread_id": "research_demo_1",
@@ -317,7 +317,7 @@ curl -X GET "$APP_URL/v1/responses/resp_a7f2d02fe9d4465d88b85230471641a7" \
   "id": "resp_a7f2d02fe9d4465d88b85230471641a7",
   "status": "in_progress",
   "output": [],
-  "custom_outputs": { "long_running": { "status": "in_progress", … } }
+  "custom_outputs": { "background": { "status": "in_progress", … } }
 }
 ```
 
@@ -338,7 +338,7 @@ curl -X GET "$APP_URL/v1/responses/resp_a7f2d02fe9d4465d88b85230471641a7" \
       "status": "completed"
     }
   ],
-  "custom_outputs": { "long_running": { "status": "completed", … } }
+  "custom_outputs": { "background": { "status": "completed", … } }
 }
 ```
 
@@ -352,16 +352,16 @@ curl -N "$APP_URL/v1/responses/resp_…?stream=true&cursor=0" \
 SSE response — one `data:` line per persisted stream event:
 
 ```
-data: {"type":"response.output_text.delta","delta":"Here","item_id":"msg_…","custom_outputs":{"long_running":{"response_id":"resp_…","status":"in_progress","cursor":1}}}
+data: {"type":"response.output_text.delta","delta":"Here","item_id":"msg_…","custom_outputs":{"background":{"response_id":"resp_…","status":"in_progress","cursor":1}}}
 
-data: {"type":"response.output_text.delta","delta":" are","custom_outputs":{"long_running":{"status":"in_progress","cursor":2}}}
+data: {"type":"response.output_text.delta","delta":" are","custom_outputs":{"background":{"status":"in_progress","cursor":2}}}
 …
-data: {"type":"response.in_progress","id":"resp_…","custom_outputs":{"long_running":{"status":"completed", …}}}
+data: {"type":"response.in_progress","id":"resp_…","custom_outputs":{"background":{"status":"completed", …}}}
 ```
 
-Stop reading when `custom_outputs.long_running.status` is terminal. To
+Stop reading when `custom_outputs.background.status` is terminal. To
 resume after a dropped connection, pass the last seen
-`custom_outputs.long_running.cursor` as the `cursor` query param.
+`custom_outputs.background.cursor` as the `cursor` query param.
 
 #### Cancel
 
@@ -375,7 +375,7 @@ curl -X POST "$APP_URL/v1/responses/resp_…/cancel" \
   "id": "resp_…",
   "status": "cancelled",
   "output": [],
-  "custom_outputs": { "long_running": { "status": "cancelled", … } }
+  "custom_outputs": { "background": { "status": "cancelled", … } }
 }
 ```
 
@@ -398,7 +398,7 @@ curl -X POST "$DATABRICKS_HOST/serving-endpoints/$ENDPOINT/invocations" \
 ```
 
 Body is identical to Apps. Response likewise carries `id` +
-`status=in_progress` + `custom_outputs.long_running`.
+`status=in_progress` + `custom_outputs.background`.
 
 #### Poll
 
@@ -444,8 +444,8 @@ from openai import OpenAI
 client = OpenAI(base_url=f"{APP_URL}/v1", api_key=DATABRICKS_TOKEN)
 
 resp = client.responses.create(
-    model="databricks-long-running",               # ignored by the server
-    input="Research long-running agent infra.",
+    model="databricks-background",                 # ignored by the server
+    input="Research background agent infra.",
     background=True,
     extra_body={"custom_inputs": {"configurable": {"thread_id": "demo"}}},
 )
@@ -463,7 +463,7 @@ would be killed before it could make progress.
 
 **Fix**: the wrapper runs all background coroutines on a **process-level
 daemon thread that owns a persistent `asyncio` loop**
-(`dao_ai.long_running.agent._BackgroundLoop`). `asyncio.run()` teardown
+(`dao_ai.background.agent._BackgroundLoop`). `asyncio.run()` teardown
 only affects the request's loop; the daemon loop lives for the process's
 lifetime and keeps spinning.
 
@@ -522,8 +522,8 @@ Two mitigations are applied in `dao_ai.memory.postgres`:
 ### Unit tests
 
 ```bash
-# 31 long-running tests (agent routing + store + config + pool refresh)
-uv run pytest tests/dao_ai/long_running/ -v
+# 31 background-agent tests (agent routing + store + config + pool refresh)
+uv run pytest tests/dao_ai/background/ -v
 ```
 
 Covers:
@@ -532,11 +532,11 @@ Covers:
 - ✅ streaming retrieve with cursor + bounded iterations
 - ✅ store schema bootstrap + idempotency + cursor ordering
 - ✅ pool `kwargs` provider re-resolves credentials per call
-- ✅ config wiring: `LongRunningModel` defaults, `AppModel.long_running` field
+- ✅ config wiring: `BackgroundModel` defaults, `AppModel.background` field
 
 ### Live demo notebook
 
-`notebooks/14_long_running_agents_demo.py` exercises every flow against
+`notebooks/14_background_agents_demo.py` exercises every flow against
 a deployed Apps + Model Serving pair:
 
 1. Sync passthrough (Apps + MS)
@@ -549,8 +549,8 @@ a deployed Apps + Model Serving pair:
 Run it as a Databricks notebook, or inline from a workstation with:
 
 ```bash
-export APP_URL=https://long-running-…
-export MS_ENDPOINT=long_running_dao
+export APP_URL=https://background-…
+export MS_ENDPOINT=background_dao
 export DATABRICKS_HOST=https://…
 export DATABRICKS_TOKEN=$(databricks --profile X auth token | jq -r .access_token)
 uv run python /tmp/run_notebook_inline.py   # strips MAGIC cells and execs the .py
@@ -634,7 +634,7 @@ work normally.
    path works across pods; only the cancel path is same-pod-only, and
    the DB update always happens regardless. If strict cross-pod cancel is
    critical, open a follow-up — it isn't today.
-6. **Keep the long-running DB the same as the checkpointer DB** — both
+6. **Keep the background DB the same as the checkpointer DB** — both
    share a natural lifecycle. The pool-refresh fix + loop-aware keying in
    `AsyncPostgresPoolManager` handle the shared usage correctly.
 
@@ -653,11 +653,11 @@ sessions discarded automatically
 
 ## See also
 
-- Example config: `config/examples/19_long_running_agents/deep_research.yaml`
-- Full demo notebook: `notebooks/14_long_running_agents_demo.py`
+- Example config: `config/examples/19_background_agents/deep_research.yaml`
+- Full demo notebook: `notebooks/14_background_agents_demo.py`
 - Implementation:
-  - `src/dao_ai/long_running/agent.py` — wrapper + background loop
-  - `src/dao_ai/long_running/store.py` — Lakebase schema + CRUD
+  - `src/dao_ai/background/agent.py` — wrapper + background loop
+  - `src/dao_ai/background/store.py` — Lakebase schema + CRUD
   - `src/dao_ai/apps/server.py` — strict `/v1/responses*` route mounting
   - `src/dao_ai/memory/postgres.py` — pool refresh + connection check
 - 1DD reference: Long Running Agent mini-1DD (Bryan Qiu, Dec 2025) — the

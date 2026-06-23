@@ -1,11 +1,11 @@
-"""Tests that validate the LongRunningModel schema and its wiring into AppModel."""
+"""Tests that validate the BackgroundModel schema and its wiring into AppModel."""
 
 from __future__ import annotations
 
 import pytest
 from pydantic import ValidationError
 
-from dao_ai.config import AppModel, DatabaseModel, LongRunningModel
+from dao_ai.config import AppModel, BackgroundModel, DatabaseModel
 
 
 def _db() -> DatabaseModel:
@@ -13,23 +13,23 @@ def _db() -> DatabaseModel:
     return DatabaseModel(project="my-lakebase-project")
 
 
-def test_long_running_model_defaults():
-    m = LongRunningModel(database=_db())
-    assert m.default_background is False
+def test_background_model_defaults():
+    m = BackgroundModel(database=_db())
+    assert m.default_enabled is False
     assert m.max_duration_seconds == 1800
     assert m.poll_interval_seconds == 1.0
     assert m.responses_table_name == "dao_ai_responses"
     assert m.messages_table_name == "dao_ai_response_messages"
 
 
-def test_long_running_model_rejects_bad_values():
+def test_background_model_rejects_bad_values():
     with pytest.raises(ValidationError):
-        LongRunningModel(database=_db(), max_duration_seconds=0)
+        BackgroundModel(database=_db(), max_duration_seconds=0)
     with pytest.raises(ValidationError):
-        LongRunningModel(database=_db(), poll_interval_seconds=0)
+        BackgroundModel(database=_db(), poll_interval_seconds=0)
 
 
-def test_app_model_long_running_optional():
+def test_app_model_background_optional():
     from dao_ai.config import RegisteredModelModel
 
     app = AppModel(
@@ -43,10 +43,10 @@ def test_app_model_long_running_optional():
             }
         ],
     )
-    assert app.long_running is None
+    assert app.background is None
 
 
-def test_app_model_accepts_long_running_block():
+def test_app_model_accepts_background_block():
     from dao_ai.config import RegisteredModelModel
 
     app = AppModel(
@@ -58,7 +58,7 @@ def test_app_model_accepts_long_running_block():
                 "model": {"name": "databricks-claude-sonnet-4"},
             }
         ],
-        long_running=LongRunningModel(database=_db()),
+        background=BackgroundModel(database=_db()),
     )
-    assert app.long_running is not None
-    assert app.long_running.database.project == "my-lakebase-project"
+    assert app.background is not None
+    assert app.background.database.project == "my-lakebase-project"
