@@ -3,28 +3,21 @@
 # ==============================================================================
 # First-class `type: agent` example
 # ==============================================================================
-# Demonstrates the first-class `type: agent` tool shape — a typed Pydantic
-# wrapper over `create_agent_endpoint_tool` that lets an agent call a deployed
-# Model Serving endpoint (Knowledge Assistant, ChatCompletions, or ChatAgent)
-# as a tool. Covers the Supervisor API `knowledge_assistant` and
-# `serving_endpoint` tool types with one shape.
+# Demonstrates the unified `type: agent` tool shape — one shape to call any
+# Databricks-deployed agent, regardless of whether it's a Model Serving
+# endpoint or a Databricks App.
 #
-# For Databricks Apps:
-#   - MCP apps   → use `type: mcp` with `app:`
-#   - A2A apps   → use `type: a2a` with `app:`  (see a2a_first_class.yaml)
+# Three target types:
+#   - `endpoint:` (string)                 → Model Serving endpoint by name
+#   - `endpoint:` (InferenceEndpointModel) → endpoint with temperature / max_tokens
+#   - `app:` (DatabricksAppModel)          → Databricks App, dispatched via A2A
 #
-# Equivalent to:
+# Covers the Supervisor API `knowledge_assistant` and `serving_endpoint`
+# tool types, plus app-to-app delegation, with one shape.
 #
-#   function:
-#     type: factory
-#     name: dao_ai.tools.create_agent_endpoint_tool
-#     args:
-#       llm:
-#         name: <endpoint-name>
-#       name: <tool-name>
-#       description: <prompt>
-#
-# but with IDE autocomplete and JSON-schema validation.
+# For specialized cases use the explicit shapes:
+#   - External A2A agents (Vertex / Crew.ai / ADK) → `type: a2a` with `endpoint:`
+#   - MCP apps (`mcp-` prefix)                     → `type: mcp` with `app:`
 # ==============================================================================
 
 resources:
@@ -33,9 +26,14 @@ resources:
       name: databricks-claude-sonnet-4
       temperature: 0.1
 
+  # Databricks App resource — referenced from the `app:` tool below.
+  apps:
+    supplier_app: &supplier_app
+      name: dao-ai-supplier-app
+      on_behalf_of_user: true   # → forwarded_user_token at the supplier
+
 tools:
-  # Knowledge Assistant: a KA deploys as a Model Serving endpoint with a known
-  # prefix (e.g. `ka-customer-reviews`). Reference it directly by endpoint name.
+  # 1. Knowledge Assistant by endpoint name (sugar form).
   customer_reviews_ka: &customer_reviews_ka
     name: customer_reviews
     function:
@@ -45,9 +43,7 @@ tools:
         Answer questions about recent customer reviews. Pass the user's
         question through; the KA cites sources in its answer.
 
-  # Generic ChatAgent serving endpoint. Set `on_behalf_of_user: true` to
-  # forward the calling user's bearer token so downstream resource grants
-  # resolve as that user.
+  # 2. Model Serving endpoint with OBO.
   triage_specialist: &triage_specialist
     name: triage_specialist
     function:
@@ -58,6 +54,17 @@ tools:
         Delegate ticket-triage questions to the specialized triage agent.
         Returns a structured triage result as a single string.
 
+  # 3. Databricks App (another dao-ai app). Dispatches via A2A internally
+  # so the caller doesn't need to know about agent cards, JSON-RPC, or
+  # OAuth-M2M — endpoint URL and auth mode are auto-derived from the app.
+  supplier_app_tool: &supplier_app_tool
+    name: query_supplier
+    function:
+      type: agent
+      app: *supplier_app
+      description: |
+        Delegate supplier-domain questions to the deployed supplier agent.
+
 agents:
   orchestrator: &orchestrator
     name: orchestrator
@@ -65,17 +72,19 @@ agents:
     tools:
     - *customer_reviews_ka
     - *triage_specialist
+    - *supplier_app_tool
     prompt: |
-      You are an orchestrator. Use `customer_reviews` for any question
-      about customer feedback. Use `triage_specialist` for any question
-      about ticket prioritization. Relay each agent's answer back to the
-      user; do not paraphrase unless asked.
+      You are an orchestrator with three specialist tools. Use
+      `customer_reviews` for customer-feedback questions,
+      `triage_specialist` for ticket prioritization, and `query_supplier`
+      for supplier/SKU/pricing questions. Relay each tool's answer back
+      to the user; do not paraphrase unless asked.
 
 app:
   name: agent_first_class_dao
   description: >
-    Minimal example of the first-class `type: agent` tool shape calling
-    a Knowledge Assistant and a generic Model Serving endpoint.
+    Minimal example of the unified `type: agent` tool shape calling a
+    Knowledge Assistant, a Model Serving endpoint, and a Databricks App.
   log_level: INFO
   deployment_target: apps
   agents:
