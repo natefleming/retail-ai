@@ -979,7 +979,7 @@ wheels = [
 
 [[package]]
 name = "dao-ai"
-version = "0.1.95"
+version = "0.1.96"
 source = { editable = "." }
 dependencies = [
     { name = "a2a-sdk" },
