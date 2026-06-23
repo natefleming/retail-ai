@@ -1680,6 +1680,22 @@ class GenieEntitlement(BaseModel):
         return self
 
 
+# Sort priority for ``GenieRoomModel._sort_payload_lists`` — ordered from
+# most-specific to least-specific. Entries that carry multiple of these keys
+# are sorted by ALL of them as a composite tuple (in priority order),
+# matching the Genie v2 export-proto validator's expectations. In particular,
+# ``instructions.sql_functions`` entries carry both ``id`` and ``identifier``
+# and the validator demands sort by ``(id, identifier)`` (not by either
+# field alone). Module-level because Pydantic treats leading-underscore
+# class attributes as private model attrs.
+_GENIE_SORT_KEY_PRIORITY: tuple[str, ...] = (
+    "id",
+    "identifier",
+    "column_name",
+    "display_name",
+)
+
+
 class GenieRoomModel(IsDatabricksResource, ManagedResource):
     """Databricks Genie space configuration for natural-language SQL exploration.
 
@@ -2329,8 +2345,11 @@ class GenieRoomModel(IsDatabricksResource, ManagedResource):
         """Recursively sort list-of-dicts in the serialized payload.
 
         The Genie v2 API requires all repeated entries to be sorted by
-        their natural key (``id``, ``identifier``, ``column_name``, or
-        ``display_name``).
+        their natural key. For entries with multiple identifying fields
+        (e.g. ``sql_functions`` entries carry both ``id`` and ``identifier``),
+        the validator demands a composite sort over all of them — sorting by
+        only one of the fields trips the ``Invalid export proto: ... must be
+        sorted by (id, identifier)`` error.
         """
         if isinstance(obj, dict):
             for value in obj.values():
@@ -2339,10 +2358,11 @@ class GenieRoomModel(IsDatabricksResource, ManagedResource):
             for item in obj:
                 GenieRoomModel._sort_payload_lists(item)
             if obj and isinstance(obj[0], dict):
-                for key in ("column_name", "identifier", "id", "display_name"):
-                    if key in obj[0]:
-                        obj.sort(key=lambda x: (x.get(key, ""),))
-                        break
+                sort_keys = tuple(
+                    k for k in _GENIE_SORT_KEY_PRIORITY if k in obj[0]
+                )
+                if sort_keys:
+                    obj.sort(key=lambda x: tuple(x.get(k, "") for k in sort_keys))
 
     def refresh(
         self,
