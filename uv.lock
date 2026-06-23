@@ -979,7 +979,7 @@ wheels = [
 
 [[package]]
 name = "dao-ai"
-version = "0.1.96"
+version = "0.1.97"
 source = { editable = "." }
 dependencies = [
     { name = "a2a-sdk" },
@@ -6186,7 +6186,7 @@ wheels = [
     { url = "https://pypi-proxy.dev.databricks.com/packages/8c/46/002b68de6827091d5ae90b048f326e8aad8d953520950e5ce1508879414f/tiktoken-0.13.0-cp313-cp313t-musllinux_1_2_aarch64.whl", hash = "sha256:e28157350f7ebf35008dd8e9e0fdb621f976e4230c881099c85e8cf07eaa50e2", upload-time = "2026-05-15T04:50:56.296Z" },
     { url = "https://pypi-proxy.dev.databricks.com/packages/db/c6/d393e3185a276505182f7abd93fe714f3c444a2be9180798fa052347504e/tiktoken-0.13.0-cp313-cp313t-musllinux_1_2_x86_64.whl", hash = "sha256:165cf1820ea4a354985c2490a5205d4cc74661c934aca79dd0368232fff94e0f", upload-time = "2026-05-15T04:50:57.918Z" },
     { url = "https://pypi-proxy.dev.databricks.com/packages/b7/4d/bc07d1f1635d4897a202acc0ae11c2886eaa7325c359ba4741b47bf8e225/tiktoken-0.13.0-cp313-cp313t-win_amd64.whl", hash = "sha256:6c43a675ca14f6f2749ba7f12075d37456015a24b859f2517b9beb4ef30807ec", upload-time = "2026-05-15T04:50:59.528Z" },
-    { url = "https://pypi-proxy.dev.databricks.com/packages/8c/93/0dd6adca026a616c3a92974566b43381eea4b475ce1f36c062b8271a9ac5/tiktoken-0.13.0-cp314-cp314-macosx_10_13_x86_64.whl", hash = "sha256:eaaaef47c2406277181d2086484c317bf7fc433e2d5d03ff94f56b0dcec87471", upload-time = "2026-05-15T04:51:00.957Z" }, # gitleaks:allow
+    { url = "https://pypi-proxy.dev.databricks.com/packages/8c/93/0dd6adca026a616c3a92974566b43381eea4b475ce1f36c062b8271a9ac5/tiktoken-0.13.0-cp314-cp314-macosx_10_13_x86_64.whl", hash = "sha256:eaaaef47c2406277181d2086484c317bf7fc433e2d5d03ff94f56b0dcec87471", upload-time = "2026-05-15T04:51:00.957Z" }, #gitleaks:allow
     { url = "https://pypi-proxy.dev.databricks.com/packages/d9/77/5ec6e6bc5b30bed6d93f7f2162d8f6b32437b3ba27cb527cfe004f6109c9/tiktoken-0.13.0-cp314-cp314-macosx_11_0_arm64.whl", hash = "sha256:ca8b310bd93b3772cb1b7922d915446864860f562bdfe4825c63a0aed3fb28cd", upload-time = "2026-05-15T04:51:02.629Z" },
     { url = "https://pypi-proxy.dev.databricks.com/packages/94/b0/c8ae9aff00d625c50659b4513e707a0462c4bf5d4d6cc1b802103225c02e/tiktoken-0.13.0-cp314-cp314-manylinux_2_28_aarch64.whl", hash = "sha256:32e0c12305105002c047b3bb1070b0dd9a73b0cb3b2856a8972b810e7a4f5881", upload-time = "2026-05-15T04:51:04.082Z" },
     { url = "https://pypi-proxy.dev.databricks.com/packages/1b/ac/6a5dddd1d0a6018ecb389bd0353e6b4a515eb4d2286611bd0ace1937b9e1/tiktoken-0.13.0-cp314-cp314-manylinux_2_28_x86_64.whl", hash = "sha256:5ba5fd62507a932d1241346179e3b39bc7bf7408f03c272652d93b3bedf5db24", upload-time = "2026-05-15T04:51:05.229Z" },
