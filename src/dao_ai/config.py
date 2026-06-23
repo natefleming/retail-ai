@@ -2303,12 +2303,20 @@ class GenieRoomModel(IsDatabricksResource, ManagedResource):
         ):
             if not snippet_list:
                 continue
-            label_key = "display_name" if snippet_key == "filters" else "alias"
+            # Genie's export-proto validator now requires ``display_name`` on
+            # every snippet type (filters/expressions/measures); historically
+            # the schema only required ``alias`` on expressions+measures.
+            # Emit both so the payload satisfies both old and new validators.
             snippets[snippet_key] = [
                 {
                     "id": _stable_id(snippet_key, snippet.display_name, snippet.sql),
                     "sql": [snippet.sql],
-                    label_key: snippet.display_name,
+                    "display_name": snippet.display_name,
+                    **(
+                        {"alias": snippet.display_name}
+                        if snippet_key != "filters"
+                        else {}
+                    ),
                     **(
                         {"instruction": [snippet.instruction]}
                         if snippet.instruction

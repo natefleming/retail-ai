@@ -240,6 +240,36 @@ class TestBuildSerializedSpace:
         assert snippets["filters"][0]["display_name"] == "Active products"
         assert snippets["filters"][0]["synonyms"] == ["live", "available"]
 
+    def test_sql_snippets_all_carry_display_name(
+        self,
+        schema: SchemaModel,
+        warehouse: WarehouseModel,
+    ):
+        """Genie's export-proto validator requires ``display_name`` on every
+        snippet type (filters, expressions, measures). Historically the
+        emitter wrote ``alias`` for expressions+measures and ``display_name``
+        only for filters, which trips
+        ``Invalid export proto: instructions.sql_snippets.expressions[0].display_name is required but missing``
+        against the current Genie validator. Verify all three types now
+        carry ``display_name``."""
+        room = GenieRoomModel(
+            name="Snippets Genie",
+            warehouse=warehouse,
+            parent_path="/Users/me@example.com/genie",
+            sql_filters=[GenieSqlSnippet(display_name="Active", sql="status = 'A'")],
+            sql_expressions=[
+                GenieSqlSnippet(display_name="FullName", sql="first || ' ' || last")
+            ],
+            sql_measures=[GenieSqlSnippet(display_name="Revenue", sql="SUM(amount)")],
+        )
+        snippets = room._build_serialized_space()["instructions"]["sql_snippets"]
+        for kind in ("filters", "expressions", "measures"):
+            assert kind in snippets, f"missing snippet kind {kind}"
+            for entry in snippets[kind]:
+                assert "display_name" in entry and entry["display_name"], (
+                    f"snippet kind {kind!r} entry missing display_name: {entry}"
+                )
+
     def test_benchmark_round_trips(self, fully_configured_room: GenieRoomModel):
         payload = fully_configured_room._build_serialized_space()
         question = payload["benchmarks"]["questions"][0]
