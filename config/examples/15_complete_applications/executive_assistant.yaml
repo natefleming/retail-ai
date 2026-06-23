@@ -32,13 +32,11 @@ tools:
   executive_assistant_genie_tool: &executive_assistant_genie_tool
     name: executive_assistant_genie_tool
     function:
-      type: factory
-      name: dao_ai.tools.create_genie_tool
-      args:
-        name: executive_assistant_genie_tool
-        description: Query the data warehouse for customer KPIs, business metrics, employee performance, inventory data, and other operational insights. Use this tool multiple times as needed to 
-          gather comprehensive data for executive-level analysis and recommendations.
-        genie_room: *executive_assistant_genie_room
+      type: genie
+      name: executive_assistant_genie_tool
+      description: Query the data warehouse for customer KPIs, business metrics, employee performance, inventory data, and other operational insights. Use this tool multiple times as needed to 
+        gather comprehensive data for executive-level analysis and recommendations.
+      genie_room: *executive_assistant_genie_room
 
 
   tavily_search_tool: &tavily_search_tool

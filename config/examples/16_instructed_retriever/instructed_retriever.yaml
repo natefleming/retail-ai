@@ -159,31 +159,27 @@ tools:
   standard_search_tool: &standard_search_tool
     name: standard_product_search
     function:
-      type: factory
-      name: dao_ai.tools.create_vector_search_tool
-      args:
-        retriever: *standard_retriever
-        name: standard_product_search
-        description: |
-          Search for products using standard vector similarity search.
-          Use this for simple queries without complex constraints.
+      type: vector_search
+      retriever: *standard_retriever
+      name: standard_product_search
+      description: |
+        Search for products using standard vector similarity search.
+        Use this for simple queries without complex constraints.
 
   # Instructed search tool
   instructed_search_tool: &instructed_search_tool
     name: instructed_product_search
     function:
-      type: factory
-      name: dao_ai.tools.create_vector_search_tool
-      args:
-        retriever: *instructed_retriever
-        name: instructed_product_search
-        description: |
-          Search for products with intelligent query decomposition.
-          Automatically extracts metadata filters from natural language.
-          Best for queries with:
-          - Brand preferences ("Milwaukee", "excluding DeWalt")
-          - Category filters ("power tools", "paint")
-          - Product exclusions ("not Makita")
+      type: vector_search
+      retriever: *instructed_retriever
+      name: instructed_product_search
+      description: |
+        Search for products with intelligent query decomposition.
+        Automatically extracts metadata filters from natural language.
+        Best for queries with:
+        - Brand preferences ("Milwaukee", "excluding DeWalt")
+        - Category filters ("power tools", "paint")
+        - Product exclusions ("not Makita")
 
 agents:
   # Agent using standard search

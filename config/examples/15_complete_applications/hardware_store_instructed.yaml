@@ -225,18 +225,16 @@ tools:
   find_product_details_by_description_tool: &find_product_details_by_description_tool
     name: product_search
     function:
-      type: factory
-      name: dao_ai.tools.create_vector_search_tool
-      args:
-        retriever: *products_retriever_instructed
-        name: product_search
-        description: |
-          Search for products by description with intelligent query understanding.
-          Automatically extracts brand, category, and feature filters from natural language.
-          Best for queries like:
-          - "Milwaukee cordless drills under 18V"
-          - "paint supplies excluding spray cans"
-          - "DeWalt or Makita power saws"
+      type: vector_search
+      retriever: *products_retriever_instructed
+      name: product_search
+      description: |
+        Search for products by description with intelligent query understanding.
+        Automatically extracts brand, category, and feature filters from natural language.
+        Best for queries like:
+        - "Milwaukee cordless drills under 18V"
+        - "paint supplies excluding spray cans"
+        - "DeWalt or Makita power saws"
 
   # Unity Catalog tools
   find_product_by_sku_tool: &find_product_by_sku_tool

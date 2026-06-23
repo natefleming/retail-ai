@@ -114,13 +114,11 @@ tools:
   genie_tool: &genie_tool
     name: genie_tool
     function:
-      type: factory                                 # Tool type: factory function
-      name: dao_ai.tools.create_genie_tool       # Factory function path
-      args:                                         # Arguments passed to factory
-        name: genie_tool
-        description: Answers questions about retail products and inventory
-        genie_room: *retail_genie_room
-                                                    # Reference to Genie room config
+      type: genie  # Tool type: factory function
+      name: genie_tool
+      description: Answers questions about retail products and inventory
+      genie_room: *retail_genie_room
+                                                  # Reference to Genie room config
 
   genie_mcp: &genie_mcp
                                                  # Genie MCP tool configuration

@@ -151,18 +151,16 @@ tools:
   instruction_aware_search_tool: &instruction_aware_search_tool
     name: instruction_aware_product_search
     function:
-      type: factory
-      name: dao_ai.tools.create_vector_search_tool
-      args:
-        retriever: *instruction_aware_retriever
-        name: instruction_aware_product_search
-        description: |
-          Search for products with constraint-aware reranking.
-          Best for queries with explicit constraints:
-          - Price limits ("under $100", "between $50-200")
-          - Brand preferences ("Milwaukee", "not DeWalt")
-          - Category filters ("power tools", "paint")
-          Results are reranked to prioritize constraint matches.
+      type: vector_search
+      retriever: *instruction_aware_retriever
+      name: instruction_aware_product_search
+      description: |
+        Search for products with constraint-aware reranking.
+        Best for queries with explicit constraints:
+        - Price limits ("under $100", "between $50-200")
+        - Brand preferences ("Milwaukee", "not DeWalt")
+        - Category filters ("power tools", "paint")
+        Results are reranked to prioritize constraint matches.
 
 agents:
   # Agent using instruction-aware reranking

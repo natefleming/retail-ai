@@ -190,67 +190,61 @@ tools:
   product_vector_search:
     name: product_vector_search
     function:
-      type: factory
-      name: dao_ai.tools.create_vector_search_tool
-      args:
-        retriever: *products_retriever
-        name: product_vector_search
-        description: "Search for sporting goods products by description, brand, sport, or category."
+      type: vector_search
+      retriever: *products_retriever
+      name: product_vector_search
+      description: "Search for sporting goods products by description, brand, sport, or category."
 
   # ---- Genie toolkits (each exposes a query + a feedback MCP tool) ----
   merchandising_analytics:
     name: merchandising_analytics
     function:
-      type: factory
-      name: dao_ai.tools.create_genie_toolkit
-      args:
-        name: merchandising_analytics
-        description: "Query merchandising analytics for assortment planning, demand forecasting, purchase orders, category performance, seasonal trends, and vendor analysis."
-        genie_room: *merchandising_analytics_room
-        lru_cache_parameters:
-          warehouse: *shared_warehouse
-          capacity: 100
-          time_to_live_seconds: 3600
-          invalidate_on_empty_result: true
-        context_aware_cache_parameters:
-          database: *retail_database
-          warehouse: *shared_warehouse
-          embedding_model: *embedding_model
-          # The cache table is multi-tenant via the space_id column — multiple
-          # Genie spaces (and multiple MCP/agent deployments pointing at the
-          # same Lakebase) coexist in one shared table with row-level isolation.
-          # The dao-ai default table names (genie_context_aware_cache /
-          # genie_prompt_history) are correct for that pattern. Only override
-          # table_name + prompt_history_table when you've hit Lakebase's
-          # NOINHERIT-on-DATABRICKS_SUPERUSER ownership lock-down and the
-          # easier path (have the project owner drop the orphaned tables or
-          # promote the new App SP) isn't available — see docs/mcp_server.md.
-          similarity_threshold: 0.85
-          time_to_live_seconds: 86400
-          invalidate_on_empty_result: true
-        persist_conversation: true
+      type: genie
+      name: merchandising_analytics
+      description: "Query merchandising analytics for assortment planning, demand forecasting, purchase orders, category performance, seasonal trends, and vendor analysis."
+      genie_room: *merchandising_analytics_room
+      lru_cache:
+        warehouse: *shared_warehouse
+        capacity: 100
+        time_to_live_seconds: 3600
+        invalidate_on_empty_result: true
+      context_aware_cache:
+        database: *retail_database
+        warehouse: *shared_warehouse
+        embedding_model: *embedding_model
+        # The cache table is multi-tenant via the space_id column — multiple
+        # Genie spaces (and multiple MCP/agent deployments pointing at the
+        # same Lakebase) coexist in one shared table with row-level isolation.
+        # The dao-ai default table names (genie_context_aware_cache /
+        # genie_prompt_history) are correct for that pattern. Only override
+        # table_name + prompt_history_table when you've hit Lakebase's
+        # NOINHERIT-on-DATABRICKS_SUPERUSER ownership lock-down and the
+        # easier path (have the project owner drop the orphaned tables or
+        # promote the new App SP) isn't available — see docs/mcp_server.md.
+        similarity_threshold: 0.85
+        time_to_live_seconds: 86400
+        invalidate_on_empty_result: true
+      persist_conversation: true
 
   sales_pricing_analytics:
     name: sales_pricing_analytics
     function:
-      type: factory
-      name: dao_ai.tools.create_genie_toolkit
-      args:
-        name: sales_pricing_analytics
-        description: "Query sales performance, pricing analytics, margin analysis, promotional effectiveness, revenue by store/channel."
-        genie_room: *sales_pricing_room
-        lru_cache_parameters:
-          warehouse: *shared_warehouse
-          capacity: 100
-          time_to_live_seconds: 3600
-          invalidate_on_empty_result: true
-        context_aware_cache_parameters:
-          database: *retail_database
-          warehouse: *shared_warehouse
-          embedding_model: *embedding_model
-          # Shares the same default cache tables with the merchandising
-          # toolkit above — entries are isolated via the space_id column.
-          similarity_threshold: 0.85
-          time_to_live_seconds: 86400
-          invalidate_on_empty_result: true
-        persist_conversation: true
+      type: genie
+      name: sales_pricing_analytics
+      description: "Query sales performance, pricing analytics, margin analysis, promotional effectiveness, revenue by store/channel."
+      genie_room: *sales_pricing_room
+      lru_cache:
+        warehouse: *shared_warehouse
+        capacity: 100
+        time_to_live_seconds: 3600
+        invalidate_on_empty_result: true
+      context_aware_cache:
+        database: *retail_database
+        warehouse: *shared_warehouse
+        embedding_model: *embedding_model
+        # Shares the same default cache tables with the merchandising
+        # toolkit above — entries are isolated via the space_id column.
+        similarity_threshold: 0.85
+        time_to_live_seconds: 86400
+        invalidate_on_empty_result: true
+      persist_conversation: true

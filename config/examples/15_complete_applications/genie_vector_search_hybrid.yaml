@@ -88,24 +88,20 @@ tools:
   genie_tool: &genie_tool
     name: genie
     function:
-      type: factory                                 # Tool type: factory function
-      name: dao_ai.tools.create_genie_tool       # Factory function path
-      args:                                         # Arguments passed to factory
-        name: my_genie_tool
-        description: My Answers questions about genie
-        genie_room: *retail_genie_room
-                                                    # Reference to Genie room config
+      type: genie  # Tool type: factory function
+      name: my_genie_tool
+      description: My Answers questions about genie
+      genie_room: *retail_genie_room
+                                                  # Reference to Genie room config
 
   vector_search_tool: &vector_search_tool
     name: vector_search
     function:
-      type: factory
-      name: dao_ai.tools.create_vector_search_tool
-      args:
-        retriever: *products_retriever
-                                                    # Reference to retriever config
-        name: product_vector_search_tool            # Tool instance name
-        description: "Search for products using vector search"  # Tool description
+      type: vector_search
+      retriever: *products_retriever
+                                                  # Reference to retriever config
+      name: product_vector_search_tool            # Tool instance name
+      description: "Search for products using vector search"  # Tool description
 
 
 agents:

@@ -122,43 +122,37 @@ tools:
   default_reranked_tool: &default_reranked_tool
     name: reranked_product_search
     function:
-      type: factory
-      name: dao_ai.tools.create_vector_search_tool
-      args:
-        retriever: *default_reranked_retriever
-        name: reranked_product_search
-        description: |
-          Search for products with reranking enabled.
-          Retrieves 50 candidates and reranks them using FlashRank
-          with the default model (ms-marco-MiniLM-L-12-v2).
+      type: vector_search
+      retriever: *default_reranked_retriever
+      name: reranked_product_search
+      description: |
+        Search for products with reranking enabled.
+        Retrieves 50 candidates and reranks them using FlashRank
+        with the default model (ms-marco-MiniLM-L-12-v2).
 
   # Tool 3: Vector search with fast reranking
   fast_reranked_tool: &fast_reranked_tool
     name: fast_reranked_search
     function:
-      type: factory
-      name: dao_ai.tools.create_vector_search_tool
-      args:
-        retriever: *fast_reranked_retriever
-        name: fast_reranked_search
-        description: |
-          Fast product search with lightweight reranking.
-          Retrieves 100 candidates, reranks with a fast model,
-          and returns the top 5 most relevant results.
+      type: vector_search
+      retriever: *fast_reranked_retriever
+      name: fast_reranked_search
+      description: |
+        Fast product search with lightweight reranking.
+        Retrieves 100 candidates, reranks with a fast model,
+        and returns the top 5 most relevant results.
 
   # Tool 4: Vector search with accurate reranking
   accurate_reranked_tool: &accurate_reranked_tool
     name: accurate_product_search
     function:
-      type: factory
-      name: dao_ai.tools.create_vector_search_tool
-      args:
-        retriever: *accurate_reranked_retriever
-        name: accurate_product_search
-        description: |
-          High-accuracy product search combining hybrid search and reranking.
-          Uses HYBRID query type for better initial recall, then reranks
-          using a more accurate model to return the best 10 results.
+      type: vector_search
+      retriever: *accurate_reranked_retriever
+      name: accurate_product_search
+      description: |
+        High-accuracy product search combining hybrid search and reranking.
+        Uses HYBRID query type for better initial recall, then reranks
+        using a more accurate model to return the best 10 results.
 
 agents:
   # Agent with default reranking

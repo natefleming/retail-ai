@@ -115,13 +115,11 @@ tools:
   executive_research_genie_tool: &executive_research_genie_tool
     name: executive_research_genie_tool
     function:
-      type: factory
-      name: dao_ai.tools.create_genie_tool
-      args:
-        name: executive_research_genie_tool
-        description: Query the data warehouse for comprehensive business metrics including customer KPIs, financial performance, operational data, employee metrics, inventory levels, and sales data. 
-          Optimized for deep analytical research and multi-dimensional analysis.
-        genie_room: *executive_research_genie_room
+      type: genie
+      name: executive_research_genie_tool
+      description: Query the data warehouse for comprehensive business metrics including customer KPIs, financial performance, operational data, employee metrics, inventory levels, and sales data. 
+        Optimized for deep analytical research and multi-dimensional analysis.
+      genie_room: *executive_research_genie_room
 
 agents:
   research_lead: &research_lead

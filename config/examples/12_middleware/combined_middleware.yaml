@@ -95,12 +95,10 @@ tools:
   genie_tool: &genie_tool
     name: genie
     function:
-      type: factory
-      name: dao_ai.tools.create_genie_tool
-      args:
-        name: retail_genie_tool
-        description: Query retail data
-        genie_room: *retail_genie
+      type: genie
+      name: retail_genie_tool
+      description: Query retail data
+      genie_room: *retail_genie
 
 agents:
   # ---------------------------------------------------------------------------
