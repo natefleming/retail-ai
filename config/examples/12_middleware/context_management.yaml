@@ -58,20 +58,16 @@ tools:
   genie_tool: &genie_tool
     name: genie
     function:
-      type: factory
-      name: dao_ai.tools.create_genie_tool
-      args:
-        name: retail_genie_tool
-        description: Query retail data using natural language
-        genie_room: *retail_genie
+      type: genie
+      name: retail_genie_tool
+      description: Query retail data using natural language
+      genie_room: *retail_genie
 
   # Search tool - returns verbose web content
   search_tool: &search_tool
     name: search_web
     function:
-      type: factory
-      name: dao_ai.tools.create_search_tool
-      args: {}
+      type: search
 
   # Time tool - returns small output
   time_tool: &time_tool

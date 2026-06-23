@@ -1,13 +1,15 @@
 """
-Genie tool and toolkit for natural language queries to databases.
+Genie tool factory for natural language queries to databases.
 
-This module provides two factory functions for creating LangGraph tools that
-interact with Databricks Genie:
+This module exposes a single unified factory:
 
-- ``create_genie_tool``: Simple factory returning a single uncached Genie query tool.
-- ``create_genie_toolkit``: Returns a ``GenieToolkit`` bundling a cached Genie query
-  tool with an implicit feedback/invalidation tool. Both tools share one
-  ``GenieServiceBase`` stack (and thus one LRU cache).
+- :func:`create_genie_tool` — returns either a single uncached Genie query tool
+  or a :class:`GenieToolkit` (query + feedback tools) depending on whether any
+  caching is configured or feedback is explicitly enabled.
+
+For backward compatibility, :func:`create_genie_toolkit` is preserved as a thin
+shim that always returns a :class:`GenieToolkit` (equivalent to calling
+:func:`create_genie_tool` with ``enable_feedback=True``).
 
 For the core Genie service and cache implementations, see:
 - dao_ai.genie: GenieService, GenieServiceBase
@@ -62,7 +64,8 @@ class GenieToolkit(BaseToolkit):
     so calling the feedback tool to invalidate a cache entry directly affects
     the query tool's next call.
 
-    Created by :func:`create_genie_toolkit`.
+    Returned by :func:`create_genie_tool` when caching is configured or
+    ``enable_feedback=True``.
     """
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
@@ -248,7 +251,7 @@ def _resolve_genie_room(
 
 
 # ---------------------------------------------------------------------------
-# create_genie_tool  (simple, uncached)
+# Public factory
 # ---------------------------------------------------------------------------
 
 
@@ -258,11 +261,37 @@ def create_genie_tool(
     description: str | None = None,
     persist_conversation: bool = True,
     truncate_results: bool = False,
-) -> Callable[..., Command]:
-    """Create a simple Genie query tool with no caching.
+    lru_cache_parameters: GenieLRUCacheParametersModel | dict[str, Any] | None = None,
+    context_aware_cache_parameters: (
+        GenieContextAwareCacheParametersModel | dict[str, Any] | None
+    ) = None,
+    in_memory_context_aware_cache_parameters: (
+        GenieInMemoryContextAwareCacheParametersModel | dict[str, Any] | None
+    ) = None,
+    max_consecutive_cache_hits: int | None = None,
+    enable_feedback: bool = False,
+) -> Callable[..., Command] | GenieToolkit:
+    """Create a Genie tool, optionally with caching and a feedback tool.
 
-    For cached queries with feedback/invalidation support, use
-    :func:`create_genie_toolkit` instead.
+    Returns a single uncached query tool when no caching is configured and
+    ``enable_feedback`` is ``False``. When any cache is configured *or*
+    ``enable_feedback=True`` is set, returns a :class:`GenieToolkit` containing:
+
+    * A **query tool** that translates natural-language questions into SQL via
+      Databricks Genie, with results served from cache when configured.
+    * A **feedback tool** (named ``{name}_feedback``) that lets the LLM
+      invalidate a stale or incorrect cached result so the next query goes
+      fresh to Genie.
+
+    Both tools share one ``GenieServiceBase`` stack, so invalidation on the
+    feedback tool directly clears the query tool's cache.
+
+    When ``max_consecutive_cache_hits`` is set, the toolkit implements a
+    **Circuit Breaker** pattern: if the same cached SQL is returned N times
+    consecutively, the cache entry is automatically invalidated and a fresh
+    query is sent to Genie. This prevents the agent from getting stuck in a
+    loop where the LLM normalizes different user phrasings into the same
+    tool call, repeatedly hitting the same stale cache entry.
 
     Args:
         genie_room: GenieRoomModel or dict containing Genie configuration.
@@ -270,10 +299,101 @@ def create_genie_tool(
         description: Custom tool description. Defaults to a generic prompt.
         persist_conversation: Persist conversation IDs across calls for multi-turn.
         truncate_results: Truncate large query results.
+        lru_cache_parameters: LRU cache config for fast exact-match SQL caching.
+        context_aware_cache_parameters: PostgreSQL/Lakebase context-aware cache config.
+        in_memory_context_aware_cache_parameters: In-memory context-aware cache config.
+        max_consecutive_cache_hits: Auto-invalidate after this many consecutive
+            identical cache hits (Circuit Breaker). ``None`` disables (default).
+            Suggested value: ``3``. Only meaningful when caching is configured.
+        enable_feedback: Force toolkit mode (with feedback tool) even when no
+            cache is configured. Implicitly ``True`` whenever any cache is set.
 
     Returns:
-        A LangGraph tool that processes natural language queries through Genie.
+        A single LangGraph tool callable when no caching and no feedback are
+        configured. Otherwise a :class:`GenieToolkit` bundling the query and
+        feedback tools.
     """
+    has_cache: bool = any(
+        [
+            lru_cache_parameters is not None,
+            context_aware_cache_parameters is not None,
+            in_memory_context_aware_cache_parameters is not None,
+        ]
+    )
+    toolkit_mode: bool = has_cache or enable_feedback
+
+    if not toolkit_mode:
+        return _create_simple_genie_tool(
+            genie_room=genie_room,
+            name=name,
+            description=description,
+            persist_conversation=persist_conversation,
+            truncate_results=truncate_results,
+        )
+
+    return _create_genie_toolkit_impl(
+        genie_room=genie_room,
+        name=name,
+        description=description,
+        persist_conversation=persist_conversation,
+        truncate_results=truncate_results,
+        lru_cache_parameters=lru_cache_parameters,
+        context_aware_cache_parameters=context_aware_cache_parameters,
+        in_memory_context_aware_cache_parameters=in_memory_context_aware_cache_parameters,
+        max_consecutive_cache_hits=max_consecutive_cache_hits,
+    )
+
+
+def create_genie_toolkit(
+    genie_room: GenieRoomModel | dict[str, Any],
+    name: str | None = None,
+    description: str | None = None,
+    persist_conversation: bool = True,
+    truncate_results: bool = False,
+    lru_cache_parameters: GenieLRUCacheParametersModel | dict[str, Any] | None = None,
+    context_aware_cache_parameters: (
+        GenieContextAwareCacheParametersModel | dict[str, Any] | None
+    ) = None,
+    in_memory_context_aware_cache_parameters: (
+        GenieInMemoryContextAwareCacheParametersModel | dict[str, Any] | None
+    ) = None,
+    max_consecutive_cache_hits: int | None = None,
+) -> GenieToolkit:
+    """Backward-compatible shim. Prefer :func:`create_genie_tool` directly.
+
+    Always returns a :class:`GenieToolkit` (with the implicit feedback tool),
+    matching the historical behavior of this factory. Equivalent to calling
+    ``create_genie_tool(..., enable_feedback=True)``.
+    """
+    result = create_genie_tool(
+        genie_room=genie_room,
+        name=name,
+        description=description,
+        persist_conversation=persist_conversation,
+        truncate_results=truncate_results,
+        lru_cache_parameters=lru_cache_parameters,
+        context_aware_cache_parameters=context_aware_cache_parameters,
+        in_memory_context_aware_cache_parameters=in_memory_context_aware_cache_parameters,
+        max_consecutive_cache_hits=max_consecutive_cache_hits,
+        enable_feedback=True,
+    )
+    assert isinstance(result, GenieToolkit)
+    return result
+
+
+# ---------------------------------------------------------------------------
+# Internal builders
+# ---------------------------------------------------------------------------
+
+
+def _create_simple_genie_tool(
+    genie_room: GenieRoomModel | dict[str, Any],
+    name: str | None,
+    description: str | None,
+    persist_conversation: bool,
+    truncate_results: bool,
+) -> Callable[..., Command]:
+    """Build the uncached single-tool variant (no cache, no feedback tool)."""
     logger.debug(
         "Creating Genie tool (uncached)",
         genie_room_type=type(genie_room).__name__,
@@ -363,61 +483,22 @@ def create_genie_tool(
     return genie_tool
 
 
-# ---------------------------------------------------------------------------
-# create_genie_toolkit  (cached + implicit feedback tool)
-# ---------------------------------------------------------------------------
-
-
-def create_genie_toolkit(
+def _create_genie_toolkit_impl(
     genie_room: GenieRoomModel | dict[str, Any],
-    name: str | None = None,
-    description: str | None = None,
-    persist_conversation: bool = True,
-    truncate_results: bool = False,
-    lru_cache_parameters: GenieLRUCacheParametersModel | dict[str, Any] | None = None,
+    name: str | None,
+    description: str | None,
+    persist_conversation: bool,
+    truncate_results: bool,
+    lru_cache_parameters: GenieLRUCacheParametersModel | dict[str, Any] | None,
     context_aware_cache_parameters: (
         GenieContextAwareCacheParametersModel | dict[str, Any] | None
-    ) = None,
+    ),
     in_memory_context_aware_cache_parameters: (
         GenieInMemoryContextAwareCacheParametersModel | dict[str, Any] | None
-    ) = None,
-    max_consecutive_cache_hits: int | None = None,
+    ),
+    max_consecutive_cache_hits: int | None,
 ) -> GenieToolkit:
-    """Create a cached Genie toolkit with query and implicit feedback tools.
-
-    Returns a :class:`GenieToolkit` containing:
-
-    * A **query tool** (named *name*) that translates natural-language questions
-      into SQL via Databricks Genie, with results served from cache when possible.
-    * A **feedback tool** (named ``{name}_feedback``) that lets the LLM invalidate
-      a stale or incorrect cached result so the next query goes fresh to Genie.
-
-    Both tools share one ``GenieServiceBase`` stack, so invalidation on the
-    feedback tool directly clears the query tool's LRU cache.
-
-    When ``max_consecutive_cache_hits`` is set, the toolkit implements a
-    **Circuit Breaker** pattern: if the same cached SQL is returned N times
-    consecutively, the cache entry is automatically invalidated and a fresh
-    query is sent to Genie. This prevents the agent from getting stuck in a
-    loop where the LLM normalizes different user phrasings into the same
-    tool call, repeatedly hitting the same stale cache entry.
-
-    Args:
-        genie_room: GenieRoomModel or dict containing Genie configuration.
-        name: Custom tool name visible to the LLM. Defaults to ``"genie_tool"``.
-        description: Custom tool description. Defaults to a generic prompt.
-        persist_conversation: Persist conversation IDs across calls for multi-turn.
-        truncate_results: Truncate large query results.
-        lru_cache_parameters: LRU cache config for fast exact-match SQL caching.
-        context_aware_cache_parameters: PostgreSQL/Lakebase context-aware cache config.
-        in_memory_context_aware_cache_parameters: In-memory context-aware cache config.
-        max_consecutive_cache_hits: Auto-invalidate after this many consecutive
-            identical cache hits (Circuit Breaker). ``None`` disables (default).
-            Suggested value: ``3``.
-
-    Returns:
-        A GenieToolkit containing the query tool and feedback tool.
-    """
+    """Build the cached toolkit variant (query + feedback, optional cache layers)."""
     logger.debug(
         "Creating Genie toolkit",
         genie_room_type=type(genie_room).__name__,
@@ -526,6 +607,8 @@ def create_genie_toolkit(
 
     # ---- Query tool ----
 
+    feedback_name: str = f"{tool_name}_feedback"
+
     @tool(name_or_callable=tool_name, description=tool_description)
     def genie_tool(
         question: Annotated[str, "The question to ask Genie about your data"],
@@ -564,7 +647,6 @@ def create_genie_toolkit(
         cache_key: str | None = cache_result.served_by
         auto_invalidated: bool = False
 
-        # Track consecutive cache hits (Circuit Breaker)
         consecutive: int = tracker.record(space_id_str, cache_hit, genie_response.query)
 
         if (
@@ -663,7 +745,6 @@ def create_genie_toolkit(
 
     # ---- Feedback tool (shares same _get_genie_service) ----
 
-    feedback_name: str = f"{tool_name}_feedback"
     feedback_desc: str = (
         f"Provide feedback on results from {tool_name}. "
         "You MUST call this tool with rating 'negative' when:\n"

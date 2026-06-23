@@ -2,6 +2,28 @@
 
 Welcome to the DAO AI examples! This directory contains ready-to-use configurations organized in a **numbered, progressive learning path**.
 
+## 🆕 First-class tool types
+
+The most common tools (Genie, Vector Search, web Search) are now first-class
+members of the tool config — no factory import path required. The original
+`type: factory` shape keeps working forever, but the shorter `type: genie` /
+`type: vector_search` / `type: search` shape is the recommended starting point.
+
+| Tool | Old shape (still works) | New shape (preferred) |
+| --- | --- | --- |
+| Genie | `type: factory`, `name: dao_ai.tools.create_genie_tool`, `args: { genie_room: ..., lru_cache_parameters: ... }` | `type: genie`, `genie_room: ...`, `lru_cache: ...` |
+| Vector Search | `type: factory`, `name: dao_ai.tools.create_vector_search_tool`, `args: { retriever: ... }` | `type: vector_search`, `retriever: ...` |
+| Web Search | `type: factory`, `name: dao_ai.tools.create_search_tool` | `type: search` |
+
+Genie with caching (LRU + context-aware) now lives under a single tool type —
+any cache configured promotes the tool to a toolkit (query + feedback) just
+like `create_genie_toolkit` did. `lru_cache_parameters` → `lru_cache`,
+`context_aware_cache_parameters` → `context_aware_cache`,
+`in_memory_context_aware_cache_parameters` → `in_memory_context_aware_cache`.
+
+See `04_genie/genie_basic.yaml` (uncached) and `04_genie/genie_lru_cache.yaml`
+(toolkit with feedback) for the canonical shapes.
+
 ## 🗺️ Learning Path
 
 Follow the numbered directories from 01 to 11 for a structured learning experience:

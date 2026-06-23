@@ -163,35 +163,31 @@ tools:
   sales_genie_tool: &sales_genie_tool
     name: sales_analytics
     function:
-      type: factory
-      name: dao_ai.tools.create_genie_tool
-      args:
-        name: sales_analytics
-        description: |
-          Query customer, sales, and product analytics for the retail
-          business. Use for questions about top-selling/most-ordered
-          products, revenue by product or category, pricing, order status,
-          payment methods, customer segmentation, and purchasing patterns.
-        genie_room: *sales_genie_room
+      type: genie
+      name: sales_analytics
+      description: |
+        Query customer, sales, and product analytics for the retail
+        business. Use for questions about top-selling/most-ordered
+        products, revenue by product or category, pricing, order status,
+        payment methods, customer segmentation, and purchasing patterns.
+      genie_room: *sales_genie_room
 
   # Genie — logistics operations & tracking.
   logistics_genie_tool: &logistics_genie_tool
     name: logistics_analytics
     function:
-      type: factory
-      name: dao_ai.tools.create_genie_tool
-      args:
-        name: logistics_analytics
-        description: |
-          Query logistics operations and package tracking data. Use for
-          questions about carrier performance and cost, shipment volume,
-          transit/delivery times, shipment status, delay investigation,
-          package tracking events, and warehouse network capacity or
-          geographic coverage.
+      type: genie
+      name: logistics_analytics
+      description: |
+        Query logistics operations and package tracking data. Use for
+        questions about carrier performance and cost, shipment volume,
+        transit/delivery times, shipment status, delay investigation,
+        package tracking events, and warehouse network capacity or
+        geographic coverage.
 
-          Does NOT cover order items, returns, damages, inventory levels,
-          or financials beyond shipping costs — route those elsewhere.
-        genie_room: *logistics_genie_room
+        Does NOT cover order items, returns, damages, inventory levels,
+        or financials beyond shipping costs — route those elsewhere.
+      genie_room: *logistics_genie_room
 
   # Vertex AI Agent Engine — customer service domain expertise.
   customer_service_tool: &customer_service_tool

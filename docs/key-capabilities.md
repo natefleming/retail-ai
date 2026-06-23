@@ -61,35 +61,75 @@ dao-ai deploy -c config.yaml --target apps
 
 **What are tools?** Tools are actions an agent can perform — like querying a database, calling an API, or running custom code.
 
-DAO supports four types of tools, each suited for different use cases:
+DAO supports several first-class tool types plus an escape hatch for arbitrary factory functions:
 
 | Tool Type | Use Case | Example |
 |-----------|----------|---------|
-| **Python** | Custom business logic | `dao_ai.tools.current_time_tool` |
-| **Factory** | Complex initialization with config | `create_vector_search_tool(retriever=...)`, `create_genie_tool(genie_room=...)` |
-| **Inline** | Quick prototyping, simple tools defined in YAML | Define tool code directly in config |
-| **Agent Endpoint** | Call external agents as tools | `create_agent_endpoint_tool(llm=...)` for Agent Bricks, Kasal |
-| **Unity Catalog** | Governed SQL functions | `catalog.schema.find_product_by_sku` |
-| **MCP** | External services via Model Context Protocol | GitHub, Slack, custom APIs |
+| **Genie** | Natural-language SQL via a Genie space, with optional caching | `type: genie` + `genie_room: *room` |
+| **Vector Search** | Semantic / hybrid search over a vector index, with optional instructed retrieval | `type: vector_search` + `retriever: *retriever` |
+| **Search** | Web search (DuckDuckGo) | `type: search` |
+| **Unity Catalog** | Governed SQL functions | `type: unity_catalog` + `resource: *fn` |
+| **MCP** | External services via Model Context Protocol | `type: mcp` + `connection: *mcp_conn` |
+| **Python** | Custom business logic — direct function import | `type: python` + `name: my_pkg.my_tool` |
+| **Inline** | Quick prototyping — define tool code directly in YAML | `type: inline` + `code:` |
+| **Factory** | Escape hatch for arbitrary factory functions not yet first-class | `type: factory` + `name: dao_ai.tools.<factory>` |
 
 ```yaml
 tools:
-  # Python function - direct import
+  # Genie - first-class, no factory boilerplate
+  sales_genie:
+    name: sales_genie
+    function:
+      type: genie
+      genie_room: *sales_genie_room
+      name: query_sales
+      description: "Query sales analytics by region, product, time period."
+      # Add caching → tool becomes a toolkit (query + feedback) automatically
+      lru_cache:
+        warehouse: *shared_warehouse
+        capacity: 100
+        time_to_live_seconds: 3600
+
+  # Vector Search - first-class, supports instructed retriever
+  product_search:
+    name: product_search
+    function:
+      type: vector_search
+      retriever: *products_retriever     # or: vector_store: *products_vs
+      name: product_search
+      description: "Search the product catalog by description / brand / category."
+
+  # Web Search (DuckDuckGo) - zero config
+  web_search:
+    name: web_search
+    function:
+      type: search
+
+  # Unity Catalog - governed SQL function
+  sku_lookup:
+    name: find_product_by_sku
+    function:
+      type: unity_catalog
+      resource: *find_product_by_sku
+
+  # MCP - external service integration
+  github_mcp:
+    name: github
+    function:
+      type: mcp
+      transport: streamable_http
+      connection: *github_connection
+
+  # Python - direct import
   time_tool:
+    name: current_time
     function:
       type: python
       name: dao_ai.tools.current_time_tool
 
-  # Factory - initialized with config
-  search_tool:
-    function:
-      type: factory
-      name: dao_ai.tools.create_vector_search_tool
-      args:
-        retriever: *products_retriever
-
   # Inline - define tool code directly in YAML (great for prototyping)
   calculator:
+    name: calculator
     function:
       type: inline
       code: |
@@ -100,8 +140,9 @@ tools:
             """Evaluate a mathematical expression."""
             return str(eval(expression))
 
-  # Agent Endpoint - call external agents
+  # Factory - escape hatch for custom factories
   specialist_agent:
+    name: specialist
     function:
       type: factory
       name: dao_ai.tools.create_agent_endpoint_tool
@@ -109,21 +150,23 @@ tools:
         llm: *external_agent_endpoint
         name: specialist
         description: "Delegate to external specialist agent"
-
-  # Unity Catalog - governed SQL function
-  sku_lookup:
-    function:
-      type: unity_catalog
-      name: find_product_by_sku
-      schema: *retail_schema
-
-  # MCP - external service integration
-  github_mcp:
-    function:
-      type: mcp
-      transport: streamable_http
-      connection: *github_connection
 ```
+
+### Migrating from `type: factory` to first-class types
+
+The old `type: factory + name: dao_ai.tools.create_*` shape continues to work indefinitely — no deprecation. If you're starting fresh, prefer the first-class types below for the most common cases:
+
+| Old shape (still works) | New shape |
+| --- | --- |
+| `type: factory`, `name: dao_ai.tools.create_genie_tool`, `args: { genie_room: ..., lru_cache_parameters: ... }` | `type: genie`, `genie_room: ...`, `lru_cache: ...` |
+| `type: factory`, `name: dao_ai.tools.create_genie_toolkit`, `args: { genie_room: ..., lru_cache_parameters: ..., context_aware_cache_parameters: ... }` | `type: genie`, `genie_room: ...`, `lru_cache: ...`, `context_aware_cache: ...` (any cache promotes to toolkit) |
+| `type: factory`, `name: dao_ai.tools.create_vector_search_tool`, `args: { retriever: ... }` | `type: vector_search`, `retriever: ...` |
+| `type: factory`, `name: dao_ai.tools.create_search_tool` | `type: search` |
+
+Cache parameter field renames on `type: genie`:
+- `lru_cache_parameters` → `lru_cache`
+- `context_aware_cache_parameters` → `context_aware_cache`
+- `in_memory_context_aware_cache_parameters` → `in_memory_context_aware_cache`
 
 ## 3. On-Behalf-Of User Support
 
@@ -182,34 +225,35 @@ The same agent code enforces different permissions for each user automatically.
 
 **💰 Cost savings:** If users frequently ask "What's our inventory?", the first query costs $X (Genie API call). Subsequent similar queries cost only pennies (just running SQL).
 
-DAO provides **two-tier caching** for Genie natural language queries, dramatically reducing costs and latency:
+DAO provides **two-tier caching** for Genie natural language queries, dramatically reducing costs and latency. Configure on the first-class `type: genie` tool — adding any cache automatically promotes the tool to a toolkit (query + feedback).
 
 ```yaml
 genie_tool:
+  name: sales_genie
   function:
-    type: factory
-    name: dao_ai.tools.create_genie_tool
-    args:
-      genie_room: *retail_genie_room
-      
-      # L1: Fast O(1) exact match lookup
-      lru_cache_parameters:
-        warehouse: *warehouse
-        capacity: 1000                   # Max cached queries (default: 1000)
-        time_to_live_seconds: 86400      # 1 day (default), use -1 or None for never expire
+    type: genie
+    genie_room: *retail_genie_room
+    name: query_sales
+    description: "Query sales analytics by region, product, time period."
 
-      # L2: Context-aware similarity search via pg_vector (cosine similarity)
-      context_aware_cache_parameters:
-        database: *postgres_db
-        warehouse: *warehouse
-        embedding_model: *embedding_model  # Default: databricks-gte-large-en
-        similarity_threshold: 0.85         # 0.0-1.0 (default: 0.85), higher = stricter
-        time_to_live_seconds: 86400        # 1 day (default), use -1 or None for never expire
-        table_name: genie_context_aware_cache   # Optional, default: genie_context_aware_cache
-        # IVFFlat index tuning (auto-computed by default, scales to 1M+ rows)
-        # ivfflat_lists: null              # Auto: max(100, sqrt(row_count))
-        # ivfflat_probes: null             # Auto: max(10, sqrt(lists))
-        # ivfflat_candidates: 20           # Top-K for Python reranking
+    # L1: Fast O(1) exact match lookup
+    lru_cache:
+      warehouse: *warehouse
+      capacity: 1000                   # Max cached queries (default: 1000)
+      time_to_live_seconds: 86400      # 1 day (default), use -1 or None for never expire
+
+    # L2: Context-aware similarity search via pg_vector (cosine similarity)
+    context_aware_cache:
+      database: *postgres_db
+      warehouse: *warehouse
+      embedding_model: *embedding_model  # Default: databricks-gte-large-en
+      similarity_threshold: 0.85         # 0.0-1.0 (default: 0.85), higher = stricter
+      time_to_live_seconds: 86400        # 1 day (default), use -1 or None for never expire
+      table_name: genie_context_aware_cache   # Optional, default: genie_context_aware_cache
+      # IVFFlat index tuning (auto-computed by default, scales to 1M+ rows)
+      # ivfflat_lists: null              # Auto: max(100, sqrt(row_count))
+      # ivfflat_probes: null             # Auto: max(10, sqrt(lists))
+      # ivfflat_candidates: 20           # Top-K for Python reranking
 ```
 
 ### Cache Architecture
@@ -300,25 +344,24 @@ Uses in-memory storage without external database dependencies:
 
 ```yaml
 genie_tool:
+  name: sales_genie
   function:
-    type: factory
-    name: dao_ai.tools.create_genie_tool
-    args:
-      genie_room: *retail_genie_room
-      
-      # In-memory context-aware cache (no database required)
-      in_memory_context_aware_cache_parameters:
-        warehouse: *warehouse
-        embedding_model: *embedding_model  # Default: databricks-gte-large-en
-        similarity_threshold: 0.85         # 0.0-1.0 (default: 0.85)
-        time_to_live_seconds: 86400        # 1 day (default), use -1 or None for never expire
-        capacity: 1000                     # Max cache entries (LRU eviction when full)
-        context_window_size: 4             # Number of previous conversation turns (default)
-        context_similarity_threshold: 0.80 # Minimum context similarity (bidirectional skip)
-        question_weight: 0.6               # Weight for question similarity
-        context_weight: 0.4                # Weight for context similarity
-        embedding_dims: null               # Auto-detected from model
-        max_context_tokens: 2000           # Max context token length
+    type: genie
+    genie_room: *retail_genie_room
+
+    # In-memory context-aware cache (no database required)
+    in_memory_context_aware_cache:
+      warehouse: *warehouse
+      embedding_model: *embedding_model  # Default: databricks-gte-large-en
+      similarity_threshold: 0.85         # 0.0-1.0 (default: 0.85)
+      time_to_live_seconds: 86400        # 1 day (default), use -1 or None for never expire
+      capacity: 1000                     # Max cache entries (LRU eviction when full)
+      context_window_size: 4             # Number of previous conversation turns (default)
+      context_similarity_threshold: 0.80 # Minimum context similarity (bidirectional skip)
+      question_weight: 0.6               # Weight for question similarity
+      context_weight: 0.4                # Weight for context similarity
+      embedding_dims: null               # Auto-detected from model
+      max_context_tokens: 2000           # Max context token length
 ```
 
 | Parameter | Default | Description |
@@ -379,7 +422,7 @@ The `question_weight` and `context_weight` parameters control how question vs co
 
 ### Cache Invalidation and Auto-Recovery
 
-When using `create_genie_toolkit`, the toolkit includes a **feedback tool** (`{name}_feedback`) that the LLM can call to invalidate stale cache entries. This is critical because LLMs tend to normalize user questions into canonical forms before calling tools -- rephrasing a question rarely produces a different cache key.
+When any cache is configured on a `type: genie` tool, the tool is automatically promoted to a toolkit that includes a **feedback tool** (`{name}_feedback`). The LLM can call this tool to invalidate stale cache entries. This is critical because LLMs tend to normalize user questions into canonical forms before calling tools — rephrasing a question rarely produces a different cache key.
 
 **Feedback tool:** Call with `rating='negative'` when results are wrong, empty, or don't match the question. This invalidates the cached SQL across all cache layers and sends feedback to the Genie API.
 
@@ -387,17 +430,18 @@ When using `create_genie_toolkit`, the toolkit includes a **feedback tool** (`{n
 
 ```yaml
 genie_tool:
+  name: sales_genie
   function:
-    type: factory
-    name: dao_ai.tools.create_genie_toolkit
-    args:
-      genie_room: *retail_genie_room
-      lru_cache_parameters:
-        warehouse: *warehouse
-        capacity: 1000
-        time_to_live_seconds: 86400
-      max_consecutive_cache_hits: 3   # Auto-invalidate after 3 identical cache hits
+    type: genie
+    genie_room: *retail_genie_room
+    lru_cache:
+      warehouse: *warehouse
+      capacity: 1000
+      time_to_live_seconds: 86400
+    max_consecutive_cache_hits: 3   # Auto-invalidate after 3 identical cache hits
 ```
+
+**Force toolkit mode without caches:** Set `enable_feedback: true` on a `type: genie` tool to get the feedback tool even when no cache is configured.
 
 ```mermaid
 graph LR

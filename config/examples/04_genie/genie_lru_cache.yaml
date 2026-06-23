@@ -67,19 +67,15 @@ tools:
   genie_tool: &genie_tool
     name: genie
     function:
-      type: factory                                 # Tool type: factory function
-      name: dao_ai.tools.create_genie_toolkit    # Factory function path (toolkit bundles query + feedback tools)
-      args:                                         # Arguments passed to factory
-        name: my_genie_tool
-        description: Answers questions about retail products and inventory
-        genie_room: *retail_genie_room
-                                                    # Reference to Genie room config
-        lru_cache_parameters:                       # LRU cache configuration for SQL query caching
-          warehouse: *shared_endpoint_warehouse
-                                                    # Warehouse used to re-execute cached SQL
-          capacity: 100                             # Maximum number of queries to cache
-          time_to_live_seconds: 86400               # Cache entries expire after 1 day (default)
-        persist_conversation: true
+      type: genie                                   # First-class Genie tool type — LRU cache promotes to toolkit (query + feedback)
+      name: my_genie_tool
+      description: Answers questions about retail products and inventory
+      genie_room: *retail_genie_room                # Reference to Genie room config
+      lru_cache:                                    # LRU cache configuration for SQL query caching
+        warehouse: *shared_endpoint_warehouse       # Warehouse used to re-execute cached SQL
+        capacity: 100                               # Maximum number of queries to cache
+        time_to_live_seconds: 86400                 # Cache entries expire after 1 day (default)
+      persist_conversation: true
 
 
 agents:

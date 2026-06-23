@@ -411,6 +411,78 @@ class TestCreateGenieTool:
 
 
 # ============================================================================
+# create_genie_tool unified-factory behavior tests
+# ============================================================================
+
+
+class TestUnifiedCreateGenieTool:
+    """Tests for the collapsed create_genie_tool that dispatches based on cache/feedback."""
+
+    @pytest.fixture
+    def mock_genie_room(self) -> dict:
+        return {
+            "space_id": "test-space-id",
+            "name": "Test Room",
+            "on_behalf_of_user": False,
+        }
+
+    @pytest.fixture
+    def mock_lru_params(self) -> GenieLRUCacheParametersModel:
+        return GenieLRUCacheParametersModel(
+            warehouse=WarehouseModel(warehouse_id="test-warehouse"),
+            capacity=10,
+            time_to_live_seconds=60,
+        )
+
+    def test_no_cache_no_feedback_returns_single_tool(
+        self, mock_genie_room: dict
+    ) -> None:
+        """With no caching and enable_feedback=False, returns a single tool."""
+        result = create_genie_tool(genie_room=mock_genie_room)
+
+        assert not isinstance(result, GenieToolkit)
+        assert isinstance(result, BaseTool)
+
+    def test_lru_cache_promotes_to_toolkit(
+        self, mock_genie_room: dict, mock_lru_params: GenieLRUCacheParametersModel
+    ) -> None:
+        """Configuring any cache yields a GenieToolkit with feedback tool."""
+        result = create_genie_tool(
+            genie_room=mock_genie_room,
+            name="cached_query",
+            lru_cache_parameters=mock_lru_params,
+        )
+
+        assert isinstance(result, GenieToolkit)
+        names = {t.name for t in result.get_tools()}
+        assert names == {"cached_query", "cached_query_feedback"}
+
+    def test_enable_feedback_promotes_to_toolkit_without_caches(
+        self, mock_genie_room: dict
+    ) -> None:
+        """enable_feedback=True yields a toolkit even with no caches configured."""
+        result = create_genie_tool(
+            genie_room=mock_genie_room,
+            name="feedback_only",
+            enable_feedback=True,
+        )
+
+        assert isinstance(result, GenieToolkit)
+        names = {t.name for t in result.get_tools()}
+        assert names == {"feedback_only", "feedback_only_feedback"}
+
+    def test_create_genie_toolkit_shim_always_returns_toolkit(
+        self, mock_genie_room: dict
+    ) -> None:
+        """The backward-compat shim always returns a toolkit, even without caches."""
+        result = create_genie_toolkit(genie_room=mock_genie_room, name="shim_query")
+
+        assert isinstance(result, GenieToolkit)
+        names = {t.name for t in result.get_tools()}
+        assert names == {"shim_query", "shim_query_feedback"}
+
+
+# ============================================================================
 # Session state message_id tests
 # ============================================================================
 

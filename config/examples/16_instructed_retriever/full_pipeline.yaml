@@ -174,16 +174,14 @@ tools:
   full_pipeline_search_tool: &full_pipeline_search_tool
     name: intelligent_product_search
     function:
-      type: factory
-      name: dao_ai.tools.create_vector_search_tool
-      args:
-        retriever: *full_pipeline_retriever
-        name: intelligent_product_search
-        description: |
-          Intelligent product search with automatic query routing.
-          - Simple queries: Fast standard search path
-          - Complex queries: Full pipeline with decomposition, RRF, and verification
-          Handles brand preferences, category filters, and product exclusions.
+      type: vector_search
+      retriever: *full_pipeline_retriever
+      name: intelligent_product_search
+      description: |
+        Intelligent product search with automatic query routing.
+        - Simple queries: Fast standard search path
+        - Complex queries: Full pipeline with decomposition, RRF, and verification
+        Handles brand preferences, category filters, and product exclusions.
 
 agents:
   intelligent_search_agent: &intelligent_search_agent

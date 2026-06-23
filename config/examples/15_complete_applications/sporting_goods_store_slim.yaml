@@ -291,12 +291,10 @@ tools:
   find_product_details_by_description_tool: &find_product_details_by_description_tool
     name: product_vector_search
     function:
-      type: factory
-      name: dao_ai.tools.create_vector_search_tool
-      args:
-        retriever: *products_retriever
-        name: product_vector_search_tool
-        description: "Search for sporting goods products by description, brand, sport, or category"
+      type: vector_search
+      retriever: *products_retriever
+      name: product_vector_search_tool
+      description: "Search for sporting goods products by description, brand, sport, or category"
 
   # Unity Catalog tools
   find_product_by_sku_tool: &find_product_by_sku_tool
@@ -321,48 +319,44 @@ tools:
   merchandising_analytics_tool: &merchandising_analytics_tool
     name: merchandising_analytics
     function:
-      type: factory
-      name: dao_ai.tools.create_genie_toolkit
-      args:
-        name: query_merchandising_analytics
-        description: "Query merchandising analytics for assortment planning, demand forecasting, purchase order status, category performance, seasonal trends, and vendor analysis"
-        genie_room: *merchandising_analytics_room
-        lru_cache_parameters:
-          warehouse: *shared_warehouse
-          capacity: 100
-          time_to_live_seconds: 3600
-          invalidate_on_empty_result: true
-        context_aware_cache_parameters:
-          database: *retail_database
-          warehouse: *shared_warehouse
-          embedding_model: *embedding_model
-          similarity_threshold: 0.85
-          time_to_live_seconds: 86400
-          invalidate_on_empty_result: true
-        persist_conversation: true
+      type: genie
+      name: query_merchandising_analytics
+      description: "Query merchandising analytics for assortment planning, demand forecasting, purchase order status, category performance, seasonal trends, and vendor analysis"
+      genie_room: *merchandising_analytics_room
+      lru_cache:
+        warehouse: *shared_warehouse
+        capacity: 100
+        time_to_live_seconds: 3600
+        invalidate_on_empty_result: true
+      context_aware_cache:
+        database: *retail_database
+        warehouse: *shared_warehouse
+        embedding_model: *embedding_model
+        similarity_threshold: 0.85
+        time_to_live_seconds: 86400
+        invalidate_on_empty_result: true
+      persist_conversation: true
 
   sales_pricing_analytics_tool: &sales_pricing_analytics_tool
     name: sales_pricing_analytics
     function:
-      type: factory
-      name: dao_ai.tools.create_genie_toolkit
-      args:
-        name: query_sales_pricing
-        description: "Query sales performance, pricing analytics, margin analysis, promotional effectiveness, revenue by store/channel, and competitive pricing intelligence"
-        genie_room: *sales_pricing_room
-        lru_cache_parameters:
-          warehouse: *shared_warehouse
-          capacity: 100
-          time_to_live_seconds: 3600
-          invalidate_on_empty_result: true
-        context_aware_cache_parameters:
-          database: *retail_database
-          warehouse: *shared_warehouse
-          embedding_model: *embedding_model
-          similarity_threshold: 0.85
-          time_to_live_seconds: 86400
-          invalidate_on_empty_result: true
-        persist_conversation: true
+      type: genie
+      name: query_sales_pricing
+      description: "Query sales performance, pricing analytics, margin analysis, promotional effectiveness, revenue by store/channel, and competitive pricing intelligence"
+      genie_room: *sales_pricing_room
+      lru_cache:
+        warehouse: *shared_warehouse
+        capacity: 100
+        time_to_live_seconds: 3600
+        invalidate_on_empty_result: true
+      context_aware_cache:
+        database: *retail_database
+        warehouse: *shared_warehouse
+        embedding_model: *embedding_model
+        similarity_threshold: 0.85
+        time_to_live_seconds: 86400
+        invalidate_on_empty_result: true
+      persist_conversation: true
 
   # Utility tools
   current_time_tool: &current_time_tool

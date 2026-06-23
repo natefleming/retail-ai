@@ -157,6 +157,8 @@ The `app:` and `agents:` blocks are **intentionally omitted** — the MCP server
 
 See `config/examples/15_complete_applications/sporting_goods_store_mcp.yaml` for a worked example.
 
+> **Note on tool types in MCP configs.** The MCP server adapter currently matches on the factory **name** (`dao_ai.tools.create_genie_toolkit` / `dao_ai.tools.create_vector_search_tool`) as its discriminator. For MCP server configs you must use the `type: factory` shape shown below — the first-class `type: genie` / `type: vector_search` shapes are supported by agent runtimes but not yet by the MCP adapter. (Agent-runtime configs can mix both shapes freely; only the MCP server is the constraint here.)
+
 ### Cache parameters
 
 A `create_genie_toolkit` tool entry can configure both cache layers:

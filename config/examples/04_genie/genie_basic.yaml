@@ -48,13 +48,10 @@ tools:
   genie_tool: &genie_tool
     name: genie
     function:
-      type: factory                                 # Tool type: factory function
-      name: dao_ai.tools.create_genie_tool       # Factory function path
-      args:                                         # Arguments passed to factory
-        name: my_genie_tool
-        description: Answers questions about retail products and inventory
-        genie_room: *retail_genie_room
-                                                    # Reference to Genie room config
+      type: genie                                   # First-class Genie tool type
+      name: my_genie_tool
+      description: Answers questions about retail products and inventory
+      genie_room: *retail_genie_room                # Reference to Genie room config
 
 
 agents:

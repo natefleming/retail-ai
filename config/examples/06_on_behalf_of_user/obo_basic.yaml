@@ -120,13 +120,11 @@ tools:
   retail_data_query: &retail_data_query
     name: retail_data_query
     function:
-      type: factory
-      name: dao_ai.tools.create_genie_tool
-      args:
-        name: retail_data_query
-        description: "Query retail data using natural language. Access is controlled by user permissions."
-        genie_room: *retail_genie
-                                   # OBO inherited from genie_room resource
+      type: genie
+      name: retail_data_query
+      description: "Query retail data using natural language. Access is controlled by user permissions."
+      genie_room: *retail_genie
+                                 # OBO inherited from genie_room resource
 
 # =============================================================================
 # PROMPTS

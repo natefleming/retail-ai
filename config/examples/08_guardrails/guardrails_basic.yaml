@@ -156,8 +156,7 @@ tools:
   search_tool: &search_tool
     name: search
     function:
-      type: factory
-      name: dao_ai.tools.create_search_tool
+      type: search
 
   # Simple greeting tool  
   greeting_tool: &greeting_tool
