@@ -1,5 +1,7 @@
 # Genie Context-Aware Cache - Prompt History
 
+> **Config field naming.** This document uses the `context_aware_cache_parameters` field name from the original `create_genie_toolkit` factory args. On the first-class `type: genie` tool shape, the equivalent field is `context_aware_cache` (no `_parameters` suffix). Both shapes accept the same nested fields described below.
+
 ## Overview
 
 The Genie context-aware cache now includes **prompt history tracking** to solve the conversation continuity problem where cache hits created "holes" in conversation context.
