@@ -1,13 +1,16 @@
 # Gitleaks fingerprint allowlist for known false positives.
 #
-# Format: <file>:<rule-id>:<start-line>
-# Fingerprints come from `gitleaks protect --verbose` output.
+# Fingerprint formats:
+#   <file>:<rule-id>:<start-line>                   -- matched by `gitleaks protect` (pre-commit)
+#   <commit-sha>:<file>:<rule-id>:<start-line>      -- matched by `gitleaks detect` (pre-push)
 #
 # The Databricks go/githooks pre-commit hook overrides --config (so a repo
-# .gitleaks.toml is never read), but it honors .gitleaksignore at the repo
-# root via gitleaks v8's built-in fingerprint allowlist.
+# .gitleaks.toml is never read), but both hooks honor .gitleaksignore at the
+# repo root via gitleaks v8's built-in fingerprint allowlist. Pre-push uses
+# `detect` mode, which requires the commit-SHA-prefixed form.
 
 # tiktoken-0.13.0 cp314-macosx wheel SHA-256 starts with "eaaa", which the
 # square-access-token rule (anchored on EAAA...) misclassifies. The match
 # is a content-addressed package hash, not a secret.
 uv.lock:square-access-token:6189
+696fd4bf191df78b669375cd8586dd779e3bc6b6:uv.lock:square-access-token:6189
