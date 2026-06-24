@@ -1,14 +1,15 @@
 """Tool factory for calling a Databricks App via OpenAI Chat Completions.
 
-Mirrors :mod:`dao_ai.tools.responses_agent` but uses the OpenAI Chat
-Completions API (``POST /v1/chat/completions``) instead of the Responses
-API. Reachable via ``type: factory`` today; the first-class ``type: agent``
-shape uses the Responses factory by default.
+Mirrors :mod:`dao_ai.tools.responses_agent` but POSTs a Chat Completions
+body shape (``{"messages": [...]}``) to ``<app.url>/invocations`` instead
+of the Responses-API ``{"input": [...]}`` shape. Reachable via
+``type: factory`` today; the first-class ``type: app`` covers the same
+ground with the unified
+:func:`dao_ai.tools.app_agent_dispatcher.create_app_dispatcher`.
 
-The factory wraps :class:`databricks_openai.DatabricksOpenAI` — the official
-OpenAI client subclass that pulls auth from a
-:class:`databricks.sdk.WorkspaceClient`. Routing to the App happens via the
-``model='apps/<name>'`` prefix.
+Uses :class:`dao_ai.auth.WorkspaceBearerAuth` over :class:`httpx.AsyncClient`
+so the calling agent's workspace-client auth strategy (PAT, OAuth M2M /
+U2M, runtime) is honored as-is — no DatabricksOpenAI OAuth gate.
 """
 
 from __future__ import annotations
@@ -16,13 +17,14 @@ from __future__ import annotations
 from textwrap import dedent
 from typing import Annotated, Any, Optional
 
+import httpx
 import mlflow
 from databricks.sdk import WorkspaceClient
-from databricks_openai import DatabricksOpenAI
 from langchain.tools import ToolRuntime
 from langchain_core.tools import InjectedToolArg, StructuredTool
 from loguru import logger
 
+from dao_ai.auth import WorkspaceBearerAuth
 from dao_ai.config import DatabricksAppModel
 from dao_ai.state import Context
 from dao_ai.tools.tracing import (
@@ -134,13 +136,23 @@ def create_chat_completions_agent_tool(
             on_behalf_of_user=coerced_app.on_behalf_of_user,
         )
 
-        ws: WorkspaceClient = coerced_app.workspace_client_from(context)
-        client: DatabricksOpenAI = DatabricksOpenAI(workspace_client=ws)
-        response = client.chat.completions.create(
-            model=model_id,
-            messages=[{"role": "user", "content": prompt}],
-        )
-        content: str = response.choices[0].message.content or ""
+        ws: WorkspaceClient = coerced_app.workspace_client_from(context, strict=True)
+        app_url: str = coerced_app.url.rstrip("/")
+        invocations_url: str = f"{app_url}/invocations"
+        body: dict[str, Any] = {"messages": [{"role": "user", "content": prompt}]}
+
+        async with httpx.AsyncClient(
+            auth=WorkspaceBearerAuth(ws), timeout=120
+        ) as client:
+            response = await client.post(invocations_url, json=body)
+            response.raise_for_status()
+            envelope: dict[str, Any] = response.json()
+
+        choices = envelope.get("choices") or []
+        content: str = ""
+        if choices:
+            message = (choices[0] or {}).get("message") or {}
+            content = message.get("content") or ""
 
         if tool_span is not None:
             tool_span.set_attribute(ATTR_APP_AGENT_RESPONSE_CHARS, len(content))

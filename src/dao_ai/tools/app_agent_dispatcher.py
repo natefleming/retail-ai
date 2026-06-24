@@ -10,10 +10,20 @@ Resolution precedence (via :func:`resolve_api`):
    :func:`discover_app_agent_api`.
 3. Per-type default (``"responses"`` for ``type: app``).
 
-The HTTP call to the App is inlined here rather than delegated to the
+HTTP transport: POSTs to ``<app.url>/invocations`` using
+:class:`httpx.AsyncClient` with :class:`dao_ai.auth.WorkspaceBearerAuth`.
+The calling agent's workspace-client auth strategy is honored as-is —
+critically, PAT-auth WCs (built from forwarded user tokens for OBO) are
+accepted without the ``databricks_openai._validate_oauth_for_apps`` gate
+that would otherwise raise. OBO is auto-derived from
+:attr:`DatabricksAppModel.on_behalf_of_user` via
+:meth:`DatabricksAppModel.workspace_client_from`. Strict mode surfaces
+:class:`dao_ai.auth.OBONotAvailableError` when a target asked for OBO but
+no forwarded user token reached the dispatcher.
+
+The HTTP call is inlined here rather than delegated to
 ``create_responses_agent_tool`` / ``create_chat_completions_agent_tool``
-factories — those factories still ship for direct ``type: factory`` use,
-but inter-tool delegation would have required threading
+because inter-tool delegation would have required threading
 LangChain-injected runtime args through two ``ainvoke`` calls. Inline is
 simpler.
 """
@@ -23,13 +33,14 @@ from __future__ import annotations
 from textwrap import dedent
 from typing import Annotated, Any, Optional
 
+import httpx
 import mlflow
 from databricks.sdk import WorkspaceClient
-from databricks_openai import DatabricksOpenAI
 from langchain.tools import ToolRuntime
 from langchain_core.tools import InjectedToolArg, StructuredTool
 from loguru import logger
 
+from dao_ai.auth import WorkspaceBearerAuth
 from dao_ai.config import DatabricksAppModel
 from dao_ai.state import Context
 from dao_ai.tools._api_discovery import (
@@ -66,6 +77,24 @@ def _coerce_app(value: DatabricksAppModel | dict[str, Any]) -> DatabricksAppMode
         f"create_app_dispatcher: 'app' must be a DatabricksAppModel or "
         f"dict, got {type(value).__name__}."
     )
+
+
+def _extract_output_text(envelope: dict[str, Any], api: ApiContract) -> str:
+    """Pull the assistant's reply text from a ResponsesAgentResponse or
+    Chat Completions envelope."""
+    if api == "responses":
+        for item in envelope.get("output") or []:
+            for block in item.get("content") or []:
+                text = block.get("text")
+                if text:
+                    return text
+        return ""
+    # Chat Completions
+    choices = envelope.get("choices") or []
+    if not choices:
+        return ""
+    message = (choices[0] or {}).get("message") or {}
+    return message.get("content") or ""
 
 
 def create_app_dispatcher(
@@ -140,7 +169,11 @@ def create_app_dispatcher(
         runtime: Annotated[ToolRuntime[Context], InjectedToolArg] = None,
     ) -> str:
         context: Context | None = runtime.context if runtime else None
-        ws: WorkspaceClient = coerced_app.workspace_client_from(context)
+        # strict=True so a calling-agent that should be running with OBO but
+        # didn't propagate the forwarded user token surfaces the
+        # misconfiguration here rather than silently calling the target with
+        # the calling app's service-principal identity.
+        ws: WorkspaceClient = coerced_app.workspace_client_from(context, strict=True)
 
         # Resolve api once per tool instance and cache the result. Probe
         # is invoked only if api was unset at config time.
@@ -178,20 +211,26 @@ def create_app_dispatcher(
             )
             tool_span.set_attribute(ATTR_APP_AGENT_PROMPT_CHARS, len(prompt))
 
-        client: DatabricksOpenAI = DatabricksOpenAI(workspace_client=ws)
-        output_text: str
+        # POST directly to <app.url>/invocations using the workspace
+        # client's own auth strategy. Bypasses DatabricksOpenAI's
+        # _validate_oauth_for_apps gate which rejects PAT-auth WCs built
+        # from forwarded user tokens (the OBO path).
+        app_url: str = coerced_app.url.rstrip("/")
+        invocations_url: str = f"{app_url}/invocations"
+        body: dict[str, Any]
         if resolved == "responses":
-            response = client.responses.create(
-                model=model_id,
-                input=[{"role": "user", "content": prompt}],
-            )
-            output_text = response.output_text
+            body = {"input": [{"role": "user", "content": prompt}]}
         else:
-            response = client.chat.completions.create(
-                model=model_id,
-                messages=[{"role": "user", "content": prompt}],
-            )
-            output_text = response.choices[0].message.content or ""
+            body = {"messages": [{"role": "user", "content": prompt}]}
+
+        async with httpx.AsyncClient(
+            auth=WorkspaceBearerAuth(ws), timeout=120
+        ) as client:
+            response = await client.post(invocations_url, json=body)
+            response.raise_for_status()
+            envelope: dict[str, Any] = response.json()
+
+        output_text: str = _extract_output_text(envelope, resolved)
 
         if tool_span is not None:
             tool_span.set_attribute(ATTR_APP_AGENT_RESPONSE_CHARS, len(output_text))

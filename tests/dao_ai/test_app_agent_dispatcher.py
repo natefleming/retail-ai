@@ -1,13 +1,16 @@
 """Unit tests for :func:`dao_ai.tools.create_app_dispatcher`.
 
-The dispatcher does three things:
+The dispatcher does four things:
 1. Lazily resolves the OpenAI API contract on first invocation.
 2. Caches the resolution for subsequent invocations.
-3. Calls DatabricksOpenAI.responses.create OR
-   DatabricksOpenAI.chat.completions.create based on the resolved api.
+3. POSTs to ``<app.url>/invocations`` using ``httpx.AsyncClient`` with
+   :class:`WorkspaceBearerAuth`, bypassing the ``databricks_openai`` OAuth
+   gate that breaks PAT-auth WCs.
+4. Surfaces ``OBONotAvailableError`` when the calling agent should be in
+   OBO mode but didn't propagate the forwarded user token.
 
-Tests monkeypatch DatabricksOpenAI + discover_app_agent_api +
-DatabricksAppModel.workspace_client_from so no network is needed.
+Tests monkeypatch ``httpx.AsyncClient`` + ``discover_app_agent_api`` +
+``DatabricksAppModel.workspace_client_from`` so no network is needed.
 """
 
 from __future__ import annotations
@@ -18,7 +21,9 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from dao_ai.auth import OBONotAvailableError
 from dao_ai.config import DatabricksAppModel
+from dao_ai.state import Context
 from dao_ai.tools._api_discovery import ApiContract
 from dao_ai.tools.app_agent_dispatcher import create_app_dispatcher
 
@@ -28,79 +33,82 @@ from dao_ai.tools.app_agent_dispatcher import create_app_dispatcher
 
 
 class _StubResponse:
-    def __init__(self, output_text: str = "stub-response") -> None:
-        self.output_text: str = output_text
+    """httpx.Response stub."""
+
+    def __init__(self, json_payload: dict[str, Any], status_code: int = 200) -> None:
+        self._json = json_payload
+        self.status_code = status_code
+
+    def json(self) -> dict[str, Any]:
+        return self._json
+
+    def raise_for_status(self) -> None:
+        if self.status_code >= 400:
+            raise RuntimeError(f"HTTP {self.status_code}")
 
 
-class _StubResponses:
-    def __init__(self) -> None:
-        self.calls: list[dict[str, Any]] = []
+class _StubAsyncClient:
+    """httpx.AsyncClient stub. Records every .post call."""
 
-    def create(self, **kwargs: Any) -> _StubResponse:
-        self.calls.append(kwargs)
-        return _StubResponse(f"resp:{kwargs.get('input')[0]['content']}")
+    instances: list["_StubAsyncClient"] = []
 
+    def __init__(self, **kwargs: Any) -> None:
+        self.init_kwargs: dict[str, Any] = kwargs
+        self.posts: list[dict[str, Any]] = []
+        # Pre-configured envelope; tests may override via instance.envelope_for
+        self.envelope_for: dict[str, dict[str, Any]] = {}
+        _StubAsyncClient.instances.append(self)
 
-class _StubMessage:
-    def __init__(self, content: str) -> None:
-        self.content: str = content
+    async def __aenter__(self) -> "_StubAsyncClient":
+        return self
 
+    async def __aexit__(self, *_exc: Any) -> None:
+        return None
 
-class _StubChoice:
-    def __init__(self, content: str) -> None:
-        self.message: _StubMessage = _StubMessage(content)
-
-
-class _StubChatCompletion:
-    def __init__(self, content: str) -> None:
-        self.choices: list[_StubChoice] = [_StubChoice(content)]
-
-
-class _StubChatCompletions:
-    def __init__(self) -> None:
-        self.calls: list[dict[str, Any]] = []
-
-    def create(self, **kwargs: Any) -> _StubChatCompletion:
-        self.calls.append(kwargs)
-        return _StubChatCompletion(f"chat:{kwargs.get('messages')[0]['content']}")
-
-
-class _StubChat:
-    def __init__(self) -> None:
-        self.completions: _StubChatCompletions = _StubChatCompletions()
-
-
-class _StubDatabricksOpenAI:
-    """Stub that records calls; both `.responses` and `.chat.completions`."""
-
-    instances: list["_StubDatabricksOpenAI"] = []
-
-    def __init__(self, **_kwargs: Any) -> None:
-        self.responses: _StubResponses = _StubResponses()
-        self.chat: _StubChat = _StubChat()
-        _StubDatabricksOpenAI.instances.append(self)
+    async def post(self, url: str, *, json: dict[str, Any], **_kw: Any) -> _StubResponse:
+        self.posts.append({"url": url, "json": json})
+        # If a test pre-loaded a response, use it. Otherwise echo the prompt
+        # in a Responses-API-shaped envelope.
+        if url in self.envelope_for:
+            return _StubResponse(self.envelope_for[url])
+        prompt: str = ""
+        if json.get("input"):
+            prompt = json["input"][0].get("content", "")
+        elif json.get("messages"):
+            prompt = json["messages"][0].get("content", "")
+        # Echo back a Responses-shaped envelope by default.
+        if "messages" in json:
+            envelope = {
+                "choices": [{"message": {"content": f"chat:{prompt}"}}]
+            }
+        else:
+            envelope = {
+                "output": [{"content": [{"text": f"resp:{prompt}"}]}]
+            }
+        return _StubResponse(envelope)
 
 
 @pytest.fixture(autouse=True)
 def reset_stub_instances() -> None:
-    _StubDatabricksOpenAI.instances.clear()
+    _StubAsyncClient.instances.clear()
 
 
 @pytest.fixture
-def stub_openai(monkeypatch: pytest.MonkeyPatch) -> None:
+def stub_httpx(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
-        "dao_ai.tools.app_agent_dispatcher.DatabricksOpenAI",
-        _StubDatabricksOpenAI,
+        "dao_ai.tools.app_agent_dispatcher.httpx.AsyncClient",
+        _StubAsyncClient,
     )
 
 
 @pytest.fixture
 def stub_workspace_client(monkeypatch: pytest.MonkeyPatch) -> MagicMock:
     fake_ws: MagicMock = MagicMock(name="WorkspaceClient")
+    fake_ws.config.authenticate.return_value = {"Authorization": "Bearer stub-token"}
     monkeypatch.setattr(
         DatabricksAppModel,
         "workspace_client_from",
-        lambda self, context: fake_ws,
+        lambda self, context, *, strict=False: fake_ws,
     )
     # Also stub the .url property so the dispatcher's probe-lambda
     # doesn't trigger a real `apps.get()` SDK call on first invoke.
@@ -155,9 +163,9 @@ class TestFactoryOutput:
 
 
 class TestExplicitApiSkipsProbe:
-    def test_explicit_responses_calls_responses_create_and_skips_probe(
+    def test_explicit_responses_posts_input_body_and_skips_probe(
         self,
-        stub_openai: None,
+        stub_httpx: None,
         stub_workspace_client: MagicMock,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
@@ -174,15 +182,16 @@ class TestExplicitApiSkipsProbe:
 
         assert result == "resp:hi"
         assert probe_calls == []  # CRITICAL: no probe when explicit
-        # responses.create was called; chat.completions.create was NOT
-        instance = _StubDatabricksOpenAI.instances[0]
-        assert len(instance.responses.calls) == 1
-        assert instance.responses.calls[0]["model"] == "apps/explicit-resp"
-        assert len(instance.chat.completions.calls) == 0
+        instance = _StubAsyncClient.instances[0]
+        assert len(instance.posts) == 1
+        assert instance.posts[0]["url"] == "https://explicit-resp.test/invocations"
+        # Responses API uses {"input": [...]} body shape.
+        assert "input" in instance.posts[0]["json"]
+        assert "messages" not in instance.posts[0]["json"]
 
-    def test_explicit_completions_calls_chat_completions_create_and_skips_probe(
+    def test_explicit_completions_posts_messages_body_and_skips_probe(
         self,
-        stub_openai: None,
+        stub_httpx: None,
         stub_workspace_client: MagicMock,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
@@ -199,10 +208,10 @@ class TestExplicitApiSkipsProbe:
 
         assert result == "chat:hi"
         assert probe_calls == []
-        instance = _StubDatabricksOpenAI.instances[0]
-        assert len(instance.chat.completions.calls) == 1
-        assert instance.chat.completions.calls[0]["model"] == "apps/explicit-cc"
-        assert len(instance.responses.calls) == 0
+        instance = _StubAsyncClient.instances[0]
+        # Chat Completions uses {"messages": [...]} body shape.
+        assert "messages" in instance.posts[0]["json"]
+        assert "input" not in instance.posts[0]["json"]
 
 
 # ---------------------------------------------------------------------------
@@ -213,18 +222,19 @@ class TestExplicitApiSkipsProbe:
 class TestDiscoveryResolvesApi:
     def test_probe_returns_responses_routes_to_responses(
         self,
-        stub_openai: None,
+        stub_httpx: None,
         stub_workspace_client: MagicMock,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         _set_probe(monkeypatch, "responses")
         tool = create_app_dispatcher(DatabricksAppModel(name="probed-app"))
         asyncio.run(tool.ainvoke({"prompt": "hi"}))
-        assert len(_StubDatabricksOpenAI.instances[0].responses.calls) == 1
+        instance = _StubAsyncClient.instances[0]
+        assert "input" in instance.posts[0]["json"]
 
     def test_probe_returns_none_falls_back_to_default_responses(
         self,
-        stub_openai: None,
+        stub_httpx: None,
         stub_workspace_client: MagicMock,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
@@ -234,11 +244,12 @@ class TestDiscoveryResolvesApi:
             default_api="responses",
         )
         asyncio.run(tool.ainvoke({"prompt": "hi"}))
-        assert len(_StubDatabricksOpenAI.instances[0].responses.calls) == 1
+        instance = _StubAsyncClient.instances[0]
+        assert "input" in instance.posts[0]["json"]
 
     def test_probe_returns_none_default_completions_routes_to_chat(
         self,
-        stub_openai: None,
+        stub_httpx: None,
         stub_workspace_client: MagicMock,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
@@ -248,7 +259,8 @@ class TestDiscoveryResolvesApi:
             default_api="completions",
         )
         asyncio.run(tool.ainvoke({"prompt": "hi"}))
-        assert len(_StubDatabricksOpenAI.instances[0].chat.completions.calls) == 1
+        instance = _StubAsyncClient.instances[0]
+        assert "messages" in instance.posts[0]["json"]
 
 
 # ---------------------------------------------------------------------------
@@ -259,7 +271,7 @@ class TestDiscoveryResolvesApi:
 class TestProbeCaching:
     def test_probe_runs_only_once_across_invocations(
         self,
-        stub_openai: None,
+        stub_httpx: None,
         stub_workspace_client: MagicMock,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
@@ -276,5 +288,104 @@ class TestProbeCaching:
         asyncio.run(tool.ainvoke({"prompt": "first"}))
         asyncio.run(tool.ainvoke({"prompt": "second"}))
         asyncio.run(tool.ainvoke({"prompt": "third"}))
-
         assert len(probe_count) == 1  # probe cached after first call
+
+
+# ---------------------------------------------------------------------------
+# Strict-mode OBO surfacing (matrix cell #10 close-out)
+# ---------------------------------------------------------------------------
+
+
+class TestStrictModeOBO:
+    def test_obo_target_no_forwarded_token_raises(
+        self,
+        stub_httpx: None,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Cell #10: target.on_behalf_of_user=true + no forwarded token in context."""
+
+        _set_probe(monkeypatch, "responses")
+        # Stub the URL so the (never-reached) discovery branch wouldn't crash.
+        monkeypatch.setattr(
+            DatabricksAppModel,
+            "url",
+            property(lambda self: f"https://{self.name}.test"),
+        )
+        # DO NOT stub workspace_client_from — let the real implementation
+        # raise OBONotAvailableError when strict=True + on_behalf_of_user=true
+        # + no headers in context.
+        app_model = DatabricksAppModel(name="obo-app", on_behalf_of_user=True)
+        tool = create_app_dispatcher(app_model)
+
+        # ToolRuntime.context.headers is None when the caller didn't propagate.
+        # The dispatcher itself extracts context via runtime.context, so the
+        # cleanest way to assert is via tool.coroutine directly with an empty
+        # runtime stub.
+        runtime = MagicMock()
+        runtime.context = Context(headers=None)
+
+        with pytest.raises(OBONotAvailableError) as exc_info:
+            asyncio.run(tool.coroutine(prompt="hi", runtime=runtime))
+        assert "obo-app" in str(exc_info.value) or exc_info.value.resource_name == "obo-app"
+
+    def test_obo_target_with_forwarded_token_succeeds(
+        self,
+        stub_httpx: None,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Cell #1 happy path: target OBO + forwarded token present → tool runs."""
+
+        _set_probe(monkeypatch, "responses")
+        monkeypatch.setattr(
+            DatabricksAppModel,
+            "url",
+            property(lambda self: f"https://{self.name}.test"),
+        )
+        # Stub workspace_client_from to behave as the real implementation
+        # would with valid headers: return a WC instance.
+        fake_ws = MagicMock()
+        fake_ws.config.authenticate.return_value = {"Authorization": "Bearer u-token"}
+
+        def _ws_from(self, context, *, strict=False) -> Any:
+            # If strict and OBO and no token, raise — same shape as real impl
+            if strict and self.on_behalf_of_user:
+                headers = (context.headers if context else None) or {}
+                if not headers.get("x-forwarded-access-token"):
+                    raise OBONotAvailableError(resource_name=self.name)
+            return fake_ws
+
+        monkeypatch.setattr(DatabricksAppModel, "workspace_client_from", _ws_from)
+
+        app_model = DatabricksAppModel(name="obo-ok", on_behalf_of_user=True)
+        tool = create_app_dispatcher(app_model)
+        runtime = MagicMock()
+        runtime.context = Context(
+            headers={"x-forwarded-access-token": "u-token"}
+        )
+
+        result = asyncio.run(tool.coroutine(prompt="hola", runtime=runtime))
+        assert result == "resp:hola"
+
+
+# ---------------------------------------------------------------------------
+# Auth header propagation
+# ---------------------------------------------------------------------------
+
+
+class TestAuthHeaderPropagation:
+    def test_workspace_bearer_auth_is_used(
+        self,
+        stub_httpx: None,
+        stub_workspace_client: MagicMock,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Confirm the httpx.AsyncClient was constructed with WorkspaceBearerAuth."""
+
+        _set_probe(monkeypatch, "responses")
+        tool = create_app_dispatcher(DatabricksAppModel(name="auth-app"))
+        asyncio.run(tool.ainvoke({"prompt": "hi"}))
+        instance = _StubAsyncClient.instances[0]
+        auth = instance.init_kwargs.get("auth")
+        assert auth is not None
+        # WorkspaceBearerAuth holds the workspace_client by attribute.
+        assert hasattr(auth, "_workspace_client")

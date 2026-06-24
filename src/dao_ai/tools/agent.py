@@ -81,7 +81,9 @@ def create_agent_endpoint_tool(
         if llm.on_behalf_of_user:
             from databricks.sdk import WorkspaceClient
 
-            workspace_client: WorkspaceClient = llm.workspace_client_from(context)
+            workspace_client: WorkspaceClient = llm.workspace_client_from(
+                context, strict=True
+            )
             logger.debug(
                 "Creating OBO chat client for agent endpoint tool",
                 model=llm.name,
