@@ -65,7 +65,9 @@ class _StubAsyncClient:
     async def __aexit__(self, *_exc: Any) -> None:
         return None
 
-    async def post(self, url: str, *, json: dict[str, Any], **_kw: Any) -> _StubResponse:
+    async def post(
+        self, url: str, *, json: dict[str, Any], **_kw: Any
+    ) -> _StubResponse:
         self.posts.append({"url": url, "json": json})
         # If a test pre-loaded a response, use it. Otherwise echo the prompt
         # in a Responses-API-shaped envelope.
@@ -78,13 +80,9 @@ class _StubAsyncClient:
             prompt = json["messages"][0].get("content", "")
         # Echo back a Responses-shaped envelope by default.
         if "messages" in json:
-            envelope = {
-                "choices": [{"message": {"content": f"chat:{prompt}"}}]
-            }
+            envelope = {"choices": [{"message": {"content": f"chat:{prompt}"}}]}
         else:
-            envelope = {
-                "output": [{"content": [{"text": f"resp:{prompt}"}]}]
-            }
+            envelope = {"output": [{"content": [{"text": f"resp:{prompt}"}]}]}
         return _StubResponse(envelope)
 
 
@@ -326,7 +324,10 @@ class TestStrictModeOBO:
 
         with pytest.raises(OBONotAvailableError) as exc_info:
             asyncio.run(tool.coroutine(prompt="hi", runtime=runtime))
-        assert "obo-app" in str(exc_info.value) or exc_info.value.resource_name == "obo-app"
+        assert (
+            "obo-app" in str(exc_info.value)
+            or exc_info.value.resource_name == "obo-app"
+        )
 
     def test_obo_target_with_forwarded_token_succeeds(
         self,
@@ -359,9 +360,7 @@ class TestStrictModeOBO:
         app_model = DatabricksAppModel(name="obo-ok", on_behalf_of_user=True)
         tool = create_app_dispatcher(app_model)
         runtime = MagicMock()
-        runtime.context = Context(
-            headers={"x-forwarded-access-token": "u-token"}
-        )
+        runtime.context = Context(headers={"x-forwarded-access-token": "u-token"})
 
         result = asyncio.run(tool.coroutine(prompt="hola", runtime=runtime))
         assert result == "resp:hola"

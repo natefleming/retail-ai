@@ -21,32 +21,41 @@ class TestStrictModeOBO:
     def test_strict_true_raises_when_obo_set_and_no_context(self) -> None:
         """`strict=True` + on_behalf_of_user + context=None → raise."""
         model = DatabricksAppModel(name="r1", on_behalf_of_user=True)
-        with patch.object(
-            DatabricksAppModel,
-            "workspace_client",
-            new=_ws_with_authenticate(),
-        ), pytest.raises(OBONotAvailableError) as exc:
+        with (
+            patch.object(
+                DatabricksAppModel,
+                "workspace_client",
+                new=_ws_with_authenticate(),
+            ),
+            pytest.raises(OBONotAvailableError) as exc,
+        ):
             model.workspace_client_from(None, strict=True)
         assert exc.value.resource_name == "r1"
 
     def test_strict_true_raises_when_obo_set_and_context_has_no_headers(self) -> None:
         model = DatabricksAppModel(name="r2", on_behalf_of_user=True)
         ctx = Context(headers=None)
-        with patch.object(
-            DatabricksAppModel,
-            "workspace_client",
-            new=_ws_with_authenticate(),
-        ), pytest.raises(OBONotAvailableError):
+        with (
+            patch.object(
+                DatabricksAppModel,
+                "workspace_client",
+                new=_ws_with_authenticate(),
+            ),
+            pytest.raises(OBONotAvailableError),
+        ):
             model.workspace_client_from(ctx, strict=True)
 
     def test_strict_true_raises_when_headers_missing_forwarded_token(self) -> None:
         model = DatabricksAppModel(name="r3", on_behalf_of_user=True)
         ctx = Context(headers={"unrelated-header": "value"})
-        with patch.object(
-            DatabricksAppModel,
-            "workspace_client",
-            new=_ws_with_authenticate(),
-        ), pytest.raises(OBONotAvailableError):
+        with (
+            patch.object(
+                DatabricksAppModel,
+                "workspace_client",
+                new=_ws_with_authenticate(),
+            ),
+            pytest.raises(OBONotAvailableError),
+        ):
             model.workspace_client_from(ctx, strict=True)
 
     def test_strict_true_succeeds_when_forwarded_token_present(
