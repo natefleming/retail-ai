@@ -537,6 +537,15 @@ class IsDatabricksResource(ABC, BaseModel):
                     behalf should pass ``strict=True`` so misconfigured OBO
                     surfaces at first-call rather than running as the SP.
 
+                    Note on deploy target semantics: inside Databricks Apps,
+                    the proxy unconditionally forwards
+                    ``x-forwarded-access-token`` on every authenticated user
+                    request, so ``strict=True`` rarely fires there — the
+                    token is present even when other agents in the call
+                    chain didn't ask for OBO. Strict-mode is most useful in
+                    Model Serving deploys (no Apps proxy → genuine absence
+                    of the forwarded header) and in M2M-only contexts.
+
         Returns:
             WorkspaceClient configured with appropriate authentication.
 
