@@ -338,6 +338,127 @@ class TestAgentToolModel:
         with pytest.raises(ValueError, match="type: mcp"):
             m.as_tools()
 
+    def test_agent_api_defaults_to_responses(self) -> None:
+        """When `app:` is set without `api:`, default is 'responses'."""
+        m = ToolModel.model_validate(
+            {
+                "name": "a",
+                "function": {
+                    "type": "agent",
+                    "app": {"name": "my-app", "on_behalf_of_user": True},
+                },
+            }
+        )
+        assert isinstance(m.function, AgentToolModel)
+        assert m.function.api == "responses"
+
+    def test_agent_api_completions_dispatches_to_chat_completions_tool(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """`api: completions` routes through create_chat_completions_agent_tool."""
+        from dao_ai.config import DatabricksAppModel
+        from langchain_core.tools import StructuredTool
+
+        captured: dict[str, object] = {}
+
+        def _completions_stub(
+            app, *, name=None, description=None
+        ):  # type: ignore[no-untyped-def]
+            captured["app"] = app
+            captured["name"] = name
+            captured["description"] = description
+            return StructuredTool.from_function(
+                func=lambda prompt: "stub",
+                name=name or "stub",
+                description=description or "stub",
+            )
+
+        def _responses_stub(*args, **kwargs):  # type: ignore[no-untyped-def]
+            raise AssertionError(
+                "create_responses_agent_tool must not be called when api=completions"
+            )
+
+        monkeypatch.setattr(
+            "dao_ai.tools.create_chat_completions_agent_tool", _completions_stub
+        )
+        monkeypatch.setattr(
+            "dao_ai.tools.create_responses_agent_tool", _responses_stub
+        )
+
+        m = ToolModel.model_validate(
+            {
+                "name": "a",
+                "function": {
+                    "type": "agent",
+                    "app": {"name": "legacy-app", "on_behalf_of_user": True},
+                    "api": "completions",
+                    "name": "legacy_tool",
+                },
+            }
+        )
+        tools = m.function.as_tools()
+        assert len(tools) == 1
+        assert tools[0].name == "legacy_tool"
+        assert isinstance(captured["app"], DatabricksAppModel)
+        assert captured["app"].name == "legacy-app"
+
+    def test_agent_api_responses_explicit_dispatches_to_responses_tool(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """`api: responses` (explicit) routes through create_responses_agent_tool."""
+        from langchain_core.tools import StructuredTool
+
+        call_count: dict[str, int] = {"responses": 0, "completions": 0}
+
+        def _responses_stub(
+            app, *, name=None, description=None
+        ):  # type: ignore[no-untyped-def]
+            call_count["responses"] += 1
+            return StructuredTool.from_function(
+                func=lambda prompt: "stub",
+                name=name or "stub",
+                description=description or "stub",
+            )
+
+        def _completions_stub(*args, **kwargs):  # type: ignore[no-untyped-def]
+            call_count["completions"] += 1
+            raise AssertionError("completions factory called for api=responses")
+
+        monkeypatch.setattr(
+            "dao_ai.tools.create_responses_agent_tool", _responses_stub
+        )
+        monkeypatch.setattr(
+            "dao_ai.tools.create_chat_completions_agent_tool", _completions_stub
+        )
+
+        m = ToolModel.model_validate(
+            {
+                "name": "a",
+                "function": {
+                    "type": "agent",
+                    "app": {"name": "modern-app", "on_behalf_of_user": True},
+                    "api": "responses",
+                },
+            }
+        )
+        m.function.as_tools()
+        assert call_count["responses"] == 1
+        assert call_count["completions"] == 0
+
+    def test_agent_api_rejects_invalid_value(self) -> None:
+        """Unknown api: values are rejected by Pydantic at validate-time."""
+        with pytest.raises(Exception):
+            ToolModel.model_validate(
+                {
+                    "name": "a",
+                    "function": {
+                        "type": "agent",
+                        "app": {"name": "x", "on_behalf_of_user": True},
+                        "api": "rest",  # not allowed
+                    },
+                }
+            )
+
     def test_agent_app_does_not_dispatch_to_a2a(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:

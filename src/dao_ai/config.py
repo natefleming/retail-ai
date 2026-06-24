@@ -5301,10 +5301,13 @@ class AgentToolModel(BaseFunctionModel):
       Calls ``POST /serving-endpoints/{name}/invocations`` via
       ``ChatDatabricks``.
     - **Databricks App** (any app exposing the MLflow Responses API —
-      ``POST /v1/responses`` — including dao-ai apps and any
-      ``mlflow.agents`` ResponsesAgent deployment) — set ``app:``.
-      Internally dispatches via ``DatabricksOpenAI(workspace_client=...)``
-      with ``model='apps/<name>'``. OBO is auto-derived from
+      ``POST /v1/responses`` — or OpenAI Chat Completions —
+      ``POST /v1/chat/completions``) — set ``app:``. Dispatches via
+      ``DatabricksOpenAI(workspace_client=...)`` against the App. Pick
+      the wire contract with ``api:``: ``"responses"`` (default,
+      recommended for ``mlflow.agents`` ResponsesAgent deployments — the
+      canonical Databricks pattern) or ``"completions"`` (for legacy
+      apps that only expose Chat Completions). OBO is auto-derived from
       ``app.on_behalf_of_user``.
 
     Exactly one of ``endpoint:`` or ``app:`` must be set.
@@ -5320,8 +5323,6 @@ class AgentToolModel(BaseFunctionModel):
       discovery, or HITL-over-A2A semantics.
     - **MCP apps** (``mcp-`` prefix) — use ``type: mcp`` with ``app:``.
       ``type: agent`` rejects ``mcp-`` apps at factory time.
-    - **Apps that only expose Chat Completions** — use
-      ``type: factory`` + ``dao_ai.tools.create_chat_completions_agent_tool``.
 
     ``endpoint`` accepts two shapes:
 
@@ -5350,11 +5351,28 @@ class AgentToolModel(BaseFunctionModel):
     app: Optional[DatabricksAppModel] = Field(
         default=None,
         description=(
-            "Databricks App resource to call. Used when delegating to "
-            "another dao-ai app (auto-mounts A2A endpoints since v0.1.80). "
-            "OBO and endpoint URL are auto-derived from the app. Mutually "
-            "exclusive with ``endpoint``. MCP apps (``mcp-`` prefix) are "
-            "rejected — use ``type: mcp`` instead."
+            "Databricks App resource to call. Dispatches via the OpenAI "
+            "API contract selected by ``api:`` (defaults to 'responses' — "
+            "MLflow Responses API). OBO is auto-derived from "
+            "``app.on_behalf_of_user``. Mutually exclusive with "
+            "``endpoint``. MCP apps (``mcp-`` prefix) are rejected — use "
+            "``type: mcp`` instead."
+        ),
+    )
+    api: Literal["responses", "completions"] = Field(
+        default="responses",
+        description=(
+            "OpenAI API contract to use when calling a Databricks App "
+            "(``app:`` branch). 'responses' (default) uses "
+            "``client.responses.create`` against the App's "
+            "``POST /v1/responses`` route — recommended for any agent "
+            "deployed via ``mlflow.agents`` ResponsesAgent (the canonical "
+            "Databricks pattern). 'completions' uses "
+            "``client.chat.completions.create`` against ``POST /v1/chat/"
+            "completions`` — for legacy apps that only expose the OpenAI "
+            "Chat Completions route. Ignored when ``endpoint:`` is set "
+            "(Model Serving endpoints always use the ChatDatabricks "
+            "chat-model path)."
         ),
     )
     name: Optional[str] = Field(
@@ -5409,25 +5427,40 @@ class AgentToolModel(BaseFunctionModel):
         )
 
     def as_tools(self, **kwargs: Any) -> Sequence[RunnableLike]:
-        # App path: dispatch via the MLflow Responses API using
-        # `DatabricksOpenAI(workspace_client=...)` with model='apps/<name>'.
-        # This is the canonical Databricks contract for any deployed
-        # ResponsesAgent-style app, regardless of whether it's a dao-ai
-        # app or a customer app. For explicit A2A protocol use, use
-        # `type: a2a`. For MCP apps, use `type: mcp`.
+        # App path: dispatch via DatabricksOpenAI on the workspace client.
+        # `api: responses` (default) → client.responses.create against the
+        # App's /v1/responses route — the canonical Databricks pattern for
+        # any agent deployed via mlflow.agents ResponsesAgent.
+        # `api: completions` → client.chat.completions.create against
+        # /v1/chat/completions — for legacy apps that only expose
+        # ChatCompletions.
+        # For explicit A2A protocol use `type: a2a`. For MCP apps, use
+        # `type: mcp`.
         if self.app is not None:
-            from dao_ai.tools import create_responses_agent_tool
-
             if self.app.name.startswith("mcp-"):
                 raise ValueError(
                     f"AgentToolModel: app '{self.app.name}' looks like an MCP "
                     f"app (mcp- prefix). Use 'type: mcp' with 'app:' instead "
                     f"of 'type: agent'."
                 )
+            tool_name: str = self.name or self.app.name
+            if self.api == "completions":
+                from dao_ai.tools import create_chat_completions_agent_tool
+
+                return [
+                    create_chat_completions_agent_tool(
+                        app=self.app,
+                        name=tool_name,
+                        description=self.description,
+                    )
+                ]
+            # default: responses
+            from dao_ai.tools import create_responses_agent_tool
+
             return [
                 create_responses_agent_tool(
                     app=self.app,
-                    name=self.name or self.app.name,
+                    name=tool_name,
                     description=self.description,
                 )
             ]
