@@ -10,8 +10,6 @@ query routing, result verification, and instruction-aware reranking.
 import json
 import os
 from concurrent.futures import ThreadPoolExecutor
-
-from dao_ai._tracing import in_caller_context
 from typing import Annotated, Any, Literal, Optional
 
 import mlflow
@@ -25,6 +23,7 @@ from langchain_core.tools import StructuredTool
 from loguru import logger
 from mlflow.entities import SpanType
 
+from dao_ai._tracing import in_caller_context
 from dao_ai.config import (
     ColumnInfo,
     DecompositionModel,

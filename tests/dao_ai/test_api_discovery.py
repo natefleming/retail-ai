@@ -121,9 +121,7 @@ class TestDiscoverAppAgentApi:
         )
         assert discover_app_agent_api("https://x.test", _ws_with_auth_header()) is None
 
-    def test_network_error_returns_none(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_network_error_returns_none(self, monkeypatch: pytest.MonkeyPatch) -> None:
         def _raise(url, **kwargs):
             raise httpx.ConnectError("connection refused")
 
@@ -147,9 +145,7 @@ class TestDiscoverAppAgentApi:
         assert discover_app_agent_api("https://x.test", ws) is None
         assert get_calls == []  # auth failed before any HTTP
 
-    def test_url_strips_trailing_slash(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_url_strips_trailing_slash(self, monkeypatch: pytest.MonkeyPatch) -> None:
         captured: list[str] = []
 
         def _spy_get(url, **kwargs):
@@ -157,9 +153,7 @@ class TestDiscoverAppAgentApi:
             return httpx.Response(200, json={"agent_api": "responses"})
 
         monkeypatch.setattr("dao_ai.tools._api_discovery.httpx.get", _spy_get)
-        discover_app_agent_api(
-            "https://x.test/", _ws_with_auth_header()
-        )
+        discover_app_agent_api("https://x.test/", _ws_with_auth_header())
         assert captured == ["https://x.test/agent/info"]
 
 
@@ -218,7 +212,9 @@ class TestResolveApi:
             calls.append(1)
             return "responses"
 
-        result = resolve_api(explicit="completions", discover=_discover, default="responses")
+        result = resolve_api(
+            explicit="completions", discover=_discover, default="responses"
+        )
         assert result.value == "completions"
         assert result.origin == "explicit"
         # Critical invariant: probe MUST NOT run when explicit is set.

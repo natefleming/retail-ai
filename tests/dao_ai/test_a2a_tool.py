@@ -33,7 +33,6 @@ from dao_ai.tools.a2a_agent import (
     create_a2a_agent_tool,
 )
 
-
 # ---------------------------------------------------------------------------
 # _coerce_app
 # ---------------------------------------------------------------------------
@@ -169,17 +168,13 @@ def test_mode1_none_skips_auth_arg() -> None:
 
 def test_mode1_unknown_auth_type_raises() -> None:
     with pytest.raises(ValueError, match="auth_type must be one of"):
-        create_a2a_agent_tool(
-            endpoint="https://example.com", auth_type="bogus_mode"
-        )
+        create_a2a_agent_tool(endpoint="https://example.com", auth_type="bogus_mode")
 
 
 def test_mode1_strips_trailing_slash_from_endpoint() -> None:
     # No direct getter for the resolved endpoint on the StructuredTool,
     # but we can at least confirm trailing-slash strip doesn't blow up.
-    tool = create_a2a_agent_tool(
-        endpoint="https://example.com/", auth_type="none"
-    )
+    tool = create_a2a_agent_tool(endpoint="https://example.com/", auth_type="none")
     assert tool.name == "a2a_agent"
 
 
@@ -204,9 +199,7 @@ def test_mode2_app_obo_defaults_to_forwarded_user_token() -> None:
 
 def test_mode2_app_no_obo_defaults_to_databricks_app_sp() -> None:
     with _mocked_url():
-        with patch(
-            "dao_ai.tools.a2a_agent._ambient_workspace_client"
-        ) as ambient:
+        with patch("dao_ai.tools.a2a_agent._ambient_workspace_client") as ambient:
             ambient.return_value.config.authenticate.return_value = {
                 "Authorization": "Bearer M2M"
             }
@@ -217,9 +210,7 @@ def test_mode2_app_no_obo_defaults_to_databricks_app_sp() -> None:
 
 def test_mode2_app_unset_obo_defaults_to_databricks_app_sp() -> None:
     with _mocked_url():
-        with patch(
-            "dao_ai.tools.a2a_agent._ambient_workspace_client"
-        ) as ambient:
+        with patch("dao_ai.tools.a2a_agent._ambient_workspace_client") as ambient:
             ambient.return_value.config.authenticate.return_value = {
                 "Authorization": "Bearer M2M"
             }
@@ -239,9 +230,7 @@ def test_mode2_dict_input_coerced_to_model() -> None:
 def test_mode2_explicit_auth_type_overrides_app_default() -> None:
     """Pinning auth_type='databricks_app_sp' on an OBO-flagged app works."""
     with _mocked_url():
-        with patch(
-            "dao_ai.tools.a2a_agent._ambient_workspace_client"
-        ) as ambient:
+        with patch("dao_ai.tools.a2a_agent._ambient_workspace_client") as ambient:
             ambient.return_value.config.authenticate.return_value = {
                 "Authorization": "Bearer M2M"
             }
@@ -254,7 +243,9 @@ def test_mode2_app_and_endpoint_warns_and_app_wins(caplog) -> None:
     """Both args set → loguru warning + ``app`` wins (no exception)."""
     from loguru import logger
 
-    sink_handler_id = logger.add(lambda msg: caplog.records.append(msg), level="WARNING")
+    sink_handler_id = logger.add(
+        lambda msg: caplog.records.append(msg), level="WARNING"
+    )
     try:
         with _mocked_url("https://from-app.example.com"):
             app = DatabricksAppModel(name="supplier", on_behalf_of_user=True)
@@ -280,9 +271,7 @@ def test_neither_endpoint_nor_app_raises() -> None:
 
 def test_mode2_factory_does_not_resolve_app_url_eagerly() -> None:
     """``dao-ai validate`` must not require the bound app to be deployed."""
-    with patch.object(
-        DatabricksAppModel, "url", new_callable=PropertyMock
-    ) as url_prop:
+    with patch.object(DatabricksAppModel, "url", new_callable=PropertyMock) as url_prop:
         url_prop.side_effect = AssertionError(
             "app.url should NOT be accessed at factory build time"
         )

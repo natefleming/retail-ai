@@ -14,7 +14,6 @@ These models are thin Pydantic wrappers around the existing factory functions
 from __future__ import annotations
 
 import pytest
-from langchain_core.tools import BaseTool
 
 from dao_ai.config import (
     A2AToolModel,
@@ -27,7 +26,6 @@ from dao_ai.config import (
     ToolModel,
     VectorSearchToolModel,
 )
-from dao_ai.tools.genie import GenieToolkit
 
 
 @pytest.fixture
@@ -101,9 +99,7 @@ class TestDiscriminatorDispatch:
 class TestValidation:
     def test_genie_requires_genie_room(self) -> None:
         with pytest.raises(Exception):
-            ToolModel.model_validate(
-                {"name": "x", "function": {"type": "genie"}}
-            )
+            ToolModel.model_validate({"name": "x", "function": {"type": "genie"}})
 
     def test_vector_search_rejects_neither_retriever_nor_store(self) -> None:
         with pytest.raises(Exception, match="retriever.*vector_store"):
@@ -500,9 +496,7 @@ class TestA2AToolModel:
 
     def test_a2a_requires_endpoint_or_app(self) -> None:
         with pytest.raises(Exception, match="endpoint.*app"):
-            ToolModel.model_validate(
-                {"name": "x", "function": {"type": "a2a"}}
-            )
+            ToolModel.model_validate({"name": "x", "function": {"type": "a2a"}})
 
     def test_a2a_rejects_unknown_auth_type(self) -> None:
         with pytest.raises(Exception):

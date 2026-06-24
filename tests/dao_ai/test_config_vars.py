@@ -1005,15 +1005,13 @@ def test_write_bundle_bakes_resolved_values_and_drops_parameters(
 
 
 @pytest.mark.unit
-def test_write_bundle_uses_apps_native_uv_path(
+def test_write_bundle_ships_requirements_txt_no_uv_lock(
     parameterised_config_path: Path, tmp_path: Path
 ) -> None:
-    """The generated bundle must NOT ship requirements.txt and must NOT ship
-    a uv.lock. Both would short-circuit Apps' native uv support (which
-    activates when pyproject.toml + uv.lock are present AND requirements.txt
-    is absent). The user runs `uv sync` themselves to produce their own lock.
-    The app `command:` must be bare `python -m …` — no `uv run` wrapper —
-    because Apps' native uv BUILD populates .venv/ and venv-python is on PATH.
+    """The generated bundle MUST ship requirements.txt (Apps build installs
+    deps from it; pyproject alone is insufficient) and MUST NOT ship a
+    uv.lock (lock is user-owned, produced by `uv sync` after generate-bundle).
+    Unified emit format per PR #117.
     """
     from dao_ai.apps.bundle import write_bundle
 
@@ -1027,18 +1025,16 @@ def test_write_bundle_uses_apps_native_uv_path(
 
     write_bundle(config, out_dir, force=True, development=False)
 
-    assert not (out_dir / "requirements.txt").exists(), (
-        "Generated bundle must not ship requirements.txt — its presence "
-        "would force Apps onto the legacy pip-install path and skip "
-        "native uv support."
+    assert (out_dir / "requirements.txt").exists(), (
+        "Generated bundle must ship requirements.txt — Apps build installs "
+        "deps from it; pyproject alone is insufficient."
     )
     assert not (out_dir / "uv.lock").exists(), (
         "Generated bundle must not ship uv.lock — lock is user-owned and "
         "should be produced by `uv sync` after generate-bundle."
     )
     assert (out_dir / "pyproject.toml").exists(), (
-        "pyproject.toml must be present so `uv sync` has something to "
-        "resolve from."
+        "pyproject.toml must be present so `uv sync` has something to resolve from."
     )
 
     # The trimmed databricks.yaml carries bundle/include/targets/artifacts only;

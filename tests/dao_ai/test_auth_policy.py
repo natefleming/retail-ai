@@ -527,8 +527,7 @@ class TestCanonicalUserApiScopes:
             "vectorsearch.vector-search-endpoints",
         } & scopes
         assert leaked_internal == set(), (
-            f"Internal resource-scope names leaked to UserAuthPolicy: "
-            f"{leaked_internal}"
+            f"Internal resource-scope names leaked to UserAuthPolicy: {leaked_internal}"
         )
 
 
@@ -576,9 +575,7 @@ class TestMcpCompanionPairing:
 
     def test_connection_pairs_with_mcp_external(self) -> None:
         config = _config(
-            connections={
-                "c": ConnectionModel(name="c", on_behalf_of_user=True)
-            }
+            connections={"c": ConnectionModel(name="c", on_behalf_of_user=True)}
         )
         scopes = set(build_auth_policy(config).user_auth_policy.api_scopes)
         assert "catalog.connections" in scopes

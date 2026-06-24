@@ -16,17 +16,12 @@ Tests in this file cover the two ``generate-bundle`` paths via the
 
 from __future__ import annotations
 
-from pathlib import Path
-from typing import Any
-from unittest.mock import patch
-
 import pytest
 
 from dao_ai.apps.bundle import (
-    _make_requirements_txt,
     _PYPROJECT_DEV_TEMPLATE,
+    _make_requirements_txt,
 )
-
 
 # ---------------------------------------------------------------------------
 # _make_requirements_txt — content helpers

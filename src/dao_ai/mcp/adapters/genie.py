@@ -27,7 +27,6 @@ from loguru import logger
 from mcp.server.fastmcp import Context, FastMCP
 
 from dao_ai._tracing import to_thread_in_context
-
 from dao_ai.config import (
     DatabaseModel,
     GenieContextAwareCacheParametersModel,
@@ -353,9 +352,7 @@ def _render_result(result: Any) -> str:
         return ""
     if isinstance(result, pd.DataFrame):
         return (
-            result.head(50).to_markdown(index=False)
-            if not result.empty
-            else "(empty)"
+            result.head(50).to_markdown(index=False) if not result.empty else "(empty)"
         )
     if isinstance(result, str):
         return result

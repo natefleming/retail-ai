@@ -387,9 +387,7 @@ def create_a2a_agent_tool(
         session_id: Optional[str] = context.thread_id if context else None
 
         invocation_endpoint: str = endpoint_resolver()
-        set_resource_attributes(
-            ResourceInfo("a2a_agent", False, invocation_endpoint)
-        )
+        set_resource_attributes(ResourceInfo("a2a_agent", False, invocation_endpoint))
 
         tool_span = mlflow.get_current_active_span()
         if tool_span:
@@ -422,9 +420,8 @@ def create_a2a_agent_tool(
         # plumbing can stay context-agnostic. ``forwarded_user_token``
         # needs the per-invocation context to read the user's forwarded
         # bearer; everything else just ignores the arg.
-        bound_header_provider: Callable[[], dict[str, str]] = (
-            lambda: header_provider(context)  # noqa: E731
-        )
+        def bound_header_provider() -> dict[str, str]:
+            return header_provider(context)
 
         try:
             return asyncio.run(

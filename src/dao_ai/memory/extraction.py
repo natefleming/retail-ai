@@ -106,6 +106,7 @@ class _ContextAwareReflector:
         # search, asearch, store, etc.) to the real manager.
         return getattr(self._inner, name)
 
+
 ModelSpec = Union[str, LanguageModelLike]
 
 

@@ -22,9 +22,7 @@ if TYPE_CHECKING:
     from mcp.server.fastmcp import FastMCP
 
 
-AdapterRegister = Callable[
-    ["FastMCP", str, dict[str, Any], "WorkspaceClient"], None
-]
+AdapterRegister = Callable[["FastMCP", str, dict[str, Any], "WorkspaceClient"], None]
 
 
 @dataclass(frozen=True)
@@ -50,9 +48,7 @@ ADAPTERS: dict[str, McpAdapter] = {}
 def register_adapter(adapter: McpAdapter) -> None:
     """Add ``adapter`` to the global registry, overwriting any prior entry."""
     if adapter.factory_name in ADAPTERS:
-        logger.warning(
-            "mcp.adapter.replace", factory_name=adapter.factory_name
-        )
+        logger.warning("mcp.adapter.replace", factory_name=adapter.factory_name)
     ADAPTERS[adapter.factory_name] = adapter
     logger.debug("mcp.adapter.register", factory_name=adapter.factory_name)
 

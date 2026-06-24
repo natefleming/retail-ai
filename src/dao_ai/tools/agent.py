@@ -42,9 +42,7 @@ def create_agent_endpoint_tool(
         name=name,
         description=description,
         use_responses_api=(
-            llm.use_responses_api
-            if isinstance(llm, InferenceEndpointModel)
-            else None
+            llm.use_responses_api if isinstance(llm, InferenceEndpointModel) else None
         ),
     )
 

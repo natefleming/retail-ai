@@ -11,7 +11,6 @@ from typing import (
     TYPE_CHECKING,
     Any,
     Callable,
-    ClassVar,
     Iterator,
     Literal,
     Mapping,
@@ -2366,9 +2365,7 @@ class GenieRoomModel(IsDatabricksResource, ManagedResource):
             for item in obj:
                 GenieRoomModel._sort_payload_lists(item)
             if obj and isinstance(obj[0], dict):
-                sort_keys = tuple(
-                    k for k in _GENIE_SORT_KEY_PRIORITY if k in obj[0]
-                )
+                sort_keys = tuple(k for k in _GENIE_SORT_KEY_PRIORITY if k in obj[0])
                 if sort_keys:
                     obj.sort(key=lambda x: tuple(x.get(k, "") for k in sort_keys))
 
@@ -5590,9 +5587,7 @@ class A2AToolModel(BaseFunctionModel):
     @model_validator(mode="after")
     def _endpoint_or_app(self) -> Self:
         if self.endpoint is None and self.app is None:
-            raise ValueError(
-                "A2AToolModel requires one of 'endpoint' or 'app'."
-            )
+            raise ValueError("A2AToolModel requires one of 'endpoint' or 'app'.")
         return self
 
     def as_tools(self, **kwargs: Any) -> Sequence[RunnableLike]:

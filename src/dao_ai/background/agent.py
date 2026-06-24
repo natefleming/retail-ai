@@ -35,14 +35,13 @@ from typing import Any, AsyncGenerator, Coroutine, Generator, Literal, Optional
 import mlflow
 from loguru import logger
 from mlflow.pyfunc import ResponsesAgent
-
-from dao_ai._tracing import to_thread_in_context
 from mlflow.types.responses import (
     ResponsesAgentRequest,
     ResponsesAgentResponse,
     ResponsesAgentStreamEvent,
 )
 
+from dao_ai._tracing import to_thread_in_context
 from dao_ai.background.store import (
     BackgroundStore,
     ResponseRecord,
@@ -152,9 +151,7 @@ class _BackgroundLoop:
                     lambda t: (
                         fut.set_exception(t.exception())
                         if t.exception()
-                        else fut.set_result(
-                            t.result() if not t.cancelled() else None
-                        )
+                        else fut.set_result(t.result() if not t.cancelled() else None)
                     )
                 )
                 task_ready.set()

@@ -20,7 +20,7 @@ shapes.
 
 from __future__ import annotations
 
-from typing import Annotated, Any, Optional
+from typing import Annotated, Optional
 
 from databricks.sdk import WorkspaceClient
 from langchain.tools import ToolRuntime

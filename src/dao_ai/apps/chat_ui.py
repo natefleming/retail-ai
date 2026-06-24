@@ -48,18 +48,14 @@ def sanitized_npm_env() -> dict[str, str]:
     ephemeral mode regardless of whether a postgres resource is bound to the
     Databricks App.
     """
-    stripped = sorted(
-        k for k in os.environ if k.startswith(_DB_ENV_VAR_PREFIXES)
-    )
+    stripped = sorted(k for k in os.environ if k.startswith(_DB_ENV_VAR_PREFIXES))
     if stripped:
         logger.debug(
             "Stripping DB-binding env vars from npm subprocess",
             keys=stripped,
         )
     return {
-        k: v
-        for k, v in os.environ.items()
-        if not k.startswith(_DB_ENV_VAR_PREFIXES)
+        k: v for k, v in os.environ.items() if not k.startswith(_DB_ENV_VAR_PREFIXES)
     }
 
 

@@ -939,8 +939,6 @@ class TestPostgresContextAwareCacheGetEntries:
         assert entry["created_at"] == now
 
 
-
-
 # =====================================================================
 # Boot-time auth-mode log for the Postgres cache
 # =====================================================================
@@ -971,14 +969,16 @@ class TestLogCacheAuthMode:
         )
 
         db = Mock()
-        db.client_id = Mock()   # non-None means "operator configured"
+        db.client_id = Mock()  # non-None means "operator configured"
         db.client_secret = Mock()
         db.name = "test-lakebase"
         db.project = "test-lakebase"
         mock_parameters.database = db
 
         svc = PostgresContextAwareGenieService(
-            impl=Mock(), parameters=mock_parameters, workspace_client=Mock(),
+            impl=Mock(),
+            parameters=mock_parameters,
+            workspace_client=Mock(),
         )
 
         with (
@@ -993,7 +993,8 @@ class TestLogCacheAuthMode:
         assert mock_info.called
         # Find the call that matches our event signature
         match = next(
-            call for call in mock_info.call_args_list
+            call
+            for call in mock_info.call_args_list
             if call.args and call.args[0] == "dao_ai.cache.auth.mode"
         )
         assert match.kwargs["mode"] == "service_principal"
@@ -1014,14 +1015,17 @@ class TestLogCacheAuthMode:
         mock_parameters.database = db
 
         svc = PostgresContextAwareGenieService(
-            impl=Mock(), parameters=mock_parameters, workspace_client=Mock(),
+            impl=Mock(),
+            parameters=mock_parameters,
+            workspace_client=Mock(),
         )
 
         with patch.object(logger, "info") as mock_info:
             svc._log_cache_auth_mode()
 
         match = next(
-            call for call in mock_info.call_args_list
+            call
+            for call in mock_info.call_args_list
             if call.args and call.args[0] == "dao_ai.cache.auth.mode"
         )
         assert match.kwargs["mode"] == "ambient"
@@ -1038,14 +1042,16 @@ class TestLogCacheAuthMode:
         )
 
         db = Mock()
-        db.client_id = Mock()       # operator declared it
+        db.client_id = Mock()  # operator declared it
         db.client_secret = Mock()
         db.name = "test-lakebase"
         db.project = "test-lakebase"
         mock_parameters.database = db
 
         svc = PostgresContextAwareGenieService(
-            impl=Mock(), parameters=mock_parameters, workspace_client=Mock(),
+            impl=Mock(),
+            parameters=mock_parameters,
+            workspace_client=Mock(),
         )
 
         # value_of() returns None — secret didn't resolve.
@@ -1056,7 +1062,8 @@ class TestLogCacheAuthMode:
             svc._log_cache_auth_mode()
 
         match = next(
-            call for call in mock_info.call_args_list
+            call
+            for call in mock_info.call_args_list
             if call.args and call.args[0] == "dao_ai.cache.auth.mode"
         )
         assert match.kwargs["mode"] == "ambient"

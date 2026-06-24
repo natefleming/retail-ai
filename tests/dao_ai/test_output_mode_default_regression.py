@@ -190,9 +190,7 @@ class TestExtractAgentResponseDefaultBlocksMalformedHistory:
         message — must not leak into the supervisor's state."""
         worker_history = [
             AIMessage(content="Let me search...", id="ai-text-only"),
-            ToolMessage(
-                content="[orphan]", tool_call_id="tu_orphan", id="tm-orphan"
-            ),
+            ToolMessage(content="[orphan]", tool_call_id="tu_orphan", id="tm-orphan"),
             AIMessage(content="Result is X.", id="ai-final"),
         ]
         out = extract_agent_response(worker_history, output_mode="last_message")

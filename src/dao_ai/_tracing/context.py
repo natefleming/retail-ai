@@ -16,6 +16,7 @@ The helpers here bridge that gap with a single canonical pattern:
 capture the caller's ``Context`` at dispatch time, then run the work via
 ``ctx.run(...)`` inside the worker.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -57,9 +58,7 @@ def submit_in_context(
     return executor.submit(ctx.run, fn, *args, **kwargs)  # type: ignore[arg-type]
 
 
-async def to_thread_in_context(
-    fn: Callable[..., R], /, *args: Any, **kwargs: Any
-) -> R:
+async def to_thread_in_context(fn: Callable[..., R], /, *args: Any, **kwargs: Any) -> R:
     """``asyncio.to_thread(fn, *args, **kwargs)`` with caller-context propagation.
 
     Note: Python 3.11+ ``asyncio.to_thread`` already wraps its target with

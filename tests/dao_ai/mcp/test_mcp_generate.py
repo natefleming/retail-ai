@@ -49,8 +49,8 @@ def test_write_mcp_bundle_emits_expected_files(tmp_path: Path) -> None:
     app_yaml = (out / "app.yaml").read_text()
     # Bare console-script command — no `uv run` wrapper. Apps' native uv
     # BUILD installs the console script into .venv/bin/ for the runtime.
-    assert 'dao-ai-mcp-server' in app_yaml
-    assert 'uv' not in app_yaml, (
+    assert "dao-ai-mcp-server" in app_yaml
+    assert "uv" not in app_yaml, (
         f"app.yaml must not reference `uv` in the runtime command; got:\n{app_yaml}"
     )
 

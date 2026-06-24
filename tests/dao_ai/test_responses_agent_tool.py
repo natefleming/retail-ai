@@ -19,7 +19,6 @@ from dao_ai.tools.responses_agent import (
     create_responses_agent_tool,
 )
 
-
 # ---------------------------------------------------------------------------
 # _coerce_app — Pydantic validation of YAML-delivered dicts
 # ---------------------------------------------------------------------------

@@ -41,8 +41,8 @@ class ResolvedApi(NamedTuple):
 # dao-ai cares about — anything else (embeddings, unknown future tasks,
 # None) returns None and falls back to the per-type default.
 _TASK_TO_API: dict[str, ApiContract] = {
-    "agent/v1/responses": "responses",   # UC-registered ResponsesAgent (mlflow.agents)
-    "llm/v1/chat": "completions",        # FMAPI chat completions / external models
+    "agent/v1/responses": "responses",  # UC-registered ResponsesAgent (mlflow.agents)
+    "llm/v1/chat": "completions",  # FMAPI chat completions / external models
 }
 
 
@@ -77,8 +77,7 @@ def discover_app_agent_api(
         headers = dict(workspace_client.config.authenticate())
     except Exception as exc:
         logger.debug(
-            "discover_app_agent_api: auth failed "
-            f"({type(exc).__name__}: {exc})"
+            f"discover_app_agent_api: auth failed ({type(exc).__name__}: {exc})"
         )
         return None
     try:
@@ -90,9 +89,7 @@ def discover_app_agent_api(
         )
         return None
     if resp.status_code != 200:
-        logger.debug(
-            f"discover_app_agent_api: GET {info_url} → {resp.status_code}"
-        )
+        logger.debug(f"discover_app_agent_api: GET {info_url} → {resp.status_code}")
         return None
     try:
         body = resp.json()

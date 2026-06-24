@@ -98,5 +98,3 @@ def test_agent_endpoint_tool_obo_uses_workspace_client_from(
     )
     assert isinstance(result, AIMessage)
     assert result.content == "obo response"
-
-

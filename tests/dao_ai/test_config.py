@@ -663,9 +663,11 @@ class TestUnresolvedClientIdWarning:
         with (
             patch(
                 "dao_ai.config.value_of",
-                side_effect=lambda v: "resolved-cid"
-                if getattr(v, "secret", None) == "cid"
-                else "resolved-csec",
+                side_effect=lambda v: (
+                    "resolved-cid"
+                    if getattr(v, "secret", None) == "cid"
+                    else "resolved-csec"
+                ),
             ),
             patch("dao_ai.config.WorkspaceClient") as mock_ws,
             patch.object(logger, "warning") as mock_warning,

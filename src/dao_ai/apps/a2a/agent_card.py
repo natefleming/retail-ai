@@ -129,7 +129,10 @@ def _derive_skills(config: "AppConfig", a2a: "A2AModel") -> list[AgentSkill]:
             sub_agent_iter = list(app_agents)
     for sub in sub_agent_iter:
         sub_name = str(getattr(sub, "name", ""))
-        raw_desc = getattr(sub, "description", None) or f"dao-ai sub-agent: {sub_name or 'agent'}"
+        raw_desc = (
+            getattr(sub, "description", None)
+            or f"dao-ai sub-agent: {sub_name or 'agent'}"
+        )
         # YAML ``>`` folding appends a trailing newline; strip so the card
         # doesn't carry visible whitespace into consumers.
         description = raw_desc.rstrip()
@@ -334,7 +337,9 @@ def build_agent_card(config: "AppConfig") -> AgentCard:
         # OR-of-AND (per OpenAPI 3 / A2A spec): callers can satisfy any
         # single entry. For oauth2 schemes, advertise the required scope
         # names declared on the scheme's authorization_code flow.
-        security = [{key: _scheme_scopes(scheme)} for key, scheme in security_schemes.items()]
+        security = [
+            {key: _scheme_scopes(scheme)} for key, scheme in security_schemes.items()
+        ]
 
     sth = a2a.state_transition_history
     if sth is None:

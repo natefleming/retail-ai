@@ -22,7 +22,6 @@ from dao_ai.config import DatabricksAppModel
 from dao_ai.tools._api_discovery import ApiContract
 from dao_ai.tools.app_agent_dispatcher import create_app_dispatcher
 
-
 # ---------------------------------------------------------------------------
 # Stubs
 # ---------------------------------------------------------------------------

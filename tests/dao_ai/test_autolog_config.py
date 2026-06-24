@@ -28,7 +28,6 @@ from unittest.mock import patch
 import mlflow
 import pytest
 
-
 # ---------------------------------------------------------------------------
 # Layer 1 — call-site assertion
 # ---------------------------------------------------------------------------
@@ -42,13 +41,14 @@ class TestAutologCallSite:
         "module_name",
         ["dao_ai.apps.handlers", "dao_ai.apps.model_serving"],
     )
-    def test_autolog_called_with_run_tracer_inline_true(
-        self, module_name: str
-    ) -> None:
+    def test_autolog_called_with_run_tracer_inline_true(self, module_name: str) -> None:
         sys.modules.pop(module_name, None)
-        with patch("mlflow.langchain.autolog") as mock_autolog, patch(
-            "mlflow.set_registry_uri"
-        ), patch("mlflow.set_tracking_uri"), patch("mlflow.tracing.set_destination"):
+        with (
+            patch("mlflow.langchain.autolog") as mock_autolog,
+            patch("mlflow.set_registry_uri"),
+            patch("mlflow.set_tracking_uri"),
+            patch("mlflow.tracing.set_destination"),
+        ):
             try:
                 importlib.import_module(module_name)
             except Exception:
@@ -56,9 +56,9 @@ class TestAutologCallSite:
                 # (AppConfig.from_file, etc.). We only need to observe the
                 # autolog kwarg, which fires before that work runs.
                 pass
-        assert (
-            mock_autolog.called
-        ), f"{module_name} did not call mlflow.langchain.autolog"
+        assert mock_autolog.called, (
+            f"{module_name} did not call mlflow.langchain.autolog"
+        )
         _, kwargs = mock_autolog.call_args
         assert kwargs.get("run_tracer_inline") is True, (
             f"{module_name} must call autolog(run_tracer_inline=True); "
@@ -122,9 +122,7 @@ class TestRunTracerInlineNesting:
     a manual outer span across an async boundary.
     """
 
-    def test_langchain_spans_nest_under_outer_agent_span(
-        self, tracing_enabled
-    ) -> None:
+    def test_langchain_spans_nest_under_outer_agent_span(self, tracing_enabled) -> None:
         trace_id = _run_nested_async_trace()
 
         trace = mlflow.get_trace(trace_id)

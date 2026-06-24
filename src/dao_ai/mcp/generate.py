@@ -263,9 +263,7 @@ def _bundle_local_wheel(output_dir: Path, *, written: list[str]) -> str:
     if result.returncode != 0:
         raise RuntimeError(f"uv build --wheel failed: {result.stderr}")
 
-    wheels = sorted(
-        dist_src.glob("dao_ai-*.whl"), key=lambda p: p.stat().st_mtime
-    )
+    wheels = sorted(dist_src.glob("dao_ai-*.whl"), key=lambda p: p.stat().st_mtime)
     if not wheels:
         raise RuntimeError(f"No wheel produced under {dist_src}")
     wheel_path = wheels[-1]
@@ -314,9 +312,7 @@ def _render_readme(
     lines.append("Look up the app URL:")
     lines.append("")
     lines.append("```bash")
-    lines.append(
-        f"databricks apps get {app_name} -o json | jq .url"
-    )
+    lines.append(f"databricks apps get {app_name} -o json | jq .url")
     lines.append("```")
     lines.append("")
     lines.append(

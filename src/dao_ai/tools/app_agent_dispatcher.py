@@ -194,9 +194,7 @@ def create_app_dispatcher(
             output_text = response.choices[0].message.content or ""
 
         if tool_span is not None:
-            tool_span.set_attribute(
-                ATTR_APP_AGENT_RESPONSE_CHARS, len(output_text)
-            )
+            tool_span.set_attribute(ATTR_APP_AGENT_RESPONSE_CHARS, len(output_text))
 
         return output_text
 

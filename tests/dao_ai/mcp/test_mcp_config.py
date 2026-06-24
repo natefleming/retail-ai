@@ -61,9 +61,7 @@ def test_server_name_honors_env_override(
 
 
 @pytest.mark.unit
-def test_log_level_default(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_log_level_default(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     from dao_ai.mcp.config import DEFAULT_LOG_LEVEL, load_app_config, log_level_for
 
     monkeypatch.delenv("DAO_AI_MCP_LOG_LEVEL", raising=False)

@@ -10,7 +10,6 @@ loop. The LangGraph integration is not exercised here (covered separately).
 from __future__ import annotations
 
 import asyncio
-import json
 from typing import Any
 from unittest.mock import MagicMock
 
@@ -22,13 +21,14 @@ from fastapi.testclient import TestClient
 from dao_ai.config import DatabricksAppModel
 from dao_ai.tools.responses_agent import create_responses_agent_tool
 
-
 # ---------------------------------------------------------------------------
 # Test fixture — a FastAPI app stubbing the OpenAI Responses route
 # ---------------------------------------------------------------------------
 
 
-def _build_responses_stub(echo_prefix: str = "echo:") -> tuple[TestClient, list[dict[str, Any]]]:
+def _build_responses_stub(
+    echo_prefix: str = "echo:",
+) -> tuple[TestClient, list[dict[str, Any]]]:
     """Spin up a FastAPI app that mimics an OpenAI Responses endpoint.
 
     Returns the TestClient and a list that captures every incoming request
@@ -193,9 +193,7 @@ def test_responses_agent_passes_model_with_apps_prefix(
 ) -> None:
     _test_client, captured = patched_databricks_openai
 
-    tool = create_responses_agent_tool(
-        DatabricksAppModel(name="dao-ai-supplier-app")
-    )
+    tool = create_responses_agent_tool(DatabricksAppModel(name="dao-ai-supplier-app"))
     asyncio.run(tool.ainvoke({"prompt": "ping"}))
 
     assert captured[0]["model"] == "apps/dao-ai-supplier-app"

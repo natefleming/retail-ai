@@ -14,6 +14,7 @@ The tests below pin two contracts:
 2. ``_ContextAwareReflector`` looks up the captured context by payload
    identity and replays it inside ``invoke()``.
 """
+
 from __future__ import annotations
 
 import asyncio

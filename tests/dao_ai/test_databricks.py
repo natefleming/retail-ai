@@ -322,6 +322,10 @@ def test_create_agent_sets_experiment():
     mock_app.code_paths = []
     mock_app.pip_requirements = []
     mock_app.input_example = None
+    # Default-truthy MagicMock would trigger the trace_location code path
+    # (which calls set_experiment a second time with trace_location=UC(...)).
+    # This test covers the "no trace_location" baseline.
+    mock_app.trace_location = None
     mock_config.app = mock_app
 
     # Mock resources
@@ -2542,9 +2546,7 @@ def test_deploy_apps_agent_dev_path_ships_requirements_txt(tmp_path):
     with (
         patch.object(DatabricksProvider, "__init__", return_value=None),
         patch("dao_ai.providers.databricks.is_published", return_value=False),
-        patch(
-            "dao_ai.providers.databricks.find_dev_wheel", return_value=stub_wheel
-        ),
+        patch("dao_ai.providers.databricks.find_dev_wheel", return_value=stub_wheel),
     ):
         provider = DatabricksProvider()
         provider.w = MagicMock()

@@ -55,7 +55,9 @@ class TestMemoryContextSpan:
         runtime = MagicMock()
         runtime.context = MagicMock()
         runtime.context.user_id = "nate.fleming@databricks.com"
-        runtime.context.model_dump = MagicMock(return_value={"user_id": runtime.context.user_id})
+        runtime.context.model_dump = MagicMock(
+            return_value={"user_id": runtime.context.user_id}
+        )
 
         ctx = MagicMock()
         ctx.__enter__ = MagicMock(return_value=ctx)
@@ -100,9 +102,7 @@ class TestMemoryContextSpan:
         runtime.context.user_id = None
         runtime.context.model_dump = MagicMock(return_value={"user_id": None})
 
-        with patch(
-            "dao_ai.middleware.memory_context.mlflow.start_span"
-        ) as mock_start:
+        with patch("dao_ai.middleware.memory_context.mlflow.start_span") as mock_start:
             result = asyncio.run(mw.abefore_model(state, runtime))
 
         assert result is None
@@ -148,9 +148,7 @@ class TestMemoryContextNesting:
     parent memory_context_search span.
     """
 
-    def test_inner_runnable_nests_under_memory_span(
-        self, tracing_enabled
-    ) -> None:
+    def test_inner_runnable_nests_under_memory_span(self, tracing_enabled) -> None:
         from langchain_core.runnables import RunnableLambda
         from mlflow.entities import SpanType
 

@@ -12,9 +12,9 @@ Two cases against a real ``mlflow.langchain.autolog(run_tracer_inline=True)``
   changes its default to propagate across thread pools, this test will
   fail and we can retire the helper.
 """
+
 from __future__ import annotations
 
-import asyncio
 from concurrent.futures import ThreadPoolExecutor
 
 import mlflow
