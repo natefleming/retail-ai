@@ -4528,7 +4528,8 @@ class FunctionType(str, Enum):
     GENIE = "genie"
     VECTOR_SEARCH = "vector_search"
     SEARCH = "search"
-    AGENT = "agent"
+    APP = "app"
+    SERVING_ENDPOINT = "serving_endpoint"
     A2A = "a2a"
 
 
@@ -5291,99 +5292,149 @@ class SearchToolModel(BaseFunctionModel):
         return [create_search_tool()]
 
 
-class AgentToolModel(BaseFunctionModel):
-    """First-class tool that calls a deployed agent — seamlessly.
+class AppToolModel(BaseFunctionModel):
+    """First-class tool that calls a Databricks App as a tool.
 
-    Targets ANY Databricks-deployed agent:
+    Supervisor API ``app`` contract. The target is a Databricks App,
+    which may host an agent (ResponsesAgent or otherwise) or any other
+    HTTP service that speaks OpenAI Responses or Chat Completions.
 
-    - **Model Serving endpoint** (Knowledge Assistant, ChatCompletions,
-      ChatAgent, Foundation Model API, Agent Bricks) — set ``endpoint:``.
-      Calls ``POST /serving-endpoints/{name}/invocations`` via
-      ``ChatDatabricks``.
-    - **Databricks App** (any app exposing the MLflow Responses API —
-      ``POST /v1/responses`` — or OpenAI Chat Completions —
-      ``POST /v1/chat/completions``) — set ``app:``. Dispatches via
-      ``DatabricksOpenAI(workspace_client=...)`` against the App. Pick
-      the wire contract with ``api:``: ``"responses"`` (default,
-      recommended for ``mlflow.agents`` ResponsesAgent deployments — the
-      canonical Databricks pattern) or ``"completions"`` (for legacy
-      apps that only expose Chat Completions). OBO is auto-derived from
-      ``app.on_behalf_of_user``.
+    Routes via ``DatabricksOpenAI(workspace_client=...)`` against the
+    App's ``/v1/responses`` or ``/v1/chat/completions`` route (selected
+    by ``api:``).
 
-    Exactly one of ``endpoint:`` or ``app:`` must be set.
+    Default ``api:`` behavior: when ``api`` is unset (None), the wire
+    shape is discovered lazily on first invocation via
+    ``GET <app_url>/agent/info`` (the MLflow Agent Server self-describe
+    route). Falls back to ``"responses"`` if discovery returns no
+    signal. Setting ``api:`` explicitly skips discovery entirely.
 
-    For specialized cases use the explicit shapes instead:
-
-    - **External A2A agents** (Vertex AI Agent Engine, Crew.ai, ADK,
-      third-party) — use ``type: a2a`` with ``endpoint:`` for explicit
-      A2A protocol with custom auth modes (bearer / GCP), card paths.
-    - **dao-ai-to-dao-ai with explicit A2A protocol** — use ``type: a2a``
-      with ``app:``. ``type: agent`` defaults to Responses API; pick A2A
-      only if you specifically need its session-continuity, agent-card
-      discovery, or HITL-over-A2A semantics.
-    - **MCP apps** (``mcp-`` prefix) — use ``type: mcp`` with ``app:``.
-      ``type: agent`` rejects ``mcp-`` apps at factory time.
-
-    ``endpoint`` accepts two shapes:
-
-    - **String / variable** (sugar) — just the endpoint name. dao-ai
-      promotes it to a minimal ``InferenceEndpointModel`` internally.
-    - **Full ``InferenceEndpointModel``** — when you need ``temperature``,
-      ``max_tokens``, ``ai_gateway``, or ``on_behalf_of_user`` on the
-      endpoint itself. Mirrors how ``GenieToolModel`` takes a full
-      ``GenieRoomModel``.
+    For other target kinds see ``type: serving_endpoint`` (Model
+    Serving), ``type: a2a`` (Google A2A protocol), ``type: mcp`` (MCP
+    apps, ``mcp-`` prefix).
     """
 
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
-    type: Literal[FunctionType.AGENT] = Field(
-        default=FunctionType.AGENT,
-        description="Function type discriminator. Must be 'agent'.",
+    type: Literal[FunctionType.APP] = Field(
+        default=FunctionType.APP,
+        description="Function type discriminator. Must be 'app'.",
     )
-    endpoint: Optional[Union[InferenceEndpointModel, AnyVariable]] = Field(
-        default=None,
+    app: DatabricksAppModel = Field(
         description=(
-            "Model Serving endpoint to call. Accepts either an endpoint "
-            "name string (sugar) or a full InferenceEndpointModel with "
-            "temperature / max_tokens / ai_gateway / on_behalf_of_user. "
-            "Mutually exclusive with ``app``."
-        ),
-    )
-    app: Optional[DatabricksAppModel] = Field(
-        default=None,
-        description=(
-            "Databricks App resource to call. Dispatches via the OpenAI "
-            "API contract selected by ``api:`` (defaults to 'responses' — "
-            "MLflow Responses API). OBO is auto-derived from "
-            "``app.on_behalf_of_user``. Mutually exclusive with "
-            "``endpoint``. MCP apps (``mcp-`` prefix) are rejected — use "
-            "``type: mcp`` instead."
+            "Databricks App resource to call. Required. dao-ai dispatches "
+            "via DatabricksOpenAI(workspace_client=...) using "
+            "model='apps/<name>'. OBO is auto-derived from "
+            "app.on_behalf_of_user. MCP apps (mcp- prefix) are rejected — "
+            "use type: mcp instead."
         ),
     )
     api: Optional[Literal["responses", "completions"]] = Field(
         default=None,
         description=(
-            "OpenAI API contract to use. Selects the wire route on both "
-            "the ``app:`` and ``endpoint:`` branches.\n\n"
-            "- ``None`` (default) — sensible auto-pick: ``responses`` for "
-            "  apps (canonical for ResponsesAgent deployments); lazy "
-            "  task-based detection on first invocation for endpoints "
-            "  (``agent/v1/responses`` task → ``responses``; "
-            "  ``llm/v1/chat`` task → ``completions``).\n"
-            "- ``'responses'`` — force the OpenAI Responses API "
-            "  (``POST /v1/responses``). For apps: dispatches via "
-            "  ``DatabricksOpenAI.responses.create`` with "
-            "  ``model='apps/<name>'``. For endpoints: routes through "
-            "  ``ChatDatabricks(use_responses_api=True)`` against "
-            "  ``/serving-endpoints/<name>/invocations``.\n"
-            "- ``'completions'`` — force the OpenAI Chat Completions API "
-            "  (``POST /v1/chat/completions``). For apps: dispatches via "
-            "  ``DatabricksOpenAI.chat.completions.create``. For "
-            "  endpoints: standard ``ChatDatabricks`` (legacy default)."
+            "OpenAI API contract to use against the App:\n"
+            "- 'responses' — POST /v1/responses (canonical for "
+            "mlflow.agents ResponsesAgent deployments).\n"
+            "- 'completions' — POST /v1/chat/completions (apps that "
+            "expose the OpenAI Chat Completions route).\n"
+            "- None (default) — lazy-probe GET <app_url>/agent/info on "
+            "first invocation; fall back to 'responses' if discovery "
+            "returns no signal. Setting this field skips discovery "
+            "entirely."
         ),
     )
     name: Optional[str] = Field(
         default=None,
-        description="Tool name visible to the LLM. Defaults to the endpoint or app name.",
+        description="Tool name visible to the LLM. Defaults to the app's name.",
+    )
+    description: Optional[str] = Field(
+        default=None,
+        description="Tool description shown to the LLM during function calling.",
+    )
+
+    @model_validator(mode="after")
+    def _reject_mcp_prefix(self) -> Self:
+        if self.app.name.startswith("mcp-"):
+            raise ValueError(
+                f"AppToolModel: app '{self.app.name}' looks like an MCP "
+                f"app (mcp- prefix). Use 'type: mcp' with 'app:' instead "
+                f"of 'type: app'."
+            )
+        return self
+
+    def as_tools(self, **kwargs: Any) -> Sequence[RunnableLike]:
+        from dao_ai.tools import create_app_dispatcher
+
+        return [
+            create_app_dispatcher(
+                app=self.app,
+                api=self.api,
+                default_api="responses",
+                name=self.name or self.app.name,
+                description=self.description,
+            )
+        ]
+
+
+class ServingEndpointToolModel(BaseFunctionModel):
+    """First-class tool that calls a Databricks Model Serving endpoint.
+
+    Supervisor API ``serving_endpoint`` contract. Covers FMAPI /
+    Foundation Model API endpoints (Chat Completions) AND UC-registered
+    agents deployed to Model Serving (ResponsesAgent). The wire shape
+    is selected by ``api:``.
+
+    Default ``api:`` behavior: when ``api`` is unset (None), the wire
+    shape is discovered lazily on first invocation via
+    ``WorkspaceClient.serving_endpoints.get(name).task``; mapped to
+    ``"responses"`` for ``task="agent/v1/responses"`` and
+    ``"completions"`` for ``task="llm/v1/chat"``. Falls back to
+    ``"completions"`` if discovery returns no signal. Setting ``api:``
+    explicitly skips discovery entirely.
+
+    ``endpoint`` accepts two shapes:
+
+    - **String / variable** (sugar) — just the endpoint name. dao-ai
+      promotes it to a minimal ``InferenceEndpointModel`` internally.
+    - **Full ``InferenceEndpointModel``** — when you need
+      ``temperature``, ``max_tokens``, ``ai_gateway``, or
+      ``on_behalf_of_user`` on the endpoint itself.
+    """
+
+    model_config = ConfigDict(use_enum_values=True, extra="forbid")
+    type: Literal[FunctionType.SERVING_ENDPOINT] = Field(
+        default=FunctionType.SERVING_ENDPOINT,
+        description="Function type discriminator. Must be 'serving_endpoint'.",
+    )
+    endpoint: Union[InferenceEndpointModel, AnyVariable] = Field(
+        description=(
+            "Model Serving endpoint to call. Accepts either an endpoint "
+            "name string (sugar) or a full InferenceEndpointModel with "
+            "temperature / max_tokens / ai_gateway / on_behalf_of_user. "
+            "For a UC-registered agent endpoint or a Knowledge Assistant "
+            "this is the endpoint name (e.g., 'ka-customer-reviews', "
+            "'hardware_store_dao'). For FMAPI it's the foundation model "
+            "endpoint name (e.g., 'databricks-claude-sonnet-4')."
+        ),
+    )
+    api: Optional[Literal["responses", "completions"]] = Field(
+        default=None,
+        description=(
+            "OpenAI API contract to use against the endpoint:\n"
+            "- 'responses' — ChatDatabricks(use_responses_api=True). "
+            "Required for UC-registered agent endpoints (task = "
+            "'agent/v1/responses').\n"
+            "- 'completions' — ChatDatabricks (legacy default). "
+            "Required for FMAPI endpoints (task = 'llm/v1/chat').\n"
+            "- None (default) — lazy-probe "
+            "serving_endpoints.get(name).task on first invocation and "
+            "map to the right contract; fall back to 'completions' if "
+            "discovery returns no signal. Setting this field skips "
+            "discovery entirely."
+        ),
+    )
+    name: Optional[str] = Field(
+        default=None,
+        description="Tool name visible to the LLM. Defaults to the endpoint name.",
     )
     description: Optional[str] = Field(
         default=None,
@@ -5392,36 +5443,19 @@ class AgentToolModel(BaseFunctionModel):
     on_behalf_of_user: Optional[bool] = Field(
         default=None,
         description=(
-            "If True, call the agent on behalf of the calling user by "
+            "If True, call the endpoint on behalf of the calling user by "
             "forwarding their bearer token. If False or None, the agent's "
             "service principal calls. Ignored when ``endpoint`` is a full "
-            "InferenceEndpointModel that sets on_behalf_of_user, or when "
-            "``app`` is set (OBO derives from app.on_behalf_of_user)."
+            "InferenceEndpointModel that already sets on_behalf_of_user."
         ),
     )
-
-    @model_validator(mode="after")
-    def _exactly_one_target(self) -> Self:
-        if self.endpoint is None and self.app is None:
-            raise ValueError(
-                "AgentToolModel requires exactly one of 'endpoint' or 'app'."
-            )
-        if self.endpoint is not None and self.app is not None:
-            raise ValueError(
-                "AgentToolModel cannot set both 'endpoint' and 'app'."
-            )
-        return self
 
     def _resolved_llm(self) -> "InferenceEndpointModel":
         """Normalize the endpoint field to an InferenceEndpointModel.
 
-        Only valid when ``endpoint`` is set. Callers must check
-        ``self.app is None`` first (or use ``as_tools`` which dispatches).
+        String / variable inputs are promoted to a minimal model. A
+        full InferenceEndpointModel is returned as-is.
         """
-        if self.endpoint is None:
-            raise ValueError(
-                "_resolved_llm called on AgentToolModel with no endpoint set."
-            )
         if isinstance(self.endpoint, InferenceEndpointModel):
             return self.endpoint
         endpoint_name: str = str(value_of(self.endpoint))
@@ -5433,65 +5467,16 @@ class AgentToolModel(BaseFunctionModel):
         )
 
     def as_tools(self, **kwargs: Any) -> Sequence[RunnableLike]:
-        # App path: dispatch via DatabricksOpenAI on the workspace client.
-        # api: None → "responses" (canonical for ResponsesAgent apps).
-        # api: "completions" → DatabricksOpenAI.chat.completions.create
-        # against /v1/chat/completions — for legacy apps that only expose
-        # Chat Completions. For explicit A2A protocol use `type: a2a`.
-        # For MCP apps, use `type: mcp`.
-        if self.app is not None:
-            if self.app.name.startswith("mcp-"):
-                raise ValueError(
-                    f"AgentToolModel: app '{self.app.name}' looks like an MCP "
-                    f"app (mcp- prefix). Use 'type: mcp' with 'app:' instead "
-                    f"of 'type: agent'."
-                )
-            tool_name: str = self.name or self.app.name
-            if self.api == "completions":
-                from dao_ai.tools import create_chat_completions_agent_tool
-
-                return [
-                    create_chat_completions_agent_tool(
-                        app=self.app,
-                        name=tool_name,
-                        description=self.description,
-                    )
-                ]
-            # api: None (default) or api: "responses" → Responses API
-            from dao_ai.tools import create_responses_agent_tool
-
-            return [
-                create_responses_agent_tool(
-                    app=self.app,
-                    name=tool_name,
-                    description=self.description,
-                )
-            ]
-
-        # Endpoint (Model Serving) path: route via ChatDatabricks. The
-        # `api:` field selects the wire route on the endpoint, which has
-        # to match the endpoint's task type:
-        #   - api: "completions" → ChatDatabricks (use_responses_api=False).
-        #     Required for FMAPI endpoints (`llm/v1/chat` task).
-        #   - api: "responses" → ChatDatabricks(use_responses_api=True).
-        #     Required for UC-registered agent endpoints
-        #     (`agent/v1/responses` task — typical mlflow.agents deploys).
-        #   - api: None → lazy auto-detect on first invocation via
-        #     serving_endpoints.get(name).task.
-        from dao_ai.tools import create_agent_endpoint_tool
+        from dao_ai.tools import create_serving_endpoint_dispatcher
 
         llm: InferenceEndpointModel = self._resolved_llm()
-        auto_detect_responses_api: bool = self.api is None
-        if self.api == "responses":
-            llm = llm.model_copy(update={"use_responses_api": True})
-        elif self.api == "completions":
-            llm = llm.model_copy(update={"use_responses_api": False})
         return [
-            create_agent_endpoint_tool(
+            create_serving_endpoint_dispatcher(
                 llm=llm,
+                api=self.api,
+                default_api="completions",
                 name=self.name or llm.name,
                 description=self.description,
-                auto_detect_responses_api=auto_detect_responses_api,
             )
         ]
 
@@ -5644,7 +5629,8 @@ AnyTool: TypeAlias = (
         GenieToolModel,
         VectorSearchToolModel,
         SearchToolModel,
-        AgentToolModel,
+        AppToolModel,
+        ServingEndpointToolModel,
         A2AToolModel,
     ]
     | str
