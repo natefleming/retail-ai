@@ -10,7 +10,7 @@
 # Three target types:
 #   - `endpoint:` (string)                 → Model Serving endpoint by name
 #   - `endpoint:` (InferenceEndpointModel) → endpoint with temperature / max_tokens
-#   - `app:` (DatabricksAppModel)          → Databricks App, dispatched via A2A
+#   - `app:` (DatabricksAppModel)          → Databricks App, dispatched via Responses API
 #
 # Covers the Supervisor API `knowledge_assistant` and `serving_endpoint`
 # tool types, plus app-to-app delegation, with one shape.
@@ -54,9 +54,11 @@ tools:
         Delegate ticket-triage questions to the specialized triage agent.
         Returns a structured triage result as a single string.
 
-  # 3. Databricks App (another dao-ai app). Dispatches via A2A internally
-  # so the caller doesn't need to know about agent cards, JSON-RPC, or
-  # OAuth-M2M — endpoint URL and auth mode are auto-derived from the app.
+  # 3. Databricks App (any app that exposes the MLflow Responses API —
+  # default for dao-ai apps and mlflow.agents ResponsesAgent deployments).
+  # Dispatches via `DatabricksOpenAI(workspace_client=...)` +
+  # `model='apps/<name>'` — caller doesn't need to know about OAuth-M2M
+  # or wire format. OBO is auto-derived from `app.on_behalf_of_user`.
   supplier_app_tool: &supplier_app_tool
     name: query_supplier
     function:

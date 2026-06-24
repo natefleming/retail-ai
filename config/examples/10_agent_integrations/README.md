@@ -44,7 +44,7 @@ Two first-class shapes cover the vast majority of agent-composition cases:
 
 | Remote target | Use | Why |
 |---|---|---|
-| **Any Databricks-deployed agent** — Model Serving endpoint (Knowledge Assistant, ChatAgent, ChatCompletions, FMAPI, Agent Bricks) OR Databricks App (any dao-ai app v0.1.80+) | [`type: agent`](./agent_first_class.yaml) | Set `endpoint:` for Model Serving or `app:` for a Databricks App. dao-ai dispatches to the right wire protocol internally (serving-endpoints API vs A2A). |
+| **Any Databricks-deployed agent** — Model Serving endpoint (Knowledge Assistant, ChatAgent, ChatCompletions, FMAPI, Agent Bricks) OR Databricks App exposing the MLflow Responses API (dao-ai apps and any `mlflow.agents` ResponsesAgent deployment) | [`type: agent`](./agent_first_class.yaml) | Set `endpoint:` for Model Serving or `app:` for a Databricks App. dao-ai dispatches via `DatabricksOpenAI(workspace_client=...)` — `client.responses.create(model='apps/<name>', …)` on the app branch, `ChatDatabricks` on the endpoint branch. |
 | **External A2A agent** (Vertex AI Agent Engine, Crew.ai, ADK, third-party) | [`type: a2a`](./a2a_agent.yaml) with `endpoint:` | Explicit A2A protocol over an external URL, with control over auth mode (`bearer` / `gcp_service_account` / `none`), card paths, streaming, timeouts. |
 | **MCP Databricks App** (`mcp-` prefix) | `type: mcp` with `app:` | The MCP factory speaks MCP. `type: agent` rejects `mcp-` apps. |
 | **Sub-agent defined in the same dao-ai config** | `type: factory + dao_ai.tools.agent.create_agent_tool` ([`nested_agents.yaml`](./nested_agents.yaml)) | In-process LangGraph delegation — no network hop. |
