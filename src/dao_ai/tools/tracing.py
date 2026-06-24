@@ -98,6 +98,14 @@ ATTR_A2A_STREAM_TASK_EVENTS = "dao_ai.a2a.stream.task_events"
 ATTR_A2A_STREAM_NON_TEXT_PARTS = "dao_ai.a2a.stream.non_text_parts"
 ATTR_A2A_STREAM_TERMINAL_STATE = "dao_ai.a2a.stream.terminal_state"
 
+# Databricks-App agent tools (Responses API + Chat Completions API)
+ATTR_APP_AGENT_APP_NAME = "dao_ai.app_agent.app_name"
+ATTR_APP_AGENT_API = "dao_ai.app_agent.api"  # "responses" or "chat_completions"
+ATTR_APP_AGENT_MODEL = "dao_ai.app_agent.model"  # f"apps/{app_name}"
+ATTR_APP_AGENT_OBO = "dao_ai.app_agent.on_behalf_of_user"
+ATTR_APP_AGENT_PROMPT_CHARS = "dao_ai.app_agent.prompt_chars"
+ATTR_APP_AGENT_RESPONSE_CHARS = "dao_ai.app_agent.response_chars"
+
 # OpenTelemetry HTTP semantic conventions (used on the _post child span)
 ATTR_HTTP_METHOD = "http.method"
 ATTR_HTTP_URL = "http.url"

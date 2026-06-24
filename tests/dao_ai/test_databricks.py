@@ -2485,3 +2485,111 @@ def test_deploy_apps_agent_uploads_pyproject_with_dao_ai_version_pin(tmp_path):
         "command audits the cached venv and never upgrades. The new path "
         "relies on Apps' build-phase install of requirements.txt."
     )
+
+
+def test_deploy_apps_agent_dev_path_ships_requirements_txt(tmp_path):
+    """Regression: deploy_apps_agent dev path (is_published() == False) must
+    ship a requirements.txt pointing at the local wheel — NOT a uv.lock.
+
+    The uv.lock path was vulnerable to Databricks-internal pypi-proxy URLs
+    being baked into the lock from the local environment, which then
+    failed Apps' build-phase install with timeouts. Switching to
+    requirements.txt makes Apps' build use ``pip install -r requirements.txt``
+    against public PyPI directly.
+    """
+    from databricks.sdk.service.apps import (
+        App,
+        AppDeployment,
+        AppDeploymentState,
+        ApplicationState,
+    )
+    from databricks.sdk.service.iam import User
+
+    from dao_ai.config import AppConfig, AppModel
+    from dao_ai.providers.databricks import DatabricksProvider
+
+    raw_yaml: str = "app:\n  name: dev-test\n"
+    src_file = tmp_path / "dao_ai.yaml"
+    src_file.write_text(raw_yaml)
+
+    # Materialize a stub wheel file so find_dev_wheel() finds something.
+    wheel_dir = tmp_path / "dist"
+    wheel_dir.mkdir()
+    stub_wheel = wheel_dir / "dao_ai-0.0.0-py3-none-any.whl"
+    stub_wheel.write_bytes(b"PK\x03\x04stubwheel")
+
+    mock_config = MagicMock(spec=AppConfig)
+    mock_app = MagicMock(spec=AppModel)
+    mock_app.name = "dev-test"
+    mock_app.description = ""
+    mock_app.environment_vars = {}
+    mock_app.trace_location = None
+    mock_app.monitoring = None
+    mock_app.enable_chat_proxy = True
+    mock_config.app = mock_app
+    mock_config.source_config_path = str(src_file)
+    mock_config.rendered_yaml = raw_yaml
+    mock_config.resources = None
+    mock_config.agents = None
+    mock_config.retrievers = None
+
+    mock_existing_app = MagicMock(spec=App)
+    mock_existing_app.app_status = MagicMock(state=ApplicationState.RUNNING)
+    mock_deployment = MagicMock(spec=AppDeployment)
+    mock_deployment.status = MagicMock(state=AppDeploymentState.SUCCEEDED)
+    mock_user = MagicMock(spec=User, user_name="test.user@example.com")
+
+    with (
+        patch.object(DatabricksProvider, "__init__", return_value=None),
+        patch("dao_ai.providers.databricks.is_published", return_value=False),
+        patch(
+            "dao_ai.providers.databricks.find_dev_wheel", return_value=stub_wheel
+        ),
+    ):
+        provider = DatabricksProvider()
+        provider.w = MagicMock()
+        provider.w.current_user.me.return_value = mock_user
+        with patch.object(
+            provider,
+            "get_or_create_experiment",
+            return_value=MagicMock(experiment_id="exp-1"),
+        ):
+            provider.w.apps.get.return_value = mock_existing_app
+            provider.w.apps.deploy_and_wait.return_value = mock_deployment
+
+            provider.deploy_apps_agent(mock_config)
+
+    # requirements.txt is uploaded and points at the bundled wheel via a
+    # relative path. Apps' build phase recognizes this directly and runs
+    # ``pip install -r requirements.txt`` — pip installs the wheel and
+    # resolves transitive deps from public PyPI via the wheel's metadata.
+    requirements_uploads = [
+        c
+        for c in provider.w.workspace.upload.call_args_list
+        if c.kwargs.get("path", "").endswith("/requirements.txt")
+    ]
+    assert requirements_uploads, (
+        "Dev-path deploy_apps_agent must upload a requirements.txt pointing "
+        "at the bundled wheel so Apps' build-phase install uses pip + public "
+        "PyPI rather than uv.lock-baked Databricks-internal proxy URLs."
+    )
+    requirements_text = (
+        requirements_uploads[0].kwargs["content"].getvalue().decode("utf-8")
+    )
+    assert "./dist/" in requirements_text and stub_wheel.name in requirements_text, (
+        f"requirements.txt must reference the local wheel under ./dist/; "
+        f"got: {requirements_text!r}"
+    )
+
+    # uv.lock must NOT be uploaded — it would re-introduce the pypi-proxy
+    # URL lock-in that this refactor explicitly eliminates.
+    uv_lock_uploads = [
+        c
+        for c in provider.w.workspace.upload.call_args_list
+        if c.kwargs.get("path", "").endswith("/uv.lock")
+    ]
+    assert not uv_lock_uploads, (
+        "Dev-path deploy_apps_agent must NOT upload a uv.lock; that path "
+        "baked Databricks-internal proxy URLs into the lock and broke Apps "
+        "builds. requirements.txt is the supported install vector now."
+    )

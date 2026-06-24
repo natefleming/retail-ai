@@ -747,108 +747,6 @@
       "title": "AgentModel",
       "type": "object"
     },
-    "AgentToolModel": {
-      "additionalProperties": false,
-      "description": "First-class tool that calls a deployed chat-shape agent endpoint.\n\nCovers the Supervisor API ``knowledge_assistant`` and ``serving_endpoint``\ntool types: any Model Serving endpoint that speaks chat completions or\nChatAgent (including Knowledge Assistants, which deploy as serving\nendpoints with a known prefix).\n\nFor Databricks Apps:\n\n- MCP apps (``mcp-`` prefix): use ``type: mcp`` with ``app:``.\n- A2A apps: use ``type: a2a`` with ``app:``.\n\nEquivalent to ``type: factory + name: dao_ai.tools.create_agent_endpoint_tool``,\nbut with typed fields so beginners get IDE autocomplete and JSON-schema\nvalidation.\n\n``endpoint`` accepts two shapes:\n\n- **String / variable** (the sugar form) \u2014 just the endpoint name. dao-ai\n  promotes it to a minimal ``InferenceEndpointModel`` internally. Use\n  this when you only need the endpoint name and OBO toggle.\n- **Full ``InferenceEndpointModel``** \u2014 when you need ``temperature``,\n  ``max_tokens``, ``ai_gateway``, or any other endpoint-level\n  configuration. Mirrors how ``GenieToolModel`` takes a full\n  ``GenieRoomModel`` and ``VectorSearchToolModel`` takes a\n  ``RetrieverModel`` / ``VectorStoreModel``. The model's\n  ``on_behalf_of_user`` overrides this tool's ``on_behalf_of_user``\n  when both are set.",
-      "properties": {
-        "type": {
-          "const": "agent",
-          "default": "agent",
-          "description": "Function type discriminator. Must be 'agent'.",
-          "title": "Type",
-          "type": "string"
-        },
-        "human_in_the_loop": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/HumanInTheLoopModel"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "description": "Human-in-the-loop approval configuration for this tool."
-        },
-        "endpoint": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/InferenceEndpointModel"
-            },
-            {
-              "$ref": "#/$defs/CompositeVariableModel"
-            },
-            {
-              "$ref": "#/$defs/EnvironmentVariableModel"
-            },
-            {
-              "$ref": "#/$defs/SecretVariableModel"
-            },
-            {
-              "$ref": "#/$defs/PrimitiveVariableModel"
-            },
-            {
-              "type": "string"
-            },
-            {
-              "type": "integer"
-            },
-            {
-              "type": "number"
-            },
-            {
-              "type": "boolean"
-            }
-          ],
-          "description": "Model Serving endpoint to call. Accepts either an endpoint name string (sugar) or a full InferenceEndpointModel with temperature / max_tokens / ai_gateway / on_behalf_of_user. For a Knowledge Assistant this is the KA endpoint name (e.g., 'ka-customer-reviews').",
-          "title": "Endpoint"
-        },
-        "name": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "description": "Tool name visible to the LLM. Defaults to the endpoint name.",
-          "title": "Name"
-        },
-        "description": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "description": "Tool description shown to the LLM during function calling.",
-          "title": "Description"
-        },
-        "on_behalf_of_user": {
-          "anyOf": [
-            {
-              "type": "boolean"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "description": "If True, call the endpoint on behalf of the calling user by forwarding their bearer token. If False or None, the agent's service principal calls the endpoint. Ignored when ``endpoint`` is a full InferenceEndpointModel that sets on_behalf_of_user itself.",
-          "title": "On Behalf Of User"
-        }
-      },
-      "required": [
-        "endpoint"
-      ],
-      "title": "AgentToolModel",
-      "type": "object"
-    },
     "AppModel": {
       "additionalProperties": false,
       "description": "Application-level configuration for deployment, model registration, and orchestration.",
@@ -1292,6 +1190,83 @@
         "entitlements"
       ],
       "title": "AppPermissionModel",
+      "type": "object"
+    },
+    "AppToolModel": {
+      "additionalProperties": false,
+      "description": "First-class tool that calls a Databricks App as a tool.\n\nSupervisor API ``app`` contract. The target is a Databricks App,\nwhich may host an agent (ResponsesAgent or otherwise) or any other\nHTTP service that speaks OpenAI Responses or Chat Completions.\n\nRoutes via ``DatabricksOpenAI(workspace_client=...)`` against the\nApp's ``/v1/responses`` or ``/v1/chat/completions`` route (selected\nby ``api:``).\n\nDefault ``api:`` behavior: when ``api`` is unset (None), the wire\nshape is discovered lazily on first invocation via\n``GET <app_url>/agent/info`` (the MLflow Agent Server self-describe\nroute). Falls back to ``\"responses\"`` if discovery returns no\nsignal. Setting ``api:`` explicitly skips discovery entirely.\n\nFor other target kinds see ``type: serving_endpoint`` (Model\nServing), ``type: a2a`` (Google A2A protocol), ``type: mcp`` (MCP\napps, ``mcp-`` prefix).",
+      "properties": {
+        "type": {
+          "const": "app",
+          "default": "app",
+          "description": "Function type discriminator. Must be 'app'.",
+          "title": "Type",
+          "type": "string"
+        },
+        "human_in_the_loop": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/HumanInTheLoopModel"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Human-in-the-loop approval configuration for this tool."
+        },
+        "app": {
+          "$ref": "#/$defs/DatabricksAppModel",
+          "description": "Databricks App resource to call. Required. dao-ai dispatches via DatabricksOpenAI(workspace_client=...) using model='apps/<name>'. OBO is auto-derived from app.on_behalf_of_user. MCP apps (mcp- prefix) are rejected \u2014 use type: mcp instead."
+        },
+        "api": {
+          "anyOf": [
+            {
+              "enum": [
+                "responses",
+                "completions"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "OpenAI API contract to use against the App:\n- 'responses' \u2014 POST /v1/responses (canonical for mlflow.agents ResponsesAgent deployments).\n- 'completions' \u2014 POST /v1/chat/completions (apps that expose the OpenAI Chat Completions route).\n- None (default) \u2014 lazy-probe GET <app_url>/agent/info on first invocation; fall back to 'responses' if discovery returns no signal. Setting this field skips discovery entirely.",
+          "title": "Api"
+        },
+        "name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Tool name visible to the LLM. Defaults to the app's name.",
+          "title": "Name"
+        },
+        "description": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Tool description shown to the LLM during function calling.",
+          "title": "Description"
+        }
+      },
+      "required": [
+        "app"
+      ],
+      "title": "AppToolModel",
       "type": "object"
     },
     "AuthorizationCodeOAuthFlow": {
@@ -7893,6 +7868,125 @@
       "title": "ServicePrincipalModel",
       "type": "object"
     },
+    "ServingEndpointToolModel": {
+      "additionalProperties": false,
+      "description": "First-class tool that calls a Databricks Model Serving endpoint.\n\nSupervisor API ``serving_endpoint`` contract. Covers FMAPI /\nFoundation Model API endpoints (Chat Completions) AND UC-registered\nagents deployed to Model Serving (ResponsesAgent). The wire shape\nis selected by ``api:``.\n\nDefault ``api:`` behavior: when ``api`` is unset (None), the wire\nshape is discovered lazily on first invocation via\n``WorkspaceClient.serving_endpoints.get(name).task``; mapped to\n``\"responses\"`` for ``task=\"agent/v1/responses\"`` and\n``\"completions\"`` for ``task=\"llm/v1/chat\"``. Falls back to\n``\"completions\"`` if discovery returns no signal. Setting ``api:``\nexplicitly skips discovery entirely.\n\n``endpoint`` accepts two shapes:\n\n- **String / variable** (sugar) \u2014 just the endpoint name. dao-ai\n  promotes it to a minimal ``InferenceEndpointModel`` internally.\n- **Full ``InferenceEndpointModel``** \u2014 when you need\n  ``temperature``, ``max_tokens``, ``ai_gateway``, or\n  ``on_behalf_of_user`` on the endpoint itself.",
+      "properties": {
+        "type": {
+          "const": "serving_endpoint",
+          "default": "serving_endpoint",
+          "description": "Function type discriminator. Must be 'serving_endpoint'.",
+          "title": "Type",
+          "type": "string"
+        },
+        "human_in_the_loop": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/HumanInTheLoopModel"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Human-in-the-loop approval configuration for this tool."
+        },
+        "endpoint": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/InferenceEndpointModel"
+            },
+            {
+              "$ref": "#/$defs/CompositeVariableModel"
+            },
+            {
+              "$ref": "#/$defs/EnvironmentVariableModel"
+            },
+            {
+              "$ref": "#/$defs/SecretVariableModel"
+            },
+            {
+              "$ref": "#/$defs/PrimitiveVariableModel"
+            },
+            {
+              "type": "string"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "boolean"
+            }
+          ],
+          "description": "Model Serving endpoint to call. Accepts either an endpoint name string (sugar) or a full InferenceEndpointModel with temperature / max_tokens / ai_gateway / on_behalf_of_user. For a UC-registered agent endpoint or a Knowledge Assistant this is the endpoint name (e.g., 'ka-customer-reviews', 'hardware_store_dao'). For FMAPI it's the foundation model endpoint name (e.g., 'databricks-claude-sonnet-4').",
+          "title": "Endpoint"
+        },
+        "api": {
+          "anyOf": [
+            {
+              "enum": [
+                "responses",
+                "completions"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "OpenAI API contract to use against the endpoint:\n- 'responses' \u2014 ChatDatabricks(use_responses_api=True). Required for UC-registered agent endpoints (task = 'agent/v1/responses').\n- 'completions' \u2014 ChatDatabricks (legacy default). Required for FMAPI endpoints (task = 'llm/v1/chat').\n- None (default) \u2014 lazy-probe serving_endpoints.get(name).task on first invocation and map to the right contract; fall back to 'completions' if discovery returns no signal. Setting this field skips discovery entirely.",
+          "title": "Api"
+        },
+        "name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Tool name visible to the LLM. Defaults to the endpoint name.",
+          "title": "Name"
+        },
+        "description": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Tool description shown to the LLM during function calling.",
+          "title": "Description"
+        },
+        "on_behalf_of_user": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "If True, call the endpoint on behalf of the calling user by forwarding their bearer token. If False or None, the agent's service principal calls. Ignored when ``endpoint`` is a full InferenceEndpointModel that already sets on_behalf_of_user.",
+          "title": "On Behalf Of User"
+        }
+      },
+      "required": [
+        "endpoint"
+      ],
+      "title": "ServingEndpointToolModel",
+      "type": "object"
+    },
     "SkillModel": {
       "additionalProperties": false,
       "description": "A deepagents skill \u2014 a directory of Markdown content that teaches a deep_agent how to do a task.\n\nA skill at minimum contains ``SKILL.md`` (deepagents convention). It may also contain\n``AGENTS.md`` for memory, plus arbitrary supporting files referenced by the SKILL.\n\nSkills can live in two places, both expressed via the ``path`` field:\n\n* **Local** \u2014 a plain string relative path under the project root\n  (e.g. ``skills/research``). The directory is bundled with the model\n  artifact via ``code_paths`` and shipped with both Model Serving and\n  Databricks Apps deployments.\n* **Volume** \u2014 a ``VolumePathModel`` referencing a Unity Catalog volume\n  (``/Volumes/<cat>/<schema>/<vol>/...``). The path is read directly at\n  runtime and the volume is wired as a deployment resource for permission\n  grants. Use this when skills are governed centrally.\n\nA raw absolute string starting with ``/Volumes/`` is auto-promoted to a\n``VolumePathModel`` by the pre-validator, so users may copy-paste paths\nfrom the UC explorer without writing the structured form. The structured\nform (``volume:`` + ``path:``) is preferred for governed skills because\nit gives the deployment pipeline a typed handle to the volume.\n\nSkills are referenced from ``orchestration.deep_agent.skills`` (or per-subagent\n``subagents[].skills``) and resolved to filesystem paths that deepagents'\n``SkillsMiddleware`` can load.",
@@ -8480,7 +8574,10 @@
               "$ref": "#/$defs/SearchToolModel"
             },
             {
-              "$ref": "#/$defs/AgentToolModel"
+              "$ref": "#/$defs/AppToolModel"
+            },
+            {
+              "$ref": "#/$defs/ServingEndpointToolModel"
             },
             {
               "$ref": "#/$defs/A2AToolModel"

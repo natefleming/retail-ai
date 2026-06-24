@@ -1,0 +1,94 @@
+# yaml-language-server: $schema=../../../schemas/model_config_schema.json
+
+# ==============================================================================
+# First-class `type: serving_endpoint` example — call a Model Serving
+# endpoint as a tool.
+# ==============================================================================
+# `type: serving_endpoint` is the Supervisor API `serving_endpoint`
+# contract. Covers BOTH:
+#   - FMAPI / Foundation Model API endpoints (Chat Completions wire shape)
+#   - UC-registered agent endpoints (ResponsesAgent — `agent/v1/responses`
+#     task; the typical mlflow.agents output)
+#
+# Wire shape (Responses vs Chat Completions) is selected by `api:`:
+#   - api: responses     — for ResponsesAgent endpoints
+#   - api: completions   — for FMAPI / chat-completions endpoints
+#   - api unset (default) → lazy probe of
+#     WorkspaceClient.serving_endpoints.get(name).task on first invoke;
+#     falls back to "completions" if discovery returns no signal.
+#
+# Setting `api:` explicitly skips discovery entirely.
+#
+# For Databricks Apps, use `type: app` (see app_first_class.yaml).
+# ==============================================================================
+
+resources:
+  models:
+    main_llm: &main_llm
+      name: databricks-claude-sonnet-4
+      temperature: 0.1
+
+tools:
+  # 1. FMAPI endpoint as a string (sugar form). api unset → discovery
+  # finds task='llm/v1/chat' → maps to "completions".
+  fmapi_sonnet: &fmapi_sonnet
+    name: ask_sonnet
+    function:
+      type: serving_endpoint
+      endpoint: databricks-claude-sonnet-4
+      description: |
+        Ask Claude Sonnet 4 via the Foundation Model API.
+
+  # 2. UC-registered agent endpoint (mlflow.agents output). api unset →
+  # discovery finds task='agent/v1/responses' → maps to "responses".
+  uc_agent: &uc_agent
+    name: query_hardware_store
+    function:
+      type: serving_endpoint
+      endpoint: hardware_store_dao
+      description: |
+        Query the deployed hardware-store agent for SKU lookups, stock,
+        and store-specific questions.
+
+  # 3. Full InferenceEndpointModel sugar — when you need temperature,
+  # max_tokens, ai_gateway, or on_behalf_of_user on the endpoint itself.
+  tuned_sonnet: &tuned_sonnet
+    name: ask_sonnet_creative
+    function:
+      type: serving_endpoint
+      endpoint:
+        name: databricks-claude-sonnet-4
+        temperature: 0.9
+        max_tokens: 1024
+      api: completions
+      description: |
+        Ask Sonnet with higher temperature for creative outputs. The
+        explicit `api: completions` skips discovery.
+
+agents:
+  orchestrator: &orchestrator
+    name: orchestrator
+    model: *main_llm
+    tools:
+    - *fmapi_sonnet
+    - *uc_agent
+    - *tuned_sonnet
+    prompt: |
+      You are an orchestrator with three Model Serving endpoint tools.
+      Pick the right one based on the user's question and relay the
+      tool's reply.
+
+app:
+  name: serving_endpoint_first_class
+  description: >
+    Minimal example of the first-class `type: serving_endpoint` tool
+    shape for calling Model Serving endpoints (FMAPI or UC agents).
+  log_level: INFO
+  deployment_target: apps
+  agents:
+  - *orchestrator
+
+  input_example:
+    messages:
+    - role: user
+      content: "What is the capital of France?"

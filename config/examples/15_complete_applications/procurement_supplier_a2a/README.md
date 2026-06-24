@@ -1,26 +1,28 @@
-# Procurement <-> Supplier (A2A)
+# Procurement <-> Supplier (App-to-App via Responses API)
 
-End-to-end demo of two dao-ai apps speaking the
-[Google A2A (Agent-to-Agent) protocol](https://a2a-protocol.org).
+End-to-end demo of two dao-ai apps where the procurement agent calls the
+supplier agent as a tool via the **MLflow Responses API** (the canonical
+contract for `mlflow.agents` ResponsesAgent deployments — including every
+dao-ai app).
 
 ```text
-[user] -> procurement app -- HTTP A2A --> supplier app -> Foundation Model API
+[user] -> procurement app -- HTTPS /responses --> supplier app -> Foundation Model API
 ```
 
 | App | YAML | Role |
 |-----|------|------|
-| `dao-ai-supplier-a2a` | `supplier.yaml` | Wholesale-supplier specialist. Answers SKU, pricing, lead-time, MOQ, and stock questions from an embedded catalog. Exposes A2A by default. |
-| `dao-ai-procurement-a2a` | `procurement.yaml` | Procurement-officer agent. Holds one tool — `query_supplier` — declared as a first-class `type: a2a` tool in **AppResource mode**: the supplier app is passed in directly via `app: *supplier_app`, and the tool resolves both the endpoint and the auth mode from it. |
+| `dao-ai-supplier-a2a` | `supplier.yaml` | Wholesale-supplier specialist. Answers SKU, pricing, lead-time, MOQ, and stock questions from an embedded catalog. Exposes the Responses API (and A2A) by default. |
+| `dao-ai-procurement-a2a` | `procurement.yaml` | Procurement-officer agent. Holds one tool — `query_supplier` — declared as a first-class `type: app` tool with `app: *supplier_app`. dao-ai dispatches the call via `DatabricksOpenAI(workspace_client=...).responses.create(model='apps/<name>', …)`. OBO is auto-derived from the bound app. |
 
 Both apps run on Foundation Model API only — no Unity Catalog tables,
 Vector Search indexes, or Genie rooms required.
 
 ---
 
-## Why AppResource mode
+## How it works
 
 The procurement app declares the supplier as a first-class Databricks
-App resource and hands that resource straight to the A2A tool:
+App resource and hands that resource straight to the agent tool:
 
 ```yaml
 resources:
@@ -32,41 +34,49 @@ resources:
 tools:
   query_supplier:
     function:
-      type: a2a
+      type: app
       app: *supplier_app
 ```
 
-The factory then:
+`type: app` dispatches via the OpenAI Responses API (the default when
+`api:` is unset and `/agent/info` resolves to "responses"):
 
-1. Looks up the supplier app's deployed URL via
-   `DatabricksAppModel.url` (no `SUPPLIER_A2A_ENDPOINT` env var or
-   secret needed).
-2. Picks the auth mode from `supplier_app.on_behalf_of_user`:
+```python
+ws = supplier_app.workspace_client_from(context)         # OBO-aware
+client = DatabricksOpenAI(workspace_client=ws)
+client.responses.create(
+    model="apps/dao-ai-supplier-a2a",
+    input=[{"role": "user", "content": prompt}],
+)
+```
 
-| `supplier_app.on_behalf_of_user` | Auth used | What the supplier sees |
-|---|---|---|
-| `true` (this demo) | **`forwarded_user_token`** — read `runtime.context.headers["x-forwarded-access-token"]` per call | The calling end user. Combined with `supplier_llm.on_behalf_of_user: true`, the supplier's LLM call runs as that user. |
-| `false` / unset | **`databricks_app_sp`** — mint a fresh M2M header from the ambient `WorkspaceClient().config.authenticate()` per call | The procurement service principal. Useful for server-to-server / scheduled pipelines where there's no calling user. |
+The factory:
 
-You can still pin `auth_type:` explicitly in the tool args to override
-the app-derived default (e.g. force App-SP M2M against an OBO-tagged
-app, or attach a custom static bearer).
+1. Builds a `WorkspaceClient` per call. If `supplier_app.on_behalf_of_user`
+   is true, that client uses the calling user's `x-forwarded-access-token`
+   (forwarded by the Apps proxy) — so the supplier sees the end user.
+   Otherwise it uses the procurement app's service principal.
+2. Wraps the client in `DatabricksOpenAI`, which speaks the OpenAI API
+   against the workspace's serving-endpoint proxy. The `apps/<name>`
+   model prefix tells the proxy to forward to the supplier app's
+   `POST /v1/responses` route.
+3. Extracts the assistant's reply via `response.output_text`.
 
-The tool also keeps its original **manual-endpoint mode** for external /
-non-Databricks A2A agents (Vertex, third-party Crew.ai / LangGraph,
-public agents). See
-`config/examples/10_agent_integrations/a2a_agent.yaml` for that
-variant.
+For explicit Google A2A protocol against the same app (session-continuity,
+agent-card discovery, HITL-over-A2A), use `type: a2a` with `app:`
+instead. For external A2A agents (Vertex, Crew.ai, ADK), see
+`config/examples/10_agent_integrations/a2a_agent.yaml`.
 
 ---
 
 ## Deployment workflow
 
 The supplier must be deployed before the procurement app makes its
-first `query_supplier` tool call (the A2A tool resolves the supplier
-URL lazily via `DatabricksAppModel.url` on first invocation and caches
-it for the lifetime of the worker). In practice that means: deploy
-supplier first, then procurement, then exercise.
+first `query_supplier` tool call. Routing via the workspace's
+serving-endpoint proxy + the `apps/<name>` model prefix means the
+factory never needs to resolve the supplier's URL itself — the proxy
+handles that. In practice: deploy supplier first, then procurement,
+then exercise.
 
 Each app is generated into its own bundle directory so the outputs
 don't clobber each other.

@@ -20,7 +20,7 @@ import shutil
 import subprocess
 from importlib.metadata import version as pkg_version
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
 
 import yaml
 from loguru import logger
@@ -118,17 +118,43 @@ name = "{name}"
 version = "0.1.0"
 description = "DAO AI Agent: {name} (development build)"
 requires-python = ">=3.11"
-dependencies = [
-    "dao-ai",
-]
-
-[tool.uv.sources]
-dao-ai = {{ path = "dist/{wheel_filename}" }}
+# Deps are installed from requirements.txt at deploy time (which points
+# at the local wheel under dist/). Pyproject is metadata + hatch build
+# target for any user code under src/{package_name}/.
+dependencies = []
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/{package_name}"]
 sources = ["src"]
 """
+
+
+def _make_requirements_txt(
+    *,
+    development: bool,
+    wheel_filename: Optional[str] = None,
+) -> str:
+    """Build the requirements.txt content for an app bundle.
+
+    Apps' build phase recognizes ``requirements.txt`` directly and runs
+    ``pip install -r requirements.txt`` against public PyPI. This avoids
+    the pypi-proxy lock-in problem that arose when shipping ``uv.lock``
+    files generated from Databricks-internal environments.
+
+    Published mode: pin dao-ai by version range so Apps builds always
+    pick up the version the bundle was generated against.
+
+    Development mode: reference the bundled wheel via a relative path
+    (``./dist/<wheel>``). Pip installs the wheel and resolves transitive
+    deps from public PyPI from the wheel's declared dependency metadata.
+    """
+    if development:
+        if not wheel_filename:
+            raise ValueError(
+                "_make_requirements_txt: wheel_filename is required in development mode."
+            )
+        return f"./dist/{wheel_filename}\n"
+    return f"dao-ai>={_get_dao_ai_version()}\n"
 
 
 def _get_dao_ai_version() -> str:
@@ -741,14 +767,23 @@ def write_bundle(
         logger.info("Copied dao-ai wheel for development build", wheel=wheel_path.name)
         written.append(f"dist/{wheel_path.name}")
 
-        # Write dev pyproject.toml referencing local wheel
+        # Write dev pyproject.toml (metadata + hatch build target).
+        # Deps are installed from requirements.txt at deploy time.
         _track(
             output_dir / "pyproject.toml",
             _PYPROJECT_DEV_TEMPLATE.format(
                 name=app_name,
                 package_name=package_name,
-                wheel_filename=wheel_path.name,
             ),
+        )
+
+        # Write requirements.txt pointing at the bundled wheel. Apps'
+        # build phase picks this up directly and runs ``pip install -r
+        # requirements.txt`` — no uv.lock needed, no pypi-proxy URLs to
+        # rewrite, no ambient-env coupling.
+        _track(
+            output_dir / "requirements.txt",
+            _make_requirements_txt(development=True, wheel_filename=wheel_path.name),
         )
 
         # Create stub package for user's custom code additions
@@ -767,6 +802,15 @@ def write_bundle(
                 package_name=package_name,
                 dao_ai_version=_get_dao_ai_version(),
             ),
+        )
+
+        # Write requirements.txt with version-ranged dao-ai pin. Apps'
+        # build phase runs ``pip install -r requirements.txt`` from
+        # public PyPI — same path used by deploy_apps_agent's published
+        # branch (kept in sync intentionally).
+        _track(
+            output_dir / "requirements.txt",
+            _make_requirements_txt(development=False),
         )
 
         # Create stub package so the wheel builds and users can add custom code
@@ -795,9 +839,9 @@ def write_bundle(
 
     print("\nNext steps:")
     print(f"  cd {output_dir}")
-    print("  uv sync                              # generate uv.lock against your env")
-    print("  # Databricks-internal users only: rewrite internal-proxy URLs in the lock")
-    print("  # so Apps containers can fetch from public PyPI (see README).")
     print("  databricks bundle deploy --target dev")
     print(f"  databricks bundle run {app_name} --target dev")
+    print()
+    print("  # Apps' build phase installs deps directly from requirements.txt;")
+    print("  # no uv sync or URL rewrite required.")
     print()

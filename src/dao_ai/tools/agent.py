@@ -17,7 +17,36 @@ def create_agent_endpoint_tool(
     name: Optional[str] = None,
     description: Optional[str] = None,
 ) -> Callable[..., Any]:
-    logger.debug("Creating agent endpoint tool", name=name, description=description)
+    """Create a tool that calls a Model Serving endpoint via ChatDatabricks.
+
+    The wire shape (Responses vs Chat Completions) is read from
+    ``llm.use_responses_api`` — set it to ``True`` for UC-registered
+    agent endpoints (``agent/v1/responses`` task) and ``False`` for
+    FMAPI / chat-completions endpoints (``llm/v1/chat`` task).
+
+    For automatic task-based selection at runtime, use the higher-level
+    :func:`dao_ai.tools.create_serving_endpoint_dispatcher` (used by
+    ``type: serving_endpoint`` in YAML) which probes the endpoint's
+    task field via the Databricks SDK and resolves ``use_responses_api``
+    accordingly.
+
+    Args:
+        llm: The :class:`InferenceEndpointModel` config for the endpoint.
+            ``llm.use_responses_api`` (default False) selects the wire
+            shape.
+        name: Tool name shown to the LLM. Defaults to ``agent_endpoint``.
+        description: Tool description. Defaults to a generic prompt.
+    """
+    logger.debug(
+        "Creating agent endpoint tool",
+        name=name,
+        description=description,
+        use_responses_api=(
+            llm.use_responses_api
+            if isinstance(llm, InferenceEndpointModel)
+            else None
+        ),
+    )
 
     default_description: str = dedent("""
     This tool allows you to interact with a language model endpoint to answer questions.
@@ -60,6 +89,7 @@ def create_agent_endpoint_tool(
                 model=llm.name,
                 auth_type=workspace_client.config.auth_type,
                 ai_gateway=llm.ai_gateway,
+                use_responses_api=llm.use_responses_api,
             )
             model: LanguageModelLike = llm.chat_model_for_workspace_client(
                 workspace_client

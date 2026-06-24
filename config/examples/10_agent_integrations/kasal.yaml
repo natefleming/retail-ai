@@ -54,13 +54,13 @@ resources:
       max_tokens: 800
 
 tools:
-  # Kasal Financial Analysis Tool — first-class `type: agent` (dao-ai
+  # Kasal Financial Analysis Tool — first-class `type: serving_endpoint` (dao-ai
   # 0.1.97+). `endpoint:` accepts the full InferenceEndpointModel anchor so
   # temperature / max_tokens flow through from the resource definition.
   financial_analyst_tool: &financial_analyst_tool
     name: financial_analyst
     function:
-      type: agent
+      type: serving_endpoint
       endpoint: *kasal_financial_agent
       name: kasal_financial_expert
       description: |
@@ -80,7 +80,7 @@ tools:
   compliance_checker_tool: &compliance_checker_tool
     name: compliance_checker
     function:
-      type: agent
+      type: serving_endpoint
       endpoint: *kasal_compliance_agent
       name: kasal_compliance_validator
       description: |
@@ -100,7 +100,7 @@ tools:
   privacy_specialist_tool: &privacy_specialist_tool
     name: privacy_specialist
     function:
-      type: agent
+      type: serving_endpoint
       endpoint: *kasal_privacy_agent
       name: kasal_privacy_expert
       description: |

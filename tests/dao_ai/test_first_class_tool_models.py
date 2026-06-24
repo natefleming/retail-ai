@@ -18,10 +18,12 @@ from langchain_core.tools import BaseTool
 
 from dao_ai.config import (
     A2AToolModel,
-    AgentToolModel,
+    AppToolModel,
     FunctionType,
     GenieToolModel,
+    InferenceEndpointModel,
     SearchToolModel,
+    ServingEndpointToolModel,
     ToolModel,
     VectorSearchToolModel,
 )
@@ -247,173 +249,231 @@ class TestInheritedBehavior:
 
 
 # ---------------------------------------------------------------------------
-# AgentToolModel — Supervisor API knowledge_assistant / serving_endpoint
+# AppToolModel — Supervisor API `app` contract (Databricks Apps)
 # ---------------------------------------------------------------------------
 
 
-class TestAgentToolModel:
-    def test_type_agent_dispatches_to_agent_tool_model(self) -> None:
+class TestAppToolModel:
+    def test_type_app_dispatches_to_app_tool_model(self) -> None:
         m = ToolModel.model_validate(
             {
-                "name": "ka_reviews",
-                "function": {"type": "agent", "endpoint": "ka-customer-reviews"},
-            }
-        )
-        assert isinstance(m.function, AgentToolModel)
-        assert m.function.type == FunctionType.AGENT.value
-        assert m.function.endpoint == "ka-customer-reviews"
-
-    def test_agent_requires_endpoint(self) -> None:
-        with pytest.raises(Exception):
-            ToolModel.model_validate({"name": "x", "function": {"type": "agent"}})
-
-    def test_agent_accepts_obo_toggle(self) -> None:
-        m = ToolModel.model_validate(
-            {
-                "name": "user_agent",
+                "name": "delegate",
                 "function": {
-                    "type": "agent",
-                    "endpoint": "my-agent",
-                    "on_behalf_of_user": True,
+                    "type": "app",
+                    "app": {"name": "my-app", "on_behalf_of_user": False},
                 },
             }
         )
-        assert m.function.on_behalf_of_user is True
+        assert isinstance(m.function, AppToolModel)
+        assert m.function.type == FunctionType.APP.value
+        assert m.function.app.name == "my-app"
 
-    def test_agent_accepts_human_in_the_loop(self) -> None:
+    def test_api_defaults_to_none(self) -> None:
+        m = ToolModel.model_validate(
+            {
+                "name": "x",
+                "function": {"type": "app", "app": {"name": "my-app"}},
+            }
+        )
+        assert m.function.api is None
+
+    def test_api_accepts_responses_and_completions(self) -> None:
+        for api_value in ("responses", "completions"):
+            m = ToolModel.model_validate(
+                {
+                    "name": "x",
+                    "function": {
+                        "type": "app",
+                        "app": {"name": "my-app"},
+                        "api": api_value,
+                    },
+                }
+            )
+            assert m.function.api == api_value
+
+    def test_api_rejects_unknown_value(self) -> None:
+        with pytest.raises(Exception):
+            ToolModel.model_validate(
+                {
+                    "name": "x",
+                    "function": {
+                        "type": "app",
+                        "app": {"name": "my-app"},
+                        "api": "rest",
+                    },
+                }
+            )
+
+    def test_requires_app(self) -> None:
+        """`app:` is required — app-only model has no `endpoint:` fallback."""
+        with pytest.raises(Exception):
+            ToolModel.model_validate({"name": "x", "function": {"type": "app"}})
+
+    def test_rejects_mcp_prefix_app_at_validation_time(self) -> None:
+        """MCP apps must use `type: mcp`, not `type: app`."""
+        with pytest.raises(Exception, match="type: mcp"):
+            AppToolModel(
+                type=FunctionType.APP,
+                app={"name": "mcp-hardware-store"},
+            )
+
+    def test_accepts_human_in_the_loop(self) -> None:
         m = ToolModel.model_validate(
             {
                 "name": "a",
                 "function": {
-                    "type": "agent",
-                    "endpoint": "my-agent",
-                    "human_in_the_loop": {"review_prompt": "Approve call?"},
+                    "type": "app",
+                    "app": {"name": "my-app"},
+                    "human_in_the_loop": {"review_prompt": "Approve?"},
                 },
             }
         )
         assert m.function.human_in_the_loop is not None
 
-    def test_agent_as_tools_returns_structured_tool(self) -> None:
-        m = AgentToolModel(
-            type=FunctionType.AGENT,
-            endpoint="my-agent",
-            name="my_agent_tool",
-            description="Answers questions",
+    def test_as_tools_returns_dispatcher_tool(self) -> None:
+        m = AppToolModel(
+            type=FunctionType.APP,
+            app={"name": "my-app"},
+            name="my_app_tool",
+            description="My app tool.",
         )
         tools = m.as_tools()
         assert len(tools) == 1
-        assert tools[0].name == "my_agent_tool"
+        assert tools[0].name == "my_app_tool"
 
-    def test_agent_endpoint_accepts_full_inference_endpoint_model(self) -> None:
-        """endpoint: can be a full InferenceEndpointModel (with temp / max_tokens / ai_gateway)."""
-        from dao_ai.config import InferenceEndpointModel
 
+# ---------------------------------------------------------------------------
+# ServingEndpointToolModel — Supervisor API `serving_endpoint` contract
+# ---------------------------------------------------------------------------
+
+
+class TestServingEndpointToolModel:
+    def test_type_serving_endpoint_dispatches_to_serving_endpoint_tool_model(
+        self,
+    ) -> None:
         m = ToolModel.model_validate(
             {
-                "name": "ka",
+                "name": "fmapi",
                 "function": {
-                    "type": "agent",
-                    "endpoint": {
-                        "name": "ka-customer-reviews",
-                        "temperature": 0.7,
-                        "max_tokens": 1000,
-                    },
-                    "name": "ka_tool",
+                    "type": "serving_endpoint",
+                    "endpoint": "databricks-claude-sonnet-4",
                 },
             }
         )
-        assert isinstance(m.function, AgentToolModel)
-        assert isinstance(m.function.endpoint, InferenceEndpointModel)
-        assert m.function.endpoint.name == "ka-customer-reviews"
-        assert m.function.endpoint.temperature == 0.7
-        assert m.function.endpoint.max_tokens == 1000
+        assert isinstance(m.function, ServingEndpointToolModel)
+        assert m.function.type == FunctionType.SERVING_ENDPOINT.value
+        assert m.function.endpoint == "databricks-claude-sonnet-4"
 
-        llm = m.function._resolved_llm()
-        assert isinstance(llm, InferenceEndpointModel)
-        assert llm.temperature == 0.7
-        assert llm.max_tokens == 1000
-
-        tools = m.function.as_tools()
-        assert len(tools) == 1
-        assert tools[0].name == "ka_tool"
-
-    def test_agent_endpoint_string_promoted_to_inference_endpoint_model(self) -> None:
-        """String endpoint: gets promoted to InferenceEndpointModel(name=...) internally."""
-        from dao_ai.config import InferenceEndpointModel
-
-        m = AgentToolModel(
-            type=FunctionType.AGENT,
-            endpoint="my-endpoint",
-            on_behalf_of_user=True,
+    def test_endpoint_string_sugar_promoted_to_inference_endpoint_model(
+        self,
+    ) -> None:
+        m = ServingEndpointToolModel(
+            type=FunctionType.SERVING_ENDPOINT,
+            endpoint="my-fmapi",
         )
         llm = m._resolved_llm()
         assert isinstance(llm, InferenceEndpointModel)
-        assert llm.name == "my-endpoint"
+        assert llm.name == "my-fmapi"
+
+    def test_endpoint_full_inference_endpoint_model_preserved(self) -> None:
+        m = ToolModel.model_validate(
+            {
+                "name": "x",
+                "function": {
+                    "type": "serving_endpoint",
+                    "endpoint": {
+                        "name": "hardware_store_dao",
+                        "temperature": 0.7,
+                        "max_tokens": 1024,
+                    },
+                },
+            }
+        )
+        assert isinstance(m.function, ServingEndpointToolModel)
+        assert isinstance(m.function.endpoint, InferenceEndpointModel)
+        assert m.function.endpoint.temperature == 0.7
+        assert m.function.endpoint.max_tokens == 1024
+
+        llm = m.function._resolved_llm()
+        assert llm.temperature == 0.7
+        assert llm.max_tokens == 1024
+
+    def test_api_defaults_to_none(self) -> None:
+        m = ToolModel.model_validate(
+            {
+                "name": "x",
+                "function": {
+                    "type": "serving_endpoint",
+                    "endpoint": "my-ep",
+                },
+            }
+        )
+        assert m.function.api is None
+
+    def test_api_accepts_responses_and_completions(self) -> None:
+        for api_value in ("responses", "completions"):
+            m = ToolModel.model_validate(
+                {
+                    "name": "x",
+                    "function": {
+                        "type": "serving_endpoint",
+                        "endpoint": "my-ep",
+                        "api": api_value,
+                    },
+                }
+            )
+            assert m.function.api == api_value
+
+    def test_api_rejects_unknown_value(self) -> None:
+        with pytest.raises(Exception):
+            ToolModel.model_validate(
+                {
+                    "name": "x",
+                    "function": {
+                        "type": "serving_endpoint",
+                        "endpoint": "my-ep",
+                        "api": "rest",
+                    },
+                }
+            )
+
+    def test_requires_endpoint(self) -> None:
+        with pytest.raises(Exception):
+            ToolModel.model_validate(
+                {"name": "x", "function": {"type": "serving_endpoint"}}
+            )
+
+    def test_on_behalf_of_user_propagates_to_resolved_llm(self) -> None:
+        m = ServingEndpointToolModel(
+            type=FunctionType.SERVING_ENDPOINT,
+            endpoint="my-ep",
+            on_behalf_of_user=True,
+        )
+        llm = m._resolved_llm()
         assert llm.on_behalf_of_user is True
 
-    def test_agent_parity_with_factory(self) -> None:
-        new = ToolModel.model_validate(
+    def test_accepts_human_in_the_loop(self) -> None:
+        m = ToolModel.model_validate(
             {
-                "name": "a",
+                "name": "x",
                 "function": {
-                    "type": "agent",
-                    "endpoint": "my-agent",
-                    "name": "my_agent_tool",
+                    "type": "serving_endpoint",
+                    "endpoint": "my-ep",
+                    "human_in_the_loop": {"review_prompt": "Approve?"},
                 },
             }
         )
-        old = ToolModel.model_validate(
-            {
-                "name": "a",
-                "function": {
-                    "type": "factory",
-                    "name": "dao_ai.tools.create_agent_endpoint_tool",
-                    "args": {
-                        "llm": {"name": "my-agent"},
-                        "name": "my_agent_tool",
-                    },
-                },
-            }
-        )
-        new_tools = new.function.as_tools()
-        old_tools = old.function.as_tools()
-        assert len(new_tools) == len(old_tools) == 1
-        assert [t.name for t in new_tools] == [t.name for t in old_tools]
+        assert m.function.human_in_the_loop is not None
 
-    def test_agent_parity_with_factory_full_model(self) -> None:
-        """type: agent with full InferenceEndpointModel matches the original factory shape."""
-        llm = {
-            "name": "agent-bricks-customer-support-endpoint",
-            "temperature": 0.7,
-            "max_tokens": 1000,
-        }
-        new = ToolModel.model_validate(
-            {
-                "name": "a",
-                "function": {
-                    "type": "agent",
-                    "endpoint": llm,
-                    "name": "customer_support_specialist",
-                },
-            }
+    def test_as_tools_returns_dispatcher_tool(self) -> None:
+        m = ServingEndpointToolModel(
+            type=FunctionType.SERVING_ENDPOINT,
+            endpoint="databricks-claude-sonnet-4",
+            name="claude_tool",
         )
-        old = ToolModel.model_validate(
-            {
-                "name": "a",
-                "function": {
-                    "type": "factory",
-                    "name": "dao_ai.tools.create_agent_endpoint_tool",
-                    "args": {
-                        "llm": llm,
-                        "name": "customer_support_specialist",
-                    },
-                },
-            }
-        )
-        new_tools = new.function.as_tools()
-        old_tools = old.function.as_tools()
-        assert len(new_tools) == len(old_tools) == 1
-        assert [t.name for t in new_tools] == [t.name for t in old_tools]
+        tools = m.as_tools()
+        assert len(tools) == 1
+        assert tools[0].name == "claude_tool"
 
 
 # ---------------------------------------------------------------------------

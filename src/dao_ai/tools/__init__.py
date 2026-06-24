@@ -1,8 +1,17 @@
 from dao_ai.genie.cache import LRUCacheService, PostgresContextAwareGenieService
 from dao_ai.hooks.core import create_hooks
+from dao_ai.tools._api_discovery import (
+    ApiContract,
+    discover_app_agent_api,
+    discover_serving_endpoint_api,
+    resolve_api,
+)
 from dao_ai.tools.a2a_agent import create_a2a_agent_tool
 from dao_ai.tools.agent import create_agent_endpoint_tool
+from dao_ai.tools.app_agent_dispatcher import create_app_dispatcher
 from dao_ai.tools.app_info import create_app_info_tool
+from dao_ai.tools.chat_completions_agent import create_chat_completions_agent_tool
+from dao_ai.tools.serving_endpoint_dispatcher import create_serving_endpoint_dispatcher
 from dao_ai.tools.core import create_tools, say_hello_tool
 from dao_ai.tools.email import create_send_email_tool
 from dao_ai.tools.genie import GenieToolkit, create_genie_tool, create_genie_toolkit
@@ -15,6 +24,7 @@ from dao_ai.tools.memory import (
 from dao_ai.tools.ms_teams import create_send_teams_message_tool
 from dao_ai.tools.python import create_factory_tool, create_python_tool
 from dao_ai.tools.rest_api import create_rest_api_tool
+from dao_ai.tools.responses_agent import create_responses_agent_tool
 from dao_ai.tools.search import create_search_tool
 from dao_ai.tools.slack import create_send_slack_message_tool
 from dao_ai.tools.sql import create_execute_statement_tool
@@ -36,8 +46,15 @@ __all__ = [
     "add_time_tool",
     "create_a2a_agent_tool",
     "create_agent_endpoint_tool",
+    "create_app_dispatcher",
     "create_app_info_tool",
+    "create_chat_completions_agent_tool",
     "create_execute_statement_tool",
+    "create_serving_endpoint_dispatcher",
+    "discover_app_agent_api",
+    "discover_serving_endpoint_api",
+    "resolve_api",
+    "ApiContract",
     "create_factory_tool",
     "create_vertex_agent_engine_tool",
     "create_genie_tool",
@@ -49,6 +66,7 @@ __all__ = [
     "MCPToolInfo",
     "create_python_tool",
     "create_rest_api_tool",
+    "create_responses_agent_tool",
     "create_manage_memory_tool",
     "create_search_memory_tool",
     "create_search_user_profile_tool",
