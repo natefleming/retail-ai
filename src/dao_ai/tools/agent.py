@@ -16,27 +16,36 @@ def create_agent_endpoint_tool(
     llm: InferenceEndpointModel | dict[str, Any],
     name: Optional[str] = None,
     description: Optional[str] = None,
-    auto_detect_responses_api: bool = False,
 ) -> Callable[..., Any]:
     """Create a tool that calls a Model Serving endpoint via ChatDatabricks.
 
+    The wire shape (Responses vs Chat Completions) is read from
+    ``llm.use_responses_api`` — set it to ``True`` for UC-registered
+    agent endpoints (``agent/v1/responses`` task) and ``False`` for
+    FMAPI / chat-completions endpoints (``llm/v1/chat`` task).
+
+    For automatic task-based selection at runtime, use the higher-level
+    :func:`dao_ai.tools.create_serving_endpoint_dispatcher` (used by
+    ``type: serving_endpoint`` in YAML) which probes the endpoint's
+    task field via the Databricks SDK and resolves ``use_responses_api``
+    accordingly.
+
     Args:
         llm: The :class:`InferenceEndpointModel` config for the endpoint.
+            ``llm.use_responses_api`` (default False) selects the wire
+            shape.
         name: Tool name shown to the LLM. Defaults to ``agent_endpoint``.
         description: Tool description. Defaults to a generic prompt.
-        auto_detect_responses_api: When True, lazily probe
-            ``serving_endpoints.get(name).task`` on first invocation and
-            set ``use_responses_api`` based on whether the endpoint is an
-            ``agent/v1/responses`` ResponsesAgent (UC-registered agent)
-            or an ``llm/v1/chat`` chat-completions endpoint (FMAPI).
-            Cached after the first detection. Falls back to ``False`` on
-            lookup failure.
     """
     logger.debug(
         "Creating agent endpoint tool",
         name=name,
         description=description,
-        auto_detect_responses_api=auto_detect_responses_api,
+        use_responses_api=(
+            llm.use_responses_api
+            if isinstance(llm, InferenceEndpointModel)
+            else None
+        ),
     )
 
     default_description: str = dedent("""
@@ -61,44 +70,6 @@ def create_agent_endpoint_tool(
 
     doc: str = description + "\n" + doc_signature
 
-    # Closure cache for the lazily-resolved use_responses_api flag.
-    # None = unresolved; True/False = resolved value.
-    auto_detect_cache: dict[str, Optional[bool]] = {"resolved": None}
-
-    def _resolve_effective_llm(
-        workspace_client: "WorkspaceClient | None",
-    ) -> InferenceEndpointModel:
-        """Return llm, overriding use_responses_api from the auto-detect probe."""
-        if not auto_detect_responses_api:
-            return llm
-        if auto_detect_cache["resolved"] is not None:
-            return llm.model_copy(
-                update={"use_responses_api": auto_detect_cache["resolved"]}
-            )
-        # First call — probe the endpoint task to choose the right wire shape.
-        from databricks.sdk import WorkspaceClient as _WS
-
-        ws_for_lookup: _WS = workspace_client or _WS()
-        detected: bool = False
-        try:
-            ep_info = ws_for_lookup.serving_endpoints.get(llm.name)
-            task_str: str = (getattr(ep_info, "task", None) or "").lower()
-            detected = "responses" in task_str
-            logger.info(
-                "Auto-detected endpoint task",
-                endpoint=llm.name,
-                task=task_str or "<unknown>",
-                use_responses_api=detected,
-            )
-        except Exception as exc:
-            logger.warning(
-                f"serving_endpoints.get({llm.name!r}) failed during "
-                f"auto-detect: {type(exc).__name__}: {exc}. "
-                f"Defaulting to use_responses_api=False (chat completions)."
-            )
-        auto_detect_cache["resolved"] = detected
-        return llm.model_copy(update={"use_responses_api": detected})
-
     async def agent_endpoint(
         prompt: str,
         runtime: Annotated[ToolRuntime[Context], InjectedToolArg] = None,
@@ -113,22 +84,18 @@ def create_agent_endpoint_tool(
             from databricks.sdk import WorkspaceClient
 
             workspace_client: WorkspaceClient = llm.workspace_client_from(context)
-            effective_llm: InferenceEndpointModel = _resolve_effective_llm(
-                workspace_client
-            )
             logger.debug(
                 "Creating OBO chat client for agent endpoint tool",
-                model=effective_llm.name,
+                model=llm.name,
                 auth_type=workspace_client.config.auth_type,
-                ai_gateway=effective_llm.ai_gateway,
-                use_responses_api=effective_llm.use_responses_api,
+                ai_gateway=llm.ai_gateway,
+                use_responses_api=llm.use_responses_api,
             )
-            model: LanguageModelLike = effective_llm.chat_model_for_workspace_client(
+            model: LanguageModelLike = llm.chat_model_for_workspace_client(
                 workspace_client
             )
         else:
-            effective_llm = _resolve_effective_llm(None)
-            model = effective_llm.as_chat_model()
+            model = llm.as_chat_model()
 
         messages: Sequence[BaseMessage] = [HumanMessage(content=prompt)]
         response: AIMessage = await model.ainvoke(messages)
