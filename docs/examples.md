@@ -210,26 +210,31 @@ Enforce response format with JSON schema.
 
 ### 10. Agent Integrations [📖 README](../config/examples/10_agent_integrations/README.md)
 
-Integrate with external agent platforms like Agent Bricks and Kasal using agent endpoint tools.
+Call another agent as a tool using the first-class `type: app`, `type: serving_endpoint`, and `type: a2a` function types.
 
 | Example | Description |
 |---------|-------------|
-| `agent_bricks.yaml` | Agent Bricks integration with customer support and product expert agents |
-| `kasal.yaml` | Kasal enterprise agents with financial, compliance, and privacy specialists |
+| `app_first_class.yaml` | `type: app` — call a Databricks App as a tool (lazy `/agent/info` probe + explicit `api:` override) |
+| `serving_endpoint_first_class.yaml` | `type: serving_endpoint` — call FMAPI (Chat Completions) and UC-registered ResponsesAgent endpoints (`task` discovery) |
+| `agent_bricks.yaml` | Agent Bricks integration with customer support and product expert agents (`type: serving_endpoint`) |
+| `kasal.yaml` | Kasal enterprise agents with financial, compliance, and privacy specialists (`type: serving_endpoint`) |
 
 **What You'll Learn:**
-- **Agent Endpoint Tools**: Call external agents as tools within your DAO-AI agents
+- **First-Class Agent Tools**: Use `type: app`, `type: serving_endpoint`, and `type: a2a` to call other agents as tools — no factory boilerplate required
+- **Wire-Shape Selection**: Pick OpenAI Responses vs Chat Completions per tool via `api:`, or let dao-ai discover it lazily on first invocation
+- **Per-Target Discovery**: Apps probe `/agent/info`; Model Serving endpoints probe `serving_endpoints.get(name).task` — both lazy, cached, and offline-safe
 - **Multi-Agent Orchestration**: Coordinate between specialized external agents
 - **Delegation Patterns**: Route tasks to purpose-built specialist agents
-- **Enterprise Integration**: Leverage existing agent infrastructure with governance
 
 **Key Concepts:**
 - **Hub-and-Spoke Pattern**: One orchestrator routes to multiple specialists
 - **Sequential Workflows**: Chain specialist agents for compliance and validation
 - **Parallel Consultation**: Consult multiple agents simultaneously for multi-perspective analysis
 
-**Prerequisites:** Agent Bricks or Kasal endpoints configured  
+**Prerequisites:** Target Databricks App or Model Serving endpoint deployed (or an Agent Bricks / Kasal endpoint configured)  
 **Next:** Optimize prompts in `11_prompt_engineering/`
+
+> 📖 See [configuration-reference.md → First-Class Agent Tools](configuration-reference.md#first-class-agent-tools) for the full field reference, discovery rules, and offline-safety guarantees.
 
 ---
 
@@ -247,27 +252,17 @@ Prompt versioning, management, and automated optimization.
 
 **Common Patterns:**
 ```yaml
-resources:
-  llms:
-    # External agent endpoint configuration
-    specialist_agent: &specialist_agent
-      name: external-agent-endpoint-name
-      description: "Agent capabilities"
-      temperature: 0.1
-      max_tokens: 1000
-
 tools:
   specialist_tool: &specialist_tool
     name: specialist_agent
     function:
-      type: factory
-      name: dao_ai.tools.create_agent_endpoint_tool
-      args:
-        llm: *specialist_agent
-        name: specialist
-        description: |
-          Detailed description of when to use this agent.
-          
+      # First-class type — discovery picks Responses vs Chat Completions
+      # based on serving_endpoints.get(name).task.
+      type: serving_endpoint
+      endpoint: external-agent-endpoint-name
+      description: |
+        Detailed description of when to use this agent.
+
 agents:
   orchestrator:
     name: main_agent
@@ -291,18 +286,16 @@ agents:
 # Customer support agent for handling complaints
 customer_support_tool:
   function:
-    name: dao_ai.tools.create_agent_endpoint_tool
-    args:
-      llm: *agent_bricks_customer_support
-      description: "Handle customer complaints, returns, and issues"
+    type: serving_endpoint
+    endpoint: *agent_bricks_customer_support
+    description: "Handle customer complaints, returns, and issues"
 
 # Product expert for technical questions
 product_expert_tool:
   function:
-    name: dao_ai.tools.create_agent_endpoint_tool
-    args:
-      llm: *agent_bricks_product_expert
-      description: "Technical specs, compatibility, recommendations"
+    type: serving_endpoint
+    endpoint: *agent_bricks_product_expert
+    description: "Technical specs, compatibility, recommendations"
 
 # Main agent routes to specialists
 orchestrator:

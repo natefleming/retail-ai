@@ -140,16 +140,22 @@ tools:
             """Evaluate a mathematical expression."""
             return str(eval(expression))
 
-  # Factory - escape hatch for custom factories
+  # First-class — call a Model Serving endpoint as a tool
   specialist_agent:
     name: specialist
     function:
+      type: serving_endpoint
+      endpoint: *external_agent_endpoint
+      description: "Delegate to external specialist agent"
+
+  # Factory — escape hatch for any custom factory function
+  custom_factory_tool:
+    name: custom
+    function:
       type: factory
-      name: dao_ai.tools.create_agent_endpoint_tool
+      name: my_package.factories.create_custom_tool
       args:
-        llm: *external_agent_endpoint
-        name: specialist
-        description: "Delegate to external specialist agent"
+        my_arg: value
 ```
 
 ### Migrating from `type: factory` to first-class types
@@ -162,6 +168,9 @@ The old `type: factory + name: dao_ai.tools.create_*` shape continues to work in
 | `type: factory`, `name: dao_ai.tools.create_genie_toolkit`, `args: { genie_room: ..., lru_cache_parameters: ..., context_aware_cache_parameters: ... }` | `type: genie`, `genie_room: ...`, `lru_cache: ...`, `context_aware_cache: ...` (any cache promotes to toolkit) |
 | `type: factory`, `name: dao_ai.tools.create_vector_search_tool`, `args: { retriever: ... }` | `type: vector_search`, `retriever: ...` |
 | `type: factory`, `name: dao_ai.tools.create_search_tool` | `type: search` |
+| `type: factory`, `name: dao_ai.tools.create_agent_endpoint_tool`, `args: { llm: <endpoint>, ... }` | `type: serving_endpoint`, `endpoint: <name-or-model>` (FMAPI + UC ResponsesAgent endpoints; lazy `task` discovery) |
+| `type: factory`, `name: dao_ai.tools.create_responses_agent_tool` / `create_chat_completions_agent_tool`, `args: { app: ..., ... }` | `type: app`, `app: <app>` (lazy `/agent/info` discovery; set `api:` to skip) |
+| (no factory equivalent — A2A is first-class only, since v0.1.80) | `type: a2a`, `agent_card_url: ...` |
 
 Cache parameter field renames on `type: genie`:
 - `lru_cache_parameters` → `lru_cache`

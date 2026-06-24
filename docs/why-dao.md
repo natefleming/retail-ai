@@ -159,39 +159,32 @@ graph TB
 
 #### Interoperability
 
-All three platforms can call each other via **agent endpoints**:
-- Deploy any agent to Databricks Model Serving
-- Reference it as a tool using the `factory` tool type with `create_agent_endpoint_tool`
+All three platforms can call each other as tools:
+- Deploy any agent to Databricks Model Serving or Databricks Apps
+- Reference it using the first-class `type: serving_endpoint` (Model Serving) or `type: app` (Databricks Apps) tool types
+- Or use `type: a2a` for external A2A agents (Vertex, Crew.ai, ADK, …)
 - Compose complex systems across platform boundaries
 
 **Example:**
 ```yaml
 # In DAO configuration
-resources:
-  llms:
-    external_agent: &external_agent
-      name: agent-bricks-hr-assistant  # Agent Bricks endpoint name
-
 tools:
+  # Agent Bricks endpoint — discovery maps task=llm/v1/chat → completions
   hr_assistant:
     function:
-      type: factory
-      name: dao_ai.tools.create_agent_endpoint_tool
-      args:
-        llm: *external_agent
-        name: hr_assistant
-        description: "HR assistant built in Agent Bricks"
-  
+      type: serving_endpoint
+      endpoint: agent-bricks-hr-assistant
+      description: "HR assistant built in Agent Bricks"
+
+  # Kasal endpoint — same shape, different upstream
   workflow_monitor:
     function:
-      type: factory
-      name: dao_ai.tools.create_agent_endpoint_tool
-      args:
-        llm:
-          name: kasal-workflow-monitor  # Kasal endpoint name
-        name: workflow_monitor
-        description: "Workflow monitor built in Kasal"
+      type: serving_endpoint
+      endpoint: kasal-workflow-monitor
+      description: "Workflow monitor built in Kasal"
 ```
+
+> See [configuration-reference.md → First-Class Agent Tools](configuration-reference.md#first-class-agent-tools) for the full reference and offline-safety guarantees.
 
 ---
 

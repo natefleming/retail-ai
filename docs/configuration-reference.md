@@ -149,7 +149,7 @@ tools:
   tool_name: &tool_name
     name: string
     function:
-      type: python | factory | unity_catalog | mcp
+      type: python | factory | unity_catalog | mcp | app | serving_endpoint | a2a
       name: string              # Import path or UC function name
       args: {}                  # For factory tools
       schema: *my_schema        # For UC tools
@@ -167,6 +167,14 @@ tools:
         warehouse_id: string    # DBSQL: pin a specific warehouse
         num_results: int        # Vector Search: cap result count
         # ... any other server-specific keys (see Databricks managed MCP docs)
+      # type: app — call a Databricks App as a tool
+      app: *app_resource        # DatabricksAppModel ref (required for type: app)
+      # type: serving_endpoint — call a Model Serving endpoint as a tool
+      endpoint: string | *model # Endpoint name (sugar) or InferenceEndpointModel
+      # type: app + type: serving_endpoint — OpenAI wire-shape selector
+      api: responses | completions | null   # null (default) = lazy discovery
+      # type: a2a — call an external A2A agent (Google A2A v0.3)
+      auth: forwarded_user_token | databricks_app_sp | string  # see a2a docs
       human_in_the_loop:        # Optional approval gate
         review_prompt: string
         allowed_decisions: [approve, edit, reject]
@@ -856,6 +864,94 @@ This does not:
 variables:
   cred: ${var.whole_thing}  # NO - the typed mapping is not a string
 ```
+
+---
+
+## First-Class Agent Tools
+
+dao-ai exposes three first-class function types for calling another agent as a tool. Each picks the target kind explicitly (where the workload lives), so the type discriminator matches what Agent Bricks Supervisor calls `app`, `serving_endpoint`, and `a2a`.
+
+| `type:` | Target | Default wire shape | Discovery (when `api:` is unset) |
+|---|---|---|---|
+| `app` | Databricks App | OpenAI Responses | `GET <app_url>/agent/info` → reads `agent_api` |
+| `serving_endpoint` | Model Serving endpoint (FMAPI or UC ResponsesAgent) | OpenAI Chat Completions | `WorkspaceClient.serving_endpoints.get(name).task` → maps `agent/v1/responses` to `responses`, `llm/v1/chat` to `completions` |
+| `a2a` | External A2A agent (Vertex, Crew.ai, ADK, Databricks App with A2A) | Google A2A v0.3 | n/a |
+
+### `type: app` — call a Databricks App
+
+```yaml
+resources:
+  apps:
+    supplier_app: &supplier_app
+      name: dao-ai-supplier-app
+      on_behalf_of_user: true
+
+tools:
+  ask_supplier:
+    name: ask_supplier
+    function:
+      type: app
+      app: *supplier_app
+      api: responses | completions | null   # null (default) = lazy probe
+      description: "Delegate supplier questions to the supplier app."
+```
+
+- `app:` is required and must reference a `DatabricksAppModel` (apps with the `mcp-` name prefix are rejected — use `type: mcp`).
+- `api:` selects the OpenAI wire shape at the app's `/v1/responses` or `/v1/chat/completions` route.
+- When `api:` is **unset**, the dispatcher lazily probes `<app_url>/agent/info` on **first invocation** and caches the result. Falls back to `"responses"` if the probe returns no signal.
+- When `api:` is **set**, the probe never runs — explicit value wins, fully offline-safe.
+- OBO is auto-derived from `app.on_behalf_of_user`.
+
+### `type: serving_endpoint` — call a Model Serving endpoint
+
+```yaml
+tools:
+  # FMAPI string sugar — discovery maps llm/v1/chat → completions
+  ask_sonnet:
+    name: ask_sonnet
+    function:
+      type: serving_endpoint
+      endpoint: databricks-claude-sonnet-4
+
+  # UC-registered ResponsesAgent — discovery maps agent/v1/responses → responses
+  query_hardware_store:
+    name: query_hardware_store
+    function:
+      type: serving_endpoint
+      endpoint: hardware_store_dao
+
+  # Full InferenceEndpointModel form (lets you set temperature, max_tokens, …)
+  ask_sonnet_creative:
+    name: ask_sonnet_creative
+    function:
+      type: serving_endpoint
+      endpoint:
+        name: databricks-claude-sonnet-4
+        temperature: 0.9
+        max_tokens: 1024
+      api: completions   # explicit — skips discovery
+```
+
+- `endpoint:` accepts an endpoint **name string** (sugar; promoted to a minimal `InferenceEndpointModel`) **or** a full `InferenceEndpointModel` when you need `temperature`, `max_tokens`, `ai_gateway`, or `on_behalf_of_user`.
+- `api:` defaults to lazy SDK probe via `serving_endpoints.get(name).task`. Falls back to `"completions"` when discovery returns no signal (preserves FMAPI behavior).
+
+### Probe safety
+
+- Both discovery probes are **lazy** (run on first tool invocation only) and **cached per tool instance**.
+- Every failure mode (404, 401, 5xx, network error, non-JSON body, unknown future task value, SDK exception) falls back silently to the per-type default with a DEBUG log line.
+- Config-load, Pydantic validation, `dao-ai validate`, and bundle packaging make **zero network calls**. dao-ai bundles can be built and deployed even when target apps/endpoints are not yet live.
+- On first invocation each dispatcher logs one INFO line: `app_dispatcher resolved api='responses' (discovery) | app='…'` or `serving_endpoint_dispatcher resolved api='completions' (default) | endpoint='…'` — origin is `explicit`, `discovery`, or `default`.
+
+### `type: a2a` — call an external A2A agent
+
+See [`config/examples/15_complete_applications/procurement_supplier_a2a/README.md`](../config/examples/15_complete_applications/procurement_supplier_a2a/README.md) for the full A2A protocol example. Available since v0.1.80.
+
+### See Also
+
+- [`config/examples/10_agent_integrations/app_first_class.yaml`](../config/examples/10_agent_integrations/app_first_class.yaml)
+- [`config/examples/10_agent_integrations/serving_endpoint_first_class.yaml`](../config/examples/10_agent_integrations/serving_endpoint_first_class.yaml)
+- [`config/examples/10_agent_integrations/README.md`](../config/examples/10_agent_integrations/README.md) — routing matrix and migration notes
+- [`config/examples/15_complete_applications/procurement_supplier_a2a/`](../config/examples/15_complete_applications/procurement_supplier_a2a/) — end-to-end A2A example
 
 ---
 
