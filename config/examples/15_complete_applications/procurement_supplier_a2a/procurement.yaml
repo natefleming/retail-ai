@@ -102,11 +102,12 @@ tools:
     name: query_supplier
     function:
       # `type: agent` is the seamless "call a deployed agent" shape. Set
-      # `app:` to delegate to a Databricks-deployed dao-ai app — A2A
-      # protocol is dispatched internally (dao-ai apps auto-mount A2A
-      # endpoints since v0.1.80). For external A2A agents (Vertex,
-      # Crew.ai, ADK), or to pin A2A-specific knobs (auth_type,
-      # card_path, streaming, timeout_seconds), use `type: a2a` instead.
+      # `app:` to delegate to a Databricks-deployed app — dispatches via
+      # the MLflow Responses API (DatabricksOpenAI + model='apps/<name>').
+      # For explicit Google A2A protocol (session continuity, agent-card
+      # discovery, HITL-over-A2A), or external A2A agents (Vertex,
+      # Crew.ai, ADK), use `type: a2a` instead. For legacy apps that only
+      # expose Chat Completions, set `api: completions` here.
       type: agent
       app: *supplier_app
       name: query_supplier
