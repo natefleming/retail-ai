@@ -347,37 +347,6 @@ def _build_wheel(project_root: Path) -> Path:
     return wheels[-1]
 
 
-def _generate_uv_lock(
-    pyproject_content: str,
-    wheel_path: Path,
-    package_name: str,
-) -> bytes:
-    """Generate a uv.lock file for app deployment."""
-    import shutil
-    import subprocess
-    import tempfile
-
-    with tempfile.TemporaryDirectory() as tmp_dir:
-        tmp_path = Path(tmp_dir)
-        (tmp_path / "pyproject.toml").write_text(pyproject_content)
-        (tmp_path / "dist").mkdir()
-        shutil.copy2(wheel_path, tmp_path / "dist" / wheel_path.name)
-        (tmp_path / "src" / package_name).mkdir(parents=True)
-        (tmp_path / "src" / package_name / "__init__.py").write_text("")
-        (tmp_path / ".python-version").write_text("3.11\n")
-
-        result = subprocess.run(
-            ["uv", "lock"],
-            cwd=tmp_path,
-            capture_output=True,
-            text=True,
-        )
-        if result.returncode != 0:
-            raise RuntimeError(f"uv lock failed: {result.stderr.strip()}")
-
-        return (tmp_path / "uv.lock").read_bytes()
-
-
 class DatabricksProvider(ServiceProvider):
     def __init__(
         self,
@@ -1206,16 +1175,19 @@ class DatabricksProvider(ServiceProvider):
                 )
             logger.info("Dev wheel uploaded", path=workspace_wheel_path)
 
-            # Upload pyproject.toml so the app runtime installs dao-ai
-            # from the local wheel
-            from dao_ai.apps.bundle import _PYPROJECT_DEV_TEMPLATE
+            # Upload pyproject.toml (metadata + hatch build target for any
+            # user code under src/<package_name>/). Deps install from
+            # requirements.txt at Apps build time.
+            from dao_ai.apps.bundle import (
+                _PYPROJECT_DEV_TEMPLATE,
+                _make_requirements_txt,
+            )
 
             app_name_normalized = raw_name.lower().replace("_", "-")
             package_name = app_name_normalized.replace("-", "_")
             pyproject_content = _PYPROJECT_DEV_TEMPLATE.format(
                 name=app_name_normalized,
                 package_name=package_name,
-                wheel_filename=wheel_path.name,
             )
             self.w.workspace.upload(
                 path=f"{source_path}/pyproject.toml",
@@ -1236,19 +1208,24 @@ class DatabricksProvider(ServiceProvider):
                 overwrite=True,
             )
 
-            uv_lock_bytes = _generate_uv_lock(
-                pyproject_content=pyproject_content,
-                wheel_path=wheel_path,
-                package_name=package_name,
+            # Ship a requirements.txt that points at the bundled wheel.
+            # Apps' build phase recognizes requirements.txt directly and
+            # runs `pip install -r requirements.txt` — pip installs the
+            # wheel and resolves transitive deps from public PyPI via the
+            # wheel's metadata. Replaces the prior uv.lock-based path
+            # which baked Databricks-internal pypi-proxy URLs into the
+            # lock and timed out on Apps containers.
+            requirements_content: str = _make_requirements_txt(
+                development=True, wheel_filename=wheel_path.name
             )
             self.w.workspace.upload(
-                path=f"{source_path}/uv.lock",
-                content=io.BytesIO(uv_lock_bytes),
+                path=f"{source_path}/requirements.txt",
+                content=io.BytesIO(requirements_content.encode("utf-8")),
                 format=ImportFormat.AUTO,
                 overwrite=True,
             )
             logger.info(
-                "dao-ai source for app: dev wheel (uv)",
+                "dao-ai source for app: dev wheel (requirements.txt)",
                 wheel=wheel_path.name,
                 entrypoint=entrypoint_module,
                 chat_proxy=enable_chat_proxy,
