@@ -5300,10 +5300,12 @@ class AgentToolModel(BaseFunctionModel):
       ChatAgent, Foundation Model API, Agent Bricks) — set ``endpoint:``.
       Calls ``POST /serving-endpoints/{name}/invocations`` via
       ``ChatDatabricks``.
-    - **Databricks App** (any dao-ai app since v0.1.80, which auto-mounts
-      A2A endpoints) — set ``app:``. Internally dispatches to the A2A
-      protocol so the user doesn't need to know about wire format,
-      OAuth-M2M, or agent-card discovery.
+    - **Databricks App** (any app exposing the MLflow Responses API —
+      ``POST /v1/responses`` — including dao-ai apps and any
+      ``mlflow.agents`` ResponsesAgent deployment) — set ``app:``.
+      Internally dispatches via ``DatabricksOpenAI(workspace_client=...)``
+      with ``model='apps/<name>'``. OBO is auto-derived from
+      ``app.on_behalf_of_user``.
 
     Exactly one of ``endpoint:`` or ``app:`` must be set.
 
@@ -5311,9 +5313,15 @@ class AgentToolModel(BaseFunctionModel):
 
     - **External A2A agents** (Vertex AI Agent Engine, Crew.ai, ADK,
       third-party) — use ``type: a2a`` with ``endpoint:`` for explicit
-      protocol control, custom auth modes (bearer / GCP), card paths.
+      A2A protocol with custom auth modes (bearer / GCP), card paths.
+    - **dao-ai-to-dao-ai with explicit A2A protocol** — use ``type: a2a``
+      with ``app:``. ``type: agent`` defaults to Responses API; pick A2A
+      only if you specifically need its session-continuity, agent-card
+      discovery, or HITL-over-A2A semantics.
     - **MCP apps** (``mcp-`` prefix) — use ``type: mcp`` with ``app:``.
       ``type: agent`` rejects ``mcp-`` apps at factory time.
+    - **Apps that only expose Chat Completions** — use
+      ``type: factory`` + ``dao_ai.tools.create_chat_completions_agent_tool``.
 
     ``endpoint`` accepts two shapes:
 
@@ -5401,11 +5409,14 @@ class AgentToolModel(BaseFunctionModel):
         )
 
     def as_tools(self, **kwargs: Any) -> Sequence[RunnableLike]:
-        # App path: dispatch to A2A. dao-ai apps speak A2A natively since
-        # v0.1.80, so this is the seamless "call another dao-ai app as a
-        # tool" surface — caller doesn't need to know about A2A.
+        # App path: dispatch via the MLflow Responses API using
+        # `DatabricksOpenAI(workspace_client=...)` with model='apps/<name>'.
+        # This is the canonical Databricks contract for any deployed
+        # ResponsesAgent-style app, regardless of whether it's a dao-ai
+        # app or a customer app. For explicit A2A protocol use, use
+        # `type: a2a`. For MCP apps, use `type: mcp`.
         if self.app is not None:
-            from dao_ai.tools import create_a2a_agent_tool
+            from dao_ai.tools import create_responses_agent_tool
 
             if self.app.name.startswith("mcp-"):
                 raise ValueError(
@@ -5414,7 +5425,7 @@ class AgentToolModel(BaseFunctionModel):
                     f"of 'type: agent'."
                 )
             return [
-                create_a2a_agent_tool(
+                create_responses_agent_tool(
                     app=self.app,
                     name=self.name or self.app.name,
                     description=self.description,

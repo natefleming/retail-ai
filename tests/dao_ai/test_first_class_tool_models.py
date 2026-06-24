@@ -281,17 +281,34 @@ class TestAgentToolModel:
                 app={"name": "my-app"},
             )
 
-    def test_agent_app_dispatch_to_a2a(self) -> None:
-        """type: agent with app: dispatches via A2A internally."""
+    def test_agent_app_dispatches_to_responses_agent_tool(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """type: agent with app: dispatches to create_responses_agent_tool."""
         from dao_ai.config import DatabricksAppModel
+        from langchain_core.tools import StructuredTool
+
+        captured: dict[str, object] = {}
+
+        def _stub(
+            app, *, name=None, description=None
+        ):  # type: ignore[no-untyped-def]
+            captured["app"] = app
+            captured["name"] = name
+            captured["description"] = description
+            return StructuredTool.from_function(
+                func=lambda prompt: "stub",
+                name=name or "stub_tool",
+                description=description or "stub description",
+            )
+
+        monkeypatch.setattr("dao_ai.tools.create_responses_agent_tool", _stub)
 
         m = ToolModel.model_validate(
             {
                 "name": "delegate",
                 "function": {
                     "type": "agent",
-                    # on_behalf_of_user=True → forwarded_user_token (no
-                    # ambient WorkspaceClient needed at factory time).
                     "app": {"name": "dao-ai-some-app", "on_behalf_of_user": True},
                     "name": "delegate_tool",
                     "description": "Delegate to the deployed dao-ai app.",
@@ -306,6 +323,11 @@ class TestAgentToolModel:
         tools = m.function.as_tools()
         assert len(tools) == 1
         assert tools[0].name == "delegate_tool"
+        # The Responses-API factory was called, NOT the A2A factory.
+        assert isinstance(captured["app"], DatabricksAppModel)
+        assert captured["app"].name == "dao-ai-some-app"
+        assert captured["name"] == "delegate_tool"
+        assert captured["description"] == "Delegate to the deployed dao-ai app."
 
     def test_agent_app_rejects_mcp_prefix_at_factory_time(self) -> None:
         """mcp- prefix apps should error with a clear pointer to type: mcp."""
@@ -316,39 +338,53 @@ class TestAgentToolModel:
         with pytest.raises(ValueError, match="type: mcp"):
             m.as_tools()
 
-    def test_agent_app_parity_with_type_a2a(self) -> None:
-        """type: agent with app: produces the same tool as type: a2a with app:.
+    def test_agent_app_does_not_dispatch_to_a2a(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Regression: type: agent + app: MUST NOT call create_a2a_agent_tool.
 
-        Uses on_behalf_of_user=True so the A2A factory picks
-        forwarded_user_token auth mode, which (unlike databricks_app_sp)
-        does not require ambient Databricks credentials at factory time.
+        Earlier PR #126 routed through A2A; this assertion locks in the
+        new behavior (Responses API). type: a2a remains the explicit A2A
+        path.
         """
-        app_dict = {"name": "dao-ai-supplier-app", "on_behalf_of_user": True}
+        call_count: dict[str, int] = {"a2a": 0, "responses": 0}
 
-        agent = ToolModel.model_validate(
+        def _a2a_stub(*args, **kwargs):  # type: ignore[no-untyped-def]
+            call_count["a2a"] += 1
+            raise AssertionError(
+                "create_a2a_agent_tool must not be called from type: agent"
+            )
+
+        from langchain_core.tools import StructuredTool
+
+        def _responses_stub(
+            app, *, name=None, description=None
+        ):  # type: ignore[no-untyped-def]
+            call_count["responses"] += 1
+            return StructuredTool.from_function(
+                func=lambda prompt: "stub",
+                name=name or "stub",
+                description=description or "stub",
+            )
+
+        monkeypatch.setattr("dao_ai.tools.create_a2a_agent_tool", _a2a_stub)
+        monkeypatch.setattr(
+            "dao_ai.tools.create_responses_agent_tool", _responses_stub
+        )
+
+        m = ToolModel.model_validate(
             {
                 "name": "a",
                 "function": {
                     "type": "agent",
-                    "app": app_dict,
-                    "name": "supplier_tool",
+                    "app": {"name": "dao-ai-supplier-app", "on_behalf_of_user": True},
                 },
             }
         )
-        a2a = ToolModel.model_validate(
-            {
-                "name": "a",
-                "function": {
-                    "type": "a2a",
-                    "app": app_dict,
-                    "name": "supplier_tool",
-                },
-            }
-        )
-        agent_tools = agent.function.as_tools()
-        a2a_tools = a2a.function.as_tools()
-        assert len(agent_tools) == len(a2a_tools) == 1
-        assert [t.name for t in agent_tools] == [t.name for t in a2a_tools]
+        m.function.as_tools()
+
+        assert call_count["a2a"] == 0
+        assert call_count["responses"] == 1
 
     def test_agent_accepts_obo_toggle(self) -> None:
         m = ToolModel.model_validate(
