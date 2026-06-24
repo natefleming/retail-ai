@@ -5359,20 +5359,26 @@ class AgentToolModel(BaseFunctionModel):
             "``type: mcp`` instead."
         ),
     )
-    api: Literal["responses", "completions"] = Field(
-        default="responses",
+    api: Optional[Literal["responses", "completions"]] = Field(
+        default=None,
         description=(
-            "OpenAI API contract to use when calling a Databricks App "
-            "(``app:`` branch). 'responses' (default) uses "
-            "``client.responses.create`` against the App's "
-            "``POST /v1/responses`` route — recommended for any agent "
-            "deployed via ``mlflow.agents`` ResponsesAgent (the canonical "
-            "Databricks pattern). 'completions' uses "
-            "``client.chat.completions.create`` against ``POST /v1/chat/"
-            "completions`` — for legacy apps that only expose the OpenAI "
-            "Chat Completions route. Ignored when ``endpoint:`` is set "
-            "(Model Serving endpoints always use the ChatDatabricks "
-            "chat-model path)."
+            "OpenAI API contract to use. Selects the wire route on both "
+            "the ``app:`` and ``endpoint:`` branches.\n\n"
+            "- ``None`` (default) — sensible auto-pick: ``responses`` for "
+            "  apps (canonical for ResponsesAgent deployments); lazy "
+            "  task-based detection on first invocation for endpoints "
+            "  (``agent/v1/responses`` task → ``responses``; "
+            "  ``llm/v1/chat`` task → ``completions``).\n"
+            "- ``'responses'`` — force the OpenAI Responses API "
+            "  (``POST /v1/responses``). For apps: dispatches via "
+            "  ``DatabricksOpenAI.responses.create`` with "
+            "  ``model='apps/<name>'``. For endpoints: routes through "
+            "  ``ChatDatabricks(use_responses_api=True)`` against "
+            "  ``/serving-endpoints/<name>/invocations``.\n"
+            "- ``'completions'`` — force the OpenAI Chat Completions API "
+            "  (``POST /v1/chat/completions``). For apps: dispatches via "
+            "  ``DatabricksOpenAI.chat.completions.create``. For "
+            "  endpoints: standard ``ChatDatabricks`` (legacy default)."
         ),
     )
     name: Optional[str] = Field(
@@ -5428,14 +5434,11 @@ class AgentToolModel(BaseFunctionModel):
 
     def as_tools(self, **kwargs: Any) -> Sequence[RunnableLike]:
         # App path: dispatch via DatabricksOpenAI on the workspace client.
-        # `api: responses` (default) → client.responses.create against the
-        # App's /v1/responses route — the canonical Databricks pattern for
-        # any agent deployed via mlflow.agents ResponsesAgent.
-        # `api: completions` → client.chat.completions.create against
-        # /v1/chat/completions — for legacy apps that only expose
-        # ChatCompletions.
-        # For explicit A2A protocol use `type: a2a`. For MCP apps, use
-        # `type: mcp`.
+        # api: None → "responses" (canonical for ResponsesAgent apps).
+        # api: "completions" → DatabricksOpenAI.chat.completions.create
+        # against /v1/chat/completions — for legacy apps that only expose
+        # Chat Completions. For explicit A2A protocol use `type: a2a`.
+        # For MCP apps, use `type: mcp`.
         if self.app is not None:
             if self.app.name.startswith("mcp-"):
                 raise ValueError(
@@ -5454,7 +5457,7 @@ class AgentToolModel(BaseFunctionModel):
                         description=self.description,
                     )
                 ]
-            # default: responses
+            # api: None (default) or api: "responses" → Responses API
             from dao_ai.tools import create_responses_agent_tool
 
             return [
@@ -5465,14 +5468,30 @@ class AgentToolModel(BaseFunctionModel):
                 )
             ]
 
+        # Endpoint (Model Serving) path: route via ChatDatabricks. The
+        # `api:` field selects the wire route on the endpoint, which has
+        # to match the endpoint's task type:
+        #   - api: "completions" → ChatDatabricks (use_responses_api=False).
+        #     Required for FMAPI endpoints (`llm/v1/chat` task).
+        #   - api: "responses" → ChatDatabricks(use_responses_api=True).
+        #     Required for UC-registered agent endpoints
+        #     (`agent/v1/responses` task — typical mlflow.agents deploys).
+        #   - api: None → lazy auto-detect on first invocation via
+        #     serving_endpoints.get(name).task.
         from dao_ai.tools import create_agent_endpoint_tool
 
         llm: InferenceEndpointModel = self._resolved_llm()
+        auto_detect_responses_api: bool = self.api is None
+        if self.api == "responses":
+            llm = llm.model_copy(update={"use_responses_api": True})
+        elif self.api == "completions":
+            llm = llm.model_copy(update={"use_responses_api": False})
         return [
             create_agent_endpoint_tool(
                 llm=llm,
                 name=self.name or llm.name,
                 description=self.description,
+                auto_detect_responses_api=auto_detect_responses_api,
             )
         ]
 

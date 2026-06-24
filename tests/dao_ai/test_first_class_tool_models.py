@@ -338,8 +338,29 @@ class TestAgentToolModel:
         with pytest.raises(ValueError, match="type: mcp"):
             m.as_tools()
 
-    def test_agent_api_defaults_to_responses(self) -> None:
-        """When `app:` is set without `api:`, default is 'responses'."""
+    def test_agent_api_defaults_to_none_and_app_resolves_to_responses(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """`api:` defaults to None (auto); the app: branch resolves to responses."""
+        from langchain_core.tools import StructuredTool
+
+        called: dict[str, int] = {"responses": 0, "completions": 0}
+
+        def _responses_stub(app, *, name=None, description=None):  # type: ignore[no-untyped-def]
+            called["responses"] += 1
+            return StructuredTool.from_function(
+                func=lambda prompt: "stub", name=name or "stub", description="stub"
+            )
+
+        def _completions_stub(*args, **kwargs):  # type: ignore[no-untyped-def]
+            called["completions"] += 1
+            raise AssertionError("completions factory must not be called for api=None on app:")
+
+        monkeypatch.setattr("dao_ai.tools.create_responses_agent_tool", _responses_stub)
+        monkeypatch.setattr(
+            "dao_ai.tools.create_chat_completions_agent_tool", _completions_stub
+        )
+
         m = ToolModel.model_validate(
             {
                 "name": "a",
@@ -350,7 +371,10 @@ class TestAgentToolModel:
             }
         )
         assert isinstance(m.function, AgentToolModel)
-        assert m.function.api == "responses"
+        assert m.function.api is None
+        m.function.as_tools()
+        assert called["responses"] == 1
+        assert called["completions"] == 0
 
     def test_agent_api_completions_dispatches_to_chat_completions_tool(
         self, monkeypatch: pytest.MonkeyPatch
@@ -458,6 +482,93 @@ class TestAgentToolModel:
                     },
                 }
             )
+
+    def test_agent_endpoint_default_passes_auto_detect_flag(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """`endpoint:` with api=None → auto_detect_responses_api=True."""
+        from langchain_core.tools import StructuredTool
+
+        captured: dict[str, object] = {}
+
+        def _stub(llm, *, name=None, description=None, auto_detect_responses_api=False):  # type: ignore[no-untyped-def]
+            captured["llm"] = llm
+            captured["auto_detect"] = auto_detect_responses_api
+            return StructuredTool.from_function(
+                func=lambda prompt: "stub", name=name or "stub", description="stub"
+            )
+
+        monkeypatch.setattr("dao_ai.tools.create_agent_endpoint_tool", _stub)
+        m = ToolModel.model_validate(
+            {
+                "name": "a",
+                "function": {"type": "agent", "endpoint": "my-endpoint"},
+            }
+        )
+        m.function.as_tools()
+        assert captured["auto_detect"] is True
+        # llm.use_responses_api unchanged from default (False) when api=None.
+        assert captured["llm"].use_responses_api is False  # type: ignore[union-attr]
+
+    def test_agent_endpoint_api_responses_forces_use_responses_api(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """`endpoint:` + api=responses → llm.use_responses_api=True, no auto-detect."""
+        from langchain_core.tools import StructuredTool
+
+        captured: dict[str, object] = {}
+
+        def _stub(llm, *, name=None, description=None, auto_detect_responses_api=False):  # type: ignore[no-untyped-def]
+            captured["llm"] = llm
+            captured["auto_detect"] = auto_detect_responses_api
+            return StructuredTool.from_function(
+                func=lambda prompt: "stub", name=name or "stub", description="stub"
+            )
+
+        monkeypatch.setattr("dao_ai.tools.create_agent_endpoint_tool", _stub)
+        m = ToolModel.model_validate(
+            {
+                "name": "a",
+                "function": {
+                    "type": "agent",
+                    "endpoint": "hardware_store_dao",
+                    "api": "responses",
+                },
+            }
+        )
+        m.function.as_tools()
+        assert captured["auto_detect"] is False
+        assert captured["llm"].use_responses_api is True  # type: ignore[union-attr]
+
+    def test_agent_endpoint_api_completions_forces_legacy_path(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """`endpoint:` + api=completions → llm.use_responses_api=False, no auto-detect."""
+        from langchain_core.tools import StructuredTool
+
+        captured: dict[str, object] = {}
+
+        def _stub(llm, *, name=None, description=None, auto_detect_responses_api=False):  # type: ignore[no-untyped-def]
+            captured["llm"] = llm
+            captured["auto_detect"] = auto_detect_responses_api
+            return StructuredTool.from_function(
+                func=lambda prompt: "stub", name=name or "stub", description="stub"
+            )
+
+        monkeypatch.setattr("dao_ai.tools.create_agent_endpoint_tool", _stub)
+        m = ToolModel.model_validate(
+            {
+                "name": "a",
+                "function": {
+                    "type": "agent",
+                    "endpoint": "databricks-claude-sonnet-4",
+                    "api": "completions",
+                },
+            }
+        )
+        m.function.as_tools()
+        assert captured["auto_detect"] is False
+        assert captured["llm"].use_responses_api is False  # type: ignore[union-attr]
 
     def test_agent_app_does_not_dispatch_to_a2a(
         self, monkeypatch: pytest.MonkeyPatch
