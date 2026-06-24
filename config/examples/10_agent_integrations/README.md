@@ -40,30 +40,29 @@ flowchart TB
 
 ## Picking the right tool shape
 
-Two first-class shapes cover the vast majority of agent-composition cases:
+Three first-class shapes cover the vast majority of agent-composition cases. **Pick by the target kind**, not by the workload — agents can run on either apps or Model Serving endpoints, and both shapes support both wire protocols (OpenAI Responses + Chat Completions):
 
-| Remote target | Use | Why |
+| Remote target | Use | How wire shape is selected |
 |---|---|---|
-| **Any Databricks-deployed agent** — Model Serving endpoint (Knowledge Assistant, ChatAgent, ChatCompletions, FMAPI, Agent Bricks) OR Databricks App exposing the MLflow Responses API (dao-ai apps and any `mlflow.agents` ResponsesAgent deployment) | [`type: agent`](./agent_first_class.yaml) | Set `endpoint:` for Model Serving or `app:` for a Databricks App. dao-ai dispatches via `DatabricksOpenAI(workspace_client=...)` — `client.responses.create(model='apps/<name>', …)` on the app branch, `ChatDatabricks` on the endpoint branch. |
-| **External A2A agent** (Vertex AI Agent Engine, Crew.ai, ADK, third-party) | [`type: a2a`](./a2a_agent.yaml) with `endpoint:` | Explicit A2A protocol over an external URL, with control over auth mode (`bearer` / `gcp_service_account` / `none`), card paths, streaming, timeouts. |
-| **MCP Databricks App** (`mcp-` prefix) | `type: mcp` with `app:` | The MCP factory speaks MCP. `type: agent` rejects `mcp-` apps. |
+| **Databricks App** (any app exposing OpenAI Responses or Chat Completions — dao-ai apps, `mlflow.agents` ResponsesAgent apps, custom apps) | [`type: app`](./app_first_class.yaml) with `app:` | `api:` — `responses` (default if unset and discovery fails), `completions`, or unset → lazy probe of `<app_url>/agent/info`. |
+| **Model Serving endpoint** (FMAPI / Foundation Model API, UC-registered agents, Knowledge Assistants, Agent Bricks) | [`type: serving_endpoint`](./serving_endpoint_first_class.yaml) with `endpoint:` | `api:` — `responses`, `completions` (default if unset and discovery fails), or unset → lazy probe of `serving_endpoints.get(name).task`. |
+| **External A2A agent** (Vertex AI Agent Engine, Crew.ai, ADK, third-party) | [`type: a2a`](./a2a_agent.yaml) with `endpoint:` | Explicit A2A protocol over an external URL, with custom auth (`bearer` / `gcp_service_account` / `none`), card paths, streaming, timeouts. |
+| **MCP Databricks App** (`mcp-` prefix) | `type: mcp` with `app:` | The MCP factory speaks MCP. `type: app` rejects `mcp-` apps at validation. |
 | **Sub-agent defined in the same dao-ai config** | `type: factory + dao_ai.tools.agent.create_agent_tool` ([`nested_agents.yaml`](./nested_agents.yaml)) | In-process LangGraph delegation — no network hop. |
 
-**Why two shapes?** `type: agent` is the protocol-agnostic, "I just want
-to call this agent" shape. `type: a2a` exists for explicit control —
-external A2A agents (which `type: agent` can't reach) and advanced A2A
-configuration knobs.
+**Why per-target types?** Naming the type after the target kind (app vs serving_endpoint) keeps the mental model simple — same `api:` semantics, same defaults-and-discovery behavior, different target field. Aligns with the [Databricks Agent Bricks Supervisor API](https://docs.databricks.com/aws/en/generative-ai/agent-bricks/supervisor-api) naming.
 
 ## Examples
 
 | File | Description |
 |------|-------------|
-| [`agent_first_class.yaml`](./agent_first_class.yaml) | **Unified `type: agent`** — Knowledge Assistant, Model Serving endpoint, and Databricks App in one config |
+| [`app_first_class.yaml`](./app_first_class.yaml) | **`type: app`** — call a Databricks App; `api:` unset (auto), `api: completions` (explicit) |
+| [`serving_endpoint_first_class.yaml`](./serving_endpoint_first_class.yaml) | **`type: serving_endpoint`** — FMAPI + UC-registered agent endpoint + full `InferenceEndpointModel` with temperature override |
 | [`a2a_first_class.yaml`](./a2a_first_class.yaml) | **`type: a2a` for external A2A agents** — minimal example |
 | [`nested_agents.yaml`](./nested_agents.yaml) | Main agent calling specialized sub-agents (in-process LangGraph delegation) |
 | [`parallel_agents.yaml`](./parallel_agents.yaml) | Parallel agent execution pattern |
-| [`agent_bricks.yaml`](./agent_bricks.yaml) | Delegate to Databricks Agent Bricks endpoints using `type: agent` with full `InferenceEndpointModel` (temperature / max_tokens per tool) |
-| [`kasal.yaml`](./kasal.yaml) | Delegate to Kasal specialist agents using `type: agent` |
+| [`agent_bricks.yaml`](./agent_bricks.yaml) | Delegate to Databricks Agent Bricks endpoints using `type: serving_endpoint` with full `InferenceEndpointModel` (temperature / max_tokens per tool) |
+| [`kasal.yaml`](./kasal.yaml) | Delegate to Kasal specialist agents using `type: serving_endpoint` |
 | [`vertex_agent_engine.yaml`](./vertex_agent_engine.yaml) | Call a Google Cloud ADK agent on Vertex AI Agent Engine |
 | [`a2a_agent.yaml`](./a2a_agent.yaml) | Comprehensive `type: a2a` walkthrough — bearer / GCP / none auth, AppResource mode, card-path overrides |
 

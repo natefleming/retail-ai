@@ -12,7 +12,7 @@ dao-ai app).
 | App | YAML | Role |
 |-----|------|------|
 | `dao-ai-supplier-a2a` | `supplier.yaml` | Wholesale-supplier specialist. Answers SKU, pricing, lead-time, MOQ, and stock questions from an embedded catalog. Exposes the Responses API (and A2A) by default. |
-| `dao-ai-procurement-a2a` | `procurement.yaml` | Procurement-officer agent. Holds one tool — `query_supplier` — declared as a first-class `type: agent` tool with `app: *supplier_app`. dao-ai dispatches the call via `DatabricksOpenAI(workspace_client=...).responses.create(model='apps/<name>', …)`. OBO is auto-derived from the bound app. |
+| `dao-ai-procurement-a2a` | `procurement.yaml` | Procurement-officer agent. Holds one tool — `query_supplier` — declared as a first-class `type: app` tool with `app: *supplier_app`. dao-ai dispatches the call via `DatabricksOpenAI(workspace_client=...).responses.create(model='apps/<name>', …)`. OBO is auto-derived from the bound app. |
 
 Both apps run on Foundation Model API only — no Unity Catalog tables,
 Vector Search indexes, or Genie rooms required.
@@ -34,11 +34,12 @@ resources:
 tools:
   query_supplier:
     function:
-      type: agent
+      type: app
       app: *supplier_app
 ```
 
-`type: agent` with `app:` dispatches via the OpenAI Responses API:
+`type: app` dispatches via the OpenAI Responses API (the default when
+`api:` is unset and `/agent/info` resolves to "responses"):
 
 ```python
 ws = supplier_app.workspace_client_from(context)         # OBO-aware
