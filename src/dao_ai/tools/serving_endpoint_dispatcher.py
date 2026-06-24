@@ -110,9 +110,12 @@ def create_serving_endpoint_dispatcher(
 
         # Build the WorkspaceClient once per call using the model's own
         # OBO-aware resolver. Used for both discovery and inference.
+        # strict=True so a calling agent that should be running with OBO but
+        # didn't forward the user token raises OBONotAvailableError instead
+        # of silently calling the endpoint as the service principal.
         ws: WorkspaceClient
         if llm.on_behalf_of_user:
-            ws = llm.workspace_client_from(context)
+            ws = llm.workspace_client_from(context, strict=True)
         else:
             ws = WorkspaceClient()
 

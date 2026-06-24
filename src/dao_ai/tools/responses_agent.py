@@ -1,13 +1,15 @@
 """Tool factory for calling a Databricks App via the MLflow Responses API.
 
-The factory wraps :class:`databricks_openai.DatabricksOpenAI` — the official
-OpenAI client subclass that pulls auth from a
-:class:`databricks.sdk.WorkspaceClient`. Routing to the App happens via the
-``model='apps/<name>'`` prefix (the workspace's serving-endpoint proxy
-forwards to the App's ``POST /v1/responses`` route). OBO is auto-derived
-from :attr:`DatabricksAppModel.on_behalf_of_user` via
-:meth:`DatabricksAppModel.workspace_client_from` — no manual header minting,
-no bespoke ``httpx`` code.
+POSTs to ``<app.url>/invocations`` using :class:`httpx.AsyncClient` with
+:class:`dao_ai.auth.WorkspaceBearerAuth`. Auth follows the calling agent's
+workspace-client strategy (PAT, OAuth M2M, OAuth U2M, runtime) without
+extra validation gates — so OBO works whether the calling agent runs as a
+user (forwarded user token) or as the App service principal.
+
+OBO is auto-derived from :attr:`DatabricksAppModel.on_behalf_of_user` via
+:meth:`DatabricksAppModel.workspace_client_from` — strict-mode raises
+:class:`dao_ai.auth.OBONotAvailableError` when the resource asked for OBO
+but no forwarded user token is present in the call context.
 
 For external (non-Databricks) targets or explicit A2A protocol use, see
 :mod:`dao_ai.tools.a2a_agent`. For Model Serving endpoints, see
@@ -19,13 +21,14 @@ from __future__ import annotations
 from textwrap import dedent
 from typing import Annotated, Any, Optional
 
+import httpx
 import mlflow
 from databricks.sdk import WorkspaceClient
-from databricks_openai import DatabricksOpenAI
 from langchain.tools import ToolRuntime
 from langchain_core.tools import InjectedToolArg, StructuredTool
 from loguru import logger
 
+from dao_ai.auth import WorkspaceBearerAuth
 from dao_ai.config import DatabricksAppModel
 from dao_ai.state import Context
 from dao_ai.tools.tracing import (
@@ -154,13 +157,27 @@ def create_responses_agent_tool(
             on_behalf_of_user=coerced_app.on_behalf_of_user,
         )
 
-        ws: WorkspaceClient = coerced_app.workspace_client_from(context)
-        client: DatabricksOpenAI = DatabricksOpenAI(workspace_client=ws)
-        response = client.responses.create(
-            model=model_id,
-            input=[{"role": "user", "content": prompt}],
-        )
-        output_text: str = response.output_text
+        ws: WorkspaceClient = coerced_app.workspace_client_from(context, strict=True)
+        app_url: str = coerced_app.url.rstrip("/")
+        invocations_url: str = f"{app_url}/invocations"
+        body: dict[str, Any] = {"input": [{"role": "user", "content": prompt}]}
+
+        async with httpx.AsyncClient(
+            auth=WorkspaceBearerAuth(ws), timeout=120
+        ) as client:
+            response = await client.post(invocations_url, json=body)
+            response.raise_for_status()
+            envelope: dict[str, Any] = response.json()
+
+        output_text: str = ""
+        for item in envelope.get("output") or []:
+            for block in item.get("content") or []:
+                text = block.get("text")
+                if text:
+                    output_text = text
+                    break
+            if output_text:
+                break
 
         if tool_span is not None:
             tool_span.set_attribute(ATTR_APP_AGENT_RESPONSE_CHARS, len(output_text))

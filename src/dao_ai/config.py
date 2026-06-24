@@ -513,7 +513,12 @@ class IsDatabricksResource(ABC, BaseModel):
         )
         return WorkspaceClient()
 
-    def workspace_client_from(self, context: "Context | None") -> WorkspaceClient:
+    def workspace_client_from(
+        self,
+        context: "Context | None",
+        *,
+        strict: bool = False,
+    ) -> WorkspaceClient:
         """
         Get a WorkspaceClient using headers from the provided Context.
 
@@ -524,16 +529,38 @@ class IsDatabricksResource(ABC, BaseModel):
         Args:
             context: Runtime context containing headers for OBO auth.
                      If None or no headers, falls back to workspace_client property.
+            strict: If True and ``self.on_behalf_of_user`` is set but no
+                    forwarded user token is available in the context, raise
+                    :class:`dao_ai.auth.OBONotAvailableError` instead of
+                    silently falling back to the service-principal identity.
+                    Dispatcher call sites that invoke a target on a user's
+                    behalf should pass ``strict=True`` so misconfigured OBO
+                    surfaces at first-call rather than running as the SP.
+
+                    Note on deploy target semantics: inside Databricks Apps,
+                    the proxy unconditionally forwards
+                    ``x-forwarded-access-token`` on every authenticated user
+                    request, so ``strict=True`` rarely fires there — the
+                    token is present even when other agents in the call
+                    chain didn't ask for OBO. Strict-mode is most useful in
+                    Model Serving deploys (no Apps proxy → genuine absence
+                    of the forwarded header) and in M2M-only contexts.
 
         Returns:
             WorkspaceClient configured with appropriate authentication.
+
+        Raises:
+            OBONotAvailableError: when ``strict=True`` and OBO was requested
+                but no forwarded user token is in the call context.
         """
+        from dao_ai.auth import OBONotAvailableError
         from dao_ai.utils import normalize_host
 
         logger.trace(
             "workspace_client_from called",
             context=context,
             on_behalf_of_user=self.on_behalf_of_user,
+            strict=strict,
         )
 
         # Check if we have headers in context for OBO
@@ -564,6 +591,17 @@ class IsDatabricksResource(ABC, BaseModel):
                     token=forwarded_token,
                     auth_type="pat",
                 )
+
+        # OBO was requested but no forwarded token reached us. Either the
+        # calling agent isn't running with OBO, or its middleware didn't
+        # propagate the headers. In strict mode this is a misconfiguration
+        # we should fail fast on; in lenient mode (current default) we fall
+        # through to the SP-identity workspace_client.
+        if strict and self.on_behalf_of_user:
+            raise OBONotAvailableError(
+                resource_name=getattr(self, "name", None),
+                field=f"{self.__class__.__name__}.on_behalf_of_user",
+            )
 
         # Fall back to existing workspace_client property
         return self.workspace_client
