@@ -1,23 +1,24 @@
 # yaml-language-server: $schema=../../../schemas/model_config_schema.json
 
 # ==============================================================================
-# First-class `type: agent` example
+# First-class `type: app` example — call a Databricks App as a tool.
 # ==============================================================================
-# Demonstrates the unified `type: agent` tool shape — one shape to call any
-# Databricks-deployed agent, regardless of whether it's a Model Serving
-# endpoint or a Databricks App.
+# `type: app` is the Supervisor API `app` contract. Target is a Databricks
+# App, which may host an agent (ResponsesAgent or otherwise) or any other
+# HTTP service that speaks the OpenAI Responses or Chat Completions API.
 #
-# Three target types:
-#   - `endpoint:` (string)                 → Model Serving endpoint by name
-#   - `endpoint:` (InferenceEndpointModel) → endpoint with temperature / max_tokens
-#   - `app:` (DatabricksAppModel)          → Databricks App, dispatched via Responses API
+# Wire shape (Responses vs Chat Completions) is selected by `api:`:
+#   - api: responses
+#   - api: completions
+#   - api unset (default) → lazy probe of `<app_url>/agent/info` on first
+#     invoke; falls back to "responses" if discovery returns no signal.
 #
-# Covers the Supervisor API `knowledge_assistant` and `serving_endpoint`
-# tool types, plus app-to-app delegation, with one shape.
+# Setting `api:` explicitly skips discovery entirely.
 #
-# For specialized cases use the explicit shapes:
-#   - External A2A agents (Vertex / Crew.ai / ADK) → `type: a2a` with `endpoint:`
-#   - MCP apps (`mcp-` prefix)                     → `type: mcp` with `app:`
+# For Model Serving endpoints (FMAPI / UC-registered agents), use
+# `type: serving_endpoint` (see serving_endpoint_first_class.yaml).
+# For external A2A agents (Vertex, Crew.ai, ADK), use `type: a2a`.
+# For MCP apps (`mcp-` prefix), use `type: mcp`.
 # ==============================================================================
 
 resources:
@@ -26,67 +27,51 @@ resources:
       name: databricks-claude-sonnet-4
       temperature: 0.1
 
-  # Databricks App resource — referenced from the `app:` tool below.
   apps:
     supplier_app: &supplier_app
       name: dao-ai-supplier-app
       on_behalf_of_user: true   # → forwarded_user_token at the supplier
 
 tools:
-  # 1. Knowledge Assistant by endpoint name (sugar form).
-  customer_reviews_ka: &customer_reviews_ka
-    name: customer_reviews
-    function:
-      type: agent
-      endpoint: ka-customer-reviews
-      description: |
-        Answer questions about recent customer reviews. Pass the user's
-        question through; the KA cites sources in its answer.
-
-  # 2. Model Serving endpoint with OBO.
-  triage_specialist: &triage_specialist
-    name: triage_specialist
-    function:
-      type: agent
-      endpoint: my-triage-agent
-      on_behalf_of_user: true
-      description: |
-        Delegate ticket-triage questions to the specialized triage agent.
-        Returns a structured triage result as a single string.
-
-  # 3. Databricks App (any app that exposes the MLflow Responses API —
-  # default for dao-ai apps and mlflow.agents ResponsesAgent deployments).
-  # Dispatches via `DatabricksOpenAI(workspace_client=...)` +
-  # `model='apps/<name>'` — caller doesn't need to know about OAuth-M2M
-  # or wire format. OBO is auto-derived from `app.on_behalf_of_user`.
+  # 1. App with api unset → lazy /agent/info probe on first invoke;
+  # falls back to "responses" default if discovery returns no signal.
+  # Every dao-ai app emits agent_api: "responses" from /agent/info, so
+  # the probe resolves to Responses without the user having to know.
   supplier_app_tool: &supplier_app_tool
     name: query_supplier
     function:
-      type: agent
+      type: app
       app: *supplier_app
       description: |
         Delegate supplier-domain questions to the deployed supplier agent.
+
+  # 2. Same target with explicit api — no probe runs at all.
+  # Useful when targeting a legacy app that only exposes Chat Completions.
+  explicit_completions_tool: &explicit_completions_tool
+    name: supplier_chat
+    function:
+      type: app
+      app: *supplier_app
+      api: completions
+      description: |
+        Same supplier app, forced to the Chat Completions wire shape.
 
 agents:
   orchestrator: &orchestrator
     name: orchestrator
     model: *main_llm
     tools:
-    - *customer_reviews_ka
-    - *triage_specialist
     - *supplier_app_tool
+    - *explicit_completions_tool
     prompt: |
-      You are an orchestrator with three specialist tools. Use
-      `customer_reviews` for customer-feedback questions,
-      `triage_specialist` for ticket prioritization, and `query_supplier`
-      for supplier/SKU/pricing questions. Relay each tool's answer back
-      to the user; do not paraphrase unless asked.
+      You are an orchestrator delegating to a deployed supplier agent
+      via the first-class `type: app` tool shape.
 
 app:
-  name: agent_first_class_dao
+  name: app_first_class_dao
   description: >
-    Minimal example of the unified `type: agent` tool shape calling a
-    Knowledge Assistant, a Model Serving endpoint, and a Databricks App.
+    Minimal example of the first-class `type: app` tool shape for
+    calling a Databricks App as a tool.
   log_level: INFO
   deployment_target: apps
   agents:
@@ -95,4 +80,4 @@ app:
   input_example:
     messages:
     - role: user
-      content: "What do customers say about return policy?"
+      content: "What does the supplier offer?"
