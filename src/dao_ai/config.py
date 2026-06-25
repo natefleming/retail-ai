@@ -54,7 +54,6 @@ from langchain_core.embeddings import Embeddings
 from langchain_core.language_models import LanguageModelLike
 from langchain_core.messages import BaseMessage, messages_from_dict
 from langchain_core.runnables.base import RunnableLike
-from langchain_openai import ChatOpenAI
 from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.store.base import BaseStore
@@ -899,38 +898,26 @@ class BestOfNConfig(BaseModel):
         return v
 
 
-class AIGatewayChatOpenAI(ChatOpenAI):
-    """ChatOpenAI variant for the Databricks AI Gateway.
+class ChatUnityAIGateway(ChatDatabricks):
+    """``ChatDatabricks`` subclass routed through the Databricks AI Gateway.
 
-    The Gateway's OpenAI-compatible validator rejects ``name`` on
-    ``user`` / ``assistant`` / ``system`` messages with::
+    Functionally identical to ``ChatDatabricks(use_ai_gateway=True)`` — exists
+    so that MLflow trace spans surface a distinct class name (LangChain's
+    MLflow autolog labels spans by ``self.__class__.__name__``) and so
+    ``_llm_type`` reports a distinct identifier, making AI-Gateway-routed
+    calls visually distinguishable from plain ``ChatDatabricks`` calls in
+    the trace UI.
 
-        400 BAD_REQUEST: messages.N.name: Extra inputs are not permitted
-
-    LangGraph's supervisor pattern attaches a ``name`` field to agent
-    AIMessages for routing (see
-    :func:`dao_ai.orchestration.core.filter_messages_for_agent`), so we
-    strip it at the request-payload boundary instead of in orchestration
-    where it carries real semantics for ChatDatabricks and other backends.
-    ``role: "tool"`` / ``role: "function"`` messages are left untouched.
+    The historical ``name``-field strip workaround is no longer needed:
+    ``ChatDatabricks._convert_message_to_dict`` already drops the ``name``
+    field at the request-payload boundary (databricks-langchain >= 0.20).
     """
 
-    def _get_request_payload(
-        self,
-        input_: Any,
-        *,
-        stop: Optional[list[str]] = None,
-        **kwargs: Any,
-    ) -> dict:
-        payload: dict = super()._get_request_payload(input_, stop=stop, **kwargs)
-        for msg in payload.get("messages", []) or []:
-            if isinstance(msg, dict) and msg.get("role") in (
-                "user",
-                "assistant",
-                "system",
-            ):
-                msg.pop("name", None)
-        return payload
+    use_ai_gateway: bool = True
+
+    @property
+    def _llm_type(self) -> str:
+        return "chat-unity-ai-gateway"
 
 
 class InferenceEndpointModel(IsDatabricksResource):
@@ -1036,38 +1023,6 @@ class InferenceEndpointModel(IsDatabricksResource):
         # OBO token, gate it here with a ValueError.
         return self
 
-    def _ai_gateway_host(self) -> str:
-        """Return the workspace host without trailing slash."""
-        from dao_ai.utils import normalize_host
-
-        return normalize_host(self.workspace_client.config.host).rstrip("/")
-
-    def _ai_gateway_token_provider(self) -> Callable[[], str]:
-        """Return a callable that resolves a fresh bearer token per call.
-
-        ``ChatOpenAI`` / the ``openai`` SDK invoke this provider on every
-        request, so PAT, service-principal (OAuth-M2M), and OBO tokens are
-        always refreshed through the SDK's auth ladder instead of being
-        captured once at construction time.
-        """
-        wc: WorkspaceClient = self.workspace_client
-
-        def _provider() -> str:
-            headers: Mapping[str, str] = wc.config.authenticate()
-            auth: str = headers.get("Authorization", "")
-            if not auth.lower().startswith("bearer "):
-                raise RuntimeError(
-                    f"Could not extract bearer token for {self.name!r}; "
-                    f"authenticate() returned keys: {list(headers)}"
-                )
-            return auth.split(" ", 1)[1]
-
-        return _provider
-
-    def _resolve_ai_gateway_credentials(self) -> tuple[str, Callable[[], str]]:
-        """Return ``(host, token_provider)`` for AI Gateway HTTP calls."""
-        return self._ai_gateway_host(), self._ai_gateway_token_provider()
-
     def chat_model_for_workspace_client(
         self,
         workspace_client: WorkspaceClient,
@@ -1080,35 +1035,12 @@ class InferenceEndpointModel(IsDatabricksResource):
         ``WorkspaceClient`` per request. Respects ``self.ai_gateway`` so OBO
         traffic still routes through the AI Gateway path when enabled.
         """
-        from dao_ai.utils import normalize_host
-
         effective_disable_streaming: bool = (
             self.disable_streaming if disable_streaming is None else disable_streaming
         )
 
-        if self.ai_gateway:
-            host: str = normalize_host(workspace_client.config.host).rstrip("/")
-
-            def token_provider() -> str:
-                headers: Mapping[str, str] = workspace_client.config.authenticate()
-                auth: str = headers.get("Authorization", "")
-                if not auth.lower().startswith("bearer "):
-                    raise RuntimeError(
-                        f"Could not extract bearer token for {self.name!r}; "
-                        f"authenticate() returned keys: {list(headers)}"
-                    )
-                return auth.split(" ", 1)[1]
-
-            return AIGatewayChatOpenAI(
-                model=self.name,
-                base_url=f"{host}/ai-gateway/mlflow/v1",
-                api_key=token_provider,
-                temperature=self.temperature,
-                max_tokens=self.max_tokens,
-                streaming=not effective_disable_streaming,
-            )
-
-        return ChatDatabricks(
+        cls = ChatUnityAIGateway if self.ai_gateway else ChatDatabricks
+        return cls(
             model=self.name,
             temperature=self.temperature,
             max_tokens=self.max_tokens,
@@ -1128,25 +1060,14 @@ class InferenceEndpointModel(IsDatabricksResource):
             )
             effective_disable_streaming = True
 
-        chat_client: LanguageModelLike
-        if self.ai_gateway:
-            host, token_provider = self._resolve_ai_gateway_credentials()
-            chat_client = AIGatewayChatOpenAI(
-                model=self.name,
-                base_url=f"{host}/ai-gateway/mlflow/v1",
-                api_key=token_provider,
-                temperature=self.temperature,
-                max_tokens=self.max_tokens,
-                streaming=not effective_disable_streaming,
-            )
-        else:
-            chat_client = ChatDatabricks(
-                model=self.name,
-                temperature=self.temperature,
-                max_tokens=self.max_tokens,
-                use_responses_api=self.use_responses_api,
-                disable_streaming=effective_disable_streaming,
-            )
+        cls = ChatUnityAIGateway if self.ai_gateway else ChatDatabricks
+        chat_client: LanguageModelLike = cls(
+            model=self.name,
+            temperature=self.temperature,
+            max_tokens=self.max_tokens,
+            use_responses_api=self.use_responses_api,
+            disable_streaming=effective_disable_streaming,
+        )
 
         fallbacks: Sequence[LanguageModelLike] = []
         for fallback in self.fallbacks:
@@ -1182,26 +1103,6 @@ class InferenceEndpointModel(IsDatabricksResource):
                 generator_temperature=self.temperature,
                 temperature_override=self.best_of_n.temperature_override,
             )
-
-        return chat_client
-
-    def as_open_ai_client(self) -> LanguageModelLike:
-        chat_client: ChatOpenAI
-        if self.ai_gateway:
-            host, token_provider = self._resolve_ai_gateway_credentials()
-            chat_client = AIGatewayChatOpenAI(
-                model=self.name,
-                base_url=f"{host}/ai-gateway/mlflow/v1",
-                api_key=token_provider,
-                temperature=self.temperature,
-                max_tokens=self.max_tokens,
-            )
-        else:
-            chat_client = self.workspace_client.serving_endpoints.get_langchain_chat_open_ai_client(
-                model=self.name
-            )
-            chat_client.temperature = self.temperature
-            chat_client.max_tokens = self.max_tokens
 
         return chat_client
 
