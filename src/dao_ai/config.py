@@ -7603,6 +7603,17 @@ class AppModel(BaseModel):
         default=None,
         description="Databricks budget policy ID for cost attribution.",
     )
+    space: Optional[str] = Field(
+        default=None,
+        description=(
+            "Name of an existing Databricks App Space to assign this app to. "
+            "Spaces govern shared resources, user_api_scopes, and the runtime "
+            "service principal across multiple apps. App Spaces is currently in "
+            "Private Preview; the space must already exist in the target workspace "
+            "(create via Terraform `databricks_app_space` or "
+            "`WorkspaceClient.apps.create_space()`). dao-ai does not create spaces."
+        ),
+    )
     workload_size: Optional[WorkloadSize] = Field(
         default="Small",
         description="Model Serving workload size (Small, Medium, Large).",

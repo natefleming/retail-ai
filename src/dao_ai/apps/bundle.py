@@ -452,6 +452,9 @@ def _build_app_block(
     if user_api_scopes:
         app_def["user_api_scopes"] = user_api_scopes
 
+    if config.app.space:
+        app_def["space"] = config.app.space
+
     experiments_block: dict[str, Any] = {
         experiment_key: {
             "name": f"/Users/${{workspace.current_user.userName}}/{app_name}",
