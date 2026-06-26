@@ -87,6 +87,24 @@ class MemoryContextMiddleware(AgentMiddleware):
     message and prepends them to the system prompt before each model
     call.
 
+    Trace shape note
+    ----------------
+    When ``query_model`` is configured on the underlying
+    ``MemoryStoreManager`` (langmem), the manager makes an **internal LLM
+    call to refine the search query** before issuing the embedding lookup.
+    That LLM call is autolog-instrumented and surfaces in MLflow traces
+    as a ``ChatUnityAIGateway`` (or whatever chat-model subclass is used)
+    span — separate from the agent's *primary* LLM call that comes a few
+    moments later.
+
+    The result: agents with memory enabled produce two LLM-call spans per
+    turn, both labeled by the chat-model class name. This is **not a bug
+    or double-instrumentation** — it's one LLM call for query refinement
+    plus one for the agent's actual reasoning. To eliminate the refinement
+    call, set ``query_model: None`` in the memory ``extraction`` block of
+    your dao-ai config; langmem will then use the raw user query for the
+    embedding lookup.
+
     Args:
         manager: A ``MemoryStoreManager`` configured with the
             appropriate namespace and store.
