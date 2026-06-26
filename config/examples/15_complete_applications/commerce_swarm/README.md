@@ -1,10 +1,10 @@
 # Commerce Swarm — LangGraph Commerce Agent (B2B + B2C)
 
-> **Reference implementation of the LangGraph Commerce Agent v2.1 architecture on dao-ai.** A 9-agent swarm serving both consumer (B2C) and foodservice (B2B) traffic, with hyper-personalization driven by Lakebase-backed long-term memory and Unity AI Gateway routing on every model call.
+> **Reference implementation of the LangGraph Commerce Agent v2.1 architecture on dao-ai.** An 11-agent **pipeline** (supervisor → planner → specialist → composer) serving both consumer (B2C) and foodservice (B2B) traffic, with hyper-personalization driven by Lakebase-backed long-term memory and Unity AI Gateway routing on every model call.
 
 | ✨ Feature | What this example shows |
 |---|---|
-| 🐝 **Swarm orchestration** | Supervisor as default entry — **LLM tool-call** fan-out to specialists; **deterministic** return to supervisor (`is_deterministic: true`) — saves one LLM call per turn |
+| 🔁 **Pipeline orchestration** | Linear stages: `supervisor → planner → handler/ucp → composer`. Stage transitions are **deterministic** (no LLM call); planner→handler is **LLM-routed** (planner picks one target). Specialists hand off **directly to composer**, not back to supervisor — no hub-and-spoke. |
 | 🧠 **Hyper-personalization** | Lakebase checkpointer + store + background extraction of `user_profile` / `preference` / `episode` schemas. `MemoryContextMiddleware` auto-injects memories into every handler's system prompt before each LLM call |
 | 🛡️ **Unity AI Gateway** | `ai_gateway: true` on every model (chat, extraction, query, embedding) — uniform governance, usage tracking, rate-limit pooling |
 | 🎯 **Mixed-model assignment** | `gpt-oss-120b` for fast routing/lookups + memory extraction + memory-search query optimization; `claude-sonnet-4-5` for reasoning-heavy recommendation + eval |
@@ -23,7 +23,7 @@ The system is built from five interacting layers. Each layer below has a focused
 
 ### 1. System layers
 
-The top-level shape: client → app (with validation + memory middleware + 9-agent swarm) → AI Gateway, Lakebase, Unity Catalog. Traces flow out via a SQL warehouse to UC OTEL tables.
+The top-level shape: client → app (with validation + memory middleware + 11-agent pipeline) → AI Gateway, Lakebase, Unity Catalog. Traces flow out via a SQL warehouse to UC OTEL tables.
 
 ```mermaid
 %%{init: {'theme': 'base', 'themeVariables': { 'primaryColor': '#1565c0', 'fontSize': '14px'}}}%%
@@ -34,7 +34,7 @@ flowchart LR
         direction TB
         MW1["🚦 validation"]
         MW2["🧠 memory inject"]
-        Swarm["🐝 9-agent swarm"]
+        Swarm["🔁 11-agent pipeline"]
         MW3["💾 extraction (bg)"]
         MW1 --> MW2 --> Swarm
         Swarm -.-> MW3
@@ -66,70 +66,96 @@ flowchart LR
 - The `💾 extraction` block runs **after** each turn (`background_extraction: true`) so it never blocks the response. It uses `extraction_llm` (gpt-oss-120b — explicitly separate so foreground inference doesn't compete with extraction for Sonnet capacity).
 - The `📍 SQL Warehouse` is **required** for Databricks Apps because Apps containers cannot reach the default control-plane trace storage endpoint. Without `trace_location`, traces are silently dropped.
 
-### 2. Swarm routing topology
+### 2. Pipeline topology
 
-The supervisor is the only entry point. Every specialist returns to supervisor via a **deterministic** handoff (`is_deterministic: true` on every return edge) — no LLM call needed to decide "should I hand back?". This saves one tool-call decision per turn and gives the supervisor a clean re-triage point for the next user message.
+The orchestration is a linear **pipeline** with branching only at one point (planner → handler) and convergence at one point (handler → composer). Stage transitions that have a single valid next-stage are **deterministic** (no LLM call needed). Only planner→handler uses LLM tool-call routing, because that's the only stage where a decision needs to be made.
 
 ```mermaid
 %%{init: {'theme': 'base', 'themeVariables': { 'primaryColor': '#1565c0', 'fontSize': '14px'}}}%%
-stateDiagram-v2
-    direction TB
+flowchart LR
+    Start(("user msg"))
 
-    state "👔 supervisor (gpt-oss-120b)\nintent classification + routing" as supervisor
-    state "🔍 discovery" as discovery
-    state "💡 recommendation (claude-sonnet-4-5)" as recommendation
-    state "📋 order_history" as order_history
-    state "📚 support" as support
-    state "📦 stock" as stock
-    state "💳 credit_limit (B2B only)" as credit_limit
-    state "⚡ ucp (idempotent commerce)" as ucp
-    state "💬 general" as general
+    Supervisor["1️⃣ supervisor<br/>gpt-oss-120b<br/><i>intent classification</i>"]
+    Planner["2️⃣ planner<br/>gpt-oss-120b<br/><i>orchestrator — picks handler</i>"]
 
-    [*] --> supervisor: user message
-    supervisor --> discovery: LLM handoff
-    supervisor --> recommendation: LLM handoff
-    supervisor --> order_history: LLM handoff
-    supervisor --> support: LLM handoff
-    supervisor --> stock: LLM handoff
-    supervisor --> credit_limit: LLM handoff
-    supervisor --> ucp: LLM handoff
-    supervisor --> general: LLM handoff
+    subgraph Handlers["3️⃣ Specialist Handlers (LLM)"]
+        direction TB
+        Discovery["🔍 discovery"]
+        Recommendation["💡 recommendation<br/><b>claude-sonnet-4-5</b>"]
+        OrderHistory["📋 order_history"]
+        Support["📚 support"]
+        Stock["📦 stock"]
+        Credit["💳 credit_limit<br/>B2B only"]
+        General["💬 general"]
+    end
 
-    discovery --> supervisor: deterministic
-    recommendation --> supervisor: deterministic
-    order_history --> supervisor: deterministic
-    support --> supervisor: deterministic
-    stock --> supervisor: deterministic
-    credit_limit --> supervisor: deterministic
-    ucp --> supervisor: deterministic
-    general --> supervisor: deterministic
+    UCP["3️⃣b ucp<br/>gpt-oss-120b<br/><i>idempotent commerce</i>"]
+    Composer["4️⃣ composer<br/>gpt-oss-120b<br/><i>format + stream response</i>"]
+    End(("response<br/>streamed"))
 
-    supervisor --> [*]: response streamed
+    Start ==>|deterministic| Supervisor
+    Supervisor ==>|deterministic| Planner
 
-    note right of supervisor
-        Outbound = LLM tool-call routing
-        (handoff_to_X tool invoked by LLM)
-        ---
-        Inbound = is_deterministic: true
-        (unconditional return after specialist turn)
-    end note
+    Planner -.->|LLM tool-call| Discovery
+    Planner -.->|LLM tool-call| Recommendation
+    Planner -.->|LLM tool-call| OrderHistory
+    Planner -.->|LLM tool-call| Support
+    Planner -.->|LLM tool-call| Stock
+    Planner -.->|LLM tool-call| Credit
+    Planner -.->|LLM tool-call| General
+    Planner -.->|LLM tool-call<br/>transactional| UCP
+
+    Discovery ==>|deterministic| Composer
+    Recommendation ==>|deterministic| Composer
+    OrderHistory ==>|deterministic| Composer
+    Support ==>|deterministic| Composer
+    Stock ==>|deterministic| Composer
+    Credit ==>|deterministic| Composer
+    General ==>|deterministic| Composer
+    UCP ==>|deterministic| Composer
+
+    Composer ==> End
+
+    style Supervisor fill:#fff3e0,stroke:#e65100,stroke-width:3px
+    style Planner fill:#f3e5f5,stroke:#7b1fa2,stroke-width:3px
+    style Recommendation fill:#e1f5fe,stroke:#0277bd,stroke-width:2px
+    style Credit fill:#fff9c4,stroke:#f57f17
+    style UCP fill:#ffe0b2,stroke:#ef6c00,stroke-width:2px
+    style Composer fill:#c5e1a5,stroke:#558b2f,stroke-width:3px
+    style Start fill:#e0e0e0,stroke:#424242
+    style End fill:#e0e0e0,stroke:#424242
+    style Handlers fill:#fafafa,stroke:#9e9e9e
 ```
 
 **Wired in the YAML as:**
 ```yaml
-handoffs:
-  supervisor:                       # → any specialist (LLM picks)
-  discovery:
-  - agent: *supervisor
-    is_deterministic: true          # deterministic return
-  # ... same shape for every other specialist
+swarm:
+  default_agent: *supervisor
+  handoffs:
+    supervisor:
+    - agent: *planner
+      is_deterministic: true             # → planner, always
+    planner:                             # → exactly one of 8 (LLM tool-call)
+    - *discovery
+    - *recommendation
+    - *order_history
+    - *support
+    - *stock
+    - *credit_limit
+    - *general
+    - *ucp
+    discovery:
+    - agent: *composer
+      is_deterministic: true             # → composer, always
+    # ... same shape for every other specialist
+    composer: []                         # terminal — no outbound edges
 ```
 
-**Why no specialist↔specialist hops?** Eliminates handoff loops and keeps the trace flat. A multi-intent message gets serialized through repeated supervisor handoffs (cursor-style) — no parallel fan-out needed, so stock dao-ai swarm (single-active-agent semantics) covers the diagram's behavior without framework extension.
+**This is a pipeline, not a hub-and-spoke.** The supervisor is just the *first stage* of every turn — it does NOT serve as a routing hub. Specialists hand off directly to the composer. The only LLM-routing decision is at the planner stage (which handler to invoke).
 
 ### 3. Per-turn execution lifecycle
 
-This is the *full* sequence of what happens on a single user turn. The middleware layers and background extraction are critical to understanding the actual data flow — they don't appear in the YAML directly, but `dao-ai` wires them in automatically when `memory.extraction` is present.
+This is the *full* sequence of what happens on a single user turn across all four pipeline stages. The middleware layers and background extraction are critical to understanding the actual data flow — they don't appear in the YAML directly, but `dao-ai` wires them in automatically when `memory.extraction` is present.
 
 ```mermaid
 %%{init: {'theme': 'base', 'themeVariables': { 'fontSize': '13px'}}}%%
@@ -138,60 +164,63 @@ sequenceDiagram
     actor User
     participant V as 🚦 validation<br/>middleware
     participant MI as 🧠 memory_context<br/>middleware
-    participant Sup as 👔 supervisor
-    participant Spec as 🔍 specialist<br/>(e.g. recommendation)
+    participant Sup as 1️⃣ supervisor
+    participant Plan as 2️⃣ planner
+    participant Spec as 3️⃣ specialist<br/>(e.g. recommendation)
+    participant Comp as 4️⃣ composer
     participant Gateway as 🛡️ AI Gateway
-    participant Store as 🗄️ Lakebase store<br/>(ns=user_id)
-    participant Tools as 🛠️ UC fn / VS index
+    participant Store as 🗄️ Lakebase store
+    participant Tools as 🛠️ UC fn / VS
     participant Ext as 💾 extraction<br/>(background)
-    participant OTEL as 📍 OTEL tables
 
     User->>V: user message + user_id
     V->>V: validate user_id present
     V->>Sup: pass message
 
-    Sup->>MI: about to invoke LLM
-    MI->>Store: semantic search<br/>(query_model + embedding_model)
+    Note over Sup: STAGE 1 — intent classification
+    MI->>Store: search memories
     Store-->>MI: top-K memories
-    MI-->>Sup: ## Memories injected<br/>into system prompt
+    MI-->>Sup: ## Memories injected
+    Sup->>Gateway: chat.completions (gpt-oss-120b)
+    Gateway-->>Sup: "INTENT: recommendation | CONFIDENCE: 0.92"
 
-    Sup->>Gateway: chat.completions<br/>(gpt-oss-120b)
-    Gateway-->>Sup: tool_call: handoff_to(specialist)
+    Sup-->>Plan: deterministic handoff
+    Note over Plan: STAGE 2 — orchestration
+    MI->>Store: search memories
+    Store-->>MI: top-K memories
+    MI-->>Plan: ## Memories injected
+    Plan->>Gateway: chat.completions (gpt-oss-120b)
+    Gateway-->>Plan: tool_call: handoff_to_recommendation
 
-    Sup->>Spec: LLM handoff
-
-    Spec->>MI: about to invoke LLM
-    MI->>Store: semantic search
+    Plan->>Spec: LLM handoff
+    Note over Spec: STAGE 3 — specialist execution
+    MI->>Store: search memories
     Store-->>MI: top-K memories
     MI-->>Spec: ## Memories injected
-
-    Spec->>Gateway: chat.completions<br/>(claude-sonnet-4-5)
+    Spec->>Gateway: chat.completions (claude-sonnet-4-5)
     Gateway-->>Spec: tool_call: search_or_fetch
-
     Spec->>Tools: invoke(args)
     Tools-->>Spec: result rows
+    Spec->>Gateway: chat.completions (synthesize findings)
+    Gateway-->>Spec: working notes
 
-    Spec->>Gateway: chat.completions<br/>(stream final response)
-    Gateway-->>Spec: streaming tokens
-    Spec-->>User: streamed response
+    Spec-->>Comp: deterministic handoff
+    Note over Comp: STAGE 4 — compose + stream
+    Comp->>Gateway: chat.completions stream (gpt-oss-120b)
+    Gateway-->>Comp: streaming tokens
+    Comp-->>User: streamed response
 
-    Note over Spec: turn complete<br/>is_deterministic: true
-    Spec-->>Sup: deterministic return<br/>(no LLM call)
-
-    Note over Sup,Ext: post-turn (async)
-    Sup-->>Ext: turn finalized
-    Ext->>Gateway: chat.completions<br/>(extraction_llm = gpt-oss-120b)
+    Note over Comp,Ext: turn complete · post-turn (async)
+    Comp-->>Ext: turn finalized
+    Ext->>Gateway: chat.completions (extraction_llm)
     Gateway-->>Ext: structured extraction
     Ext->>Store: write user_profile / preference / episode
-
-    Note over OTEL: trace flush via SQL Warehouse
-    Gateway-->>OTEL: span exports
 ```
 
 **Observations:**
-- **Memory injection happens twice per turn** (once before supervisor, once before specialist). The supervisor injection can be disabled with `supervisor_auto_inject: false` if your supervisor doesn't need user context — which this YAML sets.
-- **Tool calls are LLM-driven**, but the agent loops internally until it produces a response (not shown — could be 2-3 tool calls in a row).
-- **The deterministic return is just an edge in the LangGraph state machine** — no Gateway call, no token cost.
+- **Four LLM calls on the foreground path** (supervisor, planner, specialist, composer). The two deterministic handoffs (supervisor→planner and specialist→composer) are state-machine edges — no Gateway call, no token cost. Only one routing decision is paid for in tokens: planner→specialist.
+- **Memory injection happens before every LLM call** — that's the `MemoryContextMiddleware`. `supervisor_auto_inject: false` would disable it for supervisor only; currently the YAML keeps it enabled across all four stages.
+- **Specialists have a clean handoff contract**: read upstream messages, do their tool work, leave well-formed working notes for the composer. They never directly stream to the user — that's the composer's job.
 - **Extraction is decoupled from the response path** — it sits behind a queue and runs even if the user has closed the connection. Its trace shows up as a separate span branch.
 
 ### 4. Hyper-personalization across threads
@@ -356,17 +385,19 @@ flowchart LR
 
 ## Agents
 
-| # | Agent | Model | Tools | Role |
-|---|---|---|---|---|
-| 1 | `supervisor` | gpt-oss-120b | — | Entry-point triage. Classifies intent and routes via LLM tool-call handoffs. Never answers customer questions directly. |
-| 2 | `discovery` | gpt-oss-120b | `product_search` (VS), `find_product_uc` | Semantic product search and SKU/ID lookup. |
-| 3 | `recommendation` | **claude-sonnet-4-5** | `product_search`, `get_order_history_uc` | Personalized suggestions. Synthesizes memory + order history + catalog. Hard constraints from dietary memories. |
-| 4 | `order_history` | gpt-oss-120b | `get_order_history_uc` | Order tracking, shipping/delivery status. |
-| 5 | `support` | gpt-oss-120b | `faq_search` (VS), `policy_search` (VS) | Policy and FAQ Q&A. Prefers FAQ for short answers; falls back to policy for formal detail. |
-| 6 | `stock` | gpt-oss-120b | `check_stock_uc`, `find_product_uc` | Inventory across distribution locations with ATP (available-to-promise) calculation. |
-| 7 | `credit_limit` | gpt-oss-120b | `get_credit_limit_uc` | B2B-only credit availability + payment terms. Politely redirects B2C requesters to support. |
-| 8 | `ucp` | gpt-oss-120b | `get_cart_uc`, `find_product_uc` | Idempotent commerce executor. MCP-ready for Commercetools / Stripe / Adyen wiring. |
-| 9 | `general` | gpt-oss-120b | — | Greetings, brand questions, small talk. Hands back when the topic shifts to a specialist domain. |
+| Stage | # | Agent | Model | Tools | Role |
+|---|---|---|---|---|---|
+| 1️⃣ | 1 | `supervisor` | gpt-oss-120b | — | Intent classification only. Emits `INTENT: <label> \| CONFIDENCE: <x>`. Deterministic handoff to planner. |
+| 2️⃣ | 2 | `planner` | gpt-oss-120b | — | Orchestrator. Reads supervisor's intent label and invokes one handoff tool to route to the right specialist. Persona rules baked in (B2C redirect for credit, clarification routing). |
+| 3️⃣ | 3 | `discovery` | gpt-oss-120b | `product_search` (VS), `find_product_uc` | Semantic product search and SKU/ID lookup. |
+| 3️⃣ | 4 | `recommendation` | **claude-sonnet-4-5** | `product_search`, `get_order_history_uc` | Personalized suggestions. Synthesizes memory + order history + catalog. Hard constraints from dietary memories. |
+| 3️⃣ | 5 | `order_history` | gpt-oss-120b | `get_order_history_uc` | Order tracking, shipping/delivery status. |
+| 3️⃣ | 6 | `support` | gpt-oss-120b | `faq_search` (VS), `policy_search` (VS) | Policy and FAQ Q&A. Prefers FAQ for short answers; falls back to policy for formal detail. |
+| 3️⃣ | 7 | `stock` | gpt-oss-120b | `check_stock_uc`, `find_product_uc` | Inventory across distribution locations with ATP (available-to-promise) calculation. |
+| 3️⃣ | 8 | `credit_limit` | gpt-oss-120b | `get_credit_limit_uc` | B2B-only credit availability + payment terms. The planner routes B2C requesters here only by mistake; handler explains the B2B-only constraint. |
+| 3️⃣b | 9 | `ucp` | gpt-oss-120b | `get_cart_uc`, `find_product_uc` | Idempotent commerce executor. MCP-ready for Commercetools / Stripe / Adyen wiring. |
+| 3️⃣ | 10 | `general` | gpt-oss-120b | — | Greetings, brand questions, small talk, and the receiving stage for clarification flows. |
+| 4️⃣ | 11 | `composer` | gpt-oss-120b | — | Terminal node. Reads upstream specialist's working notes, formats and streams the final customer-facing response. |
 
 **Model assignment rationale:**
 - **`gpt-oss-120b`** — strong tool-call fidelity, low latency, low cost. Right for triage, structured lookups, idempotent commerce, memory extraction, and memory-query rephrasing.
@@ -427,17 +458,28 @@ Data is FK-consistent and deterministic (seeded random). Generated once, committ
 
 ## Why these design choices?
 
-### Why swarm, not supervisor pattern?
+### Why a pipeline, not a hub-and-spoke supervisor?
 
-The diagram's specialists are mostly self-contained — once supervisor classifies, the specialist owns the response. Stock supervisor pattern would force the supervisor LLM to re-evaluate routing after every specialist turn (wasted tokens). Swarm with deterministic returns gives us one-shot triage on the way in and a zero-LLM-cost return on the way out.
+The reference architecture is a **linear flow**: classify intent → orchestrate → execute → respond. A hub-and-spoke supervisor pattern would force every specialist to return to the supervisor (wasting one LLM call per turn) and would obscure the four-stage structure that the diagram makes explicit. The pipeline shape mirrors the diagram directly — every stage has exactly one job and hands off downstream.
 
-### Why deterministic returns (`is_deterministic: true`) instead of LLM handoff back?
+### Why deterministic handoffs at supervisor→planner and specialist→composer?
 
-The return path has **only one valid target** (supervisor), so asking an LLM "should I hand back?" is a waste of a tool-call decision. The deterministic flag turns it into a state-machine edge — no Gateway call, no token cost, predictable trace shape. The price is one less degree of freedom (specialists can't choose to skip the supervisor and respond directly), which is exactly the behavior we want here.
+Each of those edges has **exactly one valid next stage**, so asking an LLM "where to next?" is wasted tokens. `is_deterministic: true` turns it into a state-machine edge — no Gateway call, no token cost, predictable trace shape. The only edge that genuinely needs LLM routing is planner→specialist, where the planner picks one of 8 targets based on the supervisor's intent label.
 
-### Why not the original 12-agent planner+resolver+router+composer breakdown?
+### Why a separate supervisor *and* planner if they're both LLM calls?
 
-The diagram's `Resolver` and `Router` are deterministic — pure function over state. dao-ai requires `AgentModel.model`, so making them no-LLM agents would need framework work. We fold their logic into the supervisor's handoff decision and the `is_deterministic` return edges. The `Composer` collapses into each handler's natural streaming response — modern LLMs format and stream inline. This drops 3 LLM calls per turn with zero behavioral loss.
+**Separation of concerns.** Supervisor is pure classification (intent label + confidence). Planner is pure routing (intent → handler). Both can be evolved independently:
+- Supervisor could become a cheaper/faster model, or a fine-tuned classifier
+- Planner could become deterministic (intent→handler is a fixed mapping) and skip the LLM call entirely
+
+Keeping them combined would couple those evolutions. The diagram explicitly separates them, and dao-ai's stage-aware tracing makes the boundary observable for free.
+
+### Why does the composer exist instead of having each specialist stream directly?
+
+Three reasons:
+- **Single streaming contract**: the composer is the only node that streams to the user, which simplifies the SSE / Responses-API wiring on the App side
+- **Consistent style**: the composer formats *every* response, so tone and citation patterns stay uniform across handlers
+- **Cheaper streaming**: gpt-oss-120b streams faster than Claude Sonnet, so even when `recommendation` does heavy Sonnet reasoning, the user-facing tokens come back at gpt-oss speed
 
 ### Why mixed models?
 
@@ -507,25 +549,25 @@ databricks --profile fevm apps get commerce_swarm_dao
 
 ### B2C consumer (user_id starts with `C`)
 
-| Prompt | Expected route |
+| Prompt | Pipeline route |
 |---|---|
-| `"Hi! I'm planning a brunch for 20 people next weekend — what would you recommend?"` | `supervisor → recommendation` |
-| `"I'm allergic to peanuts. Suggest a dessert under $30."` | `supervisor → recommendation` (uses memory next turn) |
-| `"Where's my last order?"` | `supervisor → order_history` |
-| `"What's your return policy?"` | `supervisor → support` |
-| `"Is FRZ-CAKE-001 in stock?"` | `supervisor → stock` |
-| `"Show me vegan cakes"` | `supervisor → discovery` |
-| `"What's my credit limit?"` | `supervisor → credit_limit → handoff back (B2B-only redirect)` |
+| `"Hi! I'm planning a brunch for 20 people next weekend — what would you recommend?"` | `supervisor → planner → recommendation → composer` |
+| `"I'm allergic to peanuts. Suggest a dessert under $30."` | `supervisor → planner → recommendation → composer` (memory persisted for next turn) |
+| `"Where's my last order?"` | `supervisor → planner → order_history → composer` |
+| `"What's your return policy?"` | `supervisor → planner → support → composer` |
+| `"Is FRZ-CAKE-001 in stock?"` | `supervisor → planner → stock → composer` |
+| `"Show me vegan cakes"` | `supervisor → planner → discovery → composer` |
+| `"What's my credit limit?"` | `supervisor → planner → support → composer` (planner routes B2C to support; B2B-only explanation) |
 
 ### B2B foodservice (user_id starts with `B`)
 
-| Prompt | Expected route |
+| Prompt | Pipeline route |
 |---|---|
-| `"What's my credit limit?"` | `supervisor → credit_limit` |
-| `"Recommend a bulk pack for my cafe's weekend brunch service."` | `supervisor → recommendation` (B2B-aware, prefers bulk SKUs) |
-| `"Do you have pizza bites available in Dallas?"` | `supervisor → stock` |
-| `"Add 5 cases of FRZ-CAKE-002 to my cart."` | `supervisor → ucp` (idempotent, MCP-ready) |
-| `"Place the order."` | `supervisor → ucp` (confirmation flow) |
+| `"What's my credit limit?"` | `supervisor → planner → credit_limit → composer` |
+| `"Recommend a bulk pack for my cafe's weekend brunch service."` | `supervisor → planner → recommendation → composer` (B2B-aware, prefers bulk SKUs) |
+| `"Do you have pizza bites available in Dallas?"` | `supervisor → planner → stock → composer` |
+| `"Add 5 cases of FRZ-CAKE-002 to my cart."` | `supervisor → planner → ucp → composer` (idempotent, MCP-ready) |
+| `"Place the order."` | `supervisor → planner → ucp → composer` (confirmation flow) |
 
 ---
 

@@ -425,13 +425,13 @@ middleware:
 agents:
 
   # ---------------------------------------------------------------------------
-  # SUPERVISOR — default entry agent. Classifies user intent and routes to
-  # the appropriate specialist via LLM-driven handoff tools. Stays out of
-  # the response loop after handing off (one-hop triage, then delegates).
+  # SUPERVISOR — default entry agent. Pure intent CLASSIFICATION (LLM).
+  # Output: intent label(s) + confidence. Hands off deterministically to the
+  # planner, which is responsible for routing.
   # ---------------------------------------------------------------------------
   supervisor: &supervisor
     name: supervisor
-    description: "Triage agent — classifies intent and routes to the appropriate specialist. Does not answer customer questions directly."
+    description: "Intent classification — extracts the customer's intent label(s) and confidence; deterministic handoff to planner."
     model: *fast_llm
     tools: []
     guardrails: []
@@ -439,29 +439,79 @@ agents:
       ### User Information
       - **User Id**: {user_id}
 
-      You are the entry-point triage agent for Commerce Swarm' commerce assistant. You serve **both B2C consumers and B2B foodservice customers**. Your ONLY job is to classify what the customer is asking and immediately hand off to the right specialist via your handoff tools.
+      You are the entry-point intent classifier for the Commerce Swarm assistant. You serve both **B2C consumers** (user_id starts with `C`) and **B2B foodservice customers** (user_id starts with `B`).
 
-      #### How to classify
+      Your ONLY job is to read the customer's message and emit a brief, structured intent classification. Do NOT answer the customer. Do NOT call tools. Do NOT speculate about answers — that is the planner's and specialists' job.
 
-      - **Discovery** → product search ("show me chocolate cakes", "what frozen desserts do you have")
-      - **Recommendation** → ask for suggestions ("recommend something for my anniversary", "what should I buy for my cafe's brunch menu")
-      - **Order history** → questions about prior orders ("where's my last order", "what did I order in May", "track order O000042")
-      - **Support** → policy / how-to / shipping / returns questions ("what's your return policy", "how do I reset my password")
-      - **Stock** → inventory or availability ("is FRZ-CAKE-001 in stock", "do you have pizza bites available in Dallas")
-      - **Credit limit** → B2B-only credit availability ("what's my credit limit", "do I have credit available for a $5k order")
-      - **UCP** → transactional commerce ("add this to my cart", "place the order", "refund my last order")
-      - **General** → small talk, greetings, or anything that doesn't fit the above
+      #### Intent labels
 
-      #### Rules
+      - `discovery`     — product search by name, attribute, or description
+      - `recommendation` — personalized suggestion, "what should I buy", curated picks
+      - `order_history`  — past orders, tracking, shipping/delivery status
+      - `support`        — policy / FAQ / how-to / returns / account
+      - `stock`          — inventory, availability, restocking
+      - `credit_limit`   — B2B credit availability and payment terms (B2B only)
+      - `transactional`  — add to cart, checkout, place order, cancel, refund
+      - `general`        — greetings, small talk, brand questions
 
-      - Pick ONE specialist for the customer's primary intent. Do not answer the question yourself.
-      - If the customer mentions MULTIPLE intents in one message, pick the FIRST one to handle now — the specialist can hand off back to you when finished.
-      - For B2B users (user_id starting with `B`), credit limit, bulk-order, and B2B-portal questions go to the credit_limit or ucp specialist.
-      - For B2C users (user_id starting with `C`), credit_limit is not applicable — politely redirect to support.
-      - When you hand off, the receiving agent has full context. Don't restate what the customer asked.
+      #### Output format
+
+      Emit exactly one line in this format and nothing else:
+
+      `INTENT: <label> | CONFIDENCE: <0.00-1.00> | NOTES: <one short phrase>`
+
+      Examples:
+      - `INTENT: recommendation | CONFIDENCE: 0.92 | NOTES: brunch planning for 20 people`
+      - `INTENT: order_history | CONFIDENCE: 0.95 | NOTES: tracking last order`
+      - `INTENT: credit_limit | CONFIDENCE: 0.88 | NOTES: B2B customer asking about credit`
+      - `INTENT: transactional | CONFIDENCE: 0.90 | NOTES: add to cart`
+
+      If confidence < 0.65, append ` | NEEDS_CLARIFICATION: true` and a one-sentence clarifying question.
+
+      Control then flows deterministically to the planner — no tool call needed.
 
     handoff_prompt: |
-      Entry-point routing — when a new customer message arrives without a clear specialist destination yet.
+      Entry-point intent classifier. Every customer message enters here first.
+
+  # ---------------------------------------------------------------------------
+  # PLANNER — orchestrator. Reads supervisor's intent classification and
+  # routes to exactly one specialist via LLM-driven handoff tool. No data
+  # retrieval, no response generation.
+  # ---------------------------------------------------------------------------
+  planner: &planner
+    name: planner
+    description: "Orchestrator — picks the specialist handler based on supervisor's intent label."
+    model: *fast_llm
+    tools: []
+    guardrails: []
+    prompt: |
+      ### User Information
+      - **User Id**: {user_id}
+
+      You are the orchestrator. The previous message in this conversation is a structured intent classification from the supervisor in the form `INTENT: <label> | CONFIDENCE: <x> | NOTES: <phrase>`.
+
+      Your job: read that classification and invoke EXACTLY ONE handoff tool to route the request to the right specialist. Do not write any natural-language reply.
+
+      #### Routing table (label → handoff tool)
+
+      - `discovery`      → `handoff_to_discovery`
+      - `recommendation` → `handoff_to_recommendation`
+      - `order_history`  → `handoff_to_order_history`
+      - `support`        → `handoff_to_support`
+      - `stock`          → `handoff_to_stock`
+      - `credit_limit`   → `handoff_to_credit_limit`
+      - `transactional`  → `handoff_to_ucp`
+      - `general`        → `handoff_to_general`
+
+      #### Persona rules
+
+      - If user_id starts with `C` (B2C) and intent is `credit_limit`, route to `support` instead — credit is B2B-only and the support handler will explain that politely.
+      - If `NEEDS_CLARIFICATION: true` was emitted, route to `general` — it will ask the clarifying question and hand off to the composer.
+
+      Invoke the chosen handoff tool. Do not output any other text.
+
+    handoff_prompt: |
+      Orchestrator that maps an intent label to the right specialist handler.
 
   # ---------------------------------------------------------------------------
   # DISCOVERY HANDLER — product search using Vector Search
@@ -489,7 +539,7 @@ agents:
       - Surface 3-5 strong matches with: product name, brand, category, price, and one-line description.
       - Mention `is_b2b_only` if applicable so B2C customers aren't pointed at items they can't buy.
       - If the customer's query is ambiguous (e.g. "something sweet"), ask one focused clarifying question OR return a broader assortment with categories.
-      - When done, hand back to the supervisor so the customer's next message gets re-triaged.
+      - When done, hand off to the composer — it will format the final response.
 
     handoff_prompt: |
       Product discovery questions — finding items by description, category, attributes, dietary needs, or use case.
@@ -534,7 +584,7 @@ agents:
       - NEVER fabricate order history — only describe orders surfaced by the tool.
       - Always cite WHY you're recommending each item.
 
-      Hand back to the supervisor when finished.
+      Hand off to the composer when finished — it will format and stream the final response.
 
     handoff_prompt: |
       Personalized recommendation requests — "what should I buy", "recommend something", "what's good for X occasion", or any open-ended suggestion ask.
@@ -566,7 +616,7 @@ agents:
       - If no orders are returned, say so plainly — don't speculate that orders "may be processing".
       - For B2B customers, also include the channel (b2b_portal / phone / edi) since it matters for fulfillment expectations.
 
-      Hand back to the supervisor when finished.
+      Hand off to the composer when finished — it will format and stream the final response.
 
     handoff_prompt: |
       Order lookup, tracking, status, shipping, or delivery questions.
@@ -599,7 +649,7 @@ agents:
       3. If you use both, lead with the FAQ answer and reference the policy for full detail.
       4. Always cite the answer source (FAQ category or policy title).
 
-      Hand back to the supervisor when finished.
+      Hand off to the composer when finished — it will format and stream the final response.
 
     handoff_prompt: |
       Policy, FAQ, how-to, shipping, returns, account, payment, or any general support question.
@@ -628,11 +678,11 @@ agents:
 
       #### Strategy
       - If the customer gives a SKU directly, call `check_stock_uc` immediately.
-      - If they describe a product, first call `find_product_uc` (or hand back to discovery if you can't resolve a single SKU), then check_stock_uc with the resolved SKU.
+      - If they describe a product, first call `find_product_uc` (or respond asking the customer to clarify which SKU if you can&apos;t resolve one), then check_stock_uc with the resolved SKU.
       - Report on-hand and available-to-promise per location, highlighting any location below its reorder threshold.
       - For B2B customers, default to the nearest distribution center (Buffalo, Dallas, or LA — based on inferred geography).
 
-      Hand back to the supervisor when finished.
+      Hand off to the composer when finished — it will format and stream the final response.
 
     handoff_prompt: |
       Inventory, stock, availability, "is X available", "do you have", or restock-timing questions.
@@ -658,13 +708,13 @@ agents:
       - `get_credit_limit_uc(customer_id)`: returns credit limit, available credit, used credit, payment terms, and risk rating for a B2B account.
 
       #### Rules
-      - If the user_id starts with `C` (B2C), politely explain credit lines are a B2B-only product and hand back to the supervisor (which will route them to support).
+      - If the user_id starts with `C` (B2C), politely explain credit lines are a B2B-only product and hand off to the composer to format the explanation.
       - For B2B accounts, always call `get_credit_limit_uc` first.
       - Report: total limit, currently available, currently used, payment terms (Net30/Net60/COD), and risk rating.
       - If they ask whether a hypothetical order would fit ("can I place a $X order"), check against `credit_available`.
       - Never disclose internal risk ratings to the customer in a way that sounds judgmental — describe the account as "good standing" / "review recommended" / etc. in conversational terms.
 
-      Hand back to the supervisor when finished.
+      Hand off to the composer when finished — it will format and stream the final response.
 
     handoff_prompt: |
       B2B credit limit questions, payment-terms inquiries, or "can I place a $X order" capacity checks.
@@ -707,7 +757,7 @@ agents:
 
       - Always confirm the SKU(s), quantity, and any monetary value back to the customer before "executing".
       - For destructive commands (refund, cancel), ask the customer to confirm before acting.
-      - Hand back to the supervisor when the transaction step is done, so the customer can continue browsing.
+      - Hand off to the composer when the transaction step is done — it will format the confirmation.
 
     handoff_prompt: |
       Transactional commerce commands — add to cart, update cart, checkout, place order, cancel, refund.
@@ -731,14 +781,52 @@ agents:
       #### Rules
 
       - Be warm, concise, and brand-appropriate. Commerce Swarm is a specialty food and dessert company serving both consumers and foodservice operators.
-      - If the customer asks anything product-specific, policy-specific, order-specific, inventory-specific, credit-specific, or transactional — DON'T answer. Hand back to the supervisor for re-routing.
+      - If the customer asks anything product-specific, policy-specific, order-specific, inventory-specific, credit-specific, or transactional — DON&apos;T answer. Acknowledge briefly and hand off to the composer — the user can re-prompt next turn.
       - Keep responses to 1-3 short sentences unless the customer specifically asks for detail.
 
-      Hand back to the supervisor when finished.
+      Hand off to the composer when finished — it will format and stream the final response.
 
     handoff_prompt: |
       Greetings, small talk, brand questions, or anything that doesn't match a specialist handoff_prompt.
       Examples: "hi", "what is Commerce Swarm", "thanks", "have a nice day".
+
+  # ---------------------------------------------------------------------------
+  # COMPOSER — final-response formatter. Reads the upstream specialist's
+  # working notes / tool results from the conversation, formats them into a
+  # customer-facing response, and streams. Terminal — no further handoffs.
+  # ---------------------------------------------------------------------------
+  composer: &composer
+    name: composer
+    description: "Final-response composer — formats and streams the customer-facing response based on upstream specialist output. Terminal node."
+    model: *fast_llm
+    tools: []
+    guardrails: []
+    prompt: |
+      ### User Information
+      - **User Id**: {user_id}
+
+      You are the response composer. The previous messages in this conversation include the upstream specialist's tool-call results and working notes. Your job: produce the single customer-facing reply.
+
+      #### Rules
+
+      - Read the specialist's findings from the conversation. Surface the result the customer asked for — prices, order status, recommendations, stock levels, policy summary, etc. — in a friendly, concise tone.
+      - **Cite sources where applicable**: if results came from a product search, mention which products. If from a policy doc, mention the policy title. If from an order lookup, include order_id.
+      - **Stream tokens** — you are the terminal node, so the bytes you emit ARE the response the customer sees.
+      - Stay under ~120 words unless the customer specifically asked for detail.
+      - Do NOT invoke tools. Do NOT invoke handoff tools. Just respond.
+
+      #### Style by intent
+
+      - `discovery` / `recommendation` — present 1–5 items as a short list with name + price + one-sentence justification.
+      - `order_history` — table-style or compact list with order_id, status, total, dates.
+      - `support` — direct quote / paraphrase of the relevant FAQ or policy; cite the source.
+      - `stock` — per-location availability summary.
+      - `credit_limit` — limit + available + payment terms + plain-English account-standing label.
+      - `transactional` (UCP) — confirm SKU + qty + idempotency key; describe what was executed.
+      - `general` — warm short reply matching the customer's register.
+
+    handoff_prompt: |
+      Final-response composer. Terminal node. Every specialist hands off here when finished.
 
 # =============================================================================
 # APPLICATION
@@ -782,6 +870,7 @@ app:
 
   agents:
   - *supervisor
+  - *planner
   - *discovery
   - *recommendation
   - *order_history
@@ -790,6 +879,7 @@ app:
   - *credit_limit
   - *ucp
   - *general
+  - *composer
 
   input_example:
     messages:
@@ -803,52 +893,76 @@ app:
   orchestration:
     memory: *memory
     # =======================================================================
-    # SWARM ORCHESTRATION
+    # PIPELINE ORCHESTRATION (swarm with deterministic stage handoffs)
     # =======================================================================
-    # The supervisor agent is the default entry point. Customer messages
-    # land on supervisor, which classifies intent and hands off to the
-    # appropriate specialist via LLM tool-call routing. Every specialist
-    # hands back to the supervisor when finished (deterministic return
-    # path), so the next user message gets re-triaged cleanly.
+    # Linear pipeline matching the LangGraph Commerce Agent v2.1 reference:
+    #
+    #   supervisor → planner → handler_X → composer → [END]
+    #                                  ↘ ucp → composer
+    #
+    # • supervisor → planner: DETERMINISTIC (every turn flows through both
+    #   classification and orchestration stages)
+    # • planner → handler/ucp: LLM tool-call routing (planner picks ONE
+    #   target based on supervisor's intent label)
+    # • handler/ucp → composer: DETERMINISTIC (every specialist terminates
+    #   in the composer, which formats and streams the final response)
+    # • composer: terminal — empty handoffs list, no outbound edges
+    #
+    # Note the *absence* of supervisor-as-hub: specialists do NOT return to
+    # supervisor. The supervisor is purely the first stage of the pipeline
+    # for each user turn, not a routing hub.
     # =======================================================================
     swarm:
       default_agent: *supervisor
       middleware:
       - *customer_validation
       handoffs:
-        # Supervisor can hand off to ANY specialist (~ = null = any) — LLM
-        # decides which specialist to invoke via tool-call routing.
+        # Stage 1 → Stage 2: deterministic, every turn passes through planner
         supervisor:
+        - agent: *planner
+          is_deterministic: true
 
-        # Every specialist hands back ONLY to supervisor — DETERMINISTIC return.
-        # `is_deterministic: true` means control transfers unconditionally at
-        # the end of each specialist's turn (no LLM call to decide whether to
-        # hand off). Saves one tool-call decision per turn and gives the
-        # supervisor a clean re-triage point for the next user message.
+        # Stage 2 → Stage 3: LLM tool-call routing (planner picks exactly one)
+        planner:
+        - *discovery
+        - *recommendation
+        - *order_history
+        - *support
+        - *stock
+        - *credit_limit
+        - *ucp
+        - *general
+
+        # Stage 3 → Stage 4 (or 3 → 3.5 → 4 for transactional):
+        # every specialist hands off DETERMINISTICALLY to composer.
         discovery:
-        - agent: *supervisor
+        - agent: *composer
           is_deterministic: true
         recommendation:
-        - agent: *supervisor
+        - agent: *composer
           is_deterministic: true
         order_history:
-        - agent: *supervisor
+        - agent: *composer
           is_deterministic: true
         support:
-        - agent: *supervisor
+        - agent: *composer
           is_deterministic: true
         stock:
-        - agent: *supervisor
+        - agent: *composer
           is_deterministic: true
         credit_limit:
-        - agent: *supervisor
+        - agent: *composer
           is_deterministic: true
         ucp:
-        - agent: *supervisor
+        - agent: *composer
           is_deterministic: true
         general:
-        - agent: *supervisor
+        - agent: *composer
           is_deterministic: true
+
+        # Stage 4: terminal — composer streams the final response and ends
+        # the turn. No outbound handoffs.
+        composer: []
 
 # =============================================================================
 # UNITY CATALOG FUNCTION DEPLOYMENT
