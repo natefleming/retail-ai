@@ -64,21 +64,27 @@ import dao_ai.memory.databricks
 
 # COMMAND ----------
 
-# DBTITLE 1,Set Up Dedicated Async Event Loop Thread
-import asyncio
+# DBTITLE 1,Serialize Predictions With a Lock
+# Evaluation runs `predict_fn` once per eval row. The dao-ai ResponsesAgent's
+# sync `predict()` wraps `apredict()` with `asyncio.run` — a fresh event loop
+# is created per call IN the calling thread. That keeps OpenTelemetry's
+# contextvars-based span propagation intact, so langchain.autolog spans
+# (LangGraph node, agent subgraphs, ChatUnityAIGateway, etc.) all nest under
+# the per-row `evaluation` trace span.
+#
+# Earlier versions of this notebook used a dedicated event loop on a daemon
+# thread plus `asyncio.run_coroutine_threadsafe`. That made traces incomplete:
+# only the explicit `mlflow.start_span` calls (memory_context_search, vector
+# search inner spans) survived the cross-thread context boundary. The
+# autolog-instrumented spans ended up in orphan traces.
+#
+# A simple threading.Lock here keeps predictions serialized — mlflow.genai
+# .evaluate may call predict_fn concurrently across rows, and the
+# ResponsesAgent is not designed for parallel sync calls against the same
+# graph instance.
 import threading
 
-_eval_loop = asyncio.new_event_loop()
-_eval_thread = threading.Thread(target=_eval_loop.run_forever, daemon=True)
-_eval_thread.start()
-
-def run_async(coro):
-    """Run an async coroutine on the dedicated event loop thread.
-    
-    All async operations (agent predictions) must run on the same event loop
-    to avoid asyncio.Lock cross-loop errors with nest_asyncio.
-    """
-    return asyncio.run_coroutine_threadsafe(coro, _eval_loop).result()
+_predict_lock = threading.Lock()
 
 # COMMAND ----------
 
@@ -128,7 +134,7 @@ print(f"Custom inputs: {custom_inputs}")
 # COMMAND ----------
 
 # DBTITLE 1,Load Model Version and Define Prediction Function
-from typing import Any
+from typing import Any, Optional
 
 import mlflow
 from mlflow import MlflowClient
@@ -136,13 +142,35 @@ from mlflow.entities.model_registry.model_version import ModelVersion
 from mlflow.types.responses import ResponsesAgentRequest, ResponsesAgentResponse
 from dao_ai.models import get_latest_model_version
 
+# `deployment_target` controls how the agent reaches end users:
+#   - "model_serving" / "both": agent is registered + versioned in Unity Catalog,
+#     served via a Model Serving endpoint. Evaluation can `mlflow.load_model` it.
+#   - "apps": agent runs in-process inside a Databricks App container ONLY. No
+#     UC model is registered. The `config.as_responses_agent()` call at the top
+#     of this notebook already gave us a fully-functional `app` object to
+#     evaluate against — skip the UC fetch.
+deployment_target: str = getattr(config.app, "deployment_target", None) or "model_serving"
+print(f"Deployment target: {deployment_target}")
+
 mlflow.set_registry_uri("databricks-uc")
 mlflow_client = MlflowClient()
 
-registered_model_name: str = config.app.registered_model.full_name
-latest_version: int = get_latest_model_version(registered_model_name)
-model_uri: str = f"models:/{registered_model_name}/{latest_version}"
-model_version: ModelVersion = mlflow_client.get_model_version(registered_model_name, str(latest_version))
+registered_model_name: Optional[str] = None
+latest_version: Optional[int] = None
+model_uri: Optional[str] = None
+model_version: Optional[ModelVersion] = None
+
+if deployment_target in ("model_serving", "both"):
+    registered_model_name = config.app.registered_model.full_name
+    latest_version = get_latest_model_version(registered_model_name)
+    model_uri = f"models:/{registered_model_name}/{latest_version}"
+    model_version = mlflow_client.get_model_version(registered_model_name, str(latest_version))
+    print(f"Loaded UC model: {model_uri}")
+else:
+    print(
+        "Skipping UC model fetch — deployment_target is 'apps' so no UC model "
+        "is registered. Evaluating the in-process ResponsesAgent directly."
+    )
 
 _predict_counter = {"current": 0, "total": 0}
 
@@ -168,15 +196,18 @@ def _extract_output_text(response: ResponsesAgentResponse) -> str:
     return "".join(texts) if texts else str(response.output)
 
 
-_predict_lock = threading.Lock()
-
 def _run_prediction(messages: list[dict[str, Any]], custom_inputs: dict[str, Any] | None) -> str:
     with _predict_lock:
         request = ResponsesAgentRequest(
             input=[{"role": m["role"], "content": m["content"]} for m in messages],
             custom_inputs=custom_inputs,
         )
-        response: ResponsesAgentResponse = run_async(app.apredict(request))
+        # Use the sync `predict()` wrapper (which calls asyncio.run() in the
+        # same thread) instead of dispatching to a separate event-loop thread.
+        # This preserves OpenTelemetry's contextvars-based span propagation
+        # so langchain.autolog spans nest correctly under the per-row
+        # `evaluation` trace.
+        response: ResponsesAgentResponse = app.predict(request)
         return _extract_output_text(response)
 
 
@@ -223,23 +254,46 @@ from mlflow.models.evaluation import EvaluationResult
 scorers = build_scorers(config.evaluation)
 print(f"Scorers: {[getattr(s, 'name', type(s).__name__) for s in scorers]}")
 
-model_run = mlflow_client.get_run(model_version.run_id)
-mlflow.set_experiment(experiment_id=model_run.info.experiment_id)
+# Resolve the experiment to log this eval run into:
+#   - model_serving / both → the experiment associated with the UC-registered
+#     model run (matches the model version, so results stay attached to that
+#     specific model version)
+#   - apps → there's no UC model run to anchor to, so use (or create) a
+#     workspace experiment named after the app. mlflow.set_experiment will
+#     create it on first invocation.
+if model_version is not None:
+    model_run = mlflow_client.get_run(model_version.run_id)
+    experiment_id = model_run.info.experiment_id
+else:
+    model_run = None
+    # Use the app name to pick a stable experiment path under the deploying
+    # user's home directory. This keeps eval runs grouped per-app for
+    # apps-only deploys where no UC model anchors the experiment.
+    workspace_user = (
+        spark.conf.get("spark.databricks.workspaceUrl", "") and
+        dbutils.notebook.entry_point.getDbutils().notebook().getContext()
+        .userName().get()
+    )
+    experiment_path = f"/Users/{workspace_user}/{config.app.name}_evaluation"
+    experiment_id = mlflow.set_experiment(experiment_path).experiment_id
+    print(f"Apps-only deploy: created/using workspace experiment {experiment_path}")
+
+mlflow.set_experiment(experiment_id=experiment_id)
 
 eval_dataset = create_or_get_eval_dataset(
     name=f"{payload_table}_dataset",
-    experiment_id=model_run.info.experiment_id,
+    experiment_id=experiment_id,
     source_df=eval_df,
     replace=evaluation.replace,
 )
 
-experiment = mlflow.get_experiment(model_run.info.experiment_id)
+experiment = mlflow.get_experiment(experiment_id)
 print(f"Dataset name:      {eval_dataset.name}")
 print(f"Dataset ID:        {eval_dataset.dataset_id}")
 print(f"Dataset source:    {eval_dataset.source_type}")
 print(f"Dataset records:   {len(eval_dataset.to_df())} rows")
 print(f"Experiment name:   {experiment.name}")
-print(f"Experiment ID:     {model_run.info.experiment_id}")
+print(f"Experiment ID:     {experiment_id}")
 
 mlflow.autolog(disable=True)
 mlflow.langchain.autolog(run_tracer_inline=True)
@@ -248,19 +302,33 @@ run_tags: dict[str, str] = {
     k: str(v) for k, v in (config.app.tags or {}).items()
 }
 run_tags["run_type"] = "evaluation"
-run_name: str = f"{config.app.name}_evaluation_v{latest_version}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+run_tags["deployment_target"] = deployment_target
+
+# Run name suffix:
+#   - UC-registered models → include the model version so each registered
+#     version has its eval runs cleanly grouped
+#   - apps-only → no version exists, so just use the timestamp
+_version_suffix = f"v{latest_version}_" if latest_version is not None else ""
+run_name: str = f"{config.app.name}_evaluation_{_version_suffix}{datetime.now().strftime('%Y%m%d_%H%M%S')}"
 
 _predict_counter["total"] = len(eval_df)
 print(f"Starting evaluation: {len(eval_df)} rows, {len(scorers)} scorers")
 
+# `model_id` ties the eval to a specific registered model version in the
+# MLflow UI. For apps-only deploys there's no model id to bind, so we omit
+# the kwarg — mlflow.genai.evaluate treats `model_id=None` as unbound, which
+# is the right semantics for an in-process agent eval.
+_evaluate_kwargs = dict(
+    data=eval_dataset,
+    predict_fn=predict_fn,
+    scorers=scorers,
+)
+if model_version is not None:
+    _evaluate_kwargs["model_id"] = model_version.model_id
+
 with mlflow.start_run(run_name=run_name, tags=run_tags) as run:
     try:
-        eval_results: EvaluationResult = mlflow.genai.evaluate(
-            data=eval_dataset,
-            predict_fn=predict_fn,
-            model_id=model_version.model_id,
-            scorers=scorers,
-        )
+        eval_results: EvaluationResult = mlflow.genai.evaluate(**_evaluate_kwargs)
         print(f"Evaluation completed. Run ID: {run.info.run_id}")
     except Exception as e:
         print(f"Evaluation raised an exception (metrics may still be logged): {e}")
