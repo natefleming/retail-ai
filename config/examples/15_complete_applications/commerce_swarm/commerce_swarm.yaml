@@ -31,7 +31,7 @@ parameters:
     default: commerce_swarm
   warehouse_id:
     description: SQL warehouse ID used for UC trace_location export
-    default: 4b9b953939869799
+    default: d58e5fb998498840
 
 # =============================================================================
 # VARIABLES — credentials sourced from the shared retail_consumer_goods scope
