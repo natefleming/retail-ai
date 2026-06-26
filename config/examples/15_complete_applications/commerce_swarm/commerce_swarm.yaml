@@ -816,27 +816,39 @@ app:
       middleware:
       - *customer_validation
       handoffs:
-        # Supervisor can hand off to ANY specialist (~ = null = any)
+        # Supervisor can hand off to ANY specialist (~ = null = any) — LLM
+        # decides which specialist to invoke via tool-call routing.
         supervisor:
 
-        # Every specialist hands back ONLY to supervisor — clean return path,
-        # no specialist-to-specialist handoffs (avoids hop loops).
+        # Every specialist hands back ONLY to supervisor — DETERMINISTIC return.
+        # `is_deterministic: true` means control transfers unconditionally at
+        # the end of each specialist's turn (no LLM call to decide whether to
+        # hand off). Saves one tool-call decision per turn and gives the
+        # supervisor a clean re-triage point for the next user message.
         discovery:
-        - *supervisor
+        - agent: *supervisor
+          is_deterministic: true
         recommendation:
-        - *supervisor
+        - agent: *supervisor
+          is_deterministic: true
         order_history:
-        - *supervisor
+        - agent: *supervisor
+          is_deterministic: true
         support:
-        - *supervisor
+        - agent: *supervisor
+          is_deterministic: true
         stock:
-        - *supervisor
+        - agent: *supervisor
+          is_deterministic: true
         credit_limit:
-        - *supervisor
+        - agent: *supervisor
+          is_deterministic: true
         ucp:
-        - *supervisor
+        - agent: *supervisor
+          is_deterministic: true
         general:
-        - *supervisor
+        - agent: *supervisor
+          is_deterministic: true
 
 # =============================================================================
 # UNITY CATALOG FUNCTION DEPLOYMENT

@@ -1,156 +1,245 @@
 # Commerce Swarm — LangGraph Commerce Agent (B2B + B2C)
 
-> **Reference implementation of the [LangGraph Commerce Agent v2.1 architecture](https://blog.langchain.dev/) on dao-ai.** A 9-agent swarm serving both consumer (B2C) and foodservice (B2B) traffic, with hyper-personalization driven by Lakebase-backed long-term memory and Unity AI Gateway routing on every model call.
+> **Reference implementation of the LangGraph Commerce Agent v2.1 architecture on dao-ai.** A 9-agent swarm serving both consumer (B2C) and foodservice (B2B) traffic, with hyper-personalization driven by Lakebase-backed long-term memory and Unity AI Gateway routing on every model call.
 
 | ✨ Feature | What this example shows |
 |---|---|
-| 🐝 **Swarm orchestration** | Supervisor as default entry, specialists fan out and return — clean triage topology with no specialist↔specialist hops |
-| 🧠 **Hyper-personalization** | Lakebase checkpointer + store + background extraction of `user_profile` / `preference` / `episode` schemas. `auto_inject` prepends memories into handler prompts |
-| 🛡️ **Unity AI Gateway** | `ai_gateway: true` on every model — uniform governance, usage tracking, rate-limit pooling |
-| 🎯 **Mixed-model assignment** | `gpt-oss-120b` for fast routing/lookups, `claude-sonnet-4-5` for reasoning-heavy recommendation |
-| 💸 **Lakebase scale-to-zero** | `autoscaling_min_cu: 0` — zero idle cost, ~few-second cold-start when traffic resumes |
-| 📊 **Three VS indexes** | Delta-Sync over `products` / `faqs` / `policies` |
-| 🔁 **UCP idempotency** | Audit log table backs idempotent commerce/payment commands |
-| 📍 **UC trace_location** | Traces persist to OTEL tables in `retail_consumer_goods.commerce_swarm` — required for Databricks Apps |
-| 🔒 **No OBO** | Stable SP authentication everywhere |
+| 🐝 **Swarm orchestration** | Supervisor as default entry — **LLM tool-call** fan-out to specialists; **deterministic** return to supervisor (`is_deterministic: true`) — saves one LLM call per turn |
+| 🧠 **Hyper-personalization** | Lakebase checkpointer + store + background extraction of `user_profile` / `preference` / `episode` schemas. `MemoryContextMiddleware` auto-injects memories into every handler's system prompt before each LLM call |
+| 🛡️ **Unity AI Gateway** | `ai_gateway: true` on every model (chat, extraction, query, embedding) — uniform governance, usage tracking, rate-limit pooling |
+| 🎯 **Mixed-model assignment** | `gpt-oss-120b` for fast routing/lookups + memory extraction + memory-search query optimization; `claude-sonnet-4-5` for reasoning-heavy recommendation + eval |
+| 💸 **Lakebase scale-to-zero** | `autoscaling_min_cu: 0`, `suspend_timeout_seconds: 600` — zero idle cost, ~few-second cold-start when traffic resumes |
+| 📊 **Three VS indexes** | Delta-Sync TRIGGERED over `products` / `faqs` / `policies` on a single shared endpoint. CDF on source tables drives incremental sync |
+| 🔁 **UCP idempotency** | `idempotency_log` table backs idempotent commerce/payment commands |
+| 📍 **UC trace_location** | Traces persist to OTEL tables via SQL warehouse export — required for Databricks Apps (default control-plane trace storage host is unreachable from Apps containers) |
+| 🚦 **Validation middleware** | `customer_validation` wraps every agent — refuses to invoke without `user_id` |
+| 🔒 **No OBO** | Stable SP authentication everywhere — `on_behalf_of_user: false` on Lakebase, embedding model, vector stores |
 
 ---
 
 ## Architecture
 
-### High-level: client → swarm → data plane
+The system is built from five interacting layers. Each layer below has a focused diagram, and together they describe the full picture.
+
+### 1. System layers
+
+The top-level shape: client → app (with validation + memory middleware + 9-agent swarm) → AI Gateway, Lakebase, Unity Catalog. Traces flow out via a SQL warehouse to UC OTEL tables.
 
 ```mermaid
-%%{init: {'theme': 'base', 'themeVariables': { 'primaryColor': '#1565c0', 'edgeLabelBackground': '#ffffff' }}}%%
-flowchart TB
-    subgraph Client["🖥️ Client"]
-        Web["Web / PWA"]
-        Mobile["Mobile App"]
-        Chat["Chat / Voice"]
-    end
+%%{init: {'theme': 'base', 'themeVariables': { 'primaryColor': '#1565c0', 'fontSize': '14px'}}}%%
+flowchart LR
+    Client["🖥️ Client<br/>Web · Mobile · Chat"]
 
-    subgraph App["🚀 Databricks App: commerce_swarm_dao"]
+    subgraph App["🚀 Databricks App"]
         direction TB
-
-        subgraph Swarm["🐝 9-Agent Swarm — dao-ai orchestration"]
-            Supervisor["👔 Supervisor<br/>gpt-oss-120b<br/><i>intent classification + routing</i>"]
-
-            Discovery["🔍 Discovery"]
-            Recommendation["💡 Recommendation<br/><b>claude-sonnet-4-5</b>"]
-            OrderHistory["📋 Order History"]
-            Support["📚 Support"]
-            Stock["📦 Stock"]
-            Credit["💳 Credit Limit<br/><i>B2B only</i>"]
-            UCP["⚡ UCP<br/><i>idempotent commerce</i>"]
-            General["💬 General"]
-        end
-
-        subgraph Mem["🧠 Memory + Personalization"]
-            Checkpointer["Checkpointer<br/><i>conversation state</i>"]
-            Store["Long-term Store<br/><i>namespace: user_id</i>"]
-            Extraction["Background Extraction<br/><i>user_profile · preference · episode</i>"]
-        end
+        MW1["🚦 validation"]
+        MW2["🧠 memory inject"]
+        Swarm["🐝 9-agent swarm"]
+        MW3["💾 extraction (bg)"]
+        MW1 --> MW2 --> Swarm
+        Swarm -.-> MW3
     end
 
-    subgraph Gateway["🛡️ Unity AI Gateway"]
-        GPT["gpt-oss-120b"]
-        Claude["claude-sonnet-4-5"]
-    end
-
-    subgraph Lakebase["🗄️ Lakebase Postgres — scale-to-zero"]
-        Mem_Tables["memory · checkpoints · idempotency_log"]
-    end
-
-    subgraph UC["🏛️ Unity Catalog: retail_consumer_goods.commerce_swarm"]
-        Tables["10 Delta tables<br/>products · customers · orders · order_items<br/>inventory · credit_limits · cart · faqs · policies"]
-        VS["3 Vector Search indexes<br/><i>products · faqs · policies</i>"]
-        UCFns["5 UC functions<br/><i>find_product · get_order_history · check_stock<br/>get_credit_limit · get_cart</i>"]
-        OTEL["OTEL trace tables<br/><i>commerce_swarm_dao_otel_*</i>"]
-    end
+    Gateway["🛡️ Unity AI Gateway"]
+    Lakebase[("🗄️ Lakebase<br/>scale-to-zero")]
+    UC["🏛️ Unity Catalog<br/>tables · UC fns · VS · OTEL"]
+    Warehouse["📍 SQL Warehouse<br/>trace export"]
 
     Client --> App
-    Supervisor -.->|LLM handoff| Discovery & Recommendation & OrderHistory & Support & Stock & Credit & UCP & General
-    Discovery & Recommendation & OrderHistory & Support & Stock & Credit & UCP & General -.->|deterministic return| Supervisor
+    Swarm <-.->|chat completions| Gateway
+    Swarm <-.->|checkpoint + memory| Lakebase
+    MW2 <-.->|search| Lakebase
+    MW3 -.->|write| Lakebase
+    Swarm -->|tools| UC
+    App -.->|MLflow tracing| Warehouse --> UC
 
-    Swarm --> Mem
-    Mem <--> Lakebase
-    Swarm --> Gateway
-    Discovery --> VS
-    Support --> VS
-    Recommendation --> VS
-    Discovery & OrderHistory & Stock & Credit & UCP --> UCFns
-    UCFns --> Tables
-    VS --> Tables
-    Swarm -.->|MLflow tracing| OTEL
-
-    style Supervisor fill:#fff3e0,stroke:#e65100,stroke-width:3px
-    style Recommendation fill:#e1f5fe,stroke:#0277bd,stroke-width:2px
-    style Mem fill:#fce4ec,stroke:#c2185b
+    style App fill:#fff8e1,stroke:#f57f17,stroke-width:2px
     style Gateway fill:#f3e5f5,stroke:#7b1fa2
     style Lakebase fill:#e8f5e9,stroke:#2e7d32
     style UC fill:#e3f2fd,stroke:#1565c0
-    style Swarm fill:#fff8e1,stroke:#f57f17
+    style Warehouse fill:#ede7f6,stroke:#512da8
+    style Swarm fill:#fffde7,stroke:#fbc02d
 ```
 
-### Swarm routing topology
+**Key wiring details that are easy to miss:**
+- The `🧠 memory inject` block is the `MemoryContextMiddleware` (`dao_ai.middleware.memory_context`) that fires **before every LLM call**, not just on `recommendation`. It does a semantic search against the Lakebase `store` using `query_model` (gpt-oss-120b) for query rephrasing + `embedding_model` (gte-large-en) for vector similarity, and prepends a `## Memories` section to the agent's system prompt.
+- The `💾 extraction` block runs **after** each turn (`background_extraction: true`) so it never blocks the response. It uses `extraction_llm` (gpt-oss-120b — explicitly separate so foreground inference doesn't compete with extraction for Sonnet capacity).
+- The `📍 SQL Warehouse` is **required** for Databricks Apps because Apps containers cannot reach the default control-plane trace storage endpoint. Without `trace_location`, traces are silently dropped.
+
+### 2. Swarm routing topology
+
+The supervisor is the only entry point. Every specialist returns to supervisor via a **deterministic** handoff (`is_deterministic: true` on every return edge) — no LLM call needed to decide "should I hand back?". This saves one tool-call decision per turn and gives the supervisor a clean re-triage point for the next user message.
 
 ```mermaid
-%%{init: {'theme': 'base'}}%%
+%%{init: {'theme': 'base', 'themeVariables': { 'primaryColor': '#1565c0', 'fontSize': '14px'}}}%%
 stateDiagram-v2
-    [*] --> supervisor: customer message
+    direction TB
 
-    supervisor --> discovery: product search
-    supervisor --> recommendation: personalized suggestion
-    supervisor --> order_history: order lookup
-    supervisor --> support: policy / how-to
-    supervisor --> stock: inventory check
-    supervisor --> credit_limit: B2B credit
-    supervisor --> ucp: transactional command
-    supervisor --> general: small talk / catch-all
+    state "👔 supervisor (gpt-oss-120b)\nintent classification + routing" as supervisor
+    state "🔍 discovery" as discovery
+    state "💡 recommendation (claude-sonnet-4-5)" as recommendation
+    state "📋 order_history" as order_history
+    state "📚 support" as support
+    state "📦 stock" as stock
+    state "💳 credit_limit (B2B only)" as credit_limit
+    state "⚡ ucp (idempotent commerce)" as ucp
+    state "💬 general" as general
 
-    discovery --> supervisor
-    recommendation --> supervisor
-    order_history --> supervisor
-    support --> supervisor
-    stock --> supervisor
-    credit_limit --> supervisor
-    ucp --> supervisor
-    general --> supervisor
+    [*] --> supervisor: user message
+    supervisor --> discovery: LLM handoff
+    supervisor --> recommendation: LLM handoff
+    supervisor --> order_history: LLM handoff
+    supervisor --> support: LLM handoff
+    supervisor --> stock: LLM handoff
+    supervisor --> credit_limit: LLM handoff
+    supervisor --> ucp: LLM handoff
+    supervisor --> general: LLM handoff
+
+    discovery --> supervisor: deterministic
+    recommendation --> supervisor: deterministic
+    order_history --> supervisor: deterministic
+    support --> supervisor: deterministic
+    stock --> supervisor: deterministic
+    credit_limit --> supervisor: deterministic
+    ucp --> supervisor: deterministic
+    general --> supervisor: deterministic
 
     supervisor --> [*]: response streamed
+
+    note right of supervisor
+        Outbound = LLM tool-call routing
+        (handoff_to_X tool invoked by LLM)
+        ---
+        Inbound = is_deterministic: true
+        (unconditional return after specialist turn)
+    end note
 ```
 
-**Why this topology?**
-- **No specialist↔specialist hops** — every specialist returns to supervisor. Eliminates handoff loops and keeps the trace flat.
-- **No parallel fan-out needed** — multi-intent messages get serialized through repeated supervisor handoffs (cursor-style), so stock dao-ai swarm (single-active-agent semantics) covers the diagram's behavior without extension.
-- **Supervisor stays cheap** — `gpt-oss-120b` does intent classification only; specialists own the response budget.
+**Wired in the YAML as:**
+```yaml
+handoffs:
+  supervisor:                       # → any specialist (LLM picks)
+  discovery:
+  - agent: *supervisor
+    is_deterministic: true          # deterministic return
+  # ... same shape for every other specialist
+```
 
-### Memory + hyper-personalization
+**Why no specialist↔specialist hops?** Eliminates handoff loops and keeps the trace flat. A multi-intent message gets serialized through repeated supervisor handoffs (cursor-style) — no parallel fan-out needed, so stock dao-ai swarm (single-active-agent semantics) covers the diagram's behavior without framework extension.
+
+### 3. Per-turn execution lifecycle
+
+This is the *full* sequence of what happens on a single user turn. The middleware layers and background extraction are critical to understanding the actual data flow — they don't appear in the YAML directly, but `dao-ai` wires them in automatically when `memory.extraction` is present.
 
 ```mermaid
-%%{init: {'theme': 'base'}}%%
+%%{init: {'theme': 'base', 'themeVariables': { 'fontSize': '13px'}}}%%
 sequenceDiagram
     autonumber
     actor User
-    participant Sup as Supervisor
-    participant Rec as Recommendation<br/>(claude-sonnet)
-    participant Store as Lakebase Store<br/>(namespace=user_id)
-    participant Ext as Extraction LLM<br/>(background)
+    participant V as 🚦 validation<br/>middleware
+    participant MI as 🧠 memory_context<br/>middleware
+    participant Sup as 👔 supervisor
+    participant Spec as 🔍 specialist<br/>(e.g. recommendation)
+    participant Gateway as 🛡️ AI Gateway
+    participant Store as 🗄️ Lakebase store<br/>(ns=user_id)
+    participant Tools as 🛠️ UC fn / VS index
+    participant Ext as 💾 extraction<br/>(background)
+    participant OTEL as 📍 OTEL tables
 
-    Note over User,Ext: Turn 1 — different thread
-    User->>Sup: "I'm vegan and prefer Heritage Bakehouse"
-    Sup->>Rec: handoff
-    Rec->>User: streaming response
+    User->>V: user message + user_id
+    V->>V: validate user_id present
+    V->>Sup: pass message
+
+    Sup->>MI: about to invoke LLM
+    MI->>Store: semantic search<br/>(query_model + embedding_model)
+    Store-->>MI: top-K memories
+    MI-->>Sup: ## Memories injected<br/>into system prompt
+
+    Sup->>Gateway: chat.completions<br/>(gpt-oss-120b)
+    Gateway-->>Sup: tool_call: handoff_to(specialist)
+
+    Sup->>Spec: LLM handoff
+
+    Spec->>MI: about to invoke LLM
+    MI->>Store: semantic search
+    Store-->>MI: top-K memories
+    MI-->>Spec: ## Memories injected
+
+    Spec->>Gateway: chat.completions<br/>(claude-sonnet-4-5)
+    Gateway-->>Spec: tool_call: search_or_fetch
+
+    Spec->>Tools: invoke(args)
+    Tools-->>Spec: result rows
+
+    Spec->>Gateway: chat.completions<br/>(stream final response)
+    Gateway-->>Spec: streaming tokens
+    Spec-->>User: streamed response
+
+    Note over Spec: turn complete<br/>is_deterministic: true
+    Spec-->>Sup: deterministic return<br/>(no LLM call)
+
+    Note over Sup,Ext: post-turn (async)
     Sup-->>Ext: turn finalized
-    Ext->>Store: write user_profile {dietary: vegan}<br/>write preference {brand: Heritage Bakehouse}
+    Ext->>Gateway: chat.completions<br/>(extraction_llm = gpt-oss-120b)
+    Gateway-->>Ext: structured extraction
+    Ext->>Store: write user_profile / preference / episode
 
-    Note over User,Ext: Turn 2 — new thread, same user_id
-    User->>Sup: "Recommend a dessert"
-    Sup->>Rec: handoff
-    Rec->>Store: search memories
-    Store->>Rec: ## Memories<br/>- User is vegan<br/>- User prefers Heritage Bakehouse
-    Note right of Rec: System prompt now contains<br/>dietary constraint + brand affinity
-    Rec->>User: "Try the Vegan Chocolate Cake from<br/>Heritage Bakehouse — matches your<br/>vegan preference and favorite brand."
+    Note over OTEL: trace flush via SQL Warehouse
+    Gateway-->>OTEL: span exports
+```
+
+**Observations:**
+- **Memory injection happens twice per turn** (once before supervisor, once before specialist). The supervisor injection can be disabled with `supervisor_auto_inject: false` if your supervisor doesn't need user context — which this YAML sets.
+- **Tool calls are LLM-driven**, but the agent loops internally until it produces a response (not shown — could be 2-3 tool calls in a row).
+- **The deterministic return is just an edge in the LangGraph state machine** — no Gateway call, no token cost.
+- **Extraction is decoupled from the response path** — it sits behind a queue and runs even if the user has closed the connection. Its trace shows up as a separate span branch.
+
+### 4. Hyper-personalization across threads
+
+The middleware + extraction wiring means users get persistent learning *across* threads (and across sessions, since Lakebase is durable). Same `user_id`, new thread → memories still apply.
+
+```mermaid
+%%{init: {'theme': 'base', 'themeVariables': { 'fontSize': '13px'}}}%%
+sequenceDiagram
+    autonumber
+    actor User
+    participant Sup as 👔 supervisor
+    participant Rec as 💡 recommendation<br/>(claude-sonnet-4-5)
+    participant MW as 🧠 memory<br/>middleware
+    participant Store as 🗄️ Lakebase store<br/>(ns=user_id)
+    participant Ext as 💾 extraction_llm<br/>(background)
+
+    rect rgb(232, 245, 233)
+        Note over User,Ext: Turn 1 — thread A
+        User->>Sup: "I'm vegan and prefer Heritage Bakehouse"
+        Sup-->>Rec: (LLM handoff)
+        Note over MW: middleware injects ## Memories<br/>(empty on first interaction)
+        Rec->>User: streaming response
+        Rec-->>Sup: deterministic return
+
+        Note over Ext: turn finalized — async
+        Ext->>Store: write user_profile<br/>{dietary: ["vegan"]}
+        Ext->>Store: append preference<br/>{category: "brand", value: "Heritage Bakehouse"}
+    end
+
+    rect rgb(227, 242, 253)
+        Note over User,Ext: Turn 2 — thread B (new), same user_id
+        User->>Sup: "Recommend a dessert"
+        Sup-->>Rec: (LLM handoff)
+
+        Note over MW: middleware fires BEFORE LLM call
+        MW->>Store: semantic search<br/>(query "dessert recommendation"<br/>+ embedding_model)
+        Store-->>MW: top-K memories
+        MW->>Rec: prepend system prompt:<br/>## Memories<br/>- User is vegan<br/>- Prefers Heritage Bakehouse
+
+        Rec->>Rec: HARD CONSTRAINT:<br/>filter catalog to vegan items
+        Rec->>Rec: SOFT SIGNAL:<br/>rank Heritage Bakehouse higher
+
+        Rec->>User: "Try the Vegan Chocolate Cake<br/>from Heritage Bakehouse —<br/>matches your dietary preference<br/>and your favorite brand."
+        Rec-->>Sup: deterministic return
+
+        Ext->>Store: append episode<br/>{accepted: PLB-CAK-001}
+    end
 ```
 
 **Three memory schemas extracted automatically in the background:**
@@ -163,78 +252,73 @@ sequenceDiagram
 
 The `recommendation` handler treats memorized **dietary restrictions as hard constraints** — it will never suggest a product that conflicts with a stored allergen — and **brand/category affinity as soft signals** for ranking.
 
----
+### 5. Data provisioning + Vector Search sync
 
-## Agents
+When you run `dao-ai pipeline --deploy --run`, this five-stage DAG executes inside a Databricks Job. Stages 2–4 populate UC; stage 5 deploys the App that uses them.
 
-| # | Agent | Model | Tools | Role |
-|---|---|---|---|---|
-| 1 | `supervisor` | gpt-oss-120b | — | Entry-point triage. Classifies intent and routes via LLM tool-call handoffs. Never answers customer questions directly. |
-| 2 | `discovery` | gpt-oss-120b | `product_search` (VS), `find_product_uc` | Semantic product search and SKU/ID lookup. |
-| 3 | `recommendation` | **claude-sonnet-4-5** | `product_search`, `get_order_history_uc` | Personalized suggestions. Synthesizes memory + order history + catalog. Hard constraints from dietary memories. |
-| 4 | `order_history` | gpt-oss-120b | `get_order_history_uc` | Order tracking, shipping/delivery status. |
-| 5 | `support` | gpt-oss-120b | `faq_search` (VS), `policy_search` (VS) | Policy and FAQ Q&A. Prefers FAQ for short answers; falls back to policy for formal detail. |
-| 6 | `stock` | gpt-oss-120b | `check_stock_uc`, `find_product_uc` | Inventory across distribution locations with ATP (available-to-promise) calculation. |
-| 7 | `credit_limit` | gpt-oss-120b | `get_credit_limit_uc` | B2B-only credit availability + payment terms. Politely redirects B2C requesters to support. |
-| 8 | `ucp` | gpt-oss-120b | `get_cart_uc`, `find_product_uc` | Idempotent commerce executor. MCP-ready for Commercetools / Stripe / Adyen wiring. |
-| 9 | `general` | gpt-oss-120b | — | Greetings, brand questions, small talk. Hands back when the topic shifts to a specialist domain. |
+```mermaid
+%%{init: {'theme': 'base', 'themeVariables': { 'primaryColor': '#1565c0', 'fontSize': '13px'}}}%%
+flowchart TB
+    subgraph Deploy["⚙️ dao-ai pipeline --deploy --run"]
+        direction TB
+        Provision["1️⃣ provision-lakebase<br/>creates commerce-swarm project<br/>autoscaling_min_cu: 0"]
+        IngestTransform["2️⃣ ingest-and-transform<br/>runs each dataset:<br/>DDL → CREATE TABLE<br/>data → INSERT VALUES"]
+        UCFns["3️⃣ unity-catalog-tools<br/>deploys 5 UC SQL functions"]
+        VSProvision["4️⃣ provision-vector-search<br/>creates Delta-Sync pipelines"]
+        DeployAgents["5️⃣ deploy-agents<br/>registers Model Serving<br/>+ launches Databricks App"]
+        Provision --> IngestTransform --> UCFns --> VSProvision --> DeployAgents
+    end
 
-**Model assignment rationale:**
-- **`gpt-oss-120b`** — strong tool-call fidelity, low latency, low cost. Right for triage, structured lookups, and idempotent commerce.
-- **`claude-sonnet-4-5`** — multi-step reasoning over memory + history + catalog. Right for the one handler where response quality moves the needle on conversion.
-- **AI Gateway routing on every endpoint** — uniform governance, usage tracking, rate-limit pooling, PII guardrails.
+    subgraph UCSchema["🏛️ retail_consumer_goods.commerce_swarm"]
+        direction TB
 
----
+        subgraph SourceTables["📊 10 Delta Tables — CLUSTER BY AUTO + CDF"]
+            direction LR
+            ProductsT[("products")]
+            FaqsT[("faqs")]
+            PoliciesT[("policies")]
+            OtherT[("customers · orders · order_items<br/>inventory · credit_limits · cart<br/>idempotency_log")]
+        end
 
-## Data plane
+        subgraph VSEndpoint["🔍 Vector Search · endpoint: dbdemos_vs_endpoint (STANDARD)"]
+            direction LR
+            ProductsIdx[("products_description_index<br/>embed: description")]
+            FaqsIdx[("faqs_index<br/>embed: answer")]
+            PoliciesIdx[("policies_index<br/>embed: body")]
+        end
 
-### Schema layout
+        UCFnDeployed["🛠️ 5 UC Functions<br/>find_product · get_order_history<br/>check_stock · get_credit_limit · get_cart"]
+    end
 
+    Embed["🧬 databricks-gte-large-en<br/>embedding_model"]
+
+    IngestTransform --> SourceTables
+    UCFns --> UCFnDeployed
+    VSProvision --> VSEndpoint
+
+    ProductsT ==>|CDF stream| ProductsIdx
+    FaqsT ==>|CDF stream| FaqsIdx
+    PoliciesT ==>|CDF stream| PoliciesIdx
+    Embed -.->|generate vectors| ProductsIdx
+    Embed -.->|generate vectors| FaqsIdx
+    Embed -.->|generate vectors| PoliciesIdx
+
+    style Deploy fill:#fff3e0,stroke:#e65100
+    style UCSchema fill:#e3f2fd,stroke:#1565c0
+    style SourceTables fill:#e1f5fe,stroke:#0277bd
+    style VSEndpoint fill:#f3e5f5,stroke:#7b1fa2
+    style Embed fill:#fce4ec,stroke:#c2185b
 ```
-retail_consumer_goods.commerce_swarm/
-├── 📊 Tables (10) — all Delta with CLUSTER BY AUTO + CDF
-│   ├── products              ← VS source (description embedded)
-│   ├── customers             ← B2C + B2B (loyalty_tier or null)
-│   ├── orders                ← FK customers.customer_id
-│   ├── order_items           ← FK orders.order_id + products.product_id
-│   ├── inventory             ← FK products.product_id, 3 locations
-│   ├── credit_limits         ← FK customers.customer_id (B2B subset)
-│   ├── cart                  ← multi-row carts
-│   ├── faqs                  ← VS source (answer embedded)
-│   ├── policies              ← VS source (body embedded)
-│   └── idempotency_log       ← UCP audit (populated at runtime)
-│
-├── 🛠️ UC Functions (5)
-│   ├── find_product(sku_or_id)
-│   ├── get_order_history(customer_id, row_limit)
-│   ├── check_stock(sku)
-│   ├── get_credit_limit(customer_id)
-│   └── get_cart(customer_id)
-│
-└── 🔍 VS Indexes (3) — Delta-Sync, TRIGGERED
-    ├── products_description_index ← source: products.description
-    ├── faqs_index                 ← source: faqs.answer
-    └── policies_index             ← source: policies.body
-```
 
-### Synthetic data overview
+**Wiring notes:**
+- All 10 tables get `delta.enableChangeDataFeed = true` so VS sync, downstream consumers, and audit queries all work incrementally.
+- Three VS indexes share the **same endpoint** (`dbdemos_vs_endpoint`) — separate endpoints would be wasteful here. The endpoint is reused from `dbdemos`; change `endpoint.name` in the YAML to point at a different one if needed.
+- Embedding is **managed-embedding** style (Delta-Sync provides the source column → endpoint embeds + writes index). No separate embedding job to manage.
+- `TRIGGERED` ingest mode (not `CONTINUOUS`) because the source data is batch-loaded once at deploy. Switch to `CONTINUOUS` for live-updated catalogs.
 
-| Table | Rows | Notes |
-|---|---|---|
-| `products` | 40 | Specialty foodservice catalog — frozen desserts, bakery, toppings, pizza, custom decorating, plant-based, catering, seasonal, B2B-bulk. Detailed human-readable descriptions for VS recall. |
-| `customers` | 200 | 150 B2C + 50 B2B accounts across 16 US cities |
-| `orders` | 600 | 12-month rolling history, status distribution: delivered 60% / shipped 15% / confirmed 10% / placed 8% / cancelled 4% / returned 3% |
-| `order_items` | ~2,000 | FK-consistent line items, B2B baskets larger than B2C |
-| `inventory` | 120 | 40 SKUs × 3 distribution locations (Buffalo, Dallas, LA) |
-| `credit_limits` | 50 | B2B-only; Net30 dominant, Net60/COD subset |
-| `cart` | ~120 | Active multi-row carts for recent shoppers |
-| `faqs` | 18 | Curated across shipping / returns / account / products / b2b / payment |
-| `policies` | 8 | Formal docs: returns, shipping, privacy, b2b terms, credit, food safety, pricing, damaged-items |
-| `idempotency_log` | 0 | Empty at deploy; UCP writes idempotency rows at runtime |
+### 6. B2C vs B2B persona routing
 
-Data is FK-consistent and deterministic (seeded random). Generated once, committed as static `*_data.sql` files — no runtime generation.
-
-### B2C vs B2B persona traffic
+The supervisor uses the `user_id` prefix as a coarse persona signal (B0007 → B2B, C0042 → B2C). Memories sharpen this further over time (e.g. a B2B account is known to prefer specific suppliers).
 
 ```mermaid
 %%{init: {'theme': 'base'}}%%
@@ -270,19 +354,98 @@ flowchart LR
 
 ---
 
+## Agents
+
+| # | Agent | Model | Tools | Role |
+|---|---|---|---|---|
+| 1 | `supervisor` | gpt-oss-120b | — | Entry-point triage. Classifies intent and routes via LLM tool-call handoffs. Never answers customer questions directly. |
+| 2 | `discovery` | gpt-oss-120b | `product_search` (VS), `find_product_uc` | Semantic product search and SKU/ID lookup. |
+| 3 | `recommendation` | **claude-sonnet-4-5** | `product_search`, `get_order_history_uc` | Personalized suggestions. Synthesizes memory + order history + catalog. Hard constraints from dietary memories. |
+| 4 | `order_history` | gpt-oss-120b | `get_order_history_uc` | Order tracking, shipping/delivery status. |
+| 5 | `support` | gpt-oss-120b | `faq_search` (VS), `policy_search` (VS) | Policy and FAQ Q&A. Prefers FAQ for short answers; falls back to policy for formal detail. |
+| 6 | `stock` | gpt-oss-120b | `check_stock_uc`, `find_product_uc` | Inventory across distribution locations with ATP (available-to-promise) calculation. |
+| 7 | `credit_limit` | gpt-oss-120b | `get_credit_limit_uc` | B2B-only credit availability + payment terms. Politely redirects B2C requesters to support. |
+| 8 | `ucp` | gpt-oss-120b | `get_cart_uc`, `find_product_uc` | Idempotent commerce executor. MCP-ready for Commercetools / Stripe / Adyen wiring. |
+| 9 | `general` | gpt-oss-120b | — | Greetings, brand questions, small talk. Hands back when the topic shifts to a specialist domain. |
+
+**Model assignment rationale:**
+- **`gpt-oss-120b`** — strong tool-call fidelity, low latency, low cost. Right for triage, structured lookups, idempotent commerce, memory extraction, and memory-query rephrasing.
+- **`claude-sonnet-4-5`** — multi-step reasoning over memory + history + catalog. Right for the one handler (`recommendation`) where response quality moves the needle on conversion, plus the offline judge LLM (`judge_llm`).
+- **AI Gateway routing on every endpoint** (chat, extraction, query, embedding) — uniform governance, usage tracking, rate-limit pooling, PII guardrails.
+
+---
+
+## Data plane
+
+### Schema layout
+
+```
+retail_consumer_goods.commerce_swarm/
+├── 📊 Tables (10) — all Delta with CLUSTER BY AUTO + CDF
+│   ├── products              ← VS source (description embedded)
+│   ├── customers             ← B2C + B2B (loyalty_tier or null)
+│   ├── orders                ← FK customers.customer_id
+│   ├── order_items           ← FK orders.order_id + products.product_id
+│   ├── inventory             ← FK products.product_id, 3 locations
+│   ├── credit_limits         ← FK customers.customer_id (B2B subset)
+│   ├── cart                  ← multi-row carts
+│   ├── faqs                  ← VS source (answer embedded)
+│   ├── policies              ← VS source (body embedded)
+│   └── idempotency_log       ← UCP audit (populated at runtime)
+│
+├── 🛠️ UC Functions (5)
+│   ├── find_product(sku_or_id)
+│   ├── get_order_history(customer_id, row_limit)
+│   ├── check_stock(sku)
+│   ├── get_credit_limit(customer_id)
+│   └── get_cart(customer_id)
+│
+└── 🔍 VS Indexes (3) — Delta-Sync TRIGGERED, shared endpoint dbdemos_vs_endpoint
+    ├── products_description_index ← source: products.description
+    ├── faqs_index                 ← source: faqs.answer
+    └── policies_index             ← source: policies.body
+```
+
+### Synthetic data overview
+
+| Table | Rows | Notes |
+|---|---|---|
+| `products` | 40 | Specialty foodservice catalog — frozen desserts, bakery, toppings, pizza, custom decorating, plant-based, catering, seasonal, B2B-bulk. Detailed human-readable descriptions for VS recall. |
+| `customers` | 200 | 150 B2C + 50 B2B accounts across 16 US cities |
+| `orders` | 600 | 12-month rolling history, status distribution: delivered 60% / shipped 15% / confirmed 10% / placed 8% / cancelled 4% / returned 3% |
+| `order_items` | ~2,000 | FK-consistent line items, B2B baskets larger than B2C |
+| `inventory` | 120 | 40 SKUs × 3 distribution locations (Buffalo, Dallas, LA) |
+| `credit_limits` | 50 | B2B-only; Net30 dominant, Net60/COD subset |
+| `cart` | ~120 | Active multi-row carts for recent shoppers |
+| `faqs` | 18 | Curated across shipping / returns / account / products / b2b / payment |
+| `policies` | 8 | Formal docs: returns, shipping, privacy, b2b terms, credit, food safety, pricing, damaged-items |
+| `idempotency_log` | 0 | Empty at deploy; UCP writes idempotency rows at runtime |
+
+Data is FK-consistent and deterministic (seeded random). Generated once, committed as static `*_data.sql` files — no runtime generation.
+
+---
+
 ## Why these design choices?
 
 ### Why swarm, not supervisor pattern?
 
-The diagram's specialists are mostly self-contained — once supervisor classifies, the specialist owns the response. Stock supervisor pattern would force the supervisor LLM to re-evaluate routing after every specialist turn (wasted tokens). Swarm with deterministic returns gives us the same one-shot triage while keeping handoff costs to one LLM call per turn.
+The diagram's specialists are mostly self-contained — once supervisor classifies, the specialist owns the response. Stock supervisor pattern would force the supervisor LLM to re-evaluate routing after every specialist turn (wasted tokens). Swarm with deterministic returns gives us one-shot triage on the way in and a zero-LLM-cost return on the way out.
+
+### Why deterministic returns (`is_deterministic: true`) instead of LLM handoff back?
+
+The return path has **only one valid target** (supervisor), so asking an LLM "should I hand back?" is a waste of a tool-call decision. The deterministic flag turns it into a state-machine edge — no Gateway call, no token cost, predictable trace shape. The price is one less degree of freedom (specialists can't choose to skip the supervisor and respond directly), which is exactly the behavior we want here.
 
 ### Why not the original 12-agent planner+resolver+router+composer breakdown?
 
-The diagram's `Resolver` and `Router` are deterministic — pure function over state. dao-ai requires `AgentModel.model`, so making them no-LLM agents would need framework work. We fold their logic into the supervisor's handoff decision and the planner's plan-cursor advance. The `Composer` collapses into each handler's natural streaming response — modern LLMs format and stream inline. This drops 3 LLM calls per turn with zero behavioral loss.
+The diagram's `Resolver` and `Router` are deterministic — pure function over state. dao-ai requires `AgentModel.model`, so making them no-LLM agents would need framework work. We fold their logic into the supervisor's handoff decision and the `is_deterministic` return edges. The `Composer` collapses into each handler's natural streaming response — modern LLMs format and stream inline. This drops 3 LLM calls per turn with zero behavioral loss.
 
 ### Why mixed models?
 
-`gpt-oss-120b` is fast (low latency, low cost) and has strong tool-calling. Right for the 8 handlers that do mostly classify-then-call-a-tool. `claude-sonnet-4-5` shines at multi-step reasoning that needs to weigh constraints, history, and personalization — exactly what `recommendation` does. Spending the Claude budget where it produces the biggest quality lift is more efficient than uniformly applying Sonnet everywhere.
+`gpt-oss-120b` is fast and has strong tool-call fidelity. Right for the 8 handlers that mostly classify-then-call-a-tool. `claude-sonnet-4-5` shines at multi-step reasoning that needs to weigh constraints + history + personalization — exactly what `recommendation` does. Spending the Claude budget where it produces the biggest quality lift is more efficient than uniformly applying Sonnet everywhere.
+
+### Why route memory extraction through its own model alias?
+
+`extraction_llm` is wired to gpt-oss-120b so background extraction doesn't compete with foreground inference for `reasoning_llm` (Claude) capacity. Same model under the hood but a separate alias documents the intent and lets you flip it independently later (e.g. to a cheaper / faster model if extraction throughput becomes a bottleneck).
 
 ### Why Lakebase scale-to-zero?
 
@@ -290,7 +453,7 @@ Demo and customer-POC apps are idle most of the time. `autoscaling_min_cu: 0` re
 
 ### Why three Vector Search indexes instead of one?
 
-Mixing product descriptions, FAQ answers, and policy bodies into a single index hurts recall — the semantic spaces are too different. Separating them lets each handler hit a focused index with higher precision. The cost is three Delta-Sync pipelines instead of one (acceptable).
+Mixing product descriptions, FAQ answers, and policy bodies into a single index hurts recall — the semantic spaces are too different. Separating them lets each handler hit a focused index with higher precision. The cost is three Delta-Sync pipelines instead of one (acceptable; they share the same endpoint).
 
 ---
 
@@ -318,13 +481,12 @@ uv run dao-ai pipeline --deploy --run \
   --deployment-target apps
 ```
 
-The deploy will:
+The deploy executes the 5-stage DAG shown in section 5 above:
 1. Provision the Lakebase `commerce-swarm` project (scale-to-zero configured)
 2. Create `retail_consumer_goods.commerce_swarm` schema + 10 tables + load synthetic data
 3. Create 5 UC functions
-4. Create the Vector Search endpoint (if missing) + 3 Delta-Sync indexes
-5. Register the Model Serving endpoint
-6. Deploy the Databricks App (`commerce_swarm_dao`)
+4. Create 3 Delta-Sync VS indexes on the shared endpoint
+5. Register the Model Serving endpoint + deploy the Databricks App (`commerce_swarm_dao`)
 
 ### Verify
 
@@ -372,9 +534,9 @@ databricks --profile fevm apps get commerce_swarm_dao
 ```
 commerce_swarm/
 ├── README.md                                    # this file
-└── commerce_swarm.yaml                           # dao-ai config
+└── commerce_swarm.yaml                          # dao-ai config
 
-../../data/commerce_swarm/                         # DDL + seed data (10 tables × 2 files)
+../../data/commerce_swarm/                        # DDL + seed data (10 tables × 2 files)
 ├── products.sql + products_data.sql
 ├── customers.sql + customers_data.sql
 ├── orders.sql + orders_data.sql
@@ -384,9 +546,9 @@ commerce_swarm/
 ├── cart.sql + cart_data.sql
 ├── faqs.sql + faqs_data.sql
 ├── policies.sql + policies_data.sql
-└── idempotency_log.sql                         # DDL only — empty at deploy
+└── idempotency_log.sql                          # DDL only — empty at deploy
 
-../../functions/commerce_swarm/                    # 5 UC SQL functions
+../../functions/commerce_swarm/                   # 5 UC SQL functions
 ├── find_product.sql
 ├── get_order_history.sql
 ├── check_stock.sql
@@ -399,6 +561,7 @@ commerce_swarm/
 ## Related dao-ai patterns referenced
 
 - **Swarm orchestration** — `config/examples/13_orchestration/swarm_pattern.yaml`
+- **Deterministic handoffs** — `config/examples/13_orchestration/deterministic_handoff_pattern.yaml`
 - **Lakebase memory** — `config/examples/15_complete_applications/hardware_store_lakebase.yaml`
 - **AI Gateway** — `config/examples/01_getting_started/ai_gateway.yaml`
 - **A2A protocol pair** — `config/examples/15_complete_applications/procurement_supplier_a2a/`
