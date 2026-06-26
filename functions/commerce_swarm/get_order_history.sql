@@ -13,7 +13,7 @@ RETURNS TABLE(
   ,tracking_number STRING COMMENT 'Carrier tracking number'
 )
 READS SQL DATA
-COMMENT 'Retrieve recent order history for a Commerce Swarm customer, sorted by most-recently placed.'
+COMMENT 'Retrieve recent order history for a customer, sorted by most-recently placed. Uses ROW_NUMBER() because Spark SQL LIMIT requires a foldable constant and does not accept parameterized expressions.'
 RETURN
 SELECT
    order_id
@@ -24,8 +24,19 @@ SELECT
   ,shipped_at
   ,delivered_at
   ,tracking_number
-FROM {catalog_name}.{schema_name}.orders
-WHERE customer_id = get_order_history.customer_id
-ORDER BY placed_at DESC
-LIMIT get_order_history.row_limit
+FROM (
+  SELECT
+     order_id
+    ,status
+    ,total_amount
+    ,channel
+    ,placed_at
+    ,shipped_at
+    ,delivered_at
+    ,tracking_number
+    ,ROW_NUMBER() OVER (ORDER BY placed_at DESC) AS rn
+  FROM {catalog_name}.{schema_name}.orders
+  WHERE customer_id = get_order_history.customer_id
+)
+WHERE rn <= get_order_history.row_limit
 ;

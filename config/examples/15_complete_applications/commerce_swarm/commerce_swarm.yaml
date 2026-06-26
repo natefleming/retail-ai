@@ -835,6 +835,10 @@ app:
   name: commerce_swarm_dao
   description: "Commerce Swarm LangGraph Commerce Agent — B2B + B2C swarm with hyper-personalization on Lakebase"
   log_level: INFO
+  # Deploy to BOTH Databricks Apps (chat UI + agent server) AND Model Serving
+  # (UC-registered model). The Apps surface is the primary user path; the
+  # Model Serving registration enables run-evaluation against the UC model.
+  deployment_target: both
 
   registered_model:
     schema: *retail_schema
