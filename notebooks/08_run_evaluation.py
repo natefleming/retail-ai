@@ -196,11 +196,34 @@ def _extract_output_text(response: ResponsesAgentResponse) -> str:
     return "".join(texts) if texts else str(response.output)
 
 
+# Evaluation session marker — every per-row request gets a conversation_id
+# prefixed with `eval-<timestamp>-<short_id>-row<N>` so the session field
+# in the trace clearly identifies which traces came from this eval run vs
+# interactive App use. The shared prefix groups all per-row sessions from
+# one eval invocation together.
+import uuid
+from datetime import datetime
+_EVAL_SESSION_PREFIX: str = (
+    f"eval-{datetime.now().strftime('%Y%m%d-%H%M%S')}-{uuid.uuid4().hex[:8]}"
+)
+print(f"Evaluation session prefix: {_EVAL_SESSION_PREFIX}")
+
+
 def _run_prediction(messages: list[dict[str, Any]], custom_inputs: dict[str, Any] | None) -> str:
     with _predict_lock:
+        # Build a fresh, eval-marked custom_inputs per row so the session.
+        # conversation_id surfaces this trace as eval-origin in the UI.
+        # We copy rather than mutate the shared `custom_inputs` dict so
+        # successive rows don't accumulate stale values.
+        row_num = _predict_counter["current"]
+        eval_inputs: dict[str, Any] = dict(custom_inputs or {})
+        eval_session: dict[str, Any] = dict(eval_inputs.get("session") or {})
+        eval_session["conversation_id"] = f"{_EVAL_SESSION_PREFIX}-row{row_num}"
+        eval_inputs["session"] = eval_session
+
         request = ResponsesAgentRequest(
             input=[{"role": m["role"], "content": m["content"]} for m in messages],
-            custom_inputs=custom_inputs,
+            custom_inputs=eval_inputs,
         )
         # Use the sync `predict()` wrapper (which calls asyncio.run() in the
         # same thread) instead of dispatching to a separate event-loop thread.
@@ -295,8 +318,14 @@ print(f"Dataset records:   {len(eval_dataset.to_df())} rows")
 print(f"Experiment name:   {experiment.name}")
 print(f"Experiment ID:     {experiment_id}")
 
-mlflow.autolog(disable=True)
-mlflow.langchain.autolog(run_tracer_inline=True)
+# Note: a previous version disabled all autologs (`mlflow.autolog(disable=True)`)
+# then re-enabled langchain. The disable-all side-effected langchain too in
+# practice — autolog patches that had been registered earlier no longer fired
+# during mlflow.genai.evaluate, producing eval traces that were missing the
+# LangGraph subgraph + agent nodes + ChatUnityAIGateway model-call spans (only
+# explicit `mlflow.start_span` markers survived). We rely on the autolog call
+# at the top of the notebook (after `import mlflow`) staying active for the
+# duration of the run instead.
 
 run_tags: dict[str, str] = {
     k: str(v) for k, v in (config.app.tags or {}).items()
