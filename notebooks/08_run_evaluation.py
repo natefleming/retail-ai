@@ -233,10 +233,7 @@ def _run_prediction(messages: list[dict[str, Any]], custom_inputs: dict[str, Any
         return _extract_output_text(response)
 
 
-from dao_ai._tracing import root_trace
-
-
-@root_trace(name="evaluation", span_type="CHAIN")
+@mlflow.trace(name="evaluation", span_type="CHAIN")
 def predict_fn(messages: list[dict[str, Any]]) -> str:
     _predict_counter["current"] += 1
     row_num = _predict_counter["current"]

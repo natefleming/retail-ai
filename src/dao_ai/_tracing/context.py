@@ -80,31 +80,39 @@ async def to_thread_in_context(fn: Callable[..., R], /, *args: Any, **kwargs: An
 
 @contextlib.contextmanager
 def detached_otel_context() -> Iterator[None]:
-    """Clear the inherited OpenTelemetry context for the duration of the block.
+    """Clear the inherited tracing context for the duration of the block.
 
-    Databricks runtimes (Apps Agent Server, Model Serving, notebook
-    execution) maintain a runtime-scoped OTel span that is *not* exported
-    to dao-ai's configured trace destination. When ``@mlflow.trace`` or
-    ``mlflow.start_span`` opens a new span, OTel's SDK auto-links it to
-    whatever span is currently active. The result is a dao-ai "root"
-    span whose ``parent_span_id`` points to a phantom span that never
-    appears in the exported OTEL table — orphan-root spans.
+    When ``@mlflow.trace`` or ``mlflow.start_span`` opens a new span,
+    the OTel + MLflow SDKs auto-link it to whatever span is currently
+    active. In environments where the surrounding context contains a
+    runtime-scoped span that is *not* exported to dao-ai's configured
+    trace destination, the resulting "root" span has a
+    ``parent_span_id`` that points to a phantom span — orphan-root
+    spans which are rejected by ``trace_unified``'s root-detection
+    filter and by ``InferenceTableSpanExporter``.
 
-    The ``trace_unified`` view filters roots via
-    ``WHERE COALESCE(parent_span_id, '') = ''``, and the
-    ``InferenceTableSpanExporter`` only exports spans whose
-    ``parent is None``. Both mechanisms reject orphan-root spans, so
-    traces never reach the experiment UI in either trace-location mode.
+    MLflow's tracing module (``mlflow.tracing.provider``) maintains its
+    own ``ContextVarsRuntimeContext`` separate from the global OTel
+    runtime context. ``start_span_in_context`` reads from MLflow's
+    context first, so detaching only the global OTel context is not
+    enough — both must be cleared.
 
-    Use at dao-ai request entry boundaries (typically via
-    :func:`root_trace`) so the dao-ai-owned span starts in a fresh OTel
-    context and is exported as a true root.
+    Note: MLflow's pyfunc ``ResponsesAgent.__init_subclass__``
+    auto-applies ``@mlflow.trace(span_type=AGENT)`` to the subclass's
+    ``predict``/``predict_stream``, so even with this helper active
+    the framework will still emit a ``predict`` root in the
+    ``mlflow.genai.evaluate`` path. This helper is most useful at
+    boundaries you fully own (background workers, custom tools).
     """
-    token = otel_ctx.attach(otel_ctx.Context())
+    from mlflow.tracing.provider import mlflow_runtime_context
+
+    otel_token = otel_ctx.attach(otel_ctx.Context())
+    mlflow_token = mlflow_runtime_context.attach(otel_ctx.Context())
     try:
         yield
     finally:
-        otel_ctx.detach(token)
+        mlflow_runtime_context.detach(mlflow_token)
+        otel_ctx.detach(otel_token)
 
 
 def root_trace(*trace_args: Any, **trace_kwargs: Any) -> Callable[..., Any]:
