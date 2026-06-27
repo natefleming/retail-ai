@@ -307,18 +307,18 @@ else:
 # destination when trace_location is not configured.
 if config.app and config.app.trace_location:
     from mlflow.entities import UnityCatalog
+    from dao_ai.config import TraceLocationModel
 
-    _loc = config.app.trace_location
-    _trace_loc_kwargs: dict[str, Any] = {
-        "catalog_name": _loc.catalog_name,
-        "schema_name": _loc.schema_name,
-    }
-    _table_prefix = getattr(_loc, "resolved_table_prefix", None)
-    if _table_prefix:
-        _trace_loc_kwargs["table_prefix"] = _table_prefix
+    _loc: TraceLocationModel = config.app.trace_location
+    _table_prefix: Optional[str] = _loc.resolved_table_prefix
+    _trace_location: UnityCatalog = UnityCatalog(
+        catalog_name=_loc.catalog_name,
+        schema_name=_loc.schema_name,
+        **({"table_prefix": _table_prefix} if _table_prefix else {}),
+    )
     mlflow.set_experiment(
         experiment_id=experiment_id,
-        trace_location=UnityCatalog(**_trace_loc_kwargs),
+        trace_location=_trace_location,
     )
 else:
     mlflow.set_experiment(experiment_id=experiment_id)
