@@ -41,7 +41,7 @@ from mlflow.types.responses import (
     ResponsesAgentStreamEvent,
 )
 
-from dao_ai._tracing import to_thread_in_context
+from dao_ai._tracing import root_trace, to_thread_in_context
 from dao_ai.background.store import (
     BackgroundStore,
     ResponseRecord,
@@ -341,7 +341,7 @@ class BackgroundResponsesAgent(ResponsesAgent):
 
     # ----------------------------------------------------------------- async
 
-    @mlflow.trace(name="background.apredict", span_type="AGENT")
+    @root_trace(name="background.apredict", span_type="AGENT")
     async def apredict(self, request: ResponsesAgentRequest) -> ResponsesAgentResponse:
         await self.store.ensure_schema()
         match self._classify(request):
@@ -354,7 +354,7 @@ class BackgroundResponsesAgent(ResponsesAgent):
             case _Operation.PASSTHROUGH:
                 return await self._delegate_apredict(request)
 
-    @mlflow.trace(name="background.apredict_stream", span_type="AGENT")
+    @root_trace(name="background.apredict_stream", span_type="AGENT")
     async def apredict_stream(
         self, request: ResponsesAgentRequest
     ) -> AsyncGenerator[ResponsesAgentStreamEvent, None]:

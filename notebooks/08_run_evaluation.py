@@ -92,24 +92,23 @@ _predict_lock = threading.Lock()
 import mlflow
 from mlflow.pyfunc import ResponsesAgent
 from dao_ai.config import AppConfig
-from dao_ai.logging import configure_logging
+from dao_ai.logging import configure_logging, suppress_autolog_context_warnings
 
 mlflow.langchain.autolog(run_tracer_inline=True)
+suppress_autolog_context_warnings()
 
 config: AppConfig = AppConfig.from_file(path=config_path)
 configure_logging(level=config.app.log_level)
 
+# The legacy `mlflow.tracing.set_destination(UCSchemaLocation(...))` is
+# deprecated. The modern API — `mlflow.set_experiment(experiment_id=...,
+# trace_location=UnityCatalog(...))` — requires an experiment_id, which is
+# resolved later (from the UC model version or a workspace experiment).
+# Wire trace_location into that call instead. Keep the env var: MLflow's
+# UC trace pipeline still reads it for the SQL warehouse to query.
 if config.app and config.app.trace_location:
-    os.environ.setdefault("MLFLOW_TRACING_SQL_WAREHOUSE_ID", config.app.trace_location.warehouse_id)
-
-    from mlflow.entities import UCSchemaLocation
-
-    _loc = config.app.trace_location
-    mlflow.tracing.set_destination(
-        destination=UCSchemaLocation(
-            catalog_name=_loc.catalog_name,
-            schema_name=_loc.schema_name,
-        )
+    os.environ.setdefault(
+        "MLFLOW_TRACING_SQL_WAREHOUSE_ID", config.app.trace_location.warehouse_id
     )
 
 app: ResponsesAgent = config.as_responses_agent()
@@ -234,7 +233,10 @@ def _run_prediction(messages: list[dict[str, Any]], custom_inputs: dict[str, Any
         return _extract_output_text(response)
 
 
-@mlflow.trace(name="evaluation", span_type="CHAIN")
+from dao_ai._tracing import root_trace
+
+
+@root_trace(name="evaluation", span_type="CHAIN")
 def predict_fn(messages: list[dict[str, Any]]) -> str:
     _predict_counter["current"] += 1
     row_num = _predict_counter["current"]
@@ -301,7 +303,28 @@ else:
     experiment_id = mlflow.set_experiment(experiment_path).experiment_id
     print(f"Apps-only deploy: created/using workspace experiment {experiment_path}")
 
-mlflow.set_experiment(experiment_id=experiment_id)
+# Match the App boot pattern: bind trace_location to the experiment via the
+# modern UnityCatalog API (post-mlflow-3.11). This sets the
+# `databricksTrace*` experiment tags so the trace_unified view + UI surface
+# spans from this experiment. Falls back to the default workspace trace
+# destination when trace_location is not configured.
+if config.app and config.app.trace_location:
+    from mlflow.entities import UnityCatalog
+
+    _loc = config.app.trace_location
+    _trace_loc_kwargs: dict[str, Any] = {
+        "catalog_name": _loc.catalog_name,
+        "schema_name": _loc.schema_name,
+    }
+    _table_prefix = getattr(_loc, "resolved_table_prefix", None)
+    if _table_prefix:
+        _trace_loc_kwargs["table_prefix"] = _table_prefix
+    mlflow.set_experiment(
+        experiment_id=experiment_id,
+        trace_location=UnityCatalog(**_trace_loc_kwargs),
+    )
+else:
+    mlflow.set_experiment(experiment_id=experiment_id)
 
 eval_dataset = create_or_get_eval_dataset(
     name=f"{payload_table}_dataset",
