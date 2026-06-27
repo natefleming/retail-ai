@@ -64,47 +64,35 @@ import dao_ai.memory.databricks
 
 # COMMAND ----------
 
-# DBTITLE 1,Set Up Dedicated Async Event Loop Thread
-import asyncio
-import threading
-
-_eval_loop = asyncio.new_event_loop()
-_eval_thread = threading.Thread(target=_eval_loop.run_forever, daemon=True)
-_eval_thread.start()
-
-def run_async(coro):
-    """Run an async coroutine on the dedicated event loop thread.
-    
-    All async operations (agent predictions) must run on the same event loop
-    to avoid asyncio.Lock cross-loop errors with nest_asyncio.
-    """
-    return asyncio.run_coroutine_threadsafe(coro, _eval_loop).result()
-
-# COMMAND ----------
-
 # DBTITLE 1,Initialize and Configure DAO AI ResponsesAgent
+#
+# Canonical mlflow.genai.evaluate setup. Three intentional non-actions here,
+# each of which broke things in prior versions of this notebook:
+#
+# 1. Do NOT call ``mlflow.langchain.autolog(...)``. The harness already
+#    enables it under its own ``configure_autologging_for_evaluation``
+#    context (mlflow/models/evaluation/utils/trace.py). Calling it here too
+#    double-patches LangChain's callback manager and produces orphan-rooted
+#    spans whose parent_span_id points outside the exported trace.
+# 2. Do NOT call ``mlflow.tracing.set_destination(...)`` or
+#    ``mlflow.set_experiment(trace_location=...)`` to bind UC tracing. The
+#    experiment is bound once at App boot — the binding is persistent in
+#    the experiment tags and re-binding here is a no-op at best and a
+#    footgun at worst (puts the experiment's trace-location list into a
+#    TRACE_LOCATION_TYPE_UNSPECIFIED state that breaks search_traces).
+# 3. Do NOT spin up a dedicated event-loop thread + ``asyncio.run_
+#    coroutine_threadsafe``. The harness wraps coroutine predict_fns with
+#    ``asyncio.run`` in the same thread (mlflow/genai/utils/trace_utils.py
+#    ``convert_predict_fn``), which keeps OpenTelemetry's contextvars-based
+#    span propagation intact so autolog spans nest under the per-row root.
+from typing import Any
 import mlflow
 from mlflow.pyfunc import ResponsesAgent
 from dao_ai.config import AppConfig
 from dao_ai.logging import configure_logging
 
-mlflow.langchain.autolog(run_tracer_inline=True)
-
 config: AppConfig = AppConfig.from_file(path=config_path)
 configure_logging(level=config.app.log_level)
-
-if config.app and config.app.trace_location:
-    os.environ.setdefault("MLFLOW_TRACING_SQL_WAREHOUSE_ID", config.app.trace_location.warehouse_id)
-
-    from mlflow.entities import UCSchemaLocation
-
-    _loc = config.app.trace_location
-    mlflow.tracing.set_destination(
-        destination=UCSchemaLocation(
-            catalog_name=_loc.catalog_name,
-            schema_name=_loc.schema_name,
-        )
-    )
 
 app: ResponsesAgent = config.as_responses_agent()
 
@@ -168,33 +156,34 @@ def _extract_output_text(response: ResponsesAgentResponse) -> str:
     return "".join(texts) if texts else str(response.output)
 
 
-_predict_lock = threading.Lock()
-
-def _run_prediction(messages: list[dict[str, Any]], custom_inputs: dict[str, Any] | None) -> str:
-    with _predict_lock:
-        request = ResponsesAgentRequest(
-            input=[{"role": m["role"], "content": m["content"]} for m in messages],
-            custom_inputs=custom_inputs,
-        )
-        response: ResponsesAgentResponse = run_async(app.apredict(request))
-        return _extract_output_text(response)
-
-
-@mlflow.trace(name="evaluation", span_type="CHAIN")
-def predict_fn(messages: list[dict[str, Any]]) -> str:
+# Async predict_fn. The harness (mlflow/genai/utils/trace_utils.py
+# ``convert_predict_fn``) detects coroutines and wraps with
+# ``asyncio.run(asyncio.wait_for(...))`` in the same thread, so contextvars
+# (which carry the autolog/trace context) propagate correctly. Returning
+# the response as a JSON-serializable dict satisfies the eval harness's
+# output contract; the eval framework auto-extracts text from the
+# ResponsesAgent output schema.
+#
+# The function emits exactly one trace per call (the auto-injected
+# ResponsesAgent.predict span from
+# mlflow.pyfunc.ResponsesAgent.__init_subclass__) — the harness validator
+# (``check_model_prediction``) won't add an outer ``predict`` span on top
+# because it already sees a span being produced. One root per eval row.
+async def predict_fn(messages: list[dict[str, Any]]) -> dict[str, Any]:
     _predict_counter["current"] += 1
     row_num = _predict_counter["current"]
     total = _predict_counter["total"]
     print(f"[{row_num}/{total}] Predicting...")
 
-    try:
-        response_content = _run_prediction(messages, custom_inputs)
-    except Exception as e:
-        print(f"[{row_num}/{total}] ERROR: {e}")
-        response_content = f"[ERROR] {e}"
+    request: ResponsesAgentRequest = ResponsesAgentRequest(
+        input=[{"role": m["role"], "content": m["content"]} for m in messages],
+        custom_inputs=custom_inputs,
+    )
+    response: ResponsesAgentResponse = await app.apredict(request)
 
-    print(f"[{row_num}/{total}] Done ({len(response_content)} chars)")
-    return response_content
+    output_text: str = _extract_output_text(response)
+    print(f"[{row_num}/{total}] Done ({len(output_text)} chars)")
+    return response.model_dump()
 
 # COMMAND ----------
 
@@ -241,8 +230,10 @@ print(f"Dataset records:   {len(eval_dataset.to_df())} rows")
 print(f"Experiment name:   {experiment.name}")
 print(f"Experiment ID:     {model_run.info.experiment_id}")
 
-mlflow.autolog(disable=True)
-mlflow.langchain.autolog(run_tracer_inline=True)
+# Intentionally NO ``mlflow.autolog(...)`` calls here either. The harness
+# enables langchain/openai/anthropic/litellm autologs internally under its
+# own snapshot. Toggling them at notebook level either no-ops (harness
+# overrides) or fights the harness's restore logic.
 
 run_tags: dict[str, str] = {
     k: str(v) for k, v in (config.app.tags or {}).items()
