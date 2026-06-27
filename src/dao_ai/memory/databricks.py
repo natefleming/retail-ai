@@ -107,19 +107,51 @@ async def _create_async_lakebase_pool(database: DatabaseModel, **extra: Any):
 
 
 class _LazyLakebaseCheckpointer(BaseCheckpointSaver):
-    """Lazily opens the wrapped ``AsyncCheckpointSaver`` on first await call."""
+    """Lazily opens the wrapped ``AsyncCheckpointSaver`` on first await call.
+
+    The checkpointer is a process-wide singleton (one per ``MemoryModel``
+    config, cached by :class:`CheckpointManager`). Its internal asyncio
+    primitives — the langgraph ``AsyncPostgresSaver.lock`` and the
+    underlying ``psycopg_pool.AsyncConnectionPool`` futures — latch to the
+    event loop they're first used on. For long-lived single-loop callers
+    (Databricks Apps, Model Serving), that's fine: the loop persists for
+    the process lifetime.
+
+    The ``mlflow.genai.evaluate`` harness, by contrast, runs each row from
+    a ``ThreadPoolExecutor`` worker via ``asyncio.run(predict_fn(...))``.
+    Each worker thread has its own event loop; ``asyncio.run`` also
+    creates a fresh loop per call. The cached saver's lock breaks any time
+    the running loop changes — every eval-row trace ends up tagged
+    ``ERROR`` with a ``RuntimeError: ... is bound to a different event
+    loop`` traceback.
+
+    We tag the cached saver with the ``id()`` of the loop it was opened
+    on. On a different loop we drop the reference and rebuild. Closing
+    the stale pool from a different loop would itself trip the cross-loop
+    error, so we just let the dead pool be GC'd along with its closed
+    loop. For the eval workflow that's a few pool re-opens (~10-50ms
+    each); for Apps/Model Serving the loop never changes, so the
+    rebuild branch is dead code at runtime.
+    """
 
     def __init__(self, saver_kwargs: dict[str, Any], log_extra: dict[str, Any]):
         super().__init__()
         self._saver_kwargs = saver_kwargs
         self._log_extra = log_extra
         self._saver: BaseCheckpointSaver | None = None
+        self._saver_loop_id: int | None = None
         self._init_lock: asyncio.Lock | None = None
 
     async def _ensure(self) -> BaseCheckpointSaver:
+        current_loop_id: int = id(asyncio.get_running_loop())
+        if self._saver is not None and self._saver_loop_id != current_loop_id:
+            # Stale: the loop the saver was opened on has been closed (eval
+            # harness pattern). Drop the reference; rebuild below.
+            self._saver = None
+            self._init_lock = None
         if self._saver is not None:
             return self._saver
-        # Bind the lock to the active loop on first use.
+        # Bind the init lock to the active loop on first use.
         if self._init_lock is None:
             self._init_lock = asyncio.Lock()
         async with self._init_lock:
@@ -134,6 +166,7 @@ class _LazyLakebaseCheckpointer(BaseCheckpointSaver):
                     **self._log_extra,
                 )
                 self._saver = saver
+                self._saver_loop_id = current_loop_id
         return self._saver
 
     async def aget(self, config: RunnableConfig) -> Checkpoint | None:
@@ -196,7 +229,12 @@ class _LazyLakebaseCheckpointer(BaseCheckpointSaver):
 
 
 class _LazyLakebaseStore(BaseStore):
-    """Lazily opens the wrapped ``AsyncDatabricksStore`` on first await call."""
+    """Lazily opens the wrapped ``AsyncDatabricksStore`` on first await call.
+
+    See :class:`_LazyLakebaseCheckpointer` for the rationale behind the
+    loop-id rebind dance — same asyncio-primitive-on-stale-loop problem,
+    same fix.
+    """
 
     def __init__(self, store_kwargs: dict[str, Any], log_extra: dict[str, Any]):
         # Don't call super().__init__() because BaseStore is abstract on
@@ -204,9 +242,14 @@ class _LazyLakebaseStore(BaseStore):
         self._store_kwargs = store_kwargs
         self._log_extra = log_extra
         self._store: BaseStore | None = None
+        self._store_loop_id: int | None = None
         self._init_lock: asyncio.Lock | None = None
 
     async def _ensure(self) -> BaseStore:
+        current_loop_id: int = id(asyncio.get_running_loop())
+        if self._store is not None and self._store_loop_id != current_loop_id:
+            self._store = None
+            self._init_lock = None
         if self._store is not None:
             return self._store
         if self._init_lock is None:
@@ -223,6 +266,7 @@ class _LazyLakebaseStore(BaseStore):
                     **self._log_extra,
                 )
                 self._store = store
+                self._store_loop_id = current_loop_id
         return self._store
 
     async def abatch(self, ops: Iterable[Op]) -> list[Result]:

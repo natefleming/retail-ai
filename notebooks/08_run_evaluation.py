@@ -64,30 +64,6 @@ import dao_ai.memory.databricks
 
 # COMMAND ----------
 
-# DBTITLE 1,Pin Eval Harness to a Single Event Loop
-#
-# mlflow.genai.evaluate's harness runs each row via asyncio.run(predict_fn(...))
-# which by default creates a fresh event loop per call and closes it. The dao-ai
-# Lakebase memory checkpointer is a process-wide singleton whose internal
-# asyncio.Lock (and the underlying psycopg AsyncConnectionPool's futures) latch
-# to the event loop they're first used on. On row 2+ the cached lock points at
-# row 1's closed loop and raises `bound to a different event loop`. The trace
-# completes (the error is caught + falls back to a fresh state), but the
-# exception shows up on every eval-row trace as noise.
-#
-# nest_asyncio.apply() monkey-patches asyncio.run to REUSE the existing event
-# loop instead of creating a fresh one (see nest_asyncio._patch_asyncio:run —
-# `loop = asyncio.get_event_loop(); loop.run_until_complete(task)`). Net effect:
-# every eval row shares one persistent loop, the checkpointer's primitives stay
-# valid for the whole run, and the Lakebase pool is reused across rows.
-#
-# This is scoped to the eval notebook process; it has no effect on Apps or
-# Model Serving (which already use a single long-lived loop per process).
-import nest_asyncio
-nest_asyncio.apply()
-
-# COMMAND ----------
-
 # DBTITLE 1,Initialize and Configure DAO AI ResponsesAgent
 #
 # Canonical mlflow.genai.evaluate setup. Three intentional non-actions here,
