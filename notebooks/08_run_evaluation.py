@@ -58,25 +58,6 @@ import dao_ai.memory.databricks
 
 # COMMAND ----------
 
-# DBTITLE 1,Pin Eval Harness to One Thread + One Event Loop
-#
-# mlflow.genai.evaluate uses a 10-worker ThreadPoolExecutor by default and wraps
-# every async predict_fn call in asyncio.run(...) — fresh loop per worker thread.
-# The shared dao-ai agent's Lakebase checkpointer binds an asyncio.Lock to the
-# first loop that touches it, so cross-thread rows trip
-# "bound to a different event loop". Pin to one worker; nest_asyncio makes
-# sequential asyncio.run calls reuse that thread's single loop.
-#
-# Verified empirically: 4 workers across 10 rows produce 4 distinct loop ids;
-# MAX_WORKERS=1 produces 1. Throughput trade-off is fine for typical eval sizes.
-# Scoped to this notebook process — no effect on Apps or Model Serving (which
-# already run on a single long-lived loop per process).
-os.environ["MLFLOW_GENAI_EVAL_MAX_WORKERS"] = "1"
-import nest_asyncio
-nest_asyncio.apply()
-
-# COMMAND ----------
-
 # DBTITLE 1,Load Application Config
 from dao_ai.config import AppConfig, EvaluationModel
 from dao_ai.logging import configure_logging
@@ -94,10 +75,24 @@ if not evaluation:
     dbutils.notebook.exit("Missing evaluation configuration")
 
 payload_table: str = evaluation.table.full_name
-custom_inputs: dict[str, Any] = evaluation.custom_inputs
+# Fall back to app.input_example.custom_inputs when evaluation.custom_inputs is
+# empty. Required for configs that wire validation middleware (e.g.
+# store_validation in sporting_goods_store*) but omit evaluation.custom_inputs;
+# without this the middleware raises on every row. app.input_example is a
+# ChatPayload Pydantic model (config.py:7547) with a Dict custom_inputs field.
+_eval_custom_inputs: dict[str, Any] = evaluation.custom_inputs or {}
+_input_example_custom_inputs: dict[str, Any] = (
+    getattr(config.app.input_example, "custom_inputs", None) or {}
+)
+custom_inputs: dict[str, Any] = _eval_custom_inputs or _input_example_custom_inputs or {}
+_custom_inputs_source: str = (
+    "evaluation" if _eval_custom_inputs
+    else "input_example" if _input_example_custom_inputs
+    else "empty"
+)
 
-print(f"Evaluation table: {payload_table}")
-print(f"Custom inputs: {custom_inputs}")
+print(f"Evaluation table:        {payload_table}")
+print(f"Custom inputs (source={_custom_inputs_source}): {custom_inputs}")
 
 # COMMAND ----------
 
@@ -108,6 +103,10 @@ from mlflow.entities.model_registry.model_version import ModelVersion
 from dao_ai.models import get_latest_model_version
 
 mlflow.set_registry_uri("databricks-uc")
+# Match the Apps handler (src/dao_ai/apps/handlers.py:52) so config-mode runs
+# produce complete child spans (LLM, tool, retriever). Idempotent for the
+# registry path where pyfunc-load already wires it.
+mlflow.langchain.autolog(run_tracer_inline=True)
 mlflow_client: MlflowClient = MlflowClient()
 
 registered_model_name: str = config.app.registered_model.full_name
@@ -130,8 +129,8 @@ print(f"Model ID:         {model_version.model_id}")
 #     Fast iteration on the YAML without redeploying.
 #
 # Both paths reach the same LanggraphResponsesAgent code with the same async
-# singletons (Lakebase checkpointer, langgraph saver), so the harness pin above
-# applies to both. One shared instance per run.
+# singletons (Lakebase checkpointer, langgraph saver). The persistent-loop
+# predict_fn below pins those singletons to a single loop for the whole run.
 from typing import Literal
 
 dbutils.widgets.dropdown(name="agent-source", defaultValue="registry", choices=["registry", "config"])
@@ -146,30 +145,63 @@ print(f"Agent source: {agent_source}")
 
 # COMMAND ----------
 
-# DBTITLE 1,Define predict_fn
+# DBTITLE 1,Define predict_fn — sync wrapper over a persistent asyncio loop
+#
+# mlflow.genai.evaluate calls predict_fn per row. Both available paths to the
+# agent create a fresh event loop per row:
+#   - registry mode: pyfunc.load_model.predict -> LanggraphResponsesAgent.predict
+#     -> asyncio.run(self.apredict(...)) at src/dao_ai/models.py:1599
+#   - config mode (async predict_fn): the harness wraps each row in asyncio.run
+#
+# The shared agent's Lakebase checkpointer binds an asyncio.Lock to the loop
+# that touches it first. Row 2's fresh loop then trips
+#   RuntimeError: <asyncio.locks.Lock> is bound to a different event loop
+# at langgraph/pregel/_loop.py:1888 (await checkpointer.aget_tuple(...)).
+# Reproduced live on trace tr-c06b0a1c8d3147aded17809bd20207d3
+# (experiment 2481319859454651).
+#
+# Fix: pin every apredict to ONE long-lived loop running in a daemon thread,
+# and submit row coroutines via asyncio.run_coroutine_threadsafe. The Lock
+# binds to this loop once and stays valid for the whole eval run.
+# Vault memory feedback_no_eval_accommodation_in_runtime.md mandates we fix
+# this in the harness, never in dao-ai runtime.
+import asyncio
+import threading
+
 from mlflow.types.responses import ResponsesAgentRequest, ResponsesAgentResponse
 
+# Idempotent across interactive cell re-runs: if the loop already exists and is
+# alive, reuse it so the agent's Lakebase Lock binding stays valid. Re-running
+# this cell with a fresh loop while the previous agent still binds the Lock to
+# the old loop would re-introduce the very bug we're fixing.
+if "_eval_loop" not in globals() or _eval_loop.is_closed():  # type: ignore[name-defined]
+    _eval_loop: asyncio.AbstractEventLoop = asyncio.new_event_loop()
+    _eval_loop_thread: threading.Thread = threading.Thread(
+        target=_eval_loop.run_forever, name="dao-ai-eval-loop", daemon=True
+    )
+    _eval_loop_thread.start()
+
+# Unwrap pyfunc to drive LanggraphResponsesAgent.apredict directly and skip the
+# sync .predict() wrapper at src/dao_ai/models.py:1599. ResponsesAgent-flavored
+# pyfunc models use _ResponsesAgentPyfuncWrapper (mlflow/pyfunc/loaders/
+# responses_agent.py) which exposes the underlying agent via get_raw_model();
+# unwrap_python_model() does NOT work here (that returns _model_impl.python_model
+# which only exists on the generic PythonModel wrapper).
 if agent_source == "registry":
-    # PyFuncModel.predict is sync; it wraps LanggraphResponsesAgent.apredict via
-    # its own asyncio.run internally. The harness pin keeps every row on one
-    # loop so the wrapped agent's async singletons stay valid.
-    def predict_fn(messages: list[dict[str, Any]]) -> dict[str, Any]:
-        payload: dict[str, Any] = {
-            "input": [{"role": m["role"], "content": m["content"]} for m in messages],
-            "custom_inputs": custom_inputs,
-        }
-        return app.predict(payload)
+    agent: Any = app._model_impl.get_raw_model()
 else:
-    # Async predict_fn against the in-process LanggraphResponsesAgent. The
-    # harness detects coroutines and wraps with asyncio.run(...) on the same
-    # thread; nest_asyncio keeps that thread's loop persistent across rows.
-    async def predict_fn(messages: list[dict[str, Any]]) -> dict[str, Any]:
-        request: ResponsesAgentRequest = ResponsesAgentRequest(
-            input=[{"role": m["role"], "content": m["content"]} for m in messages],
-            custom_inputs=custom_inputs,
-        )
-        response: ResponsesAgentResponse = await app.apredict(request)
-        return response.model_dump()
+    agent = app
+
+
+def predict_fn(messages: list[dict[str, Any]]) -> dict[str, Any]:
+    """Sync predict_fn so mlflow.genai.evaluate does NOT wrap in asyncio.run."""
+    request: ResponsesAgentRequest = ResponsesAgentRequest(
+        input=[{"role": m["role"], "content": m["content"]} for m in messages],
+        custom_inputs=custom_inputs,
+    )
+    future = asyncio.run_coroutine_threadsafe(agent.apredict(request), _eval_loop)
+    response: ResponsesAgentResponse = future.result(timeout=300)
+    return response.model_dump()
 
 # COMMAND ----------
 
