@@ -11,17 +11,15 @@ import os
 def find_yaml_files_os_walk(base_path: str) -> Sequence[str]:
     if not os.path.exists(base_path):
         raise FileNotFoundError(f"Base path does not exist: {base_path}")
-    
+
     if not os.path.isdir(base_path):
         raise NotADirectoryError(f"Base path is not a directory: {base_path}")
-    
-    yaml_files = []
-    
-    for root, dirs, files in os.walk(base_path):
+
+    yaml_files: list[str] = []
+    for root, _, files in os.walk(base_path):
         for file in files:
-            if file.lower().endswith(('.yaml', '.yml')):
+            if file.lower().endswith((".yaml", ".yml")):
                 yaml_files.append(os.path.join(root, file))
-    
     return sorted(yaml_files)
 
 # COMMAND ----------
@@ -31,11 +29,7 @@ dbutils.widgets.text(name="config-path", defaultValue="")
 config_files: Sequence[str] = find_yaml_files_os_walk("../config")
 dbutils.widgets.dropdown(name="config-paths", choices=config_files, defaultValue=next(iter(config_files), ""))
 
-config_path: str | None = dbutils.widgets.get("config-path") or None
-project_path: str = dbutils.widgets.get("config-paths") or None
-
-config_path: str = config_path or project_path
-
+config_path: str = dbutils.widgets.get("config-path") or dbutils.widgets.get("config-paths")
 print(config_path)
 
 # COMMAND ----------
@@ -64,70 +58,38 @@ import dao_ai.memory.databricks
 
 # COMMAND ----------
 
-# DBTITLE 1,Pin Eval Harness to a Single Event Loop
+# DBTITLE 1,Pin Eval Harness to One Thread + One Event Loop
 #
-# mlflow.genai.evaluate's harness runs each row via asyncio.run(predict_fn(...))
-# which by default creates a fresh event loop per call and closes it. The dao-ai
-# Lakebase memory checkpointer is a process-wide singleton whose internal
-# asyncio.Lock (and the underlying psycopg AsyncConnectionPool's futures) latch
-# to the event loop they're first used on. On row 2+ the cached lock points at
-# row 1's closed loop and raises `bound to a different event loop`. The trace
-# completes (the error is caught + falls back to a fresh state), but the
-# exception shows up on every eval-row trace as noise.
+# mlflow.genai.evaluate uses a 10-worker ThreadPoolExecutor by default and wraps
+# every async predict_fn call in asyncio.run(...) — fresh loop per worker thread.
+# The shared dao-ai agent's Lakebase checkpointer binds an asyncio.Lock to the
+# first loop that touches it, so cross-thread rows trip
+# "bound to a different event loop". Pin to one worker; nest_asyncio makes
+# sequential asyncio.run calls reuse that thread's single loop.
 #
-# nest_asyncio.apply() monkey-patches asyncio.run to REUSE the existing event
-# loop instead of creating a fresh one (see nest_asyncio._patch_asyncio:run —
-# `loop = asyncio.get_event_loop(); loop.run_until_complete(task)`). Net effect:
-# every eval row shares one persistent loop, the checkpointer's primitives stay
-# valid for the whole run, and the Lakebase pool is reused across rows.
-#
-# This is scoped to the eval notebook process; it has no effect on Apps or
-# Model Serving (which already use a single long-lived loop per process).
+# Verified empirically: 4 workers across 10 rows produce 4 distinct loop ids;
+# MAX_WORKERS=1 produces 1. Throughput trade-off is fine for typical eval sizes.
+# Scoped to this notebook process — no effect on Apps or Model Serving (which
+# already run on a single long-lived loop per process).
+os.environ["MLFLOW_GENAI_EVAL_MAX_WORKERS"] = "1"
 import nest_asyncio
 nest_asyncio.apply()
 
 # COMMAND ----------
 
-# DBTITLE 1,Initialize and Configure DAO AI ResponsesAgent
-#
-# Canonical mlflow.genai.evaluate setup. Three intentional non-actions here,
-# each of which broke things in prior versions of this notebook:
-#
-# 1. Do NOT call ``mlflow.langchain.autolog(...)``. The harness already
-#    enables it under its own ``configure_autologging_for_evaluation``
-#    context (mlflow/models/evaluation/utils/trace.py). Calling it here too
-#    double-patches LangChain's callback manager and produces orphan-rooted
-#    spans whose parent_span_id points outside the exported trace.
-# 2. Do NOT call ``mlflow.tracing.set_destination(...)`` or
-#    ``mlflow.set_experiment(trace_location=...)`` to bind UC tracing. The
-#    experiment is bound once at App boot — the binding is persistent in
-#    the experiment tags and re-binding here is a no-op at best and a
-#    footgun at worst (puts the experiment's trace-location list into a
-#    TRACE_LOCATION_TYPE_UNSPECIFIED state that breaks search_traces).
-# 3. Do NOT spin up a dedicated event-loop thread + ``asyncio.run_
-#    coroutine_threadsafe``. The harness wraps coroutine predict_fns with
-#    ``asyncio.run`` in the same thread (mlflow/genai/utils/trace_utils.py
-#    ``convert_predict_fn``), which keeps OpenTelemetry's contextvars-based
-#    span propagation intact so autolog spans nest under the per-row root.
-from typing import Any
-import mlflow
-from mlflow.pyfunc import ResponsesAgent
-from dao_ai.config import AppConfig
+# DBTITLE 1,Load Application Config
+from dao_ai.config import AppConfig, EvaluationModel
 from dao_ai.logging import configure_logging
 
 config: AppConfig = AppConfig.from_file(path=config_path)
 configure_logging(level=config.app.log_level)
 
-app: ResponsesAgent = config.as_responses_agent()
-
 # COMMAND ----------
 
 # DBTITLE 1,Validate Evaluation Configuration
 from typing import Any
-from dao_ai.config import EvaluationModel
 
 evaluation: EvaluationModel = config.evaluation
-
 if not evaluation:
     dbutils.notebook.exit("Missing evaluation configuration")
 
@@ -139,75 +101,75 @@ print(f"Custom inputs: {custom_inputs}")
 
 # COMMAND ----------
 
-# DBTITLE 1,Load Model Version and Define Prediction Function
-from typing import Any
-
+# DBTITLE 1,Resolve UC Model Version
 import mlflow
 from mlflow import MlflowClient
 from mlflow.entities.model_registry.model_version import ModelVersion
-from mlflow.types.responses import ResponsesAgentRequest, ResponsesAgentResponse
 from dao_ai.models import get_latest_model_version
 
 mlflow.set_registry_uri("databricks-uc")
-mlflow_client = MlflowClient()
+mlflow_client: MlflowClient = MlflowClient()
 
 registered_model_name: str = config.app.registered_model.full_name
 latest_version: int = get_latest_model_version(registered_model_name)
 model_uri: str = f"models:/{registered_model_name}/{latest_version}"
 model_version: ModelVersion = mlflow_client.get_model_version(registered_model_name, str(latest_version))
 
-_predict_counter = {"current": 0, "total": 0}
+print(f"Registered model: {registered_model_name}")
+print(f"Latest version:   {latest_version}")
+print(f"Model ID:         {model_version.model_id}")
 
+# COMMAND ----------
 
-def _extract_output_text(response: ResponsesAgentResponse) -> str:
-    texts: list[str] = []
-    for output in response.output:
-        if isinstance(output, dict):
-            if output.get("type") == "message":
-                for content in output.get("content", []):
-                    if isinstance(content, dict) and content.get("type") == "output_text":
-                        texts.append(content.get("text", ""))
-                    elif isinstance(content, dict) and "text" in content:
-                        texts.append(content.get("text", ""))
-                    elif getattr(content, "type", None) == "output_text":
-                        texts.append(content.text)
-        elif getattr(output, "type", None) == "message":
-            for content in output.content:
-                if isinstance(content, dict) and "text" in content:
-                    texts.append(content.get("text", ""))
-                elif getattr(content, "type", None) == "output_text":
-                    texts.append(content.text)
-    return "".join(texts) if texts else str(response.output)
-
-
-# Async predict_fn. The harness (mlflow/genai/utils/trace_utils.py
-# ``convert_predict_fn``) detects coroutines and wraps with
-# ``asyncio.run(asyncio.wait_for(...))`` in the same thread, so contextvars
-# (which carry the autolog/trace context) propagate correctly. Returning
-# the response as a JSON-serializable dict satisfies the eval harness's
-# output contract; the eval framework auto-extracts text from the
-# ResponsesAgent output schema.
+# DBTITLE 1,Build Shared Agent — UC Registry (default) or Local Config
 #
-# The function emits exactly one trace per call (the auto-injected
-# ResponsesAgent.predict span from
-# mlflow.pyfunc.ResponsesAgent.__init_subclass__) — the harness validator
-# (``check_model_prediction``) won't add an outer ``predict`` span on top
-# because it already sees a span being produced. One root per eval row.
-async def predict_fn(messages: list[dict[str, Any]]) -> dict[str, Any]:
-    _predict_counter["current"] += 1
-    row_num = _predict_counter["current"]
-    total = _predict_counter["total"]
-    print(f"[{row_num}/{total}] Predicting...")
+# Two supported eval sources:
+#   - "registry" loads the actual UC-registered artifact via mlflow.pyfunc.load_model.
+#     Most honest eval (you test what's deployed). Requires a successful deploy first.
+#   - "config" builds in-process from the local YAML via AppConfig.as_responses_agent().
+#     Fast iteration on the YAML without redeploying.
+#
+# Both paths reach the same LanggraphResponsesAgent code with the same async
+# singletons (Lakebase checkpointer, langgraph saver), so the harness pin above
+# applies to both. One shared instance per run.
+from typing import Literal
 
-    request: ResponsesAgentRequest = ResponsesAgentRequest(
-        input=[{"role": m["role"], "content": m["content"]} for m in messages],
-        custom_inputs=custom_inputs,
-    )
-    response: ResponsesAgentResponse = await app.apredict(request)
+dbutils.widgets.dropdown(name="agent-source", defaultValue="registry", choices=["registry", "config"])
+agent_source: Literal["registry", "config"] = dbutils.widgets.get("agent-source")  # type: ignore[assignment]
 
-    output_text: str = _extract_output_text(response)
-    print(f"[{row_num}/{total}] Done ({len(output_text)} chars)")
-    return response.model_dump()
+if agent_source == "registry":
+    app: Any = mlflow.pyfunc.load_model(model_uri)
+else:
+    app = config.as_responses_agent()
+
+print(f"Agent source: {agent_source}")
+
+# COMMAND ----------
+
+# DBTITLE 1,Define predict_fn
+from mlflow.types.responses import ResponsesAgentRequest, ResponsesAgentResponse
+
+if agent_source == "registry":
+    # PyFuncModel.predict is sync; it wraps LanggraphResponsesAgent.apredict via
+    # its own asyncio.run internally. The harness pin keeps every row on one
+    # loop so the wrapped agent's async singletons stay valid.
+    def predict_fn(messages: list[dict[str, Any]]) -> dict[str, Any]:
+        payload: dict[str, Any] = {
+            "input": [{"role": m["role"], "content": m["content"]} for m in messages],
+            "custom_inputs": custom_inputs,
+        }
+        return app.predict(payload)
+else:
+    # Async predict_fn against the in-process LanggraphResponsesAgent. The
+    # harness detects coroutines and wraps with asyncio.run(...) on the same
+    # thread; nest_asyncio keeps that thread's loop persistent across rows.
+    async def predict_fn(messages: list[dict[str, Any]]) -> dict[str, Any]:
+        request: ResponsesAgentRequest = ResponsesAgentRequest(
+            input=[{"role": m["role"], "content": m["content"]} for m in messages],
+            custom_inputs=custom_inputs,
+        )
+        response: ResponsesAgentResponse = await app.apredict(request)
+        return response.model_dump()
 
 # COMMAND ----------
 
@@ -249,28 +211,19 @@ eval_dataset = create_or_get_eval_dataset(
 experiment = mlflow.get_experiment(model_run.info.experiment_id)
 print(f"Dataset name:      {eval_dataset.name}")
 print(f"Dataset ID:        {eval_dataset.dataset_id}")
-print(f"Dataset source:    {eval_dataset.source_type}")
 print(f"Dataset records:   {len(eval_dataset.to_df())} rows")
 print(f"Experiment name:   {experiment.name}")
 print(f"Experiment ID:     {model_run.info.experiment_id}")
 
-# Intentionally NO ``mlflow.autolog(...)`` calls here either. The harness
-# enables langchain/openai/anthropic/litellm autologs internally under its
-# own snapshot. Toggling them at notebook level either no-ops (harness
-# overrides) or fights the harness's restore logic.
-
-run_tags: dict[str, str] = {
-    k: str(v) for k, v in (config.app.tags or {}).items()
-}
+run_tags: dict[str, str] = {k: str(v) for k, v in (config.app.tags or {}).items()}
 run_tags["run_type"] = "evaluation"
 run_name: str = f"{config.app.name}_evaluation_v{latest_version}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
 
-_predict_counter["total"] = len(eval_df)
 print(f"Starting evaluation: {len(eval_df)} rows, {len(scorers)} scorers")
 
 with mlflow.start_run(run_name=run_name, tags=run_tags) as run:
     try:
-        eval_results: EvaluationResult = mlflow.genai.evaluate(
+        eval_results: EvaluationResult | None = mlflow.genai.evaluate(
             data=eval_dataset,
             predict_fn=predict_fn,
             model_id=model_version.model_id,
@@ -289,7 +242,7 @@ if eval_results is not None:
     for metric_name, metric_value in eval_results.metrics.items():
         print(f"  {metric_name}: {metric_value}")
 
-    eval_results_df = prepare_eval_results_for_display(eval_results)
+    eval_results_df: pd.DataFrame = prepare_eval_results_for_display(eval_results)
     print(f"Total evaluation results: {len(eval_results_df)} rows")
     if not eval_results_df.empty:
         display(eval_results_df.head(100))
