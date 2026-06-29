@@ -594,12 +594,13 @@ class LanggraphChatModel(ChatModel):
         import asyncio
 
         async def _async_stream() -> AsyncGenerator[ChatCompletionChunk, None]:
+            # v3 owns subgraph handling internally — do NOT pass subgraphs= here;
+            # it forces True and rejects the kwarg.
             stream: AsyncGraphRunStream = await self.graph.astream_events(
                 request,
                 context=context,
                 config=custom_inputs,
                 version="v3",
-                subgraphs=True,
             )
             chat: AsyncChatModelStream
             async for chat in stream.messages:
@@ -1376,12 +1377,13 @@ class LanggraphResponsesAgent(ResponsesAgent):
             # can yield text deltas as they arrive — both projections share
             # the same underlying mux and can be read concurrently.
             try:
+                # v3 owns subgraph handling internally — do NOT pass subgraphs=
+                # here; it forces True and rejects the kwarg.
                 stream: AsyncGraphRunStream = await self.graph.astream_events(
                     stream_input,
                     context=context,
                     config=custom_inputs,
                     version="v3",
-                    subgraphs=True,
                 )
 
                 seen_tool_message_ids: set[int] = set()
