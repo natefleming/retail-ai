@@ -1,6 +1,6 @@
 USE IDENTIFIER(:database);
 
-CREATE OR REPLACE TABLE order_items (
+CREATE TABLE IF NOT EXISTS order_items (
   order_item_id STRING COMMENT 'Unique order line-item identifier' NOT NULL PRIMARY KEY
   ,order_id STRING COMMENT 'FK -> orders.order_id' NOT NULL
   ,product_id BIGINT COMMENT 'FK -> products.product_id' NOT NULL

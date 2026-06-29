@@ -80,15 +80,35 @@ config: AppConfig = AppConfig.from_file(path=config_path)
 
 # COMMAND ----------
 
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dao_ai.config import VectorStoreModel
 
 vector_stores: dict[str, VectorStoreModel] = config.resources.vector_stores
 
-for _, vector_store in vector_stores.items():
-  vector_store: VectorStoreModel
+# Provision all vector stores concurrently. Each VectorStoreModel.create() blocks
+# on its underlying Delta-Sync pipeline reaching ONLINE_NO_PENDING_UPDATE, which
+# polls in ~30s ticks. Sequential pays that wait N times; parallel collapses to
+# the slowest single index. Scales to N indexes — one worker per configured
+# vector store — since Databricks Vector Search supports concurrent pipelines
+# on the same endpoint.
 
-  print(f"vector_store: {vector_store}")
-  vector_store.create()
+def _create_vector_store(name: str, vs: VectorStoreModel) -> str:
+    print(f"vector_store: {name} {vs}")
+    vs.create()
+    return name
+
+if vector_stores:
+    max_workers: int = len(vector_stores)
+    with ThreadPoolExecutor(max_workers=max_workers) as pool:
+        futures = {pool.submit(_create_vector_store, n, vs): n for n, vs in vector_stores.items()}
+        for fut in as_completed(futures):
+            name: str = futures[fut]
+            try:
+                fut.result()
+                print(f"  ✓ {name} ready")
+            except Exception:
+                print(f"  ✗ {name} failed")
+                raise
 
 
 # COMMAND ----------

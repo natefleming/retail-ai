@@ -1,6 +1,6 @@
 USE IDENTIFIER(:database);
 
-CREATE OR REPLACE TABLE inventory (
+CREATE TABLE IF NOT EXISTS inventory (
   product_id BIGINT COMMENT 'FK -> products.product_id' NOT NULL
   ,location_id STRING COMMENT 'Warehouse or store location identifier' NOT NULL
   ,location_name STRING COMMENT 'Human-readable distribution location name'
