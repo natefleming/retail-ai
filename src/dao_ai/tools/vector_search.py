@@ -72,7 +72,11 @@ class VectorSearchInput(BaseModel):
     shape (which it then commonly emits as a flat dict instead of a list).
     """
 
-    model_config = ConfigDict(extra="forbid")
+    # extra="ignore" rather than "forbid": LangChain passes the injected
+    # ToolRuntime as a kwarg when invoking a tool whose @tool decorator has
+    # args_schema=, and Pydantic must silently drop it. extra="forbid" would
+    # reject every call with `validation error … runtime: extra_forbidden`.
+    model_config = ConfigDict(extra="ignore")
 
     query: str = Field(
         description="The natural-language search query to find relevant documents.",
