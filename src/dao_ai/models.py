@@ -32,6 +32,7 @@ from langchain.agents.middleware.human_in_the_loop import (
     ReviewConfig,
 )
 from langchain_core.language_models import LanguageModelLike
+from langchain_core.language_models.chat_model_stream import AsyncChatModelStream
 from langchain_core.messages import (
     AIMessage,
     AIMessageChunk,
@@ -42,6 +43,7 @@ from langchain_core.messages import (
 )
 from langgraph.errors import GraphInterrupt
 from langgraph.graph.state import CompiledStateGraph
+from langgraph.stream.run_stream import AsyncGraphRunStream
 from langgraph.types import Command, Interrupt, StateSnapshot
 from loguru import logger
 from mlflow import MlflowClient
@@ -578,49 +580,41 @@ class LanggraphChatModel(ChatModel):
         if not messages:
             raise ValueError("Message list is empty.")
 
-        request = {"messages": self._convert_messages_to_dict(messages)}
+        request: dict[str, Any] = {"messages": self._convert_messages_to_dict(messages)}
 
         context: Context = self._convert_to_context(params)
         custom_inputs: dict[str, Any] = {"configurable": context.model_dump()}
+        visibility: dict[str, bool] = context.agent_visibility or {}
 
-        # Use async astream internally for parallel execution
+        # Use async astream_events(version="v3") internally. v3 exposes typed
+        # per-channel projections — we only need stream.messages here for token
+        # streaming. Per-agent text gating uses AsyncChatModelStream.node,
+        # which is the LangGraph node name (== AgentModel.name for nodes added
+        # via workflow.add_node(name, handler)).
         import asyncio
 
-        async def _async_stream():
-            async for nodes, stream_mode, messages_batch in self.graph.astream(
+        async def _async_stream() -> AsyncGenerator[ChatCompletionChunk, None]:
+            stream: AsyncGraphRunStream = await self.graph.astream_events(
                 request,
                 context=context,
                 config=custom_inputs,
-                stream_mode=["messages", "custom"],
+                version="v3",
                 subgraphs=True,
-            ):
-                nodes: tuple[str, ...]
-                stream_mode: str
-                messages_batch: Sequence[BaseMessage]
-                logger.trace(
-                    "Stream batch received",
-                    nodes=nodes,
-                    stream_mode=stream_mode,
-                    messages_count=len(messages_batch),
-                )
-                for message in messages_batch:
-                    if (
-                        isinstance(
-                            message,
-                            (
-                                AIMessageChunk,
-                                AIMessage,
-                            ),
-                        )
-                        and message.content
-                        and "summarization" not in nodes
-                    ):
-                        logger.trace(
-                            "ChatModel stream content",
-                            content_type=type(message.content).__name__,
-                        )
-                        content = _extract_text_content(message.content)
-                        yield self._create_chat_completion_chunk(content)
+            )
+            chat: AsyncChatModelStream
+            async for chat in stream.messages:
+                node: str | None = chat.node
+                if node is None:
+                    # Graph-level events with no node attribution: surface by default.
+                    pass
+                elif "summarization" in node:
+                    # Preserve the legacy summarization filter.
+                    continue
+                elif visibility.get(node, True) is False:
+                    # Agent is configured surface_to_user=False — skip its text.
+                    continue
+                async for token in chat.text:
+                    yield self._create_chat_completion_chunk(token)
 
         # Convert async generator to sync generator
         loop = asyncio.get_event_loop()
@@ -1368,81 +1362,93 @@ class LanggraphResponsesAgent(ResponsesAgent):
                 return
 
             stream_input: Command | dict[str, Any] = turn.stream_input
+            visibility: dict[str, bool] = context.agent_visibility or {}
 
-            # Stream the graph execution
+            # Stream the graph execution via v3 typed projections.
+            #
+            # In v3, stream.messages yields one AsyncChatModelStream per LLM
+            # call, exposing .node (LangGraph node name == agent name) and
+            # .text (token-by-token async iterator). stream.values yields
+            # state snapshots that carry ToolMessages and structured_response.
+            # Interrupts surface via stream.interrupts() once iteration ends.
+            #
+            # We consume .values in a background task so the main coroutine
+            # can yield text deltas as they arrive — both projections share
+            # the same underlying mux and can be read concurrently.
             try:
-                async for nodes, stream_mode, data in self.graph.astream(
+                stream: AsyncGraphRunStream = await self.graph.astream_events(
                     stream_input,
                     context=context,
                     config=custom_inputs,
-                    stream_mode=["messages", "updates"],
+                    version="v3",
                     subgraphs=True,
-                ):
-                    nodes: tuple[str, ...]
-                    stream_mode: str
+                )
 
-                    if stream_mode == "messages":
-                        messages_batch: Sequence[BaseMessage] = data
-                        for message in messages_batch:
-                            if isinstance(message, ToolMessage):
-                                tool_messages.append(message)
-                            elif (
-                                isinstance(message, (AIMessageChunk, AIMessage))
-                                and message.content
-                                and "summarization" not in nodes
-                            ):
+                seen_tool_message_ids: set[int] = set()
+
+                async def _consume_values() -> None:
+                    nonlocal structured_response
+                    state: Any
+                    async for state in stream.values:
+                        if not isinstance(state, dict):
+                            continue
+                        candidate: Any = state.get("structured_response")
+                        if candidate is not None:
+                            structured_response = candidate
+                            logger.trace(
+                                "Captured structured response from v3 values",
+                                response_type=type(structured_response).__name__,
+                            )
+                        for msg in state.get("messages", []) or []:
+                            if isinstance(msg, ToolMessage):
+                                key: int = id(msg)
+                                if key not in seen_tool_message_ids:
+                                    seen_tool_message_ids.add(key)
+                                    tool_messages.append(msg)
+
+                import asyncio
+
+                values_task: asyncio.Task[None] = asyncio.create_task(
+                    _consume_values()
+                )
+
+                try:
+                    chat: AsyncChatModelStream
+                    async for chat in stream.messages:
+                        node: str | None = chat.node
+                        if node is not None:
+                            if "summarization" in node:
+                                continue
+                            if visibility.get(node, True) is False:
                                 logger.trace(
-                                    "Stream message content",
-                                    content_type=type(message.content).__name__,
-                                    content_len=len(message.content)
-                                    if isinstance(message.content, (str, list))
-                                    else None,
+                                    "Skipping text deltas for silent agent",
+                                    agent=node,
                                 )
-                                content: str = _extract_text_content(message.content)
-                                accumulated_content += content
+                                continue
+                        async for token in chat.text:
+                            accumulated_content += token
+                            yield ResponsesAgentStreamEvent(
+                                **self.create_text_delta(
+                                    delta=token, item_id=item_id
+                                )
+                            )
+                finally:
+                    await values_task
 
-                                yield ResponsesAgentStreamEvent(
-                                    **self.create_text_delta(
-                                        delta=content, item_id=item_id
-                                    )
-                                )
-
-                    elif stream_mode == "updates":
-                        updates: dict[str, Any] = data
-                        for source, update in updates.items():
-                            if source == "__interrupt__":
-                                if len(nodes) > 0:
-                                    logger.trace(
-                                        "HITL: Skipping subgraph-level interrupt",
-                                        nodes=nodes,
-                                    )
-                                    continue
-                                interrupts: list[Interrupt] = update
-                                logger.info(
-                                    "HITL: Interrupts detected during streaming",
-                                    interrupts_count=len(interrupts),
-                                )
-
-                                for interrupt in interrupts:
-                                    content_key = _interrupt_content_key(interrupt)
-                                    if content_key not in seen_interrupt_keys:
-                                        seen_interrupt_keys.add(content_key)
-                                        interrupt_data.append(
-                                            _extract_interrupt_value(interrupt)
-                                        )
-                                        logger.trace(
-                                            "HITL: Added interrupt to response",
-                                            interrupt_id=interrupt.id,
-                                        )
-                            elif (
-                                isinstance(update, dict)
-                                and "structured_response" in update
-                            ):
-                                structured_response = update["structured_response"]
-                                logger.trace(
-                                    "Captured structured response from stream",
-                                    response_type=type(structured_response).__name__,
-                                )
+                # Drain interrupts collected by the v3 stream. Top-level only —
+                # subgraph interrupts surface in their owning subgraph stream.
+                for interrupt in stream.interrupts():
+                    if not isinstance(interrupt, Interrupt):
+                        continue
+                    content_key: str = _interrupt_content_key(interrupt)
+                    if content_key in seen_interrupt_keys:
+                        continue
+                    seen_interrupt_keys.add(content_key)
+                    interrupt_data.append(_extract_interrupt_value(interrupt))
+                    logger.trace(
+                        "HITL: Added interrupt from v3 stream",
+                        interrupt_id=interrupt.id,
+                    )
             except GraphInterrupt:
                 logger.info("HITL: GraphInterrupt raised during streaming")
 
