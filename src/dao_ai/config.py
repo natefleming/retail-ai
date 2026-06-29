@@ -6226,6 +6226,20 @@ class AgentModel(BaseModel):
             "self-reference, cycles in the requires DAG) runs at config-build time."
         ),
     )
+    surface_to_user: bool = Field(
+        default=True,
+        description=(
+            "Whether this agent's text output is forwarded to the user-facing "
+            "SSE text stream. When False, the agent still runs, its outputs "
+            "still flow to downstream agents via state, and its execution "
+            "remains observable in MLflow traces — but no text delta from this "
+            "agent reaches the chat widget. Set False for any agent whose "
+            "natural-language output is intermediate (routing tokens, side-effect "
+            "confirmations, raw lookups intended for a downstream composer to "
+            "reframe). Visibility is a display concern only; state propagation "
+            "between agents is unaffected."
+        ),
+    )
 
     @model_validator(mode="after")
     def validate_requires_no_self_reference(self) -> Self:

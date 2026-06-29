@@ -420,4 +420,13 @@ def create_deep_agent_graph(config: AppConfig) -> CompiledStateGraph:
         # that use graph.with_config(...). Mirrors swarm.max_hops behavior.
         graph = graph.with_config({"recursion_limit": deep_agent.recursion_limit})
 
+    # Publish the per-agent visibility map via configurable so the streaming
+    # layer can gate user-facing text deltas. Mirrors swarm.create_swarm_graph.
+    agent_visibility: dict[str, bool] = {
+        a.name: a.surface_to_user for a in config.app.agents
+    }
+    graph = graph.with_config(
+        {"configurable": {"agent_visibility": agent_visibility}}
+    )
+
     return graph

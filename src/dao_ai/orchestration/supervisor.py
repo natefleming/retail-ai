@@ -394,4 +394,12 @@ def create_supervisor_graph(config: AppConfig) -> CompiledStateGraph:
         has_checkpointer=checkpointer is not None,
         has_store=store is not None,
     )
-    return compiled
+
+    # Publish the per-agent visibility map via configurable so the streaming
+    # layer can gate user-facing text deltas. Mirrors swarm.create_swarm_graph.
+    agent_visibility: dict[str, bool] = {
+        a.name: a.surface_to_user for a in config.app.agents
+    }
+    return compiled.with_config(
+        {"configurable": {"agent_visibility": agent_visibility}}
+    )

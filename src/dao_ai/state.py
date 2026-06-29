@@ -236,6 +236,15 @@ class Context(BaseModel):
     user_id: str | None = None
     thread_id: str | None = None
     headers: dict[str, Any] | None = None
+    agent_visibility: dict[str, bool] | None = Field(
+        default=None,
+        description=(
+            "Map of agent name -> surface_to_user. Populated at graph compile "
+            "time from AgentModel.surface_to_user; consumed by the streaming "
+            "layer to gate which agents' text deltas reach the user SSE stream. "
+            "None means default-on for every agent (legacy behavior)."
+        ),
+    )
 
     @classmethod
     def from_runnable_config(cls, config: dict[str, Any]) -> "Context":

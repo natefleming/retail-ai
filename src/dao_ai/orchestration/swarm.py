@@ -480,7 +480,21 @@ def create_swarm_graph(config: AppConfig) -> CompiledStateGraph:
 
     compiled = workflow.compile(checkpointer=checkpointer, store=store)
 
+    # Build the per-agent visibility map from AgentModel.surface_to_user and
+    # publish it via configurable. Context.from_runnable_config folds the
+    # configurable dict into Context fields, so the streaming layer in models.py
+    # can read context.agent_visibility without reaching into the compiled
+    # graph or the AppConfig.
+    agent_visibility: dict[str, bool] = {
+        a.name: a.surface_to_user for a in config.app.agents
+    }
+
     # Apply the cross-agent hop ceiling at the parent graph level. This is
     # the only bound on agentic ping-pong between peers; per-worker
     # recursion_limit only protects within a single agent's turn.
-    return compiled.with_config({"recursion_limit": swarm.max_hops})
+    return compiled.with_config(
+        {
+            "recursion_limit": swarm.max_hops,
+            "configurable": {"agent_visibility": agent_visibility},
+        }
+    )
