@@ -488,7 +488,20 @@ def create_handoff_tool(
         # Build message list with proper pairing
         update_messages: list[BaseMessage] = []
         if triggering_ai_message:
-            update_messages.append(triggering_ai_message)
+            # Flatten the trigger AIMessage's content before it flows to the
+            # parent state. Without this, downstream agents receive an
+            # AIMessage with content=[{type:reasoning},{type:text},...]
+            # and the next chat-completions LLM call fails with:
+            #   field 'messages.content' expects 'string' but got 'array'
+            # extract_agent_response (called by the parent handler) doesn't
+            # see this message because the handoff Command emits it directly
+            # via graph=Command.PARENT.
+            flat_content: object = _flatten_message_content(
+                triggering_ai_message.content
+            )
+            update_messages.append(
+                triggering_ai_message.model_copy(update={"content": flat_content})
+            )
         update_messages.append(
             ToolMessage(
                 content=f"Transferred to {target_agent_name}",
