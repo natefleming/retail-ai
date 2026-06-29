@@ -715,7 +715,7 @@ name = "colorlog"
 version = "6.10.1"
 source = { registry = "https://pypi-proxy.dev.databricks.com/simple/" }
 dependencies = [
-    { name = "colorama", marker = "python_full_version != '3.12.*' and sys_platform == 'win32'" },
+    { name = "colorama", marker = "sys_platform == 'win32'" },
 ]
 sdist = { url = "https://pypi-proxy.dev.databricks.com/packages/a2/61/f083b5ac52e505dfc1c624eafbf8c7589a0d7f32daa398d2e7590efa5fda/colorlog-6.10.1.tar.gz", hash = "sha256:eb4ae5cb65fe7fec7773c2306061a8e63e02efc2c72eba9d27b0fa23c94f1321", upload-time = "2025-10-16T16:14:11.978Z" }
 wheels = [
@@ -1265,17 +1265,17 @@ resolution-markers = [
     "python_full_version < '3.12'",
 ]
 dependencies = [
-    { name = "databricks-sdk", marker = "python_full_version < '3.12'" },
-    { name = "googleapis-common-protos", marker = "python_full_version < '3.12'" },
-    { name = "grpcio", marker = "python_full_version < '3.12'" },
-    { name = "grpcio-status", marker = "python_full_version < '3.12'" },
-    { name = "numpy", version = "1.26.4", source = { registry = "https://pypi-proxy.dev.databricks.com/simple/" }, marker = "python_full_version < '3.12'" },
-    { name = "packaging", marker = "python_full_version < '3.12'" },
-    { name = "pandas", marker = "python_full_version < '3.12'" },
-    { name = "py4j", version = "0.10.9.7", source = { registry = "https://pypi-proxy.dev.databricks.com/simple/" }, marker = "python_full_version < '3.12'" },
-    { name = "pyarrow", marker = "python_full_version < '3.12'" },
-    { name = "setuptools", marker = "python_full_version < '3.12'" },
-    { name = "six", marker = "python_full_version < '3.12'" },
+    { name = "databricks-sdk" },
+    { name = "googleapis-common-protos" },
+    { name = "grpcio" },
+    { name = "grpcio-status" },
+    { name = "numpy", version = "1.26.4", source = { registry = "https://pypi-proxy.dev.databricks.com/simple/" } },
+    { name = "packaging" },
+    { name = "pandas" },
+    { name = "py4j", version = "0.10.9.7", source = { registry = "https://pypi-proxy.dev.databricks.com/simple/" } },
+    { name = "pyarrow" },
+    { name = "setuptools" },
+    { name = "six" },
 ]
 wheels = [
     { url = "https://pypi-proxy.dev.databricks.com/packages/d1/5d/ae8c59de242ca6ef1631e66fdf7fc413bc0d51d2521c4e1cb90104dd62d9/databricks_connect-16.1.7-py2.py3-none-any.whl", hash = "sha256:ddc7ddb8bcfb7910db67e8c4ef5ab2f938c55cf1a1b2e066ff56d2db68b13cb5", upload-time = "2025-10-28T14:25:02.265Z" },
@@ -1291,17 +1291,17 @@ resolution-markers = [
     "python_full_version == '3.12.*'",
 ]
 dependencies = [
-    { name = "databricks-sdk", marker = "python_full_version >= '3.12'" },
-    { name = "googleapis-common-protos", marker = "python_full_version >= '3.12'" },
-    { name = "grpcio", marker = "python_full_version >= '3.12'" },
-    { name = "grpcio-status", marker = "python_full_version >= '3.12'" },
-    { name = "numpy", version = "2.4.6", source = { registry = "https://pypi-proxy.dev.databricks.com/simple/" }, marker = "python_full_version >= '3.12'" },
-    { name = "packaging", marker = "python_full_version >= '3.12'" },
-    { name = "pandas", marker = "python_full_version >= '3.12'" },
-    { name = "py4j", version = "0.10.9.9", source = { registry = "https://pypi-proxy.dev.databricks.com/simple/" }, marker = "python_full_version >= '3.12'" },
-    { name = "pyarrow", marker = "python_full_version >= '3.12'" },
-    { name = "setuptools", marker = "python_full_version >= '3.12'" },
-    { name = "six", marker = "python_full_version >= '3.12'" },
+    { name = "databricks-sdk" },
+    { name = "googleapis-common-protos" },
+    { name = "grpcio" },
+    { name = "grpcio-status" },
+    { name = "numpy", version = "2.4.6", source = { registry = "https://pypi-proxy.dev.databricks.com/simple/" } },
+    { name = "packaging" },
+    { name = "pandas" },
+    { name = "py4j", version = "0.10.9.9", source = { registry = "https://pypi-proxy.dev.databricks.com/simple/" } },
+    { name = "pyarrow" },
+    { name = "setuptools" },
+    { name = "six" },
 ]
 wheels = [
     { url = "https://pypi-proxy.dev.databricks.com/packages/3d/e2/ee5c60aed96064980126aab52e0c62770c2887c77ae514154ff6a3c9334d/databricks_connect-17.0.10-py2.py3-none-any.whl", hash = "sha256:10c8093e88c8c8ae92969c21114917038b62256532037fc088e0aeedb98fc288", upload-time = "2025-11-05T12:15:36.16Z" },
@@ -1425,21 +1425,21 @@ name = "datasets"
 version = "5.0.0"
 source = { registry = "https://pypi-proxy.dev.databricks.com/simple/" }
 dependencies = [
-    { name = "dill", marker = "python_full_version != '3.12.*'" },
-    { name = "filelock", marker = "python_full_version != '3.12.*'" },
-    { name = "fsspec", extra = ["http"], marker = "python_full_version != '3.12.*'" },
-    { name = "httpx", marker = "python_full_version != '3.12.*'" },
-    { name = "huggingface-hub", marker = "python_full_version != '3.12.*'" },
-    { name = "multiprocess", marker = "python_full_version != '3.12.*'" },
-    { name = "numpy", version = "1.26.4", source = { registry = "https://pypi-proxy.dev.databricks.com/simple/" }, marker = "python_full_version < '3.12'" },
+    { name = "dill" },
+    { name = "filelock" },
+    { name = "fsspec", extra = ["http"] },
+    { name = "httpx" },
+    { name = "huggingface-hub" },
+    { name = "multiprocess" },
+    { name = "numpy", version = "1.26.4", source = { registry = "https://pypi-proxy.dev.databricks.com/simple/" }, marker = "python_full_version < '3.13'" },
     { name = "numpy", version = "2.4.6", source = { registry = "https://pypi-proxy.dev.databricks.com/simple/" }, marker = "python_full_version >= '3.13'" },
-    { name = "packaging", marker = "python_full_version != '3.12.*'" },
-    { name = "pandas", marker = "python_full_version != '3.12.*'" },
-    { name = "pyarrow", marker = "python_full_version != '3.12.*'" },
-    { name = "pyyaml", marker = "python_full_version != '3.12.*'" },
-    { name = "requests", marker = "python_full_version != '3.12.*'" },
-    { name = "tqdm", marker = "python_full_version != '3.12.*'" },
-    { name = "xxhash", marker = "python_full_version != '3.12.*'" },
+    { name = "packaging" },
+    { name = "pandas" },
+    { name = "pyarrow" },
+    { name = "pyyaml" },
+    { name = "requests" },
+    { name = "tqdm" },
+    { name = "xxhash" },
 ]
 sdist = { url = "https://pypi-proxy.dev.databricks.com/packages/d9/85/ce4f780c32f7e36d71257f1c27e8ba898ebe379cb54f211f5f2013f2c219/datasets-5.0.0.tar.gz", hash = "sha256:83dbbbdb07a33b82192b8c419deb18739b138ee2ce1a322d55ce6b100954ec1a", upload-time = "2026-06-05T13:18:26.124Z" }
 wheels = [
@@ -1560,29 +1560,29 @@ resolution-markers = [
     "python_full_version < '3.12'",
 ]
 dependencies = [
-    { name = "anyio", marker = "python_full_version != '3.12.*'" },
-    { name = "asyncer", marker = "python_full_version != '3.12.*'" },
-    { name = "backoff", marker = "python_full_version != '3.12.*'" },
-    { name = "cachetools", marker = "python_full_version != '3.12.*'" },
-    { name = "cloudpickle", marker = "python_full_version != '3.12.*'" },
-    { name = "datasets", marker = "python_full_version != '3.12.*'" },
-    { name = "diskcache", marker = "python_full_version != '3.12.*'" },
-    { name = "joblib", marker = "python_full_version != '3.12.*'" },
-    { name = "json-repair", marker = "python_full_version != '3.12.*'" },
-    { name = "litellm", marker = "python_full_version != '3.12.*'" },
-    { name = "magicattr", marker = "python_full_version != '3.12.*'" },
-    { name = "numpy", version = "1.26.4", source = { registry = "https://pypi-proxy.dev.databricks.com/simple/" }, marker = "python_full_version < '3.12'" },
+    { name = "anyio" },
+    { name = "asyncer" },
+    { name = "backoff" },
+    { name = "cachetools" },
+    { name = "cloudpickle" },
+    { name = "datasets" },
+    { name = "diskcache" },
+    { name = "joblib" },
+    { name = "json-repair" },
+    { name = "litellm" },
+    { name = "magicattr" },
+    { name = "numpy", version = "1.26.4", source = { registry = "https://pypi-proxy.dev.databricks.com/simple/" }, marker = "python_full_version < '3.13'" },
     { name = "numpy", version = "2.4.6", source = { registry = "https://pypi-proxy.dev.databricks.com/simple/" }, marker = "python_full_version >= '3.13'" },
-    { name = "openai", marker = "python_full_version != '3.12.*'" },
-    { name = "optuna", marker = "python_full_version != '3.12.*'" },
-    { name = "pandas", marker = "python_full_version != '3.12.*'" },
-    { name = "pydantic", marker = "python_full_version != '3.12.*'" },
-    { name = "regex", marker = "python_full_version != '3.12.*'" },
-    { name = "requests", marker = "python_full_version != '3.12.*'" },
-    { name = "rich", marker = "python_full_version != '3.12.*'" },
-    { name = "tenacity", marker = "python_full_version != '3.12.*'" },
-    { name = "tqdm", marker = "python_full_version != '3.12.*'" },
-    { name = "ujson", marker = "python_full_version != '3.12.*'" },
+    { name = "openai" },
+    { name = "optuna" },
+    { name = "pandas" },
+    { name = "pydantic" },
+    { name = "regex" },
+    { name = "requests" },
+    { name = "rich" },
+    { name = "tenacity" },
+    { name = "tqdm" },
+    { name = "ujson" },
 ]
 sdist = { url = "https://pypi-proxy.dev.databricks.com/packages/38/8a/f7ff1a6d3b5294678f13d17ecfc596f49a59e494b190e4e30f7dea7df1dc/dspy-2.6.27.tar.gz", hash = "sha256:de1c4f6f6d127e0efed894e1915dac40f5d5623e7f1cf3d749c98d790066477a", upload-time = "2025-06-03T17:47:13.411Z" }
 wheels = [
@@ -1597,24 +1597,24 @@ resolution-markers = [
     "python_full_version == '3.12.*'",
 ]
 dependencies = [
-    { name = "anyio", marker = "python_full_version == '3.12.*'" },
-    { name = "asyncer", marker = "python_full_version == '3.12.*'" },
-    { name = "cachetools", marker = "python_full_version == '3.12.*'" },
-    { name = "cloudpickle", marker = "python_full_version == '3.12.*'" },
-    { name = "diskcache", marker = "python_full_version == '3.12.*'" },
-    { name = "gepa", version = "0.0.27", source = { registry = "https://pypi-proxy.dev.databricks.com/simple/" }, marker = "python_full_version == '3.12.*'" },
-    { name = "json-repair", marker = "python_full_version == '3.12.*'" },
-    { name = "litellm", marker = "python_full_version == '3.12.*'" },
-    { name = "numpy", version = "2.4.6", source = { registry = "https://pypi-proxy.dev.databricks.com/simple/" }, marker = "python_full_version == '3.12.*'" },
-    { name = "openai", marker = "python_full_version == '3.12.*'" },
-    { name = "orjson", marker = "python_full_version == '3.12.*'" },
-    { name = "pydantic", marker = "python_full_version == '3.12.*'" },
-    { name = "regex", marker = "python_full_version == '3.12.*'" },
-    { name = "requests", marker = "python_full_version == '3.12.*'" },
-    { name = "tenacity", marker = "python_full_version == '3.12.*'" },
-    { name = "tqdm", marker = "python_full_version == '3.12.*'" },
-    { name = "typeguard", marker = "python_full_version == '3.12.*'" },
-    { name = "xxhash", marker = "python_full_version == '3.12.*'" },
+    { name = "anyio" },
+    { name = "asyncer" },
+    { name = "cachetools" },
+    { name = "cloudpickle" },
+    { name = "diskcache" },
+    { name = "gepa", version = "0.0.27", source = { registry = "https://pypi-proxy.dev.databricks.com/simple/" } },
+    { name = "json-repair" },
+    { name = "litellm" },
+    { name = "numpy", version = "2.4.6", source = { registry = "https://pypi-proxy.dev.databricks.com/simple/" } },
+    { name = "openai" },
+    { name = "orjson" },
+    { name = "pydantic" },
+    { name = "regex" },
+    { name = "requests" },
+    { name = "tenacity" },
+    { name = "tqdm" },
+    { name = "typeguard" },
+    { name = "xxhash" },
 ]
 sdist = { url = "https://pypi-proxy.dev.databricks.com/packages/44/6f/77a79122a16c60b7d5853c11943531bc60f32545369cd05cce4057403a1d/dspy-3.2.1.tar.gz", hash = "sha256:245d6531753cd3e844e7cc47835cfb283c8f57a36a977beabe5034457d9c7241", upload-time = "2026-05-05T19:35:07.471Z" }
 wheels = [
@@ -1966,7 +1966,7 @@ wheels = [
 
 [package.optional-dependencies]
 http = [
-    { name = "aiohttp", marker = "python_full_version != '3.12.*'" },
+    { name = "aiohttp" },
 ]
 
 [[package]]
@@ -3978,7 +3978,7 @@ name = "multiprocess"
 version = "0.70.19"
 source = { registry = "https://pypi-proxy.dev.databricks.com/simple/" }
 dependencies = [
-    { name = "dill", marker = "python_full_version != '3.12.*'" },
+    { name = "dill" },
 ]
 sdist = { url = "https://pypi-proxy.dev.databricks.com/packages/a2/f2/e783ac7f2aeeed14e9e12801f22529cc7e6b7ab80928d6dcce4e9f00922d/multiprocess-0.70.19.tar.gz", hash = "sha256:952021e0e6c55a4a9fe4cd787895b86e239a40e76802a789d6305398d3975897", upload-time = "2026-01-19T06:47:39.744Z" }
 wheels = [
@@ -4335,14 +4335,14 @@ name = "optuna"
 version = "4.9.0"
 source = { registry = "https://pypi-proxy.dev.databricks.com/simple/" }
 dependencies = [
-    { name = "alembic", marker = "python_full_version != '3.12.*'" },
-    { name = "colorlog", marker = "python_full_version != '3.12.*'" },
-    { name = "numpy", version = "1.26.4", source = { registry = "https://pypi-proxy.dev.databricks.com/simple/" }, marker = "python_full_version < '3.12'" },
+    { name = "alembic" },
+    { name = "colorlog" },
+    { name = "numpy", version = "1.26.4", source = { registry = "https://pypi-proxy.dev.databricks.com/simple/" }, marker = "python_full_version < '3.13'" },
     { name = "numpy", version = "2.4.6", source = { registry = "https://pypi-proxy.dev.databricks.com/simple/" }, marker = "python_full_version >= '3.13'" },
-    { name = "packaging", marker = "python_full_version != '3.12.*'" },
-    { name = "pyyaml", marker = "python_full_version != '3.12.*'" },
-    { name = "sqlalchemy", marker = "python_full_version != '3.12.*'" },
-    { name = "tqdm", marker = "python_full_version != '3.12.*'" },
+    { name = "packaging" },
+    { name = "pyyaml" },
+    { name = "sqlalchemy" },
+    { name = "tqdm" },
 ]
 sdist = { url = "https://pypi-proxy.dev.databricks.com/packages/f4/aa/05f5e3f662cc96a4c478fc3446b8ed6359825a2b504ecb614a9ac84e4a4d/optuna-4.9.0.tar.gz", hash = "sha256:b322e5cbdf1655fb84c37646c4a7a1f391de1b47806bbe222e015825d0a82b87", upload-time = "2026-06-01T06:23:30.424Z" }
 wheels = [
@@ -6314,7 +6314,7 @@ name = "typeguard"
 version = "4.4.3"
 source = { registry = "https://pypi-proxy.dev.databricks.com/simple/" }
 dependencies = [
-    { name = "typing-extensions", marker = "python_full_version == '3.12.*'" },
+    { name = "typing-extensions" },
 ]
 sdist = { url = "https://pypi-proxy.dev.databricks.com/packages/34/53/f701077a29ddf65ed4556119961ef517d767c07f15f6cdf0717ad985426b/typeguard-4.4.3.tar.gz", hash = "sha256:be72b9c85f322c20459b29060c5c099cd733d5886c4ee14297795e62b0c0d59b", upload-time = "2025-06-04T21:47:07.733Z" }
 wheels = [
