@@ -498,7 +498,20 @@ class LanggraphChatModel(ChatModel):
         request = {"messages": self._convert_messages_to_dict(messages)}
 
         context: Context = self._convert_to_context(params)
-        custom_inputs: dict[str, Any] = {"configurable": context.model_dump()}
+        # Merge the compiled graph's bound configurable so framework-level
+        # values like agent_visibility (published from the orchestration
+        # factories via ``compiled.with_config``) survive into the per-request
+        # config — without this, context.model_dump() silently overrides them.
+        bound_configurable: dict[str, Any] = (
+            getattr(self.graph, "config", None) or {}
+        ).get("configurable", {}) or {}
+        if context.agent_visibility is None and "agent_visibility" in bound_configurable:
+            context = context.model_copy(
+                update={"agent_visibility": bound_configurable["agent_visibility"]}
+            )
+        custom_inputs: dict[str, Any] = {
+            "configurable": {**bound_configurable, **context.model_dump()}
+        }
 
         # Use async ainvoke internally for parallel execution
         import asyncio
@@ -583,7 +596,20 @@ class LanggraphChatModel(ChatModel):
         request: dict[str, Any] = {"messages": self._convert_messages_to_dict(messages)}
 
         context: Context = self._convert_to_context(params)
-        custom_inputs: dict[str, Any] = {"configurable": context.model_dump()}
+        # Merge the compiled graph's bound configurable so framework-level
+        # values like agent_visibility (published from the orchestration
+        # factories via ``compiled.with_config``) survive into the per-request
+        # config — without this, context.model_dump() silently overrides them.
+        bound_configurable: dict[str, Any] = (
+            getattr(self.graph, "config", None) or {}
+        ).get("configurable", {}) or {}
+        if context.agent_visibility is None and "agent_visibility" in bound_configurable:
+            context = context.model_copy(
+                update={"agent_visibility": bound_configurable["agent_visibility"]}
+            )
+        custom_inputs: dict[str, Any] = {
+            "configurable": {**bound_configurable, **context.model_dump()}
+        }
         visibility: dict[str, bool] = context.agent_visibility or {}
 
         # Use async astream_events(version="v3") internally. v3 exposes typed
@@ -1081,7 +1107,23 @@ class LanggraphResponsesAgent(ResponsesAgent):
 
         # Prepare context (conversation_id -> thread_id mapping happens here)
         context: Context = self._convert_request_to_context(request)
-        custom_inputs: dict[str, Any] = {"configurable": context.model_dump()}
+        # Merge the compiled graph's bound configurable (set at compile time via
+        # ``compiled.with_config({"configurable": {...}})`` in the orchestration
+        # factories) with the per-request context. Without this, the per-request
+        # dict would silently override agent_visibility and any other framework-
+        # level configurable values published from the graph build.
+        bound_configurable: dict[str, Any] = (
+            getattr(self.graph, "config", None) or {}
+        ).get("configurable", {}) or {}
+        if context.agent_visibility is None and "agent_visibility" in bound_configurable:
+            context = context.model_copy(
+                update={"agent_visibility": bound_configurable["agent_visibility"]}
+            )
+        merged_configurable: dict[str, Any] = {
+            **bound_configurable,
+            **context.model_dump(),
+        }
+        custom_inputs: dict[str, Any] = {"configurable": merged_configurable}
 
         # Extract session state from request
         session_input: dict[str, Any] = self._extract_session_from_request(request)
@@ -1323,7 +1365,23 @@ class LanggraphResponsesAgent(ResponsesAgent):
 
         # Prepare context (conversation_id -> thread_id mapping happens here)
         context: Context = self._convert_request_to_context(request)
-        custom_inputs: dict[str, Any] = {"configurable": context.model_dump()}
+        # Merge the compiled graph's bound configurable (set at compile time via
+        # ``compiled.with_config({"configurable": {...}})`` in the orchestration
+        # factories) with the per-request context. Without this, the per-request
+        # dict would silently override agent_visibility and any other framework-
+        # level configurable values published from the graph build.
+        bound_configurable: dict[str, Any] = (
+            getattr(self.graph, "config", None) or {}
+        ).get("configurable", {}) or {}
+        if context.agent_visibility is None and "agent_visibility" in bound_configurable:
+            context = context.model_copy(
+                update={"agent_visibility": bound_configurable["agent_visibility"]}
+            )
+        merged_configurable: dict[str, Any] = {
+            **bound_configurable,
+            **context.model_dump(),
+        }
+        custom_inputs: dict[str, Any] = {"configurable": merged_configurable}
 
         # Extract session state from request
         session_input: dict[str, Any] = self._extract_session_from_request(request)
@@ -1387,6 +1445,11 @@ class LanggraphResponsesAgent(ResponsesAgent):
                 )
 
                 seen_tool_message_ids: set[int] = set()
+                # message_id (AIMessage.id) -> agent name; populated by the
+                # values consumer as the swarm produces final AIMessages with
+                # their `name` field set (create_agent_node_handler tags each
+                # AIMessage with the parent agent's name post-completion).
+                msg_id_to_agent: dict[str, str] = {}
 
                 async def _consume_values() -> None:
                     nonlocal structured_response
@@ -1407,6 +1470,12 @@ class LanggraphResponsesAgent(ResponsesAgent):
                                 if key not in seen_tool_message_ids:
                                     seen_tool_message_ids.add(key)
                                     tool_messages.append(msg)
+                            elif (
+                                isinstance(msg, AIMessage)
+                                and msg.id is not None
+                                and msg.name
+                            ):
+                                msg_id_to_agent[msg.id] = msg.name
 
                 import asyncio
 
@@ -1417,17 +1486,60 @@ class LanggraphResponsesAgent(ResponsesAgent):
                 try:
                     chat: AsyncChatModelStream
                     async for chat in stream.messages:
+                        # In dao-ai's swarm pattern, each agent is a compiled
+                        # subgraph and v3 reports chat.node as the *inner*
+                        # node ("model", "before_model", etc.), not the
+                        # parent agent's name. chat.namespace is empty and
+                        # chat.output_message.name is None during streaming.
+                        # The reliable agent identity lives on the final
+                        # AIMessage that flows back to the parent state —
+                        # the values consumer (_consume_values) populates
+                        # msg_id_to_agent as those final messages arrive.
+                        # We buffer all tokens for a chat, then once chat
+                        # finishes, await the values consumer to populate
+                        # the name, then decide flush/drop.
                         node: str | None = chat.node
-                        if node is not None:
-                            if "summarization" in node:
-                                continue
-                            if visibility.get(node, True) is False:
-                                logger.trace(
-                                    "Skipping text deltas for silent agent",
-                                    agent=node,
-                                )
-                                continue
+                        if node is not None and "summarization" in node:
+                            continue
+                        # Fast path: chat.node directly identifies an agent.
+                        if (
+                            node is not None
+                            and node in visibility
+                            and visibility[node] is False
+                        ):
+                            continue
+                        buffered_tokens: list[str] = []
                         async for token in chat.text:
+                            buffered_tokens.append(token)
+                        # Resolve agent via final AIMessage.id correlation.
+                        # chat.output_message.id is the same id that will
+                        # appear on the AIMessage(name=<agent>) in state.values.
+                        resolved_agent: str | None = node
+                        out_msg: AIMessage | None = chat.output_message
+                        if out_msg is not None and out_msg.id is not None:
+                            # Brief wait for values consumer to catch up if
+                            # the values event hasn't arrived yet. The values
+                            # consumer runs concurrently and typically gets
+                            # the agent's final message within a few hundred ms.
+                            for _ in range(20):
+                                if out_msg.id in msg_id_to_agent:
+                                    break
+                                await asyncio.sleep(0.05)
+                            mapped: str | None = msg_id_to_agent.get(out_msg.id)
+                            if mapped is not None:
+                                resolved_agent = mapped
+                        if (
+                            resolved_agent is not None
+                            and visibility.get(resolved_agent, True) is False
+                        ):
+                            logger.info(
+                                "Skipping text deltas for silent agent",
+                                agent=resolved_agent,
+                                chat_node=node,
+                                buffered_len=sum(len(t) for t in buffered_tokens),
+                            )
+                            continue
+                        for token in buffered_tokens:
                             accumulated_content += token
                             yield ResponsesAgentStreamEvent(
                                 **self.create_text_delta(
