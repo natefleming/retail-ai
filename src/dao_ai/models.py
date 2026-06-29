@@ -1515,7 +1515,9 @@ class LanggraphResponsesAgent(ResponsesAgent):
 
                 # Drain interrupts collected by the v3 stream. Top-level only —
                 # subgraph interrupts surface in their owning subgraph stream.
-                for interrupt in stream.interrupts():
+                # AsyncGraphRunStream.interrupts is async-def returning list[Any].
+                v3_interrupts: list[Any] = await stream.interrupts()
+                for interrupt in v3_interrupts:
                     if not isinstance(interrupt, Interrupt):
                         continue
                     content_key: str = _interrupt_content_key(interrupt)
