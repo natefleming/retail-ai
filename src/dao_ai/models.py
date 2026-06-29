@@ -1444,12 +1444,35 @@ class LanggraphResponsesAgent(ResponsesAgent):
                     version="v3",
                 )
 
+                import asyncio
+
+                from dao_ai.streaming import (
+                    AgentFilter,
+                    AgentResolver,
+                    ReasoningDeltaListener,
+                    StreamListener,
+                    TextDeltaListener,
+                    ToolCallListener,
+                )
+
                 seen_tool_message_ids: set[int] = set()
-                # message_id (AIMessage.id) -> agent name; populated by the
-                # values consumer as the swarm produces final AIMessages with
-                # their `name` field set (create_agent_node_handler tags each
-                # AIMessage with the parent agent's name post-completion).
-                msg_id_to_agent: dict[str, str] = {}
+                resolver: AgentResolver = AgentResolver()
+
+                def _accumulate(token: str) -> None:
+                    nonlocal accumulated_content
+                    accumulated_content += token
+
+                agent_filter: AgentFilter = AgentFilter.from_visibility(visibility)
+                listeners: list[StreamListener] = [
+                    TextDeltaListener(
+                        filter=agent_filter,
+                        item_id=item_id,
+                        create_text_delta=self.create_text_delta,
+                        on_token=_accumulate,
+                    ),
+                    ReasoningDeltaListener(filter=agent_filter),
+                    ToolCallListener(filter=agent_filter),
+                ]
 
                 async def _consume_values() -> None:
                     nonlocal structured_response
@@ -1464,20 +1487,16 @@ class LanggraphResponsesAgent(ResponsesAgent):
                                 "Captured structured response from v3 values",
                                 response_type=type(structured_response).__name__,
                             )
+                        # Collect ToolMessages for visualization extraction
                         for msg in state.get("messages", []) or []:
                             if isinstance(msg, ToolMessage):
                                 key: int = id(msg)
                                 if key not in seen_tool_message_ids:
                                     seen_tool_message_ids.add(key)
                                     tool_messages.append(msg)
-                            elif (
-                                isinstance(msg, AIMessage)
-                                and msg.id is not None
-                                and msg.name
-                            ):
-                                msg_id_to_agent[msg.id] = msg.name
-
-                import asyncio
+                        # Let the resolver consume the same snapshot for
+                        # message_id -> agent name attribution.
+                        resolver.record_state(state)
 
                 values_task: asyncio.Task[None] = asyncio.create_task(
                     _consume_values()
@@ -1486,66 +1505,11 @@ class LanggraphResponsesAgent(ResponsesAgent):
                 try:
                     chat: AsyncChatModelStream
                     async for chat in stream.messages:
-                        # In dao-ai's swarm pattern, each agent is a compiled
-                        # subgraph and v3 reports chat.node as the *inner*
-                        # node ("model", "before_model", etc.), not the
-                        # parent agent's name. chat.namespace is empty and
-                        # chat.output_message.name is None during streaming.
-                        # The reliable agent identity lives on the final
-                        # AIMessage that flows back to the parent state —
-                        # the values consumer (_consume_values) populates
-                        # msg_id_to_agent as those final messages arrive.
-                        # We buffer all tokens for a chat, then once chat
-                        # finishes, await the values consumer to populate
-                        # the name, then decide flush/drop.
-                        node: str | None = chat.node
-                        if node is not None and "summarization" in node:
-                            continue
-                        # Fast path: chat.node directly identifies an agent.
-                        if (
-                            node is not None
-                            and node in visibility
-                            and visibility[node] is False
-                        ):
-                            continue
-                        buffered_tokens: list[str] = []
-                        async for token in chat.text:
-                            buffered_tokens.append(token)
-                        # Resolve agent via final AIMessage.id correlation.
-                        # chat.output_message.id is the same id that will
-                        # appear on the AIMessage(name=<agent>) in state.values.
-                        resolved_agent: str | None = node
-                        out_msg: AIMessage | None = chat.output_message
-                        if out_msg is not None and out_msg.id is not None:
-                            # Brief wait for values consumer to catch up if
-                            # the values event hasn't arrived yet. The values
-                            # consumer runs concurrently and typically gets
-                            # the agent's final message within a few hundred ms.
-                            for _ in range(20):
-                                if out_msg.id in msg_id_to_agent:
-                                    break
-                                await asyncio.sleep(0.05)
-                            mapped: str | None = msg_id_to_agent.get(out_msg.id)
-                            if mapped is not None:
-                                resolved_agent = mapped
-                        if (
-                            resolved_agent is not None
-                            and visibility.get(resolved_agent, True) is False
-                        ):
-                            logger.info(
-                                "Skipping text deltas for silent agent",
-                                agent=resolved_agent,
-                                chat_node=node,
-                                buffered_len=sum(len(t) for t in buffered_tokens),
-                            )
-                            continue
-                        for token in buffered_tokens:
-                            accumulated_content += token
-                            yield ResponsesAgentStreamEvent(
-                                **self.create_text_delta(
-                                    delta=token, item_id=item_id
-                                )
-                            )
+                        # Dispatch to every channel listener in turn.
+                        # Each listener owns its own filter + buffering.
+                        for listener in listeners:
+                            async for ev in listener.consume(chat, resolver):
+                                yield ev
                 finally:
                     await values_task
 

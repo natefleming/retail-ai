@@ -147,6 +147,40 @@ def filter_messages_for_agent(
     return filtered
 
 
+def _flatten_message_content(content: object) -> object:
+    """Flatten OpenAI-style structured content (list of blocks) to a plain
+    string for inter-agent message passing.
+
+    LLM endpoints that don't accept multimodal/responses-API input (e.g.
+    ``databricks-gpt-oss-120b``'s chat-completions surface) reject AIMessages
+    whose ``content`` is a list of content-block dicts with:
+
+        Bad request: field 'messages.content' expects input with json type
+        `string` but got 'array'
+
+    Models can still emit structured blocks for traces (we don't mutate the
+    LLM's direct output), but the version of the AIMessage that flows
+    *between* agents in the swarm must be a plain string so downstream
+    chat-completions calls succeed.
+    """
+    if isinstance(content, str):
+        return content
+    if not isinstance(content, list):
+        return content
+    parts: list[str] = []
+    for block in content:
+        if isinstance(block, dict):
+            block_type: object = block.get("type")
+            if block_type == "text":
+                parts.append(str(block.get("text", "")))
+            # Reasoning / summary blocks are intentionally dropped — they
+            # carry the model's thinking, not user-facing prose, and the
+            # downstream agent prompt should not see them.
+        elif isinstance(block, str):
+            parts.append(block)
+    return "".join(parts)
+
+
 def extract_agent_response(
     messages: list[BaseMessage],
     output_mode: OutputMode = "last_message",
@@ -170,10 +204,10 @@ def extract_agent_response(
     final_response: AIMessage | None = last_ai_message(messages)
 
     if final_response:
-        # Return clean AIMessage without tool_calls
+        flat: object = _flatten_message_content(final_response.content)
         if final_response.tool_calls:
-            return [AIMessage(content=final_response.content, id=final_response.id)]
-        return [final_response]
+            return [AIMessage(content=flat, id=final_response.id, name=final_response.name)]
+        return [final_response.model_copy(update={"content": flat})]
 
     return []
 
