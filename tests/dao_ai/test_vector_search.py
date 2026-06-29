@@ -1,5 +1,5 @@
 from typing import Any
-from unittest.mock import Mock, patch
+from unittest.mock import MagicMock, Mock, patch
 
 import pytest
 from langchain.tools import ToolRuntime, tool
@@ -305,3 +305,122 @@ def test_vector_search_tool_decorator_passes_runtime_through() -> None:
     assert received["runtime"] is sentinel_runtime, (
         "runtime injection did not reach the function — extra='ignore' may be wrong"
     )
+
+
+# ---------------------------------------------------------------------------
+# OBO end-to-end through the args_schema + ToolRuntime chain:
+#
+# runtime.context.headers -> _get_vector_search(context) ->
+# vector_store.workspace_client_from(context) -> DatabricksVectorSearch
+# (workspace_client=user-scoped WC)
+#
+# These tests pin that the args_schema fix does NOT regress OBO: the LLM-facing
+# schema only exposes {query, filters}, but the function still receives
+# `runtime` and uses `runtime.context` to build an OBO-scoped vector search
+# client. If LangChain ever stops re-injecting runtime after args_schema
+# validation, OBO would silently degrade to SP auth — that's the future
+# regression these tests protect against.
+# ---------------------------------------------------------------------------
+
+
+def _make_obo_vector_store_mock() -> Mock:
+    """Build a minimal VectorStoreModel mock with on_behalf_of_user=True."""
+    from dao_ai.config import VectorStoreModel
+
+    vs = Mock(spec=VectorStoreModel)
+    vs.columns = ["text"]
+    vs.embedding_model = None
+    vs.primary_key = "id"
+    vs.index = Mock()
+    vs.index.full_name = "catalog.schema.obo_index"
+    vs.index.name = "obo_index"
+    vs.index.columns = ["text"]
+    vs.endpoint = Mock()
+    vs.source_table = None
+    vs.embedding_source_column = None
+    vs.doc_uri = None
+    vs.on_behalf_of_user = True
+    # workspace_client_from must return a mock WC; we capture the context
+    # it's called with via .call_args
+    vs.workspace_client_from.return_value = MagicMock(name="obo_wc")
+    # databricks-resource attrs needed by the factory
+    try:
+        from conftest import add_databricks_resource_attrs
+
+        add_databricks_resource_attrs(vs)
+    except ImportError:
+        pass
+    return vs
+
+
+@pytest.mark.unit
+def test_create_vector_search_tool_obo_passes_context_to_workspace_client_from() -> None:
+    """When on_behalf_of_user=True and the tool is invoked with a ToolRuntime
+    carrying user headers, the factory must call
+    vector_store.workspace_client_from(context) with THAT same Context — so
+    the user's x-forwarded-access-token flows through to the VS query."""
+    from langgraph.runtime import Runtime
+
+    from dao_ai.config import RetrieverModel
+    from dao_ai.state import Context
+    from dao_ai.tools.vector_search import create_vector_search_tool
+
+    vs_model = _make_obo_vector_store_mock()
+    retriever = RetrieverModel(vector_store=vs_model)
+
+    with patch("dao_ai.tools.vector_search.DatabricksVectorSearch") as MockDVS:
+        mock_vs_client = MagicMock()
+        mock_vs_client.similarity_search.return_value = []
+        MockDVS.return_value = mock_vs_client
+
+        tool = create_vector_search_tool(retriever=retriever)
+
+        # Simulate the exact shape LangGraph's ToolNode produces: it strips
+        # any LLM-supplied 'runtime' and re-adds the trusted ToolRuntime.
+        user_headers = {"x-forwarded-access-token": "user-dapi-token-abc"}
+        ctx = Context(headers=user_headers)
+        # ToolRuntime is normally constructed by ToolNode; for a unit test
+        # langgraph.runtime.Runtime is the concrete carrier of `.context`.
+        rt = Runtime(context=ctx)
+
+        tool.invoke({"query": "obo probe", "filters": None, "runtime": rt})
+
+    # The OBO branch in _get_vector_search must have asked the model for an
+    # OBO-scoped WC by passing the runtime's Context through verbatim.
+    assert vs_model.workspace_client_from.called, (
+        "OBO regressed: workspace_client_from was never called — runtime did "
+        "not reach the function or _get_vector_search was bypassed."
+    )
+    received_ctx = vs_model.workspace_client_from.call_args.args[0]
+    assert received_ctx is ctx, (
+        f"OBO context not forwarded verbatim: got {received_ctx!r}, expected {ctx!r}"
+    )
+    assert received_ctx.headers == user_headers, (
+        f"OBO headers lost in transit: got {received_ctx.headers!r}"
+    )
+
+
+@pytest.mark.unit
+def test_create_vector_search_tool_obo_off_does_not_use_context_headers() -> None:
+    """Symmetric guard: with on_behalf_of_user=False, workspace_client_from is
+    still called (to build a non-OBO WC), but the runtime injection path must
+    not crash even when headers are absent."""
+    from langgraph.runtime import Runtime
+
+    from dao_ai.config import RetrieverModel
+    from dao_ai.state import Context
+    from dao_ai.tools.vector_search import create_vector_search_tool
+
+    vs_model = _make_obo_vector_store_mock()
+    vs_model.on_behalf_of_user = False  # OBO off
+    retriever = RetrieverModel(vector_store=vs_model)
+
+    with patch("dao_ai.tools.vector_search.DatabricksVectorSearch") as MockDVS:
+        MockDVS.return_value.similarity_search.return_value = []
+        tool = create_vector_search_tool(retriever=retriever)
+        rt = Runtime(context=Context(headers={}))
+        # Must not raise
+        tool.invoke({"query": "non-obo probe", "filters": None, "runtime": rt})
+
+    # Still called (to mint the SP-scoped WC), but headers were empty.
+    assert vs_model.workspace_client_from.called
