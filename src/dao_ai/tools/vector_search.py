@@ -22,6 +22,7 @@ from langchain_core.documents import Document
 from langchain_core.tools import StructuredTool
 from loguru import logger
 from mlflow.entities import SpanType
+from pydantic import BaseModel, ConfigDict, Field
 
 from dao_ai._tracing import in_caller_context
 from dao_ai.config import (
@@ -58,6 +59,41 @@ from dao_ai.tools.tracing import (
 )
 from dao_ai.tools.verifier import add_verification_metadata, verify_results
 from dao_ai.utils import is_in_model_serving, normalize_host
+
+
+class VectorSearchInput(BaseModel):
+    """Arguments for the dao-ai vector_search tool factory.
+
+    Co-located with the @tool decorator so the JSON schema rendered to the LLM
+    matches the factory's runtime expectations. Without an explicit args_schema,
+    LangChain's @tool decorator infers schema from Annotated[...] hints and
+    silently drops the structural type information for Optional[list[BaseModel]]
+    fields, leaving the LLM with only a description string to guide filter
+    shape (which it then commonly emits as a flat dict instead of a list).
+    """
+
+    # extra="ignore" rather than "forbid": LangChain passes the injected
+    # ToolRuntime as a kwarg when invoking a tool whose @tool decorator has
+    # args_schema=, and Pydantic must silently drop it. extra="forbid" would
+    # reject every call with `validation error … runtime: extra_forbidden`.
+    model_config = ConfigDict(extra="ignore")
+
+    query: str = Field(
+        description="The natural-language search query to find relevant documents.",
+    )
+    filters: Optional[list[FilterItem]] = Field(
+        default=None,
+        description=(
+            "Optional metadata filters. Pass a JSON array of objects, each with "
+            "'key' and 'value'. Do NOT pass a flat dict. "
+            'Example: [{"key": "category", "value": "B2B"}, '
+            '{"key": "price <=", "value": 150}]. '
+            "The 'key' is a column name optionally suffixed with an operator: "
+            "(none) for equality, 'NOT' for exclusion, '< <= > >=' for numeric "
+            "comparison, 'LIKE' for token match, 'NOT LIKE' to exclude tokens. "
+            "Omit or set to null when no filter applies."
+        ),
+    )
 
 
 @mlflow.trace(name="rerank_documents", span_type=SpanType.RERANKER)
@@ -617,18 +653,19 @@ def create_vector_search_tool(
 
         return documents
 
-    # Use @tool decorator for proper ToolRuntime injection
-    @tool(name_or_callable=tool_name, description=tool_description)
+    # Use @tool decorator for proper ToolRuntime injection. args_schema=
+    # gives the LLM a structural JSON schema for `filters` (type=array,
+    # items={key,value}) — without it, Annotated[Optional[list[FilterItem]]]
+    # is serialised to just a description string and the LLM commonly emits
+    # filters as a flat dict.
+    @tool(
+        name_or_callable=tool_name,
+        description=tool_description,
+        args_schema=VectorSearchInput,
+    )
     def _vector_search_tool(
-        query: Annotated[str, "The search query to find relevant documents"],
-        filters: Annotated[
-            Optional[list[FilterItem]],
-            "Optional filters as key-value pairs. "
-            "Key operators: 'column' (equality), 'column NOT' (exclusion), "
-            "'column <', '<=', '>', '>=' (comparison), "
-            "'column LIKE' (token match), 'column NOT LIKE' (exclude token). "
-            f"Valid columns: {', '.join(columns) if columns else 'none'}.",
-        ] = None,
+        query: str,
+        filters: Optional[list[FilterItem]] = None,
         runtime: ToolRuntime[Context] = None,
     ) -> str:
         """Search for relevant documents using vector similarity."""
