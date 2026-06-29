@@ -432,6 +432,7 @@ agents:
   supervisor: &supervisor
     name: supervisor
     description: "Intent classification — extracts the customer's intent label(s) and confidence; deterministic handoff to planner."
+    surface_to_user: false  # control-plane: emits routing tokens, not user-facing text
     model: *fast_llm
     tools: []
     guardrails: []
@@ -481,6 +482,7 @@ agents:
   planner: &planner
     name: planner
     description: "Orchestrator — picks the specialist handler based on supervisor's intent label."
+    surface_to_user: false  # control-plane: invokes a handoff tool, no user-facing text
     model: *fast_llm
     tools: []
     guardrails: []
@@ -694,6 +696,7 @@ agents:
   credit_limit: &credit_limit
     name: credit_limit
     description: "B2B credit specialist — reports credit limit, available credit, payment terms, and credit-review status for B2B foodservice accounts"
+    surface_to_user: false  # B2B PII — composer must reframe before user display
     model: *fast_llm
     tools:
     - *get_credit_limit_tool
@@ -732,6 +735,7 @@ agents:
   ucp: &ucp
     name: ucp
     description: "Unified Commerce Protocol executor — performs idempotent commerce commands (add to cart, place order, refund) and records every action in the idempotency_log"
+    surface_to_user: false  # side-effect executor — composer formats the user-visible confirmation
     model: *fast_llm
     tools:
     - *get_cart_tool
