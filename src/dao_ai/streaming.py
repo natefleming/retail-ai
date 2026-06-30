@@ -42,6 +42,8 @@ from langchain_core.messages import AIMessage
 from loguru import logger
 from mlflow.types.responses import ResponsesAgentStreamEvent
 
+from dao_ai.orchestration.core import _flatten_message_content
+
 
 # ---------------------------------------------------------------------------
 # Visibility filter
@@ -250,12 +252,23 @@ class TextDeltaListener:
                 buffered_chars=sum(len(t) for t in buffered),
             )
             return
-        for token in buffered:
-            if self.on_token is not None:
-                self.on_token(token)
-            yield ResponsesAgentStreamEvent(
-                **self.create_text_delta(delta=token, item_id=self.item_id)
-            )
+        # Flatten Foundation-Model-API content shapes (JSON-string of
+        # content blocks, list of blocks, plain text) to a plain text
+        # string before emitting. chat.text streams the raw model output
+        # which for Databricks chat-completions surfaces the entire
+        # ``[{"type":"reasoning",...},{"type":"text",...}]`` JSON form as
+        # the token stream — without this collapse the user sees raw
+        # structured content + reasoning leaking through.
+        joined: str = "".join(buffered)
+        flat: object = _flatten_message_content(joined)
+        emit_text: str = flat if isinstance(flat, str) else joined
+        if not emit_text:
+            return
+        if self.on_token is not None:
+            self.on_token(emit_text)
+        yield ResponsesAgentStreamEvent(
+            **self.create_text_delta(delta=emit_text, item_id=self.item_id)
+        )
 
 
 # ---------------------------------------------------------------------------
