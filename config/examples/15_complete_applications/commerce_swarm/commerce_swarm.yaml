@@ -213,6 +213,10 @@ resources:
       schema: *retail_schema
       name: get_cart
 
+    lookup_customer_by_user: &lookup_customer_by_user
+      schema: *retail_schema
+      name: lookup_customer_by_user
+
   # ---------------------------------------------------------------------------
   # DATABASES — Lakebase Postgres for memory + checkpointer + idempotency log
   # ---------------------------------------------------------------------------
@@ -339,6 +343,12 @@ tools:
     function:
       type: unity_catalog
       resource: *get_cart
+
+  lookup_customer_by_user_tool: &lookup_customer_by_user_tool
+    name: lookup_customer_by_user_uc
+    function:
+      type: unity_catalog
+      resource: *lookup_customer_by_user
 
 # =============================================================================
 # MEMORY — Lakebase-backed checkpointer + long-term store + auto-extraction
@@ -555,28 +565,30 @@ agents:
     description: "Personalized recommendation specialist — synthesizes the customer's preferences, history, and the catalog to suggest 1-3 products that fit"
     model: *reasoning_llm
     tools:
+    - *lookup_customer_by_user_tool
     - *product_search_tool
     - *get_order_history_tool
     guardrails: []
     prompt: |
       ### User Information
-      - **User Id**: {user_id}
+      - **Authenticated User**: {user_id}
 
       You are the Commerce Swarm personalized recommendation specialist. Your job is to suggest products this **specific customer** is likely to love.
 
       #### Use ALL available context
 
       - **Memories**: any `## Memories` section in this prompt contains durable preferences, dietary constraints, brand affinities, and prior episodes. Treat these as authoritative.
-      - **Order history**: call `get_order_history_uc` for this customer to see what they've actually bought before.
+      - **Order history**: call `get_order_history_uc(customer_id)` to see what they've actually bought before. You need the customer's internal `customer_id` for this — resolve it first with `lookup_customer_by_user_uc(user_id="{user_id}")`.
       - **Catalog search**: use `product_search` to surface candidate products matching memory- or history-derived preferences.
 
       #### Recommendation strategy
 
-      1. Start by pulling 5-10 most recent orders to understand patterns.
-      2. Cross-reference with memories: dietary restrictions are HARD constraints (never recommend an item the customer is allergic to). Brand and category preferences are SOFT signals.
-      3. Search the catalog for items that fit the combined constraints.
-      4. Return 1-3 specific recommendations with reasoning that references what you learned about THIS customer: "Because you ordered FRZ-CAKE-001 last month and noted you preferred chocolate ..."
-      5. If the customer is B2B, lean toward bulk packs and `is_b2b_only` items.
+      1. **Always** call `lookup_customer_by_user_uc(user_id="{user_id}")` first to get the internal `customer_id`. If it returns no rows, tell the customer we couldn't link their account and skip the history step — work from the prompt + catalog alone.
+      2. Pull 5-10 most recent orders to understand patterns (pass the `customer_id` you just resolved).
+      3. Cross-reference with memories: dietary restrictions are HARD constraints (never recommend an item the customer is allergic to). Brand and category preferences are SOFT signals.
+      4. Search the catalog for items that fit the combined constraints.
+      5. Return 1-3 specific recommendations with reasoning that references what you learned about THIS customer: "Because you ordered FRZ-CAKE-001 last month and noted you preferred chocolate ..."
+      6. If the customer is B2B, lean toward bulk packs and `is_b2b_only` items.
 
       #### Hard rules
 
@@ -597,20 +609,23 @@ agents:
     description: "Order tracking specialist — looks up Commerce Swarm orders by customer or by order ID, reports status, shipping, and delivery"
     model: *fast_llm
     tools:
+    - *lookup_customer_by_user_tool
     - *get_order_history_tool
     guardrails: []
     prompt: |
       ### User Information
-      - **User Id**: {user_id}
+      - **Authenticated User**: {user_id}
 
       You are the Commerce Swarm order tracking specialist.
 
       #### Tools
-      - `get_order_history_uc(customer_id, row_limit)`: returns recent orders for this customer.
+      - `lookup_customer_by_user_uc(user_id)`: resolves the authenticated user's internal `customer_id`.
+      - `get_order_history_uc(customer_id, row_limit)`: returns recent orders for that customer.
 
       #### Response guidelines
 
-      - Always call `get_order_history_uc` with the user_id before answering. Default row_limit to 10; raise to 25 if the customer asks for "all my orders".
+      - **Always** call `lookup_customer_by_user_uc(user_id="{user_id}")` first to resolve the `customer_id`. If it returns no rows, tell the customer we couldn't find an account on file for them and hand off to the composer.
+      - Then call `get_order_history_uc(customer_id, row_limit)`. Default row_limit to 10; raise to 25 if the customer asks for "all my orders".
       - For each order, include: order_id, status, total, channel, placed date, and shipping/delivery dates if available.
       - If the customer asks about a SPECIFIC order_id, filter the returned rows in your response.
       - If no orders are returned, say so plainly — don't speculate that orders "may be processing".
@@ -696,20 +711,24 @@ agents:
     description: "B2B credit specialist — reports credit limit, available credit, payment terms, and credit-review status for B2B foodservice accounts"
     model: *fast_llm
     tools:
+    - *lookup_customer_by_user_tool
     - *get_credit_limit_tool
     guardrails: []
     prompt: |
       ### User Information
-      - **User Id**: {user_id}
+      - **Authenticated User**: {user_id}
 
-      You are the Commerce Swarm B2B credit specialist. You ONLY serve B2B accounts (user_id starts with `B`).
+      You are the Commerce Swarm B2B credit specialist. You ONLY serve B2B accounts (`customer_type='B2B'`).
 
       #### Tools
+      - `lookup_customer_by_user_uc(user_id)`: resolves the authenticated user's internal `customer_id` and `customer_type`.
       - `get_credit_limit_uc(customer_id)`: returns credit limit, available credit, used credit, payment terms, and risk rating for a B2B account.
 
       #### Rules
-      - If the user_id starts with `C` (B2C), politely explain credit lines are a B2B-only product and hand off to the composer to format the explanation.
-      - For B2B accounts, always call `get_credit_limit_uc` first.
+      - **Always** call `lookup_customer_by_user_uc(user_id="{user_id}")` first to resolve the customer's id and type.
+      - If the lookup returns no rows, tell the customer we couldn't find an account for them and hand off to the composer.
+      - If the returned `customer_type` is `B2C`, politely explain credit lines are a B2B-only product and hand off to the composer to format the explanation.
+      - For B2B accounts, call `get_credit_limit_uc(customer_id)` with the resolved id.
       - Report: total limit, currently available, currently used, payment terms (Net30/Net60/COD), and risk rating.
       - If they ask whether a hypothetical order would fit ("can I place a $X order"), check against `credit_available`.
       - Never disclose internal risk ratings to the customer in a way that sounds judgmental — describe the account as "good standing" / "review recommended" / etc. in conversational terms.
@@ -734,18 +753,20 @@ agents:
     description: "Unified Commerce Protocol executor — performs idempotent commerce commands (add to cart, place order, refund) and records every action in the idempotency_log"
     model: *fast_llm
     tools:
+    - *lookup_customer_by_user_tool
     - *get_cart_tool
     - *find_product_tool
     guardrails: []
     prompt: |
       ### User Information
-      - **User Id**: {user_id}
+      - **Authenticated User**: {user_id}
 
       You are the Commerce Swarm UCP (Unified Commerce Protocol) executor. You handle transactional commerce commands.
 
       #### Available commands
 
-      - **View cart**: call `get_cart_uc(customer_id)` to inspect the customer's current cart.
+      - **Resolve customer**: before any cart or transactional action, call `lookup_customer_by_user_uc(user_id="{user_id}")` to resolve the internal `customer_id`. If no row is returned, tell the user we couldn't link their account and hand off to the composer.
+      - **View cart**: call `get_cart_uc(customer_id)` with the resolved id to inspect the customer's current cart.
       - **Add to cart**: in this demo configuration, MCP execution is stubbed. Acknowledge the add-to-cart request, repeat back exactly which SKU(s) and quantities you would add, and tell the customer the action is pending real MCP wiring.
       - **Place order / checkout / refund**: same — acknowledge and describe what would happen.
 
@@ -856,9 +877,9 @@ app:
   # when searching by UC schema; setting a prefix creates tables the API
   # can't find, breaking the experiment Traces UI and the per-run trace
   # linkage on mlflow.genai.evaluate eval runs.
-  trace_location:
-    schema: *retail_schema
-    warehouse: ${var.warehouse_id}
+  # trace_location:
+  #   schema: *retail_schema
+  #   warehouse: ${var.warehouse_id}
 
   # Apps runtime needs the SP credentials accessible as env vars for Lakebase
   # OAuth M2M token minting at request time.
@@ -1008,6 +1029,12 @@ unity_catalog_functions:
   test:
     parameters:
       customer_id: "C0001"
+
+- function: *lookup_customer_by_user
+  ddl: ../functions/commerce_swarm/lookup_customer_by_user.sql
+  test:
+    parameters:
+      user_id: "uma.davis0@example.com"
 
 # =============================================================================
 # EVALUATION
