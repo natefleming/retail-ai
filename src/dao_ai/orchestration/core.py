@@ -119,9 +119,20 @@ def filter_messages_for_agent(
             filtered.append(msg)
         elif isinstance(msg, AIMessage):
             is_own = current_agent_name is not None and msg.name == current_agent_name
+            # Belt-and-suspenders: always flatten the AIMessage's content
+            # at this boundary before it reaches the next LLM. Multiple
+            # upstream paths emit content as either a JSON-encoded string
+            # or a list of content blocks (ChatDatabricks gpt-oss-120b,
+            # Claude Responses-API), and chat-completions endpoints reject
+            # array-shaped content with:
+            #   field 'messages.content' expects 'string' but got 'array'
+            # extract_agent_response handles the normal subgraph-exit
+            # path, the handoff tool handles the Command-escape path —
+            # this catches any AIMessage that bypassed both.
+            flat_content: object = _flatten_message_content(msg.content)
             if msg.tool_calls:
                 if is_own:
-                    filtered.append(msg)
+                    filtered.append(msg.model_copy(update={"content": flat_content}))
                     for tc in msg.tool_calls:
                         tc_id = (
                             tc.get("id")
@@ -134,11 +145,11 @@ def filter_messages_for_agent(
                     # Peer/orchestration message: keep visible content but
                     # strip tool_calls so the model doesn't see orphans.
                     filtered.append(
-                        AIMessage(content=msg.content, id=msg.id, name=msg.name)
+                        AIMessage(content=flat_content, id=msg.id, name=msg.name)
                     )
                 # else: drop silent tool-call-only message from peers
             elif msg.content:
-                filtered.append(msg)
+                filtered.append(msg.model_copy(update={"content": flat_content}))
         elif isinstance(msg, ToolMessage):
             if msg.tool_call_id in own_tool_call_ids:
                 # Pair with a kept own AIMessage(tool_calls=…).
