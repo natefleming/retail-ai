@@ -148,22 +148,39 @@ def filter_messages_for_agent(
 
 
 def _flatten_message_content(content: object) -> object:
-    """Flatten OpenAI-style structured content (list of blocks) to a plain
-    string for inter-agent message passing.
+    """Flatten structured AIMessage content to a plain text string for
+    inter-agent message passing.
 
-    LLM endpoints that don't accept multimodal/responses-API input (e.g.
-    ``databricks-gpt-oss-120b``'s chat-completions surface) reject AIMessages
-    whose ``content`` is a list of content-block dicts with:
+    Handles three delivery forms:
 
-        Bad request: field 'messages.content' expects input with json type
-        `string` but got 'array'
+    1. **Python list of content blocks** (Responses-API native): e.g.
+       ``[{type:"reasoning", summary:[...]}, {type:"text", text:"INTENT: ..."}]``.
+    2. **JSON-encoded string** of the same shape (``ChatDatabricks`` chat-
+       completions surface returns this — content is a `str` whose value is
+       the JSON array literal). Detected by the surrounding ``[...]``.
+    3. **Plain text string** — pass through.
 
-    Models can still emit structured blocks for traces (we don't mutate the
-    LLM's direct output), but the version of the AIMessage that flows
-    *between* agents in the swarm must be a plain string so downstream
-    chat-completions calls succeed.
+    Chat-completions LLM endpoints (databricks-gpt-oss-120b, etc.) reject
+    AIMessages whose `content` is a list of content-block dicts:
+
+        Bad request: field 'messages.content' expects 'string' but got 'array'
+
+    They ALSO reject JSON-string content if the downstream SDK detects the
+    ``[{`` prefix and re-serializes as an array. So both shapes must
+    collapse to a plain text string before this AIMessage flows between
+    agents in the swarm. Reasoning / summary blocks are dropped (model's
+    thinking, not user-facing prose); text blocks join.
     """
     if isinstance(content, str):
+        stripped: str = content.strip()
+        if stripped.startswith("[") and stripped.endswith("]"):
+            try:
+                import json as _json
+                parsed: object = _json.loads(stripped)
+                if isinstance(parsed, list):
+                    return _flatten_message_content(parsed)
+            except (ValueError, TypeError):
+                pass
         return content
     if not isinstance(content, list):
         return content
@@ -173,9 +190,6 @@ def _flatten_message_content(content: object) -> object:
             block_type: object = block.get("type")
             if block_type == "text":
                 parts.append(str(block.get("text", "")))
-            # Reasoning / summary blocks are intentionally dropped — they
-            # carry the model's thinking, not user-facing prose, and the
-            # downstream agent prompt should not see them.
         elif isinstance(block, str):
             parts.append(block)
     return "".join(parts)
