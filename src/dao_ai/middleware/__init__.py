@@ -106,6 +106,10 @@ from dao_ai.middleware.todo import (
     TodoListMiddleware,
     create_todo_list_middleware,
 )
+from dao_ai.middleware.context_arg_bind import (
+    ContextArgBindMiddleware,
+    create_context_arg_bind_middleware,
+)
 from dao_ai.middleware.tool_call_id_sanitizer import (
     ToolCallIdSanitizerMiddleware,
     create_tool_call_id_sanitizer_middleware,
@@ -216,6 +220,8 @@ __all__ = [
     # Tool call ID sanitizer middleware
     "ToolCallIdSanitizerMiddleware",
     "create_tool_call_id_sanitizer_middleware",
+    "ContextArgBindMiddleware",
+    "create_context_arg_bind_middleware",
     # Tool call observability middleware
     "ToolCallObservabilityMiddleware",
     "create_tool_call_observability_middleware",
