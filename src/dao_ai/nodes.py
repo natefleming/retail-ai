@@ -102,6 +102,18 @@ def _create_middleware_list(
 
     middleware_list.append(ContentFlattenMiddleware())
 
+    # Auto-apply ContextArgBindMiddleware to every agent. Backfills
+    # ``customer_id`` / ``user_id`` tool-call args from
+    # ``runtime.context.user_id`` when the LLM left them blank. Belt-and-
+    # suspenders for the LangGraph v3 streaming race where tool calls
+    # dispatch before all argument chunks have arrived, producing UC
+    # function failures like "Parameter customer_id ... got NoneType".
+    # The prompt also instructs the LLM to fill these literally — the
+    # middleware is the guarantee that catches whatever the LLM missed.
+    from dao_ai.middleware.context_arg_bind import ContextArgBindMiddleware
+
+    middleware_list.append(ContextArgBindMiddleware())
+
     # Add configured middleware using factory pattern
     if agent.middleware:
         middleware_names: list[str] = [mw.name for mw in agent.middleware]
