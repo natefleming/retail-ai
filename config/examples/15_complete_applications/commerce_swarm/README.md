@@ -347,28 +347,28 @@ flowchart TB
 
 ### 6. B2C vs B2B persona routing
 
-The supervisor uses the `user_id` prefix as a coarse persona signal (B0007 → B2B, C0042 → B2C). Memories sharpen this further over time (e.g. a B2B account is known to prefer specific suppliers).
+`user_id` is the **authenticated Databricks identity** (an email). The Commerce Swarm internal `customer_id` (`C0042` for B2C, `B0007` for B2B) is resolved at runtime by the `lookup_customer_by_user_uc(user_id)` UC function, which also returns `customer_type` ∈ {`B2C`, `B2B`}. Specialist agents gate B2C/B2B behavior off `customer_type`. Memories sharpen the persona further over time (e.g. a B2B account is known to prefer specific suppliers).
 
 ```mermaid
 %%{init: {'theme': 'base'}}%%
 flowchart LR
-    subgraph B2C["🛍️ B2C — user_id starts with C"]
+    subgraph B2C["🛍️ B2C — customer_type=B2C"]
         direction TB
         C1["Hi! I'm allergic to peanuts.<br/>Suggest a dessert under $30."]
         C2["Where's my last order?"]
         C3["What's your return policy?"]
     end
 
-    subgraph B2B["🏪 B2B — user_id starts with B"]
+    subgraph B2B["🏪 B2B — customer_type=B2B"]
         direction TB
         B1["What's my credit limit?"]
         B2["Recommend a bulk pack<br/>for my cafe's brunch service."]
         B3["Do you have pizza bites<br/>available in Dallas?"]
     end
 
-    subgraph Routing["Supervisor routes by user_id prefix + intent"]
+    subgraph Routing["Each agent resolves customer_id+type via lookup_customer_by_user_uc(user_id)"]
         direction TB
-        R1["B2B-only intents (credit) reject B2C requesters"]
+        R1["B2B-only intents (credit) reject B2C requesters by customer_type"]
         R2["Recommendation honors memorized allergens as hard constraints"]
         R3["UCP confirms SKU + qty before transactional commits"]
     end
