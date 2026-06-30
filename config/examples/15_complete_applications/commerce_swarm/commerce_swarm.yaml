@@ -602,12 +602,16 @@ agents:
     - *get_order_history_tool
     guardrails: []
     middleware:
-      # Backfill customer_id from runtime context.user_id when the LLM
-      # leaves it blank during v3 streaming.
+      # Backfill customer_id when the LLM leaves it blank during v3
+      # streaming. Hardcoded to a real customer_id from the seeded
+      # demo data because the App's authenticated user_id (e.g.
+      # ``nate.fleming@databricks.com``) is not a Commerce Swarm
+      # customer. In a real customer-facing deployment this would be
+      # ``"{user_id}"`` and the SSO user would be the customer.
       - name: dao_ai.middleware.create_context_arg_bind_middleware
         args:
           bindings:
-            customer_id: "{user_id}"
+            customer_id: "B0007"
     prompt: |
       ### User Information
       - **User Id**: {user_id}
@@ -713,7 +717,7 @@ agents:
       - name: dao_ai.middleware.create_context_arg_bind_middleware
         args:
           bindings:
-            customer_id: "{user_id}"
+            customer_id: "B0007"
     prompt: |
       ### User Information
       - **User Id**: {user_id}
@@ -761,7 +765,7 @@ agents:
       - name: dao_ai.middleware.create_context_arg_bind_middleware
         args:
           bindings:
-            customer_id: "{user_id}"
+            customer_id: "B0007"
     prompt: |
       ### User Information
       - **User Id**: {user_id}
