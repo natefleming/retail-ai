@@ -1,0 +1,88 @@
+examples:
+
+  # ---- General / support / FAQ ----------------------------------------------
+  shipping_example:
+    messages:
+      - role: user
+        content: How long does shipping take?
+    custom_inputs:
+      configurable:
+        thread_id: "1"
+        user_id: nate.fleming@databricks.com
+
+  return_policy_example:
+    messages:
+      - role: user
+        content: What is your return policy on opened items?
+    custom_inputs:
+      configurable:
+        thread_id: "1"
+        user_id: nate.fleming@databricks.com
+
+  general_example:
+    messages:
+      - role: user
+        content: What hours is your customer-service line open?
+    custom_inputs:
+      configurable:
+        thread_id: "1"
+        user_id: nate.fleming@databricks.com
+
+  # ---- Discovery / product search -------------------------------------------
+  discovery_example:
+    messages:
+      - role: user
+        content: I'm looking for a lightweight rain jacket for hiking.
+    custom_inputs:
+      configurable:
+        thread_id: "1"
+        user_id: nate.fleming@databricks.com
+
+  recommendation_example:
+    messages:
+      - role: user
+        content: Can you recommend running shoes under $80 with good arch support?
+    custom_inputs:
+      configurable:
+        thread_id: "1"
+        user_id: nate.fleming@databricks.com
+
+  # ---- Order history (UC fn — exercises customer_id binding) ----------------
+  order_history_example:
+    messages:
+      - role: user
+        content: What did I order last month?
+    custom_inputs:
+      configurable:
+        thread_id: "1"
+        user_id: nate.fleming@databricks.com
+
+  # ---- Stock check ----------------------------------------------------------
+  stock_example:
+    messages:
+      - role: user
+        content: Do you have SKU 0017627748017 in stock?
+    custom_inputs:
+      configurable:
+        thread_id: "1"
+        user_id: nate.fleming@databricks.com
+
+  # ---- Credit limit (B2B — surface_to_user=false; composer reframes) --------
+  credit_limit_example:
+    messages:
+      - role: user
+        content: What's my current credit headroom?
+    custom_inputs:
+      configurable:
+        thread_id: "1"
+        user_id: nate.fleming@databricks.com
+
+  # ---- UCP idempotent action (B2B — surface_to_user=false) ------------------
+  ucp_example:
+    messages:
+      - role: user
+        content: Please log a contact request for my account.
+    custom_inputs:
+      configurable:
+        thread_id: "1"
+        user_id: nate.fleming@databricks.com

@@ -126,9 +126,31 @@ class AgentResolver:
         self,
         chunk: AIMessageChunk,
         metadata: Mapping[str, Any] | None,
+        ns: tuple[str, ...] | None = None,
     ) -> str | None:
         """Return the agent name a chunk belongs to, or ``None`` if
-        unattributable."""
+        unattributable.
+
+        Attribution priority:
+        1. The outer subgraph namespace (``ns[0].split(':')[0]``). In
+           dao-ai's swarm each agent is added as a parent-graph node
+           that calls ``agent_subgraph.ainvoke()`` internally; chunks
+           streaming out of the subgraph carry the OUTER node name in
+           ``ns[0]`` while ``metadata.langgraph_node`` is the inner
+           subgraph node (``"model"``, ``"tools"``, etc.). The ns prefix
+           is the only reliable agent identifier for those chunks.
+        2. ``chunk.name`` — set by ``create_agent(name=…)`` for the
+           inner agent. Useful as a corroborating signal but absent on
+           most LLM streaming chunks.
+        3. Cached ``id -> name`` map populated from update payloads.
+        4. ``metadata.langgraph_node`` — only useful when the chunk is
+           not from a subgraph (top-level node).
+        """
+        if ns:
+            head: str = ns[0]
+            outer: str = head.split(":", 1)[0]
+            if outer:
+                return outer
         name: str | None = chunk.name
         if name:
             return name
@@ -166,6 +188,7 @@ class StreamListener(Protocol):
         chunk: AIMessageChunk,
         metadata: Mapping[str, Any] | None,
         resolver: AgentResolver,
+        ns: tuple[str, ...] | None = None,
     ) -> AsyncIterator[ResponsesAgentStreamEvent]:
         """Process a chunk and yield user-stream events."""
 
@@ -197,23 +220,19 @@ class TextDeltaListener:
         chunk: AIMessageChunk,
         metadata: Mapping[str, Any] | None,
         resolver: AgentResolver,
+        ns: tuple[str, ...] | None = None,
     ) -> AsyncIterator[ResponsesAgentStreamEvent]:
         node: str | None = (
             metadata.get("langgraph_node") if metadata else None
         )
         if isinstance(node, str) and not self.filter.allows_node(node):
             return
-        agent: str | None = resolver.attribute(chunk, metadata)
-        if not self.filter.allows(agent):
-            logger.info(
-                "Suppressing text delta for silent agent",
-                agent=agent,
-                node=node,
-            )
-            return
+        agent: str | None = resolver.attribute(chunk, metadata, ns=ns)
         content: object = chunk.content
         flat: object = _flatten_message_content(content)
         text: str = flat if isinstance(flat, str) else ""
+        if not self.filter.allows(agent):
+            return
         if not text:
             return
         if self.on_token is not None:
@@ -243,6 +262,7 @@ class ReasoningDeltaListener:
         chunk: AIMessageChunk,
         metadata: Mapping[str, Any] | None,
         resolver: AgentResolver,
+        ns: tuple[str, ...] | None = None,
     ) -> AsyncIterator[ResponsesAgentStreamEvent]:
         # Stage 1: no-op. Stage 2: inspect chunk.additional_kwargs for
         # reasoning blocks (provider-specific) and yield events.
@@ -265,6 +285,7 @@ class ToolCallListener:
         chunk: AIMessageChunk,
         metadata: Mapping[str, Any] | None,
         resolver: AgentResolver,
+        ns: tuple[str, ...] | None = None,
     ) -> AsyncIterator[ResponsesAgentStreamEvent]:
         if False:
             yield  # pragma: no cover

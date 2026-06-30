@@ -224,6 +224,8 @@ resources:
     commerce_swarm_db: &commerce_swarm_db
       name: "Commerce Swarm Lakebase"
       project: "commerce-swarm"
+      branch: "production"
+      database: "projects/commerce-swarm/branches/production/databases/databricks-postgres"
       description: "Lakebase Postgres for agent memory, checkpointer, and UCP idempotency log"
       client_id: *client_id
       client_secret: *client_secret

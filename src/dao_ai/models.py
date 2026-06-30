@@ -624,11 +624,12 @@ class LanggraphChatModel(ChatModel):
         resolver: AgentResolver = AgentResolver()
 
         async def _async_stream() -> AsyncGenerator[ChatCompletionChunk, None]:
-            async for chunk_kind, payload in self.graph.astream(
+            async for ns, chunk_kind, payload in self.graph.astream(
                 request,
                 context=context,
                 config=custom_inputs,
                 stream_mode=["messages", "updates"],
+                subgraphs=True,
             ):
                 if chunk_kind == "updates":
                     if isinstance(payload, dict):
@@ -640,7 +641,7 @@ class LanggraphChatModel(ChatModel):
                 node: Any = metadata.get("langgraph_node") if metadata else None
                 if isinstance(node, str) and not agent_filter.allows_node(node):
                     continue
-                agent: str | None = resolver.attribute(msg_chunk, metadata)
+                agent: str | None = resolver.attribute(msg_chunk, metadata, ns=ns)
                 if not agent_filter.allows(agent):
                     continue
                 content: object = msg_chunk.content
@@ -1468,11 +1469,12 @@ class LanggraphResponsesAgent(ResponsesAgent):
                     ToolCallListener(filter=agent_filter),
                 ]
 
-                async for chunk_kind, payload in self.graph.astream(
+                async for ns, chunk_kind, payload in self.graph.astream(
                     stream_input,
                     context=context,
                     config=custom_inputs,
                     stream_mode=["messages", "updates"],
+                    subgraphs=True,
                 ):
                     if chunk_kind == "updates":
                         # State diff per node. Capture structured_response
@@ -1512,7 +1514,7 @@ class LanggraphResponsesAgent(ResponsesAgent):
                         continue
                     for listener in listeners:
                         async for ev in listener.consume(
-                            msg_chunk, metadata, resolver
+                            msg_chunk, metadata, resolver, ns=ns
                         ):
                             yield ev
             except GraphInterrupt:
