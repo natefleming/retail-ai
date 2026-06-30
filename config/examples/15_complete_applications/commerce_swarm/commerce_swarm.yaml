@@ -417,26 +417,6 @@ memory: &memory
     supervisor_auto_inject: false
 
 # =============================================================================
-# MIDDLEWARE
-# =============================================================================
-middleware:
-
-  # Validates that the authenticated user identity is present in the request
-  # context. In production this is supplied implicitly by MLflow's ChatContext
-  # (Model Serving) or by Databricks Apps OBO via the ``x-forwarded-user``
-  # header. For local eval / unit tests, pass it explicitly in
-  # ``custom_inputs.configurable.user_id``. The Commerce Swarm internal
-  # ``customer_id`` is NOT this value — agents resolve it at runtime by
-  # calling ``lookup_customer_by_user_uc(user_id)``.
-  user_identity_validation: &user_identity_validation
-    name: dao_ai.middleware.create_custom_field_validation_middleware
-    args:
-      fields:
-      - name: user_id
-        description: "Authenticated Databricks user identity (the SSO email of the signed-in user)."
-        example_value: "alice@example.com"
-
-# =============================================================================
 # AGENTS — 9-agent swarm
 # =============================================================================
 agents:
@@ -951,8 +931,6 @@ app:
     # =======================================================================
     swarm:
       default_agent: *supervisor
-      middleware:
-      - *user_identity_validation
       handoffs:
         # Stage 1 → Stage 2: deterministic, every turn passes through planner
         supervisor:
