@@ -601,6 +601,13 @@ agents:
     tools:
     - *get_order_history_tool
     guardrails: []
+    middleware:
+      # Backfill customer_id from runtime context.user_id when the LLM
+      # leaves it blank during v3 streaming.
+      - name: dao_ai.middleware.create_context_arg_bind_middleware
+        args:
+          bindings:
+            customer_id: "{user_id}"
     prompt: |
       ### User Information
       - **User Id**: {user_id}
@@ -702,6 +709,11 @@ agents:
     tools:
     - *get_credit_limit_tool
     guardrails: []
+    middleware:
+      - name: dao_ai.middleware.create_context_arg_bind_middleware
+        args:
+          bindings:
+            customer_id: "{user_id}"
     prompt: |
       ### User Information
       - **User Id**: {user_id}
@@ -743,6 +755,13 @@ agents:
     - *get_cart_tool
     - *find_product_tool
     guardrails: []
+    middleware:
+      # get_cart_uc takes customer_id; find_product_uc takes sku (the
+      # middleware schema-gates per tool so find_product_uc is untouched).
+      - name: dao_ai.middleware.create_context_arg_bind_middleware
+        args:
+          bindings:
+            customer_id: "{user_id}"
     prompt: |
       ### User Information
       - **User Id**: {user_id}
