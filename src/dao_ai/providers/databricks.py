@@ -2,7 +2,7 @@ import base64
 import re
 import time
 from pathlib import Path
-from typing import Any, Callable, Final, Sequence
+from typing import Any, Callable, Final, Optional, Sequence
 
 import mlflow
 import pandas as pd
@@ -208,7 +208,9 @@ def _collect_resources_with_obo_flag(
     )
 
 
-def build_auth_policy(config: AppConfig) -> AuthPolicy:
+def build_auth_policy(
+    config: AppConfig, experiment_id: Optional[str] = None
+) -> AuthPolicy:
     """Build the MLflow ``AuthPolicy`` for a Model Serving deploy from an AppConfig.
 
     Partitions every resource by ``on_behalf_of_user``:
@@ -222,9 +224,15 @@ def build_auth_policy(config: AppConfig) -> AuthPolicy:
 
     A resource never appears in *both* outputs.
 
-    ``config.app.trace_location`` (if set) contributes its OTEL trace
-    tables + warehouse to the system policy — they are always SP-backed
-    (the user never touches them).
+    ``config.app.trace_location`` (if set) contributes its four OTEL trace
+    tables to the system policy via
+    :meth:`TraceLocationModel.as_resources`. Pass ``experiment_id`` so the
+    table names match what MLflow physically creates — the deploy site
+    that calls this already has ``experiment.experiment_id`` in scope
+    immediately after ``_link_experiment_trace_location``. With this
+    plumbed through, ``agents.deploy`` auto-grants the Model Serving SP
+    USE_CATALOG / USE_SCHEMA / SELECT / MODIFY on each table — no manual
+    post-deploy ``GRANT`` step required.
 
     Pure function: no I/O, no mutation of ``config``. Safe to unit-test.
     """
@@ -240,7 +248,9 @@ def build_auth_policy(config: AppConfig) -> AuthPolicy:
     ]
 
     if config.app and config.app.trace_location:
-        system_resources.extend(config.app.trace_location.as_resources())
+        system_resources.extend(
+            config.app.trace_location.as_resources(experiment_id=experiment_id)
+        )
 
     # Translate resource-level api_scopes to canonical OBO user scopes — the
     # same translation used by the Databricks Apps path — so the deployed
@@ -524,7 +534,9 @@ class DatabricksProvider(ServiceProvider):
         # skip create_agent) still set up the link.
         _link_experiment_trace_location(config, experiment.experiment_id)
 
-        auth_policy: AuthPolicy = build_auth_policy(config)
+        auth_policy: AuthPolicy = build_auth_policy(
+            config, experiment_id=experiment.experiment_id
+        )
         logger.debug(
             "Auth policy created",
             system_resource_count=len(auth_policy.system_auth_policy.resources),

@@ -7080,26 +7080,30 @@ class MonitoringModel(BaseModel):
 class TraceLocationModel(BaseModel):
     """Unity Catalog location for storing MLflow traces in OTEL-format Delta tables.
 
-    When configured on AppModel, traces are stored in UC Delta tables via
+    When configured on ``AppModel``, traces are stored in UC Delta tables via
     ``mlflow.set_experiment(experiment_id=..., trace_location=UnityCatalog(...))``.
-    Provide an optional ``table_prefix`` to namespace the OTEL tables when
-    multiple agents share a single UC schema. Without a prefix, MLflow uses
-    the literal default ``mlflow_experiment_trace`` — table names become
-    ``<catalog>.<schema>.mlflow_experiment_trace_otel_{spans,logs,metrics,annotations}``
-    (see ``mlflow.entities.trace_location._UC_SCHEMA_DEFAULT_SPANS_TABLE_NAME``).
-    All experiments linked to the same schema with no prefix end up writing
-    to the same shared table set, distinguished by the ``experiment_id``
-    column inside the tables — convenient for cross-experiment analytics,
-    but ambiguous if you want per-app isolation. Set ``table_prefix`` to
-    namespace the tables per agent (e.g. ``table_prefix: sales_genie`` yields
-    ``<catalog>.<schema>.sales_genie_otel_spans``).
+    MLflow materializes four Delta tables per (schema, prefix) pair:
+    ``<catalog>.<schema>.<prefix>_otel_{spans,logs,metrics,annotations}``.
 
-    dao-ai does NOT include the OTEL trace tables in the model's auth_policy
-    or App resources list because the table names depend on the configured
-    ``table_prefix`` and aren't fully predictable at deploy time. Instead,
-    users grant the deployed serving identity USE_CATALOG + USE_SCHEMA +
-    SELECT + MODIFY on the trace schema as a one-time post-deploy step
-    (mirrors the Apps SP grant pattern documented in README).
+    When ``table_prefix`` is not explicitly set, MLflow falls back to the
+    ``experiment_id`` at runtime — producing a per-experiment table set
+    out of the box (e.g. ``2931483616868130_otel_spans``). Set
+    ``table_prefix`` to namespace tables when multiple experiments share
+    a single UC schema and you want each agent's traces in its own table
+    set (e.g. ``table_prefix: sales_genie`` yields
+    ``sales_genie_otel_spans``).
+
+    Deploy ordering:
+
+    1. ``_link_experiment_trace_location`` calls
+       ``mlflow.set_experiment(trace_location=UnityCatalog(...))``,
+       which materializes the four OTEL tables on the configured
+       warehouse (auto-starts STOPPED warehouses; waits up to 1200s).
+    2. ``build_auth_policy`` then includes the four tables in the
+       deployed model's ``SystemAuthPolicy.resources`` via
+       :meth:`as_resources`, so ``agents.deploy`` auto-grants the
+       Model Serving SP USE_CATALOG / USE_SCHEMA / SELECT / MODIFY
+       on each table — no manual post-deploy ``GRANT`` step required.
     """
 
     model_config = ConfigDict(
@@ -7184,26 +7188,47 @@ class TraceLocationModel(BaseModel):
         resolved = value_of(self.table_prefix)
         return resolved if resolved else None
 
-    def as_resources(self) -> Sequence[DatabricksResource]:
-        """OTEL trace tables intentionally not declared in the auth_policy.
+    def as_resources(
+        self, experiment_id: Optional[str] = None
+    ) -> Sequence[DatabricksResource]:
+        """OTEL trace tables as ``DatabricksTable`` resources for auto-grant.
 
-        MLflow's ``UnityCatalog`` trace location creates table names based on
-        either ``table_prefix`` (when set) or the experiment_id (when not).
-        Neither is fully predictable at config-resolution time:
-        ``table_prefix`` may be an unresolved AnyVariable, and the
-        experiment_id is only assigned when the experiment is created at
-        deploy time. Declaring concrete table names in the auth_policy that
-        don't match what MLflow actually creates causes ``agents.deploy``'s
-        ``generate-temporary-credentials`` lookup to return
-        ``TABLE_DOES_NOT_EXIST`` and the deploy aborts.
+        MLflow's ``UnityCatalog`` trace location creates four Delta tables
+        per (schema, prefix) pair:
+        ``<catalog>.<schema>.<prefix>_otel_{spans,logs,metrics,annotations}``.
 
-        Instead, dao-ai relies on schema-level grants to the deployed serving
-        identity (Model Serving) or App SP (Apps), granted as a one-time
-        post-deploy step. The grants give the runtime identity USE_CATALOG +
-        USE_SCHEMA + SELECT + MODIFY on the trace schema, which lets MLflow
-        create + write the OTEL tables at first trace export.
+        Prefix resolution:
+
+        1. ``resolved_table_prefix`` if explicitly configured;
+        2. ``experiment_id`` if passed by the caller — MLflow itself uses
+           this when ``UnityCatalog`` is constructed without an explicit
+           prefix, so the names match what gets created on disk;
+        3. ``[]`` (nothing to declare) when neither is known — safe
+           default for unit tests / pre-deploy config inspection.
+
+        These tables MUST exist before ``mlflow.register_model`` /
+        ``agents.deploy`` validates them via
+        ``generate-temporary-credentials``. dao-ai's
+        ``_link_experiment_trace_location`` runs immediately before
+        ``build_auth_policy`` and calls
+        ``mlflow.set_experiment(trace_location=UnityCatalog(...))``,
+        which materializes the four tables on the configured warehouse.
+        The auth policy then declares them so ``agents.deploy``
+        auto-grants USE_CATALOG / USE_SCHEMA / SELECT / MODIFY to the
+        Model Serving SP — no manual post-deploy ``GRANT`` required.
         """
-        return []
+        prefix: Optional[str] = self.resolved_table_prefix or experiment_id
+        if prefix is None:
+            return []
+        catalog: str = self.catalog_name
+        schema: str = self.schema_name
+        suffixes: tuple[str, ...] = ("spans", "logs", "metrics", "annotations")
+        return [
+            DatabricksTable(
+                table_name=f"{catalog}.{schema}.{prefix}_otel_{suffix}"
+            )
+            for suffix in suffixes
+        ]
 
 
 class BackgroundModel(BaseModel):
