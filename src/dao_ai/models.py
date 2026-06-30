@@ -612,36 +612,44 @@ class LanggraphChatModel(ChatModel):
         }
         visibility: dict[str, bool] = context.agent_visibility or {}
 
-        # Use async astream_events(version="v3") internally. v3 exposes typed
-        # per-channel projections — we only need stream.messages here for token
-        # streaming. Per-agent text gating uses AsyncChatModelStream.node,
-        # which is the LangGraph node name (== AgentModel.name for nodes added
-        # via workflow.add_node(name, handler)).
+        # Stream via stable astream API. See ``apredict_stream`` for the
+        # full justification (v3 drops tool dispatch on some providers).
+        # Here we only need text deltas — no tool / structured-response /
+        # interrupt handling — so consume the ``messages`` channel only.
         import asyncio
 
+        from dao_ai.streaming import AgentFilter, AgentResolver
+
+        agent_filter: AgentFilter = AgentFilter.from_visibility(visibility)
+        resolver: AgentResolver = AgentResolver()
+
         async def _async_stream() -> AsyncGenerator[ChatCompletionChunk, None]:
-            # v3 owns subgraph handling internally — do NOT pass subgraphs= here;
-            # it forces True and rejects the kwarg.
-            stream: AsyncGraphRunStream = await self.graph.astream_events(
+            async for chunk_kind, payload in self.graph.astream(
                 request,
                 context=context,
                 config=custom_inputs,
-                version="v3",
-            )
-            chat: AsyncChatModelStream
-            async for chat in stream.messages:
-                node: str | None = chat.node
-                if node is None:
-                    # Graph-level events with no node attribution: surface by default.
-                    pass
-                elif "summarization" in node:
-                    # Preserve the legacy summarization filter.
+                stream_mode=["messages", "updates"],
+            ):
+                if chunk_kind == "updates":
+                    if isinstance(payload, dict):
+                        resolver.record_update(payload)
                     continue
-                elif visibility.get(node, True) is False:
-                    # Agent is configured surface_to_user=False — skip its text.
+                msg_chunk, metadata = payload
+                if not isinstance(msg_chunk, AIMessageChunk):
                     continue
-                async for token in chat.text:
-                    yield self._create_chat_completion_chunk(token)
+                node: Any = metadata.get("langgraph_node") if metadata else None
+                if isinstance(node, str) and not agent_filter.allows_node(node):
+                    continue
+                agent: str | None = resolver.attribute(msg_chunk, metadata)
+                if not agent_filter.allows(agent):
+                    continue
+                content: object = msg_chunk.content
+                from dao_ai.orchestration.core import _flatten_message_content
+
+                flat: object = _flatten_message_content(content)
+                text: str = flat if isinstance(flat, str) else ""
+                if text:
+                    yield self._create_chat_completion_chunk(text)
 
         # Convert async generator to sync generator
         loop = asyncio.get_event_loop()
@@ -1423,29 +1431,15 @@ class LanggraphResponsesAgent(ResponsesAgent):
             stream_input: Command | dict[str, Any] = turn.stream_input
             visibility: dict[str, bool] = context.agent_visibility or {}
 
-            # Stream the graph execution via v3 typed projections.
-            #
-            # In v3, stream.messages yields one AsyncChatModelStream per LLM
-            # call, exposing .node (LangGraph node name == agent name) and
-            # .text (token-by-token async iterator). stream.values yields
-            # state snapshots that carry ToolMessages and structured_response.
-            # Interrupts surface via stream.interrupts() once iteration ends.
-            #
-            # We consume .values in a background task so the main coroutine
-            # can yield text deltas as they arrive — both projections share
-            # the same underlying mux and can be read concurrently.
+            # Stream the graph execution via the stable astream API with
+            # stream_mode=["messages","updates"]. messages yields per-
+            # chunk (AIMessageChunk, metadata) tuples; updates yields
+            # per-node state diffs. This dispatches tools correctly for
+            # every model we tested (gpt-oss-120b, Claude). The v3
+            # protocol was found to drop tool dispatch for some
+            # provider/model combinations — see
+            # tests/dao_ai/test_streaming_tool_dispatch.py for the pin.
             try:
-                # v3 owns subgraph handling internally — do NOT pass subgraphs=
-                # here; it forces True and rejects the kwarg.
-                stream: AsyncGraphRunStream = await self.graph.astream_events(
-                    stream_input,
-                    context=context,
-                    config=custom_inputs,
-                    version="v3",
-                )
-
-                import asyncio
-
                 from dao_ai.streaming import (
                     AgentFilter,
                     AgentResolver,
@@ -1474,61 +1468,53 @@ class LanggraphResponsesAgent(ResponsesAgent):
                     ToolCallListener(filter=agent_filter),
                 ]
 
-                async def _consume_values() -> None:
-                    nonlocal structured_response
-                    state: Any
-                    async for state in stream.values:
-                        if not isinstance(state, dict):
+                async for chunk_kind, payload in self.graph.astream(
+                    stream_input,
+                    context=context,
+                    config=custom_inputs,
+                    stream_mode=["messages", "updates"],
+                ):
+                    if chunk_kind == "updates":
+                        # State diff per node. Capture structured_response
+                        # + ToolMessages + agent-name attribution.
+                        if not isinstance(payload, dict):
                             continue
-                        candidate: Any = state.get("structured_response")
-                        if candidate is not None:
-                            structured_response = candidate
-                            logger.trace(
-                                "Captured structured response from v3 values",
-                                response_type=type(structured_response).__name__,
-                            )
-                        # Collect ToolMessages for visualization extraction
-                        for msg in state.get("messages", []) or []:
-                            if isinstance(msg, ToolMessage):
-                                key: int = id(msg)
-                                if key not in seen_tool_message_ids:
-                                    seen_tool_message_ids.add(key)
-                                    tool_messages.append(msg)
-                        # Let the resolver consume the same snapshot for
-                        # message_id -> agent name attribution.
-                        resolver.record_state(state)
-
-                values_task: asyncio.Task[None] = asyncio.create_task(
-                    _consume_values()
-                )
-
-                try:
-                    chat: AsyncChatModelStream
-                    async for chat in stream.messages:
-                        # Dispatch to every channel listener in turn.
-                        # Each listener owns its own filter + buffering.
-                        for listener in listeners:
-                            async for ev in listener.consume(chat, resolver):
-                                yield ev
-                finally:
-                    await values_task
-
-                # Drain interrupts collected by the v3 stream. Top-level only —
-                # subgraph interrupts surface in their owning subgraph stream.
-                # AsyncGraphRunStream.interrupts is async-def returning list[Any].
-                v3_interrupts: list[Any] = await stream.interrupts()
-                for interrupt in v3_interrupts:
-                    if not isinstance(interrupt, Interrupt):
+                        resolver.record_update(payload)
+                        for node, state in payload.items():
+                            if not isinstance(state, dict):
+                                continue
+                            candidate: Any = state.get("structured_response")
+                            if candidate is not None:
+                                structured_response = candidate
+                            for msg in state.get("messages", []) or []:
+                                if isinstance(msg, ToolMessage):
+                                    key: int = id(msg)
+                                    if key not in seen_tool_message_ids:
+                                        seen_tool_message_ids.add(key)
+                                        tool_messages.append(msg)
+                            # Interrupts can surface in update payloads
+                            # under the special "__interrupt__" key.
+                            interrupts = state.get("__interrupt__") or []
+                            for interrupt in interrupts:
+                                if not isinstance(interrupt, Interrupt):
+                                    continue
+                                ckey: str = _interrupt_content_key(interrupt)
+                                if ckey in seen_interrupt_keys:
+                                    continue
+                                seen_interrupt_keys.add(ckey)
+                                interrupt_data.append(
+                                    _extract_interrupt_value(interrupt)
+                                )
                         continue
-                    content_key: str = _interrupt_content_key(interrupt)
-                    if content_key in seen_interrupt_keys:
+                    # chunk_kind == "messages"
+                    msg_chunk, metadata = payload
+                    if not isinstance(msg_chunk, AIMessageChunk):
                         continue
-                    seen_interrupt_keys.add(content_key)
-                    interrupt_data.append(_extract_interrupt_value(interrupt))
-                    logger.trace(
-                        "HITL: Added interrupt from v3 stream",
-                        interrupt_id=interrupt.id,
-                    )
+                    for listener in listeners:
+                        async for ev in listener.consume(
+                            msg_chunk, metadata, resolver
+                        ):
+                            yield ev
             except GraphInterrupt:
                 logger.info("HITL: GraphInterrupt raised during streaming")
 
