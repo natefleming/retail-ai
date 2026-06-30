@@ -91,6 +91,17 @@ def _create_middleware_list(
     logger.debug("Building middleware list for agent", agent=agent.name)
     middleware_list: list[Any] = []
 
+    # Auto-apply ContentFlattenMiddleware to every agent. Runs first so
+    # subsequent middleware + the LLM see normalized AIMessage.content.
+    # This is the final defense against array-shaped content reaching a
+    # chat-completions endpoint that only accepts string content (e.g.
+    # databricks-gpt-oss-120b). Multiple upstream layers also flatten,
+    # but the swarm pattern's handoff Command escape via ParentCommand
+    # bypasses extract_agent_response — this middleware catches it.
+    from dao_ai.middleware.content_flatten import ContentFlattenMiddleware
+
+    middleware_list.append(ContentFlattenMiddleware())
+
     # Add configured middleware using factory pattern
     if agent.middleware:
         middleware_names: list[str] = [mw.name for mw in agent.middleware]
