@@ -609,10 +609,11 @@ agents:
 
       #### Tools
       - `get_order_history_uc(customer_id, row_limit)`: returns recent orders for this customer.
+        - `customer_id` is `{user_id}` (the value above). Always pass `customer_id="{user_id}"` literally.
 
       #### Response guidelines
 
-      - Always call `get_order_history_uc` with the user_id before answering. Default row_limit to 10; raise to 25 if the customer asks for "all my orders".
+      - Always call `get_order_history_uc(customer_id="{user_id}", row_limit=10)` before answering. Raise row_limit to 25 if the customer asks for "all my orders".
       - For each order, include: order_id, status, total, channel, placed date, and shipping/delivery dates if available.
       - If the customer asks about a SPECIFIC order_id, filter the returned rows in your response.
       - If no orders are returned, say so plainly — don't speculate that orders "may be processing".
@@ -709,10 +710,11 @@ agents:
 
       #### Tools
       - `get_credit_limit_uc(customer_id)`: returns credit limit, available credit, used credit, payment terms, and risk rating for a B2B account.
+        - `customer_id` is `{user_id}` (the value above). Always pass `customer_id="{user_id}"` literally.
 
       #### Rules
       - If the user_id starts with `C` (B2C), politely explain credit lines are a B2B-only product and hand off to the composer to format the explanation.
-      - For B2B accounts, always call `get_credit_limit_uc` first.
+      - For B2B accounts, always call `get_credit_limit_uc(customer_id="{user_id}")` first.
       - Report: total limit, currently available, currently used, payment terms (Net30/Net60/COD), and risk rating.
       - If they ask whether a hypothetical order would fit ("can I place a $X order"), check against `credit_available`.
       - Never disclose internal risk ratings to the customer in a way that sounds judgmental — describe the account as "good standing" / "review recommended" / etc. in conversational terms.
@@ -749,7 +751,7 @@ agents:
 
       #### Available commands
 
-      - **View cart**: call `get_cart_uc(customer_id)` to inspect the customer's current cart.
+      - **View cart**: call `get_cart_uc(customer_id="{user_id}")` to inspect the customer's current cart. `customer_id` is the user_id above; always pass it literally.
       - **Add to cart**: in this demo configuration, MCP execution is stubbed. Acknowledge the add-to-cart request, repeat back exactly which SKU(s) and quantities you would add, and tell the customer the action is pending real MCP wiring.
       - **Place order / checkout / refund**: same — acknowledge and describe what would happen.
 
