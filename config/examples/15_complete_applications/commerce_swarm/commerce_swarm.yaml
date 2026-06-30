@@ -860,9 +860,14 @@ app:
   # when searching by UC schema; setting a prefix creates tables the API
   # can't find, breaking the experiment Traces UI and the per-run trace
   # linkage on mlflow.genai.evaluate eval runs.
-  trace_location:
-    schema: *retail_schema
-    warehouse: ${var.warehouse_id}
+  #
+  # Temporarily disabled to isolate LangGraph v3 streaming validation from
+  # the orphaned OTEL-table-owner permission issue. Re-enable once the SP
+  # auto-grant work (TraceLocationModel.as_resources_with_experiment_id)
+  # lands.
+  # trace_location:
+  #   schema: *retail_schema
+  #   warehouse: ${var.warehouse_id}
 
   # Apps runtime needs the SP credentials accessible as env vars for Lakebase
   # OAuth M2M token minting at request time.
