@@ -114,6 +114,9 @@ def filter_messages_for_agent(
     """
     filtered: list[BaseMessage] = []
     own_tool_call_ids: set[str] = set()
+    # Track which own tool_call_ids we've seen a matching ToolMessage for,
+    # so we can synthesize placeholders for any orphans at the end.
+    matched_tool_call_ids: set[str] = set()
     for msg in messages:
         if isinstance(msg, HumanMessage):
             filtered.append(msg)
@@ -143,7 +146,99 @@ def filter_messages_for_agent(
             if msg.tool_call_id in own_tool_call_ids:
                 # Pair with a kept own AIMessage(tool_calls=…).
                 filtered.append(msg)
+                matched_tool_call_ids.add(msg.tool_call_id)
             # else: peer / handoff / orchestration tool result — drop
+
+    # Claude enforces that EVERY ``tool_use`` block in an assistant
+    # message has an immediately-following ``tool_result`` block; a
+    # missing pair 400s with ``tool_use ids were found without
+    # tool_result blocks immediately after``. This can happen when the
+    # LLM emits parallel tool_calls (e.g. ``search_memory`` +
+    # ``handoff_to_credit_limit``) and one of them returns a
+    # ``Command(goto=…)`` that routes control out of the tool node
+    # before the sibling tool ran — LangGraph short-circuits, and the
+    # sibling's ToolMessage never lands in state. Inject a synthetic
+    # placeholder ToolMessage for any own tool_call_id that never got a
+    # real result, so the messages array remains well-formed for
+    # strict-mode providers.
+    orphan_tool_call_ids: set[str] = own_tool_call_ids - matched_tool_call_ids
+    if orphan_tool_call_ids:
+        # Insert placeholders in-line, immediately after their parent
+        # AIMessage, so the tool_use/tool_result adjacency Claude wants
+        # is preserved. Walk backwards to avoid index-shift issues.
+        repaired: list[BaseMessage] = []
+        for msg in filtered:
+            repaired.append(msg)
+            if isinstance(msg, AIMessage) and msg.tool_calls:
+                # For each tool_call in this AIMessage that has no
+                # matching ToolMessage in ``filtered``, synthesize one.
+                own_ids_here: list[str] = [
+                    tc.get("id") if isinstance(tc, dict) else getattr(tc, "id", None)
+                    for tc in msg.tool_calls
+                ]
+                for tc_id in own_ids_here:
+                    if tc_id in orphan_tool_call_ids:
+                        repaired.append(
+                            ToolMessage(
+                                content="[synthetic placeholder — sibling tool_call was short-circuited by a routing Command in the same step]",
+                                tool_call_id=tc_id,
+                                name="__orphan_placeholder__",
+                            )
+                        )
+        filtered = repaired
+
+    # Newer Claude models (Opus 4.6+, Sonnet 4.5+) removed assistant
+    # message prefill support and enforce that the conversation cannot
+    # end with an ``AIMessage``. This can happen naturally after
+    # filtering when a peer agent's tool exchange gets stripped
+    # (e.g. planner emits ``handoff_to_general`` → planner's
+    # ``AIMessage(tool_calls=…)`` is kept as content-only but its paired
+    # ``ToolMessage`` is dropped because general doesn't own the
+    # tool_call_id). Same shape as the deterministic-handoff bridge in
+    # ``swarm._create_deterministic_handler``: append a synthetic
+    # ``HumanMessage`` to normalize the tail.
+    #
+    # IMPORTANT: skip the bridge when the trailing ``AIMessage`` carries
+    # ``tool_calls`` — that means the tools node is the next graph
+    # step, and it will feed the paired ``ToolMessage`` in. Inserting a
+    # ``HumanMessage`` between them would split ``tool_use`` from its
+    # ``tool_result`` and provoke Claude's ``tool_use ids were found
+    # without tool_result blocks immediately after`` 400 (a different
+    # constraint from the prefill one, but same class of error).
+    if (
+        filtered
+        and isinstance(filtered[-1], AIMessage)
+        and not filtered[-1].tool_calls
+    ):
+        bridge_target: str = current_agent_name or "next agent"
+        # Content matters — Claude interprets the last user message
+        # as "what the user just asked." A cryptic "[filter bridge to X]"
+        # makes the model reply "your message came through empty!". Give
+        # the model a clear, actionable prompt that says: pick up where
+        # the previous agent left off, and respond to the original ask.
+        # We also try to include the last real user query verbatim so
+        # the downstream agent has clean grounding.
+        last_user_query: str = ""
+        for prior in reversed(filtered):
+            if isinstance(prior, HumanMessage) and prior.name != "__filter_bridge__":
+                content = prior.content
+                if isinstance(content, str) and content.strip():
+                    last_user_query = content.strip()
+                    break
+        if last_user_query:
+            bridge_content = (
+                f"Continue this pipeline as {bridge_target}. "
+                f"The user's original request was: {last_user_query!r}. "
+                f"Do your job based on the prior agents' work above."
+            )
+        else:
+            bridge_content = (
+                f"Continue this pipeline as {bridge_target}. "
+                f"Do your job based on the prior agents' work above."
+            )
+        filtered.append(
+            HumanMessage(content=bridge_content, name="__filter_bridge__")
+        )
     return filtered
 
 

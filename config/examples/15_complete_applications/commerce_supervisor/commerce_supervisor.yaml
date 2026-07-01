@@ -961,6 +961,21 @@ app:
         - When confidence is low, prefer ``handoff_to_planner`` over guessing.
         - Never bypass the composer for actual customer-facing answers.
 
+        #### Tool-call rules (STRICT)
+
+        - **Never emit a ``handoff_to_*`` tool call in the SAME turn as
+          any other tool call.** Handoffs route control to another
+          agent, and any sibling tool call gets short-circuited before
+          it runs — leaving an orphaned ``tool_use`` block that
+          triggers a strict-provider 400 on the next model call. When
+          you decide to hand off, call ONLY the handoff tool, nothing
+          else. If you need to search memory or write memory, do it in
+          a separate turn BEFORE the handoff, not alongside it.
+        - Prefer serialized tool calls (one at a time) over parallel
+          ones. Multi-tool turns are allowed for read-only siblings
+          (e.g. two ``search_memory`` calls with different queries),
+          but never mix a handoff with anything else.
+
 # =============================================================================
 # UNITY CATALOG FUNCTION DEPLOYMENT
 # =============================================================================

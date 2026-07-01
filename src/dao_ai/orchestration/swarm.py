@@ -23,6 +23,7 @@ from typing import TYPE_CHECKING, Callable, Sequence
 if TYPE_CHECKING:
     from langgraph.runtime import Runtime
 
+from langchain_core.messages import AIMessage, HumanMessage
 from langchain_core.tools import BaseTool
 from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.graph import StateGraph
@@ -57,11 +58,27 @@ class HandoffResult:
     Result of resolving handoff configuration for an agent.
 
     Separates agentic handoff tools (LLM-invoked) from the optional
-    deterministic handoff target (always-routed).
+    deterministic handoff target (always-routed). ``is_terminal`` is
+    true when either:
+
+    * the YAML's ``handoffs`` entry for this agent is an explicit empty
+      list (``composer: []``) — no tools and no deterministic target are
+      generated, so this is detected structurally as
+      ``not tools and deterministic_target is None``; OR
+    * the agent's :attr:`AgentModel.is_terminal` flag is set to ``True``
+      in YAML — used to force terminal behavior on agents that still
+      have outbound handoffs available (the LLM may or may not invoke
+      them, but the swarm should reset between user turns either way).
+
+    The swarm runtime detects terminal at the handler-wrap site and
+    clears ``active_agent`` after the agent completes so the next user
+    turn restarts at ``default_agent`` instead of resuming at the
+    terminal one.
     """
 
     tools: tuple[BaseTool, ...] = field(default_factory=tuple)
     deterministic_target: str | None = None
+    is_terminal: bool = False
 
 
 def _resolve_agent(
@@ -116,11 +133,20 @@ def _handoffs_for_agent(
         config.app.orchestration.swarm.handoffs or {}
     )
 
+    # Three cases for resolving an agent's outbound handoffs:
+    #   * agent name MISSING from the handoffs dict → default to all
+    #     other agents (legacy peer-to-peer swarm behavior).
+    #   * agent name maps to an explicit empty list ([]) → terminal node;
+    #     no handoff tools, no deterministic target. The swarm runtime
+    #     detects this at the handler-wrap site (via
+    #     ``HandoffResult.is_terminal``) and clears ``active_agent``
+    #     after the agent runs.
+    #   * agent name maps to a non-empty list → use it.
     agent_handoffs: Sequence[AgentModel | str | HandoffRouteModel] | None = (
-        handoffs.get(agent.name)
+        handoffs.get(agent.name, config.app.agents)
     )
     if agent_handoffs is None:
-        agent_handoffs = config.app.agents
+        agent_handoffs = ()
 
     for handoff_entry in agent_handoffs:
         agent_ref: AgentModel | str
@@ -182,31 +208,54 @@ def _handoffs_for_agent(
                 )
             )
 
+    # Terminal when either the agent flagged itself terminal in YAML
+    # (``AgentModel.is_terminal: true``) OR the resolved handoff config
+    # is structurally empty (no tools and no deterministic target — the
+    # ``composer: []`` case). Both routes converge on the same runtime
+    # behavior: clear ``active_agent`` after this agent runs.
+    is_terminal: bool = bool(agent.is_terminal) or (
+        not handoff_tools and deterministic_target is None
+    )
+
     return HandoffResult(
         tools=tuple(handoff_tools),
         deterministic_target=deterministic_target,
+        is_terminal=is_terminal,
     )
 
 
 def _create_swarm_router(
     default_agent: str,
     agent_names: list[str],
+    terminal_agents: frozenset[str] = frozenset(),
 ) -> Callable[[AgentState], str]:
     """
     Create a router function for the swarm pattern.
 
-    This router checks the `active_agent` field in state to determine
+    This router checks the ``active_agent`` field in state to determine
     which agent should handle the next step. This enables:
-    1. Resuming conversations with the last active agent (from checkpointer)
-    2. Routing to the default agent for new conversations
-    3. Following handoffs that set active_agent
+
+    1. Resuming conversations with the last active agent (from checkpointer).
+    2. Routing to the default agent for new conversations.
+    3. Following handoffs that set ``active_agent``.
+    4. **Restarting at ``default_agent`` whenever the prior turn ended at
+       a terminal agent.** An agent is terminal when its YAML ``handoffs``
+       entry is an explicit empty list, OR when
+       ``AgentModel.is_terminal: true`` is set. The router detects that
+       state.active_agent is in the terminal set and falls through to
+       ``default_agent``, effectively breaking the sticky-active-agent
+       behavior between user turns.
 
     Args:
-        default_agent: The default agent to route to if active_agent is not set
-        agent_names: List of valid agent names
+        default_agent: The default agent to route to if active_agent is
+            not set or has been marked terminal.
+        agent_names: List of valid agent names.
+        terminal_agents: Names of agents that should not be resumed —
+            their presence in ``active_agent`` triggers a fall-through
+            to ``default_agent``.
 
     Returns:
-        A router function that returns the agent name to route to
+        A router function that returns the agent name to route to.
     """
 
     def router(state: AgentState) -> str:
@@ -216,6 +265,15 @@ def _create_swarm_router(
         if not active_agent:
             logger.trace(
                 "No active agent in state, routing to default",
+                default_agent=default_agent,
+            )
+            return default_agent
+
+        # If the prior turn ended at a terminal agent, restart at default.
+        if active_agent in terminal_agents:
+            logger.trace(
+                "Prior turn ended at terminal agent; restarting at default",
+                terminal_agent=active_agent,
                 default_agent=default_agent,
             )
             return default_agent
@@ -273,6 +331,33 @@ def _create_deterministic_handler(
                 agentic_goto=result.goto,
             )
             return result
+
+        # Normalize the message tail before the static edge routes to the
+        # downstream agent. Without this, the downstream LLM call receives
+        # `messages[-1] = AIMessage(...)` (the upstream agent's plain
+        # response), which Databricks Model Serving rejects for Claude with
+        # "This model does not support assistant message prefill. The
+        # conversation must end with a user message." This guard is
+        # model-agnostic — any provider that enforces a non-assistant tail
+        # is handled the same way.
+        #
+        # We append a small synthetic HumanMessage rather than a
+        # tool_call/tool_result pair because the downstream agent's
+        # `filter_messages_for_agent` (core.py) drops ToolMessages whose
+        # tool_call_id wasn't issued by the current agent. HumanMessages
+        # pass through the filter unchanged.
+        messages = result.get("messages", [])
+        if messages and isinstance(messages[-1], AIMessage):
+            bridge: HumanMessage = HumanMessage(
+                content=f"[automated deterministic handoff to {target_agent_name}]",
+                name="__deterministic_handoff__",
+            )
+            result["messages"] = list(messages) + [bridge]
+            logger.debug(
+                "Deterministic handoff: appended HumanMessage bridge to normalize message tail",
+                target_agent=target_agent_name,
+            )
+
         result["active_agent"] = target_agent_name
         logger.debug(
             "Deterministic handoff: setting active_agent",
@@ -342,6 +427,7 @@ def create_swarm_graph(config: AppConfig) -> CompiledStateGraph:
     agent_subgraphs: dict[str, CompiledStateGraph] = {}
     agent_recursion_limits: dict[str, int | None] = {}
     deterministic_targets: dict[str, str] = {}
+    terminal_agents: set[str] = set()
     memory: MemoryModel | None = orchestration.memory
 
     # Set up memory store early so we can pass it to agents for auto-injection
@@ -377,6 +463,19 @@ def create_swarm_graph(config: AppConfig) -> CompiledStateGraph:
         if handoff_result.deterministic_target is not None:
             deterministic_targets[registered_agent.name] = (
                 handoff_result.deterministic_target
+            )
+
+        # Track terminal agents so the parent-graph handler can reset
+        # ``active_agent`` after a turn ends here. Terminal supersedes
+        # nothing — an agent with a deterministic target is never terminal
+        # because it always routes onward.
+        if handoff_result.is_terminal and handoff_result.deterministic_target is None:
+            terminal_agents.add(registered_agent.name)
+            logger.debug(
+                "Registered terminal agent (active_agent will reset after its turns)",
+                agent=registered_agent.name,
+                explicit_is_terminal=bool(registered_agent.is_terminal),
+                empty_handoffs=not handoff_result.tools,
             )
 
         # Merge swarm-level middleware with agent-specific middleware
@@ -470,9 +569,12 @@ def create_swarm_graph(config: AppConfig) -> CompiledStateGraph:
             to_agent=target_agent,
         )
 
-    # Create the swarm router that checks active_agent state
-    # This enables resuming conversations with the last active agent
-    router = _create_swarm_router(default_agent, agent_names)
+    # Create the swarm router that checks active_agent state.
+    # Terminal agents short-circuit back to default_agent — see the
+    # docstring on _create_swarm_router for the semantics.
+    router = _create_swarm_router(
+        default_agent, agent_names, frozenset(terminal_agents)
+    )
 
     # Use conditional entry point to route based on active_agent
     # This is the key pattern from langgraph-swarm-py
