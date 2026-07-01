@@ -348,8 +348,35 @@ def _create_deterministic_handler(
         # pass through the filter unchanged.
         messages = result.get("messages", [])
         if messages and isinstance(messages[-1], AIMessage):
+            # Bridge content matters — a cryptic "[automated deterministic
+            # handoff to X]" makes the downstream agent reply "that
+            # message came through as a system handoff rather than a
+            # question from you". Include the last real user query
+            # verbatim so the next agent has grounding.
+            last_user_query: str = ""
+            for prior in reversed(messages):
+                if (
+                    isinstance(prior, HumanMessage)
+                    and prior.name != "__deterministic_handoff__"
+                    and prior.name != "__filter_bridge__"
+                ):
+                    content = prior.content
+                    if isinstance(content, str) and content.strip():
+                        last_user_query = content.strip()
+                        break
+            if last_user_query:
+                bridge_content = (
+                    f"Continue this pipeline as {target_agent_name}. "
+                    f"The user's original request was: {last_user_query!r}. "
+                    f"Do your job based on the prior agents' work above."
+                )
+            else:
+                bridge_content = (
+                    f"Continue this pipeline as {target_agent_name}. "
+                    f"Do your job based on the prior agents' work above."
+                )
             bridge: HumanMessage = HumanMessage(
-                content=f"[automated deterministic handoff to {target_agent_name}]",
+                content=bridge_content,
                 name="__deterministic_handoff__",
             )
             result["messages"] = list(messages) + [bridge]
