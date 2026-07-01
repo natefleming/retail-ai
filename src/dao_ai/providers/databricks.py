@@ -424,18 +424,29 @@ def _grant_trace_permissions_to_principal(
     )
 
 
-def _resolve_trace_table_prefix(config: AppConfig, experiment_id: str) -> str:
+def _resolve_trace_table_prefix(
+    config: AppConfig, experiment_id: Optional[str]
+) -> str:
     """Return the table prefix MLflow uses for OTEL trace tables.
 
     Mirrors ``mlflow.set_experiment(trace_location=UnityCatalog(
     table_prefix=<resolved_or_None>))``: an explicit ``table_prefix`` on
     ``TraceLocationModel`` wins; otherwise MLflow uses the experiment
     id. See :meth:`TraceLocationModel.resolved_table_prefix`.
+
+    Raises when neither source is available — callers must supply an
+    ``experiment_id`` fallback whenever ``trace_location.table_prefix``
+    is unset.
     """
     if config.app and config.app.trace_location:
         prefix = config.app.trace_location.resolved_table_prefix
         if prefix:
             return prefix
+    if not experiment_id:
+        raise ValueError(
+            "cannot resolve OTEL trace-table prefix: neither "
+            "trace_location.table_prefix nor experiment_id is set"
+        )
     return experiment_id
 
 
@@ -992,11 +1003,23 @@ class DatabricksProvider(ServiceProvider):
                     continue
                 raise
 
-        # OTEL trace-table UC grants for the endpoint's system SP are
-        # handled at agents.deploy time via the auth_policy resource
-        # declarations from TraceLocationModel.as_resources. Direct
-        # post-deploy grants against the auto-generated SP are rejected
-        # by the platform, so no explicit grant call runs here.
+        # MS trace persistence is an unresolved Databricks platform gap
+        # (see TraceLocationModel.as_resources docstring): the endpoint's
+        # runtime system SP is not exposed by any API and is not
+        # grantable via UC, and DATABRICKS_CLIENT_ID/SECRET env vars are
+        # stripped by the platform. Surface a WARN at deploy time so
+        # users know traces will silently drop on this target — deploy
+        # to Databricks Apps instead when trace persistence is required.
+        if config.app.trace_location:
+            logger.warning(
+                "trace_location is configured, but MLflow trace persistence "
+                "from Model Serving endpoints created via agents.deploy is "
+                "an unresolved Databricks platform gap — traces will not "
+                "appear in the UC OTEL tables from this endpoint. Deploy "
+                "to Databricks Apps if trace persistence is required. See "
+                "TraceLocationModel.as_resources for details.",
+                endpoint_name=endpoint_name,
+            )
 
         permissions: Sequence[dict[str, Any]] = config.app.permissions
 
@@ -1616,15 +1639,15 @@ class DatabricksProvider(ServiceProvider):
                 )
                 if sp_id:
                     # Resolve the trace-table prefix. Prefer the explicit
-                    # trace_location.table_prefix if set; otherwise use
-                    # the linked experiment's ID (the MLflow default).
-                    experiment_id_for_prefix: str
-                    if config.app.trace_location.resolved_table_prefix:
-                        experiment_id_for_prefix = ""
-                    else:
-                        experiment_id_for_prefix = str(
-                            self.get_or_create_experiment(config).experiment_id
-                        )
+                    # trace_location.table_prefix if set; otherwise fall
+                    # back to the linked experiment's ID (MLflow's
+                    # default when UnityCatalog is constructed without a
+                    # prefix). Only fetch the experiment when we need it.
+                    experiment_id_for_prefix: Optional[str] = (
+                        None
+                        if config.app.trace_location.resolved_table_prefix
+                        else str(self.get_or_create_experiment(config).experiment_id)
+                    )
                     _grant_trace_permissions_to_principal(
                         principal=str(sp_id),
                         catalog_name=config.app.trace_location.catalog_name,

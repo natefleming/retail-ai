@@ -153,3 +153,34 @@ def test_resolve_prefix_falls_back_to_experiment_id() -> None:
         ),
     )
     assert _resolve_trace_table_prefix(cfg, "9999") == "9999"
+
+
+@pytest.mark.unit
+def test_resolve_prefix_raises_when_neither_source_available() -> None:
+    from dao_ai.config import (
+        AgentModel,
+        AppConfig,
+        AppModel,
+        LLMModel,
+        OrchestrationModel,
+        RegisteredModelModel,
+        SchemaModel,
+        SupervisorModel,
+        TraceLocationModel,
+    )
+    from dao_ai.providers.databricks import _resolve_trace_table_prefix
+
+    schema = SchemaModel(catalog_name="cat", schema_name="sch")
+    cfg = AppConfig(
+        app=AppModel(
+            name="app",
+            registered_model=RegisteredModelModel(schema=schema, name="m"),
+            orchestration=OrchestrationModel(
+                supervisor=SupervisorModel(model=LLMModel(name="t"))
+            ),
+            agents=[AgentModel(name="ag", model=LLMModel(name="t"))],
+            trace_location=TraceLocationModel(schema=schema, warehouse="wh"),
+        ),
+    )
+    with pytest.raises(ValueError, match="cannot resolve OTEL trace-table prefix"):
+        _resolve_trace_table_prefix(cfg, None)
