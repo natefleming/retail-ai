@@ -1,5 +1,5 @@
 CREATE OR REPLACE FUNCTION {catalog_name}.{schema_name}.lookup_customer_by_user(
-   user_id STRING COMMENT 'Authenticated end-user identifier (typically the SSO email, e.g. alice@example.com). Matched case-insensitively against customers.email.'
+   user_id STRING COMMENT 'Authenticated end-user identifier. Accepts either the SSO short name (email prefix, e.g. "alice.smith") or the full email (e.g. "alice.smith@databricks.com"). Matched case-insensitively against customers.email or its local part.'
 )
 RETURNS TABLE(
    customer_id    STRING  COMMENT 'Internal customer identifier (C#### for B2C, B#### for B2B)'
@@ -11,7 +11,7 @@ RETURNS TABLE(
   ,last_name      STRING  COMMENT 'Last name'
 )
 READS SQL DATA
-COMMENT 'Resolve the internal customer_id for an authenticated user. Pass the authenticated user identifier (typically the SSO email) and receive the matching customer record. Returns at most one row; returns no rows if the user is not a registered Commerce Swarm customer.'
+COMMENT 'Resolve the internal customer_id for an authenticated user. Pass the authenticated user identifier — either the SSO short name (email prefix) or the full email. Returns at most one row; returns no rows if the user is not a registered Commerce Swarm customer.'
 RETURN
 SELECT
    customer_id
@@ -23,5 +23,6 @@ SELECT
   ,last_name
 FROM {catalog_name}.{schema_name}.customers
 WHERE LOWER(email) = LOWER(lookup_customer_by_user.user_id)
+   OR LOWER(SPLIT(email, '@')[0]) = LOWER(lookup_customer_by_user.user_id)
 LIMIT 1
 ;

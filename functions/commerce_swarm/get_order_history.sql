@@ -13,8 +13,10 @@ RETURNS TABLE(
   ,tracking_number STRING COMMENT 'Carrier tracking number'
 )
 READS SQL DATA
-COMMENT 'Retrieve recent order history for a customer, sorted by most-recently placed. Uses ROW_NUMBER() because Spark SQL LIMIT requires a foldable constant and does not accept parameterized expressions.'
+COMMENT 'Retrieve recent order history for a customer, sorted by most-recently placed.'
 RETURN
+-- Implementation note: uses ROW_NUMBER() because Spark SQL LIMIT requires a
+-- foldable constant and does not accept parameterized expressions.
 SELECT
    order_id
   ,status

@@ -7205,47 +7205,34 @@ class TraceLocationModel(BaseModel):
         resolved = value_of(self.table_prefix)
         return resolved if resolved else None
 
-    def as_resources(
-        self, experiment_id: Optional[str] = None
-    ) -> Sequence[DatabricksResource]:
-        """OTEL trace tables as ``DatabricksTable`` resources for auto-grant.
+    def as_resources(self) -> Sequence[DatabricksResource]:
+        """OTEL trace tables intentionally NOT declared as auth_policy resources.
 
-        MLflow's ``UnityCatalog`` trace location creates four Delta tables
-        per (schema, prefix) pair:
-        ``<catalog>.<schema>.<prefix>_otel_{spans,logs,metrics,annotations}``.
+        MLflow trace persistence from Model Serving endpoints created via
+        ``agents.deploy`` is a known Databricks platform limitation:
 
-        Prefix resolution:
+        * The endpoint's runtime tracing writer uses the auto-generated
+          per-endpoint system SP for authentication.
+        * That SP is not exposed by any Databricks API and cannot be
+          granted UC permissions directly — the platform rejects the
+          grant.
+        * ``agents.deploy(resources=…)`` declarations trigger auto-auth
+          only for the inference-time ``generate-temporary-credentials``
+          path (vector-search reads, UC function calls, etc.) — not for
+          the tracing writer's static-credential path. Empirically
+          verified: declaring the OTEL tables as ``DatabricksTable``
+          resources does NOT propagate any grants to the tracing SP.
 
-        1. ``resolved_table_prefix`` if explicitly configured;
-        2. ``experiment_id`` if passed by the caller — MLflow itself uses
-           this when ``UnityCatalog`` is constructed without an explicit
-           prefix, so the names match what gets created on disk;
-        3. ``[]`` (nothing to declare) when neither is known — safe
-           default for unit tests / pre-deploy config inspection.
+        On Databricks Apps, trace persistence works — the App's runtime
+        SP is a normal user-visible SP (``fresh_app.service_principal_client_id``)
+        which dao-ai grants explicitly after ``apps.create_and_wait``
+        via ``_grant_trace_permissions_to_principal``.
 
-        These tables MUST exist before ``mlflow.register_model`` /
-        ``agents.deploy`` validates them via
-        ``generate-temporary-credentials``. dao-ai's
-        ``_link_experiment_trace_location`` runs immediately before
-        ``build_auth_policy`` and calls
-        ``mlflow.set_experiment(trace_location=UnityCatalog(...))``,
-        which materializes the four tables on the configured warehouse.
-        The auth policy then declares them so ``agents.deploy``
-        auto-grants USE_CATALOG / USE_SCHEMA / SELECT / MODIFY to the
-        Model Serving SP — no manual post-deploy ``GRANT`` required.
+        Return ``[]`` here so nothing is added to the Model Serving
+        ``system_auth_policy.resources`` — declaring the tables would
+        add register-time overhead without helping trace persistence.
         """
-        prefix: Optional[str] = self.resolved_table_prefix or experiment_id
-        if prefix is None:
-            return []
-        catalog: str = self.catalog_name
-        schema: str = self.schema_name
-        suffixes: tuple[str, ...] = ("spans", "logs", "metrics", "annotations")
-        return [
-            DatabricksTable(
-                table_name=f"{catalog}.{schema}.{prefix}_otel_{suffix}"
-            )
-            for suffix in suffixes
-        ]
+        return []
 
 
 class BackgroundModel(BaseModel):

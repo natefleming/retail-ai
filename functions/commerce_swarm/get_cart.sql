@@ -1,5 +1,5 @@
 CREATE OR REPLACE FUNCTION {catalog_name}.{schema_name}.get_cart(
-  customer_id STRING COMMENT 'Customer identifier'
+  customer_id STRING COMMENT 'Internal customer identifier (C#### for B2C, B#### for B2B), as returned by lookup_customer_by_user.'
 )
 RETURNS TABLE(
    cart_id STRING COMMENT 'Cart identifier'
@@ -12,7 +12,7 @@ RETURNS TABLE(
   ,added_at TIMESTAMP COMMENT 'When the line was added'
 )
 READS SQL DATA
-COMMENT 'Retrieve the current cart for a customer, joined to product catalog for name + price lookup. Used by the supervisor + UCP agents to inspect cart state before checkout.'
+COMMENT 'Retrieve the current cart for a customer, joined to the product catalog so each line includes product name and unit price.'
 RETURN
 SELECT
    ct.cart_id
