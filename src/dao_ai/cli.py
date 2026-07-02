@@ -287,6 +287,62 @@ Examples:
         help="Path to the model configuration file to validate (default: ./config/model_config.yaml)",
     )
 
+    # Create-experiment command
+    create_experiment_parser: ArgumentParser = subparsers.add_parser(
+        "create-experiment",
+        help="Create (or look up) an MLflow experiment and print its id",
+        description="""
+Provision or resolve an MLflow experiment on Databricks and print the
+resulting id + metadata. Delegates to
+``DatabricksProvider.create_experiment`` — same code path used by
+``dao-ai deploy`` when it resolves ``app.experiment`` from a config.
+
+Pass ``--name`` for create-if-missing behavior (default) or ``--id``
+to verify an existing experiment. Exactly one of the two is required.
+        """,
+        epilog="""
+Examples:
+  dao-ai create-experiment --name /Shared/rcg/hardware_store_traces
+  dao-ai create-experiment --name /Shared/team/agent -p fevm
+  dao-ai create-experiment --id 1952423719449237 --output json
+  dao-ai create-experiment --name /Shared/only-if-exists --no-create
+        """,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    _create_exp_ident_group = create_experiment_parser.add_mutually_exclusive_group(
+        required=True
+    )
+    _create_exp_ident_group.add_argument(
+        "--name",
+        type=str,
+        metavar="PATH",
+        help="Workspace path (e.g. /Shared/team/traces). Created if missing unless --no-create.",
+    )
+    _create_exp_ident_group.add_argument(
+        "--id",
+        type=str,
+        metavar="ID",
+        help="Numeric experiment id. Fetched (not created).",
+    )
+    create_experiment_parser.add_argument(
+        "--no-create",
+        action="store_true",
+        help="With --name: fail instead of creating when the experiment is missing.",
+    )
+    create_experiment_parser.add_argument(
+        "-p",
+        "--profile",
+        type=str,
+        help="Databricks profile to use for authentication.",
+    )
+    create_experiment_parser.add_argument(
+        "-o",
+        "--output",
+        choices=["text", "json"],
+        default="text",
+        help="Output format (default: text).",
+    )
+
     # Graph command
     graph_parser: ArgumentParser = subparsers.add_parser(
         "graph",
@@ -1077,6 +1133,48 @@ def handle_chat_command(options: Namespace) -> None:
 def handle_schema_command(options: Namespace) -> None:
     logger.debug("Generating JSON schema...")
     print(json.dumps(AppConfig.model_json_schema(), indent=2))
+
+
+def handle_create_experiment_command(options: Namespace) -> None:
+    """Create (or resolve) an MLflow experiment and print its metadata."""
+    _apply_profile_context(options.profile)
+
+    from dao_ai.config import ExperimentModel
+    from dao_ai.providers.databricks import DatabricksProvider
+
+    kwargs: dict[str, Any] = {"create_if_not_exists": not options.no_create}
+    if options.name:
+        kwargs["name"] = options.name
+    if options.id:
+        kwargs["id"] = options.id
+
+    try:
+        experiment_model = ExperimentModel(**kwargs)
+        provider = DatabricksProvider()
+        experiment = provider.create_experiment(experiment_model)
+    except Exception as e:
+        logger.error(f"Failed to create/resolve experiment: {e}")
+        sys.exit(1)
+
+    if options.output == "json":
+        print(
+            json.dumps(
+                {
+                    "experiment_id": experiment.experiment_id,
+                    "name": experiment.name,
+                    "artifact_location": experiment.artifact_location,
+                    "lifecycle_stage": experiment.lifecycle_stage,
+                    "creation_time": experiment.creation_time,
+                    "last_update_time": experiment.last_update_time,
+                },
+                indent=2,
+            )
+        )
+    else:
+        print(f"experiment_id:     {experiment.experiment_id}")
+        print(f"name:              {experiment.name}")
+        print(f"artifact_location: {experiment.artifact_location}")
+        print(f"lifecycle_stage:   {experiment.lifecycle_stage}")
 
 
 def handle_graph_command(options: Namespace) -> None:
@@ -1967,6 +2065,8 @@ def main() -> None:
             handle_version_command(options)
         case "schema":
             handle_schema_command(options)
+        case "create-experiment":
+            handle_create_experiment_command(options)
         case "validate":
             handle_validate_command(options)
         case "graph":

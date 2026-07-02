@@ -869,6 +869,21 @@ app:
 
   endpoint_name: commerce_super_dao
 
+  # Pin the runtime identity for MLflow tracing writes — auto-populates
+  # DATABRICKS_CLIENT_ID / DATABRICKS_CLIENT_SECRET on the deployed endpoint
+  # from the referenced secrets. dao-ai auto-grants this SP CAN_EDIT on the
+  # MLflow experiment + UC OTEL table SELECT+MODIFY at deploy time (unless
+  # ``manage_permissions: false``). Independent of the bespoke
+  # RETAIL_AI_DATABRICKS_CLIENT_ID/SECRET env vars below, which the Lakebase
+  # OAuth minting code reads at request time.
+  service_principal:
+    client_id:
+      scope: retail_consumer_goods
+      secret: RETAIL_AI_DATABRICKS_CLIENT_ID
+    client_secret:
+      scope: retail_consumer_goods
+      secret: RETAIL_AI_DATABRICKS_CLIENT_SECRET
+
   # MLflow trace persistence on Databricks Apps requires trace_location — Apps
   # containers cannot reach the default control-plane trace storage host
   # (us-east-1.storage.cloud.databricks.com). Routing exports through a SQL
