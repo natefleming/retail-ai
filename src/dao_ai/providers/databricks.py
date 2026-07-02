@@ -331,7 +331,87 @@ def _link_experiment_trace_location(config: AppConfig, experiment_id: str) -> No
             raise
 
 
-def _grant_trace_permissions_to_principal(
+def _grant_experiment_permissions_to_principal(
+    principal: str,
+    experiment_id: str,
+) -> None:
+    """Grant a service principal ``CAN_EDIT`` on an MLflow experiment.
+
+    MLflow's tracing writer refuses ``set_experiment(experiment_id=...)``
+    — and thus any subsequent trace write — unless the calling identity
+    has at least ``CAN_READ`` on the experiment. Traces are writes, so
+    we grant ``CAN_EDIT``. Without this the boot-time
+    ``mlflow.set_experiment`` call in ``apps/model_serving.py`` crashes
+    with ``PERMISSION_DENIED: User <sp> does not have permission to
+    'View' experiment with id <id>``.
+
+    Independent of Unity Catalog — required for any tracing writes,
+    UC-backed or workspace-default alike.
+
+    Uses ``PATCH /api/2.0/permissions/experiments/<id>`` which appends
+    an ACL entry rather than replacing (verified against fevm). Prefers
+    the typed SDK ``w.experiments.update_permissions`` when available,
+    falling back to the raw REST call otherwise. Idempotent — repeated
+    calls with the same principal + permission_level are a no-op.
+
+    WARN-and-continue on failure so a deployer without ``CAN_MANAGE``
+    on the experiment can still ship — the runtime will surface the
+    misconfiguration at boot if the pre-provisioned grants are missing.
+
+    Args:
+        principal: Service principal client id (UUID) to grant.
+        experiment_id: MLflow experiment id (numeric string).
+    """
+    from databricks.sdk import WorkspaceClient
+
+    w = WorkspaceClient()
+
+    try:
+        try:
+            from databricks.sdk.service.ml import (
+                ExperimentAccessControlRequest,
+                ExperimentPermissionLevel,
+            )
+
+            w.experiments.update_permissions(
+                experiment_id=experiment_id,
+                access_control_list=[
+                    ExperimentAccessControlRequest(
+                        service_principal_name=principal,
+                        permission_level=ExperimentPermissionLevel.CAN_EDIT,
+                    )
+                ],
+            )
+        except (ImportError, AttributeError):
+            w.api_client.do(
+                "PATCH",
+                f"/api/2.0/permissions/experiments/{experiment_id}",
+                body={
+                    "access_control_list": [
+                        {
+                            "service_principal_name": principal,
+                            "permission_level": "CAN_EDIT",
+                        }
+                    ]
+                },
+            )
+        logger.debug(
+            "Granted CAN_EDIT on experiment",
+            principal=principal,
+            experiment_id=experiment_id,
+        )
+    except Exception as e:
+        logger.warning(
+            "Failed to grant experiment ACL — verify the calling identity has "
+            "CAN_MANAGE on the experiment, or set app.manage_permissions=false "
+            "when the admin has already provisioned this grant",
+            principal=principal,
+            experiment_id=experiment_id,
+            error=str(e),
+        )
+
+
+def _grant_uc_trace_table_permissions_to_principal(
     principal: str,
     catalog_name: str,
     schema_name: str,
@@ -355,6 +435,11 @@ def _grant_trace_permissions_to_principal(
     and after ``apps.create_and_wait`` (Databricks Apps), passing the
     endpoint or app service principal identifier. Idempotent — repeated
     calls with the same grants no-op on the UC side.
+
+    Complementary to :func:`_grant_experiment_permissions_to_principal`
+    — the experiment ACL grant is required for any tracing writes; this
+    UC helper is only needed when the experiment's trace destination is
+    a UC catalog.schema (``trace_location`` is set).
 
     Args:
         principal: The UC principal identifier to grant to. For a
@@ -556,11 +641,31 @@ class DatabricksProvider(ServiceProvider):
         self._dfs_initialized = True
 
     def experiment_name(self, config: AppConfig) -> str:
+        """Resolve the experiment path from ``app.experiment.name``, or
+        fall back to ``/Users/<deployer_email>/<app.name>`` when not set.
+
+        The id-based ``app.experiment.id`` branch never lands here — it
+        short-circuits ``get_or_create_experiment`` directly.
+        """
+        if config.app.experiment is not None and config.app.experiment.resolved_name:
+            return config.app.experiment.resolved_name
         current_user: User = self.w.current_user.me()
         name: str = config.app.name
         return f"/Users/{current_user.user_name}/{name}"
 
     def get_or_create_experiment(self, config: AppConfig) -> Experiment:
+        """Resolve to an MLflow ``Experiment``.
+
+        * ``app.experiment`` set → delegate to ``self.create_experiment``
+          (id takes precedence; name resolved lazily with optional create,
+          per the dao-ai ``Model.create(w)`` convention).
+        * otherwise → fall back to the historical default
+          ``/Users/<deployer_email>/<app.name>`` with restore-if-deleted,
+          create-if-missing.
+        """
+        if config.app.experiment is not None:
+            return self.create_experiment(config.app.experiment)
+
         experiment_name: str = self.experiment_name(config)
         experiment: Experiment | None = mlflow.get_experiment_by_name(experiment_name)
 
@@ -968,18 +1073,22 @@ class DatabricksProvider(ServiceProvider):
 
         tags_kw: dict[str, str] | None = None if serving_exists else tags
 
-        # Link experiment to UC trace location BEFORE agents.deploy. The
-        # logged model's auth_policy declares the OTEL trace tables as
-        # databricks_resources (via TraceLocationModel.as_resources()), and
-        # agents.deploy validates the resource list when it calls
-        # generate-temporary-credentials on the model version. If the OTEL
-        # tables don't exist yet, that lookup returns TABLE_DOES_NOT_EXIST
-        # and agents.deploy aborts. Idempotent re-link — create_agent
-        # normally handles this first, but re-deploys that skip create_agent
-        # still need the setup.
+        # Resolve the MLflow experiment ONCE — used for:
+        #   1. injecting ``MLFLOW_EXPERIMENT_ID`` into env_vars (symmetric
+        #      with ``DATABRICKS_CLIENT_ID/SECRET`` — always set at deploy
+        #      time so the boot code in apps/model_serving.py can find it)
+        #   2. linking to UC trace_location (if configured)
+        #   3. granting experiment CAN_EDIT + UC table perms to the SP
+        experiment: Experiment = self.get_or_create_experiment(config)
+        experiment_id: str = str(experiment.experiment_id)
+        environment_vars.setdefault("MLFLOW_EXPERIMENT_ID", experiment_id)
+
+        # Link experiment to UC trace location BEFORE agents.deploy — the
+        # tracing writer expects the four OTEL tables to exist at endpoint
+        # boot. Idempotent; no-op if the experiment already has a UC trace
+        # destination linked.
         if config.app.trace_location:
-            experiment: Experiment = self.get_or_create_experiment(config)
-            _link_experiment_trace_location(config, experiment.experiment_id)
+            _link_experiment_trace_location(config, experiment_id)
 
         max_attempts: int = 6
         for attempt in range(1, max_attempts + 1):
@@ -1044,23 +1153,44 @@ class DatabricksProvider(ServiceProvider):
                 error=str(e),
             )
 
-        # MS trace persistence is an unresolved Databricks platform gap
-        # (see TraceLocationModel.as_resources docstring): the endpoint's
-        # runtime system SP is not exposed by any API and is not
-        # grantable via UC, and DATABRICKS_CLIENT_ID/SECRET env vars are
-        # stripped by the platform. Surface a WARN at deploy time so
-        # users know traces will silently drop on this target — deploy
-        # to Databricks Apps instead when trace persistence is required.
-        if config.app.trace_location:
-            logger.warning(
-                "trace_location is configured, but MLflow trace persistence "
-                "from Model Serving endpoints created via agents.deploy is "
-                "an unresolved Databricks platform gap — traces will not "
-                "appear in the UC OTEL tables from this endpoint. Deploy "
-                "to Databricks Apps if trace persistence is required. See "
-                "TraceLocationModel.as_resources for details.",
-                endpoint_name=endpoint_name,
-            )
+        # Grant the runtime SP the permissions MLflow tracing needs.
+        # Same two-path pattern as deploy_apps_agent — experiment ACL
+        # is gated on SP alone (needed for any tracing writes), UC table
+        # grants are additionally gated on trace_location. Both are
+        # gated on ``manage_permissions`` so a deployer without GRANT
+        # rights can opt out and rely on admin pre-provisioning.
+        #
+        # For Model Serving the SP is the caller-declared one from
+        # ``config.app.service_principal.client_id`` (resolved into
+        # ``DATABRICKS_CLIENT_ID`` on the endpoint). Contrast with Apps,
+        # where the SP is auto-generated by the platform.
+        if config.app.manage_permissions and config.app.service_principal is not None:
+            try:
+                sp_id: str = str(value_of(config.app.service_principal.client_id))
+                _grant_experiment_permissions_to_principal(
+                    principal=sp_id,
+                    experiment_id=experiment_id,
+                )
+                if config.app.trace_location:
+                    table_prefix: str = _resolve_trace_table_prefix(
+                        config,
+                        None
+                        if config.app.trace_location.resolved_table_prefix
+                        else experiment_id,
+                    )
+                    _grant_uc_trace_table_permissions_to_principal(
+                        principal=sp_id,
+                        catalog_name=config.app.trace_location.catalog_name,
+                        schema_name=config.app.trace_location.schema_name,
+                        table_prefix=table_prefix,
+                    )
+            except Exception as e:
+                logger.warning(
+                    "Failed to grant trace-persistence privileges to Model "
+                    "Serving SP",
+                    endpoint_name=endpoint_name,
+                    error=str(e),
+                )
 
         permissions: Sequence[dict[str, Any]] = config.app.permissions
 
@@ -1661,16 +1791,17 @@ class DatabricksProvider(ServiceProvider):
             )
             raise RuntimeError(f"App deployment failed: {status_message}")
 
-        # Grant the app's SP the UC privileges MLflow tracing needs.
-        # Same rationale as deploy_model_serving_agent: ``ALL_PRIVILEGES``
-        # inherited via workspace groups is not sufficient for OTEL trace
-        # tables per the docs; ``MODIFY`` + ``SELECT`` on each table must
-        # be explicit. In the common FEVM setup this is a no-op because
-        # the App SP already inherits schema-level ``ALL_PRIVILEGES``,
-        # but customer workspaces without that inheritance previously
-        # required a manual GRANT (see the note that used to sit at
-        # ``apps/resources.py:_extract_raw_trace_location_resources``).
-        if config.app.trace_location:
+        # Grant the App's runtime SP the permissions MLflow tracing needs.
+        # Two independent grant paths, gated separately:
+        #   1. Experiment CAN_EDIT — required for any tracing writes
+        #      (workspace-default OR UC-backed). Gate: SP known.
+        #   2. UC OTEL-table SELECT+MODIFY — only needed when the
+        #      experiment's trace destination is a UC schema. Gate:
+        #      trace_location set.
+        # Both are additionally gated on ``config.app.manage_permissions``
+        # so a deployer without GRANT rights can skip the attempt when
+        # an admin has pre-provisioned everything.
+        if config.app.manage_permissions:
             try:
                 # Refresh App to pick up the assigned SP identifier.
                 fresh_app: App = self.w.apps.get(name=app_name)
@@ -1678,34 +1809,41 @@ class DatabricksProvider(ServiceProvider):
                     fresh_app.service_principal_client_id
                     or fresh_app.service_principal_id
                 )
-                if sp_id:
-                    # Resolve the trace-table prefix. Prefer the explicit
-                    # trace_location.table_prefix if set; otherwise fall
-                    # back to the linked experiment's ID (MLflow's
-                    # default when UnityCatalog is constructed without a
-                    # prefix). Only fetch the experiment when we need it.
-                    experiment_id_for_prefix: Optional[str] = (
-                        None
-                        if config.app.trace_location.resolved_table_prefix
-                        else str(self.get_or_create_experiment(config).experiment_id)
-                    )
-                    _grant_trace_permissions_to_principal(
-                        principal=str(sp_id),
-                        catalog_name=config.app.trace_location.catalog_name,
-                        schema_name=config.app.trace_location.schema_name,
-                        table_prefix=_resolve_trace_table_prefix(
-                            config, experiment_id_for_prefix
-                        ),
-                    )
-                else:
+                if not sp_id:
                     logger.warning(
                         "Could not resolve App SP identity; "
-                        "trace-persistence UC grants skipped.",
+                        "trace-persistence grants skipped.",
                         app_name=app_name,
                     )
+                else:
+                    experiment: Experiment = self.get_or_create_experiment(config)
+                    experiment_id: str = str(experiment.experiment_id)
+
+                    _grant_experiment_permissions_to_principal(
+                        principal=str(sp_id),
+                        experiment_id=experiment_id,
+                    )
+
+                    if config.app.trace_location:
+                        # Resolve the trace-table prefix — prefer explicit
+                        # ``trace_location.table_prefix``, else fall back
+                        # to experiment_id (MLflow's default when
+                        # ``UnityCatalog(table_prefix=None)``).
+                        table_prefix: str = _resolve_trace_table_prefix(
+                            config,
+                            None
+                            if config.app.trace_location.resolved_table_prefix
+                            else experiment_id,
+                        )
+                        _grant_uc_trace_table_permissions_to_principal(
+                            principal=str(sp_id),
+                            catalog_name=config.app.trace_location.catalog_name,
+                            schema_name=config.app.trace_location.schema_name,
+                            table_prefix=table_prefix,
+                        )
             except Exception as e:
                 logger.warning(
-                    "Failed to grant trace-persistence UC privileges to App SP",
+                    "Failed to grant trace-persistence privileges to App SP",
                     app_name=app_name,
                     error=str(e),
                 )
@@ -1743,6 +1881,57 @@ class DatabricksProvider(ServiceProvider):
             logger.info("Creating catalog", catalog_name=schema.catalog_name)
             catalog_info = self.w.catalogs.create(name=schema.catalog_name)
         return catalog_info
+
+    def create_experiment(
+        self, experiment: "ExperimentModel"
+    ) -> Experiment:
+        """Resolve an ``ExperimentModel`` to a live MLflow ``Experiment``,
+        creating the experiment if only ``name`` was provided and it does
+        not exist yet.
+
+        Precedence:
+
+        * ``experiment.id`` set → fetch by id via
+          ``mlflow.get_experiment(id)``. No create attempted; errors if
+          the id is invalid.
+        * ``experiment.id`` unset, ``experiment.name`` set →
+          ``get_experiment_by_name(name)``. When missing, create iff
+          ``experiment.create_if_not_exists`` is True (default), else
+          raise so the deployer knows to ask an admin.
+
+        Idempotent — caches on ``experiment._resolved``. Populates
+        ``experiment.id`` when it was inferred from ``name`` so
+        subsequent calls short-circuit through the id-branch.
+        """
+        if experiment._resolved and experiment.id is not None:
+            return mlflow.get_experiment(str(value_of(experiment.id)))
+
+        if experiment.id is not None:
+            experiment_id = str(value_of(experiment.id))
+            experiment._resolved = True
+            return mlflow.get_experiment(experiment_id)
+
+        # id is None → look up by name, optionally create
+        assert experiment.name is not None  # invariant of require_name_or_id
+        name = value_of(experiment.name)
+        exp = mlflow.get_experiment_by_name(name)
+        if exp is None:
+            if not experiment.create_if_not_exists:
+                raise ValueError(
+                    f"MLflow experiment '{name}' does not exist and "
+                    "create_if_not_exists=False. Ask an admin to provision "
+                    "the experiment, or set create_if_not_exists=True."
+                )
+            experiment_id = mlflow.create_experiment(name=name)
+            logger.info(
+                "Created MLflow experiment",
+                experiment_name=name,
+                experiment_id=experiment_id,
+            )
+            exp = mlflow.get_experiment(experiment_id)
+        experiment.id = str(exp.experiment_id)
+        experiment._resolved = True
+        return exp
 
     def create_schema(self, schema: SchemaModel) -> SchemaInfo:
         catalog_info: CatalogInfo = self.create_catalog(schema)

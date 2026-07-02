@@ -7235,6 +7235,96 @@ class TraceLocationModel(BaseModel):
         return []
 
 
+class ExperimentModel(BaseModel):
+    """Reference an MLflow experiment by name and/or id.
+
+    Mirrors the ``WarehouseModel`` idiom (`config.py:1310`): both ``name``
+    and ``id`` are optional but at least one is required. Actual resolution
+    is lazy — the id-from-name lookup (and optional create) happens in
+    :meth:`ensure_resolved`, not at config-load time, so this model is safe
+    to construct in environments without an active MLflow client.
+
+    Precedence:
+        * ``id`` wins when both are set — used directly, no MLflow lookup.
+        * ``name`` triggers ``mlflow.get_experiment_by_name(name)``; if
+          missing and ``create_if_not_exists`` is True (default), the
+          experiment is created and its id captured back into ``self.id``.
+
+    Independent of ``service_principal`` and ``trace_location`` — any
+    combination of the three is a valid config. When ``AppModel.experiment``
+    is omitted entirely, dao-ai falls back to the historical default:
+    ``/Users/<deployer_email>/<app.name>`` (create-if-missing).
+    """
+
+    model_config = ConfigDict(use_enum_values=True, extra="forbid")
+
+    name: Optional[AnyVariable] = Field(
+        default=None,
+        description=(
+            "Full workspace path of the MLflow experiment "
+            "(e.g. ``/Shared/team/agent_traces``). When ``id`` is unset, "
+            "dao-ai resolves the id from this name at deploy time — "
+            "creating the experiment if missing (see ``create_if_not_exists``)."
+        ),
+    )
+    id: Optional[AnyVariable] = Field(
+        default=None,
+        description=(
+            "Numeric MLflow experiment id. When set, takes precedence over "
+            "``name`` and is used verbatim (no MLflow lookup, no create). "
+            "Use when an admin has pre-provisioned + linked the experiment "
+            "and the deployer knows the id."
+        ),
+    )
+    create_if_not_exists: bool = Field(
+        default=True,
+        description=(
+            "When True (default), ``ensure_resolved()`` creates the "
+            "experiment at ``name`` when ``id`` is unset and the name "
+            "does not resolve. Set to False when an admin has already "
+            "provisioned the experiment and the deployer lacks create "
+            "rights on the parent workspace path."
+        ),
+    )
+
+    _resolved: bool = PrivateAttr(default=False)
+
+    @model_validator(mode="after")
+    def require_name_or_id(self) -> Self:
+        if self.name is None and self.id is None:
+            raise ValueError(
+                "ExperimentModel: at least one of 'name' or 'id' must be set."
+            )
+        return self
+
+    @property
+    def resolved_name(self) -> Optional[str]:
+        return value_of(self.name) if self.name is not None else None
+
+    @property
+    def resolved_id(self) -> Optional[str]:
+        return str(value_of(self.id)) if self.id is not None else None
+
+    def create(self, w: WorkspaceClient | None = None) -> None:
+        """Ensure the referenced MLflow experiment exists and ``self.id``
+        is populated.
+
+        Matches the dao-ai ``Model.create(w)`` convention (see
+        ``SchemaModel.create`` / ``VolumeModel.create``): fire-and-forget
+        wrapper that delegates to the provider. Idempotent — repeated
+        calls after the first no-op.
+
+        Callers that need the resolved ``mlflow.entities.Experiment``
+        object should use :meth:`DatabricksProvider.create_experiment`
+        (or call ``mlflow.get_experiment(self.resolved_id)`` after this
+        returns).
+        """
+        from dao_ai.providers.databricks import DatabricksProvider
+
+        provider = DatabricksProvider(w=w)
+        provider.create_experiment(self)
+
+
 class BackgroundModel(BaseModel):
     """Opt-in background agent configuration.
 
@@ -7608,6 +7698,28 @@ class AppModel(BaseModel):
         "``mlflow.set_experiment(trace_location=UnityCatalog(...))`` is called at startup "
         "and at deploy time for both Model Serving and Databricks Apps deployments.",
     )
+    experiment: Optional[ExperimentModel] = Field(
+        default=None,
+        description=(
+            "Reference an existing MLflow experiment by name or id. "
+            "Independent of ``service_principal`` and ``trace_location`` — "
+            "any combination is a valid config. When omitted, dao-ai uses "
+            "``/Users/<deployer_email>/<app.name>`` (create-if-missing). "
+            "When set, ``MLFLOW_EXPERIMENT_ID`` is injected on the "
+            "deployed workload — from ``experiment.id`` when explicit, or "
+            "resolved via ``experiment.name`` at deploy time."
+        ),
+    )
+    manage_permissions: bool = Field(
+        default=True,
+        description=(
+            "When True (default), dao-ai attempts UC and MLflow-experiment "
+            "grants on the runtime service principal at deploy time. Set "
+            "to False when an admin has already provisioned the SP + "
+            "experiment + all grants and the deployer lacks GRANT rights "
+            "— avoids noisy 403 warnings during deploy."
+        ),
+    )
     monitoring: Optional[MonitoringModel] = Field(
         default=None,
         description="Production monitoring configuration. When present, scorers are "
@@ -7634,41 +7746,49 @@ class AppModel(BaseModel):
 
     @model_validator(mode="after")
     def set_databricks_env_vars(self) -> Self:
-        """Set Databricks environment variables for Model Serving.
+        """Set Databricks environment variables for Model Serving / Apps.
 
-        Sets DATABRICKS_HOST, DATABRICKS_CLIENT_ID, DATABRICKS_CLIENT_SECRET,
-        and OTEL trace destination env vars when trace_location is configured.
-        Values explicitly provided in environment_vars take precedence.
+        Each field triggers its own env-var injection independently — SP,
+        experiment, and trace_location are three separate concerns and any
+        combination is a valid config. Values already present in
+        ``environment_vars`` are preserved (setdefault semantics).
+
+        * ``service_principal`` → ``DATABRICKS_CLIENT_ID`` / ``DATABRICKS_CLIENT_SECRET``.
+        * ``experiment.id`` → ``MLFLOW_EXPERIMENT_ID`` (only when id is
+          explicit at config-load; the ``name`` and auto-derive cases are
+          resolved at deploy time in ``deploy_*_agent``).
+        * ``trace_location`` → ``MLFLOW_TRACING_DESTINATION`` /
+          ``MLFLOW_TRACING_SQL_WAREHOUSE_ID``.
         """
         from dao_ai.utils import get_default_databricks_host
 
-        # Set DATABRICKS_HOST if not already provided
         if "DATABRICKS_HOST" not in self.environment_vars:
             host: str | None = get_default_databricks_host()
             if host:
                 self.environment_vars["DATABRICKS_HOST"] = host
 
-        # Set service principal credentials if provided
         if self.service_principal is not None:
-            if "DATABRICKS_CLIENT_ID" not in self.environment_vars:
-                self.environment_vars["DATABRICKS_CLIENT_ID"] = (
-                    self.service_principal.client_id
-                )
-            if "DATABRICKS_CLIENT_SECRET" not in self.environment_vars:
-                self.environment_vars["DATABRICKS_CLIENT_SECRET"] = (
-                    self.service_principal.client_secret
-                )
+            self.environment_vars.setdefault(
+                "DATABRICKS_CLIENT_ID", self.service_principal.client_id
+            )
+            self.environment_vars.setdefault(
+                "DATABRICKS_CLIENT_SECRET", self.service_principal.client_secret
+            )
 
-        # Set OTEL trace destination env vars when trace_location is configured
+        if self.experiment is not None and self.experiment.resolved_id:
+            self.environment_vars.setdefault(
+                "MLFLOW_EXPERIMENT_ID", self.experiment.resolved_id
+            )
+
         if self.trace_location is not None:
-            if "MLFLOW_TRACING_DESTINATION" not in self.environment_vars:
-                self.environment_vars["MLFLOW_TRACING_DESTINATION"] = (
-                    f"{self.trace_location.catalog_name}.{self.trace_location.schema_name}"
-                )
-            if "MLFLOW_TRACING_SQL_WAREHOUSE_ID" not in self.environment_vars:
-                self.environment_vars["MLFLOW_TRACING_SQL_WAREHOUSE_ID"] = (
-                    self.trace_location.warehouse_id
-                )
+            self.environment_vars.setdefault(
+                "MLFLOW_TRACING_DESTINATION",
+                f"{self.trace_location.catalog_name}.{self.trace_location.schema_name}",
+            )
+            self.environment_vars.setdefault(
+                "MLFLOW_TRACING_SQL_WAREHOUSE_ID",
+                self.trace_location.warehouse_id,
+            )
         return self
 
     @model_validator(mode="after")

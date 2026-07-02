@@ -716,13 +716,11 @@ app:
     name: hardware_store_dao
   endpoint_name: hardware_store_dao                    # Model serving endpoint name
 
-  # Stage-1 diagnostic (MS-trace-persistence investigation). Declaring an
-  # SP here triggers AppModel.set_databricks_env_vars to auto-populate
+  # Pin the runtime identity for MLflow tracing writes (auto-populates
   # DATABRICKS_CLIENT_ID / DATABRICKS_CLIENT_SECRET on the deployed
-  # endpoint from the referenced secrets. Combined with trace_location
-  # below, this is the exact env-var contract the official docs recommend
-  # for writing MS traces to UC (docs.databricks.com/aws/en/mlflow3/genai/
-  # tracing/trace-unity-catalog#write-traces-from-a-model-serving-endpoint).
+  # endpoint from the referenced secrets). Required for writing MS
+  # traces to UC — see docs.databricks.com/aws/en/mlflow3/genai/
+  # tracing/trace-unity-catalog#write-traces-from-a-model-serving-endpoint
   service_principal:
     client_id:
       scope: retail_consumer_goods
@@ -731,20 +729,23 @@ app:
       scope: retail_consumer_goods
       secret: RETAIL_AI_DATABRICKS_CLIENT_SECRET
 
-  # trace_location temporarily disabled for Stage 1 — the current
-  # experiment (id=1952423719449237) has pre-existing non-UC traces
-  # from yesterday's deploys, and MLflow won't re-link a UC trace
-  # destination onto an experiment that already contains traces.
-  # Stage 1 only needs the SP-env-var round-trip, which trace_location
-  # doesn't affect.
-  # trace_location:
-  #   schema: *retail_schema
-  #   warehouse: ${var.warehouse_id}
+  # Point at the existing MLflow experiment by id (admin-provisioned +
+  # UC-linked). dao-ai skips create in get_or_create_experiment and
+  # injects MLFLOW_EXPERIMENT_ID at config-load time via the validator.
+  experiment:
+    id: "1952423719449237"
 
-  environment_vars:
-    # Enable the in-model + post-deploy env-var reflection diagnostics
-    # (dao_ai.diagnostics.is_enabled). Toggle off after the investigation.
-    DAO_AI_TRACE_ENV_DUMP: "1"
+  # Optional: set to false when an admin has already granted the SP the
+  # required UC + experiment permissions, and the deployer lacks GRANT
+  # rights. Default true — dao-ai attempts both grants at deploy time.
+  # manage_permissions: false
+
+  # UC destination for MLflow trace persistence — materializes four OTEL
+  # Delta tables at <catalog>.<schema>.<experiment_id>_otel_{spans,logs,
+  # metrics,annotations} on first deploy.
+  trace_location:
+    schema: *retail_schema
+    warehouse: ${var.warehouse_id}
 
   tags:                                             # Tags for resource organization
     business: rcg                                   # Business unit identifier

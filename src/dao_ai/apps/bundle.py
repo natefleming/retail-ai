@@ -353,6 +353,19 @@ def _build_app_block(
         else True
     )
 
+    # The experiment is ALWAYS bound as an App resource named "experiment"
+    # (see below). ``MLFLOW_EXPERIMENT_ID`` is uniformly sourced from that
+    # binding via ``value_from: experiment`` — DABs resolves it to the
+    # bundle-declared experiment's id (auto-derived default case) or to
+    # the literal id we set on the resource (``experiment`` configured
+    # case). When ``config.app.experiment`` is set we call ``.create(w)``
+    # here to populate ``id`` from ``name`` if needed (creating the
+    # experiment via ``DatabricksProvider.create_experiment`` when
+    # permitted), then use the resolved id verbatim on the app resource.
+    _external_experiment_id: str | None = None
+    if config.app.experiment is not None:
+        config.app.experiment.create()
+        _external_experiment_id = config.app.experiment.resolved_id
     env_vars: list[dict[str, str]] = [
         {"name": "MLFLOW_TRACKING_URI", "value": "databricks"},
         {"name": "MLFLOW_REGISTRY_URI", "value": "databricks-uc"},
@@ -417,14 +430,36 @@ def _build_app_block(
             )
         )
 
+    # Always bind the experiment as an App resource so the runtime SP can
+    # read/write traces to it via auto-auth. Two variants:
+    #   * external ``experiment.id`` set → bind by literal id (admin
+    #     provisioned the experiment; nothing to declare in
+    #     ``experiments_block``). Requested permission downgrades to
+    #     CAN_READ when ``manage_permissions=false``, since the deployer
+    #     may lack GRANT rights on an admin-owned experiment.
+    #   * otherwise (``experiment.name`` or auto-derived) → declare in
+    #     ``experiments_block`` and bind via ``${resources.experiments.<key>.id}``
+    #     so DABs materializes + grants CAN_EDIT to the App SP.
     experiment_key: str = f"{app_name}-experiment"
-    experiment_app_resource: dict[str, Any] = {
-        "name": "experiment",
-        "experiment": {
-            "experiment_id": f"${{resources.experiments.{experiment_key}.id}}",
-            "permission": "CAN_EDIT",
-        },
-    }
+    if _external_experiment_id:
+        _experiment_permission: str = (
+            "CAN_EDIT" if config.app.manage_permissions else "CAN_READ"
+        )
+        experiment_app_resource: dict[str, Any] = {
+            "name": "experiment",
+            "experiment": {
+                "experiment_id": _external_experiment_id,
+                "permission": _experiment_permission,
+            },
+        }
+    else:
+        experiment_app_resource = {
+            "name": "experiment",
+            "experiment": {
+                "experiment_id": f"${{resources.experiments.{experiment_key}.id}}",
+                "permission": "CAN_EDIT",
+            },
+        }
     bundle_resources.insert(0, experiment_app_resource)
 
     user_api_scopes = generate_user_api_scopes(config)
@@ -455,11 +490,23 @@ def _build_app_block(
     if config.app.space:
         app_def["space"] = config.app.space
 
-    experiments_block: dict[str, Any] = {
-        experiment_key: {
-            "name": f"/Users/${{workspace.current_user.userName}}/{app_name}",
-        },
-    }
+    # experiments_block sourcing:
+    #   - config.app.experiment set → we already resolved the id via
+    #     ``ensure_resolved`` above (creating from name if needed). The
+    #     experiment lives outside the bundle's lifecycle, so DABs
+    #     doesn't declare it — the app resource binding (below) points
+    #     at the resolved id literally.
+    #   - config.app.experiment omitted → declare
+    #     ``/Users/${workspace.current_user.userName}/<app_name>`` in the
+    #     bundle so DABs creates + owns it.
+    if _external_experiment_id:
+        experiments_block: dict[str, Any] = {}
+    else:
+        experiments_block = {
+            experiment_key: {
+                "name": f"/Users/${{workspace.current_user.userName}}/{app_name}",
+            },
+        }
     apps_block: dict[str, Any] = {
         app_name: app_def,
     }
@@ -588,7 +635,23 @@ def write_bundle(
     When development=True, copies the local dao-ai source into the bundle
     and generates a pyproject.toml that builds from local source instead of
     pulling dao-ai from PyPI.
+
+    Refuses to write into the dao-ai source repo root — the generator emits
+    a ``pyproject.toml`` with ``name = "<app_name>"`` and would silently
+    clobber the dao-ai project descriptor if the deployer accidentally ran
+    ``generate-bundle`` from inside a dao-ai checkout (the default
+    ``--output-dir`` is the CWD).
     """
+    resolved_output = output_dir.resolve()
+    if (resolved_output / "src" / "dao_ai" / "config.py").exists():
+        raise ValueError(
+            f"Refusing to write bundle into the dao-ai source repo "
+            f"({resolved_output}). ``generate-bundle`` would clobber the "
+            "dao-ai project's ``pyproject.toml``. Pass ``-o <path>`` to "
+            "target a fresh directory, e.g. "
+            "``dao-ai generate-bundle -c <config> -o ./bundle``."
+        )
+
     output_dir.mkdir(parents=True, exist_ok=True)
     app_name: str = config.app.name.lower().replace("_", "-")
     written: list[str] = []
