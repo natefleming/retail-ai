@@ -61,12 +61,9 @@ resources:
     sales_genie_room: &sales_genie_room
       name: "Retail Customer Sales Analysis"
       description: >
-        Customer, sales, and product analytics. Use for order-level and
-        product-level analysis including top-selling products, revenue by
-        product/category, pricing, order status, payment methods, and
-        inventory snapshots. Also covers customer segmentation by
-        demographics, geography, signup date, and loyalty tier, plus
-        purchasing patterns.
+        Customer, sales, and product analytics: order- and product-level
+        analysis, revenue by category, pricing, order status, inventory
+        snapshots, and customer segmentation by demographics and loyalty.
       space_id:
         env: SALES_GENIE_SPACE_ID
         default_value: 01f139d55de31350b6195b771c24faac
@@ -75,11 +72,9 @@ resources:
     logistics_genie_room: &logistics_genie_room
       name: "Logistics Operations and Tracking"
       description: >
-        Shipments, carriers, warehouse facilities, and package tracking events.
-        Use for carrier performance, transit times, delivery timelines,
-        shipment status, delay investigation, and warehouse network
-        capacity/geography. Does not cover order items, returns, damages,
-        inventory levels, or financials beyond shipping costs.
+        Shipments, carriers, warehouses, and package tracking events. Use
+        for carrier performance, transit times, delivery timelines, shipment
+        status, delay investigation, and warehouse network capacity.
       space_id:
         env: LOGISTICS_GENIE_SPACE_ID
         default_value: 01f139cf18d2194e8aa05ffec9c27b31

@@ -20,3 +20,14 @@ uv.lock:square-access-token:6189
 # credential). Introduced in the repo's initial commit; the config file
 # was later moved to config/examples/05_memory/.
 5c78b52d19d4bc63a6f7570e9ded40f551051033:config/examples/04_memory/postgres_persistence.yaml:postgres-connection-string:78
+
+# Placeholder connection-string template inside a Mermaid diagram in the
+# 05_memory README, illustrating the shape of the Unity Catalog secret
+# contents. Not a real credential. Both SHAs below carry the same line
+# (cherry-pick / rebase history).
+5977040684e41baf377581bdf6104403f7e8d4ea:config/examples/05_memory/README.md:postgres-connection-string:154
+5d33d1e95658694ec754b7cd660b71c6985961ed:config/examples/05_memory/README.md:postgres-connection-string:154
+
+# Synthetic connection-string used as a test fixture in a context-aware
+# cache test — literal `test:test@localhost/test`, not a real credential.
+cd92208c887a72e2da3e5a4fb2a86137658fe3d5:tests/dao_ai/test_context_aware_cache.py:postgres-connection-string:720
