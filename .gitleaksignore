@@ -14,3 +14,9 @@
 # is a content-addressed package hash, not a secret.
 uv.lock:square-access-token:6189
 696fd4bf191df78b669375cd8586dd779e3bc6b6:uv.lock:square-access-token:6189
+
+# Commented-out example db connection string template in a config file
+# (literal placeholder like ``user`` and ``password``, not a real
+# credential). Introduced in the repo's initial commit; the config file
+# was later moved to config/examples/05_memory/.
+5c78b52d19d4bc63a6f7570e9ded40f551051033:config/examples/04_memory/postgres_persistence.yaml:postgres-connection-string:78
