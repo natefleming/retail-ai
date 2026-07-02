@@ -2295,6 +2295,7 @@
         "description": {
           "anyOf": [
             {
+              "maxLength": 200,
               "type": "string"
             },
             {
@@ -4571,6 +4572,7 @@
         "description": {
           "anyOf": [
             {
+              "maxLength": 200,
               "type": "string"
             },
             {
@@ -5790,6 +5792,7 @@
         "description": {
           "anyOf": [
             {
+              "maxLength": 200,
               "type": "string"
             },
             {
@@ -9805,6 +9808,7 @@
         "description": {
           "anyOf": [
             {
+              "maxLength": 200,
               "type": "string"
             },
             {

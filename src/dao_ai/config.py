@@ -11,6 +11,7 @@ from typing import (
     TYPE_CHECKING,
     Any,
     Callable,
+    Final,
     Iterator,
     Literal,
     Mapping,
@@ -291,6 +292,12 @@ AnyVariable: TypeAlias = (
     | float
     | bool
 )
+
+
+APP_RESOURCE_DESCRIPTION_MAX_LENGTH: Final[int] = 200
+"""Max length for descriptions on IsDatabricksResource subclasses. Matches the
+Databricks Apps platform limit on ``AppResource.description``; overlong values
+are rejected at deploy time, so we reject at config-load time instead."""
 
 
 class ServicePrincipalModel(BaseModel):
@@ -948,6 +955,7 @@ class InferenceEndpointModel(IsDatabricksResource):
     )
     description: Optional[str] = Field(
         default=None,
+        max_length=APP_RESOURCE_DESCRIPTION_MAX_LENGTH,
         description="Human-readable description of this model configuration.",
     )
     temperature: Optional[float] = Field(
@@ -1316,6 +1324,7 @@ class WarehouseModel(IsDatabricksResource):
     )
     description: Optional[str] = Field(
         default=None,
+        max_length=APP_RESOURCE_DESCRIPTION_MAX_LENGTH,
         description="Human-readable description of this warehouse.",
     )
     warehouse_id: Optional[AnyVariable] = Field(
@@ -1659,6 +1668,7 @@ class GenieRoomModel(IsDatabricksResource, ManagedResource):
     )
     description: Optional[str] = Field(
         default=None,
+        max_length=APP_RESOURCE_DESCRIPTION_MAX_LENGTH,
         description="Description of the Genie room. Auto-populated from the space if omitted.",
     )
     space_id: Optional[AnyVariable] = Field(
@@ -3374,6 +3384,7 @@ class DatabaseModel(IsDatabricksResource):
     )
     description: Optional[str] = Field(
         default=None,
+        max_length=APP_RESOURCE_DESCRIPTION_MAX_LENGTH,
         description="Human-readable description of this database connection.",
     )
     host: Optional[AnyVariable] = Field(

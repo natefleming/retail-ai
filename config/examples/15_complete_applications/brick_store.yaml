@@ -188,10 +188,9 @@ resources:
     brickstore_genie_room: &brickstore_genie_room
       name: "Brick Store Operations Genie"
       description: >
-        Natural-language analytics over the brick_store catalog (products,
-        inventory, sales, appointments, employee performance, customer
-        feedback) for ad-hoc questions that don't map to a single SKU or
-        UPC lookup.
+        Natural-language analytics over the brick_store catalog for ad-hoc
+        questions across products, inventory, sales, appointments, employee
+        performance, and customer feedback.
       # space_id is populated by GenieRoomModel.create() during initial
       # provisioning. With it set, subsequent deploys reference the existing
       # space (update mode) instead of creating a new one.
