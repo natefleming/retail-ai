@@ -12,14 +12,17 @@ Tools:
 """
 
 import uuid
-from typing import Any, Literal
+from typing import Any, Literal, Optional
 
+from langchain.tools import ToolRuntime
 from langchain_core.tools import BaseTool, StructuredTool
 from langgraph.store.base import BaseStore
 from langmem import create_manage_memory_tool as langmem_create_manage_memory_tool
 from langmem import create_search_memory_tool as langmem_create_search_memory_tool
 from loguru import logger
 from pydantic import BaseModel, Field
+
+from dao_ai.state import AgentState, Context
 
 
 def create_search_memory_tool(
@@ -185,11 +188,33 @@ def create_search_user_profile_tool(
 
         user_id: str = Field(
             default="",
-            description="The user ID to look up. Leave empty to use the current user.",
+            description=(
+                "Optional user ID override. The current user is resolved "
+                "automatically from the runtime context — only pass this to "
+                "look up a different user's profile."
+            ),
         )
 
-    async def search_user_profile_wrapper(user_id: str = "") -> Any:
-        """Look up the current user's profile from long-term memory."""
+    async def search_user_profile_wrapper(
+        user_id: str = "",
+        runtime: Optional[ToolRuntime[Context, AgentState]] = None,
+    ) -> Any:
+        """Look up the current user's profile from long-term memory.
+
+        Resolution order for ``user_id``:
+
+        1. The LLM-supplied ``user_id`` argument when non-empty (override
+           for cross-user lookups).
+        2. ``runtime.context.user_id`` — the canonical authenticated
+           identity built once per request by the ResponsesAgent (sourced
+           from ``configurable.user_id`` or the ``x-forwarded-user``
+           header). This is the same value the other memory tools resolve
+           via langmem's ``NamespaceTemplate``.
+        3. Empty string (returns the "no profile" placeholder).
+        """
+        if not user_id and runtime is not None and runtime.context is not None:
+            user_id = runtime.context.user_id or ""
+
         resolved_ns: tuple[str, ...] = tuple(
             part.format(user_id=user_id) if "{user_id}" in part else part
             for part in namespace

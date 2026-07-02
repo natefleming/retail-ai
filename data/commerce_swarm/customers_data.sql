@@ -200,4 +200,9 @@ INSERT INTO customers (customer_id, email, first_name, last_name, customer_type,
   ('B0047', 'buyer46@sweettreatsbakerychain.example.com', 'B2B', 'Sweet Treats Bakery Chain #3', 'B2B', 'retail', DATE'2026-05-04', 'Minneapolis', 'MN', 'US', NULL, CURRENT_TIMESTAMP()),
   ('B0048', 'buyer47@bigskyfoodservice.example.com', 'B2B', 'Big Sky Foodservice #3', 'B2B', 'stadium', DATE'2024-09-06', 'Columbus', 'OH', 'US', NULL, CURRENT_TIMESTAMP()),
   ('B0049', 'buyer48@riverbendcountryclub.example.com', 'B2B', 'Riverbend Country Club #3', 'B2B', 'hospitality', DATE'2024-05-28', 'Charlotte', 'NC', 'US', NULL, CURRENT_TIMESTAMP()),
-  ('B0050', 'buyer49@lakesiderestaurantgroup.example.com', 'B2B', 'Lakeside Restaurant Group #3', 'B2B', 'foodservice', DATE'2025-09-05', 'Denver', 'CO', 'US', NULL, CURRENT_TIMESTAMP());
+  ('B0050', 'buyer49@lakesiderestaurantgroup.example.com', 'B2B', 'Lakeside Restaurant Group #3', 'B2B', 'foodservice', DATE'2025-09-05', 'Denver', 'CO', 'US', NULL, CURRENT_TIMESTAMP()),
+  -- Seed row matching the typical Databricks SSO short_name. The
+  -- lookup_customer_by_user_uc function matches either the full email or
+  -- its local part, so any deployer whose SSO short_name is "nate.fleming"
+  -- (e.g. nate.fleming@databricks.com) resolves to this record.
+  ('C0151', 'nate.fleming@databricks.com', 'Nate', 'Fleming', 'B2C', 'consumer', DATE'2026-06-30', 'Boulder', 'CO', 'US', 'platinum', CURRENT_TIMESTAMP());

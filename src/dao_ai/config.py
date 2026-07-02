@@ -6226,6 +6226,23 @@ class AgentModel(BaseModel):
             "self-reference, cycles in the requires DAG) runs at config-build time."
         ),
     )
+    is_terminal: bool = Field(
+        default=False,
+        description=(
+            "Marks this agent as a terminal node in the swarm pattern. When "
+            "True, the swarm runtime clears 'active_agent' after the agent "
+            "finishes a turn so the next user message restarts at the "
+            "swarm's default_agent instead of stickily resuming here. "
+            "An agent is also treated as terminal when its YAML 'handoffs' "
+            "entry is an explicit empty list ([]) — this flag is the way to "
+            "force terminal behavior on an agent that still has outbound "
+            "handoffs available (e.g. an agent whose LLM may or may not "
+            "invoke its handoff tools and which should always reset the "
+            "active agent between user turns). The supervisor pattern "
+            "ignores this field — supervisor orchestration restarts every "
+            "turn unconditionally."
+        ),
+    )
 
     @model_validator(mode="after")
     def validate_requires_no_self_reference(self) -> Self:
@@ -7080,26 +7097,30 @@ class MonitoringModel(BaseModel):
 class TraceLocationModel(BaseModel):
     """Unity Catalog location for storing MLflow traces in OTEL-format Delta tables.
 
-    When configured on AppModel, traces are stored in UC Delta tables via
+    When configured on ``AppModel``, traces are stored in UC Delta tables via
     ``mlflow.set_experiment(experiment_id=..., trace_location=UnityCatalog(...))``.
-    Provide an optional ``table_prefix`` to namespace the OTEL tables when
-    multiple agents share a single UC schema. Without a prefix, MLflow uses
-    the literal default ``mlflow_experiment_trace`` — table names become
-    ``<catalog>.<schema>.mlflow_experiment_trace_otel_{spans,logs,metrics,annotations}``
-    (see ``mlflow.entities.trace_location._UC_SCHEMA_DEFAULT_SPANS_TABLE_NAME``).
-    All experiments linked to the same schema with no prefix end up writing
-    to the same shared table set, distinguished by the ``experiment_id``
-    column inside the tables — convenient for cross-experiment analytics,
-    but ambiguous if you want per-app isolation. Set ``table_prefix`` to
-    namespace the tables per agent (e.g. ``table_prefix: sales_genie`` yields
-    ``<catalog>.<schema>.sales_genie_otel_spans``).
+    MLflow materializes four Delta tables per (schema, prefix) pair:
+    ``<catalog>.<schema>.<prefix>_otel_{spans,logs,metrics,annotations}``.
 
-    dao-ai does NOT include the OTEL trace tables in the model's auth_policy
-    or App resources list because the table names depend on the configured
-    ``table_prefix`` and aren't fully predictable at deploy time. Instead,
-    users grant the deployed serving identity USE_CATALOG + USE_SCHEMA +
-    SELECT + MODIFY on the trace schema as a one-time post-deploy step
-    (mirrors the Apps SP grant pattern documented in README).
+    When ``table_prefix`` is not explicitly set, MLflow falls back to the
+    ``experiment_id`` at runtime — producing a per-experiment table set
+    out of the box (e.g. ``2931483616868130_otel_spans``). Set
+    ``table_prefix`` to namespace tables when multiple experiments share
+    a single UC schema and you want each agent's traces in its own table
+    set (e.g. ``table_prefix: sales_genie`` yields
+    ``sales_genie_otel_spans``).
+
+    Deploy ordering:
+
+    1. ``_link_experiment_trace_location`` calls
+       ``mlflow.set_experiment(trace_location=UnityCatalog(...))``,
+       which materializes the four OTEL tables on the configured
+       warehouse (auto-starts STOPPED warehouses; waits up to 1200s).
+    2. ``build_auth_policy`` then includes the four tables in the
+       deployed model's ``SystemAuthPolicy.resources`` via
+       :meth:`as_resources`, so ``agents.deploy`` auto-grants the
+       Model Serving SP USE_CATALOG / USE_SCHEMA / SELECT / MODIFY
+       on each table — no manual post-deploy ``GRANT`` step required.
     """
 
     model_config = ConfigDict(
@@ -7185,23 +7206,31 @@ class TraceLocationModel(BaseModel):
         return resolved if resolved else None
 
     def as_resources(self) -> Sequence[DatabricksResource]:
-        """OTEL trace tables intentionally not declared in the auth_policy.
+        """OTEL trace tables intentionally NOT declared as auth_policy resources.
 
-        MLflow's ``UnityCatalog`` trace location creates table names based on
-        either ``table_prefix`` (when set) or the experiment_id (when not).
-        Neither is fully predictable at config-resolution time:
-        ``table_prefix`` may be an unresolved AnyVariable, and the
-        experiment_id is only assigned when the experiment is created at
-        deploy time. Declaring concrete table names in the auth_policy that
-        don't match what MLflow actually creates causes ``agents.deploy``'s
-        ``generate-temporary-credentials`` lookup to return
-        ``TABLE_DOES_NOT_EXIST`` and the deploy aborts.
+        MLflow trace persistence from Model Serving endpoints created via
+        ``agents.deploy`` is a known Databricks platform limitation:
 
-        Instead, dao-ai relies on schema-level grants to the deployed serving
-        identity (Model Serving) or App SP (Apps), granted as a one-time
-        post-deploy step. The grants give the runtime identity USE_CATALOG +
-        USE_SCHEMA + SELECT + MODIFY on the trace schema, which lets MLflow
-        create + write the OTEL tables at first trace export.
+        * The endpoint's runtime tracing writer uses the auto-generated
+          per-endpoint system SP for authentication.
+        * That SP is not exposed by any Databricks API and cannot be
+          granted UC permissions directly — the platform rejects the
+          grant.
+        * ``agents.deploy(resources=…)`` declarations trigger auto-auth
+          only for the inference-time ``generate-temporary-credentials``
+          path (vector-search reads, UC function calls, etc.) — not for
+          the tracing writer's static-credential path. Empirically
+          verified: declaring the OTEL tables as ``DatabricksTable``
+          resources does NOT propagate any grants to the tracing SP.
+
+        On Databricks Apps, trace persistence works — the App's runtime
+        SP is a normal user-visible SP (``fresh_app.service_principal_client_id``)
+        which dao-ai grants explicitly after ``apps.create_and_wait``
+        via ``_grant_trace_permissions_to_principal``.
+
+        Return ``[]`` here so nothing is added to the Model Serving
+        ``system_auth_policy.resources`` — declaring the tables would
+        add register-time overhead without helping trace persistence.
         """
         return []
 

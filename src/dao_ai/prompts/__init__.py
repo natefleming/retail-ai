@@ -123,6 +123,27 @@ def make_prompt(
                 if key in params and value is not None:
                     params[key] = value
 
+            # Implicit identity vars derived from the authenticated user_id.
+            # ``user_id`` on Context is normalized for memory-namespace
+            # compatibility (``.`` -> ``_``). When it looks email-shaped
+            # (contains ``@``) we reconstruct the raw email and its local
+            # part; otherwise the identifier is opaque (bare username,
+            # external system id, etc.) and we pass it through as the
+            # short name with no email form.
+            raw_user_id: str | None = getattr(context, "user_id", None)
+            if raw_user_id:
+                if "@" in raw_user_id:
+                    user_email: str | None = raw_user_id.replace("_", ".")
+                    user_short_name: str = user_email.split("@", 1)[0]
+                else:
+                    user_email = None
+                    user_short_name = raw_user_id
+                if "user_email" in params and not params["user_email"]:
+                    if user_email is not None:
+                        params["user_email"] = user_email
+                if "user_short_name" in params and not params["user_short_name"]:
+                    params["user_short_name"] = user_short_name
+
         # Format the prompt
         formatted_prompt: str = prompt_template.format(**params)
         logger.trace(

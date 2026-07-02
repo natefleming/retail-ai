@@ -1,24 +1,34 @@
 # yaml-language-server: $schema=../../../../schemas/model_config_schema.json
 
 # =============================================================================
-# COMMERCE SWARM — LangGraph Commerce Agent (B2B + B2C)
+# COMMERCE SUPERVISOR — LangGraph Commerce Agent (B2B + B2C)
 # =============================================================================
-# Reference implementation of the LangGraph Commerce Agent v2.1 architecture
-# on dao-ai. Demonstrates:
-#   • Swarm orchestration with deterministic + LLM-routed handoffs
-#   • Hyper-personalization via Lakebase-backed long-term memory (user_profile,
-#     preference, episode) with auto-extraction and prompt injection
+# Supervisor-orchestration variant of the LangGraph Commerce Agent v2.1
+# architecture. The central supervisor classifies intent and routes to a
+# worker (specialist handler) via handoff tools. Each worker returns control
+# to the supervisor on completion; the supervisor then either delegates to
+# the composer for a polished customer-facing answer, or composes a brief
+# final response itself. Every new user turn restarts at the supervisor —
+# no sticky-active-agent state across turns.
+#
+# Demonstrates:
+#   • Supervisor orchestration (central coordinator + worker handoffs)
+#   • Hyper-personalization via Lakebase-backed long-term memory
+#     (user_profile, preference, episode) with auto-extraction and prompt
+#     injection
 #   • Unity AI Gateway for ALL model calls (governance, usage tracking,
 #     rate-limit pooling)
-#   • All agents on Claude Sonnet 4.6 (fast routing/lookups and reasoning-heavy
-#     recommendation share the same endpoint, differentiated by temperature)
-#   • Lakebase scale-to-zero (autoscaling_min_cu: 0) for idle-cost elimination
+#   • All agents on Claude Sonnet 4.6 (fast routing/lookups and
+#     reasoning-heavy recommendation share the same endpoint, differentiated
+#     by temperature)
+#   • Lakebase scale-to-zero (autoscaling_min_cu: 0) for idle-cost
+#     elimination
 #   • UC trace_location for trace persistence on Databricks Apps
 #   • Three Vector Search indexes (products, FAQs, policies)
 #   • Idempotency log for UCP transactional commands
 #
 # Deploy:  dao-ai pipeline --deploy --run \
-#            -c config/examples/15_complete_applications/commerce_swarm.yaml \
+#            -c config/examples/15_complete_applications/commerce_supervisor/commerce_supervisor.yaml \
 #            -p fevm
 # =============================================================================
 
@@ -225,9 +235,10 @@ resources:
   # ---------------------------------------------------------------------------
   databases:
 
-    commerce_swarm_db: &commerce_swarm_db
+    commerce_supervisor_db: &commerce_supervisor_db
       name: "Commerce Swarm Lakebase"
       project: "commerce-swarm"
+      branch: "production"
       description: "Lakebase Postgres for agent memory, checkpointer, and UCP idempotency log"
       client_id: *client_id
       client_secret: *client_secret
@@ -365,12 +376,12 @@ tools:
 memory: &memory
 
   checkpointer:
-    name: commerce_swarm_checkpointer
-    database: *commerce_swarm_db
+    name: commerce_super_checkpointer
+    database: *commerce_supervisor_db
 
   store:
-    name: commerce_swarm_store
-    database: *commerce_swarm_db
+    name: commerce_super_store
+    database: *commerce_supervisor_db
     namespace: "{user_id}"
     embedding_model: *embedding_model
 
@@ -417,67 +428,26 @@ memory: &memory
     supervisor_auto_inject: false
 
 # =============================================================================
-# AGENTS — 9-agent swarm
+# AGENTS — supervisor-orchestrated specialists
+# =============================================================================
+# The supervisor itself is configured under ``orchestration.supervisor`` below.
+# All entries here are worker agents that the supervisor delegates to via
+# auto-generated ``handoff_to_<agent>`` tools. Each worker has a
+# ``handoff_to_supervisor`` tool injected by dao-ai's supervisor runtime so
+# control always returns to the supervisor for the next decision.
 # =============================================================================
 agents:
 
   # ---------------------------------------------------------------------------
-  # SUPERVISOR — default entry agent. Pure intent CLASSIFICATION (LLM).
-  # Output: intent label(s) + confidence. Hands off deterministically to the
-  # planner, which is responsible for routing.
-  # ---------------------------------------------------------------------------
-  supervisor: &supervisor
-    name: supervisor
-    description: "Intent classification — extracts the customer's intent label(s) and confidence; deterministic handoff to planner."
-    model: *fast_llm
-    tools: []
-    guardrails: []
-    prompt: |
-      ### User Information
-      - **Authenticated User (email)**: {user_email}
-
-      You are the entry-point intent classifier for the Commerce Swarm assistant. Commerce Swarm serves both **B2C consumers** and **B2B foodservice customers**. You do NOT know which one this user is at classification time — `user_id` is the authenticated SSO email, not an internal customer code. Downstream handlers resolve B2C vs B2B by calling `lookup_customer_by_user_uc` and branching on the returned `customer_type`.
-
-      Your ONLY job is to read the customer's message and emit a brief, structured intent classification. Do NOT answer the customer. Do NOT call tools. Do NOT speculate about answers — that is the planner's and specialists' job.
-
-      #### Intent labels
-
-      - `discovery`     — product search by name, attribute, or description
-      - `recommendation` — personalized suggestion, "what should I buy", curated picks
-      - `order_history`  — past orders, tracking, shipping/delivery status
-      - `support`        — policy / FAQ / how-to / returns / account
-      - `stock`          — inventory, availability, restocking
-      - `credit_limit`   — B2B credit availability and payment terms (B2B only)
-      - `transactional`  — add to cart, checkout, place order, cancel, refund
-      - `general`        — greetings, small talk, brand questions
-
-      #### Output format
-
-      Emit exactly one line in this format and nothing else:
-
-      `INTENT: <label> | CONFIDENCE: <0.00-1.00> | NOTES: <one short phrase>`
-
-      Examples:
-      - `INTENT: recommendation | CONFIDENCE: 0.92 | NOTES: brunch planning for 20 people`
-      - `INTENT: order_history | CONFIDENCE: 0.95 | NOTES: tracking last order`
-      - `INTENT: credit_limit | CONFIDENCE: 0.88 | NOTES: B2B customer asking about credit`
-      - `INTENT: transactional | CONFIDENCE: 0.90 | NOTES: add to cart`
-
-      If confidence < 0.65, append ` | NEEDS_CLARIFICATION: true` and a one-sentence clarifying question.
-
-      Control then flows deterministically to the planner — no tool call needed.
-
-    handoff_prompt: |
-      Entry-point intent classifier. Every customer message enters here first.
-
-  # ---------------------------------------------------------------------------
-  # PLANNER — orchestrator. Reads supervisor's intent classification and
-  # routes to exactly one specialist via LLM-driven handoff tool. No data
-  # retrieval, no response generation.
+  # PLANNER — fallback orchestrator. The supervisor delegates here only when
+  # intent classification is ambiguous. The planner analyzes the message
+  # + conversation and hands back to the supervisor with a single
+  # ``HANDOFF: <handler>`` recommendation. No data retrieval, no
+  # customer-facing response generation.
   # ---------------------------------------------------------------------------
   planner: &planner
     name: planner
-    description: "Orchestrator — picks the specialist handler based on supervisor's intent label."
+    description: "Fallback orchestrator — the supervisor delegates here when intent is ambiguous; the planner returns a HANDOFF: <handler> recommendation."
     model: *fast_llm
     tools: []
     guardrails: []
@@ -485,30 +455,39 @@ agents:
       ### User Information
       - **Authenticated User (email)**: {user_email}
 
-      You are the orchestrator. The previous message in this conversation is a structured intent classification from the supervisor in the form `INTENT: <label> | CONFIDENCE: <x> | NOTES: <phrase>`.
+      You are the supervisor's fallback orchestrator. The supervisor calls
+      you when intent classification is ambiguous. Your job is to read the
+      conversation, decide which specialist handler should run, and hand
+      control back to the supervisor with a single-line recommendation.
 
-      Your job: read that classification and invoke EXACTLY ONE handoff tool to route the request to the right specialist. Do not write any natural-language reply.
+      #### Decision (label → recommendation)
 
-      #### Routing table (label → handoff tool)
+      - product search by name, attribute, or description → ``HANDOFF: discovery``
+      - personalized suggestion, "what should I buy", curated picks → ``HANDOFF: recommendation``
+      - past orders, tracking, shipping/delivery status → ``HANDOFF: order_history``
+      - policy / FAQ / how-to / returns / account → ``HANDOFF: support``
+      - inventory, availability, restocking → ``HANDOFF: stock``
+      - B2B credit availability and payment terms → ``HANDOFF: credit_limit``
+      - add to cart, checkout, place order, cancel, refund → ``HANDOFF: ucp``
+      - greetings, small talk, brand questions, clarifying questions → ``HANDOFF: general``
 
-      - `discovery`      → `handoff_to_discovery`
-      - `recommendation` → `handoff_to_recommendation`
-      - `order_history`  → `handoff_to_order_history`
-      - `support`        → `handoff_to_support`
-      - `stock`          → `handoff_to_stock`
-      - `credit_limit`   → `handoff_to_credit_limit`
-      - `transactional`  → `handoff_to_ucp`
-      - `general`        → `handoff_to_general`
+      #### Output contract
 
-      #### Routing rules
+      Emit your recommendation as the final line of your response:
 
-      - `user_id` is the authenticated SSO email — do not try to infer B2C vs B2B from it. The `credit_limit` handler resolves `customer_type` via `lookup_customer_by_user_uc` and explains politely if a B2C user asks about credit; always route `credit_limit` intent there.
-      - If `NEEDS_CLARIFICATION: true` was emitted, route to `general` — it will ask the clarifying question and hand off to the composer.
+      ``HANDOFF: <handler>``
 
-      Invoke the chosen handoff tool. Do not output any other text.
+      Then immediately call ``handoff_to_supervisor`` to return control.
+      Do not call any other handoff tool — only the supervisor can route to
+      handlers. Do not write a customer-facing answer.
+
+      Examples:
+      - ``HANDOFF: recommendation``
+      - ``HANDOFF: credit_limit``
+      - ``HANDOFF: general``
 
     handoff_prompt: |
-      Orchestrator that maps an intent label to the right specialist handler.
+      Fallback orchestrator. The supervisor delegates here when intent is ambiguous; planner returns a single HANDOFF recommendation and hands control back to the supervisor.
 
   # ---------------------------------------------------------------------------
   # DISCOVERY HANDLER — product search using Vector Search
@@ -792,7 +771,6 @@ agents:
   composer: &composer
     name: composer
     description: "Final-response composer — formats and streams the customer-facing response based on upstream specialist output. Terminal node."
-    is_terminal: true
     model: *fast_llm
     tools: []
     guardrails: []
@@ -877,8 +855,8 @@ agents:
 # APPLICATION
 # =============================================================================
 app:
-  name: agent_commerce_swarm_dao
-  description: "Commerce Swarm LangGraph Commerce Agent — B2B + B2C swarm with hyper-personalization on Lakebase"
+  name: agent_commerce_super_dao
+  description: "Commerce Supervisor LangGraph Commerce Agent — B2B + B2C with central supervisor orchestration + Lakebase hyper-personalization"
   log_level: INFO
   # Deploy to BOTH Databricks Apps (chat UI + agent server) AND Model Serving
   # (UC-registered model). The Apps surface is the primary user path; the
@@ -887,9 +865,9 @@ app:
 
   registered_model:
     schema: *retail_schema
-    name: commerce_swarm_dao
+    name: commerce_super_dao
 
-  endpoint_name: commerce_swarm_dao
+  endpoint_name: commerce_super_dao
 
   # MLflow trace persistence on Databricks Apps requires trace_location — Apps
   # containers cannot reach the default control-plane trace storage host
@@ -914,7 +892,7 @@ app:
   tags:
     business: rcg
     streaming: true
-    pattern: swarm
+    pattern: supervisor
     persona: commerce
 
   permissions:
@@ -922,8 +900,10 @@ app:
     entitlements:
     - CAN_QUERY
 
+  # The central supervisor is configured under ``orchestration.supervisor``
+  # below — it is NOT a worker. Each worker here gets an auto-injected
+  # ``handoff_to_supervisor`` tool from dao-ai's supervisor runtime.
   agents:
-  - *supervisor
   - *planner
   - *discovery
   - *recommendation
@@ -949,78 +929,102 @@ app:
   orchestration:
     memory: *memory
     # =======================================================================
-    # PIPELINE ORCHESTRATION (swarm with deterministic stage handoffs)
+    # SUPERVISOR ORCHESTRATION
     # =======================================================================
-    # Linear pipeline matching the LangGraph Commerce Agent v2.1 reference:
+    # Central supervisor classifies intent and routes via auto-generated
+    # ``handoff_to_<worker>`` tools. Workers receive a ``handoff_to_supervisor``
+    # tool so control always returns to the supervisor for the next decision.
+    # Every new user turn re-enters the supervisor — there is no sticky
+    # active-agent across turns (unlike the swarm variant).
     #
-    #   supervisor → planner → handler_X → composer → [END]
-    #                                  ↘ ucp → composer
+    # Conceptual flow:
     #
-    # • supervisor → planner: DETERMINISTIC (every turn flows through both
-    #   classification and orchestration stages)
-    # • planner → handler/ucp: LLM tool-call routing (planner picks ONE
-    #   target based on supervisor's intent label)
-    # • handler/ucp → composer: DETERMINISTIC (every specialist terminates
-    #   in the composer, which formats and streams the final response)
-    # • composer: terminal — empty handoffs list, no outbound edges
+    #   user_msg → supervisor → handler_X → supervisor → composer → supervisor → END
+    #                       ↘ planner ↗ (ambiguous-intent fallback)
     #
-    # Deterministic handoffs route via static graph edges. dao-ai's swarm
-    # runtime normalizes the message tail before each deterministic
-    # transition (appends a synthetic HumanMessage when the upstream
-    # agent's turn ended with a plain AIMessage), so downstream LLMs see
-    # a non-assistant tail. This keeps deterministic handoffs compatible
-    # with strict-mode endpoints (Claude on Databricks Model Serving,
-    # AI Gateway, etc.) regardless of model provider.
+    # The supervisor's prompt (``*supervisor_prompt`` above) drives:
+    # classification, handler selection, composer delegation, and turn
+    # termination. The planner is a fallback orchestrator the supervisor
+    # invokes only when the intent is genuinely ambiguous.
     # =======================================================================
-    swarm:
-      default_agent: *supervisor
-      handoffs:
-        # Stage 1 → Stage 2: deterministic, every turn passes through planner
-        supervisor:
-        - agent: *planner
-          is_deterministic: true
+    supervisor:
+      model: *fast_llm
+      tools: []
+      prompt: |
+        ### User Information
+        - **Authenticated User (email)**: {user_email}
 
-        # Stage 2 → Stage 3: LLM tool-call routing (planner picks exactly one)
-        planner:
-        - *discovery
-        - *recommendation
-        - *order_history
-        - *support
-        - *stock
-        - *credit_limit
-        - *ucp
-        - *general
+        You are the central supervisor for the Commerce assistant. Commerce
+        serves both **B2C consumers** and **B2B foodservice customers**. You
+        do NOT know which one this user is at routing time — ``user_id`` is
+        the authenticated SSO email, not an internal customer code.
+        Specialist handlers resolve B2C vs B2B at runtime via
+        ``lookup_customer_by_user_uc`` and branch on the returned
+        ``customer_type``.
 
-        # Stage 3 → Stage 4 (or 3 → 3.5 → 4 for transactional):
-        # every specialist hands off DETERMINISTICALLY to composer.
-        discovery:
-        - agent: *composer
-          is_deterministic: true
-        recommendation:
-        - agent: *composer
-          is_deterministic: true
-        order_history:
-        - agent: *composer
-          is_deterministic: true
-        support:
-        - agent: *composer
-          is_deterministic: true
-        stock:
-        - agent: *composer
-          is_deterministic: true
-        credit_limit:
-        - agent: *composer
-          is_deterministic: true
-        ucp:
-        - agent: *composer
-          is_deterministic: true
-        general:
-        - agent: *composer
-          is_deterministic: true
+        Every new user turn starts at you. Your job each turn:
 
-        # Stage 4: terminal — composer streams the final response and ends
-        # the turn. No outbound handoffs.
-        composer: []
+        1. **Classify** the customer's intent from their latest message.
+        2. **Delegate** the work to the appropriate specialist via the
+           matching ``handoff_to_<handler>`` tool. Do not answer the
+           customer yourself in this step — let the specialist do the real
+           work.
+        3. When the specialist hands back, **delegate to the composer** via
+           ``handoff_to_composer`` so the response is shaped for the
+           customer.
+        4. After the composer hands back, emit a single short
+           acknowledgement line (or nothing) and stop. The composer's
+           reply is the customer-facing answer; you only add a closing
+           line if anything needs follow-up.
+
+        #### Intent → handler routing
+
+        - ``discovery``       → ``handoff_to_discovery``
+        - ``recommendation``  → ``handoff_to_recommendation``
+        - ``order_history``   → ``handoff_to_order_history``
+        - ``support``         → ``handoff_to_support``
+        - ``stock``           → ``handoff_to_stock``
+        - ``credit_limit``    → ``handoff_to_credit_limit``  (B2B only — handler explains politely to B2C)
+        - ``transactional``   → ``handoff_to_ucp``
+        - ``general``         → ``handoff_to_general``
+
+        If you are genuinely unsure which intent applies — multi-intent
+        messages, unusual phrasing, ambiguous follow-ups — call
+        ``handoff_to_planner``. The planner will analyze the message and
+        the conversation and hand back to you with a single
+        ``HANDOFF: <handler>`` recommendation, which you then route to. Do
+        not call the planner for clear-cut intents.
+
+        When a handler or the planner hands back to you, read their final
+        message for the recommended next step:
+
+        - If the planner emits ``HANDOFF: <handler>``, route to that handler.
+        - If a handler completed the work, route to the composer.
+        - If the composer has already produced a customer-facing response,
+          output a single short acknowledgement line and stop.
+
+        #### Routing rules
+
+        - ``user_id`` is the authenticated SSO email — do not try to infer
+          B2C vs B2B from it. Always route ``credit_limit`` intent to the
+          credit_limit handler, which gates on ``customer_type``.
+        - When confidence is low, prefer ``handoff_to_planner`` over guessing.
+        - Never bypass the composer for actual customer-facing answers.
+
+        #### Tool-call rules (STRICT)
+
+        - **Never emit a ``handoff_to_*`` tool call in the SAME turn as
+          any other tool call.** Handoffs route control to another
+          agent, and any sibling tool call gets short-circuited before
+          it runs — leaving an orphaned ``tool_use`` block that
+          triggers a strict-provider 400 on the next model call. When
+          you decide to hand off, call ONLY the handoff tool, nothing
+          else. If you need to search memory or write memory, do it in
+          a separate turn BEFORE the handoff, not alongside it.
+        - Prefer serialized tool calls (one at a time) over parallel
+          ones. Multi-tool turns are allowed for read-only siblings
+          (e.g. two ``search_memory`` calls with different queries),
+          but never mix a handoff with anything else.
 
 # =============================================================================
 # UNITY CATALOG FUNCTION DEPLOYMENT

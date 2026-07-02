@@ -2,7 +2,7 @@ import base64
 import re
 import time
 from pathlib import Path
-from typing import Any, Callable, Final, Sequence
+from typing import Any, Callable, Final, Optional, Sequence
 
 import mlflow
 import pandas as pd
@@ -222,9 +222,12 @@ def build_auth_policy(config: AppConfig) -> AuthPolicy:
 
     A resource never appears in *both* outputs.
 
-    ``config.app.trace_location`` (if set) contributes its OTEL trace
-    tables + warehouse to the system policy — they are always SP-backed
-    (the user never touches them).
+    Trace tables from ``config.app.trace_location`` are intentionally NOT
+    included — MLflow's tracing writer on Model Serving endpoints uses
+    a separate authentication path that ``agents.deploy(resources=…)``
+    auto-auth does not cover. See :meth:`TraceLocationModel.as_resources`
+    for the empirical finding. On Databricks Apps, tracing works via an
+    explicit post-deploy grant against the App's own runtime SP.
 
     Pure function: no I/O, no mutation of ``config``. Safe to unit-test.
     """
@@ -240,6 +243,9 @@ def build_auth_policy(config: AppConfig) -> AuthPolicy:
     ]
 
     if config.app and config.app.trace_location:
+        # Currently a no-op (returns []). Kept as a call site so future
+        # non-trace-table resources can attach to trace_location without
+        # touching this function.
         system_resources.extend(config.app.trace_location.as_resources())
 
     # Translate resource-level api_scopes to canonical OBO user scopes — the
@@ -323,6 +329,125 @@ def _link_experiment_trace_location(config: AppConfig, experiment_id: str) -> No
             )
         else:
             raise
+
+
+def _grant_trace_permissions_to_principal(
+    principal: str,
+    catalog_name: str,
+    schema_name: str,
+    table_prefix: str,
+) -> None:
+    """Grant the UC privileges MLflow tracing needs on OTEL trace tables.
+
+    Per `Store OpenTelemetry traces in Unity Catalog`_, the writer of
+    MLflow traces to a UC-backed experiment needs:
+
+    * ``USE_CATALOG`` on the catalog,
+    * ``USE_SCHEMA`` on the schema,
+    * ``MODIFY`` + ``SELECT`` on each of the four OTEL Delta tables
+      (``<prefix>_otel_{spans,logs,metrics,annotations}``).
+
+    The docs explicitly note that ``ALL_PRIVILEGES`` at the schema level
+    is NOT sufficient for UC trace tables: ``MODIFY`` and ``SELECT``
+    must be granted explicitly at the table level.
+
+    dao-ai calls this helper after ``agents.deploy`` (Model Serving)
+    and after ``apps.create_and_wait`` (Databricks Apps), passing the
+    endpoint or app service principal identifier. Idempotent — repeated
+    calls with the same grants no-op on the UC side.
+
+    Args:
+        principal: The UC principal identifier to grant to. For a
+            Databricks-managed service principal, this is the
+            application_id (UUID). For a user, the email.
+        catalog_name: UC catalog containing the trace tables.
+        schema_name: UC schema containing the trace tables.
+        table_prefix: Prefix used by ``mlflow.set_experiment(
+            trace_location=UnityCatalog(table_prefix=...))``. When
+            ``table_prefix`` was omitted by the caller of MLflow, this
+            is the experiment_id (MLflow's default).
+
+    .. _Store OpenTelemetry traces in Unity Catalog:
+       https://docs.databricks.com/aws/en/mlflow3/genai/tracing/trace-unity-catalog
+    """
+    from databricks.sdk import WorkspaceClient
+
+    w = WorkspaceClient()
+
+    # The typed `grants.update()` SDK method serializes ``SecurableType`` as
+    # ``SECURABLETYPE.TABLE`` on some SDK versions and the REST API rejects
+    # it (``Invalid input: SECURABLETYPE.TABLE is not a valid securable
+    # type``). Call the raw REST endpoint directly with lowercase-string
+    # securable_type — that path works uniformly across SDK versions.
+    def _update(securable_type: str, full_name: str, privileges: list[str]) -> None:
+        try:
+            w.api_client.do(
+                "PATCH",
+                f"/api/2.1/unity-catalog/permissions/{securable_type}/{full_name}",
+                body={
+                    "changes": [
+                        {"principal": principal, "add": list(privileges)}
+                    ]
+                },
+            )
+            logger.debug(
+                "Granted UC privileges for trace persistence",
+                principal=principal,
+                securable_type=securable_type,
+                full_name=full_name,
+                privileges=privileges,
+            )
+        except Exception as e:
+            logger.warning(
+                "Failed to grant UC privilege for trace persistence — "
+                "verify the calling identity has GRANT rights on the resource",
+                principal=principal,
+                securable_type=securable_type,
+                full_name=full_name,
+                error=str(e),
+            )
+
+    _update("catalog", catalog_name, ["USE_CATALOG"])
+    _update("schema", f"{catalog_name}.{schema_name}", ["USE_SCHEMA"])
+    for suffix in ("spans", "logs", "metrics", "annotations"):
+        _update(
+            "table",
+            f"{catalog_name}.{schema_name}.{table_prefix}_otel_{suffix}",
+            ["SELECT", "MODIFY"],
+        )
+    logger.info(
+        "Granted trace-write privileges to principal",
+        principal=principal,
+        catalog=catalog_name,
+        schema=schema_name,
+        table_prefix=table_prefix,
+    )
+
+
+def _resolve_trace_table_prefix(
+    config: AppConfig, experiment_id: Optional[str]
+) -> str:
+    """Return the table prefix MLflow uses for OTEL trace tables.
+
+    Mirrors ``mlflow.set_experiment(trace_location=UnityCatalog(
+    table_prefix=<resolved_or_None>))``: an explicit ``table_prefix`` on
+    ``TraceLocationModel`` wins; otherwise MLflow uses the experiment
+    id. See :meth:`TraceLocationModel.resolved_table_prefix`.
+
+    Raises when neither source is available — callers must supply an
+    ``experiment_id`` fallback whenever ``trace_location.table_prefix``
+    is unset.
+    """
+    if config.app and config.app.trace_location:
+        prefix = config.app.trace_location.resolved_table_prefix
+        if prefix:
+            return prefix
+    if not experiment_id:
+        raise ValueError(
+            "cannot resolve OTEL trace-table prefix: neither "
+            "trace_location.table_prefix nor experiment_id is set"
+        )
+    return experiment_id
 
 
 def _build_wheel(project_root: Path) -> Path:
@@ -877,6 +1002,25 @@ class DatabricksProvider(ServiceProvider):
                     )
                     continue
                 raise
+
+        # MS trace persistence is an unresolved Databricks platform gap
+        # (see TraceLocationModel.as_resources docstring): the endpoint's
+        # runtime system SP is not exposed by any API and is not
+        # grantable via UC, and DATABRICKS_CLIENT_ID/SECRET env vars are
+        # stripped by the platform. Surface a WARN at deploy time so
+        # users know traces will silently drop on this target — deploy
+        # to Databricks Apps instead when trace persistence is required.
+        if config.app.trace_location:
+            logger.warning(
+                "trace_location is configured, but MLflow trace persistence "
+                "from Model Serving endpoints created via agents.deploy is "
+                "an unresolved Databricks platform gap — traces will not "
+                "appear in the UC OTEL tables from this endpoint. Deploy "
+                "to Databricks Apps if trace persistence is required. See "
+                "TraceLocationModel.as_resources for details.",
+                endpoint_name=endpoint_name,
+            )
+
         permissions: Sequence[dict[str, Any]] = config.app.permissions
 
         logger.debug(
@@ -1475,6 +1619,55 @@ class DatabricksProvider(ServiceProvider):
                 status=status_message,
             )
             raise RuntimeError(f"App deployment failed: {status_message}")
+
+        # Grant the app's SP the UC privileges MLflow tracing needs.
+        # Same rationale as deploy_model_serving_agent: ``ALL_PRIVILEGES``
+        # inherited via workspace groups is not sufficient for OTEL trace
+        # tables per the docs; ``MODIFY`` + ``SELECT`` on each table must
+        # be explicit. In the common FEVM setup this is a no-op because
+        # the App SP already inherits schema-level ``ALL_PRIVILEGES``,
+        # but customer workspaces without that inheritance previously
+        # required a manual GRANT (see the note that used to sit at
+        # ``apps/resources.py:_extract_raw_trace_location_resources``).
+        if config.app.trace_location:
+            try:
+                # Refresh App to pick up the assigned SP identifier.
+                fresh_app: App = self.w.apps.get(name=app_name)
+                sp_id: Optional[str] = (
+                    fresh_app.service_principal_client_id
+                    or fresh_app.service_principal_id
+                )
+                if sp_id:
+                    # Resolve the trace-table prefix. Prefer the explicit
+                    # trace_location.table_prefix if set; otherwise fall
+                    # back to the linked experiment's ID (MLflow's
+                    # default when UnityCatalog is constructed without a
+                    # prefix). Only fetch the experiment when we need it.
+                    experiment_id_for_prefix: Optional[str] = (
+                        None
+                        if config.app.trace_location.resolved_table_prefix
+                        else str(self.get_or_create_experiment(config).experiment_id)
+                    )
+                    _grant_trace_permissions_to_principal(
+                        principal=str(sp_id),
+                        catalog_name=config.app.trace_location.catalog_name,
+                        schema_name=config.app.trace_location.schema_name,
+                        table_prefix=_resolve_trace_table_prefix(
+                            config, experiment_id_for_prefix
+                        ),
+                    )
+                else:
+                    logger.warning(
+                        "Could not resolve App SP identity; "
+                        "trace-persistence UC grants skipped.",
+                        app_name=app_name,
+                    )
+            except Exception as e:
+                logger.warning(
+                    "Failed to grant trace-persistence UC privileges to App SP",
+                    app_name=app_name,
+                    error=str(e),
+                )
 
     def deploy_agent(
         self,
