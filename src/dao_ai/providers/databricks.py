@@ -925,7 +925,17 @@ class DatabricksProvider(ServiceProvider):
             )
         registered_model_name: str = config.app.registered_model.full_name
         scale_to_zero: bool = config.app.scale_to_zero
-        environment_vars: dict[str, str] = config.app.environment_vars
+        # Model Serving expects string env-var values. SecretVariableModel
+        # instances stringify to ``{{secrets/scope/key}}`` — the platform
+        # resolves that literal at endpoint boot. PrimitiveVariable and raw
+        # strings pass through. Without this coercion, ``agents.deploy``
+        # sees Pydantic-model values and silently drops them; the ensuing
+        # empty ``DATABRICKS_CLIENT_ID/SECRET`` at runtime was one of the
+        # observations behind the "stripped by platform" claim in 1b4290c.
+        environment_vars: dict[str, str] = {
+            k: str(v) if v is not None else ""
+            for k, v in (config.app.environment_vars or {}).items()
+        }
         workload_size: str = config.app.workload_size
         tags: dict[str, str] = config.app.tags.copy() if config.app.tags else {}
 
@@ -1002,6 +1012,37 @@ class DatabricksProvider(ServiceProvider):
                     )
                     continue
                 raise
+
+        # Stage-1 diagnostic (MS-trace-persistence investigation):
+        # reflect what env vars actually landed on the endpoint's
+        # served-entity config after ``agents.deploy``. Compare with
+        # what dao-ai sent (``environment_vars`` above) to answer:
+        # did DATABRICKS_CLIENT_ID/SECRET survive, or did the platform
+        # strip them? Logs the redacted view — secret values are
+        # elided but presence + length round-trip is visible.
+        try:
+            from dao_ai.diagnostics import redacted_env_var_map
+
+            endpoint_after = self.w.serving_endpoints.get(name=endpoint_name)
+            landed_env: dict[str, str] = {}
+            if endpoint_after.config and endpoint_after.config.served_entities:
+                landed_env = (
+                    endpoint_after.config.served_entities[0].environment_vars or {}
+                )
+            logger.info(
+                "dao_ai.diagnostic.deploy_env_reflection",
+                endpoint_name=endpoint_name,
+                sent=redacted_env_var_map(environment_vars),
+                landed=redacted_env_var_map(landed_env),
+                sent_only=sorted(set(environment_vars) - set(landed_env)),
+                landed_only=sorted(set(landed_env) - set(environment_vars)),
+            )
+        except Exception as e:
+            logger.debug(
+                "Post-deploy env-var reflection failed (non-fatal diagnostic)",
+                endpoint_name=endpoint_name,
+                error=str(e),
+            )
 
         # MS trace persistence is an unresolved Databricks platform gap
         # (see TraceLocationModel.as_resources docstring): the endpoint's

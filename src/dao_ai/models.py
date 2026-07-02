@@ -1010,6 +1010,19 @@ class LanggraphResponsesAgent(ResponsesAgent):
         self.graph = graph
         self._prompt_versions: list = prompt_versions or []
 
+        # Stage-1 diagnostic (MS-trace-persistence investigation): log the
+        # trace-relevant env-var snapshot at endpoint boot. This is the
+        # earliest hookable point after MLflow unpickles the model in the
+        # serving container, so it captures ``os.environ`` as MLflow's
+        # tracing writer would have read it during library import.
+        from dao_ai.diagnostics import env_snapshot, is_enabled
+
+        if is_enabled():
+            logger.info(
+                "dao_ai.diagnostic.env_snapshot",
+                snapshot=env_snapshot(),
+            )
+
     @mlflow.trace(span_type=SpanType.AGENT, name="dao_ai_apredict")
     async def apredict(self, request: ResponsesAgentRequest) -> ResponsesAgentResponse:
         """
@@ -1921,10 +1934,22 @@ class LanggraphResponsesAgent(ResponsesAgent):
                     }
                 }
 
-        return {
+        outputs: dict[str, Any] = {
             "configurable": configurable,
             "session": session,
         }
+
+        # Stage-1 diagnostic (MS-trace-persistence investigation). When the
+        # endpoint's env has DAO_AI_TRACE_ENV_DUMP=1, echo the trace-relevant
+        # env-var snapshot back through custom_outputs so the operator can
+        # observe from client-side what actually reached the endpoint's
+        # runtime process. Off by default.
+        from dao_ai.diagnostics import env_snapshot, is_enabled
+
+        if is_enabled():
+            outputs["_diagnostic"] = {"env": env_snapshot()}
+
+        return outputs
 
 
 def create_agent(graph: CompiledStateGraph) -> ChatAgent:
