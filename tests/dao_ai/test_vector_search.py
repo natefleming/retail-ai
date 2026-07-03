@@ -424,3 +424,374 @@ def test_create_vector_search_tool_obo_off_does_not_use_context_headers() -> Non
 
     # Still called (to mint the SP-scoped WC), but headers were empty.
     assert vs_model.workspace_client_from.called
+
+
+# ---------------------------------------------------------------------------
+# Auth-mode matrix for _client_args_from_ambient_wc + effective_client_args
+# in create_vector_search_tool. All four modes must resolve on Serverless v5:
+#
+#   #1  ambient App SP  → auth_type=oauth-m2m       → client_args=None (library-native)
+#   #2  ambient user    → auth_type=databricks-cli  → client_args={ws_url, PAT} (dao-ai fills in)
+#   #3  OBO             → on_behalf_of_user=true    → client_args=None (library uses WC)
+#   #4  explicit PAT/SP → YAML vector_store.pat|.client_id/.client_secret → client_args populated
+#
+# The existing OBO tests above cover mode #3 for the runtime-context path.
+# The tests below pin the four modes at the DatabricksVectorSearch(...) boundary:
+# they capture the client_args kwarg dao-ai passes and assert the exact shape
+# each mode should produce. Without the ambient-user fallback, mode #2 would
+# leave client_args={} and VectorSearchClient({disable_notice:True}) would
+# raise InvalidInputException. All four modes are the regression watchdog.
+# ---------------------------------------------------------------------------
+
+
+def _make_ambient_vector_store_mock(*, on_behalf_of_user: bool = False) -> Mock:
+    """VectorStoreModel mock with all four auth-mode fields defaulted to None
+    (no explicit PAT/SP). Tests override individual fields as needed.
+    """
+    from dao_ai.config import VectorStoreModel
+
+    vs = Mock(spec=VectorStoreModel)
+    vs.columns = ["text"]
+    vs.embedding_model = None
+    vs.primary_key = "id"
+    vs.index = Mock()
+    vs.index.full_name = "catalog.schema.some_index"
+    vs.index.name = "some_index"
+    vs.index.columns = ["text"]
+    vs.endpoint = Mock()
+    vs.source_table = None
+    vs.embedding_source_column = None
+    vs.doc_uri = None
+    vs.on_behalf_of_user = on_behalf_of_user
+    # No explicit PAT / SP in YAML
+    vs.pat = None
+    vs.client_id = None
+    vs.client_secret = None
+    vs.workspace_host = None
+    try:
+        from conftest import add_databricks_resource_attrs
+
+        add_databricks_resource_attrs(vs)
+    except ImportError:
+        pass
+    # add_databricks_resource_attrs re-sets on_behalf_of_user=False; restore intent.
+    vs.on_behalf_of_user = on_behalf_of_user
+    return vs
+
+
+def _fake_wc(*, auth_type: str, host: str = "https://fevm.example.com",
+             client_id: Any = None, client_secret: Any = None,
+             bearer: str | None = None) -> MagicMock:
+    """Build a WorkspaceClient mock whose .config exposes the auth_type shape
+    the databricks-langchain library and _client_args_from_ambient_wc read."""
+    wc = MagicMock(name=f"wc[{auth_type}]")
+    wc.config.auth_type = auth_type
+    wc.config.host = host
+    wc.config.client_id = client_id
+    wc.config.client_secret = client_secret
+    if bearer is not None:
+        wc.config.authenticate.return_value = {"Authorization": f"Bearer {bearer}"}
+    else:
+        wc.config.authenticate.return_value = {}
+    return wc
+
+
+def _capture_client_args_and_invoke(
+    vs_model: Mock,
+    wc: MagicMock,
+    *,
+    monkeypatch: Any | None = None,
+    query: str = "probe",
+) -> dict[str, Any]:
+    """Wire the vector_store mock to return the given fake WC, patch
+    DatabricksVectorSearch to capture the kwargs it's constructed with, invoke
+    the tool once, and return the captured kwargs dict.
+    """
+    from langgraph.runtime import Runtime
+
+    from dao_ai.config import RetrieverModel
+    from dao_ai.state import Context
+    from dao_ai.tools.vector_search import create_vector_search_tool
+
+    vs_model.workspace_client_from.return_value = wc
+    retriever = RetrieverModel(vector_store=vs_model)
+
+    captured: dict[str, Any] = {}
+    with patch("dao_ai.tools.vector_search.DatabricksVectorSearch") as MockDVS:
+        def _capture(**kwargs: Any) -> MagicMock:
+            captured.update(kwargs)
+            m = MagicMock()
+            m.similarity_search.return_value = []
+            return m
+        MockDVS.side_effect = _capture
+
+        tool = create_vector_search_tool(retriever=retriever)
+        rt = Runtime(context=Context(headers={}))
+        tool.invoke({"query": query, "filters": None, "runtime": rt})
+
+    return captured
+
+
+@pytest.mark.unit
+def test_vs_mode1_ambient_app_sp_oauth_m2m(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Mode #1: deployed Databricks App on Serverless v5.
+    WorkspaceClient.config.auth_type == 'oauth-m2m' (owning SP). The library
+    handles this branch natively, so dao-ai must pass client_args=None (or
+    empty/falsy) — the library reads config.client_id / .client_secret from
+    the WorkspaceClient we hand it.
+    """
+    for var in ("DATABRICKS_TOKEN", "DATABRICKS_CLIENT_ID", "DATABRICKS_CLIENT_SECRET", "DATABRICKS_HOST"):
+        monkeypatch.delenv(var, raising=False)
+
+    vs_model = _make_ambient_vector_store_mock()
+    wc = _fake_wc(
+        auth_type="oauth-m2m",
+        client_id="sp-client-id",
+        client_secret="sp-client-secret",
+    )
+    kwargs = _capture_client_args_and_invoke(vs_model, wc)
+
+    assert kwargs["workspace_client"] is wc
+    # None or empty are both acceptable here — both let the library run its
+    # native oauth-m2m extraction. The important part is we did NOT override
+    # with a bogus PAT from a bearer that this WC doesn't actually emit.
+    assert kwargs.get("client_args") in (None, {}, {"disable_notice": True}), (
+        f"mode #1 must not synthesize client_args for oauth-m2m; got {kwargs.get('client_args')!r}"
+    )
+
+
+@pytest.mark.unit
+def test_vs_mode2_ambient_serverless_user(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Mode #2: Serverless v5 notebook / job with no explicit PAT or SP.
+    WorkspaceClient.config.auth_type is one of {databricks-cli, oauth-u2m,
+    default}. The databricks-langchain library does NOT extract creds from
+    these, so dao-ai must fill client_args from the runtime bearer.
+    """
+    for var in ("DATABRICKS_TOKEN", "DATABRICKS_CLIENT_ID", "DATABRICKS_CLIENT_SECRET", "DATABRICKS_HOST"):
+        monkeypatch.delenv(var, raising=False)
+
+    vs_model = _make_ambient_vector_store_mock()
+    wc = _fake_wc(
+        auth_type="databricks-cli",
+        host="https://fevm.example.com",
+        bearer="ambient-oauth-token",
+    )
+    kwargs = _capture_client_args_and_invoke(vs_model, wc)
+
+    ca = kwargs.get("client_args") or {}
+    assert ca.get("personal_access_token") == "ambient-oauth-token", (
+        f"mode #2 must synthesize a PAT from the ambient bearer; got {ca!r}"
+    )
+    assert ca.get("workspace_url", "").startswith("https://fevm.example.com"), (
+        f"mode #2 must include workspace_url; got {ca!r}"
+    )
+
+
+@pytest.mark.unit
+def test_vs_mode2_other_ambient_auth_types(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Mode #2 variants: oauth-u2m and 'default' behave the same as
+    databricks-cli — dao-ai must synthesize client_args from the bearer.
+    """
+    for var in ("DATABRICKS_TOKEN", "DATABRICKS_CLIENT_ID", "DATABRICKS_CLIENT_SECRET", "DATABRICKS_HOST"):
+        monkeypatch.delenv(var, raising=False)
+
+    for auth_type in ("oauth-u2m", "default"):
+        vs_model = _make_ambient_vector_store_mock()
+        wc = _fake_wc(
+            auth_type=auth_type,
+            bearer=f"tok-{auth_type}",
+        )
+        kwargs = _capture_client_args_and_invoke(vs_model, wc)
+        ca = kwargs.get("client_args") or {}
+        assert ca.get("personal_access_token") == f"tok-{auth_type}", (
+            f"auth_type={auth_type} did not produce a PAT: {ca!r}"
+        )
+
+
+@pytest.mark.unit
+def test_vs_mode3_obo_passes_none_client_args(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Mode #3: OBO with vector_store.on_behalf_of_user=True. dao-ai must pass
+    client_args=None so the library uses the forwarded-bearer WorkspaceClient
+    directly instead of building a separate VectorSearchClient.
+    """
+    for var in ("DATABRICKS_TOKEN", "DATABRICKS_CLIENT_ID", "DATABRICKS_CLIENT_SECRET", "DATABRICKS_HOST"):
+        monkeypatch.delenv(var, raising=False)
+
+    vs_model = _make_ambient_vector_store_mock(on_behalf_of_user=True)
+    # OBO WC — auth_type shouldn't matter; the library uses the WC directly.
+    wc = _fake_wc(auth_type="databricks-cli", bearer="user-forwarded-bearer")
+    kwargs = _capture_client_args_and_invoke(vs_model, wc)
+
+    assert kwargs.get("client_args") is None, (
+        f"mode #3 (OBO) must pass client_args=None; got {kwargs.get('client_args')!r}"
+    )
+    assert kwargs["workspace_client"] is wc
+
+
+@pytest.mark.unit
+def test_vs_mode4_explicit_pat_from_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Mode #4a: DATABRICKS_TOKEN env var set. dao-ai must populate
+    client_args["personal_access_token"] from the env var, not synthesize
+    from the ambient bearer.
+    """
+    monkeypatch.setenv("DATABRICKS_TOKEN", "explicit-pat-from-env")
+    monkeypatch.setenv("DATABRICKS_HOST", "https://fevm.example.com")
+    for var in ("DATABRICKS_CLIENT_ID", "DATABRICKS_CLIENT_SECRET"):
+        monkeypatch.delenv(var, raising=False)
+
+    vs_model = _make_ambient_vector_store_mock()
+    wc = _fake_wc(auth_type="databricks-cli", bearer="ambient-should-be-ignored")
+    kwargs = _capture_client_args_and_invoke(vs_model, wc)
+
+    ca = kwargs.get("client_args") or {}
+    assert ca.get("personal_access_token") == "explicit-pat-from-env", (
+        f"mode #4a must use env DATABRICKS_TOKEN, not ambient bearer; got {ca!r}"
+    )
+
+
+@pytest.mark.unit
+def test_vs_mode4_explicit_sp_from_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Mode #4b: DATABRICKS_CLIENT_ID / DATABRICKS_CLIENT_SECRET env vars set.
+    dao-ai must populate client_args with the SP creds, not the ambient bearer.
+    """
+    monkeypatch.setenv("DATABRICKS_CLIENT_ID", "sp-id")
+    monkeypatch.setenv("DATABRICKS_CLIENT_SECRET", "sp-secret")
+    monkeypatch.setenv("DATABRICKS_HOST", "https://fevm.example.com")
+    monkeypatch.delenv("DATABRICKS_TOKEN", raising=False)
+
+    vs_model = _make_ambient_vector_store_mock()
+    wc = _fake_wc(auth_type="oauth-m2m", client_id="wc-id", client_secret="wc-secret",
+                  bearer="ambient-should-be-ignored")
+    kwargs = _capture_client_args_and_invoke(vs_model, wc)
+
+    ca = kwargs.get("client_args") or {}
+    assert ca.get("service_principal_client_id") == "sp-id", (
+        f"mode #4b must use DATABRICKS_CLIENT_ID env; got {ca!r}"
+    )
+    assert ca.get("service_principal_client_secret") == "sp-secret", (
+        f"mode #4b must use DATABRICKS_CLIENT_SECRET env; got {ca!r}"
+    )
+
+
+# Direct unit tests of the helper — cheap and precise.
+
+@pytest.mark.unit
+def test_client_args_from_ambient_wc_returns_none_for_library_native() -> None:
+    """The helper must decline to touch auth_types the library handles itself,
+    so we don't accidentally override the library's built-in extraction.
+    """
+    from dao_ai.tools.vector_search import _client_args_from_ambient_wc
+
+    for auth_type in ("pat", "oauth-m2m", "model_serving_user_credentials"):
+        wc = _fake_wc(auth_type=auth_type, bearer="does-not-matter")
+        assert _client_args_from_ambient_wc(wc) is None, (
+            f"helper must return None for library-native auth_type={auth_type}"
+        )
+
+
+@pytest.mark.unit
+def test_client_args_from_ambient_wc_returns_none_when_no_bearer() -> None:
+    """If no bearer is resolvable, the helper returns None so the caller can
+    pass client_args=None to the library — which will then raise its native
+    error rather than dao-ai producing a broken PAT-shaped payload.
+    """
+    from dao_ai.tools.vector_search import _client_args_from_ambient_wc
+
+    wc = _fake_wc(auth_type="databricks-cli")  # authenticate() -> {}
+    assert _client_args_from_ambient_wc(wc) is None
+
+
+# ---------------------------------------------------------------------------
+# F1 — regression guard: workspace_url is mandatory when PAT is passed.
+# VectorSearchClient.validate() (databricks/ai_search/client.py:186-189)
+# raises when personal_access_token is supplied without workspace_url. If the
+# helper synthesized a partial dict it would degrade the error UX, so we
+# require it to return None whenever wc.config.host is missing.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+def test_client_args_from_ambient_wc_returns_none_when_no_host() -> None:
+    """host absent → helper returns None so the caller can pass client_args=None."""
+    from dao_ai.tools.vector_search import _client_args_from_ambient_wc
+
+    for host_val in (None, ""):
+        wc = _fake_wc(auth_type="databricks-cli", host=host_val, bearer="tok")
+        assert _client_args_from_ambient_wc(wc) is None, (
+            f"helper must return None when host={host_val!r}"
+        )
+
+
+# ---------------------------------------------------------------------------
+# F3-a — M3b Model Serving OBO. When on_behalf_of_user=True and no forwarded
+# bearer is in Context.headers, workspace_client_from() falls through to
+# self.workspace_client (config.py:439-445), which builds
+# WorkspaceClient(credentials_strategy=ModelServingUserCredentials()). That
+# WC's config.auth_type is "model_serving_user_credentials"; the library's
+# native branch then adds credential_strategy=MODEL_SERVING_USER_CREDENTIALS
+# to client_args and VectorSearchClient reads invoker creds from the MS env.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+def test_vs_mode3b_model_serving_obo(monkeypatch: pytest.MonkeyPatch) -> None:
+    """OBO on Model Serving path: WC auth_type is model_serving_user_credentials,
+    dao-ai must pass client_args=None so the library's native branch fires.
+    """
+    for var in ("DATABRICKS_TOKEN", "DATABRICKS_CLIENT_ID", "DATABRICKS_CLIENT_SECRET", "DATABRICKS_HOST"):
+        monkeypatch.delenv(var, raising=False)
+
+    vs_model = _make_ambient_vector_store_mock(on_behalf_of_user=True)
+    wc = _fake_wc(auth_type="model_serving_user_credentials", bearer="ms-invoker-tok")
+    kwargs = _capture_client_args_and_invoke(vs_model, wc)
+
+    assert kwargs.get("client_args") is None, (
+        "mode #3b (Model Serving OBO) must pass client_args=None so the library "
+        "forwards to VectorSearchClient with "
+        "credential_strategy=MODEL_SERVING_USER_CREDENTIALS; "
+        f"got {kwargs.get('client_args')!r}"
+    )
+    assert kwargs["workspace_client"] is wc
+
+
+# ---------------------------------------------------------------------------
+# F3-b — defense in depth: a WorkspaceClient whose authenticate() returns a
+# non-Bearer Authorization header (e.g. Basic) must NOT be turned into a
+# spurious PAT. The helper punts (returns None), the library errors natively.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+def test_client_args_from_ambient_wc_returns_none_for_basic_auth() -> None:
+    from dao_ai.tools.vector_search import _client_args_from_ambient_wc
+
+    wc = MagicMock(name="wc[basic]")
+    wc.config.auth_type = "basic"
+    wc.config.host = "https://ws.example.com"
+    wc.config.authenticate.return_value = {"Authorization": "Basic dXNlcjpwYXNz"}
+    assert _client_args_from_ambient_wc(wc) is None
+
+
+# ---------------------------------------------------------------------------
+# F5 — auth_type="default" edge. DefaultCredentials.auth_type() returns
+# "default" (credentials_provider.py:1426), and ModelServingUserCredentials
+# outside a Model Serving container ALSO returns "default"
+# (credentials_provider.py:1503). Either case must produce a workable
+# client_args from the ambient bearer.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+def test_vs_default_auth_type_falls_back_to_bearer(monkeypatch: pytest.MonkeyPatch) -> None:
+    for var in ("DATABRICKS_TOKEN", "DATABRICKS_CLIENT_ID", "DATABRICKS_CLIENT_SECRET", "DATABRICKS_HOST"):
+        monkeypatch.delenv(var, raising=False)
+
+    vs_model = _make_ambient_vector_store_mock()
+    wc = _fake_wc(auth_type="default", bearer="fallback-bearer")
+    kwargs = _capture_client_args_and_invoke(vs_model, wc)
+
+    ca = kwargs.get("client_args") or {}
+    assert ca.get("personal_access_token") == "fallback-bearer", (
+        f"auth_type='default' must fall through to bearer extraction; got {ca!r}"
+    )
+    assert ca.get("workspace_url"), "workspace_url must be present alongside PAT"
