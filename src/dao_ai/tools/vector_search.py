@@ -61,6 +61,83 @@ from dao_ai.tools.verifier import add_verification_metadata, verify_results
 from dao_ai.utils import is_in_model_serving, normalize_host
 
 
+# auth_type values that the databricks-langchain library (as of 0.20.0) extracts
+# natively from workspace_client.config inside DatabricksVectorSearch.__init__.
+# When wc.config.auth_type is one of these, we let the library do its own job.
+# Sources of truth in databricks-sdk credentials_provider.py:
+#   - "pat":                              L146 @credentials_strategy("pat", ...)
+#   - "oauth-m2m":                        L237 @oauth_credentials_strategy("oauth-m2m", ...)
+#   - "model_serving_user_credentials":   L1499-1501, composed from
+#                                         "model_serving_" + ModelServingAuthProvider.USER_CREDENTIALS ("user_credentials")
+_LIBRARY_NATIVE_AUTH_TYPES: tuple[str, ...] = (
+    "pat",
+    "oauth-m2m",
+    "model_serving_user_credentials",
+)
+
+
+def _client_args_from_ambient_wc(wc: WorkspaceClient) -> dict[str, Any] | None:
+    """Populate ``VectorSearchClient`` auth kwargs from an ambient WorkspaceClient
+    whose ``config.auth_type`` is *not* one the ``databricks-langchain`` library
+    extracts natively.
+
+    The library inspects ``workspace_client.config.auth_type`` inside
+    ``DatabricksVectorSearch.__init__`` and only builds ``client_args`` for the
+    three values in ``_LIBRARY_NATIVE_AUTH_TYPES``. On Databricks Serverless v5
+    notebook / job runs, ``auth_type`` is usually ``databricks-cli`` /
+    ``oauth-u2m`` / ``default`` — none of which the library maps. Without help
+    ``client_args`` stays empty and the underlying ``VectorSearchClient`` raises
+    ``InvalidInputException`` demanding a PAT or SP.
+
+    Returns ``None`` when:
+      * the library will already handle the WC natively (auth_type in the
+        native list), or
+      * no bearer can be resolved from ``wc.config.authenticate()``, or
+      * ``wc.config.host`` is missing (VectorSearchClient rejects a bearer
+        without a workspace_url in its ``validate()`` — passing a partial dict
+        would convert one error into a more confusing one).
+
+    In every ``None`` case the caller passes ``client_args=None`` to the
+    library, which then gets a clean shot at its own extraction / fallback.
+
+    Otherwise returns a dict shaped as
+    ``{workspace_url, personal_access_token}``.
+    """
+    try:
+        auth_type = getattr(wc.config, "auth_type", None)
+        if auth_type in _LIBRARY_NATIVE_AUTH_TYPES:
+            return None
+        headers = wc.config.authenticate() or {}
+        bearer = str(headers.get("Authorization", ""))
+        if not bearer.startswith("Bearer "):
+            # Recognized the WC but its ambient auth isn't a Bearer we can
+            # forward (e.g. Basic). Better to punt to the library than lie
+            # about credentials we can't actually use.
+            logger.warning(
+                "dao_ai.vector_search.ambient_auth.unusable",
+                auth_type=auth_type,
+                note="WorkspaceClient.config.authenticate() produced no Bearer header",
+            )
+            return None
+        host = getattr(wc.config, "host", None)
+        if not host:
+            # VectorSearchClient.validate() requires workspace_url when a PAT
+            # is provided (databricks/ai_search/client.py:186-189). Punt.
+            logger.warning(
+                "dao_ai.vector_search.ambient_auth.no_host",
+                auth_type=auth_type,
+                note="WorkspaceClient.config.host is missing; cannot mint client_args",
+            )
+            return None
+        return {
+            "workspace_url": normalize_host(host),
+            "personal_access_token": bearer[len("Bearer "):],
+        }
+    except Exception as e:
+        logger.warning("dao_ai.vector_search.ambient_auth.exception", error=str(e))
+        return None
+
+
 class VectorSearchInput(BaseModel):
     """Arguments for the dao-ai vector_search tool factory.
 
@@ -383,17 +460,29 @@ def create_vector_search_tool(
         # Get workspace client with OBO support via context
         workspace_client: WorkspaceClient = vector_store.workspace_client_from(context)
 
-        # Create DatabricksVectorSearch
-        # Note: text_column should be None for Databricks-managed embeddings
-        # (it's automatically determined from the index)
+        # Create DatabricksVectorSearch. text_column stays None for
+        # Databricks-managed embeddings (auto-detected from the index).
         #
-        # When OBO is active, skip client_args entirely so
-        # DatabricksVectorSearch uses the workspace_client (which carries
-        # the user's forwarded token) instead of creating a separate
-        # VectorSearchClient from client_args with ambient/SP auth.
-        effective_client_args: dict[str, Any] | None = (
-            client_args if client_args and not vector_store.on_behalf_of_user else None
-        )
+        # Auth selection covers four modes, in priority order:
+        #   1. OBO — vector_store.on_behalf_of_user=True: pass client_args=None
+        #      so DatabricksVectorSearch uses the forwarded-bearer WorkspaceClient
+        #      directly.
+        #   2. Explicit PAT/SP — DATABRICKS_TOKEN / DATABRICKS_CLIENT_ID env vars
+        #      OR YAML vector_store.pat / .client_id / .client_secret; already
+        #      collected into `client_args` upstream.
+        #   3. Ambient App SP on Serverless v5 — WorkspaceClient.config.auth_type
+        #      is oauth-m2m; the library handles it natively when we pass
+        #      client_args=None (helper returns None).
+        #   4. Ambient user on Serverless v5 (notebook / job) — auth_type is
+        #      one of databricks-cli / oauth-u2m / default; the library does
+        #      NOT handle these, so we mint client_args ourselves from the
+        #      runtime bearer via _client_args_from_ambient_wc.
+        if vector_store.on_behalf_of_user:
+            effective_client_args: dict[str, Any] | None = None
+        elif client_args:
+            effective_client_args = client_args
+        else:
+            effective_client_args = _client_args_from_ambient_wc(workspace_client)
         vs: DatabricksVectorSearch = DatabricksVectorSearch(
             index_name=index_name,
             text_column=None,
