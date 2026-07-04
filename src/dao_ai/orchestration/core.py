@@ -13,7 +13,13 @@ from typing import Any, Awaitable, Callable, Literal
 
 from langchain.tools import ToolRuntime, tool
 from langchain_core.language_models import LanguageModelLike
-from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, ToolMessage
+from langchain_core.messages import (
+    AIMessage,
+    BaseMessage,
+    HumanMessage,
+    SystemMessage,
+    ToolMessage,
+)
 from langchain_core.tools import BaseTool
 from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.config import get_config
@@ -83,14 +89,17 @@ def create_checkpointer(
 def filter_messages_for_agent(
     messages: list[BaseMessage],
     current_agent_name: str | None = None,
+    internal_agents: frozenset[str] | None = None,
 ) -> list[BaseMessage]:
     """
-    Filter messages for a worker agent to avoid tool_use/tool_result pairing errors.
+    Filter messages for a worker agent to avoid tool_use/tool_result pairing
+    errors AND prevent cross-agent context leakage.
 
     When agents share parent-graph state, each agent should only see:
     - HumanMessage (user queries)
     - AIMessage with content from any agent (peer responses, with tool_calls
-      stripped so the model doesn't see orphaned tool_use blocks)
+      stripped so the model doesn't see orphaned tool_use blocks) — with the
+      exception below for internal agents
     - Its own AIMessage(tool_calls=...) and the matching ToolMessage(s), so a
       multi-turn agent can see its own prior tool results
 
@@ -103,11 +112,34 @@ def filter_messages_for_agent(
       ToolMessage to an agent, we pair it via ``tool_call_id`` against the
       surrounding ``AIMessage(tool_calls=…)`` we already decided to keep.
 
+    Context-leakage rules (applied by default):
+    - ``SystemMessage`` in shared history is DROPPED. Every agent's system
+      prompt and memory-context injection is applied fresh per invocation by
+      middleware / the prompt template — a ``SystemMessage`` sitting in
+      shared state from a prior agent's turn is context noise, not signal.
+    - Peer ``AIMessage`` from an agent named in ``internal_agents`` is
+      DROPPED when the current agent is NOT itself internal. Internal
+      agents (supervisors, planners, routers) emit plumbing text (intent
+      classifications, routing decisions) that would otherwise pollute
+      customer-facing agents' LLM context and get pattern-matched as
+      user-facing output. This mirrors the Anthropic "distilled handoffs"
+      pattern and LangGraph's documented swarm private-history recipe:
+      internal reasoning must be architecturally invisible to downstream
+      customer-facing agents, not merely prompt-instructed to be ignored.
+    - Internal agents STILL see each other (planner reads supervisor's
+      intent), and every agent STILL sees its own prior messages on
+      re-entry.
+
     Args:
         messages: The full message history from parent state
         current_agent_name: The name of the agent receiving the filtered
             history. When set, the agent's own tool exchanges are preserved.
             When ``None`` (legacy callers), all tool exchanges are stripped.
+        internal_agents: Set of agent names marked ``internal: true`` in
+            their ``AgentModel`` config. Peer AIMessages from these agents
+            are hidden from non-internal agents' view. Empty / ``None``
+            preserves pre-change filter behavior byte-for-byte for peer
+            AIMessages.
 
     Returns:
         Filtered messages safe for the agent to process
@@ -117,11 +149,30 @@ def filter_messages_for_agent(
     # Track which own tool_call_ids we've seen a matching ToolMessage for,
     # so we can synthesize placeholders for any orphans at the end.
     matched_tool_call_ids: set[str] = set()
+    _internal: frozenset[str] = internal_agents or frozenset()
+    _current_is_internal: bool = (
+        current_agent_name is not None and current_agent_name in _internal
+    )
     for msg in messages:
+        if isinstance(msg, SystemMessage):
+            # Prior-turn / prior-agent system prompts and memory-context
+            # injections are re-applied fresh per invocation. Drop from
+            # shared history to prevent cross-agent context accumulation.
+            continue
         if isinstance(msg, HumanMessage):
             filtered.append(msg)
         elif isinstance(msg, AIMessage):
             is_own = current_agent_name is not None and msg.name == current_agent_name
+            # Context-leakage guard: hide peer internal agents from
+            # non-internal (customer-facing) agents. Internal agents can
+            # still see each other's outputs — a planner needs to read a
+            # supervisor's intent classification to route.
+            if (
+                not is_own
+                and msg.name in _internal
+                and not _current_is_internal
+            ):
+                continue
             if msg.tool_calls:
                 if is_own:
                     filtered.append(msg)
@@ -279,12 +330,16 @@ def create_agent_node_handler(
     output_mode: OutputMode = "last_message",
     reflection_executor: Any | None = None,
     recursion_limit: int | None = None,
+    internal_agents: frozenset[str] = frozenset(),
 ) -> Callable[[AgentState, Runtime[Context]], Awaitable[AgentState]]:
     """
     Create a handler that wraps an agent subgraph with message filtering.
 
     This filters messages before passing to the agent and extracts only
-    the relevant response, avoiding tool_use/tool_result pairing errors.
+    the relevant response, avoiding tool_use/tool_result pairing errors AND
+    preventing cross-agent context leakage (internal-plumbing text like
+    intent classifications or routing decisions leaking into a
+    customer-facing agent's LLM context).
 
     Used by both supervisor and swarm patterns to ensure consistent
     message handling when agents are CompiledStateGraphs.
@@ -297,18 +352,25 @@ def create_agent_node_handler(
         output_mode: How to extract response ("last_message" or "full_history")
         reflection_executor: Optional background reflection executor for
             automatic memory extraction after each agent turn.
+        internal_agents: Set of agent names marked ``internal: true`` in
+            their ``AgentModel`` config. Their AIMessages are hidden from
+            non-internal (customer-facing) agents' views. Default empty
+            preserves pre-change behavior for callers that don't opt in.
 
     Returns:
         An async handler function for the workflow node
     """
 
     async def handler(state: AgentState, runtime: Runtime[Context]) -> AgentState:
-        # Filter messages to avoid tool_use/tool_result pairing errors.
+        # Filter messages to avoid tool_use/tool_result pairing errors AND
+        # scope internal-plumbing content away from non-internal agents.
         # Passing agent_name preserves the agent's own tool exchanges from
         # prior turns while still hiding peers' tool exchanges.
         original_messages = state.get("messages", [])
         filtered_messages = filter_messages_for_agent(
-            original_messages, current_agent_name=agent_name
+            original_messages,
+            current_agent_name=agent_name,
+            internal_agents=internal_agents,
         )
 
         logger.trace(

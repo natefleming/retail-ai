@@ -403,6 +403,19 @@ def create_swarm_graph(config: AppConfig) -> CompiledStateGraph:
     agent_subgraphs: dict[str, CompiledStateGraph] = {}
     agent_recursion_limits: dict[str, int | None] = {}
     deterministic_targets: dict[str, str] = {}
+    # Agents marked ``internal: true`` in config. Their AIMessage outputs
+    # are filtered out of the history view passed to non-internal agents to
+    # prevent cross-agent context leakage (Anthropic distilled-handoff
+    # pattern; LangGraph swarm private-history recipe). Internal agents
+    # can still see each other's outputs.
+    internal_agents: frozenset[str] = frozenset(
+        a.name for a in config.app.agents if a.internal
+    )
+    if internal_agents:
+        logger.debug(
+            "Swarm internal agents (outputs hidden from non-internal peers)",
+            internal_agents=sorted(internal_agents),
+        )
     memory: MemoryModel | None = orchestration.memory
 
     # Set up memory store early so we can pass it to agents for auto-injection
@@ -502,6 +515,7 @@ def create_swarm_graph(config: AppConfig) -> CompiledStateGraph:
             output_mode=orchestration.output_mode,
             reflection_executor=reflection_executor,
             recursion_limit=agent_recursion_limits.get(agent_name),
+            internal_agents=internal_agents,
         )
 
         # Wrap the handler for deterministic routing:
