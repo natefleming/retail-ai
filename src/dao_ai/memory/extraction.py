@@ -97,25 +97,6 @@ class _ContextAwareReflector:
     def invoke(self, payload: Any, *args: Any, **kwargs: Any) -> Any:
         with self._ctx_lock:
             ctx = self._ctx_by_payload_id.pop(id(payload), None)
-        # Opt this chain out of MLflow autolog callbacks. Memory extraction
-        # runs on a langmem worker thread and internally spawns a nested
-        # ``get_executor_for_config(config)`` thread pool for parallel
-        # ``store.search`` calls (langmem.knowledge.extraction:1149). LangChain
-        # creates a fresh ``MlflowLangchainTracer`` for each new callback
-        # manager, and that tracer's ``_run_span_mapping`` is instance state —
-        # not a ContextVar — so ``contextvars.copy_context`` cannot carry it
-        # into the sub-workers. Callbacks on those threads reference
-        # run_ids they never registered and MLflow logs
-        # ``Span for run_id X not found`` on every LLM call. Memory
-        # extraction is not customer-facing, so ``callbacks=[]`` here
-        # silences the noise AND slightly reduces per-turn latency by
-        # skipping autolog overhead on this path.
-        config = kwargs.get("config")
-        if config is None and args:
-            config = args[0]
-            args = args[1:]
-        config = {**(config or {}), "callbacks": []}
-        kwargs["config"] = config
         if ctx is None:
             return self._inner.invoke(payload, *args, **kwargs)
         return ctx.run(self._inner.invoke, payload, *args, **kwargs)

@@ -1,126 +1,134 @@
-"""Unit tests for ``_ContextAwareReflector.invoke``.
+"""Regression tests for the MLflow-autolog warning suppression path.
 
-The reflector wraps langmem's ``MemoryStoreManager`` so background
-memory-extraction calls run under the caller's captured
-``contextvars.Context``. In addition it opts the wrapped chain out of
-MLflow autolog callbacks — memory extraction runs on nested worker
-threads where MLflow's per-instance tracer state (``_run_span_mapping``)
-cannot follow, producing noisy ``Span for run_id X not found`` warnings
-on every request. Passing ``callbacks=[]`` in the invoke config disables
-those callbacks for this chain only. This test suite pins that
-behavior.
+Background: ``mlflow.langchain.autolog`` installs its tracer via a
+monkey-patch of ``BaseCallbackManager.__init__``. LangChain's memory-
+extraction chain (``langmem.knowledge.extraction.MemoryStoreManager``)
+uses ``get_executor_for_config(config)`` to spawn a nested thread pool
+for parallel ``store.search`` calls, and each new callback manager on
+those sub-threads gets a fresh ``MlflowLangchainTracer`` instance whose
+per-instance ``_run_span_mapping`` cannot see the parent tracer's
+run_ids. That triggers two families of warnings on every request:
+
+- ``mlflow.utils.autologging_utils``: ``Encountered unexpected error
+  during autologging: Span for run_id X not found.``
+- ``mlflow.entities.span``: ``Failed to end span X: .``
+
+The warnings are harmless (memory writes still succeed, main-pipeline
+traces still land). They cannot be silenced at the RunnableConfig level
+because autolog injects at the callback-manager-init level. And they
+cannot be silenced by ``mlflow.utils.autologging_utils.disable_autologging``
+because that flips a process-global flag that races with concurrent
+foreground requests. So we filter them at the log-record level via
+``suppress_autolog_context_warnings`` in ``dao_ai/logging.py``.
+
+These tests pin that filter behavior.
 """
 
 from __future__ import annotations
 
-import contextvars
-from typing import Any
+import logging
 
 import pytest
 
-from dao_ai.memory.extraction import _ContextAwareReflector
+from dao_ai.logging import suppress_autolog_context_warnings
 
 
-class _RecordingInner:
-    """Fake ``MemoryStoreManager`` that records how ``invoke`` was called."""
+@pytest.fixture
+def _fresh_loggers() -> None:
+    """Reset filters on the two loggers before/after each test."""
 
-    def __init__(self) -> None:
-        self.namespace: tuple[str, ...] = ("memory", "{user_id}")
-        self.calls: list[dict[str, Any]] = []
+    def _clear() -> None:
+        for name in ("mlflow.utils.autologging_utils", "mlflow.entities.span"):
+            log = logging.getLogger(name)
+            for f in list(log.filters):
+                log.removeFilter(f)
 
-    def invoke(self, payload: Any, *args: Any, **kwargs: Any) -> Any:
-        # Normalize the positional/keyword config into a single view.
-        config = kwargs.get("config")
-        if config is None and args:
-            config = args[0]
-        self.calls.append(
-            {
-                "payload": payload,
-                "config": config,
-                "args": args,
-                "kwargs": {k: v for k, v in kwargs.items() if k != "config"},
-            }
-        )
-        return {"ok": True}
+    _clear()
+    yield
+    _clear()
 
 
-@pytest.mark.unit
-def test_invoke_injects_empty_callbacks_when_no_config() -> None:
-    inner = _RecordingInner()
-    r = _ContextAwareReflector(inner)
-    payload = {"messages": []}
-    r.invoke(payload)
-    assert len(inner.calls) == 1
-    seen = inner.calls[0]["config"]
-    assert seen is not None
-    assert seen.get("callbacks") == []
+def _emit(logger_name: str, message: str) -> logging.LogRecord:
+    """Build a synthetic warning record — same shape MLflow emits."""
+    return logging.LogRecord(
+        name=logger_name,
+        level=logging.WARNING,
+        pathname=__file__,
+        lineno=0,
+        msg=message,
+        args=None,
+        exc_info=None,
+    )
 
 
-@pytest.mark.unit
-def test_invoke_overrides_caller_callbacks() -> None:
-    """Autolog opt-out is idempotent — the reflector always wins."""
-    inner = _RecordingInner()
-    r = _ContextAwareReflector(inner)
-
-    class _OtherHandler:
-        pass
-
-    caller_config = {
-        "callbacks": [_OtherHandler()],
-        "configurable": {"user_id": "alice"},
-    }
-    r.invoke({"messages": []}, config=caller_config)
-    seen = inner.calls[0]["config"]
-    assert seen["callbacks"] == []
-    # Non-callback fields survive.
-    assert seen["configurable"] == {"user_id": "alice"}
+def _passes_all_filters(logger_name: str, record: logging.LogRecord) -> bool:
+    log = logging.getLogger(logger_name)
+    return all(f.filter(record) for f in log.filters)
 
 
 @pytest.mark.unit
-def test_invoke_preserves_positional_config_form() -> None:
-    """Some callers pass ``config`` positionally rather than by keyword."""
-    inner = _RecordingInner()
-    r = _ContextAwareReflector(inner)
-    r.invoke({"messages": []}, {"configurable": {"user_id": "bob"}})
-    seen = inner.calls[0]["config"]
-    assert seen["callbacks"] == []
-    assert seen["configurable"] == {"user_id": "bob"}
+def test_filter_drops_span_for_run_id_not_found(_fresh_loggers: None) -> None:
+    """Memory-extraction cross-thread callback warning is silenced."""
+    suppress_autolog_context_warnings()
+    record = _emit(
+        "mlflow.utils.autologging_utils",
+        "Encountered unexpected error during autologging: "
+        "Span for run_id 019f2d1c-9b9f-7720-a880-6036114b135e not found.",
+    )
+    assert _passes_all_filters("mlflow.utils.autologging_utils", record) is False
 
 
 @pytest.mark.unit
-def test_invoke_replays_captured_context() -> None:
-    """When ``attach`` supplied a captured context, ``ctx.run`` is used."""
-    inner = _RecordingInner()
-    r = _ContextAwareReflector(inner)
-    payload = {"messages": []}
-
-    marker: contextvars.ContextVar[str] = contextvars.ContextVar("marker", default="none")
-
-    def _prep_ctx() -> contextvars.Context:
-        marker.set("captured")
-        return contextvars.copy_context()
-
-    ctx = _prep_ctx()
-
-    def _record_marker(*_a: Any, **_kw: Any) -> Any:
-        # Observed inside inner.invoke — it will run inside ctx.run.
-        inner.calls.append({"marker": marker.get()})
-        return {"ok": True}
-
-    inner.invoke = _record_marker  # type: ignore[method-assign]
-    r.attach(payload, ctx)
-    r.invoke(payload)
-
-    # The recorded marker inside inner should reflect the captured context.
-    assert inner.calls[-1]["marker"] == "captured"
+def test_filter_drops_context_var_warning(_fresh_loggers: None) -> None:
+    """Pre-existing nest_asyncio ContextVar warning is silenced (backcompat)."""
+    suppress_autolog_context_warnings()
+    record = _emit(
+        "mlflow.utils.autologging_utils",
+        "Token <ContextVarToken ...> was created in a different Context "
+        "and cannot be used to reset it.",
+    )
+    assert _passes_all_filters("mlflow.utils.autologging_utils", record) is False
 
 
 @pytest.mark.unit
-def test_invoke_without_context_still_opts_out() -> None:
-    """No attached context → no ``ctx.run`` — but callbacks still opted out."""
-    inner = _RecordingInner()
-    r = _ContextAwareReflector(inner)
-    # No attach() called.
-    r.invoke({"messages": []})
-    seen = inner.calls[0]["config"]
-    assert seen["callbacks"] == []
+def test_filter_drops_failed_to_end_span(_fresh_loggers: None) -> None:
+    """Sibling ``Failed to end span`` warning is silenced."""
+    suppress_autolog_context_warnings()
+    record = _emit(
+        "mlflow.entities.span",
+        "Failed to end span d3a1418cf6624aa8: . "
+        "For full traceback, set logging level to debug.",
+    )
+    assert _passes_all_filters("mlflow.entities.span", record) is False
+
+
+@pytest.mark.unit
+def test_filter_lets_unrelated_autolog_warnings_through(_fresh_loggers: None) -> None:
+    """Real, actionable autolog warnings still surface — filter is targeted."""
+    suppress_autolog_context_warnings()
+    record = _emit(
+        "mlflow.utils.autologging_utils",
+        "MLflow autologging encountered a warning: model registry unavailable.",
+    )
+    assert _passes_all_filters("mlflow.utils.autologging_utils", record) is True
+
+
+@pytest.mark.unit
+def test_filter_lets_unrelated_span_warnings_through(_fresh_loggers: None) -> None:
+    """Non-'Failed to end span' entries.span warnings still surface."""
+    suppress_autolog_context_warnings()
+    record = _emit("mlflow.entities.span", "Span exceeded max attribute count.")
+    assert _passes_all_filters("mlflow.entities.span", record) is True
+
+
+@pytest.mark.unit
+def test_filter_matches_partial_span_for_run_id_variants(_fresh_loggers: None) -> None:
+    """Guard against wording drift — match any 'Span for run_id ... not found'."""
+    suppress_autolog_context_warnings()
+    for msg in [
+        "Span for run_id abc not found.",
+        "Encountered unexpected error during autologging: Span for run_id X not found.",
+        "Span for run_id 019f... not found (retrying).",
+    ]:
+        record = _emit("mlflow.utils.autologging_utils", msg)
+        assert _passes_all_filters("mlflow.utils.autologging_utils", record) is False, msg
