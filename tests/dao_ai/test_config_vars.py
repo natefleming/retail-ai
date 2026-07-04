@@ -31,6 +31,64 @@ def test_find_param_references_extracts_distinct_names() -> None:
 
 
 @pytest.mark.unit
+def test_find_param_references_ignores_full_line_comments() -> None:
+    text = dedent(
+        """
+        # example: schema: ${var.example_schema}
+        catalog: ${var.catalog}
+        """
+    )
+    assert find_param_references(text) == {"catalog"}
+
+
+@pytest.mark.unit
+def test_find_param_references_ignores_inline_comments() -> None:
+    text = "catalog: ${var.catalog}  # or use ${var.override}\n"
+    assert find_param_references(text) == {"catalog"}
+
+
+@pytest.mark.unit
+def test_find_param_references_keeps_hash_inside_double_quotes() -> None:
+    # A `#` inside a double-quoted string is not a comment starter.
+    text = 'label: "hash-mark #${var.tag} still counts"\n'
+    assert find_param_references(text) == {"tag"}
+
+
+@pytest.mark.unit
+def test_find_param_references_keeps_hash_inside_single_quotes() -> None:
+    text = "label: 'hash # ${var.tag} still counts'\n"
+    assert find_param_references(text) == {"tag"}
+
+
+@pytest.mark.unit
+def test_substitute_params_ignores_undeclared_references_in_comments() -> None:
+    text = dedent(
+        """
+        # example: schema: ${var.example_schema}
+        catalog: ${var.catalog}
+        """
+    )
+    decls = {"catalog": ParameterDeclarationModel(default="main")}
+    rendered = substitute_params(text, declarations=decls)
+    # Comment ${var.example_schema} is left untouched; catalog substituted.
+    assert "${var.example_schema}" in rendered
+    assert "catalog: main" in rendered
+
+
+@pytest.mark.unit
+def test_substitute_params_ignores_missing_required_in_comments() -> None:
+    # A declared-but-unresolved ref inside a comment should not raise.
+    text = "# hint: use ${var.optional_hint}\ncatalog: ${var.catalog}\n"
+    decls = {
+        "optional_hint": ParameterDeclarationModel(),  # required, no default
+        "catalog": ParameterDeclarationModel(default="main"),
+    }
+    rendered = substitute_params(text, declarations=decls)
+    assert "${var.optional_hint}" in rendered
+    assert "catalog: main" in rendered
+
+
+@pytest.mark.unit
 def test_substitute_uses_cli_vars_first() -> None:
     decls = {"foo": ParameterDeclarationModel(default="from-default")}
     rendered = substitute_params(
