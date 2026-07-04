@@ -23,9 +23,6 @@ from dao_ai.logging import (  # noqa: E402
 mlflow.set_registry_uri("databricks-uc")
 mlflow.set_tracking_uri("databricks")
 
-mlflow.langchain.autolog(run_tracer_inline=True)
-suppress_autolog_context_warnings()
-
 model_config: ModelConfig = ModelConfig()
 config: AppConfig = AppConfig(**model_config.to_dict())
 
@@ -35,28 +32,32 @@ configure_logging(level=log_level)
 
 config.initialize()
 
-# Configure UC-based trace destination if trace_location is set.
-# Uses mlflow.set_experiment(trace_location=UnityCatalog(...)) — the post-3.11
-# blessed API. Replaces the older
-# mlflow.tracing.set_destination(UCSchemaLocation(...)) which emits a
-# deprecation warning on every call.
-if config.app and config.app.trace_location:
-    from mlflow.entities import UnityCatalog  # noqa: E402
+# Set the active MLflow experiment BEFORE enabling autolog. If autolog is
+# enabled first, its instrumentation captures the initial LangChain callbacks
+# under the workspace-default experiment and the resulting run lives there —
+# subsequent set_experiment() calls change the active experiment but the run
+# is already stuck under the default. That produces
+# ``Span for run_id ... not found`` at trace-write time. See handlers.py for
+# the symmetric Apps-side fix.
+_experiment_id_env: str | None = os.environ.get("MLFLOW_EXPERIMENT_ID")
+if _experiment_id_env:
+    _set_experiment_kwargs: dict[str, object] = {"experiment_id": _experiment_id_env}
+    if config.app and config.app.trace_location:
+        from mlflow.entities import UnityCatalog  # noqa: E402
 
-    _loc = config.app.trace_location
-    _trace_loc_kwargs: dict[str, object] = {
-        "catalog_name": _loc.catalog_name,
-        "schema_name": _loc.schema_name,
-    }
-    _table_prefix = _loc.resolved_table_prefix
-    if _table_prefix:
-        _trace_loc_kwargs["table_prefix"] = _table_prefix
-    _experiment_id_env: str | None = os.environ.get("MLFLOW_EXPERIMENT_ID")
-    if _experiment_id_env:
-        mlflow.set_experiment(
-            experiment_id=_experiment_id_env,
-            trace_location=UnityCatalog(**_trace_loc_kwargs),
-        )
+        _loc = config.app.trace_location
+        _trace_loc_kwargs: dict[str, object] = {
+            "catalog_name": _loc.catalog_name,
+            "schema_name": _loc.schema_name,
+        }
+        _table_prefix = _loc.resolved_table_prefix
+        if _table_prefix:
+            _trace_loc_kwargs["table_prefix"] = _table_prefix
+        _set_experiment_kwargs["trace_location"] = UnityCatalog(**_trace_loc_kwargs)
+    mlflow.set_experiment(**_set_experiment_kwargs)
+
+mlflow.langchain.autolog(run_tracer_inline=True)
+suppress_autolog_context_warnings()
 
 from loguru import logger  # noqa: E402
 
