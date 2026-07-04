@@ -6237,23 +6237,6 @@ class AgentModel(BaseModel):
             "self-reference, cycles in the requires DAG) runs at config-build time."
         ),
     )
-    is_terminal: bool = Field(
-        default=False,
-        description=(
-            "Marks this agent as a terminal node in the swarm pattern. When "
-            "True, the swarm runtime clears 'active_agent' after the agent "
-            "finishes a turn so the next user message restarts at the "
-            "swarm's default_agent instead of stickily resuming here. "
-            "An agent is also treated as terminal when its YAML 'handoffs' "
-            "entry is an explicit empty list ([]) — this flag is the way to "
-            "force terminal behavior on an agent that still has outbound "
-            "handoffs available (e.g. an agent whose LLM may or may not "
-            "invoke its handoff tools and which should always reset the "
-            "active agent between user turns). The supervisor pattern "
-            "ignores this field — supervisor orchestration restarts every "
-            "turn unconditionally."
-        ),
-    )
 
     @model_validator(mode="after")
     def validate_requires_no_self_reference(self) -> Self:

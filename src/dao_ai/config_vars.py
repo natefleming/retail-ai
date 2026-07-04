@@ -68,6 +68,70 @@ WORKSPACE_PATTERN: re.Pattern[str] = re.compile(
     r"\$\{workspace\.(?P<path>[a-zA-Z_][a-zA-Z0-9_.]*)\}"
 )
 
+
+def _yaml_comment_spans(text: str) -> list[tuple[int, int]]:
+    """Return ``[start, end)`` offsets of YAML ``#`` comment ranges in *text*.
+
+    A ``#`` starts a comment when it appears at the start of a line
+    (after optional whitespace) or is preceded by whitespace on the
+    same line, and is not inside single- or double-quoted strings. The
+    comment extends to (but does not include) the next newline.
+
+    This is a best-effort text scan; it does not track YAML block scalars
+    (``|`` / ``>``). A ``#``-prefixed content line inside a block scalar
+    can be misclassified as a comment. If that becomes a problem for a
+    specific config, declare the parameter or move the ``${var.X}``
+    reference to a line whose first non-space character is not ``#``.
+    """
+    spans: list[tuple[int, int]] = []
+    n: int = len(text)
+    line_start: int = 0
+    while line_start <= n:
+        line_end: int = text.find("\n", line_start)
+        if line_end == -1:
+            line_end = n
+        line: str = text[line_start:line_end]
+        in_squote: bool = False
+        in_dquote: bool = False
+        j: int = 0
+        while j < len(line):
+            ch: str = line[j]
+            if in_squote:
+                if ch == "'":
+                    if j + 1 < len(line) and line[j + 1] == "'":
+                        j += 2
+                        continue
+                    in_squote = False
+            elif in_dquote:
+                if ch == "\\" and j + 1 < len(line):
+                    j += 2
+                    continue
+                if ch == '"':
+                    in_dquote = False
+            else:
+                if ch == "'":
+                    in_squote = True
+                elif ch == '"':
+                    in_dquote = True
+                elif ch == "#" and (j == 0 or line[j - 1] in " \t"):
+                    spans.append((line_start + j, line_end))
+                    break
+            j += 1
+        if line_end == n:
+            break
+        line_start = line_end + 1
+    return spans
+
+
+def _in_any_span(pos: int, spans: list[tuple[int, int]]) -> bool:
+    """Return True if ``pos`` falls inside any ``[start, end)`` span."""
+    for start, end in spans:
+        if start <= pos < end:
+            return True
+        if start > pos:
+            return False
+    return False
+
 _SUPPORTED_WORKSPACE_PATHS: frozenset[str] = frozenset(
     {
         "host",
@@ -136,8 +200,18 @@ class ConfigVariableError(ValueError):
 
 
 def find_param_references(text: str) -> set[str]:
-    """Return the distinct names referenced via ``${param.NAME}`` or ``${var.NAME}``."""
-    return {m.group("name") for m in PARAM_PATTERN.finditer(text)}
+    """Return the distinct names referenced via ``${param.NAME}`` or ``${var.NAME}``.
+
+    References that fall inside YAML ``#`` comments are ignored, so a
+    commented-out example line like ``# schema: ${var.schema}`` does
+    not require the parameter to be declared.
+    """
+    spans: list[tuple[int, int]] = _yaml_comment_spans(text)
+    return {
+        m.group("name")
+        for m in PARAM_PATTERN.finditer(text)
+        if not _in_any_span(m.start(), spans)
+    }
 
 
 def _env_key(name: str) -> str:
@@ -181,6 +255,7 @@ def substitute_params(
     overrides: Mapping[str, str] = cli_vars or {}
     env_map: Mapping[str, str] = env if env is not None else os.environ
 
+    comment_spans: list[tuple[int, int]] = _yaml_comment_spans(text)
     references: set[str] = find_param_references(text)
     undeclared: list[str] = (
         sorted(n for n in references if n not in decls) if decls else []
@@ -189,6 +264,10 @@ def substitute_params(
     missing: list[str] = []
 
     def _resolve(match: re.Match[str]) -> str:
+        # References inside YAML comments are documentation — leave the
+        # literal ${var.X} in place and don't count them toward missing.
+        if _in_any_span(match.start(), comment_spans):
+            return match.group(0)
         name: str = match.group("name")
         inline_default: Optional[str] = match.group("default")
         if name in overrides:
@@ -262,8 +341,16 @@ def resolve_parameters(
 
 
 def find_workspace_references(text: str) -> set[str]:
-    """Return the distinct paths referenced via ``${workspace.PATH}``."""
-    return {m.group("path") for m in WORKSPACE_PATTERN.finditer(text)}
+    """Return the distinct paths referenced via ``${workspace.PATH}``.
+
+    References inside YAML ``#`` comments are ignored.
+    """
+    spans: list[tuple[int, int]] = _yaml_comment_spans(text)
+    return {
+        m.group("path")
+        for m in WORKSPACE_PATTERN.finditer(text)
+        if not _in_any_span(m.start(), spans)
+    }
 
 
 def _email_short_name(email: str) -> str:
@@ -301,6 +388,7 @@ def substitute_workspace_refs(
         WorkspaceVariableError: if the text references an unsupported path,
             or if constructing the WorkspaceClient / fetching user info fails.
     """
+    comment_spans: list[tuple[int, int]] = _yaml_comment_spans(text)
     refs: set[str] = find_workspace_references(text)
     if not refs:
         return text
@@ -374,6 +462,9 @@ def substitute_workspace_refs(
         return value
 
     def _sub(match: re.Match[str]) -> str:
+        # Leave comment-embedded references untouched (documentation, not config).
+        if _in_any_span(match.start(), comment_spans):
+            return match.group(0)
         return _resolve(match.group("path"))
 
     return WORKSPACE_PATTERN.sub(_sub, text)

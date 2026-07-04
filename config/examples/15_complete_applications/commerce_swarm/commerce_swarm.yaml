@@ -787,12 +787,12 @@ agents:
   # ---------------------------------------------------------------------------
   # COMPOSER — final-response formatter. Reads the upstream specialist's
   # working notes / tool results from the conversation, formats them into a
-  # customer-facing response, and streams. Terminal — no further handoffs.
+  # customer-facing response, and streams. On a new user turn where no
+  # specialist has run yet, hands off back to the supervisor.
   # ---------------------------------------------------------------------------
   composer: &composer
     name: composer
-    description: "Final-response composer — formats and streams the customer-facing response based on upstream specialist output. Terminal node."
-    is_terminal: true
+    description: "Final-response composer — formats and streams the customer-facing response based on upstream specialist output."
     model: *fast_llm
     tools: []
     guardrails: []
@@ -837,10 +837,23 @@ agents:
         message IS the figure.
       - **DO NOT ask clarifying questions** unless the specialist's
         answer explicitly asks the composer to ask one.
-      - **Stream tokens** — you are the terminal node, so the bytes
-        you emit ARE the response the customer sees.
+      - **Stream tokens** — you are the last node in the pipeline, so
+        the bytes you emit ARE the response the customer sees.
       - Stay under ~120 words unless the specialist's answer needs the
         full detail.
+
+      #### New-turn fallback
+
+      If this call starts a fresh user turn with no upstream specialist
+      `AIMessage` produced during this turn (i.e. the most recent
+      message is a plain `HumanMessage` from the customer), you are
+      being sticky-resumed as the last-active agent from the prior
+      turn and have no specialist output to reword. You have no
+      handoff tools available. Respond in ONE short sentence
+      acknowledging the customer's message and inviting them to
+      restate the request (e.g., "Happy to help — could you say a
+      little more about what you need?"). Keep it warm and under 20
+      words.
 
       #### What to actually do
 
@@ -871,7 +884,7 @@ agents:
       - `general` — warm short reply matching the customer's register.
 
     handoff_prompt: |
-      Final-response composer. Terminal node. Every specialist hands off here when finished.
+      Final-response composer. Every specialist hands off here when finished.
 
 # =============================================================================
 # APPLICATION
@@ -977,7 +990,14 @@ app:
     #   target based on supervisor's intent label)
     # • handler/ucp → composer: DETERMINISTIC (every specialist terminates
     #   in the composer, which formats and streams the final response)
-    # • composer: terminal — empty handoffs list, no outbound edges
+    # • composer: no outbound handoffs — the graph ends after composer
+    #   emits its response. Under canonical swarm semantics, active_agent
+    #   remains sticky on composer, so a subsequent user turn re-enters
+    #   at composer. Composer's prompt handles that case with a brief
+    #   "please restate" fallback (see the composer's "New-turn
+    #   fallback" rule). If you need automatic re-entry at supervisor
+    #   between user turns, switch this orchestration block to the
+    #   supervisor pattern — supervisor restarts every turn by design.
     #
     # Deterministic handoffs route via static graph edges. dao-ai's swarm
     # runtime normalizes the message tail before each deterministic
@@ -1033,8 +1053,10 @@ app:
         - agent: *composer
           is_deterministic: true
 
-        # Stage 4: terminal — composer streams the final response and ends
-        # the turn. No outbound handoffs.
+        # Stage 4: composer streams the final response and ends the turn.
+        # No outbound handoffs — active_agent stays sticky on composer per
+        # canonical swarm semantics, and composer's prompt handles the
+        # sticky-resume case with a short "please restate" fallback.
         composer: []
 
 # =============================================================================
