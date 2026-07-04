@@ -738,12 +738,6 @@
           },
           "title": "Requires",
           "type": "array"
-        },
-        "is_terminal": {
-          "default": false,
-          "description": "Marks this agent as a terminal node in the swarm pattern. When True, the swarm runtime clears 'active_agent' after the agent finishes a turn so the next user message restarts at the swarm's default_agent instead of stickily resuming here. An agent is also treated as terminal when its YAML 'handoffs' entry is an explicit empty list ([]) \u2014 this flag is the way to force terminal behavior on an agent that still has outbound handoffs available (e.g. an agent whose LLM may or may not invoke its handoff tools and which should always reset the active agent between user turns). The supervisor pattern ignores this field \u2014 supervisor orchestration restarts every turn unconditionally.",
-          "title": "Is Terminal",
-          "type": "boolean"
         }
       },
       "required": [
