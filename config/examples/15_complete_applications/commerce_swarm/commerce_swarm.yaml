@@ -429,6 +429,12 @@ agents:
   supervisor: &supervisor
     name: supervisor
     description: "Intent classification — extracts the customer's intent label(s) and confidence; deterministic handoff to planner."
+    # Internal / plumbing agent — its INTENT classification output is
+    # hidden from non-internal (customer-facing) agents' view of shared
+    # history. Prevents composer from pattern-matching on the
+    # `INTENT: X | CONFIDENCE: Y | NOTES: Z` format and echoing it as a
+    # customer response on sticky-resume turns.
+    internal: true
     model: *fast_llm
     tools: []
     guardrails: []
@@ -478,6 +484,10 @@ agents:
   planner: &planner
     name: planner
     description: "Orchestrator — picks the specialist handler based on supervisor's intent label."
+    # Internal / plumbing agent — its routing decision is internal
+    # plumbing and hidden from non-internal agents. Planner still sees
+    # supervisor's INTENT classification because both are internal.
+    internal: true
     model: *fast_llm
     tools: []
     guardrails: []

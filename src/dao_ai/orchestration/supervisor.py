@@ -341,6 +341,17 @@ def create_supervisor_graph(config: AppConfig) -> CompiledStateGraph:
     # Each worker gets a handoff_to_supervisor tool to return control
     agent_subgraphs: dict[str, CompiledStateGraph] = {}
     agent_recursion_limits: dict[str, int | None] = {}
+    # Agents marked ``internal: true`` in config. Their AIMessage outputs
+    # are hidden from non-internal (customer-facing) agents' view of
+    # shared history (context-leakage prevention).
+    internal_agents: frozenset[str] = frozenset(
+        a.name for a in config.app.agents if a.internal
+    )
+    if internal_agents:
+        logger.debug(
+            "Supervisor pattern internal agents (outputs hidden from non-internal peers)",
+            internal_agents=sorted(internal_agents),
+        )
     for registered_agent in config.app.agents:
         # Create handoff back to supervisor tool
         supervisor_handoff: BaseTool = _create_handoff_back_to_supervisor_tool()
@@ -379,6 +390,7 @@ def create_supervisor_graph(config: AppConfig) -> CompiledStateGraph:
             output_mode=orchestration.output_mode,
             reflection_executor=reflection_executor,
             recursion_limit=agent_recursion_limits.get(agent_name),
+            internal_agents=internal_agents,
         )
         workflow.add_node(agent_name, handler)
 

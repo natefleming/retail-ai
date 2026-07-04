@@ -6237,6 +6237,27 @@ class AgentModel(BaseModel):
             "self-reference, cycles in the requires DAG) runs at config-build time."
         ),
     )
+    internal: bool = Field(
+        default=False,
+        description=(
+            "Marks this agent as an internal / plumbing agent. Its "
+            "``AIMessage`` outputs are filtered out of the conversation "
+            "history passed to NON-internal (customer-facing) agents' LLM "
+            "context. Other internal agents still see them — e.g., a "
+            "planner can still read a supervisor's intent classification. "
+            "The agent itself always sees its own prior messages on "
+            "re-entry.\n\n"
+            "The agent still runs, still writes to shared state, and still "
+            "appears in MLflow traces — only downstream customer-facing "
+            "agents' LLM view is scoped away, so internal-plumbing text "
+            "(intent classifications, routing decisions, working notes) "
+            "cannot leak as if it were a customer-facing response. "
+            "Typical use: swarm supervisors, planners, routers; anything "
+            "whose output is intended for downstream consumption rather "
+            "than the customer. Composer / response-formatter agents "
+            "should stay at the default ``False``."
+        ),
+    )
 
     @model_validator(mode="after")
     def validate_requires_no_self_reference(self) -> Self:
