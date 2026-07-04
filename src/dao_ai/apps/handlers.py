@@ -49,8 +49,6 @@ load_dotenv(dotenv_path=".env.local", override=True)
 # Configure MLflow
 mlflow.set_registry_uri("databricks-uc")
 mlflow.set_tracking_uri("databricks")
-mlflow.langchain.autolog(run_tracer_inline=True)
-suppress_autolog_context_warnings()
 
 # Get config path from environment or use default
 config_path: str = os.environ.get("DAO_AI_CONFIG_PATH", "dao_ai.yaml")
@@ -62,41 +60,45 @@ config: AppConfig = AppConfig.from_file(config_path)
 if config.app and config.app.log_level:
     configure_logging(level=config.app.log_level)
 
-# Configure UC-based trace storage if trace_location is set.
-# Uses mlflow.set_experiment(trace_location=UnityCatalog(...)) — the post-3.11
-# blessed API. Replaces the older
-# mlflow.tracing.set_destination(UCSchemaLocation(...)) +
-# mlflow.tracing.enablement.set_experiment_trace_location combo, both of
-# which emit deprecation warnings on every call.
-if config.app and config.app.trace_location:
-    from mlflow.entities import UnityCatalog
+# Set the active MLflow experiment BEFORE enabling autolog. If autolog is
+# enabled first, its instrumentation captures the initial LangChain callbacks
+# under the workspace-default experiment and creates a run there — then
+# subsequent set_experiment() calls change the active experiment but the run
+# is already stuck under the default. That produces
+# ``Span for run_id ... not found`` at trace-write time because MLflow looks
+# for the run in the current (correct) experiment but it lives in the default.
+_experiment_id: str | None = os.environ.get("MLFLOW_EXPERIMENT_ID")
+if _experiment_id:
+    _set_experiment_kwargs: dict[str, Any] = {"experiment_id": _experiment_id}
+    if config.app and config.app.trace_location:
+        # Post-3.11 API: pass trace_location to set_experiment so the UC OTEL
+        # tables become the export destination for spans on this experiment.
+        # Replaces mlflow.tracing.set_destination + set_experiment_trace_location.
+        from mlflow.entities import UnityCatalog
 
-    _loc = config.app.trace_location
-    _trace_loc_kwargs: dict[str, Any] = {
-        "catalog_name": _loc.catalog_name,
-        "schema_name": _loc.schema_name,
-    }
-    _table_prefix = _loc.resolved_table_prefix
-    if _table_prefix:
-        _trace_loc_kwargs["table_prefix"] = _table_prefix
-    _trace_location = UnityCatalog(**_trace_loc_kwargs)
+        _loc = config.app.trace_location
+        _trace_loc_kwargs: dict[str, Any] = {
+            "catalog_name": _loc.catalog_name,
+            "schema_name": _loc.schema_name,
+        }
+        _table_prefix = _loc.resolved_table_prefix
+        if _table_prefix:
+            _trace_loc_kwargs["table_prefix"] = _table_prefix
+        _set_experiment_kwargs["trace_location"] = UnityCatalog(**_trace_loc_kwargs)
+    try:
+        mlflow.set_experiment(**_set_experiment_kwargs)
+    except Exception as _set_exp_err:
+        # If the auto-created SP lacks USE CATALOG on the trace schema, the
+        # trace_location bind will fail. The experiment linkage from deploy
+        # time survives — traces land there via the UC OTEL tables that were
+        # already linked. Log a warning; do not raise.
+        logger.warning(
+            "Could not set experiment at app startup "
+            f"(experiment linkage from deploy time is still in effect): {_set_exp_err}"
+        )
 
-    _experiment_id: str | None = os.environ.get("MLFLOW_EXPERIMENT_ID")
-    if _experiment_id:
-        try:
-            mlflow.set_experiment(
-                experiment_id=_experiment_id,
-                trace_location=_trace_location,
-            )
-        except Exception as _trace_loc_err:
-            # This is typically already configured at deploy time. At app
-            # runtime the auto-created SP may lack USE CATALOG, which is
-            # not fatal — the existing UC tables remain the export
-            # destination from when the experiment was first linked.
-            logger.warning(
-                "Could not set experiment trace location at app startup "
-                f"(usually already configured at deploy time): {_trace_loc_err}"
-            )
+mlflow.langchain.autolog(run_tracer_inline=True)
+suppress_autolog_context_warnings()
 
 # Create the ResponsesAgent - cast to LanggraphResponsesAgent to access async methods
 _responses_agent: LanggraphResponsesAgent = config.as_responses_agent()  # type: ignore[assignment]
