@@ -105,6 +105,33 @@ dao-ai pipeline --deploy --run -c config/my_config.yaml
 
 This will update the existing deployment.
 
+### How do I deploy to Databricks Apps?
+
+Two paths, both driven by the same YAML — pick whichever fits your workflow.
+
+**Path 1 — one-call Python (what every workshop lab uses):**
+
+```python
+from dao_ai.config import AppConfig, DeploymentTarget
+
+config = AppConfig.from_file("config/my_agent.yaml", params={...})
+config.deploy_agent(target=DeploymentTarget.APPS)
+print(f"Deployed app: {config.app.name}")
+```
+
+`deploy_agent(target=APPS)` generates the Asset Bundle, uploads source + `requirements.txt`, deploys the app, waits for compute ACTIVE, and (if `app.trace_location:` is set) grants the App SP the OTEL-table permissions.  See [Lab 1 — Your First DAO-AI Agent](https://github.com/natefleming/dao-ai-workshop/tree/main/L100-foundations/lab-01-first-agent) for the shortest working example.
+
+**Path 2 — `dao-ai generate-bundle` (Asset Bundle you can inspect / edit / check into Git):**
+
+```bash
+dao-ai generate-bundle -c config/my_agent.yaml -o ./my-bundle
+cd my-bundle
+databricks bundle deploy
+databricks bundle run <app-name>
+```
+
+`generate-bundle` writes a complete, deployable Databricks Apps bundle directory (`databricks.yaml`, `app.yaml`, `pyproject.toml`, scaffolding). Useful when you want the bundle under version control, need to hand-tune anything the generator produced, or want to deploy from CI outside of Python. Add `--development` to bundle local dao-ai source instead of the pinned PyPI wheel; add `--force` to overwrite an existing output directory.
+
 ## Performance Questions
 
 ### How do I optimize agent performance?
@@ -191,6 +218,86 @@ resources:
 **A2A auto-derivation:** if any resource in the config carries `on_behalf_of_user: true` and you haven't explicitly set `a2a.on_behalf_of_user`, dao-ai auto-derives it to `True` and the deployed agent-card emits both `oauth2` (authorizationCode flow, `user_impersonation` scope, workspace's real OIDC URLs) and `bearer` security schemes.
 
 See [Lab 20 — A2A: HITL + OBO](https://github.com/natefleming/dao-ai-workshop/tree/main/L300-advanced/lab-20-a2a-hitl-obo) for the canonical end-to-end demonstration (approve/edit/reject over A2A with OBO). [Lab 10 — Human in the Loop](https://github.com/natefleming/dao-ai-workshop/tree/main/L200-real-agents/lab-10-hitl) covers the standalone HITL primitive that OBO commonly runs alongside.
+
+### How do I use Genie with dao-ai?
+
+Declare a `genie_rooms:` entry under `resources:` referencing an existing Genie Space ID, then reference it from a `tools:` entry using `type: genie`. The LLM sees a callable tool (typically named `ask_genie`); under the hood dao-ai POSTs to the Genie Space's Conversation API on each call.
+
+```yaml
+parameters:
+  genie_space_id:
+    description: Databricks Genie Space ID (copy from the Space URL).
+
+resources:
+  genie_rooms:
+    products_genie: &products_genie
+      space_id: ${var.genie_space_id}
+
+tools:
+  ask_genie:
+    type: genie
+    genie_room: *products_genie
+
+agents:
+  greeter:
+    tools: [*ask_genie]
+    prompt: |
+      Route product-data questions to `ask_genie`.
+```
+
+Create the Genie Space in the workspace UI first and copy its ID from the URL. See [Lab 3 — NL Analytics with Genie](https://github.com/natefleming/dao-ai-workshop/tree/main/L100-foundations/lab-03-genie) for the walkthrough, [Lab 12 — Genie Context-Aware Caching](https://github.com/natefleming/dao-ai-workshop/tree/main/L300-advanced/lab-12-genie-caching) for layering L1/L2 cache over the same tool, and [Lab 16 — Declarative Genie Space Provisioning](https://github.com/natefleming/dao-ai-workshop/tree/main/L300-advanced/lab-16-genie-provisioning) for provisioning the Space itself from YAML instead of the UI.
+
+### How do I use Unity AI Gateway?
+
+Set `ai_gateway: true` on an LLM resource. dao-ai will route chat completions through the Databricks AI Gateway path (`https://<host>/ai-gateway/mlflow/v1/chat/completions`) instead of the direct Model Serving path (`/serving-endpoints/<name>/invocations`). This is the standard way to pick up AI Gateway features — usage tracking, guardrails, PII redaction, and rate limiting — without changing any Python code.
+
+```yaml
+resources:
+  models:
+    default_llm:
+      name: databricks-claude-sonnet-4-5
+      ai_gateway: true                # route through AI Gateway
+      temperature: 0.1
+      max_tokens: 2048
+```
+
+**Constraints (enforced at load time):**
+- `ai_gateway: true` is incompatible with `use_responses_api: true` on the same resource (the AI Gateway path exposes chat-completions only). dao-ai raises a validation error if both are set.
+- OBO (`on_behalf_of_user: true`) + `ai_gateway: true` is permitted but relatively new — verify end-to-end trace propagation in your workspace before shipping.
+
+Canonical example: [`config/examples/01_getting_started/ai_gateway.yaml`](../config/examples/01_getting_started/ai_gateway.yaml). Also used across `config/examples/15_complete_applications/commerce_supervisor/`.
+
+### How do I use the MLflow Prompt Registry?
+
+Declare a top-level `prompts:` block containing `PromptModel` entries — each pins a prompt in the MLflow Prompt Registry by `schema.name`, optionally with `alias` (e.g. `champion`) or `version` (numeric). Reference the entry from an `agents:` or `guardrails:` block via a YAML anchor.
+
+```yaml
+schemas:
+  workshop_schema: &workshop_schema
+    catalog_name: main
+    schema_name: dao_ai
+
+prompts:
+  support_prompt: &support_prompt
+    schema: *workshop_schema
+    name: support_prompt
+    description: Main system prompt for the SaaS support agent.
+    alias: champion                    # or: version: 3
+    default_template: |                # inline text used only when auto_register=true
+      You are a tier-1 SaaS support assistant. Be accurate and concise.
+    auto_register: true                # register default_template if not in the registry
+
+agents:
+  saas_support:
+    model: *default_llm
+    prompt: *support_prompt            # resolves to prompts:/main.dao_ai.support_prompt@champion
+```
+
+- `alias` and `version` are mutually exclusive. If both are omitted, dao-ai loads `@latest`.
+- `auto_register: true` writes `default_template` to the registry on first deploy; set `false` (default) if a prompt owner manages versions out-of-band.
+- The same `PromptModel` also plugs into `guardrails.<name>.prompt` for LLM-judge guardrails.
+
+See [Lab 8 — Production Prompts and Guardrails](https://github.com/natefleming/dao-ai-workshop/tree/main/L200-real-agents/lab-08-prompts-guardrails). The lab walks from an inline-string prompt (`01_inline_support.yaml`) → a Prompt-Registry-backed prompt (`02_support_with_managed_prompts.yaml`) → the same setup with an added judge guardrail (`03_support_with_guardrails.yaml`).
 
 ---
 
