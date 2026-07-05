@@ -14,6 +14,8 @@ Benefits:
 - ✅ Databricks-specific integrations work out-of-the-box
 - ✅ Reusable patterns across your organization
 
+**Learn more:** [`docs/why-dao.md`](why-dao.md) · [`docs/key-capabilities.md`](key-capabilities.md) · [`docs/architecture.md`](architecture.md)
+
 ### Do I need to learn Python?
 
 **For basic usage:** No. You only need to write YAML configuration files.
@@ -24,6 +26,8 @@ Benefits:
 - Build complex business logic
 
 Most users stick to YAML and use pre-built tools.
+
+**Learn more:** [`docs/python-api.md`](python-api.md) · [`config/examples/01_getting_started/minimal.yaml`](../config/examples/01_getting_started/minimal.yaml)
 
 ### Can I test locally before deploying?
 
@@ -44,6 +48,8 @@ print(response["messages"][-1].content)
 
 See [Lab 1 — Your First DAO-AI Agent](https://github.com/natefleming/dao-ai-workshop/tree/main/L100-foundations/lab-01-first-agent) for the shortest end-to-end example.
 
+**Learn more:** [`docs/python-api.md`](python-api.md) · [`config/examples/01_getting_started/`](../config/examples/01_getting_started/)
+
 ### What's the learning curve?
 
 **If you're new to AI agents:** 1-2 weeks to understand concepts and build your first agent. Start with the four self-paced [L100 foundations labs](https://github.com/natefleming/dao-ai-workshop/tree/main/L100-foundations) in the [dao-ai-workshop](https://github.com/natefleming/dao-ai-workshop) — zero to a deployed Databricks App in ~2 hours.
@@ -52,13 +58,17 @@ See [Lab 1 — Your First DAO-AI Agent](https://github.com/natefleming/dao-ai-wo
 
 **If you're a business user:** Consider starting with [DAO AI Builder](https://github.com/natefleming/dao-ai-builder) (visual interface).
 
+**Learn more:** [`docs/key-capabilities.md`](key-capabilities.md) · [`docs/examples.md`](examples.md) · [`config/examples/01_getting_started/`](../config/examples/01_getting_started/)
+
 ### How do I get help?
 
 1. Check the [`config/examples/`](../config/examples/) directory for working examples
 2. Run through the [dao-ai-workshop](https://github.com/natefleming/dao-ai-workshop) — 25 self-paced labs covering every framework feature, each with a runnable notebook + YAML
-3. Review the documentation for detailed explanations
+3. Review the documentation for detailed explanations — see the [docs index in the top-level README](../README.md#-documentation)
 4. Read the [Configuration Reference](configuration-reference.md) section
 5. Open an issue on GitHub
+
+**Learn more:** [`docs/examples.md`](examples.md) · [`config/examples/README.md`](../config/examples/README.md)
 
 ## Deployment Questions
 
@@ -73,6 +83,8 @@ dao-ai pipeline --deploy -c config/dev.yaml --profile dev
 # Production
 dao-ai pipeline --deploy -c config/prod.yaml --profile prod
 ```
+
+**Learn more:** [`docs/cli-reference.md`](cli-reference.md) · [`docs/configuration-reference.md`](configuration-reference.md) (parameters + variables lifecycle)
 
 ### How do I manage secrets?
 
@@ -95,6 +107,8 @@ variables:
       - env: MY_API_KEY
 ```
 
+**Learn more:** [`docs/configuration-reference.md`](configuration-reference.md#variables) · [`config/examples/01_getting_started/`](../config/examples/01_getting_started/)
+
 ### How do I update a deployed agent?
 
 Simply redeploy with the updated configuration:
@@ -104,6 +118,8 @@ dao-ai pipeline --deploy --run -c config/my_config.yaml
 ```
 
 This will update the existing deployment.
+
+**Learn more:** [`docs/cli-reference.md`](cli-reference.md)
 
 ### How do I deploy to Databricks Apps?
 
@@ -132,6 +148,8 @@ databricks bundle run <app-name>
 
 `generate-bundle` writes a complete, deployable Databricks Apps bundle directory (`databricks.yaml`, `app.yaml`, `pyproject.toml`, scaffolding). Useful when you want the bundle under version control, need to hand-tune anything the generator produced, or want to deploy from CI outside of Python. Add `--development` to bundle local dao-ai source instead of the pinned PyPI wheel; add `--force` to overwrite an existing output directory.
 
+**Learn more:** [`docs/cli-reference.md`](cli-reference.md) · [`docs/python-api.md`](python-api.md)
+
 ## Performance Questions
 
 ### How do I optimize agent performance?
@@ -142,6 +160,8 @@ databricks bundle run <app-name>
 4. **Monitor MLflow traces** to identify bottlenecks — see [Lab 24 — UC OTEL Trace Tables](https://github.com/natefleming/dao-ai-workshop/tree/main/L300-advanced/lab-24-uc-trace-location) for durable trace storage
 5. **Use appropriate model sizes** (larger models = slower but more accurate)
 
+**Learn more:** [`docs/genie_context_aware_cache_prompt_history.md`](genie_context_aware_cache_prompt_history.md) · [`config/examples/04_genie/`](../config/examples/04_genie/) · [`config/examples/03_reranking/`](../config/examples/03_reranking/)
+
 ### What's the typical latency?
 
 Latency depends on your configuration:
@@ -151,6 +171,8 @@ Latency depends on your configuration:
 - **Genie NL-to-SQL (no cache)**: 2-5 seconds
 - **Multi-agent orchestration**: 1-10 seconds (depends on complexity)
 
+**Learn more:** [`docs/architecture.md`](architecture.md) · [`docs/key-capabilities.md`](key-capabilities.md)
+
 ### How do I reduce costs?
 
 1. **Enable caching** - Dramatically reduces Genie API calls ([Lab 12](https://github.com/natefleming/dao-ai-workshop/tree/main/L300-advanced/lab-12-genie-caching))
@@ -158,6 +180,8 @@ Latency depends on your configuration:
 3. **Implement result deduplication** to avoid redundant processing
 4. **Set TTLs appropriately** to balance freshness vs. cache hits
 5. **Monitor usage** with MLflow tracking
+
+**Learn more:** [`docs/genie_context_aware_cache_prompt_history.md`](genie_context_aware_cache_prompt_history.md) · [`config/examples/04_genie/genie_context_aware_cache.yaml`](../config/examples/04_genie/genie_context_aware_cache.yaml)
 
 ## Configuration Questions
 
@@ -172,11 +196,15 @@ Rule of thumb:
 
 See [Parameters vs Variables](configuration-reference.md#parameters-vs-variables---the-lifecycle-distinction) for the full comparison table.
 
+**Learn more:** [`docs/configuration-reference.md`](configuration-reference.md) · [`config/examples/01_getting_started/`](../config/examples/01_getting_started/)
+
 ### What happens if I use `${var.NAME}` without declaring it?
 
 If your YAML has a `parameters:` block, any `${var.NAME}` reference not declared in that block raises a `ConfigVariableError` listing all undeclared names. This is intentional typo protection - a misspelled `${var.catlaog}` fails loudly at load time instead of silently resolving to nothing.
 
 If your YAML has no `parameters:` block at all, the undeclared-name check is skipped and the reference falls through to the inline `:-default` or the "missing required" error.
+
+**Learn more:** [`docs/configuration-reference.md`](configuration-reference.md#parameters)
 
 ### Can I use a parameter to choose which secret to load?
 
@@ -195,6 +223,8 @@ variables:
 ```
 
 This lets the same config target different secret scopes per environment. See [Bridge Pattern](configuration-reference.md#bridge-pattern-parameters-feeding-variables) for a full worked example.
+
+**Learn more:** [`docs/configuration-reference.md`](configuration-reference.md#bridge-pattern-parameters-feeding-variables)
 
 ### How do I forward the caller's identity (OBO)?
 
@@ -218,6 +248,32 @@ resources:
 **A2A auto-derivation:** if any resource in the config carries `on_behalf_of_user: true` and you haven't explicitly set `a2a.on_behalf_of_user`, dao-ai auto-derives it to `True` and the deployed agent-card emits both `oauth2` (authorizationCode flow, `user_impersonation` scope, workspace's real OIDC URLs) and `bearer` security schemes.
 
 See [Lab 20 — A2A: HITL + OBO](https://github.com/natefleming/dao-ai-workshop/tree/main/L300-advanced/lab-20-a2a-hitl-obo) for the canonical end-to-end demonstration (approve/edit/reject over A2A with OBO). [Lab 10 — Human in the Loop](https://github.com/natefleming/dao-ai-workshop/tree/main/L200-real-agents/lab-10-hitl) covers the standalone HITL primitive that OBO commonly runs alongside.
+
+**Learn more:** [`docs/a2a_protocol.md`](a2a_protocol.md) · [`config/examples/06_on_behalf_of_user/`](../config/examples/06_on_behalf_of_user/) · [`config/examples/07_human_in_the_loop/`](../config/examples/07_human_in_the_loop/) · [`config/examples/20_a2a_protocol/a2a_hitl_obo.yaml`](../config/examples/20_a2a_protocol/a2a_hitl_obo.yaml)
+
+### How do I add human-in-the-loop approval to my tool calls?
+
+Add a `human_in_the_loop:` block to any `tools.<name>:` entry. The tool call is intercepted before execution and paused as an *interrupt* on the agent's LangGraph state — the client (a UI, a Slack app, an A2A caller, ...) sees an `input-required` state, decides `approve | edit | reject`, and resumes the graph with that decision.
+
+```yaml
+tools:
+  refund_order:
+    type: unity_catalog_function
+    function: {schema: *ops_schema, name: refund_order}
+    human_in_the_loop:
+      approve: true                     # allow the caller to approve as-is
+      edit: true                        # allow the caller to edit tool args before running
+      reject: true                      # allow the caller to reject with a reason
+      description: |
+        This action refunds a customer order and is irreversible.
+        Confirm the order_id and amount before approving.
+```
+
+Any of the three action verbs can be individually turned off (e.g. `edit: false` if you only want blanket approve/reject). The `description` is shown to the human alongside the pending tool-call arguments.
+
+See [Lab 10 — Human in the Loop](https://github.com/natefleming/dao-ai-workshop/tree/main/L200-real-agents/lab-10-hitl) for the standalone primitive and [Lab 20 — A2A: HITL + OBO](https://github.com/natefleming/dao-ai-workshop/tree/main/L300-advanced/lab-20-a2a-hitl-obo) for HITL over the A2A protocol (approve/edit/reject via DataPart resume, SSE streaming).
+
+**Learn more:** [`config/examples/07_human_in_the_loop/`](../config/examples/07_human_in_the_loop/) · [`config/examples/20_a2a_protocol/a2a_hitl_obo.yaml`](../config/examples/20_a2a_protocol/a2a_hitl_obo.yaml) · [`docs/a2a_protocol.md`](a2a_protocol.md)
 
 ### How do I use Genie with dao-ai?
 
@@ -247,6 +303,8 @@ agents:
 
 Create the Genie Space in the workspace UI first and copy its ID from the URL. See [Lab 3 — NL Analytics with Genie](https://github.com/natefleming/dao-ai-workshop/tree/main/L100-foundations/lab-03-genie) for the walkthrough, [Lab 12 — Genie Context-Aware Caching](https://github.com/natefleming/dao-ai-workshop/tree/main/L300-advanced/lab-12-genie-caching) for layering L1/L2 cache over the same tool, and [Lab 16 — Declarative Genie Space Provisioning](https://github.com/natefleming/dao-ai-workshop/tree/main/L300-advanced/lab-16-genie-provisioning) for provisioning the Space itself from YAML instead of the UI.
 
+**Learn more:** [`docs/genie_context_aware_cache_prompt_history.md`](genie_context_aware_cache_prompt_history.md) · [`config/examples/04_genie/`](../config/examples/04_genie/) (basic, context-aware cache, threshold optimization) · [`config/examples/16_test_scenarios/genie_provisioning_only.yaml`](../config/examples/16_test_scenarios/genie_provisioning_only.yaml)
+
 ### How do I use Unity AI Gateway?
 
 Set `ai_gateway: true` on an LLM resource. dao-ai will route chat completions through the Databricks AI Gateway path (`https://<host>/ai-gateway/mlflow/v1/chat/completions`) instead of the direct Model Serving path (`/serving-endpoints/<name>/invocations`). This is the standard way to pick up AI Gateway features — usage tracking, guardrails, PII redaction, and rate limiting — without changing any Python code.
@@ -266,6 +324,8 @@ resources:
 - OBO (`on_behalf_of_user: true`) + `ai_gateway: true` is permitted but relatively new — verify end-to-end trace propagation in your workspace before shipping.
 
 Canonical example: [`config/examples/01_getting_started/ai_gateway.yaml`](../config/examples/01_getting_started/ai_gateway.yaml). Also used across `config/examples/15_complete_applications/commerce_supervisor/`.
+
+**Learn more:** [`docs/key-capabilities.md`](key-capabilities.md) · [`config/examples/15_complete_applications/commerce_supervisor/commerce_supervisor.yaml`](../config/examples/15_complete_applications/commerce_supervisor/commerce_supervisor.yaml)
 
 ### How do I use the MLflow Prompt Registry?
 
@@ -299,6 +359,190 @@ agents:
 
 See [Lab 8 — Production Prompts and Guardrails](https://github.com/natefleming/dao-ai-workshop/tree/main/L200-real-agents/lab-08-prompts-guardrails). The lab walks from an inline-string prompt (`01_inline_support.yaml`) → a Prompt-Registry-backed prompt (`02_support_with_managed_prompts.yaml`) → the same setup with an added judge guardrail (`03_support_with_guardrails.yaml`).
 
+**Learn more:** [`docs/key-capabilities.md`](key-capabilities.md) · [`config/examples/11_prompt_engineering/`](../config/examples/11_prompt_engineering/)
+
+### How do I give my agent persistent memory / chat history?
+
+Add a top-level `memory:` block that binds a **checkpointer** (per-thread state — the running LangGraph state for one conversation) and optionally a **store** (cross-thread facts extracted from the conversation and made available to future turns). Both back onto Databricks Lakebase Postgres in production; you can start with the in-memory driver for local testing.
+
+```yaml
+resources:
+  databases:
+    lakebase: &lakebase
+      type: lakebase_autoscaling
+      project: retail-consumer-goods
+      description: "Lakebase used for persistent memory."
+
+memory:
+  max_tokens_before_summary: 1500       # trigger summarization when this budget is exceeded
+  max_tokens_after_summary: 500         # keep this many tokens after summarization
+  checkpointer:
+    database: *lakebase                  # thread state (LangGraph)
+  store:
+    database: *lakebase                  # cross-thread facts
+    schemas: [user_profile, preference]
+  extraction:
+    model: *default_llm                  # LLM pipeline that writes facts to the store
+```
+
+Chat history summarization (`max_tokens_before_summary` / `max_tokens_after_summary`) keeps long conversations under the model's context budget without losing the thread. `store` + `extraction` together are the "long-term memory" — the extractor LLM writes structured facts to the store on each turn and future turns retrieve them.
+
+See [Lab 7 — Persistent Memory + Chat Summarization](https://github.com/natefleming/dao-ai-workshop/tree/main/L200-real-agents/lab-07-memory) for the runnable walkthrough.
+
+**Learn more:** [`docs/key-capabilities.md`](key-capabilities.md) · [`config/examples/05_memory/`](../config/examples/05_memory/) (in-memory, Lakebase, conversation-summarization variants)
+
+### How do I orchestrate multiple agents?
+
+dao-ai supports three orchestration patterns. Pick based on how deterministic the routing needs to be:
+
+- **Supervisor** — a central agent decides which sub-agent handles each turn. Best when routing is knowable up front (tier-1 vs tier-2 support, e.g.).
+- **Swarm** — sub-agents hand control to each other via `handoff` tools. Best for open-ended flows where the next agent is a runtime decision.
+- **Deep agent** — a planning agent driven by [`deepagents.create_deep_agent`](https://github.com/langchain-ai/deepagents) with `todo` / `filesystem` / `shell` tools, Skills (a directory of Markdown), and sub-agents callable via a `task` tool. Best for open-ended research / build workflows.
+
+```yaml
+agents:
+  tier1_support: {model: *fast_llm, prompt: "..."}
+  tier2_engineer: {model: *technical_llm, prompt: "..."}
+  escalation_lead: {model: *default_llm, prompt: "..."}
+
+orchestration:
+  type: supervisor                    # or: swarm
+  supervisor: *escalation_lead
+  agents: [*tier1_support, *tier2_engineer]
+```
+
+See [Lab 9 — Multi-agent Orchestration](https://github.com/natefleming/dao-ai-workshop/tree/main/L200-real-agents/lab-09-orchestration) for supervisor + swarm side by side, [Lab 17 — Deep Agent Orchestration](https://github.com/natefleming/dao-ai-workshop/tree/main/L300-advanced/lab-17-deep-agents) for the planning + Skills pattern, and [Lab 18 — Skills-only Deep Agent](https://github.com/natefleming/dao-ai-workshop/tree/main/L300-advanced/lab-18-skills-only-deep-agent) for the minimum-viable deep agent (zero sub-agents, one Skill).
+
+**Learn more:** [`docs/key-capabilities.md`](key-capabilities.md) · [`docs/architecture.md`](architecture.md) · [`config/examples/13_orchestration/`](../config/examples/13_orchestration/) (deep-agent patterns) · [`config/examples/15_complete_applications/commerce_supervisor/`](../config/examples/15_complete_applications/commerce_supervisor/) and [`commerce_swarm/`](../config/examples/15_complete_applications/commerce_swarm/)
+
+### How do I add guardrails to my agent?
+
+Declare a top-level `guardrails:` block. Two modes:
+
+1. **LLM-judge guardrail** — supply a judge `model` and a `prompt` (inline or from the Prompt Registry). dao-ai builds a `JudgeScorer` via `mlflow.genai.judges.make_judge`.
+2. **Scorer-based guardrail** — supply a `scorer` class (any `mlflow.genai.scorers.base.Scorer` — built-in `ToxicLanguage`, `DetectPII`, `RelevanceToQuery`, etc.).
+
+```yaml
+guardrails:
+  accuracy:
+    model: *judge_llm
+    prompt: *accuracy_guardrail_prompt   # PromptModel from the prompts: block
+    num_retries: 2                       # retry the agent up to N times if the guardrail fails
+
+  no_pii:
+    scorer: mlflow.genai.scorers.DetectPII
+```
+
+Wire the guardrail(s) into an agent via `agents.<name>.guardrails: [...]`. Failed guardrails can either block the response (default) or trigger a retry (`num_retries`).
+
+See [Lab 8 — Production Prompts and Guardrails](https://github.com/natefleming/dao-ai-workshop/tree/main/L200-real-agents/lab-08-prompts-guardrails) — the third YAML (`03_support_with_guardrails.yaml`) adds a judge guardrail to the prompts flow.
+
+**Learn more:** [`docs/key-capabilities.md`](key-capabilities.md) · [`config/examples/08_guardrails/`](../config/examples/08_guardrails/)
+
+### How do I add tools to my agent (UC functions, REST, MCP)?
+
+dao-ai treats every tool the same way to the LLM (`agents.<name>.tools: [...]`), but you declare them by **type** so the framework knows how to build the LangChain tool underneath. Four common shapes:
+
+**Unity Catalog SQL functions:**
+```yaml
+unity_catalog_functions:
+  - function: {schema: *workshop_schema, name: find_product_by_sku}
+    ddl: ./functions/find_product_by_sku.sql
+
+tools:
+  find_product_by_sku:
+    type: unity_catalog_function
+    function: {schema: *workshop_schema, name: find_product_by_sku}
+```
+
+**REST API:**
+```yaml
+tools:
+  get_weather:
+    type: rest
+    method: GET
+    url: https://api.weather.example.com/v1/forecast
+    params: {lat: "{{lat}}", lon: "{{lon}}"}
+```
+
+**MCP server (managed — dao-ai discovers every tool the server exposes):**
+```yaml
+resources:
+  mcp_servers:
+    hardware_store_mcp:
+      url: https://<workspace-host>/mcp/hardware-store
+
+tools:
+  hardware_store_tools:
+    type: mcp
+    mcp_server: *hardware_store_mcp
+    # optional: allow: [...] / deny: [...] for filtering
+```
+
+**Genie space** (covered separately above via `type: genie`).
+
+See the workshop's tool-grounding progression: [Lab 2 — Grounding with Unity Catalog Tools](https://github.com/natefleming/dao-ai-workshop/tree/main/L100-foundations/lab-02-uc-tools) → [Lab 4 — Schema-wide Tool Discovery with MCP](https://github.com/natefleming/dao-ai-workshop/tree/main/L100-foundations/lab-04-mcp) → [Lab 5 — External Integrations via REST](https://github.com/natefleming/dao-ai-workshop/tree/main/L200-real-agents/lab-05-rest).
+
+**Learn more:** [`docs/key-capabilities.md`](key-capabilities.md) · [`docs/mcp_server.md`](mcp_server.md) · [`config/examples/14_basic_tools/`](../config/examples/14_basic_tools/) (REST, Slack) · [`config/examples/02_mcp/`](../config/examples/02_mcp/) (custom / external / filtered MCP)
+
+### How do I do RAG / vector search with reranking?
+
+Declare a `vector_stores:` resource pointing at a Databricks Vector Search index over a Delta table with Change Data Feed enabled, then wire it into a `retrievers:` block that composes ANN search with a rerank stage.
+
+```yaml
+resources:
+  vector_stores:
+    kb_articles: &kb_articles
+      endpoint: {name: dao_ai_workshop_vs}
+      source_table: {schema: *workshop_schema, name: kb_articles}
+      primary_key: article_id
+      embedding_source_column: body
+      embedding_model: {name: databricks-gte-large-en}
+      columns: [article_id, title, topic, body]
+
+retrievers:
+  kb_retriever:
+    vector_store: *kb_articles
+    search_parameters:
+      num_results: 50
+      query_type: HYBRID              # dense + BM25
+    rerank:
+      model: ${var.reranker_model}    # FlashRank cross-encoder
+      top_n: 5
+```
+
+Reference the retriever from an `agents:` block (`agents.<name>.retrievers: [*kb_retriever]`) — the agent grounds each turn on the top-`top_n` reranked results.
+
+For filter-heavy queries (*"Milwaukee power tools under $100"*), layer an **instructed retriever** on top: query decomposition into structured filters + a residual semantic query, then LLM-based rerank with natural-language instructions. See [Lab 6 — Knowledge-base Retrieval with Vector Search](https://github.com/natefleming/dao-ai-workshop/tree/main/L200-real-agents/lab-06-vector-search) for the base pattern and [Lab 11 — Instructed Retrieval](https://github.com/natefleming/dao-ai-workshop/tree/main/L300-advanced/lab-11-instructed-retrieval) for the filter-decomposition variant.
+
+**Learn more:** [`docs/key-capabilities.md`](key-capabilities.md) · [`config/examples/03_reranking/`](../config/examples/03_reranking/) · [`config/examples/16_instructed_retriever/`](../config/examples/16_instructed_retriever/)
+
+### How do I run long-running tasks?
+
+Enable **background agents** via `app.background:` on the AppConfig. The deployed app then exposes an OpenAI Responses-API-shaped kickoff / poll / cancel surface: a POST kicks off work and returns immediately with a `response_id`; subsequent GETs poll for status; a DELETE cancels an in-flight run. Response state is persisted in a Lakebase-backed responses store so a run survives app restarts.
+
+```yaml
+resources:
+  databases:
+    lakebase: &lakebase
+      type: lakebase_autoscaling
+      project: retail-consumer-goods
+
+app:
+  name: research-agent
+  background:
+    responses_store:
+      database: *lakebase                 # durable state for kickoff/poll/cancel
+    max_duration_seconds: 1800            # hard cap per response
+    poll_interval_seconds: 1.0            # internal polling cadence
+```
+
+Clients then use any OpenAI-compatible SDK against the deployed app's `/responses` endpoint (kickoff → poll → cancel). Best for research agents, batch data enrichment, or any workload that outlives a single request/response cycle.
+
+See [Lab 15 — Background Agents](https://github.com/natefleming/dao-ai-workshop/tree/main/L300-advanced/lab-15-background) for the runnable walkthrough.
+
+**Learn more:** [`docs/background_agents.md`](background_agents.md) · [`config/examples/19_background_agents/deep_research.yaml`](../config/examples/19_background_agents/deep_research.yaml) · [`config/examples/20_a2a_protocol/a2a_background.yaml`](../config/examples/20_a2a_protocol/a2a_background.yaml) (background over A2A)
+
 ---
 
 ## MLflow Tracing & Monitoring
@@ -322,6 +566,8 @@ Everything about the wiring is identical for Apps and Model Serving — same `_l
 
 See [Lab 24 — UC OTEL Trace Tables](https://github.com/natefleming/dao-ai-workshop/tree/main/L300-advanced/lab-24-uc-trace-location) for the walkthrough. **Note:** in-process notebook usage of the same config additionally needs `mlflow.langchain.autolog(run_tracer_inline=True)` + `dao_ai.logging.suppress_autolog_context_warnings()` — the deploy runtime does both automatically at boot, but the notebook flow must do them explicitly.
 
+**Learn more:** [`docs/configuration-reference.md`](configuration-reference.md) · [`config/examples/15_complete_applications/hardware_store.yaml`](../config/examples/15_complete_applications/hardware_store.yaml)
+
 ### What extra permissions does Model Serving need for `trace_location`?
 
 The Model Serving endpoint runs as a service principal, and that SP needs write access to the OTEL tables — MLflow inserts spans row-by-row on every trace export.
@@ -343,6 +589,8 @@ GRANT USE_SCHEMA, CREATE_TABLE, MODIFY, SELECT
 
 The workshop README's ["Trace persistence on Databricks Apps"](https://github.com/natefleming/dao-ai-workshop#trace-persistence-on-databricks-apps) section has the exact snippet. Databricks Apps have the same requirement for the App's SP — grants are one-off per app / endpoint per schema.
 
+**Learn more:** [`docs/configuration-reference.md`](configuration-reference.md)
+
 ### How do I point an agent at an existing MLflow experiment?
 
 Use `app.experiment:` with either `id` (numeric experiment ID, wins if both fields are set) or `name` (workspace path):
@@ -359,6 +607,8 @@ app:
 Precedence: `id` wins if both are set. When the whole `experiment:` block is omitted, dao-ai auto-creates `/Users/<deployer_email>/<app.name>` — fine for solo development but not what you want if a team shares one experiment (or if the experiment is pre-provisioned by an admin with tighter ACLs).
 
 The canonical worked example is [`config/examples/15_complete_applications/hardware_store.yaml`](../config/examples/15_complete_applications/hardware_store.yaml).
+
+**Learn more:** [`docs/configuration-reference.md`](configuration-reference.md)
 
 ### How do I turn on production monitoring / register scorers?
 
@@ -384,6 +634,8 @@ Monitoring is **independent** of `trace_location:` — it works over MLflow's de
 
 See [Lab 23 — Production Monitoring with Registered Scorers](https://github.com/natefleming/dao-ai-workshop/tree/main/L300-advanced/lab-23-production-monitoring) for the runtime side. For adjacent evaluation surfaces, [Lab 22 — Offline Evaluation](https://github.com/natefleming/dao-ai-workshop/tree/main/L300-advanced/lab-22-offline-evaluation) covers `mlflow.genai.evaluate()` on curated datasets, and [Lab 21 — User Feedback](https://github.com/natefleming/dao-ai-workshop/tree/main/L300-advanced/lab-21-feedback) covers attaching thumbs-up/thumbs-down assessments to live traces.
 
+**Learn more:** [`docs/key-capabilities.md`](key-capabilities.md) · [`config/examples/08_guardrails/`](../config/examples/08_guardrails/)
+
 ---
 
 ## Troubleshooting
@@ -395,6 +647,8 @@ See [Lab 23 — Production Monitoring with Registered Scorers](https://github.co
 3. **Test locally**: Use `dao-ai chat -c config/my_config.yaml` to interact
 4. **Examine traces**: Check MLflow for detailed execution traces
 5. **Verify permissions**: Ensure your service account has the necessary access
+
+**Learn more:** [`docs/cli-reference.md`](cli-reference.md)
 
 ### Cache isn't working
 
@@ -411,6 +665,8 @@ For context-aware cache:
 
 See [Lab 12](https://github.com/natefleming/dao-ai-workshop/tree/main/L300-advanced/lab-12-genie-caching) for the reference config that pairs L1 (LRU exact-match) with L2 (embedding-similarity) over a Genie tool.
 
+**Learn more:** [`docs/genie_context_aware_cache_prompt_history.md`](genie_context_aware_cache_prompt_history.md) · [`config/examples/04_genie/`](../config/examples/04_genie/)
+
 ### Deployment fails
 
 Common issues:
@@ -419,6 +675,8 @@ Common issues:
 3. **Resource conflicts**: Check if endpoint name already exists
 4. **Missing dependencies**: Verify all custom packages are available
 
+**Learn more:** [`docs/cli-reference.md`](cli-reference.md) · [`docs/configuration-reference.md`](configuration-reference.md)
+
 ### Agent is slow
 
 1. **Profile with MLflow**: Identify bottlenecks using traces
@@ -426,6 +684,8 @@ Common issues:
 3. **Optimize prompts**: Shorter prompts = faster responses
 4. **Check model size**: Consider using smaller/faster models
 5. **Review middleware**: Disable unnecessary validation in dev
+
+**Learn more:** [`docs/architecture.md`](architecture.md) · [`config/examples/04_genie/`](../config/examples/04_genie/) · [`config/examples/03_reranking/`](../config/examples/03_reranking/)
 
 ## Platform-Specific Questions
 
@@ -437,11 +697,15 @@ See the detailed comparison in [Why DAO?](why-dao.md#comparing-databricks-ai-age
 - **DAO**: Code-first, Git-native, advanced features (caching, middleware)
 - **Agent Bricks**: GUI-based, automated optimization, rapid prototyping
 
+**Learn more:** [`docs/why-dao.md`](why-dao.md) · [`config/examples/10_agent_integrations/agent_bricks.yaml`](../config/examples/10_agent_integrations/agent_bricks.yaml)
+
 ### Can I use DAO with Agent Bricks or Kasal?
 
 Yes! All three platforms can interoperate via **agent endpoints**. Deploy agents from any platform to Model Serving and call them as tools in your DAO configuration.
 
 See [Using All Three Together](why-dao.md#using-all-three-together) for examples.
+
+**Learn more:** [`docs/why-dao.md`](why-dao.md) · [`config/examples/10_agent_integrations/`](../config/examples/10_agent_integrations/) (A2A, Agent Bricks, external agents)
 
 ### Does DAO work with external LLMs?
 
@@ -450,6 +714,8 @@ Yes! DAO supports:
 - OpenAI models (`openai:/gpt-4`)
 - Anthropic models (via Databricks endpoints)
 - Custom model endpoints
+
+**Learn more:** [`docs/key-capabilities.md`](key-capabilities.md) · [`config/examples/01_getting_started/`](../config/examples/01_getting_started/)
 
 ### How do I migrate from LangChain code to DAO?
 
@@ -461,6 +727,8 @@ Yes! DAO supports:
 6. **Test**: Validate and test locally before deploying
 
 Need help? Check the [`config/examples/`](../config/examples/) directory, or work through [Lab 13 — Programmatic Construction](https://github.com/natefleming/dao-ai-workshop/tree/main/L300-advanced/lab-13-programmatic), which builds the same `AppConfig` in pure Python instead of YAML — closest to the LangChain-code mental model.
+
+**Learn more:** [`docs/python-api.md`](python-api.md) · [`docs/architecture.md`](architecture.md)
 
 ---
 
