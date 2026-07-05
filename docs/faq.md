@@ -1,5 +1,61 @@
 # Frequently Asked Questions (FAQ)
 
+## Contents
+
+**General**
+- [How is this different from LangChain/LangGraph directly?](#how-is-this-different-from-langchainlanggraph-directly)
+- [Do I need to learn Python?](#do-i-need-to-learn-python)
+- [Can I test locally before deploying?](#can-i-test-locally-before-deploying)
+- [What's the learning curve?](#whats-the-learning-curve)
+- [How do I get help?](#how-do-i-get-help)
+
+**Deployment**
+- [Can I deploy to multiple environments?](#can-i-deploy-to-multiple-environments)
+- [How do I manage secrets?](#how-do-i-manage-secrets)
+- [How do I update a deployed agent?](#how-do-i-update-a-deployed-agent)
+- [How do I deploy to Databricks Apps?](#how-do-i-deploy-to-databricks-apps)
+
+**Performance**
+- [How do I optimize agent performance?](#how-do-i-optimize-agent-performance)
+- [What's the typical latency?](#whats-the-typical-latency)
+- [How do I reduce costs?](#how-do-i-reduce-costs)
+
+**Configuration**
+- [What is the difference between `parameters:` and `variables:`?](#what-is-the-difference-between-parameters-and-variables)
+- [What happens if I use `${var.NAME}` without declaring it?](#what-happens-if-i-use-varname-without-declaring-it)
+- [Can I use a parameter to choose which secret to load?](#can-i-use-a-parameter-to-choose-which-secret-to-load)
+- [How do I forward the caller's identity (OBO)?](#how-do-i-forward-the-callers-identity-obo)
+- [How do I add human-in-the-loop approval to my tool calls?](#how-do-i-add-human-in-the-loop-approval-to-my-tool-calls)
+- [How do I use Genie with dao-ai?](#how-do-i-use-genie-with-dao-ai)
+- [How do I use Unity AI Gateway?](#how-do-i-use-unity-ai-gateway)
+- [How do I use the MLflow Prompt Registry?](#how-do-i-use-the-mlflow-prompt-registry)
+- [How do I give my agent persistent memory / chat history?](#how-do-i-give-my-agent-persistent-memory-chat-history)
+- [How do I orchestrate multiple agents?](#how-do-i-orchestrate-multiple-agents)
+- [How do I add guardrails to my agent?](#how-do-i-add-guardrails-to-my-agent)
+- [How do I add tools to my agent (UC functions, REST, MCP)?](#how-do-i-add-tools-to-my-agent-uc-functions-rest-mcp)
+- [How do I do RAG / vector search with reranking?](#how-do-i-do-rag-vector-search-with-reranking)
+- [How do I run long-running tasks?](#how-do-i-run-long-running-tasks)
+
+**MLflow Tracing & Monitoring**
+- [How do I route traces to a UC schema?](#how-do-i-route-traces-to-a-uc-schema)
+- [What extra permissions does Model Serving need for `trace_location`?](#what-extra-permissions-does-model-serving-need-for-trace_location)
+- [How do I point an agent at an existing MLflow experiment?](#how-do-i-point-an-agent-at-an-existing-mlflow-experiment)
+- [How do I turn on production monitoring / register scorers?](#how-do-i-turn-on-production-monitoring-register-scorers)
+
+**Troubleshooting**
+- [My agent isn't responding correctly](#my-agent-isnt-responding-correctly)
+- [Cache isn't working](#cache-isnt-working)
+- [Deployment fails](#deployment-fails)
+- [Agent is slow](#agent-is-slow)
+
+**Platform-specific**
+- [How does DAO compare to Agent Bricks?](#how-does-dao-compare-to-agent-bricks)
+- [Can I use DAO with Agent Bricks or Kasal?](#can-i-use-dao-with-agent-bricks-or-kasal)
+- [Does DAO work with external LLMs?](#does-dao-work-with-external-llms)
+- [How do I migrate from LangChain code to DAO?](#how-do-i-migrate-from-langchain-code-to-dao)
+
+---
+
 ## General Questions
 
 ### How is this different from LangChain/LangGraph directly?
@@ -261,15 +317,17 @@ tools:
     type: unity_catalog_function
     function: {schema: *ops_schema, name: refund_order}
     human_in_the_loop:
-      approve: true                     # allow the caller to approve as-is
-      edit: true                        # allow the caller to edit tool args before running
-      reject: true                      # allow the caller to reject with a reason
-      description: |
+      review_prompt: |
         This action refunds a customer order and is irreversible.
         Confirm the order_id and amount before approving.
+      allowed_decisions:
+        - approve                       # run the tool as-is with the LLM-generated args
+        - edit                          # let the reviewer edit the args before running
+        - reject                        # block the tool call
+        # - respond                     # add this to let the reviewer answer the user directly instead of running the tool
 ```
 
-Any of the three action verbs can be individually turned off (e.g. `edit: false` if you only want blanket approve/reject). The `description` is shown to the human alongside the pending tool-call arguments.
+`allowed_decisions` defaults to `[approve, edit, reject]` if omitted; `respond` is opt-in when you want the reviewer to reply on the agent's behalf instead of executing the tool. `review_prompt` is shown to the human alongside the pending tool-call arguments.
 
 See [Lab 10 — Human in the Loop](https://github.com/natefleming/dao-ai-workshop/tree/main/L200-real-agents/lab-10-hitl) for the standalone primitive and [Lab 20 — A2A: HITL + OBO](https://github.com/natefleming/dao-ai-workshop/tree/main/L300-advanced/lab-20-a2a-hitl-obo) for HITL over the A2A protocol (approve/edit/reject via DataPart resume, SSE streaming).
 
@@ -363,7 +421,7 @@ See [Lab 8 — Production Prompts and Guardrails](https://github.com/natefleming
 
 ### How do I give my agent persistent memory / chat history?
 
-Add a top-level `memory:` block that binds a **checkpointer** (per-thread state — the running LangGraph state for one conversation) and optionally a **store** (cross-thread facts extracted from the conversation and made available to future turns). Both back onto Databricks Lakebase Postgres in production; you can start with the in-memory driver for local testing.
+There are two independent knobs: a top-level `memory:` block (checkpointer for per-thread state + store for cross-thread facts + extraction LLM that writes those facts), and an `app.chat_history:` block for automatic summarization of long conversations. Both back onto Databricks Lakebase Postgres in production; you can start with the in-memory driver for local testing.
 
 ```yaml
 resources:
@@ -374,18 +432,24 @@ resources:
       description: "Lakebase used for persistent memory."
 
 memory:
-  max_tokens_before_summary: 1500       # trigger summarization when this budget is exceeded
-  max_tokens_after_summary: 500         # keep this many tokens after summarization
   checkpointer:
-    database: *lakebase                  # thread state (LangGraph)
+    database: *lakebase                  # per-thread LangGraph state
   store:
     database: *lakebase                  # cross-thread facts
     schemas: [user_profile, preference]
   extraction:
     model: *default_llm                  # LLM pipeline that writes facts to the store
+
+app:
+  name: saas-helpdesk
+  chat_history:
+    model: *summarization_llm            # LLM used to summarize long conversations
+    max_tokens: 500                      # tokens to keep after each summarization pass
+    max_tokens_before_summary: 1500      # summarize when the running conversation exceeds this
+    # OR: max_messages_before_summary: 20  # message-count trigger (mutually exclusive with tokens)
 ```
 
-Chat history summarization (`max_tokens_before_summary` / `max_tokens_after_summary`) keeps long conversations under the model's context budget without losing the thread. `store` + `extraction` together are the "long-term memory" — the extractor LLM writes structured facts to the store on each turn and future turns retrieve them.
+`chat_history` keeps long conversations under the model's context budget without losing the thread — `max_tokens` (default 2048) is the "keep" threshold; you supply *either* `max_tokens_before_summary` or `max_messages_before_summary` as the trigger. `store` + `extraction` are the "long-term memory" — the extractor LLM writes structured facts to the store on each turn and future turns retrieve them.
 
 See [Lab 7 — Persistent Memory + Chat Summarization](https://github.com/natefleming/dao-ai-workshop/tree/main/L200-real-agents/lab-07-memory) for the runnable walkthrough.
 
@@ -403,12 +467,15 @@ dao-ai supports three orchestration patterns. Pick based on how deterministic th
 agents:
   tier1_support: {model: *fast_llm, prompt: "..."}
   tier2_engineer: {model: *technical_llm, prompt: "..."}
-  escalation_lead: {model: *default_llm, prompt: "..."}
 
+# Exactly one of `supervisor:`, `swarm:`, or `deep_agent:` — dao-ai auto-picks
+# a router based on the agent count when none of the three are set.
 orchestration:
-  type: supervisor                    # or: swarm
-  supervisor: *escalation_lead
-  agents: [*tier1_support, *tier2_engineer]
+  supervisor:
+    model: *default_llm                 # the routing LLM (the supervisor's own model)
+    prompt: "..."                        # optional; routing instructions
+    # OR use the shorthand for swarm defaults:
+    # swarm: true
 ```
 
 See [Lab 9 — Multi-agent Orchestration](https://github.com/natefleming/dao-ai-workshop/tree/main/L200-real-agents/lab-09-orchestration) for supervisor + swarm side by side, [Lab 17 — Deep Agent Orchestration](https://github.com/natefleming/dao-ai-workshop/tree/main/L300-advanced/lab-17-deep-agents) for the planning + Skills pattern, and [Lab 18 — Skills-only Deep Agent](https://github.com/natefleming/dao-ai-workshop/tree/main/L300-advanced/lab-18-skills-only-deep-agent) for the minimum-viable deep agent (zero sub-agents, one Skill).
@@ -536,10 +603,10 @@ resources:
 app:
   name: research-agent
   background:
-    responses_store:
-      database: *lakebase                 # durable state for kickoff/poll/cancel
-    max_duration_seconds: 1800            # hard cap per response
-    poll_interval_seconds: 1.0            # internal polling cadence
+    database: *lakebase                   # Lakebase used for durable kickoff/poll/cancel state
+    max_duration_seconds: 1800            # hard cap on any single background run
+    poll_interval_seconds: 1.0            # internal poll cadence for streaming retrieve
+    # default_enabled: true               # treat all requests as background even without background: true
 ```
 
 Clients then use any OpenAI-compatible SDK against the deployed app's `/responses` endpoint (kickoff → poll → cancel). Best for research agents, batch data enrichment, or any workload that outlives a single request/response cycle.
