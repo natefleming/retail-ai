@@ -467,17 +467,22 @@ tools:
 
 **MCP server (managed — dao-ai discovers every tool the server exposes):**
 ```yaml
-resources:
-  mcp_servers:
-    hardware_store_mcp:
-      url: https://<workspace-host>/mcp/hardware-store
-
 tools:
-  hardware_store_tools:
-    type: mcp
-    mcp_server: *hardware_store_mcp
-    # optional: allow: [...] / deny: [...] for filtering
+  functions_mcp: &functions_mcp
+    name: functions_mcp
+    function:
+      type: mcp
+      functions: *workshop_schema         # managed MCP: every UC function in this schema
+      # Other source types (pick one):
+      # sql: true                          # managed serverless DBSQL MCP
+      # connection: *some_uc_connection    # UC Connection-backed (OAuth handled for you)
+      # url: https://<host>/mcp/<name>     # external MCP by direct URL
+      # Optional filtering (glob-supported; exclude_tools always wins over include_tools):
+      # include_tools: ["get_*", "list_*"]
+      # exclude_tools: ["drop_*", "delete_*"]
 ```
+
+MCP tools live under `tools:` (not `resources:`). Each tool has `name:` + `function: { type: mcp, ... }`. The `function` block picks one of four sources: `functions:` (a UC schema — every function in it becomes a tool), `sql: true` (managed serverless DBSQL executor), `connection:` (a UC Connection that handles OAuth for you), or `url:` (an external MCP endpoint you address directly). `include_tools` / `exclude_tools` accept glob patterns; `exclude_tools` always wins.
 
 **Genie space** (covered separately above via `type: genie`).
 
