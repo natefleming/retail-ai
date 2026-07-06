@@ -69,7 +69,49 @@ User polls every 1-2 seconds:
 
 ### Component interaction diagram
 
-![Background agents kickoff → poll → cancel lifecycle: three phase cards showing how each op reads and writes shared Lakebase state](images/background-agents-lifecycle.png)
+```mermaid
+sequenceDiagram
+    participant Client
+    participant Route as Apps /v1/responses*<br/>-- or --<br/>MS /invocations
+    participant Wrapper as BackgroundResponsesAgent
+    participant BgLoop as _BackgroundLoop<br/>(daemon thread)
+    participant Inner as LanggraphResponsesAgent
+    participant DB as Lakebase<br/>(dao_ai_responses,<br/>dao_ai_response_messages)
+
+    Note over Client,DB: Kickoff
+    Client->>Route: POST request (background=true)
+    Route->>Wrapper: apredict(request)
+    Wrapper->>DB: INSERT dao_ai_responses (status=in_progress)
+    Wrapper->>BgLoop: submit(_run_background(response_id, request))
+    Wrapper-->>Route: ResponsesAgentResponse(id=resp_…, status=in_progress, output=[])
+    Route-->>Client: 200 OK
+    Note over BgLoop,Inner: Background task proceeds on dedicated thread
+
+    BgLoop->>Inner: apredict_stream(request)
+    loop per stream event
+        Inner-->>BgLoop: ResponsesAgentStreamEvent (chunk)
+        BgLoop->>DB: INSERT dao_ai_response_messages (seq, stream_event)
+    end
+    BgLoop->>BgLoop: responses_agent_output_reducer(collected)
+    BgLoop->>DB: INSERT final items (item rows)
+    BgLoop->>DB: UPDATE dao_ai_responses SET status='completed'
+
+    Note over Client,DB: Poll
+    Client->>Route: GET /v1/responses/{id}  (or /invocations with operation=retrieve)
+    Route->>Wrapper: apredict(request)
+    Wrapper->>DB: SELECT dao_ai_responses + get_output(item rows)
+    DB-->>Wrapper: record + items
+    Wrapper-->>Route: ResponsesAgentResponse(id, status, output)
+    Route-->>Client: 200 OK
+
+    Note over Client,DB: Cancel (optional)
+    Client->>Route: POST /v1/responses/{id}/cancel
+    Route->>Wrapper: apredict(request)
+    Wrapper->>BgLoop: task.cancel() (best effort, same pod)
+    Wrapper->>DB: UPDATE dao_ai_responses SET status='cancelled'
+    Wrapper-->>Route: ResponsesAgentResponse(id, status=cancelled)
+    Route-->>Client: 200 OK
+```
 
 ### Two Lakebase tables
 
@@ -391,7 +433,19 @@ daemon thread that owns a persistent `asyncio` loop**
 only affects the request's loop; the daemon loop lives for the process's
 lifetime and keeps spinning.
 
-![Two-timeline diagram showing the request event loop tearing down at end of request while the background daemon loop keeps running to completion](images/background-loop-survives-teardown.png)
+```mermaid
+sequenceDiagram
+    participant Req as Request Loop<br/>(asyncio.run)
+    participant BgThread as Background Thread
+    participant BgLoop as Background Loop
+
+    Note over Req: MS invokes predict()
+    Req->>BgLoop: run_coroutine_threadsafe(_run_background(…))
+    BgLoop-->>Req: concurrent.futures.Future
+    Note over Req: asyncio.run returns →<br/>request loop torn down
+    Note over BgThread,BgLoop: Background loop keeps running —<br/>task survives
+    BgLoop->>BgLoop: _run_background completes
+```
 
 The Lakebase connection pool is also **event-loop-aware** — psycopg's
 async pool can't be shared across loops, so
