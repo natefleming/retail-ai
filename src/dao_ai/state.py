@@ -144,6 +144,30 @@ def merge_session(current: SessionState, new: SessionState) -> SessionState:
     return merged  # type: ignore[return-value]
 
 
+def concat_parallel_dispatches(
+    current: Optional[list[str]], new: Optional[list[str]]
+) -> list[str]:
+    """Reducer that concatenates parallel dispatch targets across concurrent writes.
+
+    Parallel fan-out handoff tools each write ``__parallel_dispatches__``
+    with a single target name via their ``Command.update``. LangGraph's
+    default ``LastValue`` channel would only keep the last, but N parallel
+    tools in one turn must ALL be recorded so the source-agent wrapper
+    can dispatch a ``Send`` per fired sibling.
+
+    We use a dedicated reducer rather than piggybacking on ``add_messages``
+    because the ToolMessage content gets stripped by
+    ``extract_agent_response`` before the source wrapper sees it — a
+    first-class state field survives regardless of output_mode.
+
+    The wrapper is responsible for clearing this field once it has
+    dispatched, so the next turn starts empty.
+    """
+    if not new:
+        return list(current or [])
+    return list(current or []) + list(new)
+
+
 def last_active_agent(current: Optional[str], new: Optional[str]) -> Optional[str]:
     """Reducer that tolerates concurrent writes to ``active_agent``.
 
@@ -195,6 +219,13 @@ class AgentState(MessagesState, total=False):
     message_error: NotRequired[str]
     session: NotRequired[Annotated[SessionState, merge_session]]
     structured_response: NotRequired[Any]
+    # Ephemeral field used by the parallel fan-out feature to collect
+    # target agent names from N parallel-handoff tools invoked in one LLM
+    # turn. The source-agent wrapper reads this to build the fan-out
+    # ``Send`` list, then clears it. See ``concat_parallel_dispatches``.
+    parallel_dispatches: NotRequired[
+        Annotated[list[str], concat_parallel_dispatches]
+    ]
 
 
 class Context(BaseModel):

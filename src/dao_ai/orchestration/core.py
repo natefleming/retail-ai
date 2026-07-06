@@ -362,6 +362,12 @@ def create_agent_node_handler(
     """
 
     async def handler(state: AgentState, runtime: Runtime[Context]) -> AgentState:
+        # Agent turn boundary — logged at INFO so operators can observe the
+        # sequence (and concurrency) of agent nodes firing in production
+        # traces. Especially useful for parallel fan-out where multiple
+        # siblings run in the same superstep.
+        logger.info("Agent turn: enter", agent=agent_name)
+
         # Filter messages to avoid tool_use/tool_result pairing errors AND
         # scope internal-plumbing content away from non-internal agents.
         # Passing agent_name preserves the agent's own tool exchanges from
@@ -528,6 +534,16 @@ def create_agent_node_handler(
                     agent=agent_name,
                 )
 
+        # Log turn exit (INFO) so operators can observe the sibling
+        # completion order in parallel fan-out — pair with the "Agent turn:
+        # enter" line at the top of the handler to measure per-agent
+        # latency and confirm concurrency of siblings in one superstep.
+        logger.info(
+            "Agent turn: exit",
+            agent=agent_name,
+            response_message_count=len(response_messages),
+        )
+
         # Return state update with extracted response
         return {
             **result,
@@ -537,16 +553,50 @@ def create_agent_node_handler(
     return handler
 
 
+PARALLEL_DISPATCH_STATE_KEY: str = "parallel_dispatches"
+"""AgentState field that carries parallel-handoff target names.
+
+Each parallel handoff tool appends its target to this list via its
+``Command.update``; the list-accumulating reducer
+``concat_parallel_dispatches`` merges concurrent writes from N tools
+invoked in the same LLM turn. The source-agent wrapper reads this field
+after the inner handler completes, dispatches a ``Send`` per target,
+and clears the field so the next turn starts empty.
+
+We chose a state field over a ToolMessage tag because
+``extract_agent_response`` strips ToolMessages in ``last_message`` output
+mode — the tag would be gone before the source wrapper could see it.
+"""
+
+
 def create_handoff_tool(
     target_agent_name: str,
     description: str,
     requires: list[str] | None = None,
+    *,
+    parallel: bool = False,
 ) -> BaseTool:
     """
     Create a handoff tool that transfers control to another agent.
 
-    The tool returns a Command object with goto to directly route
-    to the target agent node in the parent graph.
+    Two modes:
+
+    * ``parallel=False`` (default, agentic handoff): the tool returns a
+      ``Command`` with ``goto=target_agent`` and ``graph=Command.PARENT``.
+      LangGraph raises a ``ParentCommand`` that unwinds the subgraph and
+      routes to the target in the parent graph — the standard swarm
+      handoff shape.
+    * ``parallel=True`` (parallel fan-out sibling): the tool returns a
+      ``Command`` carrying only a state update (paired ``AIMessage`` +
+      tagged ``ToolMessage``). It does NOT raise ``ParentCommand``, so
+      when the LLM invokes multiple parallel handoff tools in a single
+      turn, ALL of them execute — the ToolNode collects their state
+      updates instead of short-circuiting on the first one. The
+      accompanying ``_create_parallel_source_handler`` wrapper on the
+      source agent then inspects the tagged ToolMessages, collects the
+      cohort's targets, and issues a single ``Command`` with
+      ``goto=[Send(sibling, state), ...]`` to fan out at the parent
+      graph level.
 
     Args:
         target_agent_name: The name of the agent to hand off to
@@ -556,9 +606,13 @@ def create_handoff_tool(
             is allowed. When unmet, the tool returns a refusal ``ToolMessage``
             naming the missing prereqs and ``active_agent`` stays unchanged.
             Empty/None means no constraint (existing behavior).
+        parallel: When True, do not set ``goto``/``graph=PARENT`` so the
+            source's ToolNode can execute multiple sibling handoffs in the
+            same turn without short-circuiting on the first ParentCommand.
 
     Returns:
-        A tool that triggers a handoff to the target agent via Command
+        A tool that either triggers a handoff (agentic) or emits a tagged
+        state update (parallel) — see the mode discussion above.
     """
     required_agents: tuple[str, ...] = tuple(requires or ())
 
@@ -566,7 +620,11 @@ def create_handoff_tool(
     def handoff_tool(runtime: ToolRuntime[Context, AgentState]) -> Command:
         """Transfer control to another agent."""
         tool_call_id: str = runtime.tool_call_id
-        logger.debug("Handoff to agent", target_agent=target_agent_name)
+        logger.info(
+            "Handoff tool invoked",
+            target_agent=target_agent_name,
+            tool_call_id=tool_call_id,
+        )
 
         # Get the AIMessage that triggered this handoff (required for tool_use/tool_result pairing)
         # LLMs expect tool calls to be paired with their responses, so we must include both
@@ -608,8 +666,33 @@ def create_handoff_tool(
                 # agent stays in control and sees the refusal in-band.
                 return Command(update={"messages": refusal_messages})
 
-        # Build message list with proper pairing
-        update_messages: list[BaseMessage] = []
+        # Parallel mode: return a plain state update — no goto, no
+        # graph=PARENT — so the ToolNode can execute ALL sibling handoff
+        # tool calls issued in one LLM turn without short-circuiting on
+        # the first ParentCommand. The target agent name is recorded in
+        # the ``parallel_dispatches`` state field (list-accumulating
+        # reducer) so the source-agent wrapper can build a single fan-out
+        # ``Command(goto=[Send(...), ...])`` after all tool calls complete.
+        if parallel:
+            update_messages: list[BaseMessage] = []
+            if triggering_ai_message:
+                update_messages.append(triggering_ai_message)
+            update_messages.append(
+                ToolMessage(
+                    content=f"Transferred to {target_agent_name}",
+                    tool_call_id=tool_call_id,
+                )
+            )
+            return Command(
+                update={
+                    "messages": update_messages,
+                    PARALLEL_DISPATCH_STATE_KEY: [target_agent_name],
+                }
+            )
+
+        # Standard (agentic) handoff: escape to parent graph with goto.
+        # Build message list with proper pairing.
+        update_messages = []
         if triggering_ai_message:
             update_messages.append(triggering_ai_message)
         update_messages.append(

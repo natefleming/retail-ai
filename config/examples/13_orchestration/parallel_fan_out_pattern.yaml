@@ -1,0 +1,205 @@
+# yaml-language-server: $schema=../../../schemas/model_config_schema.json
+
+# =============================================================================
+# PARAMETERS
+# =============================================================================
+parameters:
+  catalog:
+    description: Unity Catalog catalog name
+    default: retail_consumer_goods
+  schema:
+    description: Schema within the catalog
+    default: sporting_goods_store
+  trace_schema:
+    description: Schema used by trace_location for MLflow trace persistence
+    default: agent_ops_traces
+  warehouse_id:
+    description: SQL warehouse ID used for UC trace_location export
+    default: d58e5fb998498840
+
+schemas:
+  retail_schema: &retail_schema
+    catalog_name: ${var.catalog}
+    schema_name: ${var.schema}
+  trace_schema: &trace_schema
+    catalog_name: ${var.catalog}
+    schema_name: ${var.trace_schema}
+
+# =============================================================================
+# PARALLEL FAN-OUT PATTERN - Concurrent Sibling Agents with a Shared Join
+# =============================================================================
+# This example demonstrates parallel fan-out handoffs where a source agent
+# invokes multiple sibling agents concurrently in a single LLM turn, and all
+# siblings converge on a shared deterministic "join" agent that synthesizes
+# their outputs into a single response for the user.
+#
+# Pattern: source_agent ──▶ {worker_a, worker_b, worker_c} ──▶ synthesizer
+#
+# Use cases:
+#   - Independent enrichment steps (price + inventory + policy → response)
+#   - Multi-source retrieval / research (query several specialists, synthesize)
+#   - Judge / critic patterns (N candidates → one selector)
+#
+# How it works:
+#   - Each is_parallel handoff produces a per-sibling handoff tool
+#     (handoff_to_worker_a, handoff_to_worker_b, ...).
+#   - When the source's LLM invokes multiple parallel handoff tools in a
+#     single turn (Claude & GPT support parallel tool calls natively), the
+#     targeted siblings run in the same LangGraph superstep — concurrent
+#     execution, not serialized.
+#   - Each sibling has a static edge to the shared join. Because they all
+#     target the same join node, LangGraph's superstep semantics run the
+#     join exactly once after all fired siblings complete.
+#   - Sibling outputs are concatenated into `messages` via the add_messages
+#     reducer. The join sees them all and produces the final response.
+#
+# Configuration rules (validated at load time):
+#   - Every parallel cohort MUST share exactly one is_deterministic join
+#     entry on the same source. Missing or duplicate join = load-time error.
+#   - is_parallel and is_deterministic are mutually exclusive on the same
+#     entry.
+#   - Parallel siblings cannot be the source of their own parallel cohort
+#     (nested fan-out is out of scope for this feature).
+#   - Cycles containing any parallel or deterministic edge are rejected.
+#
+# The end-user experience is identical to a sequential swarm: the caller
+# sees a single final response from the join agent. Parallelism happens
+# entirely inside the graph.
+
+# =============================================================================
+# RESOURCES
+# =============================================================================
+resources:
+  models:
+    default_llm: &default_llm
+      name: databricks-claude-sonnet-4
+      temperature: 0.1
+      max_tokens: 4096
+
+# =============================================================================
+# AGENTS
+# =============================================================================
+agents:
+  # Source: classifies the request and fans out to the relevant workers.
+  triage_agent: &triage_agent
+    name: triage_agent
+    description: "Classifies the customer request and dispatches to workers"
+    model: *default_llm
+    prompt: |
+      You are a triage agent. When a customer asks a product question, call
+      ALL THREE parallel handoff tools in a single turn (they run
+      concurrently and their results are merged before the synthesizer
+      responds):
+
+        - handoff_to_pricing_agent
+        - handoff_to_inventory_agent
+        - handoff_to_policy_agent
+
+      Do NOT answer directly. Do NOT respond to the customer. Your only
+      job is to dispatch to the workers.
+    handoff_prompt: |
+      Initial request classification and dispatch to parallel workers.
+
+  # Worker: looks up pricing.
+  pricing_agent: &pricing_agent
+    name: pricing_agent
+    description: "Looks up current pricing for the requested product"
+    model: *default_llm
+    prompt: |
+      You are a pricing specialist. Given the customer's request, look up
+      or estimate the current price of the product mentioned. Respond with
+      the price and any relevant promotions. Be concise.
+
+  # Worker: checks inventory.
+  inventory_agent: &inventory_agent
+    name: inventory_agent
+    description: "Checks stock availability for the requested product"
+    model: *default_llm
+    prompt: |
+      You are an inventory specialist. Given the customer's request,
+      report whether the product is in stock and any lead time for
+      restocking. Be concise.
+
+  # Worker: retrieves policy notes.
+  policy_agent: &policy_agent
+    name: policy_agent
+    description: "Retrieves return / warranty policy for the product category"
+    model: *default_llm
+    prompt: |
+      You are a policy specialist. Given the customer's request, report
+      the return window and warranty terms that apply to the product
+      category. Be concise.
+
+  # Join: synthesizes the three worker outputs into a single customer response.
+  synthesizer_agent: &synthesizer_agent
+    name: synthesizer_agent
+    description: "Synthesizes worker outputs into a single customer-facing response"
+    model: *default_llm
+    prompt: |
+      You are a customer response synthesizer. Read the pricing, inventory,
+      and policy answers above (each tagged with the agent that produced
+      it) and write ONE cohesive, friendly customer-facing reply that
+      addresses the original question. Do not mention the internal
+      pipeline. Be concise and professional.
+
+# =============================================================================
+# APPLICATION CONFIGURATION
+# =============================================================================
+app:
+  name: parallel_fan_out_dao
+  description: "Swarm with parallel fan-out to workers and a shared synthesizer"
+  log_level: INFO
+
+  registered_model:
+    schema: *retail_schema
+    name: parallel_fan_out_dao
+
+  # MLflow trace persistence on Databricks Apps requires trace_location — Apps
+  # containers cannot reach the default control-plane trace storage host
+  # (us-east-1.storage.cloud.databricks.com). Routing exports through a SQL
+  # warehouse to UC OTEL tables keeps traces durable and queryable so we can
+  # verify parallel execution visually (overlapping sibling spans).
+  #
+  # Do NOT set ``table_prefix`` — MLflow's V4 search_traces API hardcodes the
+  # default ``mlflow_experiment_trace_otel_*`` table name.
+  trace_location:
+    schema: *trace_schema
+    warehouse: ${var.warehouse_id}
+
+  agents:
+  - *triage_agent
+  - *pricing_agent
+  - *inventory_agent
+  - *policy_agent
+  - *synthesizer_agent
+
+  orchestration:
+    swarm:
+      default_agent: triage_agent
+
+      # Handoff configuration with parallel fan-out
+      # -------------------------------------------
+      # triage_agent → {pricing_agent, inventory_agent, policy_agent}
+      #     (parallel: LLM invokes all three in a single turn)
+      # {pricing_agent, inventory_agent, policy_agent} → synthesizer_agent
+      #     (shared deterministic join; runs once after all fire)
+      # synthesizer_agent: no outbound handoffs (terminal join)
+      handoffs:
+        triage_agent:
+        - agent: pricing_agent
+          is_parallel: true
+        - agent: inventory_agent
+          is_parallel: true
+        - agent: policy_agent
+          is_parallel: true
+        - agent: synthesizer_agent
+          is_deterministic: true      # shared join for the parallel cohort
+        pricing_agent: []
+        inventory_agent: []
+        policy_agent: []
+        synthesizer_agent: []
+
+  input_example:
+    messages:
+    - role: user
+      content: "Is the DeWalt 20V drill in stock, and what does it cost? Also, what's the return policy?"

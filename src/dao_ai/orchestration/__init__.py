@@ -23,6 +23,7 @@ See: https://github.com/langchain-ai/langgraph-swarm-py
 """
 
 from dao_ai.orchestration.core import (
+    PARALLEL_DISPATCH_STATE_KEY,
     SUPERVISOR_NODE,
     OutputMode,
     create_agent_node_handler,
@@ -40,6 +41,7 @@ __all__ = [
     # Constants
     "SUPERVISOR_NODE",
     "OutputMode",
+    "PARALLEL_DISPATCH_STATE_KEY",
     # Core utilities
     "create_store",
     "create_checkpointer",
