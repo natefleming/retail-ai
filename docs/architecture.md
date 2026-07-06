@@ -214,34 +214,7 @@ orchestration:
       Route queries to the appropriate specialist agent based on the content.
 ```
 
-```mermaid
-graph TB
-    supervisor[Supervisor]
-    general[General<br/>Agent]
-    product[Product<br/>Agent]
-    inventory[Inventory<br/>Agent]
-    orders[Orders<br/>Agent]
-    diy[DIY<br/>Agent]
-    comparison[Comparison<br/>Agent]
-    recommendation[Recommendation<br/>Agent]
-    
-    supervisor --> general
-    supervisor --> product
-    supervisor --> inventory
-    supervisor --> orders
-    supervisor --> diy
-    supervisor --> comparison
-    supervisor --> recommendation
-    
-    style supervisor fill:#1B5162,stroke:#143D4A,stroke-width:3px,color:#fff
-    style general fill:#FFAB00,stroke:#7D5319,stroke-width:3px,color:#1B3139
-    style product fill:#FFAB00,stroke:#7D5319,stroke-width:3px,color:#1B3139
-    style inventory fill:#FFAB00,stroke:#7D5319,stroke-width:3px,color:#1B3139
-    style orders fill:#FFAB00,stroke:#7D5319,stroke-width:3px,color:#1B3139
-    style diy fill:#FFAB00,stroke:#7D5319,stroke-width:3px,color:#1B3139
-    style comparison fill:#FFAB00,stroke:#7D5319,stroke-width:3px,color:#1B3139
-    style recommendation fill:#FFAB00,stroke:#7D5319,stroke-width:3px,color:#1B3139
-```
+![Supervisor orchestration pattern: a single supervisor agent delegates to seven specialist agents and synthesizes results](images/supervisor-pattern.png)
 
 ### 2. Swarm Pattern
 
@@ -292,40 +265,7 @@ orchestration:
         - escalation_agent              # agentic: LLM can choose to escalate
 ```
 
-```mermaid
-graph TB
-    general[General<br/>Agent]
-    product[Product<br/>Agent]
-    inventory[Inventory<br/>Agent]
-    orders[Orders<br/>Agent]
-    diy[DIY<br/>Agent]
-    comparison[Comparison<br/>Agent]
-    recommendation[Recommendation<br/>Agent]
-    
-    general -->|handoff| product
-    general -->|handoff| inventory
-    general -->|handoff| orders
-    general -->|handoff| diy
-    general -->|handoff| comparison
-    general -->|handoff| recommendation
-    
-    diy -->|handoff| product
-    diy -->|handoff| inventory
-    diy -->|handoff| recommendation
-    
-    style general fill:#1B5162,stroke:#143D4A,stroke-width:3px,color:#fff
-    style product fill:#FFAB00,stroke:#7D5319,stroke-width:3px,color:#1B3139
-    style inventory fill:#42BA91,stroke:#00875C,stroke-width:3px,color:#1B3139
-    style orders fill:#FFAB00,stroke:#7D5319,stroke-width:3px,color:#1B3139
-    style diy fill:#FFAB00,stroke:#7D5319,stroke-width:3px,color:#1B3139
-    style comparison fill:#FFAB00,stroke:#7D5319,stroke-width:3px,color:#1B3139
-    style recommendation fill:#FFAB00,stroke:#7D5319,stroke-width:3px,color:#1B3139
-```
-
-**Legend:**
-- **Blue** (General): Entry point / universal router
-- **Orange**: Standard agents with handoff capabilities  
-- **Green** (Inventory): Terminal agent (no outbound handoffs)
+![Swarm orchestration pattern: seven peer agents hand off directly, with General as entry point and Inventory as a terminal agent](images/swarm-pattern.png)
 
 #### Handoff constraints (`requires`)
 
