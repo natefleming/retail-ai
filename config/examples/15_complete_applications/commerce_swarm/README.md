@@ -547,27 +547,123 @@ databricks --profile fevm apps get commerce_swarm_dao
 
 ## Sample prompts
 
-### B2C consumer (user_id starts with `C`)
+The prompts below are **live-validated against the deployed FEVM Databricks App** (`agent-commerce-swarm-dao`) on 2026-07-06. For every row the app was invoked over `/invocations`, the response text captured, the MLflow trace pulled via `mlflow.get_trace(trace_id)`, and the spans walked to confirm (a) the specialist agent that handled it, (b) the tools it called, and (c) that the response body contains the expected signal. See [Reproduce this validation](#reproduce-this-validation) below for the exact `curl` + Python snippet.
 
-| Prompt | Pipeline route |
-|---|---|
-| `"Hi! I'm planning a brunch for 20 people next weekend — what would you recommend?"` | `supervisor → planner → recommendation → composer` |
-| `"I'm allergic to peanuts. Suggest a dessert under $30."` | `supervisor → planner → recommendation → composer` (memory persisted for next turn) |
-| `"Where's my last order?"` | `supervisor → planner → order_history → composer` |
-| `"What's your return policy?"` | `supervisor → planner → support → composer` |
-| `"Is FRZ-CAKE-001 in stock?"` | `supervisor → planner → stock → composer` |
-| `"Show me vegan cakes"` | `supervisor → planner → discovery → composer` |
-| `"What's my credit limit?"` | `supervisor → planner → support → composer` (planner routes B2C to support; B2B-only explanation) |
+### Personas
 
-### B2B foodservice (user_id starts with `B`)
+Each test sets `custom_inputs.user_id` to a real seeded email. `lookup_customer_by_user` resolves the SSO email to an internal `customer_id` and drives B2C-vs-B2B routing:
 
-| Prompt | Pipeline route |
-|---|---|
-| `"What's my credit limit?"` | `supervisor → planner → credit_limit → composer` |
-| `"Recommend a bulk pack for my cafe's weekend brunch service."` | `supervisor → planner → recommendation → composer` (B2B-aware, prefers bulk SKUs) |
-| `"Do you have pizza bites available in Dallas?"` | `supervisor → planner → stock → composer` |
-| `"Add 5 cases of FRZ-CAKE-002 to my cart."` | `supervisor → planner → ucp → composer` (idempotent, MCP-ready) |
-| `"Place the order."` | `supervisor → planner → ucp → composer` (confirmation flow) |
+| Persona | `user_id` | Resolves to | Notes |
+|---|---|---|---|
+| **B2C** | `ethan.iqbal18@example.com` | `C0019` — B2C, `baker_hobbyist` segment, platinum tier | Six delivered orders + a live five-item cart |
+| **B2B** | `buyer37@southerncomfortdiners.example.com` | `B0038` — B2B, hospitality segment | Nine orders + a Net30 credit line ($1,000 limit / $608.91 available) |
+
+Prompts marked persona **Any** work with either.
+
+### Prompts by agent
+
+Each entry declares: the prompt, the persona used, whether the demand is on **structured** data (UC functions) or **unstructured** data (Vector Search), the tool spans expected in the trace, and the routing observed live.
+
+#### `discovery` — product search (unstructured VS + structured lookup)
+
+| # | Prompt | Persona | Data path | Tools called | Route observed |
+|---|---|---|---|---|---|
+| 1 | *"Show me your vegan cake options."* | B2C | Unstructured (VS) | `product_search` | supervisor → planner → **discovery** → composer |
+| 2 | *"What plant-based desserts do you carry?"* | B2C | Unstructured (VS) | `product_search` | supervisor → planner → **discovery** → composer |
+| 3 | *"Look up product FRZ-CAKE-001."* | B2C | Structured (UC fn) | `find_product` | supervisor → planner → **discovery** → composer |
+
+#### `recommendation` — personalized, memory-aware suggestions
+
+| # | Prompt | Persona | Data path | Tools called | Route observed |
+|---|---|---|---|---|---|
+| 4 | *"I'm allergic to peanuts — please recommend a dessert under $30."* | B2C | Structured + Unstructured | `product_search` (respects allergen guardrail via injected memory) | supervisor → planner → **recommendation** → composer |
+| 5 | *"Suggest something based on my past orders."* | B2C | Structured + Unstructured | `lookup_customer_by_user`, `get_order_history` | supervisor → planner → **recommendation** → composer |
+| 6 | *"Recommend a bulk pack for a weekend brunch service."* | B2B | Unstructured (VS) | `product_search` (prefers bulk / B2B SKUs) | supervisor → planner → **recommendation** → composer |
+
+#### `order_history` — order tracking
+
+| # | Prompt | Persona | Data path | Tools called | Route observed |
+|---|---|---|---|---|---|
+| 7 | *"Where's my last order?"* | B2C | Structured | `lookup_customer_by_user`, `get_order_history` | supervisor → planner → **order_history** → composer |
+| 8 | *"Show me my last three orders."* | B2C | Structured | `lookup_customer_by_user`, `get_order_history` | supervisor → planner → **order_history** → composer |
+| 9 | *"What's the status of order O000234?"* | B2B | Structured | `lookup_customer_by_user`, `get_order_history` | supervisor → planner → **order_history** → composer |
+
+#### `support` — FAQs & policies (unstructured VS)
+
+| # | Prompt | Persona | Data path | Tools called | Route observed |
+|---|---|---|---|---|---|
+| 10 | *"What's your return policy?"* | B2C | Unstructured (VS · policies) | `policy_search` | supervisor → planner → **support** → composer |
+| 11 | *"How long does shipping take?"* | B2C | Unstructured (VS · faqs) | `faq_search` | supervisor → planner → **support** → composer |
+| 12 | *"How do I open a B2B foodservice account?"* | B2B | Unstructured (VS · faqs) | `faq_search` | supervisor → planner → **support** → composer |
+
+#### `stock` — ATP across distribution centers
+
+| # | Prompt | Persona | Data path | Tools called | Route observed |
+|---|---|---|---|---|---|
+| 13 | *"Is FRZ-CAKE-001 in stock in Dallas?"* | B2C | Structured | `check_stock` | supervisor → planner → **stock** → composer |
+| 14 | *"How much PLB-CAK-001 do we have across all locations?"* | B2C | Structured | `check_stock` | supervisor → planner → **stock** → composer |
+| 15 | *"What's the available-to-promise for PIZ-PIZ-001 in Los Angeles?"* | B2B | Structured | `check_stock` | supervisor → planner → **stock** → composer |
+
+#### `credit_limit` — B2B credit line & payment terms
+
+| # | Prompt | Persona | Data path | Tools called | Route observed |
+|---|---|---|---|---|---|
+| 16 | *"What's my available credit right now?"* | B2B | Structured | `lookup_customer_by_user`, `get_credit_limit` | supervisor → planner → **credit_limit** → composer |
+| 17 | *"What are my payment terms?"* | B2B | Structured | `lookup_customer_by_user`, `get_credit_limit` | supervisor → planner → **credit_limit** → composer |
+| 18 | *"What's my credit limit?"* | B2C | Structured | `lookup_customer_by_user` | supervisor → planner → **credit_limit** → composer *(observed: routes to `credit_limit`, which resolves the account, sees B2C, and safely explains that credit lines are B2B-only — no `get_credit_limit` call)* |
+
+#### `ucp` — idempotent commerce (cart, checkout)
+
+| # | Prompt | Persona | Data path | Tools called | Route observed |
+|---|---|---|---|---|---|
+| 19 | *"Add 5 cases of FRZ-CAKE-002 to my cart."* | B2B | Structured | `lookup_customer_by_user`, `find_product` | supervisor → planner → **ucp** → composer |
+| 20 | *"What's in my cart right now?"* | B2C | Structured | `get_cart` | supervisor → planner → **ucp** → composer |
+| 21 | *"Please place the order."* | B2B | Structured | `get_cart` | supervisor → planner → **ucp** → composer *(chain the two prompts above in the same session so the cart isn't empty; without cart context the router may fall through to `general`)* |
+
+#### `general` — greetings, brand Q&A, no tools
+
+| # | Prompt | Persona | Data path | Tools called | Route observed |
+|---|---|---|---|---|---|
+| 22 | *"Who are you and what can you help me with?"* | Any | None | — | supervisor → planner → **general** → composer |
+| 23 | *"Are you a real person or an AI assistant?"* | Any | None | — | supervisor → planner → **general** → composer |
+| 24 | *"Hi there!"* | Any | None | — | supervisor → planner → **general** → composer |
+
+### Reproduce this validation
+
+**Invoke the app.** The Databricks App exposes `/invocations` on the URL returned by `databricks apps get`:
+
+```bash
+APP_URL=$(databricks apps get commerce_swarm_dao -p fevm --output json | jq -r .url)
+TOKEN=$(databricks auth token -p fevm | jq -r .access_token)
+
+curl -sS "$APP_URL/invocations" -X POST \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  --data '{
+    "input":[{"role":"user","content":"Show me your vegan cake options."}],
+    "custom_inputs":{"user_id":"ethan.iqbal18@example.com"}
+  }' | jq
+```
+
+The response body contains `custom_outputs.trace_id` (format `trace:/<experiment>/<uuid>`).
+
+**Inspect the MLflow trace.** Traces persist to UC OTEL tables and are read through a SQL warehouse:
+
+```python
+import mlflow, os
+os.environ["MLFLOW_TRACING_SQL_WAREHOUSE_ID"] = "d58e5fb998498840"  # any SQL warehouse in FEVM
+mlflow.set_tracking_uri("databricks")
+
+trace = mlflow.get_trace("<trace_id_from_custom_outputs>")
+for span in trace.data.spans:
+    print(f"{span.span_type:11s} {span.name}")
+```
+
+What to look for:
+
+* the **specialist agent** span — one of `discovery`, `recommendation`, `order_history`, `support`, `stock`, `credit_limit`, `ucp`, `general`;
+* the expected **TOOL** spans — UC functions appear as `retail_consumer_goods__commerce_swarm__<function_name>` (for example `retail_consumer_goods__commerce_swarm__find_product`); Vector Search retrievers appear as `product_search`, `faq_search`, `policy_search`;
+* the **memory** spans — `search_memory` and `search_user_profile` inject stored user preferences (allergens, brand affinity, tier) ahead of each specialist LLM call, and drive the personalized behavior in prompts 4–6 and 20.
 
 ---
 
