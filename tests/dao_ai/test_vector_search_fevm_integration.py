@@ -220,3 +220,169 @@ class TestVectorSearchFevmExplicitAuthMode4:
         assert isinstance(docs, list) and len(docs) > 0, (
             f"mode #4 explicit-PAT search returned no docs: {docs!r}"
         )
+
+
+# ---------------------------------------------------------------------------
+# Dynamic schema hydration — the LLM-facing args_schema is built from the
+# live index metadata (columns via ``index.describe()``, types via UC Tables
+# API) rather than YAML alone. The regression this closes is MLflow trace
+# ``fc785d795b77675ac0e42fe5296b523a`` on ``agent-commerce-super-dao``:
+# the LLM emitted ``{"key": "name NOT LIKE"}`` against
+# ``retail_consumer_goods.commerce_swarm.products_description_index`` which
+# has ``product_name`` (not ``name``), the vector search API rejected the
+# call with ``Columns referenced in filters are not present in index: name``,
+# and the whole trace bubbled to ``state=ERROR``.
+# ---------------------------------------------------------------------------
+
+COMMERCE_SCHEMA = SchemaModel(
+    catalog_name="retail_consumer_goods",
+    schema_name="commerce_swarm",
+)
+
+COMMERCE_VS_ENDPOINT = VectorSearchEndpoint(name="dbdemos_vs_endpoint")
+
+
+def _bare_vector_store(index_name: str) -> VectorStoreModel:
+    """VectorStoreModel with ONLY an index reference — no columns declared.
+
+    Forces the factory down the auto-discovery path (``refresh()`` +
+    ``_fetch_column_types``).
+    """
+    return VectorStoreModel(
+        index=IndexModel(schema=COMMERCE_SCHEMA, name=index_name),
+        endpoint=COMMERCE_VS_ENDPOINT,
+    )
+
+
+def _tool_enum_keys(tool) -> list[str]:
+    """Pull the ``filters[].key`` enum out of the tool's args_schema JSON."""
+    schema = tool.args_schema.model_json_schema()
+    defs = schema.get("$defs", {})
+    item = defs.get("DynamicFilterItem") or defs.get("FilterItem") or {}
+    return item.get("properties", {}).get("key", {}).get("enum", []) or []
+
+
+@pytest.mark.integration
+@pytest.mark.skipif(not _has_fevm_profile(), reason=SKIP_MSG)
+class TestDynamicSchemaHydration:
+    """Live-hydration tests against the three commerce_swarm indexes on FEVM:
+
+      * ``products_description_index``  (10-col products table)
+      * ``faqs_index``                  (FAQ knowledge base)
+      * ``policies_index``              (policies knowledge base)
+
+    Each test builds a tool from just an index reference (no ``columns:``
+    in YAML) and asserts (a) the args_schema exposes the live column set
+    with type-aware operator suffixes, (b) invalid keys are rejected by
+    pydantic without hitting the retriever, (c) valid keys pass through
+    and the live search returns.
+    """
+
+    def test_products_columns_discovered_from_live_index(self) -> None:
+        vs = _bare_vector_store("products_description_index")
+        tool = create_vector_search_tool(
+            retriever=RetrieverModel(vector_store=vs),
+            name="product_search",
+        )
+        enum = _tool_enum_keys(tool)
+        # Live products index columns (see commerce_swarm data DDL):
+        # product_id, sku, product_name, brand, category, subcategory,
+        # description, price, is_b2b_only.
+        for c in ("product_id", "product_name", "brand", "category", "price", "is_b2b_only"):
+            assert c in enum, f"missing column {c!r} in {enum}"
+        # Type-aware guardrails:
+        assert "product_name LIKE" in enum  # string col gets LIKE
+        assert "product_name >" not in enum  # …but not ordering
+        assert "price <=" in enum  # numeric col gets ordering
+        assert "price LIKE" not in enum  # …but not LIKE
+        assert "is_b2b_only NOT" in enum  # bool gets equality/NOT
+        assert "is_b2b_only <" not in enum  # …but no ordering
+
+    def test_regression_products_bad_key_rejected_before_vs_call(self) -> None:
+        """The exact regression from trace fc785d795b... — must fail at
+        pydantic validation, NOT surface to the retriever."""
+        vs = _bare_vector_store("products_description_index")
+        tool = create_vector_search_tool(
+            retriever=RetrieverModel(vector_store=vs),
+            name="product_search",
+        )
+        from pydantic import ValidationError
+
+        with pytest.raises(ValidationError):
+            tool.invoke(
+                {
+                    "query": "dessert",
+                    "filters": [{"key": "name NOT LIKE", "value": "peanut"}],
+                }
+            )
+
+    def test_products_valid_filter_reaches_vs_and_returns(self) -> None:
+        vs = _bare_vector_store("products_description_index")
+        tool = create_vector_search_tool(
+            retriever=RetrieverModel(vector_store=vs),
+            name="product_search",
+        )
+        tool_call = LCToolCall(
+            name=tool.name,
+            args={
+                "query": "chocolate dessert",
+                "filters": [
+                    {"key": "product_name NOT LIKE", "value": "peanut"},
+                    {"key": "price <=", "value": 50},
+                    {"key": "is_b2b_only", "value": False},
+                ],
+            },
+            id="dyn-schema-tc-1",
+            type="tool_call",
+        )
+        docs = _extract_documents(tool.invoke(tool_call))
+        assert isinstance(docs, list) and len(docs) > 0, (
+            f"live products search with valid dyn-schema filters returned nothing: {docs!r}"
+        )
+
+    def test_faqs_columns_discovered_from_live_index(self) -> None:
+        vs = _bare_vector_store("faqs_index")
+        tool = create_vector_search_tool(
+            retriever=RetrieverModel(vector_store=vs),
+            name="faq_search",
+        )
+        enum = _tool_enum_keys(tool)
+        for c in ("faq_id", "category", "question", "answer"):
+            assert c in enum, f"missing column {c!r} in {enum}"
+
+    def test_policies_columns_discovered_from_live_index(self) -> None:
+        vs = _bare_vector_store("policies_index")
+        tool = create_vector_search_tool(
+            retriever=RetrieverModel(vector_store=vs),
+            name="policy_search",
+        )
+        enum = _tool_enum_keys(tool)
+        for c in ("policy_id", "category", "title", "body", "effective_date"):
+            assert c in enum, f"missing column {c!r} in {enum}"
+
+    def test_multiple_valid_filters_across_types(self) -> None:
+        vs = _bare_vector_store("products_description_index")
+        tool = create_vector_search_tool(
+            retriever=RetrieverModel(vector_store=vs),
+            name="product_search",
+        )
+        tool_call = LCToolCall(
+            name=tool.name,
+            args={
+                "query": "frozen bakery product",
+                "filters": [
+                    {"key": "category", "value": "Frozen Desserts"},
+                    {"key": "price >", "value": 5},
+                    {"key": "is_b2b_only", "value": False},
+                    {"key": "description NOT LIKE", "value": "peanut"},
+                ],
+            },
+            id="dyn-schema-tc-multi",
+            type="tool_call",
+        )
+        docs = _extract_documents(tool.invoke(tool_call))
+        assert isinstance(docs, list), f"unexpected shape: {docs!r}"
+        # An empty result is OK — what we care about is that all four
+        # different type-flavoured operators (equality/string, ordering/
+        # numeric, equality/boolean, NOT LIKE/string) all validated and
+        # reached the retriever without pydantic rejecting any of them.
