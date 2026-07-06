@@ -299,6 +299,123 @@ def test_follow_up_turn_resumes_at_join(
 
 
 @pytest.mark.unit
+def test_join_agent_receives_all_sibling_outputs() -> None:
+    """The join agent's input must contain each sibling's tagged AIMessage.
+
+    Fan-out is only useful if the join actually *synthesizes* the workers'
+    outputs — not if it just runs after them. This test proves the join's
+    inbound message list contains one AIMessage per sibling, each carrying
+    that sibling's distinctive marker content and tagged with the
+    sibling's name. Without this, a real LLM synthesizer would have no
+    material to reduce.
+
+    We capture the join's input via a mutable list closed over by the
+    join stub, so the assertion inspects exactly what the join agent's
+    handler saw in ``state["messages"]``.
+    """
+    captured_join_inputs: list[list[BaseMessage]] = []
+    siblings: tuple[str, ...] = ("worker_a", "worker_b", "worker_c")
+
+    def _make_marker_sibling(agent_name: str) -> CompiledStateGraph:
+        marker: str = f"MARKER_FROM_{agent_name.upper()}"
+
+        async def _node(state: AgentState) -> dict:
+            return {
+                "messages": [
+                    AIMessage(content=marker, name=agent_name),
+                ]
+            }
+
+        workflow: StateGraph = StateGraph(
+            AgentState,
+            input=AgentState,
+            output=AgentState,
+            context_schema=Context,
+        )
+        workflow.add_node("run", _node)
+        workflow.add_edge(START, "run")
+        workflow.add_edge("run", END)
+        return workflow.compile()
+
+    def _make_capturing_join() -> CompiledStateGraph:
+        async def _node(state: AgentState) -> dict:
+            captured_join_inputs.append(list(state.get("messages", [])))
+            return {
+                "messages": [
+                    AIMessage(content="synthesized", name="join"),
+                ]
+            }
+
+        workflow: StateGraph = StateGraph(
+            AgentState,
+            input=AgentState,
+            output=AgentState,
+            context_schema=Context,
+        )
+        workflow.add_node("run", _node)
+        workflow.add_edge(START, "run")
+        workflow.add_edge("run", END)
+        return workflow.compile()
+
+    def _fake_create_agent_node(agent: AgentModel, **_kwargs) -> CompiledStateGraph:
+        if agent.name == "source":
+            return _make_source_subgraph(siblings)
+        if agent.name == "join":
+            return _make_capturing_join()
+        return _make_marker_sibling(agent.name)
+
+    with (
+        patch(
+            "dao_ai.orchestration.swarm.create_checkpointer",
+            return_value=InMemorySaver(),
+        ),
+        patch("dao_ai.orchestration.swarm.create_store", return_value=None),
+        patch(
+            "dao_ai.orchestration.swarm.create_extraction_manager_and_executor",
+            return_value=(None, None),
+        ),
+        patch(
+            "dao_ai.orchestration.swarm.create_agent_node",
+            side_effect=_fake_create_agent_node,
+        ),
+    ):
+        from dao_ai.orchestration.swarm import create_swarm_graph
+
+        graph = create_swarm_graph(_make_fanout_config())
+        _run(graph, "please synthesize", "verify-synth-t1")
+
+    assert captured_join_inputs, "join must have run at least once"
+    join_msgs: list[BaseMessage] = captured_join_inputs[-1]
+
+    # For each sibling, an AIMessage tagged with that sibling's name,
+    # carrying its distinctive marker, must be present in the join's input.
+    for sibling in siblings:
+        expected_marker: str = f"MARKER_FROM_{sibling.upper()}"
+        matches = [
+            m
+            for m in join_msgs
+            if isinstance(m, AIMessage)
+            and m.name == sibling
+            and expected_marker in (m.content if isinstance(m.content, str) else "")
+        ]
+        assert len(matches) == 1, (
+            f"join must see exactly one AIMessage from '{sibling}' containing "
+            f"'{expected_marker}'. Got {len(matches)} matches. Full name/type "
+            f"sequence at join: {[(type(m).__name__, getattr(m, 'name', None)) for m in join_msgs]}"
+        )
+
+    # The synthesizer must NOT have run before any sibling — proves ordering.
+    ai_sequence: list[str | None] = [
+        m.name for m in join_msgs if isinstance(m, AIMessage)
+    ]
+    assert "join" not in ai_sequence, (
+        f"join's own AIMessage must not appear in its OWN input — that would "
+        f"indicate the join ran before it collected sibling outputs. "
+        f"AIMessage.name sequence at join: {ai_sequence!r}"
+    )
+
+
+@pytest.mark.unit
 def test_source_gets_parallel_handoff_tools_wired_to_agent_node() -> None:
     """The source agent must receive per-sibling handoff tools (integration).
 
