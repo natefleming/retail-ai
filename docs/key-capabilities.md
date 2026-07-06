@@ -267,43 +267,7 @@ genie_tool:
 
 ### Cache Architecture
 
-```mermaid
-graph TB
-    question[/"Question: 'What products are low on stock?'"/]
-    
-    l1_cache["L1: LRU Cache (In-Memory)<br/>• Capacity: 1000 entries<br/>• Hash-based lookup<br/>• O(1) exact string match"]
-    l1_hit{Hit?}
-    
-    l2_cache["L2: Context-Aware Cache<br/>• PostgreSQL (pg_vector) OR In-Memory<br/>• Dual embeddings (question + context)<br/>• L2 distance similarity<br/>• Conversation context aware<br/>• Partitioned by Genie space ID"]
-    l2_hit{Hit?}
-    
-    genie["Genie API<br/>(Expensive call)<br/>Natural language to SQL"]
-    
-    execute["Execute SQL via Warehouse<br/>Always fresh data!"]
-    
-    result[/"Return Result"/]
-    
-    question --> l1_cache
-    l1_cache --> l1_hit
-    l1_hit -->|Hit| execute
-    l1_hit -->|Miss| l2_cache
-    
-    l2_cache --> l2_hit
-    l2_hit -->|Hit| execute
-    l2_hit -->|Miss| genie
-    
-    genie --> execute
-    execute --> result
-    
-    style question fill:#1B5162,stroke:#143D4A,stroke-width:3px,color:#fff
-    style l1_cache fill:#00875C,stroke:#095A35,stroke-width:3px,color:#fff
-    style l2_cache fill:#FFAB00,stroke:#7D5319,stroke-width:3px,color:#1B3139
-    style genie fill:#FF5F46,stroke:#BD2B26,stroke-width:3px,color:#fff
-    style execute fill:#618794,stroke:#143D4A,stroke-width:3px,color:#fff
-    style result fill:#1B5162,stroke:#143D4A,stroke-width:3px,color:#fff
-    style l1_hit fill:#C4CCD6,stroke:#1B3139,stroke-width:2px,color:#1B3139
-    style l2_hit fill:#C4CCD6,stroke:#1B3139,stroke-width:2px,color:#1B3139
-```
+![Two-tier cache before Genie: L1 in-memory LRU cache, then L2 pg_vector context-aware cache, then Genie NL→SQL fallback — every path executes fresh SQL against the warehouse](images/genie-cache-hierarchy.png)
 
 ### LRU Cache (L1)
 
@@ -452,25 +416,7 @@ genie_tool:
 
 **Force toolkit mode without caches:** Set `enable_feedback: true` on a `type: genie` tool to get the feedback tool even when no cache is configured.
 
-```mermaid
-graph LR
-    query[/"Query"/]
-    cache["Cache Lookup"]
-    track["Track SQL Hash"]
-    check{Under Threshold?}
-    serve[/"Serve Result"/]
-    invalidate["Invalidate All Layers"]
-    genie["Re-query Genie"]
-    fresh[/"Serve Fresh Result"/]
-
-    query --> cache
-    cache --> track
-    track --> check
-    check -->|Yes| serve
-    check -->|No| invalidate
-    invalidate --> genie
-    genie --> fresh
-```
+![Cache circuit breaker for stale hits: tracks consecutive SQL hashes and trips at max_consecutive_cache_hits, invalidating all layers and re-querying Genie for fresh SQL](images/genie-cache-circuit-breaker.png)
 
 | Parameter | Default | Description |
 |-----------|---------|-------------|
@@ -510,29 +456,7 @@ retrievers:
 
 ### How It Works
 
-```mermaid
-graph TB
-    query[/"Query: 'heavy duty outdoor extension cord'"/]
-    
-    stage1["Stage 1: Vector Similarity Search<br/>• Returns 50 candidates<br/>• Milliseconds latency<br/>• Fast, approximate matching<br/>• Uses embedding similarity"]
-    
-    docs50[("50 documents")]
-    
-    stage2["Stage 2: Cross-Encoder Rerank<br/>• FlashRank (local, no API)<br/>• Returns top 5 most relevant<br/>• Precise relevance scoring<br/>• Query-document interaction"]
-    
-    result[("5 documents<br/>(reordered by relevance)")]
-    
-    query --> stage1
-    stage1 --> docs50
-    docs50 --> stage2
-    stage2 --> result
-    
-    style query fill:#1B5162,stroke:#143D4A,stroke-width:3px,color:#fff
-    style stage1 fill:#00875C,stroke:#095A35,stroke-width:3px,color:#fff
-    style docs50 fill:#42BA91,stroke:#00875C,stroke-width:3px,color:#1B3139
-    style stage2 fill:#FFAB00,stroke:#7D5319,stroke-width:3px,color:#1B3139
-    style result fill:#FCBA33,stroke:#7D5319,stroke-width:3px,color:#1B3139
-```
+![Two-stage retrieval funnel: vector similarity returns 50 candidates, then FlashRank cross-encoder reranks to the top 5 most relevant — visualized as 50 dots narrowing to 5](images/vector-search-rerank-funnel.png)
 
 ### Why Reranking?
 
@@ -583,45 +507,7 @@ rerank:
 
 ### How Instructed Retrieval Works
 
-```mermaid
-graph TB
-    query[/"Query: 'Milwaukee power drills under $200'"/]
-    
-    stage1["Stage 1: Query Decomposition<br/>• LLM extracts metadata filters<br/>• Resolves relative dates<br/>• Generates focused subqueries"]
-    
-    subqueries[("3 subqueries + filters<br/>brand_name: MILWAUKEE<br/>price < 200")]
-    
-    stage2["Stage 2: Parallel Vector Search<br/>• Each subquery searched independently<br/>• HYBRID or ANN query type<br/>• 50 candidates per subquery"]
-    
-    docs150[("150 total results")]
-    
-    stage3["Stage 3: RRF Merge<br/>• Reciprocal Rank Fusion<br/>• Score = 1/(k + rank)<br/>• Deduplicate by primary key"]
-    
-    merged[("50 merged results<br/>(deduplicated)")]
-    
-    stage4["Stage 4: Instruction-Aware Rerank<br/>• LLM reranks with constraint awareness<br/>• Enforces brand/price preferences<br/>• Returns top N results"]
-    
-    final[/"10 results<br/>(constraint-aware ordering)"/]
-    
-    query --> stage1
-    stage1 --> subqueries
-    subqueries --> stage2
-    stage2 --> docs150
-    docs150 --> stage3
-    stage3 --> merged
-    merged --> stage4
-    stage4 --> final
-    
-    style query fill:#1B5162,stroke:#143D4A,stroke-width:3px,color:#fff
-    style stage1 fill:#00875C,stroke:#095A35,stroke-width:3px,color:#fff
-    style subqueries fill:#42BA91,stroke:#00875C,stroke-width:3px,color:#1B3139
-    style stage2 fill:#FFAB00,stroke:#7D5319,stroke-width:3px,color:#1B3139
-    style docs150 fill:#FCBA33,stroke:#7D5319,stroke-width:3px,color:#1B3139
-    style stage3 fill:#9C6ADE,stroke:#7b1fa2,stroke-width:3px,color:#fff
-    style merged fill:#C4CCD6,stroke:#1B3139,stroke-width:2px,color:#1B3139
-    style stage4 fill:#618794,stroke:#143D4A,stroke-width:3px,color:#fff
-    style final fill:#1B5162,stroke:#143D4A,stroke-width:3px,color:#fff
-```
+![Instructed retrieval pipeline: LLM decomposes the query into filters and subqueries, fans out to parallel vector searches, merges via Reciprocal Rank Fusion, then reranks with constraint awareness](images/instructed-retrieval-pipeline.png)
 
 ### Instructed Retrieval Configuration
 
@@ -2097,27 +1983,7 @@ daemon thread so it survives request-loop teardown.
 
 **Architecture at a glance:**
 
-```mermaid
-flowchart LR
-    Client -->|"POST /v1/responses<br/>background=true"| Route[Apps /v1/responses<br/>or MS /invocations]
-    Route --> Wrapper[BackgroundResponsesAgent]
-    Wrapper -->|spawn on persistent loop| BG[Background daemon thread]
-    Wrapper -->|INSERT| DB[(Lakebase:<br/>dao_ai_responses,<br/>dao_ai_response_messages)]
-    Wrapper -.->|"id=resp_…<br/>status=in_progress"| Client
-
-    BG -->|apredict_stream| Inner[LanggraphResponsesAgent]
-    Inner --> BG
-    BG -->|append events + final items| DB
-
-    Client -->|"GET /v1/responses/{id}"| Route2[Apps retrieve route]
-    Route2 --> Wrapper
-    Wrapper -->|SELECT| DB
-    Wrapper -.->|"status=completed<br/>output=[…]"| Client
-
-    style Wrapper fill:#C4CCD6,stroke:#1B3139,color:#1B3139
-    style BG fill:#1B5162,stroke:#143D4A,color:#fff
-    style DB fill:#E8F4F8,stroke:#1B3139,color:#1B3139
-```
+![Background agents at a glance: two-phase card showing kickoff (POST returns in_progress immediately, task continues on daemon thread) and poll (GET returns completed with output assembled from Lakebase)](images/background-agents-at-a-glance.png)
 
 **Configuration:**
 
