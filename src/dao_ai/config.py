@@ -6366,7 +6366,10 @@ class HandoffRouteModel(BaseModel):
 
         handoffs:
           triage_agent:
-            - agents: [pricing_agent, inventory_agent, policy_agent]
+            - agents:
+                - pricing_agent
+                - inventory_agent
+                - policy_agent
               join: synthesizer_agent            # shared join for the cohort
             - escalation_agent                    # agentic single-target
             - agent: emergency_agent

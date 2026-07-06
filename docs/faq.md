@@ -498,7 +498,10 @@ orchestration:
     default_agent: triage_agent
     handoffs:
       triage_agent:
-      - agents: [pricing_agent, inventory_agent, policy_agent]
+      - agents:
+        - pricing_agent
+        - inventory_agent
+        - policy_agent
         join: synthesizer_agent      # shared join for the cohort
       pricing_agent: []
       inventory_agent: []
@@ -512,7 +515,10 @@ source:
 ```yaml
 handoffs:
   triage_agent:
-  - agents: [pricing_agent, inventory_agent, policy_agent]
+  - agents:
+    - pricing_agent
+    - inventory_agent
+    - policy_agent
     join: synthesizer_agent
   - escalation_agent                 # regular agentic peer
   - agent: emergency_agent

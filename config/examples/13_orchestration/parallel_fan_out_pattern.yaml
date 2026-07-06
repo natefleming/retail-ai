@@ -190,7 +190,10 @@ app:
       # synthesizer_agent: no outbound handoffs (terminal join)
       handoffs:
         triage_agent:
-        - agents: [pricing_agent, inventory_agent, policy_agent]
+        - agents:
+          - pricing_agent
+          - inventory_agent
+          - policy_agent
           join: synthesizer_agent    # shared join for the cohort
         pricing_agent: []
         inventory_agent: []
