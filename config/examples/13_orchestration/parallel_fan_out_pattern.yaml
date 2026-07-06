@@ -41,8 +41,10 @@ schemas:
 #   - Judge / critic patterns (N candidates → one selector)
 #
 # How it works:
-#   - Each is_parallel handoff produces a per-sibling handoff tool
-#     (handoff_to_worker_a, handoff_to_worker_b, ...).
+#   - A cohort is one handoff entry with `agents: [...]` naming the siblings
+#     and `join: ...` naming the shared reducer. Each sibling becomes a
+#     per-sibling parallel handoff tool on the source (handoff_to_worker_a,
+#     handoff_to_worker_b, ...).
 #   - When the source's LLM invokes multiple parallel handoff tools in a
 #     single turn (Claude & GPT support parallel tool calls natively), the
 #     targeted siblings run in the same LangGraph superstep — concurrent
@@ -54,11 +56,13 @@ schemas:
 #     reducer. The join sees them all and produces the final response.
 #
 # Configuration rules (validated at load time):
-#   - Every parallel cohort MUST share exactly one is_deterministic join
-#     entry on the same source. Missing or duplicate join = load-time error.
-#   - is_parallel and is_deterministic are mutually exclusive on the same
-#     entry.
-#   - Parallel siblings cannot be the source of their own parallel cohort
+#   - A cohort entry must set both `agents` (list of ≥ 2 distinct siblings)
+#     and `join`. `agent` (singular) and `agents` are mutually exclusive.
+#   - `is_deterministic` is not meaningful on a cohort entry (the join is
+#     always reached deterministically after fan-in).
+#   - The join must not also appear in `agents` (no self-edge).
+#   - A sibling cannot belong to two cohorts with different joins.
+#   - A sibling cannot itself be the source of another cohort
 #     (nested fan-out is out of scope for this feature).
 #   - Cycles containing any parallel or deterministic edge are rejected.
 #
@@ -186,14 +190,8 @@ app:
       # synthesizer_agent: no outbound handoffs (terminal join)
       handoffs:
         triage_agent:
-        - agent: pricing_agent
-          is_parallel: true
-        - agent: inventory_agent
-          is_parallel: true
-        - agent: policy_agent
-          is_parallel: true
-        - agent: synthesizer_agent
-          is_deterministic: true      # shared join for the parallel cohort
+        - agents: [pricing_agent, inventory_agent, policy_agent]
+          join: synthesizer_agent    # shared join for the cohort
         pricing_agent: []
         inventory_agent: []
         policy_agent: []

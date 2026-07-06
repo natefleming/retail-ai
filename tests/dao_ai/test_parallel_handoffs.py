@@ -1,12 +1,30 @@
-"""Tests for parallel fan-out handoff functionality.
+"""Tests for parallel fan-out handoff functionality (cohort syntax).
 
-This module tests:
-- ``is_parallel`` field on ``HandoffRouteModel``
-- Mutual-exclusion validation with ``is_deterministic``
-- Cohort-shape validation on ``SwarmModel`` (must share exactly one deterministic join)
-- Cycle detection through parallel edges
-- ``_handoffs_for_agent`` resolution of parallel cohorts
-- Swarm graph wiring: sibling -> join static edges and skip source -> join
+Config shape under test::
+
+    handoffs:
+      triage_agent:
+      - agents: [pricing_agent, inventory_agent, policy_agent]
+        join: synthesizer_agent
+      - escalation_agent               # single-target agentic peer
+
+This module covers:
+
+- Per-entry shape validation on ``HandoffRouteModel``:
+  ``agents``/``agent`` mutual exclusion, ``agents`` requires ``join``,
+  ``is_deterministic`` invalid on cohort entries, minimum 2 siblings,
+  distinct siblings, join ≠ sibling.
+- Cross-entry cohort validators on ``SwarmModel``: self-source, cross-cohort
+  collision (same sibling in two cohorts with different joins), nested
+  fan-out (sibling that is also a cohort source).
+- Cycle detection through cohort edges (parallel + join treated as
+  unconditional).
+- ``_handoffs_for_agent`` resolution: cohort entries produce N parallel
+  handoff tools + ``parallel_targets`` + ``parallel_join``; single-target
+  entries unchanged.
+- Swarm graph wiring: source agent gets the per-sibling parallel handoff
+  tools.
+- YAML round-trip through ``AppConfig``.
 """
 
 from __future__ import annotations
@@ -25,166 +43,259 @@ from dao_ai.config import (
 
 
 # =============================================================================
-# HandoffRouteModel.is_parallel Tests
+# HandoffRouteModel per-entry shape
 # =============================================================================
 
 
 @pytest.mark.unit
-class TestHandoffRouteModelParallel:
-    """Tests for the is_parallel field on HandoffRouteModel."""
+class TestHandoffRouteModelShape:
+    """Per-entry ``HandoffRouteModel.validate_shape`` invariants."""
 
-    def test_parallel_defaults_to_false(self) -> None:
+    def test_single_target_entry_accepted(self) -> None:
         route = HandoffRouteModel(agent="worker_a")
-        assert route.is_parallel is False
-
-    def test_parallel_can_be_set(self) -> None:
-        route = HandoffRouteModel(agent="worker_a", is_parallel=True)
-        assert route.is_parallel is True
+        assert route.agent == "worker_a"
+        assert route.agents is None
+        assert route.join is None
         assert route.is_deterministic is False
 
-    def test_parallel_and_deterministic_mutually_exclusive(self) -> None:
-        with pytest.raises(ValueError, match="cannot be both is_deterministic"):
+    def test_deterministic_single_target_accepted(self) -> None:
+        route = HandoffRouteModel(agent="synth", is_deterministic=True)
+        assert route.is_deterministic is True
+
+    def test_cohort_entry_accepted(self) -> None:
+        route = HandoffRouteModel(
+            agents=["worker_a", "worker_b", "worker_c"],
+            join="synth",
+        )
+        assert route.agent is None
+        assert route.agents == ["worker_a", "worker_b", "worker_c"]
+        assert route.join == "synth"
+
+    def test_agent_and_agents_mutually_exclusive(self) -> None:
+        with pytest.raises(ValueError, match="cannot set both"):
             HandoffRouteModel(
-                agent="worker_a", is_parallel=True, is_deterministic=True
+                agent="x",
+                agents=["y", "z"],
+                join="j",
             )
+
+    def test_neither_agent_nor_agents_rejected(self) -> None:
+        with pytest.raises(ValueError, match="must set either"):
+            HandoffRouteModel(join="j")
+
+    def test_cohort_requires_join(self) -> None:
+        with pytest.raises(ValueError, match=r"cohort.*requires ``join``"):
+            HandoffRouteModel(agents=["a", "b"])
+
+    def test_join_without_agents_rejected(self) -> None:
+        with pytest.raises(ValueError, match=r"``join`` is only valid on a cohort"):
+            HandoffRouteModel(agent="x", join="j")
+
+    def test_is_deterministic_invalid_on_cohort(self) -> None:
+        with pytest.raises(ValueError, match="not meaningful on a cohort"):
+            HandoffRouteModel(
+                agents=["a", "b"],
+                join="j",
+                is_deterministic=True,
+            )
+
+    def test_cohort_of_one_rejected(self) -> None:
+        with pytest.raises(ValueError, match="at least two siblings"):
+            HandoffRouteModel(agents=["only_one"], join="j")
+
+    def test_duplicate_siblings_rejected(self) -> None:
+        with pytest.raises(ValueError, match="must be distinct"):
+            HandoffRouteModel(
+                agents=["worker_a", "worker_b", "worker_a"],
+                join="synth",
+            )
+
+    def test_join_cannot_also_be_sibling(self) -> None:
+        with pytest.raises(ValueError, match="cannot also be a sibling"):
+            HandoffRouteModel(
+                agents=["worker_a", "worker_b"],
+                join="worker_a",
+            )
+
+    def test_cohort_accepts_agent_model_refs(self) -> None:
+        a = AgentModel(name="worker_a", model=LLMModel(name="m"))
+        b = AgentModel(name="worker_b", model=LLMModel(name="m"))
+        j = AgentModel(name="join", model=LLMModel(name="m"))
+        route = HandoffRouteModel(agents=[a, b], join=j)
+        assert route.agents is not None
+        assert route.agents[0].name == "worker_a"
+        assert route.join.name == "join"
 
 
 # =============================================================================
-# SwarmModel Cohort-Shape Validation
+# SwarmModel cross-entry cohort validators
 # =============================================================================
 
 
 @pytest.mark.unit
-class TestSwarmModelParallelCohortShape:
-    """Validator: parallel cohorts must share exactly one deterministic join."""
-
-    def test_cohort_without_join_rejected(self) -> None:
-        with pytest.raises(ValueError, match="no is_deterministic join target"):
-            SwarmModel(
-                handoffs={
-                    "source": [
-                        HandoffRouteModel(agent="worker_a", is_parallel=True),
-                        HandoffRouteModel(agent="worker_b", is_parallel=True),
-                    ]
-                }
-            )
-
-    def test_cohort_with_two_joins_rejected(self) -> None:
-        with pytest.raises(ValueError, match="multiple is_deterministic join"):
-            SwarmModel(
-                handoffs={
-                    "source": [
-                        HandoffRouteModel(agent="worker_a", is_parallel=True),
-                        HandoffRouteModel(agent="worker_b", is_parallel=True),
-                        HandoffRouteModel(agent="join_1", is_deterministic=True),
-                        HandoffRouteModel(agent="join_2", is_deterministic=True),
-                    ]
-                }
-            )
+class TestSwarmParallelCohortValidators:
+    """Cross-entry invariants enforced on ``SwarmModel``."""
 
     def test_valid_cohort_accepted(self) -> None:
         swarm = SwarmModel(
             handoffs={
                 "source": [
-                    HandoffRouteModel(agent="worker_a", is_parallel=True),
-                    HandoffRouteModel(agent="worker_b", is_parallel=True),
-                    HandoffRouteModel(agent="worker_c", is_parallel=True),
-                    HandoffRouteModel(agent="synthesizer", is_deterministic=True),
+                    HandoffRouteModel(
+                        agents=["worker_a", "worker_b", "worker_c"],
+                        join="synth",
+                    ),
                 ]
             }
         )
         assert swarm.handoffs is not None
-        entries = swarm.handoffs["source"]
-        assert len(entries) == 4
 
-    def test_cohort_with_extra_agentic_handoff_accepted(self) -> None:
-        # Plain agentic peers may coexist with a parallel cohort on the same source.
+    def test_cohort_with_agentic_peer_accepted(self) -> None:
         swarm = SwarmModel(
             handoffs={
                 "source": [
-                    HandoffRouteModel(agent="worker_a", is_parallel=True),
-                    HandoffRouteModel(agent="worker_b", is_parallel=True),
-                    HandoffRouteModel(agent="synthesizer", is_deterministic=True),
+                    HandoffRouteModel(
+                        agents=["worker_a", "worker_b"],
+                        join="synth",
+                    ),
                     "escalation",  # agentic peer
                 ]
             }
         )
         assert swarm.handoffs is not None
 
-    def test_parallel_self_reference_rejected(self) -> None:
-        with pytest.raises(
-            ValueError, match="cannot have an is_parallel handoff to itself"
-        ):
+    def test_source_cannot_be_own_cohort_sibling(self) -> None:
+        with pytest.raises(ValueError, match="cannot appear in its own parallel"):
             SwarmModel(
                 handoffs={
                     "source": [
-                        HandoffRouteModel(agent="source", is_parallel=True),
-                        HandoffRouteModel(agent="join", is_deterministic=True),
+                        HandoffRouteModel(
+                            agents=["source", "worker_b"], join="synth"
+                        ),
                     ]
+                }
+            )
+
+    def test_source_cannot_be_own_cohort_join(self) -> None:
+        with pytest.raises(ValueError, match="cannot be its own cohort"):
+            SwarmModel(
+                handoffs={
+                    "source": [
+                        HandoffRouteModel(
+                            agents=["worker_a", "worker_b"], join="source"
+                        ),
+                    ]
+                }
+            )
+
+    def test_sibling_in_two_cohorts_with_different_joins_rejected(self) -> None:
+        with pytest.raises(
+            ValueError, match="different join targets"
+        ):
+            SwarmModel(
+                handoffs={
+                    "source_1": [
+                        HandoffRouteModel(
+                            agents=["shared", "worker_a"], join="join_1"
+                        ),
+                    ],
+                    "source_2": [
+                        HandoffRouteModel(
+                            agents=["shared", "worker_b"], join="join_2"
+                        ),
+                    ],
+                }
+            )
+
+    def test_sibling_shared_by_cohorts_with_same_join_allowed(self) -> None:
+        # Not the recommended shape but not itself incoherent.
+        swarm = SwarmModel(
+            handoffs={
+                "source_1": [
+                    HandoffRouteModel(agents=["shared", "worker_a"], join="join"),
+                ],
+                "source_2": [
+                    HandoffRouteModel(agents=["shared", "worker_b"], join="join"),
+                ],
+            }
+        )
+        assert swarm.handoffs is not None
+
+    def test_nested_fan_out_rejected(self) -> None:
+        # 'inner_src' is a sibling of the outer cohort AND the source of its own cohort.
+        with pytest.raises(ValueError, match="Nested parallel fan-out"):
+            SwarmModel(
+                handoffs={
+                    "outer_src": [
+                        HandoffRouteModel(
+                            agents=["inner_src", "worker_x"], join="outer_join"
+                        ),
+                    ],
+                    "inner_src": [
+                        HandoffRouteModel(
+                            agents=["worker_1", "worker_2"], join="inner_join"
+                        ),
+                    ],
                 }
             )
 
 
 # =============================================================================
-# Cycle Detection Through Parallel Edges
+# Cycle detection through cohort edges
 # =============================================================================
 
 
 @pytest.mark.unit
-class TestSwarmParallelCycleDetection:
-    """Parallel edges are treated as unconditional for cycle detection."""
+class TestSwarmCohortCycleDetection:
+    """Parallel + join edges are unconditional; cycles through them are rejected."""
 
     def test_parallel_edge_in_cycle_rejected(self) -> None:
-        # source -[parallel]-> worker -[agentic]-> source forms a runaway loop.
+        # source -[parallel]-> worker -[agentic]-> source
         with pytest.raises(ValueError, match="parallel handoff inside a cycle"):
             SwarmModel(
                 handoffs={
                     "source": [
-                        HandoffRouteModel(agent="worker", is_parallel=True),
-                        HandoffRouteModel(agent="join", is_deterministic=True),
+                        HandoffRouteModel(agents=["worker", "peer"], join="synth"),
                     ],
                     "worker": ["source"],
                 }
             )
 
     def test_join_edge_in_cycle_rejected(self) -> None:
-        # source -[parallel]-> worker -> ... -> source through the join
-        # would be a cycle through the deterministic join edge.
+        # source -[cohort]-> synth -> source (via agentic)
         with pytest.raises(
             ValueError, match=r"(deterministic|parallel) handoff inside a cycle"
         ):
             SwarmModel(
                 handoffs={
                     "source": [
-                        HandoffRouteModel(agent="worker", is_parallel=True),
-                        HandoffRouteModel(agent="join", is_deterministic=True),
+                        HandoffRouteModel(agents=["worker_a", "worker_b"], join="synth"),
                     ],
-                    "join": ["source"],
+                    "synth": ["source"],
                 }
             )
 
-    def test_acyclic_parallel_cohort_allowed(self) -> None:
+    def test_acyclic_cohort_allowed(self) -> None:
         swarm = SwarmModel(
             handoffs={
                 "source": [
-                    HandoffRouteModel(agent="worker_a", is_parallel=True),
-                    HandoffRouteModel(agent="worker_b", is_parallel=True),
-                    HandoffRouteModel(agent="join", is_deterministic=True),
+                    HandoffRouteModel(agents=["worker_a", "worker_b"], join="synth"),
                 ],
-                "join": [],
+                "synth": [],
+                "worker_a": [],
+                "worker_b": [],
             }
         )
         assert swarm.handoffs is not None
 
 
 # =============================================================================
-# _handoffs_for_agent Parallel-Cohort Resolution
+# _handoffs_for_agent resolution
 # =============================================================================
 
 
 @pytest.mark.unit
-class TestHandoffsForAgentParallel:
-    """_handoffs_for_agent must expose parallel_targets and parallel_join."""
+class TestHandoffsForAgentCohort:
+    """Cohort entries expand into N parallel tools + parallel_targets/join."""
 
     def _make_config(
         self,
@@ -207,72 +318,68 @@ class TestHandoffsForAgentParallel:
             }
         )
 
-    def test_parallel_cohort_produces_per_sibling_tools_and_join(self) -> None:
+    def test_cohort_entry_yields_per_sibling_tools_and_join(self) -> None:
         from dao_ai.orchestration.swarm import _handoffs_for_agent
 
         agents = [
-            AgentModel(name="source", model=LLMModel(name="test-model")),
-            AgentModel(name="worker_a", model=LLMModel(name="test-model")),
-            AgentModel(name="worker_b", model=LLMModel(name="test-model")),
-            AgentModel(name="join", model=LLMModel(name="test-model")),
+            AgentModel(name="source", model=LLMModel(name="m")),
+            AgentModel(name="worker_a", model=LLMModel(name="m")),
+            AgentModel(name="worker_b", model=LLMModel(name="m")),
+            AgentModel(name="synth", model=LLMModel(name="m")),
         ]
         config = self._make_config(
             agents,
             {
                 "source": [
-                    {"agent": "worker_a", "is_parallel": True},
-                    {"agent": "worker_b", "is_parallel": True},
-                    {"agent": "join", "is_deterministic": True},
+                    {"agents": ["worker_a", "worker_b"], "join": "synth"},
                 ]
             },
         )
 
         result = _handoffs_for_agent(agents[0], config)
-        # Two per-sibling handoff tools, no others.
         tool_names = sorted(t.name for t in result.tools)
         assert tool_names == ["handoff_to_worker_a", "handoff_to_worker_b"]
-        # Deterministic target is the join, but parallel_join surfaces it too.
-        assert result.parallel_join == "join"
         assert result.parallel_targets == ("worker_a", "worker_b")
-        assert result.deterministic_target == "join"
+        assert result.parallel_join == "synth"
 
-    def test_mixed_parallel_and_agentic_peer(self) -> None:
+    def test_cohort_plus_agentic_peer(self) -> None:
         from dao_ai.orchestration.swarm import _handoffs_for_agent
 
         agents = [
-            AgentModel(name="source", model=LLMModel(name="test-model")),
-            AgentModel(name="worker_a", model=LLMModel(name="test-model")),
-            AgentModel(name="join", model=LLMModel(name="test-model")),
-            AgentModel(name="escalation", model=LLMModel(name="test-model")),
+            AgentModel(name="source", model=LLMModel(name="m")),
+            AgentModel(name="worker_a", model=LLMModel(name="m")),
+            AgentModel(name="synth", model=LLMModel(name="m")),
+            AgentModel(name="escalation", model=LLMModel(name="m")),
         ]
         config = self._make_config(
             agents,
             {
                 "source": [
-                    {"agent": "worker_a", "is_parallel": True},
-                    {"agent": "join", "is_deterministic": True},
-                    "escalation",
+                    {"agents": ["worker_a", "synth"], "join": "escalation"},
+                    "escalation",  # Peer entry (agentic)
                 ]
             },
         )
 
+        # We used escalation as the join above only to keep the fixture small; more
+        # importantly, a plain string entry ALSO exists on the same source.
         result = _handoffs_for_agent(agents[0], config)
         tool_names = sorted(t.name for t in result.tools)
-        assert tool_names == ["handoff_to_escalation", "handoff_to_worker_a"]
-        assert result.parallel_targets == ("worker_a",)
-        assert result.parallel_join == "join"
+        # Two cohort tools (worker_a, synth) + one peer tool (escalation).
+        assert tool_names == ["handoff_to_escalation", "handoff_to_synth", "handoff_to_worker_a"]
+        assert set(result.parallel_targets) == {"worker_a", "synth"}
+        assert result.parallel_join == "escalation"
 
-    def test_plain_deterministic_without_parallel_leaves_parallel_join_none(
-        self,
-    ) -> None:
+    def test_single_target_deterministic_unchanged(self) -> None:
         from dao_ai.orchestration.swarm import _handoffs_for_agent
 
         agents = [
-            AgentModel(name="source", model=LLMModel(name="test-model")),
-            AgentModel(name="target", model=LLMModel(name="test-model")),
+            AgentModel(name="source", model=LLMModel(name="m")),
+            AgentModel(name="target", model=LLMModel(name="m")),
         ]
         config = self._make_config(
-            agents, {"source": [{"agent": "target", "is_deterministic": True}]}
+            agents,
+            {"source": [{"agent": "target", "is_deterministic": True}]},
         )
 
         result = _handoffs_for_agent(agents[0], config)
@@ -280,32 +387,30 @@ class TestHandoffsForAgentParallel:
         assert result.parallel_targets == ()
         assert result.parallel_join is None
 
-    def test_parallel_self_reference_raises(self) -> None:
+    def test_cohort_with_agent_model_refs(self) -> None:
         from dao_ai.orchestration.swarm import _handoffs_for_agent
 
-        # Build the config bypassing the SwarmModel validator so we hit the
-        # per-agent runtime check inside _handoffs_for_agent.
-        agents = [
-            AgentModel(name="source", model=LLMModel(name="test-model")),
-            AgentModel(name="join", model=LLMModel(name="test-model")),
-        ]
-        # SwarmModel rejects the self-referencing cohort at model-validation
-        # time, so we only need to confirm the validator fires. The
-        # per-agent check in swarm.py is a defense-in-depth guard.
-        with pytest.raises(ValueError):
-            self._make_config(
-                agents,
-                {
-                    "source": [
-                        {"agent": "source", "is_parallel": True},
-                        {"agent": "join", "is_deterministic": True},
-                    ]
-                },
-            )
+        source = AgentModel(name="source", model=LLMModel(name="m"))
+        worker_a = AgentModel(name="worker_a", model=LLMModel(name="m"))
+        worker_b = AgentModel(name="worker_b", model=LLMModel(name="m"))
+        synth = AgentModel(name="synth", model=LLMModel(name="m"))
+
+        config = self._make_config(
+            [source, worker_a, worker_b, synth],
+            {
+                "source": [
+                    HandoffRouteModel(agents=[worker_a, worker_b], join=synth),
+                ]
+            },
+        )
+
+        result = _handoffs_for_agent(source, config)
+        assert result.parallel_targets == ("worker_a", "worker_b")
+        assert result.parallel_join == "synth"
 
 
 # =============================================================================
-# Swarm Graph Construction with Parallel Cohort
+# Swarm Graph Construction
 # =============================================================================
 
 
@@ -313,20 +418,16 @@ class TestHandoffsForAgentParallel:
 @patch("dao_ai.orchestration.swarm.create_agent_node")
 @patch("dao_ai.orchestration.swarm.create_store")
 @patch("dao_ai.orchestration.swarm.create_checkpointer")
-class TestSwarmGraphParallelWiring:
-    """The parent graph must have sibling->join edges and no source->join edge."""
+class TestSwarmGraphCohortWiring:
+    """The parent graph gets per-sibling tools on the source + sibling→join edges."""
 
-    def _build(
-        self,
-        mock_create_agent_node: Mock,
-    ):
+    def _build(self, mock_create_agent_node: Mock):
         mock_create_agent_node.return_value = MagicMock()
-
         agents = [
-            AgentModel(name="source", model=LLMModel(name="test-model")),
-            AgentModel(name="worker_a", model=LLMModel(name="test-model")),
-            AgentModel(name="worker_b", model=LLMModel(name="test-model")),
-            AgentModel(name="join", model=LLMModel(name="test-model")),
+            AgentModel(name="source", model=LLMModel(name="m")),
+            AgentModel(name="worker_a", model=LLMModel(name="m")),
+            AgentModel(name="worker_b", model=LLMModel(name="m")),
+            AgentModel(name="synth", model=LLMModel(name="m")),
         ]
         config = AppConfig(
             **{
@@ -339,9 +440,10 @@ class TestSwarmGraphParallelWiring:
                             "default_agent": "source",
                             "handoffs": {
                                 "source": [
-                                    {"agent": "worker_a", "is_parallel": True},
-                                    {"agent": "worker_b", "is_parallel": True},
-                                    {"agent": "join", "is_deterministic": True},
+                                    {
+                                        "agents": ["worker_a", "worker_b"],
+                                        "join": "synth",
+                                    }
                                 ]
                             },
                         }
@@ -349,11 +451,9 @@ class TestSwarmGraphParallelWiring:
                 }
             }
         )
-
         from dao_ai.orchestration.swarm import create_swarm_graph
 
-        compiled = create_swarm_graph(config)
-        return compiled, mock_create_agent_node
+        return create_swarm_graph(config), mock_create_agent_node
 
     def test_source_gets_parallel_handoff_tools(
         self,
@@ -365,63 +465,25 @@ class TestSwarmGraphParallelWiring:
         mock_store.return_value = None
         _, mock_create_agent_node = self._build(mock_create_agent_node)
 
-        # Find the source call by kwargs["agent"].name
         source_call = next(
-            c for c in mock_create_agent_node.call_args_list
+            c
+            for c in mock_create_agent_node.call_args_list
             if c.kwargs["agent"].name == "source"
         )
         tool_names = sorted(t.name for t in source_call.kwargs["additional_tools"])
         assert tool_names == ["handoff_to_worker_a", "handoff_to_worker_b"]
 
-    def test_parallel_siblings_have_no_extra_tools(
-        self,
-        mock_checkpointer: Mock,
-        mock_store: Mock,
-        mock_create_agent_node: Mock,
-    ) -> None:
-        mock_checkpointer.return_value = None
-        mock_store.return_value = None
-        _, mock_create_agent_node = self._build(mock_create_agent_node)
-
-        for name in ("worker_a", "worker_b"):
-            sibling_call = next(
-                c for c in mock_create_agent_node.call_args_list
-                if c.kwargs["agent"].name == name
-            )
-            # Siblings without their own handoffs default (per swarm) to
-            # peer-to-peer handoffs across all other agents. That's existing
-            # behavior; the parallel change should not disturb it. We only
-            # assert that the sibling wasn't accidentally given a handoff
-            # tool for the join agent's ROLE via the parallel wiring path.
-            _ = sibling_call.kwargs["additional_tools"]  # touch to ensure key exists
-
-    def test_join_agent_gets_no_handoff_tools_from_cohort(
-        self,
-        mock_checkpointer: Mock,
-        mock_store: Mock,
-        mock_create_agent_node: Mock,
-    ) -> None:
-        mock_checkpointer.return_value = None
-        mock_store.return_value = None
-        _, mock_create_agent_node = self._build(mock_create_agent_node)
-
-        join_call = next(
-            c for c in mock_create_agent_node.call_args_list
-            if c.kwargs["agent"].name == "join"
-        )
-        _ = join_call.kwargs["additional_tools"]  # exists; content is default behavior
-
 
 # =============================================================================
-# YAML Round-Trip
+# YAML round-trip
 # =============================================================================
 
 
 @pytest.mark.unit
 class TestParallelHandoffYAML:
-    """Loading a parallel-cohort config through AppConfig should preserve fields."""
+    """Loading a cohort config through ``AppConfig`` should preserve the shape."""
 
-    def test_load_parallel_cohort_from_dict(self) -> None:
+    def test_load_cohort_from_dict(self) -> None:
         config_dict = {
             "app": {
                 "name": "fan_out_app",
@@ -430,16 +492,17 @@ class TestParallelHandoffYAML:
                     {"name": "source", "model": {"name": "m"}},
                     {"name": "worker_a", "model": {"name": "m"}},
                     {"name": "worker_b", "model": {"name": "m"}},
-                    {"name": "join", "model": {"name": "m"}},
+                    {"name": "synth", "model": {"name": "m"}},
                 ],
                 "orchestration": {
                     "swarm": {
                         "default_agent": "source",
                         "handoffs": {
                             "source": [
-                                {"agent": "worker_a", "is_parallel": True},
-                                {"agent": "worker_b", "is_parallel": True},
-                                {"agent": "join", "is_deterministic": True},
+                                {
+                                    "agents": ["worker_a", "worker_b"],
+                                    "join": "synth",
+                                }
                             ]
                         },
                     }
@@ -448,10 +511,12 @@ class TestParallelHandoffYAML:
         }
         config = AppConfig(**config_dict)
         entries = config.app.orchestration.swarm.handoffs["source"]
-        assert isinstance(entries[0], HandoffRouteModel)
-        assert entries[0].is_parallel is True
-        assert entries[1].is_parallel is True
-        assert entries[2].is_deterministic is True
+        assert len(entries) == 1
+        entry = entries[0]
+        assert isinstance(entry, HandoffRouteModel)
+        assert entry.agents == ["worker_a", "worker_b"]
+        assert entry.join == "synth"
+        assert entry.agent is None
 
 
 if __name__ == "__main__":

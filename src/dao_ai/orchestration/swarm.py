@@ -77,22 +77,22 @@ class HandoffResult:
     parallel_join: str | None = None
 
 
-def _resolve_agent(
-    handoff_entry: AgentModel | str | HandoffRouteModel,
-) -> tuple[AgentModel | str, bool, bool]:
-    """
-    Normalize a handoff entry into ``(agent_ref, is_deterministic, is_parallel)``.
+def _lookup_agent(
+    ref: AgentModel | str, app_agents: Sequence[AgentModel]
+) -> AgentModel | None:
+    """Resolve a handoff target reference to a registered ``AgentModel``.
 
-    Args:
-        handoff_entry: A handoff target — may be a plain agent name,
-            an ``AgentModel``, or a ``HandoffRouteModel``.
+    Handoff entries may reference agents by name (str) or embed the model
+    directly. String references are looked up against ``app.agents`` (not
+    ``config.find_agents``) so the swarm only routes to agents the user
+    explicitly registered on the app.
 
-    Returns:
-        A tuple of (agent reference, is_deterministic flag, is_parallel flag).
+    Returns ``None`` when a name doesn't match any registered agent —
+    caller logs a warning and skips.
     """
-    if isinstance(handoff_entry, HandoffRouteModel):
-        return handoff_entry.agent, handoff_entry.is_deterministic, handoff_entry.is_parallel
-    return handoff_entry, False, False
+    if isinstance(ref, AgentModel):
+        return ref
+    return next((a for a in app_agents if a.name == ref), None)
 
 
 def _handoffs_for_agent(
@@ -103,28 +103,36 @@ def _handoffs_for_agent(
     Resolve handoff configuration for an agent.
 
     Processes the swarm ``handoffs`` mapping and produces:
-    - A list of agentic handoff **tools** (LLM-invoked via ``create_handoff_tool``).
-    - An optional **deterministic target** agent name that the source agent
-      always routes to after completing its turn.
 
-    Handoff tools route to the parent graph since agents are subgraphs
-    wrapped in handlers.
+    - A list of agentic handoff **tools** (LLM-invoked via
+      ``create_handoff_tool``). Cohort entries (``agents`` + ``join``)
+      produce one *parallel* handoff tool per sibling — they behave the
+      same at the LLM surface as regular agentic handoffs, but return a
+      state update instead of a Command so the source's ToolNode can run
+      multiple in one turn without short-circuiting.
+    - An optional **deterministic target** agent name for pipeline-style
+      handoffs.
+    - The parallel fan-out cohort's sibling names and shared join, when
+      present.
 
     Args:
         agent: The agent to resolve handoff configuration for.
         config: The application configuration.
 
     Returns:
-        A ``HandoffResult`` containing agentic tools and an optional
-        deterministic target.
+        A ``HandoffResult`` carrying tools + deterministic target +
+        parallel cohort.
 
     Raises:
-        ValueError: If more than one deterministic handoff is configured for
-            the same agent, or if a deterministic handoff references itself.
+        ValueError: If two entries on the same source both set
+            ``is_deterministic`` (only one deterministic edge per source
+            is meaningful), or if the source's own agent name appears as
+            a handoff target with a deterministic flag.
     """
     handoff_tools: list[BaseTool] = []
     deterministic_target: str | None = None
     parallel_targets: list[str] = []
+    parallel_join: str | None = None
 
     handoffs: dict[str, Sequence[AgentModel | str | HandoffRouteModel] | None] = (
         config.app.orchestration.swarm.handoffs or {}
@@ -141,37 +149,113 @@ def _handoffs_for_agent(
         agent_handoffs = ()
 
     for handoff_entry in agent_handoffs:
-        agent_ref: AgentModel | str
-        is_deterministic: bool
-        is_parallel: bool
-        agent_ref, is_deterministic, is_parallel = _resolve_agent(handoff_entry)
-
-        # Resolve string references to AgentModel using the app-level agent list.
-        # We search config.app.agents (not config.find_agents) because the swarm
-        # should only reference agents registered in the app's agent list.
-        handoff_to_agent: AgentModel | None
-        if isinstance(agent_ref, str):
-            handoff_to_agent = next(
-                (a for a in config.app.agents if a.name == agent_ref),
-                None,
+        # Cohort entry (``HandoffRouteModel`` with ``agents`` + ``join``).
+        if (
+            isinstance(handoff_entry, HandoffRouteModel)
+            and handoff_entry.agents is not None
+        ):
+            join_agent: AgentModel | None = _lookup_agent(
+                handoff_entry.join, config.app.agents
             )
-        else:
-            handoff_to_agent = agent_ref
+            if join_agent is None:
+                join_name_repr: str = (
+                    handoff_entry.join.name
+                    if isinstance(handoff_entry.join, AgentModel)
+                    else handoff_entry.join
+                )
+                logger.warning(
+                    "Cohort join agent not found in configuration; skipping cohort",
+                    source=agent.name,
+                    join=join_name_repr,
+                )
+                continue
+            if join_agent.name == agent.name:
+                # This is also caught by SwarmModel.validate_parallel_cohort_shape;
+                # keep as a defense-in-depth guard.
+                raise ValueError(
+                    f"Agent '{agent.name}' cannot be the ``join`` of its own cohort."
+                )
+            # Cohorts share one join per source. Emitting a second here
+            # (from a second cohort on the same source) would be a
+            # SwarmModel validator failure; keep a runtime guard too.
+            if parallel_join is not None and parallel_join != join_agent.name:
+                raise ValueError(
+                    f"Agent '{agent.name}' has multiple parallel cohorts with "
+                    f"different joins ('{parallel_join}' and '{join_agent.name}'). "
+                    "Only one cohort per source is supported."
+                )
+            parallel_join = join_agent.name
 
-        if handoff_to_agent is None:
-            logger.warning("Handoff agent not found in configuration", agent=agent.name)
+            for sibling_ref in handoff_entry.agents:
+                sibling_agent: AgentModel | None = _lookup_agent(
+                    sibling_ref, config.app.agents
+                )
+                if sibling_agent is None:
+                    sibling_name_repr: str = (
+                        sibling_ref.name
+                        if isinstance(sibling_ref, AgentModel)
+                        else sibling_ref
+                    )
+                    logger.warning(
+                        "Cohort sibling not found in configuration; skipping",
+                        source=agent.name,
+                        sibling=sibling_name_repr,
+                    )
+                    continue
+                if sibling_agent.name == agent.name:
+                    raise ValueError(
+                        f"Agent '{agent.name}' cannot appear in its own cohort "
+                        "(``agents``). A source can't fan out to itself."
+                    )
+                parallel_targets.append(sibling_agent.name)
+                logger.info(
+                    "Registered parallel fan-out sibling",
+                    from_agent=agent.name,
+                    to_agent=sibling_agent.name,
+                    requires=sibling_agent.requires,
+                )
+                sibling_description: str = get_handoff_description(sibling_agent)
+                handoff_tools.append(
+                    create_handoff_tool(
+                        target_agent_name=sibling_agent.name,
+                        description=(
+                            f"{sibling_description} "
+                            "You may call this alongside other parallel workers in a "
+                            "single turn — they will run concurrently and results are "
+                            "merged before the join agent responds."
+                        ),
+                        requires=list(sibling_agent.requires),
+                        parallel=True,
+                    )
+                )
             continue
 
-        # Skip self-referencing handoffs
+        # Single-target entry.
+        target_ref: AgentModel | str
+        is_deterministic: bool
+        if isinstance(handoff_entry, HandoffRouteModel):
+            target_ref = handoff_entry.agent
+            is_deterministic = handoff_entry.is_deterministic
+        else:
+            target_ref = handoff_entry
+            is_deterministic = False
+
+        handoff_to_agent: AgentModel | None = _lookup_agent(
+            target_ref, config.app.agents
+        )
+        if handoff_to_agent is None:
+            logger.warning(
+                "Handoff agent not found in configuration", agent=agent.name
+            )
+            continue
+
+        # Skip self-referencing handoffs (deterministic self-ref is a
+        # hard error; agentic self-ref is silently dropped for
+        # historical peer-to-peer swarm behavior).
         if agent.name == handoff_to_agent.name:
             if is_deterministic:
                 raise ValueError(
                     f"Agent '{agent.name}' cannot have a deterministic "
-                    f"handoff to itself."
-                )
-            if is_parallel:
-                raise ValueError(
-                    f"Agent '{agent.name}' cannot have an is_parallel "
                     f"handoff to itself."
                 )
             continue
@@ -190,10 +274,9 @@ def _handoffs_for_agent(
                 from_agent=agent.name,
                 to_agent=handoff_to_agent.name,
             )
-        elif is_parallel:
-            parallel_targets.append(handoff_to_agent.name)
-            logger.info(
-                "Registered parallel fan-out sibling",
+        else:
+            logger.debug(
+                "Creating handoff tool",
                 from_agent=agent.name,
                 to_agent=handoff_to_agent.name,
                 requires=handoff_to_agent.requires,
@@ -202,37 +285,10 @@ def _handoffs_for_agent(
             handoff_tools.append(
                 create_handoff_tool(
                     target_agent_name=handoff_to_agent.name,
-                    description=(
-                        f"{handoff_description} "
-                        "You may call this alongside other parallel workers in a "
-                        "single turn — they will run concurrently and results are "
-                        "merged before the join agent responds."
-                    ),
-                    requires=list(handoff_to_agent.requires),
-                    parallel=True,
-                )
-            )
-        else:
-            logger.debug(
-                "Creating handoff tool",
-                from_agent=agent.name,
-                to_agent=handoff_to_agent.name,
-                requires=handoff_to_agent.requires,
-            )
-            handoff_description = get_handoff_description(handoff_to_agent)
-            handoff_tools.append(
-                create_handoff_tool(
-                    target_agent_name=handoff_to_agent.name,
                     description=handoff_description,
                     requires=list(handoff_to_agent.requires),
                 )
             )
-
-    # When a parallel cohort is present, the deterministic target is the
-    # shared join — it is reached *through* the siblings, not as a direct
-    # edge from the source. Callers use ``parallel_join`` for the sibling
-    # -> join wiring and skip the source -> deterministic_target edge.
-    parallel_join: str | None = deterministic_target if parallel_targets else None
 
     return HandoffResult(
         tools=tuple(handoff_tools),

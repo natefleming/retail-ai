@@ -485,13 +485,12 @@ See [Lab 9 — Multi-agent Orchestration](https://github.com/natefleming/dao-ai-
 
 ### How do I orchestrate a parallel fan-out pattern?
 
-Tag sibling handoffs with `is_parallel: true` and add exactly one
-`is_deterministic: true` entry on the same source — that's the shared
-**join** agent the siblings converge on. When the source's LLM invokes
-multiple parallel handoff tools in a single turn, LangGraph runs the
-targeted siblings in the **same superstep** (true concurrent execution) and
-runs the join **exactly once** after all fired siblings complete. The end
-user sees one final response from the join.
+Declare a cohort as one handoff entry with `agents:` (the siblings) and
+`join:` (the shared reducer). When the source's LLM invokes multiple
+parallel handoff tools in a single turn, LangGraph runs the targeted
+siblings in the **same superstep** (true concurrent execution) and runs
+the join **exactly once** after all fired siblings complete. The end user
+sees one final response from the join.
 
 ```yaml
 orchestration:
@@ -499,18 +498,25 @@ orchestration:
     default_agent: triage_agent
     handoffs:
       triage_agent:
-      - agent: pricing_agent
-        is_parallel: true
-      - agent: inventory_agent
-        is_parallel: true
-      - agent: policy_agent
-        is_parallel: true
-      - agent: synthesizer_agent      # ↓ shared join for the cohort
-        is_deterministic: true
+      - agents: [pricing_agent, inventory_agent, policy_agent]
+        join: synthesizer_agent      # shared join for the cohort
       pricing_agent: []
       inventory_agent: []
       policy_agent: []
       synthesizer_agent: []
+```
+
+You can mix a cohort with regular single-target handoffs on the same
+source:
+
+```yaml
+handoffs:
+  triage_agent:
+  - agents: [pricing_agent, inventory_agent, policy_agent]
+    join: synthesizer_agent
+  - escalation_agent                 # regular agentic peer
+  - agent: emergency_agent
+    is_deterministic: true           # single-target deterministic peer
 ```
 
 **When to reach for it:**
@@ -519,12 +525,15 @@ orchestration:
 - Judge / critic patterns (N candidates → one selector).
 
 **Rules dao-ai enforces at load time:**
-- Every parallel cohort MUST have exactly one `is_deterministic` join
-  entry on the same source. Missing or duplicate join = load-time error.
-- `is_parallel` and `is_deterministic` are mutually exclusive on the same
-  entry.
-- A parallel sibling cannot be the source of its own parallel cohort
-  (nested fan-out is out of scope; the outer join would become unreachable).
+- A cohort entry must set both `agents` (list of ≥ 2 distinct siblings)
+  and `join`. `agent` (singular) and `agents` are mutually exclusive on
+  one entry.
+- `is_deterministic` is not meaningful on a cohort entry — the join is
+  always reached deterministically after fan-in.
+- The join agent must not also appear in `agents` (no self-edge).
+- A sibling cannot belong to two cohorts with different joins.
+- A sibling cannot itself be the source of another cohort (nested
+  fan-out is out of scope; the outer join would become unreachable).
 - Cycles containing any parallel or deterministic edge are rejected up
   front so you don't burn compute on a runaway loop.
 

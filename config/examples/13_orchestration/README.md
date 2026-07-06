@@ -376,9 +376,9 @@ sequenceDiagram
 ## 🌊 Parallel Fan-Out Pattern
 
 A source agent invokes multiple sibling agents concurrently in a single LLM
-turn, and all siblings converge on a shared deterministic **join** agent that
-synthesizes their outputs into one response. Combines an `is_parallel` flag
-on the sibling handoffs with an `is_deterministic` flag on the shared join.
+turn, and all siblings converge on a shared **join** agent that synthesizes
+their outputs into one response. A cohort is declared as a single handoff
+entry with `agents:` (the siblings) and `join:` (the shared reducer).
 
 ```mermaid
 %%{init: {'theme': 'base'}}%%
@@ -394,9 +394,9 @@ flowchart LR
         T -->|"parallel"| P
         T -->|"parallel"| I
         T -->|"parallel"| Y
-        P -->|"deterministic"| S
-        I -->|"deterministic"| S
-        Y -->|"deterministic"| S
+        P -->|"fan-in"| S
+        I -->|"fan-in"| S
+        Y -->|"fan-in"| S
     end
 
     style FanOut fill:#f3e5f5,stroke:#6a1b9a
@@ -410,23 +410,29 @@ orchestration:
     default_agent: triage_agent
     handoffs:
       triage_agent:
-      - agent: pricing_agent
-        is_parallel: true
-      - agent: inventory_agent
-        is_parallel: true
-      - agent: policy_agent
-        is_parallel: true
-      - agent: synthesizer_agent
-        is_deterministic: true       # shared join for the cohort
+      - agents: [pricing_agent, inventory_agent, policy_agent]
+        join: synthesizer_agent      # shared join for the cohort
       pricing_agent: []
       inventory_agent: []
       policy_agent: []
       synthesizer_agent: []
 ```
 
+You can also mix a cohort with regular single-target handoffs on the same source:
+
+```yaml
+handoffs:
+  triage_agent:
+  - agents: [pricing_agent, inventory_agent, policy_agent]
+    join: synthesizer_agent
+  - escalation_agent                 # regular agentic peer
+  - agent: emergency_agent
+    is_deterministic: true           # single-target deterministic peer
+```
+
 ### How it works
 
-- Each `is_parallel` entry produces a per-sibling handoff tool
+- The cohort entry produces one per-sibling parallel handoff tool
   (`handoff_to_pricing_agent`, etc.). The source LLM invokes multiple of
   these in a single turn (Claude & GPT support parallel tool calls
   natively).
@@ -438,12 +444,15 @@ orchestration:
 
 ### Configuration rules (validated at load time)
 
-- Every parallel cohort MUST have exactly one `is_deterministic` join
-  entry on the same source.
-- `is_parallel` and `is_deterministic` are mutually exclusive on the same
-  entry.
-- Parallel siblings cannot be the source of their own parallel cohort
-  (nested fan-out is out of scope).
+- A cohort entry must set both `agents` (list of ≥ 2 distinct siblings)
+  and `join`. `agent` (singular) and `agents` are mutually exclusive on
+  the same entry.
+- `is_deterministic` is not meaningful on a cohort entry — the join is
+  always reached deterministically after fan-in.
+- The join must not also appear in `agents` (no self-edge).
+- A sibling cannot belong to two cohorts with different joins.
+- A sibling cannot itself be the source of another cohort (nested fan-out
+  is out of scope).
 - Cycles containing any parallel or deterministic edge are rejected.
 
 ### Sequence Diagram

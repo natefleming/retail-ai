@@ -125,10 +125,10 @@ def _make_fanout_config() -> AppConfig:
     ]
     handoffs: dict = {
         "source": [
-            {"agent": "worker_a", "is_parallel": True},
-            {"agent": "worker_b", "is_parallel": True},
-            {"agent": "worker_c", "is_parallel": True},
-            {"agent": "join", "is_deterministic": True},
+            {
+                "agents": ["worker_a", "worker_b", "worker_c"],
+                "join": "join",
+            }
         ],
         "worker_a": [],
         "worker_b": [],

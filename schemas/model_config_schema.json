@@ -5324,7 +5324,7 @@
     },
     "HandoffRouteModel": {
       "additionalProperties": false,
-      "description": "Configuration model for a handoff route in a swarm.\n\nA handoff route specifies a target agent and one of three transfer modes:\n\n- **Agentic** (default): a handoff tool is created for the target agent and\n  the LLM decides when to invoke it.\n- **Deterministic** (``is_deterministic=True``): control always transfers to\n  this agent after the source agent completes its turn, without LLM\n  tool-call routing.\n- **Parallel fan-out** (``is_parallel=True``): a handoff tool is created,\n  but the target is a member of a fan-out cohort. When the LLM invokes\n  multiple parallel handoff tools in a single turn, the targeted siblings\n  run concurrently in the same LangGraph superstep and converge on the\n  cohort's shared deterministic join agent (declared as another entry on\n  the same source with ``is_deterministic=True``).\n\n``is_deterministic`` and ``is_parallel`` are mutually exclusive on the same\nentry \u2014 a single handoff can be at most one of the three modes.\n\nExample YAML \u2014 mixed modes on one source::\n\n    handoffs:\n      triage_agent:\n        - agent: pricing_agent\n          is_parallel: true\n        - agent: inventory_agent\n          is_parallel: true\n        - agent: policy_agent\n          is_parallel: true\n        - agent: synthesizer_agent\n          is_deterministic: true   # shared join for the parallel cohort\n        - escalation_agent          # agentic (LLM-chosen) sequential handoff",
+      "description": "Configuration model for a handoff route in a swarm.\n\nA single entry expresses either a **single-target** handoff or a\n**parallel fan-out cohort**. These two shapes are mutually exclusive on\nthe same entry.\n\nSingle-target handoff \u2014 set ``agent`` and optionally ``is_deterministic``:\n\n- **Agentic** (default): a handoff tool is created for the target agent\n  and the LLM decides when to invoke it via a tool call.\n- **Deterministic** (``is_deterministic=True``): control always transfers\n  to this agent after the source agent completes its turn, without LLM\n  tool-call routing.\n\nParallel fan-out cohort \u2014 set ``agents`` (list) and ``join``:\n\n- A per-sibling parallel handoff tool is created for each entry in\n  ``agents``. When the LLM invokes multiple of these tools in a single\n  turn, LangGraph schedules the targeted siblings in the same superstep\n  (true concurrent execution). All siblings converge on the shared\n  ``join`` agent via a static edge in the parent graph; superstep\n  semantics run the join exactly once after every fired sibling\n  completes.\n\nExample YAML \u2014 mixed shapes on one source::\n\n    handoffs:\n      triage_agent:\n        - agents: [pricing_agent, inventory_agent, policy_agent]\n          join: synthesizer_agent            # shared join for the cohort\n        - escalation_agent                    # agentic single-target\n        - agent: emergency_agent\n          is_deterministic: true              # deterministic single-target\n\nValidation (enforced at config load time):\n\n- ``agent`` and ``agents`` are mutually exclusive; exactly one must be set.\n- ``agents`` requires ``join``; ``join`` requires ``agents``.\n- ``is_deterministic`` is only valid on single-target entries.",
       "properties": {
         "agent": {
           "anyOf": [
@@ -5333,27 +5333,61 @@
             },
             {
               "type": "string"
+            },
+            {
+              "type": "null"
             }
           ],
-          "description": "The target agent to hand off to, specified as an AgentModel or agent name string.",
+          "default": null,
+          "description": "Single-target handoff. Set this OR ``agents`` (mutually exclusive).",
           "title": "Agent"
         },
         "is_deterministic": {
           "default": false,
-          "description": "When true, the handoff is deterministic: control always transfers to this agent after the source agent completes its turn, without LLM tool-call routing. When false (default), a handoff tool is created and the LLM decides when to invoke it. Mutually exclusive with is_parallel.",
+          "description": "Single-target only. When true, control always transfers to ``agent`` after the source completes its turn, without LLM tool-call routing. When false (default), a handoff tool is created and the LLM decides when to invoke it. Ignored on cohort entries (``agents``).",
           "title": "Is Deterministic",
           "type": "boolean"
         },
-        "is_parallel": {
-          "default": false,
-          "description": "When true, this target is a sibling in a parallel fan-out cohort. A handoff tool is still created (per-sibling), but the intent is that the LLM invokes this tool alongside other parallel siblings in a single turn so they run concurrently. All is_parallel siblings from the same source must share exactly one is_deterministic handoff on the same source \u2014 that agent is the cohort's join target. Mutually exclusive with is_deterministic.",
-          "title": "Is Parallel",
-          "type": "boolean"
+        "agents": {
+          "anyOf": [
+            {
+              "items": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/AgentModel"
+                  },
+                  {
+                    "type": "string"
+                  }
+                ]
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Parallel fan-out cohort \u2014 the sibling agents the source may invoke concurrently in a single LLM turn. Requires ``join``. Mutually exclusive with ``agent``.",
+          "title": "Agents"
+        },
+        "join": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/AgentModel"
+            },
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Shared join agent for a parallel fan-out cohort. All fired siblings in ``agents`` converge here via a static edge; the join runs exactly once after all siblings complete. Required when ``agents`` is set; must be omitted otherwise.",
+          "title": "Join"
         }
       },
-      "required": [
-        "agent"
-      ],
       "title": "HandoffRouteModel",
       "type": "object"
     },
