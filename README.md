@@ -335,37 +335,7 @@ DAO provides powerful capabilities for building production-ready AI agents:
 
 ## Architecture Overview
 
-```mermaid
-graph TB
-    subgraph yaml["YAML Configuration"]
-        direction LR
-        schemas[Schemas] ~~~ resources[Resources] ~~~ tools[Tools] ~~~ agents[Agents] ~~~ orchestration[Orchestration]
-    end
-    
-    subgraph dao["DAO Framework (Python)"]
-        direction LR
-        config[Config<br/>Loader] ~~~ graph_builder[Graph<br/>Builder] ~~~ nodes[Nodes<br/>Factory] ~~~ tool_factory[Tool<br/>Factory]
-    end
-    
-    subgraph langgraph["LangGraph Runtime"]
-        direction LR
-        msg_hook[Message<br/>Hook] --> supervisor[Supervisor/<br/>Swarm/<br/>Deep Agent] --> specialized[Specialized<br/>Agents]
-    end
-    
-    subgraph databricks["Databricks Platform"]
-        direction LR
-        model_serving[Model<br/>Serving] ~~~ unity_catalog[Unity<br/>Catalog] ~~~ vector_search[Vector<br/>Search] ~~~ genie_spaces[Genie<br/>Spaces] ~~~ mlflow[MLflow]
-    end
-    
-    yaml ==> dao
-    dao ==> langgraph
-    langgraph ==> databricks
-    
-    style yaml fill:#1B5162,stroke:#618794,stroke-width:3px,color:#fff
-    style dao fill:#FFAB00,stroke:#7D5319,stroke-width:3px,color:#1B3139
-    style langgraph fill:#618794,stroke:#143D4A,stroke-width:3px,color:#fff
-    style databricks fill:#00875C,stroke:#095A35,stroke-width:3px,color:#fff
-```
+![DAO's three-layer architecture: YAML config compiles into the DAO framework, which builds a LangGraph runtime that runs on the Databricks platform](docs/images/dao-architecture-layers.png)
 
 👉 **Learn more:** [Architecture Documentation](docs/architecture.md)
 

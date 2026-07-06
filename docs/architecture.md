@@ -17,117 +17,13 @@ Your deployed agent runs on Databricks, accessing Unity Catalog data, calling AI
 
 For developers and architects, here's the detailed view:
 
-```mermaid
-graph TB
-    subgraph yaml["YAML Configuration"]
-        direction LR
-        schemas[Schemas] ~~~ resources[Resources] ~~~ tools[Tools] ~~~ agents[Agents] ~~~ orchestration[Orchestration]
-    end
-    
-    subgraph dao["DAO Framework (Python)"]
-        direction LR
-        config[Config<br/>Loader] ~~~ graph_builder[Graph<br/>Builder] ~~~ nodes[Nodes<br/>Factory] ~~~ tool_factory[Tool<br/>Factory]
-    end
-    
-    subgraph langgraph["LangGraph Runtime"]
-        direction LR
-        msg_hook[Message<br/>Hook] --> supervisor[Supervisor/<br/>Swarm] --> specialized[Specialized<br/>Agents]
-    end
-    
-    subgraph databricks["Databricks Platform"]
-        direction LR
-        model_serving[Model<br/>Serving] ~~~ unity_catalog[Unity<br/>Catalog] ~~~ vector_search[Vector<br/>Search] ~~~ genie_spaces[Genie<br/>Spaces] ~~~ mlflow[MLflow]
-    end
-    
-    yaml ==> dao
-    dao ==> langgraph
-    langgraph ==> databricks
-    
-    style yaml fill:#1B5162,stroke:#618794,stroke-width:3px,color:#fff
-    style dao fill:#FFAB00,stroke:#7D5319,stroke-width:3px,color:#1B3139
-    style langgraph fill:#618794,stroke:#143D4A,stroke-width:3px,color:#fff
-    style databricks fill:#00875C,stroke:#095A35,stroke-width:3px,color:#fff
-```
+![DAO's three-layer architecture: YAML config compiles into the DAO framework, which builds a LangGraph runtime that runs on the Databricks platform](images/dao-architecture-layers.png)
 
 ## System-Level Data Flow
 
 This diagram shows how a deployed DAO agent integrates with Databricks services and external systems:
 
-```mermaid
-graph TB
-    User([User])
-    
-    subgraph model_serving["Databricks Model Serving"]
-        subgraph agent_runtime["DAO Agent Runtime"]
-            orchestration[Agent Orchestration Layer<br/>Supervisor / Swarm with multiple agents]
-            
-            subgraph tools["Agent Tools"]
-                genie_tool[Genie Tool]
-                dbsql_tool[DBSQL Tool]
-                agent_endpoint_tool[Agent Endpoint Tool]
-                mcp_tool[MCP Tool]
-            end
-            
-            orchestration -->|Tool Call| genie_tool
-            orchestration -->|Tool Call| dbsql_tool
-            orchestration -->|Tool Call| agent_endpoint_tool
-            orchestration -->|Tool Call| mcp_tool
-        end
-    end
-    
-    subgraph external_services["External Services"]
-        genie_service[Genie Service]
-        another_agent[Another Agent Endpoint]
-        mcp_server[MCP Server<br/>GitHub, Slack, Custom]
-        
-        dbsql_warehouse[Databricks SQL / Warehouse]
-        unity_catalog[Unity Catalog<br/>• Tables & Views<br/>• Functions<br/>• Permissions]
-        
-        dbsql_warehouse --> unity_catalog
-    end
-    
-    subgraph persistence["State Persistence Layer"]
-        subgraph lakebase["Lakebase (Postgres)"]
-            checkpoints[Conversation Checkpoints<br/>• Thread state<br/>• Message history<br/>• Agent context]
-            preferences[User Preferences Store<br/>• User settings<br/>• Semantic search<br/>• Key-value storage]
-        end
-    end
-    
-    User -->|HTTP Request| orchestration
-    
-    genie_tool --> genie_service
-    genie_service -->|NL → SQL| dbsql_warehouse
-    
-    dbsql_tool -->|Direct SQL Query| dbsql_warehouse
-    
-    agent_endpoint_tool --> another_agent
-    another_agent --> dbsql_warehouse
-    
-    mcp_tool --> mcp_server
-    
-    orchestration -.->|Persists State| lakebase
-    lakebase -.->|Unity Catalog<br/>governed storage| orchestration
-    
-    style User fill:#618794,stroke:#1B5162,stroke-width:3px,color:#fff
-    style model_serving fill:#00875C,stroke:#095A35,stroke-width:3px,color:#fff
-    style agent_runtime fill:#00A972,stroke:#095A35,stroke-width:3px,color:#fff
-    style orchestration fill:#42BA91,stroke:#00875C,stroke-width:2px,color:#1B3139
-    style tools fill:#70C4AB,stroke:#00A972,stroke-width:2px,color:#1B3139
-    style genie_tool fill:#9FD6C4,stroke:#42BA91,stroke-width:1px,color:#1B3139
-    style dbsql_tool fill:#9FD6C4,stroke:#42BA91,stroke-width:1px,color:#1B3139
-    style agent_endpoint_tool fill:#9FD6C4,stroke:#42BA91,stroke-width:1px,color:#1B3139
-    style mcp_tool fill:#9FD6C4,stroke:#42BA91,stroke-width:1px,color:#1B3139
-    style external_services fill:#BD2B26,stroke:#801C17,stroke-width:3px,color:#fff
-    style genie_service fill:#FCBA33,stroke:#7D5319,stroke-width:2px,color:#1B3139
-    style another_agent fill:#FCBA33,stroke:#7D5319,stroke-width:2px,color:#1B3139
-    style mcp_server fill:#FCBA33,stroke:#7D5319,stroke-width:2px,color:#1B3139
-    style dbsql_warehouse fill:#FCBA33,stroke:#7D5319,stroke-width:2px,color:#1B3139
-    style unity_catalog fill:#FFDB96,stroke:#BD802B,stroke-width:2px,color:#1B3139
-    style persistence fill:#1B5162,stroke:#143D4A,stroke-width:3px,color:#fff
-    style lakebase fill:#143D4A,stroke:#1B3139,stroke-width:2px,color:#fff
-    style checkpoints fill:#618794,stroke:#143D4A,stroke-width:2px,color:#fff
-    style preferences fill:#618794,stroke:#143D4A,stroke-width:2px,color:#fff
-```
+![System-level data flow: how a deployed DAO agent runs on Databricks Model Serving, calls external services via typed tools, and persists state to Lakebase](images/dao-system-dataflow.png)
 
 ### Data Flow Explanation
 
@@ -314,6 +210,55 @@ orchestration:
 The check uses the agent name tagged on each `AIMessage` (`message.name`), iterating `state["messages"]` to determine which agents have run. No new state schema; no graph topology change.
 
 > Currently swarm-only. The same field will apply to supervisor routing in a future release.
+
+### 3. Parallel Fan-Out Pattern
+
+**Best for:** Independent enrichment, multi-source research, and judge/critic patterns — anywhere one request should trigger several specialists concurrently, then a single synthesized answer.
+
+A **cohort** is one handoff entry where the source agent lists multiple sibling agents under `agents:` and a shared reducer under `join:`. When the source's LLM invokes several parallel handoff tools in a single turn, LangGraph runs the targeted siblings in the **same superstep** — true concurrent execution — and runs the join **exactly once** after all fired siblings complete. The end user sees one final response from the join.
+
+**Example use case:** Product Q&A that needs pricing, stock, and policy info together
+
+1. User: *"What does the DeWalt drill cost, do you have it, and can I return it if I don't like it?"*
+2. **Triage agent** decides to consult pricing, inventory, and policy — invokes all three handoffs in a single LLM turn
+3. **Pricing / Inventory / Policy agents** run **concurrently** in one superstep
+4. Their outputs are appended to `messages` via the `add_messages` reducer
+5. **Synthesizer (join)** runs once, produces the final unified answer for the user
+
+**Configuration:**
+
+```yaml
+orchestration:
+  swarm:
+    default_agent: *triage
+    handoffs:
+      triage:
+      - agents:                        # cohort: fan-out siblings
+        - pricing_agent
+        - inventory_agent
+        - policy_agent
+        join: synthesizer_agent        # shared join reducer
+      pricing_agent: []                # terminal — sibling
+      inventory_agent: []              # terminal — sibling
+      policy_agent: []                 # terminal — sibling
+      synthesizer_agent: []            # terminal — final answer
+```
+
+You can mix a cohort with regular single-target handoffs on the same source (agentic peer, deterministic peer, and cohort in one `handoffs` entry).
+
+**Rules dao-ai enforces at load time:**
+- A cohort entry must set both `agents` (≥ 2 distinct siblings) and `join`. `agent` (singular) and `agents` are mutually exclusive on one entry.
+- `is_deterministic` is not meaningful on a cohort entry — the join is always reached deterministically after fan-in.
+- The join must not also appear in `agents`.
+- A sibling cannot belong to two cohorts with different joins.
+- Nested fan-out (a sibling being the source of another cohort) is out of scope.
+- Cycles containing any parallel or deterministic edge are rejected.
+
+**Prompt tip:** the LLM decides which siblings to invoke, so tell the source agent explicitly to "call ALL parallel handoff tools in a single turn" when that's the intent. If the LLM invokes a subset, only those run before the join. If it invokes zero, the source terminates and the join does not run.
+
+![Parallel fan-out orchestration pattern: a source agent fires multiple handoff tools in a single LLM turn; LangGraph runs the siblings concurrently in one superstep and the join reducer runs exactly once](images/parallel-fan-out-pattern.png)
+
+See [`config/examples/13_orchestration/parallel_fan_out_pattern.yaml`](../config/examples/13_orchestration/parallel_fan_out_pattern.yaml) for a complete deployable example.
 
 ---
 

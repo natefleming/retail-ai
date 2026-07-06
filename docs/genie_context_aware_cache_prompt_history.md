@@ -47,32 +47,7 @@ User: "What's the total for that?"
 
 ### Component Interaction Diagram
 
-```mermaid
-sequenceDiagram
-    participant Client
-    participant ContextAwareCache
-    participant PromptHistory as genie_prompt_history
-    participant CacheTable as genie_context_aware_cache
-    participant Genie
-
-    Client->>ContextAwareCache: ask_question(question, conv_id)
-    ContextAwareCache->>PromptHistory: 1. Get PREVIOUS prompts
-    PromptHistory-->>ContextAwareCache: Recent prompts
-    ContextAwareCache->>ContextAwareCache: 2. Build embeddings with context
-    ContextAwareCache->>PromptHistory: 3. Store CURRENT prompt
-    Note over ContextAwareCache,PromptHistory: cache_hit=false initially
-    ContextAwareCache->>CacheTable: 4. Search for similar entry
-    alt Cache Hit
-        CacheTable-->>ContextAwareCache: Cached SQL + message_id + entry_id
-        ContextAwareCache->>PromptHistory: 5. Update cache_hit=true, cache_entry_id
-        ContextAwareCache-->>Client: Cached result (incl. message_id, cache_entry_id)
-    else Cache Miss
-        ContextAwareCache->>Genie: Delegate question
-        Genie-->>ContextAwareCache: Fresh SQL + message_id
-        ContextAwareCache->>CacheTable: Store new entry (incl. message_id)
-        ContextAwareCache-->>Client: Fresh result (incl. message_id)
-    end
-```
+![Context-aware cache lookup flow: 4-step pipeline that reads prompt history, builds dual embeddings, stores the current prompt, and vector-searches for a similar cached SQL entry with hit and miss branches](images/genie-cache-lookup-flow.png)
 
 ### Two Separate Tables
 
@@ -133,46 +108,7 @@ CREATE TABLE genie_context_aware_cache (
 
 ## Data Flow
 
-```mermaid
-flowchart TB
-    START[User Prompt:<br/>Show by region]
-    
-    subgraph DB_BEFORE["genie_prompt_history (Before)"]
-        P1[1. What are total sales?]
-        P2[2. Filter by Q1]
-    end
-    
-    START --> STEP1
-    
-    STEP1["Step 1: SELECT last 2 prompts<br/>(BEFORE storing current)"]
-    STEP1 --> CONTEXT[Context:<br/>Previous: What are total sales?<br/>Previous: Filter by Q1]
-    
-    CONTEXT --> STEP2[Step 2: Generate embeddings<br/>question = current<br/>context = previous only]
-    
-    STEP2 --> STEP3[Step 3: INSERT current prompt<br/>Show by region<br/>cache_hit=false]
-    
-    subgraph DB_AFTER["genie_prompt_history (After)"]
-        P1A[1. What are total sales?]
-        P2A[2. Filter by Q1]
-        P3A[3. Show by region ← NEW]
-    end
-    
-    STEP3 --> DB_AFTER
-    
-    DB_AFTER --> STEP4[Step 4: Search context-aware cache<br/>using dual embeddings]
-    
-    STEP4 --> DECIDE{Cache hit?}
-    
-    DECIDE -->|Yes| HIT[Update prompt:<br/>cache_hit=true]
-    DECIDE -->|No| MISS[Store SQL in<br/>context-aware cache]
-    
-    style START fill:#e1f5ff
-    style DB_BEFORE fill:#fff4e1
-    style DB_AFTER fill:#e1ffe1
-    style CONTEXT fill:#ffe1f5
-    style HIT fill:#e1ffe1
-    style MISS fill:#ffe1e1
-```
+![Concrete before/after: genie_prompt_history mutates around a query — two-row conversation, four numbered steps, and a hit/miss decision leading to a three-row table with the new prompt highlighted](images/genie-cache-prompt-history-mutation.png)
 
 ## Dual Embedding Architecture
 
@@ -510,46 +446,7 @@ cache_service.initialize().from_space().ask_question("What are sales?")
 
 ## Sequence Diagram
 
-```mermaid
-sequenceDiagram
-    participant User
-    participant Cache as ContextAwareCache
-    participant PromptDB as genie_prompt_history
-    participant CacheDB as genie_context_aware_cache
-    participant Genie as Genie API
-    
-    User->>Cache: "Show by region"
-    
-    Note over Cache,PromptDB: Step 1: Get PREVIOUS prompts
-    Cache->>PromptDB: SELECT prompt<br/>LIMIT 2<br/>(window_size=2)
-    PromptDB-->>Cache: [P1: "What are sales?",<br/>P2: "Filter by Q1"]
-    
-    Note over Cache: Step 2: Build dual embeddings
-    Cache->>Cache: question_embedding =<br/>embed("Show by region")
-    Cache->>Cache: context_embedding =<br/>embed("Previous: P1<br/>Previous: P2")
-    
-    Note over Cache,PromptDB: Step 3: Store current prompt
-    Cache->>PromptDB: INSERT (prompt="Show by region",<br/>cache_hit=false)
-    PromptDB-->>Cache: OK
-    
-    Note over Cache,CacheDB: Step 4: Search cache
-    Cache->>CacheDB: Vector search<br/>(question_emb + context_emb)
-    CacheDB-->>Cache: Best match + scores
-    
-    alt Cache HIT
-        Cache->>CacheDB: Re-execute cached SQL
-        CacheDB-->>Cache: Fresh results
-        Cache->>PromptDB: UPDATE cache_hit=true
-        PromptDB-->>Cache: OK
-        Cache-->>User: Response (cached)
-    else Cache MISS
-        Cache->>Genie: ask_question()
-        Genie-->>Cache: SQL + results
-        Cache->>CacheDB: INSERT SQL + embeddings
-        CacheDB-->>Cache: OK
-        Cache-->>User: Response (from Genie)
-    end
-```
+![Dual embeddings feed a combined similarity score: question embedding and context embedding are compared independently, weighted 0.6/0.4, and either produces a hit or a miss to Genie](images/genie-cache-dual-embedding-sequence.png)
 
 ## Context Window Behavior
 
