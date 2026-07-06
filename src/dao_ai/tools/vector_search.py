@@ -230,10 +230,17 @@ def _operators_for_type(type_str: str | None) -> tuple[str, ...]:
     # Boolean: equality-only.
     if t.startswith("bool"):
         return _BOOL_OPS
+    # Binary: equality-only. Blobs don't support LIKE or ordering.
+    if t.startswith("binary"):
+        return _BOOL_OPS
     # String family: equality + token match.
     if t.startswith(("string", "varchar", "char", "text")):
         return _STRING_OPS
-    # Everything else (binary, struct, array, map, unknown): permit all.
+    # Complex types (STRUCT / ARRAY / MAP) and any unknown type fall
+    # through to *all* operators. Databricks Vector Search rejects
+    # unsupported filter combinations at query time, and stripping
+    # legitimate combinations here would be more harmful than the
+    # occasional server-side rejection.
     return _FILTER_OPERATOR_SUFFIXES
 
 
@@ -292,6 +299,27 @@ def _vsc_for_refresh(vector_store: "VectorStoreModel") -> VectorSearchClient | N
         return None
 
 
+def _vector_column_names_from_describe(details: dict | None) -> set[str]:
+    """Return the exact managed-embedding vector column names.
+
+    Databricks synthesises one vector column per ``embedding_source_column``
+    named ``<source>_vector``. We read the source names from ``describe()``
+    so we strip *only* those synthetics — never a business column that
+    happens to end in ``_vector``.
+    """
+    if not isinstance(details, dict):
+        return set()
+    delta_spec = details.get("delta_sync_index_spec") or {}
+    src_cols = delta_spec.get("embedding_source_columns") or []
+    names: set[str] = set()
+    for entry in src_cols:
+        if isinstance(entry, dict):
+            src = entry.get("name")
+            if src:
+                names.add(f"{src}_vector")
+    return names
+
+
 def _probe_index_columns(
     vector_store: "VectorStoreModel",
     vsc: VectorSearchClient | None,
@@ -304,10 +332,18 @@ def _probe_index_columns(
     We ``scan(num_results=1)`` the index and read the ``fields[].key`` list
     off the returned document — that gives us the ground-truth column set.
 
-    Vector columns (any ``<column>_vector`` synthesised by managed
-    embeddings) and change-data-feed system fields (``_change_type``,
-    ``_commit_version``, ``_commit_timestamp``) are stripped so they don't
-    pollute the filter-key enum with keys that would confuse the LLM.
+    Two categories of field are stripped from the return value:
+
+      * **Managed-embedding vector columns** — synthesised as
+        ``<source>_vector``. We prefer to read the exact source names from
+        ``describe()``'s ``embedding_source_columns`` and drop just those
+        (so a business column literally named e.g. ``product_vector`` is
+        NOT stripped). If ``describe()`` isn't available, we fall back to
+        the ``*_vector`` suffix heuristic.
+      * **Change-data-feed system fields** (``_change_type``,
+        ``_commit_version``, ``_commit_timestamp``) — anything with a
+        leading underscore. Databricks reserves the leading-underscore
+        namespace for CDF/system columns, so this is safe.
 
     Returns ``None`` on any failure (soft-fail; the caller falls back to
     whatever ``columns`` it already has).
@@ -316,6 +352,11 @@ def _probe_index_columns(
         return None
     try:
         idx = vsc.get_index(index_name=vector_store.index.full_name)
+        # Prefer the authoritative set of vector column names from the
+        # describe payload; we already cached it via VectorStoreModel.refresh().
+        known_vector_cols = _vector_column_names_from_describe(
+            getattr(vector_store, "_index_details", None)
+        )
         scan = idx.scan(num_results=1) or {}
         data = scan.get("data") or []
         if not data:
@@ -330,8 +371,18 @@ def _probe_index_columns(
             k = f.get("key") if isinstance(f, dict) else None
             if not k:
                 continue
-            # Strip managed-embedding vector columns + CDF system fields.
-            if k.endswith("_vector") or k.startswith("_"):
+            # CDF / system fields — leading underscore is reserved.
+            if k.startswith("_"):
+                continue
+            # Managed-embedding vector column.
+            if known_vector_cols:
+                if k in known_vector_cols:
+                    continue
+            elif k.endswith("_vector"):
+                # Fallback heuristic when describe payload isn't available.
+                # False positives here would be rare (a business column
+                # named ``*_vector``) but non-zero; the primary path above
+                # avoids them entirely.
                 continue
             names.append(k)
         return names or None
@@ -634,23 +685,24 @@ def create_vector_search_tool(
             if probed:
                 columns = probed
 
-        # Once we've discovered a column list, look up types from the UC
-        # Tables API on the source table (populated by refresh() above).
-        # Intersect: only advertise filter keys we can actually type.
-        if columns and vector_store.source_table is not None:
-            table_types = _fetch_column_types(vector_store)
-            if table_types:
-                in_index = set(columns)
-                column_types = {k: v for k, v in table_types.items() if k in in_index}
-                columns = [c for c in columns if c in column_types]
+    # Type-aware operator narrowing applies whether columns came from YAML
+    # or from discovery. We call ``_fetch_column_types`` regardless; the
+    # helper is a no-op when ``source_table`` isn't populated. Intersect
+    # with the (possibly YAML-declared) column list so we only advertise
+    # filter keys we can actually type — anything we can't type keeps its
+    # full operator suite (see :func:`_operators_for_type`).
+    if columns:
+        table_types = _fetch_column_types(vector_store)
+        if table_types:
+            in_index = set(columns)
+            column_types = {k: v for k, v in table_types.items() if k in in_index}
 
-        if columns:
-            logger.debug(
-                "Vector Search columns auto-discovered",
-                index=index_name,
-                columns=columns,
-                have_types=bool(column_types),
-            )
+        logger.debug(
+            "Vector Search columns resolved",
+            index=index_name,
+            columns=columns,
+            have_types=bool(column_types),
+        )
     search_parameters: SearchParametersModel = retriever.search_parameters
     rerank_config: Optional[RerankParametersModel] = retriever.rerank
     instructed_config: Optional[InstructedRetrieverModel] = retriever.instructed
