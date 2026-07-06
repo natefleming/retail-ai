@@ -151,37 +151,51 @@ class TestResolveAgent:
         """Test resolving a plain string agent name."""
         from dao_ai.orchestration.swarm import _resolve_agent
 
-        agent_ref, is_deterministic = _resolve_agent("agent_b")
+        agent_ref, is_deterministic, is_parallel = _resolve_agent("agent_b")
         assert agent_ref == "agent_b"
         assert is_deterministic is False
+        assert is_parallel is False
 
     def test_resolve_agent_model(self) -> None:
         """Test resolving an AgentModel reference."""
         from dao_ai.orchestration.swarm import _resolve_agent
 
         agent = AgentModel(name="agent_b", model=LLMModel(name="test-model"))
-        agent_ref, is_deterministic = _resolve_agent(agent)
+        agent_ref, is_deterministic, is_parallel = _resolve_agent(agent)
         assert isinstance(agent_ref, AgentModel)
         assert agent_ref.name == "agent_b"
         assert is_deterministic is False
+        assert is_parallel is False
 
     def test_resolve_handoff_route_deterministic(self) -> None:
         """Test resolving a deterministic HandoffRouteModel."""
         from dao_ai.orchestration.swarm import _resolve_agent
 
         route = HandoffRouteModel(agent="agent_b", is_deterministic=True)
-        agent_ref, is_deterministic = _resolve_agent(route)
+        agent_ref, is_deterministic, is_parallel = _resolve_agent(route)
         assert agent_ref == "agent_b"
         assert is_deterministic is True
+        assert is_parallel is False
 
     def test_resolve_handoff_route_non_deterministic(self) -> None:
         """Test resolving a non-deterministic HandoffRouteModel."""
         from dao_ai.orchestration.swarm import _resolve_agent
 
         route = HandoffRouteModel(agent="agent_b", is_deterministic=False)
-        agent_ref, is_deterministic = _resolve_agent(route)
+        agent_ref, is_deterministic, is_parallel = _resolve_agent(route)
         assert agent_ref == "agent_b"
         assert is_deterministic is False
+        assert is_parallel is False
+
+    def test_resolve_handoff_route_parallel(self) -> None:
+        """Test resolving a parallel HandoffRouteModel."""
+        from dao_ai.orchestration.swarm import _resolve_agent
+
+        route = HandoffRouteModel(agent="agent_b", is_parallel=True)
+        agent_ref, is_deterministic, is_parallel = _resolve_agent(route)
+        assert agent_ref == "agent_b"
+        assert is_deterministic is False
+        assert is_parallel is True
 
 
 # =============================================================================
@@ -200,6 +214,8 @@ class TestHandoffResult:
         result = HandoffResult()
         assert result.tools == ()
         assert result.deterministic_target is None
+        assert result.parallel_targets == ()
+        assert result.parallel_join is None
 
     def test_handoff_result_with_values(self) -> None:
         """Test HandoffResult with explicit values."""
@@ -212,6 +228,21 @@ class TestHandoffResult:
         )
         assert len(result.tools) == 1
         assert result.deterministic_target == "agent_b"
+
+    def test_handoff_result_with_parallel_cohort(self) -> None:
+        """Test HandoffResult carrying a parallel cohort."""
+        from dao_ai.orchestration.swarm import HandoffResult
+
+        mock_tool = MagicMock()
+        result = HandoffResult(
+            tools=(mock_tool, mock_tool, mock_tool),
+            deterministic_target="join_agent",
+            parallel_targets=("worker_a", "worker_b", "worker_c"),
+            parallel_join="join_agent",
+        )
+        assert len(result.tools) == 3
+        assert result.parallel_targets == ("worker_a", "worker_b", "worker_c")
+        assert result.parallel_join == "join_agent"
 
     def test_handoff_result_is_frozen(self) -> None:
         """Test that HandoffResult is immutable (frozen=True)."""

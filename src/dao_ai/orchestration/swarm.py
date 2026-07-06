@@ -29,7 +29,7 @@ from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.graph import StateGraph
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.store.base import BaseStore
-from langgraph.types import Command
+from langgraph.types import Command, Send
 from loguru import logger
 
 from dao_ai.config import (
@@ -49,6 +49,7 @@ from dao_ai.orchestration import (
     create_store,
     get_handoff_description,
 )
+from dao_ai.orchestration.core import PARALLEL_DISPATCH_STATE_KEY
 from dao_ai.state import AgentState, Context
 
 
@@ -58,29 +59,40 @@ class HandoffResult:
     Result of resolving handoff configuration for an agent.
 
     Separates agentic handoff tools (LLM-invoked) from the optional
-    deterministic handoff target (always-routed).
+    deterministic handoff target (always-routed) and the parallel
+    fan-out cohort.
+
+    ``parallel_targets`` names the sibling agents that share this source and
+    are members of the fan-out cohort. Each has its own handoff tool present
+    in ``tools`` (LLM-invocable — parallel execution is achieved by the LLM
+    issuing multiple tool calls in a single turn). ``parallel_join`` is the
+    shared deterministic join agent the cohort converges on; the parent
+    graph gets a static ``add_edge(sibling, parallel_join)`` for each
+    sibling so LangGraph's superstep semantics run the join exactly once.
     """
 
     tools: tuple[BaseTool, ...] = field(default_factory=tuple)
     deterministic_target: str | None = None
+    parallel_targets: tuple[str, ...] = field(default_factory=tuple)
+    parallel_join: str | None = None
 
 
 def _resolve_agent(
     handoff_entry: AgentModel | str | HandoffRouteModel,
-) -> tuple[AgentModel | str, bool]:
+) -> tuple[AgentModel | str, bool, bool]:
     """
-    Normalize a handoff entry into (agent_ref, is_deterministic).
+    Normalize a handoff entry into ``(agent_ref, is_deterministic, is_parallel)``.
 
     Args:
         handoff_entry: A handoff target — may be a plain agent name,
             an ``AgentModel``, or a ``HandoffRouteModel``.
 
     Returns:
-        A tuple of (agent reference, is_deterministic flag).
+        A tuple of (agent reference, is_deterministic flag, is_parallel flag).
     """
     if isinstance(handoff_entry, HandoffRouteModel):
-        return handoff_entry.agent, handoff_entry.is_deterministic
-    return handoff_entry, False
+        return handoff_entry.agent, handoff_entry.is_deterministic, handoff_entry.is_parallel
+    return handoff_entry, False, False
 
 
 def _handoffs_for_agent(
@@ -112,6 +124,7 @@ def _handoffs_for_agent(
     """
     handoff_tools: list[BaseTool] = []
     deterministic_target: str | None = None
+    parallel_targets: list[str] = []
 
     handoffs: dict[str, Sequence[AgentModel | str | HandoffRouteModel] | None] = (
         config.app.orchestration.swarm.handoffs or {}
@@ -130,7 +143,8 @@ def _handoffs_for_agent(
     for handoff_entry in agent_handoffs:
         agent_ref: AgentModel | str
         is_deterministic: bool
-        agent_ref, is_deterministic = _resolve_agent(handoff_entry)
+        is_parallel: bool
+        agent_ref, is_deterministic, is_parallel = _resolve_agent(handoff_entry)
 
         # Resolve string references to AgentModel using the app-level agent list.
         # We search config.app.agents (not config.find_agents) because the swarm
@@ -155,6 +169,11 @@ def _handoffs_for_agent(
                     f"Agent '{agent.name}' cannot have a deterministic "
                     f"handoff to itself."
                 )
+            if is_parallel:
+                raise ValueError(
+                    f"Agent '{agent.name}' cannot have an is_parallel "
+                    f"handoff to itself."
+                )
             continue
 
         if is_deterministic:
@@ -171,9 +190,10 @@ def _handoffs_for_agent(
                 from_agent=agent.name,
                 to_agent=handoff_to_agent.name,
             )
-        else:
-            logger.debug(
-                "Creating handoff tool",
+        elif is_parallel:
+            parallel_targets.append(handoff_to_agent.name)
+            logger.info(
+                "Registered parallel fan-out sibling",
                 from_agent=agent.name,
                 to_agent=handoff_to_agent.name,
                 requires=handoff_to_agent.requires,
@@ -182,14 +202,43 @@ def _handoffs_for_agent(
             handoff_tools.append(
                 create_handoff_tool(
                     target_agent_name=handoff_to_agent.name,
+                    description=(
+                        f"{handoff_description} "
+                        "You may call this alongside other parallel workers in a "
+                        "single turn — they will run concurrently and results are "
+                        "merged before the join agent responds."
+                    ),
+                    requires=list(handoff_to_agent.requires),
+                    parallel=True,
+                )
+            )
+        else:
+            logger.debug(
+                "Creating handoff tool",
+                from_agent=agent.name,
+                to_agent=handoff_to_agent.name,
+                requires=handoff_to_agent.requires,
+            )
+            handoff_description = get_handoff_description(handoff_to_agent)
+            handoff_tools.append(
+                create_handoff_tool(
+                    target_agent_name=handoff_to_agent.name,
                     description=handoff_description,
                     requires=list(handoff_to_agent.requires),
                 )
             )
 
+    # When a parallel cohort is present, the deterministic target is the
+    # shared join — it is reached *through* the siblings, not as a direct
+    # edge from the source. Callers use ``parallel_join`` for the sibling
+    # -> join wiring and skip the source -> deterministic_target edge.
+    parallel_join: str | None = deterministic_target if parallel_targets else None
+
     return HandoffResult(
         tools=tuple(handoff_tools),
         deterministic_target=deterministic_target,
+        parallel_targets=tuple(parallel_targets),
+        parallel_join=parallel_join,
     )
 
 
@@ -243,9 +292,120 @@ def _create_swarm_router(
     return router
 
 
+def _create_parallel_source_handler(
+    inner_handler: Callable[[AgentState, "Runtime[Context]"], "Awaitable[AgentState]"],
+    cohort_targets: frozenset[str],
+    join_target: str,
+) -> Callable[["AgentState", "Runtime[Context]"], "Awaitable[AgentState]"]:
+    """Wrap a source agent that owns a parallel fan-out cohort.
+
+    Parallel handoff tools (``create_handoff_tool(parallel=True)``) return
+    only a state update — no ``goto`` / no ``graph=PARENT`` — so the
+    source's ToolNode is free to execute ALL parallel tool calls in one
+    LLM turn without short-circuiting on the first ``ParentCommand``. Each
+    parallel handoff tool records its target in the
+    ``parallel_dispatches`` state field via a list-accumulating reducer
+    (``concat_parallel_dispatches``).
+
+    After the inner handler completes, this wrapper reads that field. If
+    any siblings were dispatched, it returns a single ``Command`` whose
+    ``goto`` is a list of ``Send`` calls — one per fired sibling. LangGraph
+    then schedules all targeted siblings in the same superstep (true
+    concurrent execution). Each sibling's static edge to the shared
+    ``join_target`` runs the join exactly once via superstep fan-in
+    semantics.
+
+    If the LLM didn't invoke any parallel handoff tools (e.g. it answered
+    directly, or fired a non-parallel handoff that raised ParentCommand),
+    the result is returned unchanged.
+
+    Args:
+        inner_handler: The handler produced by ``create_agent_node_handler``.
+        cohort_targets: The names of the parallel siblings the source is
+            configured to fan out to. Used to filter dispatched targets so a
+            stray write from an earlier turn never routes to an unrelated
+            agent.
+        join_target: The shared deterministic join for the cohort. Used
+            for logging and as the ``active_agent`` value the wrapper
+            writes into its update so a follow-up turn without any worker
+            fires still resumes at the synthesizer.
+
+    Returns:
+        An async handler with the same signature as ``inner_handler``.
+    """
+
+    async def handler(state: AgentState, runtime: Runtime[Context]) -> AgentState:
+        result = await inner_handler(state, runtime)
+        # If the inner handler already returned a Command (e.g. an agentic
+        # peer handoff fired, not a parallel one), respect it unchanged.
+        if isinstance(result, Command):
+            logger.info(
+                "Parallel source: inner Command passthrough",
+                agent_result_goto=result.goto,
+            )
+            return result
+
+        raw_dispatches: list[str] = list(result.get(PARALLEL_DISPATCH_STATE_KEY, []))
+        # Filter to targets that actually belong to this cohort — defense
+        # in depth against a spurious dispatch from an earlier turn.
+        # Preserve LLM tool_call order and deduplicate (if the LLM double-
+        # dispatched to the same sibling, run it once).
+        seen: set[str] = set()
+        siblings: list[str] = []
+        for target in raw_dispatches:
+            if target in cohort_targets and target not in seen:
+                seen.add(target)
+                siblings.append(target)
+
+        # Clear the dispatch field so subsequent turns start empty. The
+        # reducer accumulates; without an explicit clear it would carry
+        # stale targets across turns on a checkpointed thread.
+        result_cleared: dict = dict(result)
+        result_cleared[PARALLEL_DISPATCH_STATE_KEY] = []
+
+        if not siblings:
+            logger.info(
+                "Parallel source: no parallel siblings invoked this turn",
+                cohort_size=len(cohort_targets),
+            )
+            return result_cleared
+
+        base_update: dict = {**result_cleared, "active_agent": join_target}
+        # LangGraph's Send carries per-target state; each sibling sees the
+        # same message history and gets its own active_agent so the
+        # per-sibling deterministic handler can rewrite it to the join
+        # after the sibling's turn.
+        sends: list[Send] = [
+            Send(sibling, {**base_update, "active_agent": sibling})
+            for sibling in siblings
+        ]
+
+        logger.info(
+            "Parallel fan-out dispatched",
+            siblings=siblings,
+            join=join_target,
+            sibling_count=len(siblings),
+        )
+
+        # NOTE: we deliberately do NOT set graph=Command.PARENT here. The
+        # source handler is registered on the parent StateGraph itself
+        # (via workflow.add_node in create_swarm_graph), so a Command with
+        # goto=[Send(...), ...] routes within the parent graph — no
+        # further parent to escape to. Setting graph=PARENT would raise
+        # ParentCommand out of the swarm and blow up the caller.
+        return Command(
+            update=base_update,
+            goto=sends,
+        )
+
+    return handler
+
+
 def _create_deterministic_handler(
     inner_handler: Callable[[AgentState, "Runtime[Context]"], "Awaitable[AgentState]"],
     target_agent_name: str,
+    *,
+    sibling_of_cohort: bool = False,
 ) -> Callable[["AgentState", "Runtime[Context]"], "Awaitable[AgentState]"]:
     """
     Wrap an agent node handler to set ``active_agent`` for deterministic routing.
@@ -266,18 +426,26 @@ def _create_deterministic_handler(
     Args:
         inner_handler: The original handler produced by ``create_agent_node_handler``.
         target_agent_name: The agent name to deterministically route to.
+        sibling_of_cohort: When True, this handler wraps a parallel fan-out
+            sibling (target is the cohort's join). Only affects log tagging
+            so runtime traces distinguish parallel-fan-in from plain
+            deterministic edges.
 
     Returns:
         An async handler with the same signature as *inner_handler*.
     """
+    # Log tag used at runtime so operators can distinguish parallel fan-in
+    # events from plain deterministic pipeline events in App / Model Serving logs.
+    handoff_kind: str = "parallel_fan_in" if sibling_of_cohort else "deterministic"
 
     async def handler(state: AgentState, runtime: Runtime[Context]) -> AgentState:
         result = await inner_handler(state, runtime)
         if isinstance(result, Command):
-            logger.debug(
-                "Deterministic handoff overridden by agentic Command",
-                deterministic_target=target_agent_name,
+            logger.info(
+                f"{handoff_kind} handoff overridden by agentic Command",
+                target=target_agent_name,
                 agentic_goto=result.goto,
+                handoff_kind=handoff_kind,
             )
             return result
 
@@ -330,14 +498,16 @@ def _create_deterministic_handler(
             )
             result["messages"] = list(messages) + [bridge]
             logger.debug(
-                "Deterministic handoff: appended HumanMessage bridge to normalize message tail",
+                f"{handoff_kind} handoff: appended HumanMessage bridge to normalize message tail",
                 target_agent=target_agent_name,
+                handoff_kind=handoff_kind,
             )
 
         result["active_agent"] = target_agent_name
-        logger.debug(
-            "Deterministic handoff: setting active_agent",
+        logger.info(
+            f"{handoff_kind} handoff fired",
             target_agent=target_agent_name,
+            handoff_kind=handoff_kind,
         )
         return result
 
@@ -403,6 +573,17 @@ def create_swarm_graph(config: AppConfig) -> CompiledStateGraph:
     agent_subgraphs: dict[str, CompiledStateGraph] = {}
     agent_recursion_limits: dict[str, int | None] = {}
     deterministic_targets: dict[str, str] = {}
+    # Reverse map: sibling_agent_name -> parallel_join_target. A sibling can
+    # only belong to one cohort (validated by SwarmModel), so this is a
+    # simple dict. When a sibling's handler runs, it sets active_agent to
+    # the join so LangGraph resumes correctly on checkpoint restore.
+    parallel_sibling_joins: dict[str, str] = {}
+    # Source agents that own a parallel cohort → (frozenset[targets], join).
+    # These sources need the parallel-source wrapper which fans out via
+    # Send() based on which parallel-handoff tools the LLM actually invoked
+    # in a single turn. Without this wrapper, parallel Command handoffs
+    # short-circuit on the first ParentCommand and only one sibling runs.
+    parallel_sources: dict[str, tuple[frozenset[str], str]] = {}
     # Agents marked ``internal: true`` in config. Their AIMessage outputs
     # are filtered out of the history view passed to non-internal agents to
     # prevent cross-agent context leakage (Anthropic distilled-handoff
@@ -447,8 +628,21 @@ def create_swarm_graph(config: AppConfig) -> CompiledStateGraph:
             config=config,
         )
 
-        # Track deterministic targets for graph wiring
-        if handoff_result.deterministic_target is not None:
+        # Track deterministic targets for graph wiring. When a parallel
+        # cohort is present on this source, the "deterministic target" is
+        # the cohort's join — reached *through* the siblings, not from the
+        # source directly. Record it separately so we skip the direct edge.
+        # ``SwarmModel.validate_parallel_cohort_shape`` guarantees each
+        # sibling belongs to at most one cohort, so the assignment below
+        # is unconditional.
+        if handoff_result.parallel_join is not None:
+            parallel_sources[registered_agent.name] = (
+                frozenset(handoff_result.parallel_targets),
+                handoff_result.parallel_join,
+            )
+            for sibling_name in handoff_result.parallel_targets:
+                parallel_sibling_joins[sibling_name] = handoff_result.parallel_join
+        elif handoff_result.deterministic_target is not None:
             deterministic_targets[registered_agent.name] = (
                 handoff_result.deterministic_target
             )
@@ -521,7 +715,34 @@ def create_swarm_graph(config: AppConfig) -> CompiledStateGraph:
         # Wrap the handler for deterministic routing:
         # - Sets active_agent so the swarm router resumes correctly
         # - The add_edge below provides the actual graph routing
-        if agent_name in deterministic_targets:
+        #
+        # A node is EITHER a plain deterministic source OR a parallel
+        # sibling, never both. Parallel-sibling wrapping takes precedence:
+        # the sibling always routes to its cohort's join, regardless of any
+        # deterministic edge that agent might have on its own outbound
+        # handoffs list.
+        if agent_name in parallel_sources:
+            cohort_targets, cohort_join = parallel_sources[agent_name]
+            handler = _create_parallel_source_handler(
+                handler, cohort_targets=cohort_targets, join_target=cohort_join
+            )
+            logger.info(
+                "Wrapped agent handler as parallel fan-out source",
+                agent=agent_name,
+                cohort_targets=sorted(cohort_targets),
+                parallel_join=cohort_join,
+            )
+        elif agent_name in parallel_sibling_joins:
+            join_target: str = parallel_sibling_joins[agent_name]
+            handler = _create_deterministic_handler(
+                handler, join_target, sibling_of_cohort=True
+            )
+            logger.info(
+                "Wrapped agent handler as parallel fan-out sibling",
+                agent=agent_name,
+                parallel_join=join_target,
+            )
+        elif agent_name in deterministic_targets:
             target: str = deterministic_targets[agent_name]
             handler = _create_deterministic_handler(handler, target)
             logger.debug(
@@ -543,6 +764,25 @@ def create_swarm_graph(config: AppConfig) -> CompiledStateGraph:
             "Added deterministic edge",
             from_agent=source_agent,
             to_agent=target_agent,
+        )
+
+    # Wire parallel fan-out edges: every parallel sibling gets a static
+    # edge to its cohort's shared join. LangGraph's superstep semantics
+    # coalesce these — the join node runs exactly once after all fired
+    # siblings complete, even when N > 1 siblings all target the same
+    # join in the same superstep.
+    #
+    # We deliberately do NOT add an edge from the source to the join.
+    # The source's LLM decides which siblings (if any) to invoke; the
+    # join is reached *through* the siblings. When the LLM invokes zero
+    # parallel handoff tools, the source's turn terminates without
+    # firing the join — that's the correct semantic (nothing to reduce).
+    for sibling_agent, join_agent in parallel_sibling_joins.items():
+        workflow.add_edge(sibling_agent, join_agent)
+        logger.info(
+            "Added parallel fan-in edge",
+            from_sibling=sibling_agent,
+            to_join=join_agent,
         )
 
     # Create the swarm router that checks active_agent state.

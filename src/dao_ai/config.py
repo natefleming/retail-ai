@@ -6340,26 +6340,36 @@ class HandoffRouteModel(BaseModel):
     """
     Configuration model for a handoff route in a swarm.
 
-    A handoff route specifies a target agent and whether the handoff should be
-    deterministic (always route to this agent) or agentic (LLM decides via tool call).
+    A handoff route specifies a target agent and one of three transfer modes:
 
-    When ``is_deterministic`` is ``True``, the source agent will **always** transfer
-    control to this target agent after completing its turn, without requiring the
-    LLM to invoke a handoff tool. This is useful for pipeline-style workflows
-    where the routing order is predetermined.
+    - **Agentic** (default): a handoff tool is created for the target agent and
+      the LLM decides when to invoke it.
+    - **Deterministic** (``is_deterministic=True``): control always transfers to
+      this agent after the source agent completes its turn, without LLM
+      tool-call routing.
+    - **Parallel fan-out** (``is_parallel=True``): a handoff tool is created,
+      but the target is a member of a fan-out cohort. When the LLM invokes
+      multiple parallel handoff tools in a single turn, the targeted siblings
+      run concurrently in the same LangGraph superstep and converge on the
+      cohort's shared deterministic join agent (declared as another entry on
+      the same source with ``is_deterministic=True``).
 
-    When ``is_deterministic`` is ``False`` (the default), a handoff tool is created
-    for the target agent and the LLM decides when to invoke it. This is the
-    standard agentic handoff behavior.
+    ``is_deterministic`` and ``is_parallel`` are mutually exclusive on the same
+    entry — a single handoff can be at most one of the three modes.
 
-    Example YAML::
+    Example YAML — mixed modes on one source::
 
         handoffs:
           triage_agent:
-            - agent: billing_agent
-              is_deterministic: true
-          billing_agent:
-            - support_agent            # shorthand for agentic handoff
+            - agent: pricing_agent
+              is_parallel: true
+            - agent: inventory_agent
+              is_parallel: true
+            - agent: policy_agent
+              is_parallel: true
+            - agent: synthesizer_agent
+              is_deterministic: true   # shared join for the parallel cohort
+            - escalation_agent          # agentic (LLM-chosen) sequential handoff
     """
 
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
@@ -6371,9 +6381,42 @@ class HandoffRouteModel(BaseModel):
         description=(
             "When true, the handoff is deterministic: control always transfers to this "
             "agent after the source agent completes its turn, without LLM tool-call routing. "
-            "When false (default), a handoff tool is created and the LLM decides when to invoke it."
+            "When false (default), a handoff tool is created and the LLM decides when to invoke it. "
+            "Mutually exclusive with is_parallel."
         ),
     )
+    is_parallel: bool = Field(
+        default=False,
+        description=(
+            "When true, this target is a sibling in a parallel fan-out cohort. A handoff "
+            "tool is still created (per-sibling), but the intent is that the LLM invokes "
+            "this tool alongside other parallel siblings in a single turn so they run "
+            "concurrently. All is_parallel siblings from the same source must share exactly "
+            "one is_deterministic handoff on the same source — that agent is the cohort's "
+            "join target. Mutually exclusive with is_deterministic."
+        ),
+    )
+
+    @model_validator(mode="after")
+    def validate_exclusive_modes(self) -> Self:
+        """Reject entries that set both is_deterministic and is_parallel.
+
+        The two modes are semantically distinct — deterministic is a static
+        graph edge on the source, parallel is a per-sibling handoff tool
+        whose join is a *separate* deterministic entry on the same source.
+        Combining them on one entry is ambiguous.
+        """
+        if self.is_deterministic and self.is_parallel:
+            target_name: str = (
+                self.agent.name if isinstance(self.agent, AgentModel) else self.agent
+            )
+            raise ValueError(
+                f"Handoff to '{target_name}' cannot be both is_deterministic and "
+                "is_parallel. Pick one: deterministic (source unconditionally "
+                "transfers) or parallel (source's LLM fans out to siblings that "
+                "converge on a separate deterministic join)."
+            )
+        return self
 
 
 class SwarmModel(BaseModel):
@@ -6411,16 +6454,148 @@ class SwarmModel(BaseModel):
         ),
     )
 
+    @staticmethod
+    def _target_name(target: "AgentModel | str") -> str:
+        """Return the agent name for a handoff target, regardless of shape."""
+        return target.name if isinstance(target, AgentModel) else target
+
+    @staticmethod
+    def _classify_entry(
+        entry: "AgentModel | str | HandoffRouteModel",
+    ) -> tuple[str, str]:
+        """Return ``(target_name, kind)`` where kind ∈ {agentic, deterministic, parallel}."""
+        if isinstance(entry, HandoffRouteModel):
+            target_name: str = SwarmModel._target_name(entry.agent)
+            if entry.is_deterministic:
+                return target_name, "deterministic"
+            if entry.is_parallel:
+                return target_name, "parallel"
+            return target_name, "agentic"
+        return SwarmModel._target_name(entry), "agentic"
+
+    @model_validator(mode="after")
+    def validate_parallel_cohort_shape(self) -> Self:
+        """Reject parallel fan-out cohorts that don't have exactly one join.
+
+        A "cohort" here is the set of ``is_parallel=True`` handoffs from a
+        single source agent. Every cohort must share exactly one
+        ``is_deterministic=True`` handoff on the same source — that is the
+        join agent all siblings converge on via a static edge in the parent
+        graph. Without a shared join, LangGraph's superstep fan-in has no
+        target and the siblings would each terminate independently.
+
+        Rejects, with clear messages, several edge cases the user can easily
+        introduce by accident:
+
+          * ``is_parallel=True`` self-reference (a source can't fan out to itself).
+          * No ``is_deterministic`` join, or more than one.
+          * The join agent appears among the parallel siblings (would create
+            a self-edge sibling → sibling in the parent graph).
+          * The same agent is a parallel sibling in two different cohorts with
+            *different* joins (cross-cohort collision).
+          * A parallel sibling of one cohort is also the *source* of its own
+            parallel cohort (nested fan-out — out of scope for this feature
+            and would leave the outer join unreachable when the inner cohort
+            fires).
+        """
+        if not self.handoffs:
+            return self
+
+        # First pass: within each source, validate the cohort shape.
+        # Also collect (sibling -> join) mapping for the cross-source pass.
+        sibling_to_join: dict[str, str] = {}
+        parallel_sources: set[str] = set()
+
+        for source, targets in self.handoffs.items():
+            if not targets:
+                continue
+            parallel_targets: list[str] = []
+            det_targets: list[str] = []
+            for entry in targets:
+                target_name, kind = self._classify_entry(entry)
+                if kind == "parallel":
+                    if target_name == source:
+                        raise ValueError(
+                            f"Agent '{source}' cannot have an is_parallel "
+                            "handoff to itself."
+                        )
+                    parallel_targets.append(target_name)
+                elif kind == "deterministic":
+                    det_targets.append(target_name)
+
+            if not parallel_targets:
+                continue
+
+            if len(det_targets) == 0:
+                raise ValueError(
+                    f"Agent '{source}' has parallel handoffs to "
+                    f"{parallel_targets} but no is_deterministic join target. "
+                    "Parallel siblings must converge on exactly one join agent — "
+                    "add another entry on the same source with is_deterministic: "
+                    "true naming the join agent."
+                )
+            if len(det_targets) > 1:
+                raise ValueError(
+                    f"Agent '{source}' has parallel handoffs to "
+                    f"{parallel_targets} but multiple is_deterministic join "
+                    f"candidates {det_targets}. A parallel cohort must have "
+                    "exactly one join agent."
+                )
+
+            join_name: str = det_targets[0]
+            if join_name in parallel_targets:
+                raise ValueError(
+                    f"Agent '{source}' lists '{join_name}' as both a parallel "
+                    "sibling and the deterministic join. The join agent must be "
+                    "distinct from the siblings so LangGraph can fan siblings "
+                    "into the join without a self-edge."
+                )
+
+            parallel_sources.add(source)
+            for sibling in parallel_targets:
+                existing_join: str | None = sibling_to_join.get(sibling)
+                if existing_join is not None and existing_join != join_name:
+                    raise ValueError(
+                        f"Agent '{sibling}' is a parallel sibling of cohorts "
+                        f"with different join targets ('{existing_join}' and "
+                        f"'{join_name}'). A sibling may belong to at most one "
+                        "cohort — split the workflow or route through a "
+                        "shared join."
+                    )
+                sibling_to_join[sibling] = join_name
+
+        # Second pass: reject nested fan-out (a sibling that is itself the
+        # source of another cohort). This is a non-goal for the current
+        # feature — allowing it silently would leave the outer join
+        # unreachable whenever the inner cohort fires (the inner Command
+        # override wins over the outer static edge).
+        nested: set[str] = set(sibling_to_join.keys()) & parallel_sources
+        if nested:
+            offender: str = sorted(nested)[0]
+            raise ValueError(
+                f"Agent '{offender}' is both a parallel sibling of one cohort "
+                "and the source of another parallel cohort. Nested parallel "
+                "fan-out is not supported — the outer join would be "
+                "unreachable once the inner cohort fires. Restructure the "
+                "workflow so any given agent is at most one of: cohort source, "
+                "cohort sibling, cohort join."
+            )
+
+        return self
+
     @model_validator(mode="after")
     def validate_no_deterministic_handoff_in_cycle(self) -> Self:
-        """Reject swarm configs where a deterministic edge participates in a cycle.
+        """Reject swarm configs where a deterministic or parallel edge participates in a cycle.
 
         A deterministic handoff transfers control unconditionally on every
-        traversal. If any cycle in the handoff graph contains at least one
-        deterministic edge, the workflow can run forever -- the deterministic
-        edge guarantees re-entry, and the agentic edges that close the cycle
-        only need an LLM whose prompt occasionally fires the handoff tool to
-        keep the loop going.
+        traversal. A parallel handoff, once the LLM invokes it, also transfers
+        control unconditionally — and the shared join edge from every parallel
+        sibling is a static edge in the parent graph. Both edge classes are
+        treated as "unconditional" for cycle detection: if any cycle in the
+        handoff graph contains at least one such edge, the workflow can run
+        forever, because the loop is closed by the unconditional edge and the
+        agentic edges that make up the rest of the cycle only need an LLM
+        whose prompt occasionally fires the handoff tool to keep it going.
 
         This validator runs at config load time and rejects the pattern with
         a clear cycle path so the user can break or reconfigure the cycle
@@ -6431,41 +6606,29 @@ class SwarmModel(BaseModel):
           * A cycle of all-agentic edges (LLMs can choose to terminate).
 
         Rejected:
-          * Any cycle containing at least one deterministic edge.
+          * Any cycle containing at least one deterministic OR parallel edge.
         """
         if not self.handoffs:
             return self
 
-        # Build edge list: list[(source_name, target_name, is_deterministic)]
-        edges: list[tuple[str, str, bool]] = []
+        # Build edge list: list[(source, target, kind)] where kind is
+        # "deterministic", "parallel", or "agentic".
+        edges: list[tuple[str, str, str]] = []
         for source, targets in self.handoffs.items():
             if not targets:
                 continue
             for entry in targets:
-                if isinstance(entry, HandoffRouteModel):
-                    target_obj = entry.agent
-                    is_det = entry.is_deterministic
-                else:
-                    target_obj = entry
-                    is_det = False
-                # Resolve AgentModel -> name; pass strings through.
-                target_name: str = (
-                    target_obj.name if hasattr(target_obj, "name") else str(target_obj)
-                )
-                # Skip self-references; they're handled (and rejected for
-                # deterministic) at swarm-build time, not here.
+                target_name, kind = self._classify_entry(entry)
+                # Skip self-references; they're handled at swarm-build time.
                 if target_name == source:
                     continue
-                edges.append((source, target_name, is_det))
+                edges.append((source, target_name, kind))
 
-        # Adjacency list keyed by source -> list[(target, is_deterministic)]
-        adj: dict[str, list[tuple[str, bool]]] = {}
-        for u, v, det in edges:
-            adj.setdefault(u, []).append((v, det))
+        # Adjacency list keyed by source -> list[(target, kind)]
+        adj: dict[str, list[tuple[str, str]]] = {}
+        for u, v, kind in edges:
+            adj.setdefault(u, []).append((v, kind))
 
-        # For each deterministic edge (u, v), is there a path v -> ... -> u?
-        # If yes, that path + the (u, v) edge forms a cycle containing a
-        # deterministic edge.
         def find_path(start: str, goal: str) -> list[str] | None:
             """BFS for any path from start to goal. Returns the node sequence
             including endpoints, or None if no path exists."""
@@ -6477,7 +6640,7 @@ class SwarmModel(BaseModel):
             visited: set[str] = {start}
             while queue:
                 node, path = queue.popleft()
-                for nxt, _det in adj.get(node, []):
+                for nxt, _kind in adj.get(node, []):
                     if nxt == goal:
                         return path + [nxt]
                     if nxt not in visited:
@@ -6485,22 +6648,20 @@ class SwarmModel(BaseModel):
                         queue.append((nxt, path + [nxt]))
             return None
 
-        for u, v, det in edges:
-            if not det:
+        for u, v, kind in edges:
+            if kind == "agentic":
                 continue
             return_path: list[str] | None = find_path(v, u)
             if return_path is None:
                 continue
-            # Cycle = u -det-> v -> ... -> u. Format with edge annotations.
-            full_path: list[str] = [u] + return_path  # u -> v -> ... -> u
-            # Annotate the deterministic edge so the message is unambiguous.
-            edge_str = f"{u} =[deterministic]=> " + " -> ".join(full_path[1:])
+            full_path: list[str] = [u] + return_path
+            edge_str = f"{u} =[{kind}]=> " + " -> ".join(full_path[1:])
             raise ValueError(
-                "Swarm has a deterministic handoff inside a cycle: "
-                f"{edge_str}. Deterministic edges fire unconditionally on every "
+                f"Swarm has a {kind} handoff inside a cycle: "
+                f"{edge_str}. {kind.capitalize()} edges fire unconditionally on every "
                 "traversal, so any path back to the source forms a runaway loop. "
-                "Either remove the return path or make the deterministic edge "
-                "agentic."
+                "Either remove the return path or make the "
+                f"{kind} edge agentic."
             )
 
         return self

@@ -31,6 +31,7 @@
 - [How do I use the MLflow Prompt Registry?](#how-do-i-use-the-mlflow-prompt-registry)
 - [How do I give my agent persistent memory / chat history?](#how-do-i-give-my-agent-persistent-memory-chat-history)
 - [How do I orchestrate multiple agents?](#how-do-i-orchestrate-multiple-agents)
+- [How do I orchestrate a parallel fan-out pattern?](#how-do-i-orchestrate-a-parallel-fan-out-pattern)
 - [How do I add guardrails to my agent?](#how-do-i-add-guardrails-to-my-agent)
 - [How do I add tools to my agent (UC functions, REST, MCP)?](#how-do-i-add-tools-to-my-agent-uc-functions-rest-mcp)
 - [How do I do RAG / vector search with reranking?](#how-do-i-do-rag-vector-search-with-reranking)
@@ -481,6 +482,62 @@ orchestration:
 See [Lab 9 — Multi-agent Orchestration](https://github.com/natefleming/dao-ai-workshop/tree/main/L200-real-agents/lab-09-orchestration) for supervisor + swarm side by side, [Lab 17 — Deep Agent Orchestration](https://github.com/natefleming/dao-ai-workshop/tree/main/L300-advanced/lab-17-deep-agents) for the planning + Skills pattern, and [Lab 18 — Skills-only Deep Agent](https://github.com/natefleming/dao-ai-workshop/tree/main/L300-advanced/lab-18-skills-only-deep-agent) for the minimum-viable deep agent (zero sub-agents, one Skill).
 
 **Learn more:** [`docs/key-capabilities.md`](key-capabilities.md) · [`docs/architecture.md`](architecture.md) · [`config/examples/13_orchestration/`](../config/examples/13_orchestration/) (deep-agent patterns) · [`config/examples/15_complete_applications/commerce_supervisor/`](../config/examples/15_complete_applications/commerce_supervisor/) and [`commerce_swarm/`](../config/examples/15_complete_applications/commerce_swarm/)
+
+### How do I orchestrate a parallel fan-out pattern?
+
+Tag sibling handoffs with `is_parallel: true` and add exactly one
+`is_deterministic: true` entry on the same source — that's the shared
+**join** agent the siblings converge on. When the source's LLM invokes
+multiple parallel handoff tools in a single turn, LangGraph runs the
+targeted siblings in the **same superstep** (true concurrent execution) and
+runs the join **exactly once** after all fired siblings complete. The end
+user sees one final response from the join.
+
+```yaml
+orchestration:
+  swarm:
+    default_agent: triage_agent
+    handoffs:
+      triage_agent:
+      - agent: pricing_agent
+        is_parallel: true
+      - agent: inventory_agent
+        is_parallel: true
+      - agent: policy_agent
+        is_parallel: true
+      - agent: synthesizer_agent      # ↓ shared join for the cohort
+        is_deterministic: true
+      pricing_agent: []
+      inventory_agent: []
+      policy_agent: []
+      synthesizer_agent: []
+```
+
+**When to reach for it:**
+- Multi-source retrieval / research (query several specialists, synthesize).
+- Independent enrichment steps (price + inventory + policy → response).
+- Judge / critic patterns (N candidates → one selector).
+
+**Rules dao-ai enforces at load time:**
+- Every parallel cohort MUST have exactly one `is_deterministic` join
+  entry on the same source. Missing or duplicate join = load-time error.
+- `is_parallel` and `is_deterministic` are mutually exclusive on the same
+  entry.
+- A parallel sibling cannot be the source of its own parallel cohort
+  (nested fan-out is out of scope; the outer join would become unreachable).
+- Cycles containing any parallel or deterministic edge are rejected up
+  front so you don't burn compute on a runaway loop.
+
+Prompt tip: because the LLM decides which siblings to invoke, tell the
+source agent explicitly in its prompt to "call ALL parallel handoff tools
+in a single turn" when that's the intent. If the LLM invokes only a subset,
+that's a valid degenerate case — only those siblings run, then the join.
+If it invokes zero, the source terminates and the join does not run.
+
+See [`config/examples/13_orchestration/parallel_fan_out_pattern.yaml`](../config/examples/13_orchestration/parallel_fan_out_pattern.yaml)
+for a complete deployable example.
+
+**Learn more:** [`config/examples/13_orchestration/`](../config/examples/13_orchestration/) · [`docs/key-capabilities.md`](key-capabilities.md)
 
 ### How do I add guardrails to my agent?
 

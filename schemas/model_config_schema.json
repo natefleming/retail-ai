@@ -5324,7 +5324,7 @@
     },
     "HandoffRouteModel": {
       "additionalProperties": false,
-      "description": "Configuration model for a handoff route in a swarm.\n\nA handoff route specifies a target agent and whether the handoff should be\ndeterministic (always route to this agent) or agentic (LLM decides via tool call).\n\nWhen ``is_deterministic`` is ``True``, the source agent will **always** transfer\ncontrol to this target agent after completing its turn, without requiring the\nLLM to invoke a handoff tool. This is useful for pipeline-style workflows\nwhere the routing order is predetermined.\n\nWhen ``is_deterministic`` is ``False`` (the default), a handoff tool is created\nfor the target agent and the LLM decides when to invoke it. This is the\nstandard agentic handoff behavior.\n\nExample YAML::\n\n    handoffs:\n      triage_agent:\n        - agent: billing_agent\n          is_deterministic: true\n      billing_agent:\n        - support_agent            # shorthand for agentic handoff",
+      "description": "Configuration model for a handoff route in a swarm.\n\nA handoff route specifies a target agent and one of three transfer modes:\n\n- **Agentic** (default): a handoff tool is created for the target agent and\n  the LLM decides when to invoke it.\n- **Deterministic** (``is_deterministic=True``): control always transfers to\n  this agent after the source agent completes its turn, without LLM\n  tool-call routing.\n- **Parallel fan-out** (``is_parallel=True``): a handoff tool is created,\n  but the target is a member of a fan-out cohort. When the LLM invokes\n  multiple parallel handoff tools in a single turn, the targeted siblings\n  run concurrently in the same LangGraph superstep and converge on the\n  cohort's shared deterministic join agent (declared as another entry on\n  the same source with ``is_deterministic=True``).\n\n``is_deterministic`` and ``is_parallel`` are mutually exclusive on the same\nentry \u2014 a single handoff can be at most one of the three modes.\n\nExample YAML \u2014 mixed modes on one source::\n\n    handoffs:\n      triage_agent:\n        - agent: pricing_agent\n          is_parallel: true\n        - agent: inventory_agent\n          is_parallel: true\n        - agent: policy_agent\n          is_parallel: true\n        - agent: synthesizer_agent\n          is_deterministic: true   # shared join for the parallel cohort\n        - escalation_agent          # agentic (LLM-chosen) sequential handoff",
       "properties": {
         "agent": {
           "anyOf": [
@@ -5340,8 +5340,14 @@
         },
         "is_deterministic": {
           "default": false,
-          "description": "When true, the handoff is deterministic: control always transfers to this agent after the source agent completes its turn, without LLM tool-call routing. When false (default), a handoff tool is created and the LLM decides when to invoke it.",
+          "description": "When true, the handoff is deterministic: control always transfers to this agent after the source agent completes its turn, without LLM tool-call routing. When false (default), a handoff tool is created and the LLM decides when to invoke it. Mutually exclusive with is_parallel.",
           "title": "Is Deterministic",
+          "type": "boolean"
+        },
+        "is_parallel": {
+          "default": false,
+          "description": "When true, this target is a sibling in a parallel fan-out cohort. A handoff tool is still created (per-sibling), but the intent is that the LLM invokes this tool alongside other parallel siblings in a single turn so they run concurrently. All is_parallel siblings from the same source must share exactly one is_deterministic handoff on the same source \u2014 that agent is the cohort's join target. Mutually exclusive with is_deterministic.",
+          "title": "Is Parallel",
           "type": "boolean"
         }
       },

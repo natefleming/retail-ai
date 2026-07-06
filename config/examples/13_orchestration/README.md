@@ -39,6 +39,7 @@ flowchart TB
 | [`supervisor_pattern.yaml`](./supervisor_pattern.yaml) | 👔 Supervisor | Central LLM routes to specialized agents |
 | [`swarm_pattern.yaml`](./swarm_pattern.yaml) | 🐝 Swarm | Agents use handoff tools to transfer |
 | [`deterministic_handoff_pattern.yaml`](./deterministic_handoff_pattern.yaml) | 🔗 Deterministic | Pipeline-style predetermined routing |
+| [`parallel_fan_out_pattern.yaml`](./parallel_fan_out_pattern.yaml) | 🌊 Parallel fan-out | Source dispatches concurrently to N sibling agents that converge on a shared join |
 | [`deep_agent_pattern.yaml`](./deep_agent_pattern.yaml) | 🧠 Deep Agent | Single planner with todo, filesystem, shell, sub-agents (langgraph deepagents) |
 | [`deep_agent_with_subagents.yaml`](./deep_agent_with_subagents.yaml) | 🧠 Deep Agent | Three sub_agent declaration forms: anchor, name, inline |
 | [`deep_agent_with_skills.yaml`](./deep_agent_with_skills.yaml) | 🧠 Deep Agent | Local + volume-backed skills, AGENTS.md memory, permissions, HITL |
@@ -368,6 +369,109 @@ sequenceDiagram
     Note over Resolution,Summary: Deterministic handoff (no tool call)
     Resolution->>Summary: Issue resolved
     Summary-->>User: Summary: duplicate charge refunded
+```
+
+---
+
+## 🌊 Parallel Fan-Out Pattern
+
+A source agent invokes multiple sibling agents concurrently in a single LLM
+turn, and all siblings converge on a shared deterministic **join** agent that
+synthesizes their outputs into one response. Combines an `is_parallel` flag
+on the sibling handoffs with an `is_deterministic` flag on the shared join.
+
+```mermaid
+%%{init: {'theme': 'base'}}%%
+flowchart LR
+    subgraph FanOut["🌊 Parallel Fan-Out"]
+        direction LR
+        T["🏷️ Triage"]
+        P["💲 Pricing"]
+        I["📦 Inventory"]
+        Y["📜 Policy"]
+        S["📝 Synthesizer<br/>(join)"]
+
+        T -->|"parallel"| P
+        T -->|"parallel"| I
+        T -->|"parallel"| Y
+        P -->|"deterministic"| S
+        I -->|"deterministic"| S
+        Y -->|"deterministic"| S
+    end
+
+    style FanOut fill:#f3e5f5,stroke:#6a1b9a
+```
+
+### Configuration
+
+```yaml
+orchestration:
+  swarm:
+    default_agent: triage_agent
+    handoffs:
+      triage_agent:
+      - agent: pricing_agent
+        is_parallel: true
+      - agent: inventory_agent
+        is_parallel: true
+      - agent: policy_agent
+        is_parallel: true
+      - agent: synthesizer_agent
+        is_deterministic: true       # shared join for the cohort
+      pricing_agent: []
+      inventory_agent: []
+      policy_agent: []
+      synthesizer_agent: []
+```
+
+### How it works
+
+- Each `is_parallel` entry produces a per-sibling handoff tool
+  (`handoff_to_pricing_agent`, etc.). The source LLM invokes multiple of
+  these in a single turn (Claude & GPT support parallel tool calls
+  natively).
+- LangGraph runs the targeted siblings in the **same superstep** —
+  concurrent execution, not serialized.
+- Each sibling has a static edge to the shared join. Because they share
+  one join, LangGraph runs the join **exactly once** after all fired
+  siblings complete.
+
+### Configuration rules (validated at load time)
+
+- Every parallel cohort MUST have exactly one `is_deterministic` join
+  entry on the same source.
+- `is_parallel` and `is_deterministic` are mutually exclusive on the same
+  entry.
+- Parallel siblings cannot be the source of their own parallel cohort
+  (nested fan-out is out of scope).
+- Cycles containing any parallel or deterministic edge are rejected.
+
+### Sequence Diagram
+
+```mermaid
+%%{init: {'theme': 'base'}}%%
+sequenceDiagram
+    autonumber
+    participant User
+    participant Triage as Triage
+    participant Pricing
+    participant Inventory
+    participant Policy
+    participant Join as Synthesizer
+
+    User->>Triage: Is the drill in stock, what's the price, and what's the return policy?
+    Triage->>Triage: Fan-out: invoke 3 handoff tools in one turn
+    par concurrent siblings
+        Triage->>Pricing: parallel handoff
+        and
+        Triage->>Inventory: parallel handoff
+        and
+        Triage->>Policy: parallel handoff
+    end
+    Pricing-->>Join: pricing answer
+    Inventory-->>Join: stock answer
+    Policy-->>Join: policy answer
+    Join-->>User: One synthesized response
 ```
 
 ---
