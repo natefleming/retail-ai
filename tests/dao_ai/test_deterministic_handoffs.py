@@ -139,63 +139,43 @@ class TestSwarmModelHandoffsWithHandoffRoute:
 
 
 # =============================================================================
-# _resolve_agent Tests
+# _lookup_agent Tests
 # =============================================================================
 
 
 @pytest.mark.unit
-class TestResolveAgent:
-    """Tests for _resolve_agent helper function."""
+class TestLookupAgent:
+    """Tests for the _lookup_agent helper function.
 
-    def test_resolve_string_agent(self) -> None:
-        """Test resolving a plain string agent name."""
-        from dao_ai.orchestration.swarm import _resolve_agent
+    Handoff entries may reference an agent by bare name (str) or embed the
+    ``AgentModel`` directly. ``_lookup_agent`` normalizes to the registered
+    ``AgentModel`` on ``app.agents``; unknown names return ``None`` so the
+    caller can log and skip.
+    """
 
-        agent_ref, is_deterministic, is_parallel = _resolve_agent("agent_b")
-        assert agent_ref == "agent_b"
-        assert is_deterministic is False
-        assert is_parallel is False
+    def test_lookup_by_string_returns_registered_agent(self) -> None:
+        from dao_ai.orchestration.swarm import _lookup_agent
 
-    def test_resolve_agent_model(self) -> None:
-        """Test resolving an AgentModel reference."""
-        from dao_ai.orchestration.swarm import _resolve_agent
+        agent_b = AgentModel(name="agent_b", model=LLMModel(name="m"))
+        agents: list[AgentModel] = [agent_b]
 
-        agent = AgentModel(name="agent_b", model=LLMModel(name="test-model"))
-        agent_ref, is_deterministic, is_parallel = _resolve_agent(agent)
-        assert isinstance(agent_ref, AgentModel)
-        assert agent_ref.name == "agent_b"
-        assert is_deterministic is False
-        assert is_parallel is False
+        result = _lookup_agent("agent_b", agents)
+        assert result is agent_b
 
-    def test_resolve_handoff_route_deterministic(self) -> None:
-        """Test resolving a deterministic HandoffRouteModel."""
-        from dao_ai.orchestration.swarm import _resolve_agent
+    def test_lookup_by_agent_model_returns_same_instance(self) -> None:
+        from dao_ai.orchestration.swarm import _lookup_agent
 
-        route = HandoffRouteModel(agent="agent_b", is_deterministic=True)
-        agent_ref, is_deterministic, is_parallel = _resolve_agent(route)
-        assert agent_ref == "agent_b"
-        assert is_deterministic is True
-        assert is_parallel is False
+        agent = AgentModel(name="agent_b", model=LLMModel(name="m"))
+        result = _lookup_agent(agent, [agent])
+        assert result is agent
 
-    def test_resolve_handoff_route_non_deterministic(self) -> None:
-        """Test resolving a non-deterministic HandoffRouteModel."""
-        from dao_ai.orchestration.swarm import _resolve_agent
+    def test_lookup_unknown_name_returns_none(self) -> None:
+        from dao_ai.orchestration.swarm import _lookup_agent
 
-        route = HandoffRouteModel(agent="agent_b", is_deterministic=False)
-        agent_ref, is_deterministic, is_parallel = _resolve_agent(route)
-        assert agent_ref == "agent_b"
-        assert is_deterministic is False
-        assert is_parallel is False
-
-    def test_resolve_handoff_route_parallel(self) -> None:
-        """Test resolving a parallel HandoffRouteModel."""
-        from dao_ai.orchestration.swarm import _resolve_agent
-
-        route = HandoffRouteModel(agent="agent_b", is_parallel=True)
-        agent_ref, is_deterministic, is_parallel = _resolve_agent(route)
-        assert agent_ref == "agent_b"
-        assert is_deterministic is False
-        assert is_parallel is True
+        agents: list[AgentModel] = [
+            AgentModel(name="agent_a", model=LLMModel(name="m")),
+        ]
+        assert _lookup_agent("nope", agents) is None
 
 
 # =============================================================================

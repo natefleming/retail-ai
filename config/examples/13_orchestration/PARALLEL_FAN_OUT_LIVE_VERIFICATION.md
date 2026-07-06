@@ -1,7 +1,7 @@
 # Parallel Fan-Out — Live Endpoint Verification Runbook
 
 This runbook walks through the required live-endpoint verification for the
-`is_parallel` fan-out feature. All commands assume you are at the repo root
+parallel fan-out feature. All commands assume you are at the repo root
 (`~/development/databricks/dao-ai`) with a working Databricks CLI auth.
 
 ## 0. Prerequisites
@@ -20,13 +20,13 @@ databricks current-user me
 # Config must load and pass all cross-field validators.
 uv run dao-ai validate -c config/examples/13_orchestration/parallel_fan_out_pattern.yaml
 
-# Regenerate + inspect the schema so `is_parallel` is visible.
+# Regenerate + inspect the schema so `agents` / `join` are visible.
 uv run --quiet python -c "from dao_ai.config import AppConfig; import json; \
   print(json.dumps(AppConfig.model_json_schema()['\$defs']['HandoffRouteModel'], indent=2))"
 ```
 
-Expect: `is_parallel` appears as a boolean property with `default: false` in the
-`HandoffRouteModel` schema.
+Expect: `agents` (array of strings/AgentModel) and `join` (string/AgentModel)
+properties on `HandoffRouteModel`, alongside `agent` and `is_deterministic`.
 
 ## 2. Full unit + integration sweep
 

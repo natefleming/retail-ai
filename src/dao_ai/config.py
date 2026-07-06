@@ -6340,82 +6340,155 @@ class HandoffRouteModel(BaseModel):
     """
     Configuration model for a handoff route in a swarm.
 
-    A handoff route specifies a target agent and one of three transfer modes:
+    A single entry expresses either a **single-target** handoff or a
+    **parallel fan-out cohort**. These two shapes are mutually exclusive on
+    the same entry.
 
-    - **Agentic** (default): a handoff tool is created for the target agent and
-      the LLM decides when to invoke it.
-    - **Deterministic** (``is_deterministic=True``): control always transfers to
-      this agent after the source agent completes its turn, without LLM
+    Single-target handoff — set ``agent`` and optionally ``is_deterministic``:
+
+    - **Agentic** (default): a handoff tool is created for the target agent
+      and the LLM decides when to invoke it via a tool call.
+    - **Deterministic** (``is_deterministic=True``): control always transfers
+      to this agent after the source agent completes its turn, without LLM
       tool-call routing.
-    - **Parallel fan-out** (``is_parallel=True``): a handoff tool is created,
-      but the target is a member of a fan-out cohort. When the LLM invokes
-      multiple parallel handoff tools in a single turn, the targeted siblings
-      run concurrently in the same LangGraph superstep and converge on the
-      cohort's shared deterministic join agent (declared as another entry on
-      the same source with ``is_deterministic=True``).
 
-    ``is_deterministic`` and ``is_parallel`` are mutually exclusive on the same
-    entry — a single handoff can be at most one of the three modes.
+    Parallel fan-out cohort — set ``agents`` (list) and ``join``:
 
-    Example YAML — mixed modes on one source::
+    - A per-sibling parallel handoff tool is created for each entry in
+      ``agents``. When the LLM invokes multiple of these tools in a single
+      turn, LangGraph schedules the targeted siblings in the same superstep
+      (true concurrent execution). All siblings converge on the shared
+      ``join`` agent via a static edge in the parent graph; superstep
+      semantics run the join exactly once after every fired sibling
+      completes.
+
+    Example YAML — mixed shapes on one source::
 
         handoffs:
           triage_agent:
-            - agent: pricing_agent
-              is_parallel: true
-            - agent: inventory_agent
-              is_parallel: true
-            - agent: policy_agent
-              is_parallel: true
-            - agent: synthesizer_agent
-              is_deterministic: true   # shared join for the parallel cohort
-            - escalation_agent          # agentic (LLM-chosen) sequential handoff
+            - agents:
+                - pricing_agent
+                - inventory_agent
+                - policy_agent
+              join: synthesizer_agent            # shared join for the cohort
+            - escalation_agent                    # agentic single-target
+            - agent: emergency_agent
+              is_deterministic: true              # deterministic single-target
+
+    Validation (enforced at config load time):
+
+    - ``agent`` and ``agents`` are mutually exclusive; exactly one must be set.
+    - ``agents`` requires ``join``; ``join`` requires ``agents``.
+    - ``is_deterministic`` is only valid on single-target entries.
     """
 
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
-    agent: AgentModel | str = Field(
-        description="The target agent to hand off to, specified as an AgentModel or agent name string.",
+    agent: Optional[AgentModel | str] = Field(
+        default=None,
+        description=(
+            "Single-target handoff. Set this OR ``agents`` (mutually exclusive)."
+        ),
     )
     is_deterministic: bool = Field(
         default=False,
         description=(
-            "When true, the handoff is deterministic: control always transfers to this "
-            "agent after the source agent completes its turn, without LLM tool-call routing. "
-            "When false (default), a handoff tool is created and the LLM decides when to invoke it. "
-            "Mutually exclusive with is_parallel."
+            "Single-target only. When true, control always transfers to ``agent`` "
+            "after the source completes its turn, without LLM tool-call routing. "
+            "When false (default), a handoff tool is created and the LLM decides "
+            "when to invoke it. Ignored on cohort entries (``agents``)."
         ),
     )
-    is_parallel: bool = Field(
-        default=False,
+    agents: Optional[list[AgentModel | str]] = Field(
+        default=None,
         description=(
-            "When true, this target is a sibling in a parallel fan-out cohort. A handoff "
-            "tool is still created (per-sibling), but the intent is that the LLM invokes "
-            "this tool alongside other parallel siblings in a single turn so they run "
-            "concurrently. All is_parallel siblings from the same source must share exactly "
-            "one is_deterministic handoff on the same source — that agent is the cohort's "
-            "join target. Mutually exclusive with is_deterministic."
+            "Parallel fan-out cohort — the sibling agents the source may invoke "
+            "concurrently in a single LLM turn. Requires ``join``. Mutually "
+            "exclusive with ``agent``."
+        ),
+    )
+    join: Optional[AgentModel | str] = Field(
+        default=None,
+        description=(
+            "Shared join agent for a parallel fan-out cohort. All fired "
+            "siblings in ``agents`` converge here via a static edge; the join "
+            "runs exactly once after all siblings complete. Required when "
+            "``agents`` is set; must be omitted otherwise."
         ),
     )
 
     @model_validator(mode="after")
-    def validate_exclusive_modes(self) -> Self:
-        """Reject entries that set both is_deterministic and is_parallel.
+    def validate_shape(self) -> Self:
+        """Enforce single-target XOR cohort shape.
 
-        The two modes are semantically distinct — deterministic is a static
-        graph edge on the source, parallel is a per-sibling handoff tool
-        whose join is a *separate* deterministic entry on the same source.
-        Combining them on one entry is ambiguous.
+        - Exactly one of ``agent`` or ``agents`` must be set.
+        - ``agents`` requires ``join``; ``join`` requires ``agents``.
+        - ``is_deterministic`` is not meaningful on cohort entries.
+        - Cohort must have at least two siblings (a "cohort" of one is a
+          plain single-target handoff — reject as a config error so the
+          user picks the right shape).
+        - Cohort siblings must be distinct — duplicate names route the
+          same handoff tool twice.
+        - The join must not also appear among the cohort siblings.
         """
-        if self.is_deterministic and self.is_parallel:
-            target_name: str = (
-                self.agent.name if isinstance(self.agent, AgentModel) else self.agent
-            )
+        single_target: bool = self.agent is not None
+        cohort: bool = self.agents is not None
+
+        if single_target and cohort:
             raise ValueError(
-                f"Handoff to '{target_name}' cannot be both is_deterministic and "
-                "is_parallel. Pick one: deterministic (source unconditionally "
-                "transfers) or parallel (source's LLM fans out to siblings that "
-                "converge on a separate deterministic join)."
+                "Handoff entry cannot set both ``agent`` and ``agents``. "
+                "Use ``agent`` for a single-target handoff, or ``agents`` + "
+                "``join`` for a parallel fan-out cohort."
             )
+        if not single_target and not cohort:
+            raise ValueError(
+                "Handoff entry must set either ``agent`` (single-target) or "
+                "``agents`` + ``join`` (parallel fan-out cohort)."
+            )
+
+        if cohort:
+            if self.join is None:
+                raise ValueError(
+                    "Handoff cohort (``agents``) requires ``join`` naming the "
+                    "shared reducer agent all siblings converge on."
+                )
+            if self.is_deterministic:
+                raise ValueError(
+                    "``is_deterministic`` is not meaningful on a cohort entry "
+                    "(``agents``). The cohort's ``join`` is always reached "
+                    "deterministically after every fired sibling completes."
+                )
+            if len(self.agents) < 2:
+                raise ValueError(
+                    "Handoff cohort (``agents``) must have at least two "
+                    "siblings. For a single handoff use ``agent`` instead."
+                )
+            sibling_names: list[str] = [
+                a.name if isinstance(a, AgentModel) else a for a in self.agents
+            ]
+            if len(set(sibling_names)) != len(sibling_names):
+                dupes: list[str] = [
+                    n for n in sibling_names if sibling_names.count(n) > 1
+                ]
+                raise ValueError(
+                    f"Handoff cohort siblings must be distinct; duplicates: "
+                    f"{sorted(set(dupes))}."
+                )
+            join_name: str = (
+                self.join.name if isinstance(self.join, AgentModel) else self.join
+            )
+            if join_name in sibling_names:
+                raise ValueError(
+                    f"Handoff cohort join '{join_name}' cannot also be a "
+                    "sibling. The join must be distinct so LangGraph can fan "
+                    "siblings into the join without a self-edge."
+                )
+        else:
+            # single-target: ``join`` is not meaningful
+            if self.join is not None:
+                raise ValueError(
+                    "``join`` is only valid on a cohort entry (``agents``). "
+                    "For a single-target handoff, omit ``join``."
+                )
         return self
 
 
@@ -6460,127 +6533,99 @@ class SwarmModel(BaseModel):
         return target.name if isinstance(target, AgentModel) else target
 
     @staticmethod
-    def _classify_entry(
+    def _iter_edges(
         entry: "AgentModel | str | HandoffRouteModel",
-    ) -> tuple[str, str]:
-        """Return ``(target_name, kind)`` where kind ∈ {agentic, deterministic, parallel}."""
+    ) -> list[tuple[str, str]]:
+        """Return the ``(target_name, kind)`` edges implied by one handoff entry.
+
+        A single-target entry produces one edge. A cohort entry produces N+1
+        edges: one ``parallel`` edge per sibling in ``agents`` (source →
+        sibling) and one ``deterministic`` edge for ``join`` (source →
+        join, though at runtime the join is reached *through* the siblings —
+        we surface it here so the cycle detector treats it uniformly).
+
+        ``kind ∈ {agentic, deterministic, parallel}``.
+        """
         if isinstance(entry, HandoffRouteModel):
-            target_name: str = SwarmModel._target_name(entry.agent)
-            if entry.is_deterministic:
-                return target_name, "deterministic"
-            if entry.is_parallel:
-                return target_name, "parallel"
-            return target_name, "agentic"
-        return SwarmModel._target_name(entry), "agentic"
+            if entry.agents is not None:
+                edges: list[tuple[str, str]] = [
+                    (SwarmModel._target_name(a), "parallel") for a in entry.agents
+                ]
+                edges.append((SwarmModel._target_name(entry.join), "deterministic"))
+                return edges
+            kind: str = "deterministic" if entry.is_deterministic else "agentic"
+            return [(SwarmModel._target_name(entry.agent), kind)]
+        return [(SwarmModel._target_name(entry), "agentic")]
 
     @model_validator(mode="after")
     def validate_parallel_cohort_shape(self) -> Self:
-        """Reject parallel fan-out cohorts that don't have exactly one join.
+        """Cross-entry validation for parallel fan-out cohorts.
 
-        A "cohort" here is the set of ``is_parallel=True`` handoffs from a
-        single source agent. Every cohort must share exactly one
-        ``is_deterministic=True`` handoff on the same source — that is the
-        join agent all siblings converge on via a static edge in the parent
-        graph. Without a shared join, LangGraph's superstep fan-in has no
-        target and the siblings would each terminate independently.
+        Per-entry shape (``agents`` requires ``join``, at least two distinct
+        siblings, no sibling == join, etc.) is enforced by
+        ``HandoffRouteModel.validate_shape``. This validator only handles
+        invariants that span multiple entries in the swarm:
 
-        Rejects, with clear messages, several edge cases the user can easily
-        introduce by accident:
-
-          * ``is_parallel=True`` self-reference (a source can't fan out to itself).
-          * No ``is_deterministic`` join, or more than one.
-          * The join agent appears among the parallel siblings (would create
-            a self-edge sibling → sibling in the parent graph).
-          * The same agent is a parallel sibling in two different cohorts with
-            *different* joins (cross-cohort collision).
-          * A parallel sibling of one cohort is also the *source* of its own
-            parallel cohort (nested fan-out — out of scope for this feature
-            and would leave the outer join unreachable when the inner cohort
-            fires).
+        - Cohort self-reference: source ∉ its own ``agents`` (a source can't
+          fan out to itself — the cohort would deadlock its own turn).
+        - Cross-cohort collision: an agent can't be a sibling in two cohorts
+          with *different* joins.
+        - Nested fan-out: a sibling can't also be the source of another
+          cohort. Nested fan-out is not supported — the outer join would
+          be unreachable once the inner cohort fires.
         """
         if not self.handoffs:
             return self
 
-        # First pass: within each source, validate the cohort shape.
-        # Also collect (sibling -> join) mapping for the cross-source pass.
         sibling_to_join: dict[str, str] = {}
         parallel_sources: set[str] = set()
 
         for source, targets in self.handoffs.items():
             if not targets:
                 continue
-            parallel_targets: list[str] = []
-            det_targets: list[str] = []
             for entry in targets:
-                target_name, kind = self._classify_entry(entry)
-                if kind == "parallel":
-                    if target_name == source:
-                        raise ValueError(
-                            f"Agent '{source}' cannot have an is_parallel "
-                            "handoff to itself."
-                        )
-                    parallel_targets.append(target_name)
-                elif kind == "deterministic":
-                    det_targets.append(target_name)
-
-            if not parallel_targets:
-                continue
-
-            if len(det_targets) == 0:
-                raise ValueError(
-                    f"Agent '{source}' has parallel handoffs to "
-                    f"{parallel_targets} but no is_deterministic join target. "
-                    "Parallel siblings must converge on exactly one join agent — "
-                    "add another entry on the same source with is_deterministic: "
-                    "true naming the join agent."
-                )
-            if len(det_targets) > 1:
-                raise ValueError(
-                    f"Agent '{source}' has parallel handoffs to "
-                    f"{parallel_targets} but multiple is_deterministic join "
-                    f"candidates {det_targets}. A parallel cohort must have "
-                    "exactly one join agent."
-                )
-
-            join_name: str = det_targets[0]
-            if join_name in parallel_targets:
-                raise ValueError(
-                    f"Agent '{source}' lists '{join_name}' as both a parallel "
-                    "sibling and the deterministic join. The join agent must be "
-                    "distinct from the siblings so LangGraph can fan siblings "
-                    "into the join without a self-edge."
-                )
-
-            parallel_sources.add(source)
-            for sibling in parallel_targets:
-                existing_join: str | None = sibling_to_join.get(sibling)
-                if existing_join is not None and existing_join != join_name:
+                if not isinstance(entry, HandoffRouteModel) or entry.agents is None:
+                    continue
+                # Cohort entry.
+                sibling_names: list[str] = [
+                    self._target_name(a) for a in entry.agents
+                ]
+                join_name: str = self._target_name(entry.join)
+                if source in sibling_names:
                     raise ValueError(
-                        f"Agent '{sibling}' is a parallel sibling of cohorts "
-                        f"with different join targets ('{existing_join}' and "
-                        f"'{join_name}'). A sibling may belong to at most one "
-                        "cohort — split the workflow or route through a "
-                        "shared join."
+                        f"Agent '{source}' cannot appear in its own parallel "
+                        f"cohort (``agents``). A source can't fan out to itself."
                     )
-                sibling_to_join[sibling] = join_name
+                if source == join_name:
+                    raise ValueError(
+                        f"Agent '{source}' cannot be its own cohort ``join``. "
+                        "Pick a distinct join agent."
+                    )
+                parallel_sources.add(source)
+                for sibling in sibling_names:
+                    existing_join: str | None = sibling_to_join.get(sibling)
+                    if existing_join is not None and existing_join != join_name:
+                        raise ValueError(
+                            f"Agent '{sibling}' is a sibling in cohorts with "
+                            f"different join targets ('{existing_join}' and "
+                            f"'{join_name}'). A sibling may belong to at most "
+                            "one cohort."
+                        )
+                    sibling_to_join[sibling] = join_name
 
-        # Second pass: reject nested fan-out (a sibling that is itself the
-        # source of another cohort). This is a non-goal for the current
-        # feature — allowing it silently would leave the outer join
-        # unreachable whenever the inner cohort fires (the inner Command
-        # override wins over the outer static edge).
-        nested: set[str] = set(sibling_to_join.keys()) & parallel_sources
+        # Reject nested fan-out — a sibling that is itself a cohort source.
+        # Allowing this silently would leave the outer join unreachable
+        # whenever the inner cohort fires.
+        nested: set[str] = set(sibling_to_join) & parallel_sources
         if nested:
             offender: str = sorted(nested)[0]
             raise ValueError(
-                f"Agent '{offender}' is both a parallel sibling of one cohort "
-                "and the source of another parallel cohort. Nested parallel "
-                "fan-out is not supported — the outer join would be "
-                "unreachable once the inner cohort fires. Restructure the "
-                "workflow so any given agent is at most one of: cohort source, "
-                "cohort sibling, cohort join."
+                f"Agent '{offender}' is both a cohort sibling and the source "
+                "of its own cohort. Nested parallel fan-out is not supported "
+                "— the outer join would be unreachable once the inner cohort "
+                "fires. Restructure so any agent is at most one of: cohort "
+                "source, cohort sibling, cohort join."
             )
-
         return self
 
     @model_validator(mode="after")
@@ -6612,17 +6657,21 @@ class SwarmModel(BaseModel):
             return self
 
         # Build edge list: list[(source, target, kind)] where kind is
-        # "deterministic", "parallel", or "agentic".
+        # "deterministic", "parallel", or "agentic". Cohort entries expand
+        # to N parallel edges (source -> sibling) plus one deterministic
+        # edge for the join, so the cycle detector treats all
+        # unconditional edges uniformly.
         edges: list[tuple[str, str, str]] = []
         for source, targets in self.handoffs.items():
             if not targets:
                 continue
             for entry in targets:
-                target_name, kind = self._classify_entry(entry)
-                # Skip self-references; they're handled at swarm-build time.
-                if target_name == source:
-                    continue
-                edges.append((source, target_name, kind))
+                for target_name, kind in self._iter_edges(entry):
+                    # Skip self-references; per-entry validators already
+                    # flag them.
+                    if target_name == source:
+                        continue
+                    edges.append((source, target_name, kind))
 
         # Adjacency list keyed by source -> list[(target, kind)]
         adj: dict[str, list[tuple[str, str]]] = {}
