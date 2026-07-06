@@ -6,57 +6,7 @@ End-to-end configurations demonstrating best practices for real-world deployment
 
 ## Architecture Overview
 
-```mermaid
-%%{init: {'theme': 'base', 'themeVariables': { 'primaryColor': '#1565c0'}}}%%
-flowchart TB
-    subgraph Complete["🏗️ Complete Application Architecture"]
-        subgraph UI["🖥️ User Interface"]
-            Chat["💬 Chat UI"]
-            API["🔌 REST API"]
-        end
-        
-        subgraph Core["🤖 DAO AI Core"]
-            subgraph Orchestration["🎭 Orchestration"]
-                Supervisor["👔 Supervisor"]
-                Swarm["🐝 Swarm"]
-            end
-            
-            subgraph Agents["👷 Specialized Agents"]
-                A1["💬 General"]
-                A2["📋 Orders"]
-                A3["🔧 DIY"]
-                A4["🛒 Product"]
-                A5["📦 Inventory"]
-                A6["⚖️ Comparison"]
-                A7["💡 Recommendation"]
-            end
-            
-            subgraph Features["✨ Features"]
-                F1["🧠 Memory"]
-                F2["🔒 PII Protection"]
-                F3["🛡️ Guardrails"]
-                F4["⏸️ HITL"]
-            end
-        end
-        
-        subgraph Data["☁️ Databricks Platform"]
-            LLM["🧠 LLM Endpoints"]
-            VS["🔍 Vector Search"]
-            Genie["🧞 Genie Rooms"]
-            MCP["🔌 MCP Servers"]
-            SQL["🗄️ SQL Warehouse"]
-        end
-    end
-
-    UI --> Core
-    Core --> Data
-
-    style UI fill:#e3f2fd,stroke:#1565c0
-    style Orchestration fill:#fff3e0,stroke:#e65100
-    style Agents fill:#e8f5e9,stroke:#2e7d32
-    style Features fill:#fce4ec,stroke:#c2185b
-    style Data fill:#f3e5f5,stroke:#7b1fa2
-```
+![Complete Application Architecture: three composed layers — user interface (Chat UI, REST API), DAO AI Core (Supervisor/Swarm orchestration, 7 specialist agents, cross-cutting features like memory/PII/guardrails/HITL), and Databricks Platform (LLM endpoints, Vector Search, Genie Rooms, MCP servers, SQL warehouse, Lakebase)](images/complete-application-architecture.png)
 
 ## Examples
 
