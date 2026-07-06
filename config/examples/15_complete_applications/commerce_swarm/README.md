@@ -25,41 +25,7 @@ The system is built from five interacting layers. Each layer below has a focused
 
 The top-level shape: client → app (with validation + memory middleware + 11-agent pipeline) → AI Gateway, Lakebase, Unity Catalog. Traces flow out via a SQL warehouse to UC OTEL tables.
 
-```mermaid
-%%{init: {'theme': 'base', 'themeVariables': { 'primaryColor': '#1565c0', 'fontSize': '14px'}}}%%
-flowchart LR
-    Client["🖥️ Client<br/>Web · Mobile · Chat"]
-
-    subgraph App["🚀 Databricks App"]
-        direction TB
-        MW1["🚦 validation"]
-        MW2["🧠 memory inject"]
-        Swarm["🔁 11-agent pipeline"]
-        MW3["💾 extraction (bg)"]
-        MW1 --> MW2 --> Swarm
-        Swarm -.-> MW3
-    end
-
-    Gateway["🛡️ Unity AI Gateway"]
-    Lakebase[("🗄️ Lakebase<br/>scale-to-zero")]
-    UC["🏛️ Unity Catalog<br/>tables · UC fns · VS · OTEL"]
-    Warehouse["📍 SQL Warehouse<br/>trace export"]
-
-    Client --> App
-    Swarm <-.->|chat completions| Gateway
-    Swarm <-.->|checkpoint + memory| Lakebase
-    MW2 <-.->|search| Lakebase
-    MW3 -.->|write| Lakebase
-    Swarm -->|tools| UC
-    App -.->|MLflow tracing| Warehouse --> UC
-
-    style App fill:#fff8e1,stroke:#f57f17,stroke-width:2px
-    style Gateway fill:#f3e5f5,stroke:#7b1fa2
-    style Lakebase fill:#e8f5e9,stroke:#2e7d32
-    style UC fill:#e3f2fd,stroke:#1565c0
-    style Warehouse fill:#ede7f6,stroke:#512da8
-    style Swarm fill:#fffde7,stroke:#fbc02d
-```
+![Commerce pipeline system layers: client hits the Databricks App, which wraps validation and memory-inject middleware around an 11-agent pipeline (supervisor → planner → handler/ucp → composer) with background extraction; the pipeline routes chat through Unity AI Gateway, checkpoints and searches memory in Lakebase (scale-to-zero), calls tools in Unity Catalog, and exports MLflow traces via a SQL warehouse](../images/commerce-pipeline-system-layers.png)
 
 **Key wiring details that are easy to miss:**
 - The `🧠 memory inject` block is the `MemoryContextMiddleware` (`dao_ai.middleware.memory_context`) that fires **before every LLM call**, not just on `recommendation`. It does a semantic search against the Lakebase `store` using `query_model` (gpt-oss-120b) for query rephrasing + `embedding_model` (gte-large-en) for vector similarity, and prepends a `## Memories` section to the agent's system prompt.
