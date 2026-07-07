@@ -503,3 +503,98 @@ class TestModelServingSystemResources:
         db = DatabaseModel(name="x", project="x", on_behalf_of_user=True)
         resources = list(db.as_resources())
         assert all(not isinstance(r, DatabricksLakebase) for r in resources)
+
+
+# =============================================================================
+# _resolve_lakebase_database_path — loud failure when the SDK can't reach the
+# Lakebase project. Silent fall-through used to emit a bogus resource path
+# built from ``DatabaseModel.database`` (a pg-level name like
+# ``databricks_postgres``) which produced a mystery deploy-time 404 far from
+# the auth root cause. Raise instead so operators see the profile / auth issue
+# at generate-bundle time.
+# =============================================================================
+
+
+@pytest.mark.unit
+class TestResolveLakebaseDatabasePathLoudFailure:
+    def test_raises_when_list_databases_fails(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from dao_ai.apps.resources import _resolve_lakebase_database_path
+        from dao_ai.config import DatabaseModel
+
+        db = DatabaseModel(project="commerce-swarm", branch="production")
+
+        class _BoomPostgres:
+            def list_databases(self, _branch_path: str) -> None:
+                raise RuntimeError("401 Unauthorized")
+
+        class _WC:
+            postgres = _BoomPostgres()
+
+        monkeypatch.setattr(
+            DatabaseModel, "workspace_client", property(lambda self: _WC())
+        )
+
+        with pytest.raises(RuntimeError, match=r"--profile"):
+            _resolve_lakebase_database_path(
+                db, "projects/commerce-swarm/branches/production"
+            )
+
+    def test_raises_when_no_databases_under_branch(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from dao_ai.apps.resources import _resolve_lakebase_database_path
+        from dao_ai.config import DatabaseModel
+
+        db = DatabaseModel(project="commerce-swarm", branch="production")
+
+        class _EmptyPostgres:
+            def list_databases(self, _branch_path: str) -> list:
+                return []
+
+        class _WC:
+            postgres = _EmptyPostgres()
+
+        monkeypatch.setattr(
+            DatabaseModel, "workspace_client", property(lambda self: _WC())
+        )
+
+        with pytest.raises(RuntimeError, match=r"No Lakebase databases found"):
+            _resolve_lakebase_database_path(
+                db, "projects/commerce-swarm/branches/production"
+            )
+
+    def test_returns_resource_path_when_pg_name_matches(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Happy path: the resolver returns ``d.name`` (with hyphen), not
+        ``db.database`` (the pg-level name, typically underscored)."""
+        from types import SimpleNamespace
+
+        from dao_ai.apps.resources import _resolve_lakebase_database_path
+        from dao_ai.config import DatabaseModel
+
+        db = DatabaseModel(project="commerce-swarm", branch="production")
+
+        class _Postgres:
+            def list_databases(self, _branch_path: str) -> list:
+                return [
+                    SimpleNamespace(
+                        name="projects/commerce-swarm/branches/production/databases/databricks-postgres",
+                        status=SimpleNamespace(postgres_database="databricks_postgres"),
+                    )
+                ]
+
+        class _WC:
+            postgres = _Postgres()
+
+        monkeypatch.setattr(
+            DatabaseModel, "workspace_client", property(lambda self: _WC())
+        )
+
+        result = _resolve_lakebase_database_path(
+            db, "projects/commerce-swarm/branches/production"
+        )
+        assert result.endswith("/databases/databricks-postgres")
+        assert "databricks_postgres" not in result.split("/databases/")[-1]

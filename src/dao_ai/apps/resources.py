@@ -519,9 +519,12 @@ def _resolve_lakebase_database_path(db: DatabaseModel, branch_path: str) -> str:
       ``name``.
     * If no match is found, fall back to the first database under the
       branch (most Lakebase projects have exactly one).
-    * If the API call fails entirely, fall back to constructing a path
-      from ``db.database`` -- the deploy will surface a clear platform
-      error if the constructed path doesn't exist.
+    * If the API call fails or returns no databases, raise ``RuntimeError``
+      with a clear message. Silently constructing a path from ``db.database``
+      produces a deploy-time 404 (``db.database`` is the pg-level database
+      name -- typically ``databricks_postgres`` -- not the Lakebase resource
+      id -- typically ``databricks-postgres``); this manifests as a mystery
+      404 far from the auth root cause. Fail loud instead.
     """
     from dao_ai.config import value_of
 
@@ -534,12 +537,13 @@ def _resolve_lakebase_database_path(db: DatabaseModel, branch_path: str) -> str:
     try:
         w = db.workspace_client
         databases = list(w.postgres.list_databases(branch_path))
-    except Exception as e:  # pragma: no cover -- defensive fallback
-        logger.debug(
-            f"Could not list databases under '{branch_path}': {e}. "
-            f"Falling back to constructed path with database_id='{database_id}'."
-        )
-        return f"{branch_path}/databases/{database_id}"
+    except Exception as e:
+        raise RuntimeError(
+            f"Could not list Lakebase databases under '{branch_path}': {e}. "
+            f"The Databricks profile in scope cannot reach this Lakebase project. "
+            f"Re-run with `-p <profile>` / `--profile <profile>` pointing at a "
+            f"workspace where the '{db.project}' project lives."
+        ) from e
 
     if database_id:
         for d in databases:
@@ -556,7 +560,11 @@ def _resolve_lakebase_database_path(db: DatabaseModel, branch_path: str) -> str:
             )
         return databases[0].name
 
-    return f"{branch_path}/databases/{database_id}"
+    raise RuntimeError(
+        f"No Lakebase databases found under '{branch_path}'. Provision the "
+        f"database before generating the bundle, or re-run with `-p <profile>` "
+        f"pointing at the workspace where the '{db.project}' project lives."
+    )
 
 
 def _extract_app_resources(
