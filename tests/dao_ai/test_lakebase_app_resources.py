@@ -506,57 +506,73 @@ class TestModelServingSystemResources:
 
 
 # =============================================================================
-# _resolve_lakebase_database_path — pure config rendering, no SDK call.
+# _resolve_lakebase_database_path — SDK auto-detect with graceful fallback.
 #
-# The resolver returns the Databricks Apps postgres resource path
-# deterministically:
-#   1. If ``db.database`` is already a full resource path, use verbatim.
-#   2. Otherwise, construct ``{branch_path}/databases/databricks-postgres``
-#      (the Databricks auto-provisioning default resource id).
-#
-# No SDK lookup — auth is not required at bundle-generation time. Users
-# with custom-provisioned databases declare the full path in
-# ``db.database``. Deploy-time validation catches wrong paths clearly.
+# Precedence:
+#   1. Full-path in db.database → verbatim (escape hatch).
+#   2. Explicit db.database_id → verbatim (skip SDK, user knows best).
+#   3. SDK auto-detect → match by pg_name → return d.name.
+#   4. SDK success without match → first database's d.name (single-DB projects).
+#   5. SDK failure → construct with db.database_id default + WARNING log.
 # =============================================================================
 
 
+def _mock_sdk_client(
+    monkeypatch: pytest.MonkeyPatch,
+    databases: list | Exception,
+) -> object:
+    """Install a fake workspace_client on DatabaseModel whose
+    ``postgres.list_databases`` returns ``databases`` (a list) or raises
+    (if given an Exception instance). Returns the fake client so callers
+    can inspect ``call_count`` etc."""
+    from unittest.mock import MagicMock
+
+    from dao_ai.config import DatabaseModel
+
+    class _Postgres:
+        call_count = 0
+        last_branch: str | None = None
+
+        def list_databases(self_inner, branch_path: str):
+            _Postgres.call_count += 1
+            _Postgres.last_branch = branch_path
+            if isinstance(databases, Exception):
+                raise databases
+            return iter(databases)
+
+    class _WC:
+        postgres = _Postgres()
+
+    fake = MagicMock(spec=_WC)
+    fake.postgres = _WC.postgres
+    monkeypatch.setattr(
+        DatabaseModel, "workspace_client", property(lambda self: fake)
+    )
+    return _WC.postgres
+
+
+def _forbid_sdk(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Fail loudly if workspace_client is touched."""
+    from dao_ai.config import DatabaseModel
+
+    def _boom(_self: object) -> object:
+        raise AssertionError(
+            "_resolve_lakebase_database_path must not access workspace_client "
+            "in this precedence branch"
+        )
+
+    monkeypatch.setattr(DatabaseModel, "workspace_client", property(_boom))
+
+
 @pytest.mark.unit
-class TestResolveLakebaseDatabasePathDeterministic:
-    def test_default_construction_uses_databricks_postgres_hyphen(
+class TestResolveLakebaseDatabasePathPrecedence:
+    """Cover each of the 5 precedence levels documented on the resolver."""
+
+    def test_1_full_path_in_database_field_passthrough(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """DatabaseModel with just project + branch set → resource path
-        ends in ``/databases/databricks-postgres``. No SDK call is made."""
-        from dao_ai.apps.resources import _resolve_lakebase_database_path
-        from dao_ai.config import DatabaseModel
-
-        db = DatabaseModel(project="commerce-swarm", branch="production")
-
-        # Spy: touching db.workspace_client would blow up because there's
-        # no configured auth in the test. If the resolver reaches for it,
-        # this test fails loudly.
-        def _boom(_self: object) -> object:
-            raise AssertionError(
-                "_resolve_lakebase_database_path must not access workspace_client"
-            )
-
-        monkeypatch.setattr(
-            DatabaseModel, "workspace_client", property(_boom)
-        )
-
-        result = _resolve_lakebase_database_path(
-            db, "projects/commerce-swarm/branches/production"
-        )
-        assert result == (
-            "projects/commerce-swarm/branches/production/databases/databricks-postgres"
-        )
-
-    def test_full_path_in_database_field_passthrough(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """Escape hatch: user declared a full resource path in
-        ``db.database`` (legacy shape). Resolver returns verbatim,
-        no SDK call."""
+        """User wrote a full ``projects/.../databases/<id>`` string in
+        ``database:``. Returned verbatim, no SDK call."""
         from dao_ai.apps.resources import _resolve_lakebase_database_path
         from dao_ai.config import DatabaseModel
 
@@ -569,27 +585,19 @@ class TestResolveLakebaseDatabasePathDeterministic:
             branch="production",
             database=custom_path,
         )
-
-        def _boom(_self: object) -> object:
-            raise AssertionError(
-                "_resolve_lakebase_database_path must not access workspace_client"
-            )
-
-        monkeypatch.setattr(
-            DatabaseModel, "workspace_client", property(_boom)
-        )
+        _forbid_sdk(monkeypatch)
 
         result = _resolve_lakebase_database_path(
             db, "projects/retail-consumer-goods/branches/production"
         )
         assert result == custom_path
 
-    def test_custom_database_id_field_used_in_construction(
+    def test_2_explicit_database_id_override_skips_sdk(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """Preferred shape for custom-provisioned databases: user sets
-        ``database_id`` to the Lakebase resource id (short hyphenated
-        form). Resolver constructs the path using that id. No SDK call."""
+        """User set ``database_id`` explicitly in YAML → construct with
+        that value, no SDK call. Recommended shape for custom-provisioned
+        Lakebases with a non-default resource id."""
         from dao_ai.apps.resources import _resolve_lakebase_database_path
         from dao_ai.config import DatabaseModel
 
@@ -598,15 +606,7 @@ class TestResolveLakebaseDatabasePathDeterministic:
             branch="production",
             database_id="db-vllm-t1lbxazynr",
         )
-
-        def _boom(_self: object) -> object:
-            raise AssertionError(
-                "_resolve_lakebase_database_path must not access workspace_client"
-            )
-
-        monkeypatch.setattr(
-            DatabaseModel, "workspace_client", property(_boom)
-        )
+        _forbid_sdk(monkeypatch)
 
         result = _resolve_lakebase_database_path(
             db, "projects/retail-consumer-goods/branches/production"
@@ -614,3 +614,141 @@ class TestResolveLakebaseDatabasePathDeterministic:
         assert result == (
             "projects/retail-consumer-goods/branches/production/databases/db-vllm-t1lbxazynr"
         )
+
+    def test_3_sdk_autodetect_matches_by_pg_name(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """No database_id set → SDK auto-detects. Returns d.name of the
+        database whose status.postgres_database matches db.database. This
+        is the transparent auto-detection path for custom-provisioned
+        setups (matches v0.1.101 behavior)."""
+        from types import SimpleNamespace
+
+        from dao_ai.apps.resources import _resolve_lakebase_database_path
+        from dao_ai.config import DatabaseModel
+
+        db = DatabaseModel(project="commerce-swarm", branch="production")
+        pg = _mock_sdk_client(
+            monkeypatch,
+            [
+                SimpleNamespace(
+                    name="projects/commerce-swarm/branches/production/databases/databricks-postgres",
+                    status=SimpleNamespace(postgres_database="databricks_postgres"),
+                ),
+            ],
+        )
+
+        result = _resolve_lakebase_database_path(
+            db, "projects/commerce-swarm/branches/production"
+        )
+        assert result == (
+            "projects/commerce-swarm/branches/production/databases/databricks-postgres"
+        )
+        assert pg.call_count == 1
+
+    def test_4_sdk_returns_databases_no_match_falls_back_to_first(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """SDK returned databases but none match db.database by pg_name
+        → return the first database's name (typical single-DB project
+        case; matches v0.1.101's ``databases[0].name`` fallback)."""
+        from types import SimpleNamespace
+
+        from dao_ai.apps.resources import _resolve_lakebase_database_path
+        from dao_ai.config import DatabaseModel
+
+        db = DatabaseModel(project="p", branch="main", database="something_else")
+        _mock_sdk_client(
+            monkeypatch,
+            [
+                SimpleNamespace(
+                    name="projects/p/branches/main/databases/actual-db",
+                    status=SimpleNamespace(postgres_database="not_the_pg_name"),
+                ),
+            ],
+        )
+
+        result = _resolve_lakebase_database_path(
+            db, "projects/p/branches/main"
+        )
+        assert result == "projects/p/branches/main/databases/actual-db"
+
+    def test_5_sdk_failure_falls_back_to_database_id_default(
+        self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """SDK raises (auth broken / wrong profile) → resolver logs a
+        WARNING and falls back to ``{branch}/databases/{database_id}``
+        with the ``databricks-postgres`` default. Fixes v0.1.101's
+        silent-fallback-to-wrong-path bug (which used ``db.database``,
+        the pg-level name)."""
+        from dao_ai.apps.resources import _resolve_lakebase_database_path
+        from dao_ai.config import DatabaseModel
+
+        db = DatabaseModel(project="commerce-swarm", branch="production")
+        _mock_sdk_client(
+            monkeypatch, RuntimeError("401 Unauthorized")
+        )
+
+        # loguru: capture WARNING via a dedicated sink.
+        from loguru import logger as loguru_logger
+
+        captured: list[str] = []
+        sink_id = loguru_logger.add(
+            lambda msg: captured.append(str(msg)),
+            level="WARNING",
+            format="{message}",
+        )
+        try:
+            result = _resolve_lakebase_database_path(
+                db, "projects/commerce-swarm/branches/production"
+            )
+        finally:
+            loguru_logger.remove(sink_id)
+
+        # Falls back to the databricks-postgres default (hyphenated),
+        # NOT db.database (which is databricks_postgres, underscored).
+        assert result == (
+            "projects/commerce-swarm/branches/production/databases/databricks-postgres"
+        )
+        # A WARNING was logged mentioning the fallback + how to fix.
+        joined = " ".join(captured)
+        assert "auto-detection failed" in joined
+        assert "database_id" in joined
+
+    def test_5b_sdk_returns_empty_falls_back_to_database_id_default(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """SDK returned an empty database list → still fall back to the
+        database_id default. Same as the failure case, no WARNING (we
+        got a successful response, just with no rows)."""
+        from dao_ai.apps.resources import _resolve_lakebase_database_path
+        from dao_ai.config import DatabaseModel
+
+        db = DatabaseModel(project="p", branch="main")
+        _mock_sdk_client(monkeypatch, [])
+
+        result = _resolve_lakebase_database_path(
+            db, "projects/p/branches/main"
+        )
+        assert result == "projects/p/branches/main/databases/databricks-postgres"
+
+    def test_2_wins_over_3_explicit_database_id_beats_sdk(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Precedence guard: even when SDK would return something valid,
+        an explicit database_id override wins. This lets users bypass
+        SDK entirely (fast, deterministic, no profile requirement)."""
+        from dao_ai.apps.resources import _resolve_lakebase_database_path
+        from dao_ai.config import DatabaseModel
+
+        db = DatabaseModel(
+            project="p",
+            branch="main",
+            database_id="user-override-id",
+        )
+        _forbid_sdk(monkeypatch)  # Would blow up if the resolver called SDK.
+
+        result = _resolve_lakebase_database_path(
+            db, "projects/p/branches/main"
+        )
+        assert result == "projects/p/branches/main/databases/user-override-id"
