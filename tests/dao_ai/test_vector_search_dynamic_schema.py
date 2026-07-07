@@ -43,6 +43,7 @@ from dao_ai.tools.vector_search import (
     _build_filter_item_model,
     _build_vector_search_input_model,
     _fetch_index_columns,
+    _is_array_type,
     _legal_filter_keys,
     _normalize_declared_columns,
     _vector_column_names_from_describe,
@@ -1291,3 +1292,194 @@ class TestHandDeclaredColumnInfoInFactory:
         assert "price LIKE" in enum  # numeric can LIKE — no narrowing
         # Description enrichment came through
         assert "Brand — Milwaukee" in tool.description
+
+
+# ---------------------------------------------------------------------------
+# ARRAY-typed column support (Do It Best hardware-iq presentation, 2026-07-06)
+#
+# Databricks VS on Standard endpoints supports ARRAY<primitive> filtering via
+# element containment (equality only). Other operators (LIKE, ordering,
+# NOT LIKE) are rejected at query time. We narrow the Literal enum at build
+# time to reflect that constraint.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestIsArrayType:
+    def test_array_bracket_variants(self) -> None:
+        assert _is_array_type("array<string>") is True
+        assert _is_array_type("ARRAY<INT>") is True
+        assert _is_array_type("array<double>") is True
+        assert _is_array_type("Array<Boolean>") is True
+
+    def test_bare_array(self) -> None:
+        # Users write plain "array" in ColumnInfo.
+        assert _is_array_type("array") is True
+        assert _is_array_type("ARRAY") is True
+
+    def test_scalars_return_false(self) -> None:
+        for t in ("string", "STRING", "int", "bigint", "double", "boolean",
+                  "timestamp", "date", "decimal(10,2)"):
+            assert _is_array_type(t) is False, t
+
+    def test_empty_or_none_returns_false(self) -> None:
+        assert _is_array_type(None) is False
+        assert _is_array_type("") is False
+        assert _is_array_type("   ") is False
+
+
+@pytest.mark.unit
+class TestArrayColumnInFactory:
+    def _bare_vs(self) -> VectorStoreModel:
+        return VectorStoreModel(
+            index=IndexModel(
+                schema=SchemaModel(
+                    catalog_name="retail_consumer_goods",
+                    schema_name="commerce_swarm",
+                ),
+                name="products_description_index",
+            ),
+            endpoint=VectorSearchEndpoint(name="dbdemos_vs_endpoint"),
+        )
+
+    def test_hand_declared_array_gets_equality_only(self) -> None:
+        """ColumnInfo(name='tags', type='array') → enum has only 'tags',
+        no operator suffixes. This is the Do It Best hardware-iq use case."""
+        vs = self._bare_vs()
+        retriever = RetrieverModel(
+            vector_store=vs,
+            columns=[
+                ColumnInfo(name="tags", type="array", description="Product tags"),
+                ColumnInfo(name="brand", type="string"),
+            ],
+        )
+        with patch(
+            "dao_ai.tools.vector_search._vsc_for_refresh", return_value=None
+        ), patch(
+            "dao_ai.tools.vector_search._fetch_index_columns", return_value=None
+        ), patch.object(VectorStoreModel, "refresh", autospec=True):
+            tool = create_vector_search_tool(retriever=retriever, name="t")
+        enum = tool.args_schema.model_json_schema()["$defs"][
+            "DynamicFilterItem"
+        ]["properties"]["key"]["enum"]
+        # tags: 1 suffix. brand: 8 suffixes. Total = 9.
+        assert len(enum) == 9
+        assert "tags" in enum
+        # None of the disallowed suffixes appear for the array column:
+        for bad in ("tags NOT", "tags <", "tags <=", "tags >",
+                    "tags >=", "tags LIKE", "tags NOT LIKE"):
+            assert bad not in enum, f"array column got bad suffix: {bad}"
+        # brand still gets the standard set:
+        assert "brand LIKE" in enum and "brand NOT" in enum
+
+    def test_hand_declared_array_with_explicit_operators_wins(self) -> None:
+        """User explicit operators override the array-type default."""
+        vs = self._bare_vs()
+        retriever = RetrieverModel(
+            vector_store=vs,
+            columns=[
+                ColumnInfo(name="tags", type="array", operators=["", "NOT"]),
+            ],
+        )
+        with patch(
+            "dao_ai.tools.vector_search._vsc_for_refresh", return_value=None
+        ), patch(
+            "dao_ai.tools.vector_search._fetch_index_columns", return_value=None
+        ), patch.object(VectorStoreModel, "refresh", autospec=True):
+            tool = create_vector_search_tool(retriever=retriever, name="t")
+        enum = tool.args_schema.model_json_schema()["$defs"][
+            "DynamicFilterItem"
+        ]["properties"]["key"]["enum"]
+        # User asked for equality + NOT — honored.
+        assert set(enum) == {"tags", "tags NOT"}
+
+    def test_auto_discovered_array_gets_equality_only(self) -> None:
+        """Mode C: nothing declared. `_fetch_index_columns` returns an
+        array column → factory adds equality-only override."""
+        vs = self._bare_vs()
+        retriever = RetrieverModel(vector_store=vs)
+        with patch(
+            "dao_ai.tools.vector_search._vsc_for_refresh", return_value=None
+        ), patch(
+            "dao_ai.tools.vector_search._fetch_index_columns",
+            return_value=[("tags", "array<string>", "Product tags")],
+        ), patch.object(VectorStoreModel, "refresh", autospec=True):
+            tool = create_vector_search_tool(retriever=retriever, name="t")
+        key_schema = tool.args_schema.model_json_schema()["$defs"][
+            "DynamicFilterItem"
+        ]["properties"]["key"]
+        # Pydantic renders a single-value Literal as ``const`` (not ``enum``).
+        # Either shape is fine as long as the value is exactly "tags".
+        assert key_schema.get("const") == "tags" or key_schema.get("enum") == ["tags"]
+
+    def test_mixed_array_and_scalar_auto_discovery(self) -> None:
+        """Auto-discovery with a mix: array column narrowed, scalar
+        columns keep full 8 suffixes."""
+        vs = self._bare_vs()
+        retriever = RetrieverModel(vector_store=vs)
+        with patch(
+            "dao_ai.tools.vector_search._vsc_for_refresh", return_value=None
+        ), patch(
+            "dao_ai.tools.vector_search._fetch_index_columns",
+            return_value=[
+                ("tags", "array<string>", None),
+                ("price", "double", None),
+                ("sku", "string", None),
+            ],
+        ), patch.object(VectorStoreModel, "refresh", autospec=True):
+            tool = create_vector_search_tool(retriever=retriever, name="t")
+        enum = tool.args_schema.model_json_schema()["$defs"][
+            "DynamicFilterItem"
+        ]["properties"]["key"]["enum"]
+        # tags: 1 + price: 8 + sku: 8 = 17.
+        assert len(enum) == 17
+        assert "tags" in enum
+        assert "tags LIKE" not in enum
+        assert "price <=" in enum and "sku LIKE" in enum
+
+    def test_array_hint_in_tool_description(self) -> None:
+        """When an array column is present, the tool description
+        includes the array-contains hint."""
+        vs = self._bare_vs()
+        retriever = RetrieverModel(
+            vector_store=vs,
+            columns=[
+                ColumnInfo(name="tags", type="array", description="Product tags"),
+            ],
+        )
+        with patch(
+            "dao_ai.tools.vector_search._vsc_for_refresh", return_value=None
+        ), patch(
+            "dao_ai.tools.vector_search._fetch_index_columns", return_value=None
+        ), patch.object(VectorStoreModel, "refresh", autospec=True):
+            tool = create_vector_search_tool(retriever=retriever, name="t")
+        assert "- tags (ARRAY)" in tool.description
+        assert "Array columns match via element containment" in tool.description
+
+
+@pytest.mark.unit
+class TestArrayInColumnsDescription:
+    def test_array_hint_present_when_array_column(self) -> None:
+        block = _build_columns_description(
+            ["tags"], {"tags": "ARRAY"}, {"tags": "Product tags"}
+        )
+        assert "- tags (ARRAY) : Product tags" in block
+        assert "Array columns match via element containment" in block
+        assert "cordless" in block  # example is present
+
+    def test_no_array_hint_when_no_array_column(self) -> None:
+        block = _build_columns_description(
+            ["brand", "price"],
+            {"brand": "STRING", "price": "INT64"},
+            {},
+        )
+        assert "Array columns match" not in block
+        assert "cordless" not in block
+
+    def test_array_hint_detects_uc_style_type_strings(self) -> None:
+        # UC Tables API returns type_text like "array<string>"; the
+        # description hint should still fire.
+        block = _build_columns_description(
+            ["tags"], {"tags": "array<string>"}, {}
+        )
+        assert "Array columns match via element containment" in block

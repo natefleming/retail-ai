@@ -354,15 +354,33 @@ def _fetch_index_columns(
 
 
 # ColumnInfo.type values map to human-readable Databricks type labels used
-# in the tool description. These are not used for operator narrowing (the
-# 8 standard suffixes apply to every column) — only for the "Available
-# columns for filtering: brand (STRING) ..." block in the tool prompt.
+# in the tool description. Scalar types are just labels (all 8 operator
+# suffixes still apply). Array is narrowed at build time to equality-only
+# (see `_is_array_type` and the factory's operator_overrides logic).
 _COLUMN_INFO_TYPE_LABELS: dict[str, str] = {
     "string": "STRING",
     "number": "NUMBER",
     "boolean": "BOOLEAN",
     "datetime": "DATETIME",
+    "array": "ARRAY",
 }
+
+
+def _is_array_type(type_str: str | None) -> bool:
+    """True when a Databricks type string represents an ARRAY column.
+
+    Matches ``array<string>``, ``ARRAY<INT>``, ``array<double>`` etc. from
+    UC Tables ``type_text`` / ``type_name``, plus the bare ``array`` value
+    users write in ``ColumnInfo.type``. Array-typed columns get a
+    single-operator enum (equality/contains only) in the LLM-facing
+    args_schema — other operators (LIKE, ordering, NOT LIKE) are rejected
+    by VS at query time on array columns (see the Do It Best
+    `hardware-iq` filtering guide, 2026-07-06) and would only mislead
+    the LLM.
+    """
+    if not type_str:
+        return False
+    return type_str.strip().lower().startswith("array")
 
 
 def _normalize_declared_columns(
@@ -416,9 +434,13 @@ def _normalize_declared_columns(
             # set them (Pydantic tracks this via model_fields_set). If the
             # field defaulted to the full 8-op list, we let the standard
             # `_legal_filter_keys` cross-product apply — same as bare
-            # strings — for consistency.
+            # strings — for consistency. Exception: type=="array" narrows
+            # to equality-only ("") by default, since VS rejects every
+            # other operator on array columns.
             if "operators" in item.model_fields_set:
                 operator_overrides[name] = list(item.operators)
+            elif item.type == "array":
+                operator_overrides[name] = [""]
         elif isinstance(item, str):
             names.append(item)
         else:
@@ -448,6 +470,7 @@ def _build_columns_description(
         return ""
 
     lines: list[str] = ["Available columns for filtering:"]
+    any_array = False
     for name in names:
         type_label = types.get(name)
         desc = descriptions.get(name)
@@ -460,12 +483,24 @@ def _build_columns_description(
             # We already emitted "(TYPE)"; nothing more needed.
             pass
         lines.append(" ".join(parts))
+        if type_label and _is_array_type(type_label):
+            any_array = True
     lines.append("")
     lines.append(
         "Supports operators: LIKE, NOT LIKE, NOT, <, <=, >, >=, and empty "
         "(equality/IN). Combine into the filter key like "
         '``{"key": "brand LIKE", "value": "DEWALT"}``.'
     )
+    if any_array:
+        lines.append("")
+        lines.append(
+            "Array columns match via element containment (equality only): "
+            '``{"key": "tags", "value": "cordless"}`` finds records where '
+            "the tags array contains 'cordless'. A list value performs "
+            'OR-of-contains: ``{"key": "tags", "value": ["cordless", '
+            '"brushless"]}``. Other operators (LIKE, ordering, NOT) are '
+            "not supported on array columns and will be rejected."
+        )
     return "\n".join(lines)
 
 
@@ -702,9 +737,10 @@ def create_vector_search_tool(
         operator_overrides_raw,
         any_hand_declared,
     ) = _normalize_declared_columns(declared_items)
-    operator_overrides: dict[str, list[str]] | None = (
-        operator_overrides_raw or None
-    )
+    # Keep as a dict throughout so downstream can add entries (e.g. the
+    # auto-discovered array-narrowing loop). We coerce to `None` when
+    # empty at the point we pass it to `_build_vector_search_input_model`.
+    operator_overrides: dict[str, list[str]] = dict(operator_overrides_raw)
 
     # ``refresh()`` still runs — it populates ``_index_details`` (needed
     # for vector-column stripping via ``_vector_column_names_from_describe``)
@@ -758,6 +794,16 @@ def create_vector_search_tool(
             # if the UC lookup returned nothing.
             fallback = list(vector_store.columns or [])
             columns = fallback
+
+    # Array-typed columns get equality-only (empty suffix). VS rejects
+    # every other operator on ARRAY columns at query time; narrowing the
+    # enum prevents the LLM from emitting invalid filters in the first
+    # place. Hand-declared overrides (via ColumnInfo.operators) still win.
+    for name, uc_type in description_types.items():
+        if name in operator_overrides:
+            continue
+        if _is_array_type(uc_type):
+            operator_overrides[name] = [""]
 
     logger.debug(
         "Vector Search columns resolved",
@@ -1225,7 +1271,7 @@ def create_vector_search_tool(
     # is serialised to just a description string and the LLM commonly emits
     # filters as a flat dict.
     VectorSearchSchema: type[BaseModel] = _build_vector_search_input_model(
-        columns, operator_overrides
+        columns, operator_overrides or None
     )
 
     @tool(

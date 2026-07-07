@@ -4149,9 +4149,15 @@ class ColumnInfo(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     name: str = Field(description="Column name as it appears in the database")
-    type: Literal["string", "number", "boolean", "datetime"] = Field(
+    type: Literal["string", "number", "boolean", "datetime", "array"] = Field(
         default="string",
-        description="Column data type for value validation",
+        description=(
+            "Column data type. ``array`` denotes an ARRAY<primitive> column "
+            "on the index; on Databricks VS Standard endpoints these filter "
+            "via element containment (equality only). The element type is "
+            "irrelevant for filtering, so a single ``array`` value covers "
+            "ARRAY<STRING>, ARRAY<INT>, etc."
+        ),
     )
     operators: list[str] = Field(
         default=["", "NOT", "<", "<=", ">", ">=", "LIKE", "NOT LIKE"],
