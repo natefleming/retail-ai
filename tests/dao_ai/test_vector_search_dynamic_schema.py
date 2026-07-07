@@ -2,7 +2,7 @@
 
 Covers the two behavior changes on ``create_vector_search_tool``:
 
-  1. When YAML declares no ``columns`` the factory calls
+  1. When Config declares no ``columns`` the factory calls
      ``VectorStoreModel.refresh()`` and hydrates them from
      ``index.describe()``.
   2. The LLM-facing ``args_schema`` is per-tool: ``filters[].key`` is a
@@ -257,9 +257,13 @@ class TestBuildVectorSearchInputModel:
 
 @pytest.mark.unit
 class TestFactoryColumnHydration:
-    """The factory calls VectorStoreModel.refresh() at build time when YAML
-    is silent about ``columns``, and calls _fetch_column_types when the
-    source table is populated."""
+    """The factory calls VectorStoreModel.refresh() at build time to
+    validate any config-declared columns against the live index. declared columns
+    not present on the index are dropped with a WARN before the Literal
+    enum is built. Type-aware operator narrowing is not fetched from the
+    source table (source-table columns are not guaranteed to be on the
+    index); enum degrades to permissive operators when types are unknown.
+    """
 
     def _make_vs(self, *, with_columns: bool = False) -> VectorStoreModel:
         schema = SchemaModel(
@@ -277,12 +281,6 @@ class TestFactoryColumnHydration:
         vs = self._make_vs(with_columns=False)
         payload = _describe_payload()
 
-        # Patch:
-        #  * ``_vsc_for_refresh`` — don't build a real VectorSearchClient
-        #  * ``refresh`` — hydrate via the standard path with our canned
-        #    describe payload (populates source_table, columns_to_sync)
-        #  * ``_fetch_column_types`` — the UC Tables API call for types
-        # Unit tests must not touch the network.
         original_refresh = VectorStoreModel.refresh
         with patch(
             "dao_ai.tools.vector_search._vsc_for_refresh", return_value=None
@@ -293,61 +291,165 @@ class TestFactoryColumnHydration:
             "refresh",
             autospec=True,
             side_effect=lambda self, **kw: original_refresh(self, details=payload),
-        ) as mocked_refresh, patch(
-            "dao_ai.tools.vector_search._fetch_column_types",
-            return_value=PRODUCTS_TYPES,
-        ):
+        ) as mocked_refresh:
             retriever = RetrieverModel(vector_store=vs)
             tool = create_vector_search_tool(retriever=retriever, name="product_search")
 
         mocked_refresh.assert_called_once()
-        # The tool now advertises the columns via its args_schema enum.
         enum = (
             tool.args_schema.model_json_schema()["$defs"]["DynamicFilterItem"][
                 "properties"
             ]["key"]["enum"]
         )
+        # Every discovered column is in the enum (permissive operators —
+        # types are not fetched from the source table anymore).
+        assert "product_name" in enum
         assert "product_name LIKE" in enum
-        assert "price <=" in enum
-        # And still rejects the regression key:
+        # Regression key stays rejected:
         assert "name NOT LIKE" not in enum
 
-    def test_yaml_columns_take_precedence_no_refresh(self) -> None:
+    def test_yaml_columns_intersected_with_index(self) -> None:
+        """Config declares a subset of index columns → enum is the subset.
+
+        The factory always calls refresh() so it can validate config against
+        the live index. The result is declared ∩ index (in declaration order).
+        """
         vs = self._make_vs(with_columns=False)
         retriever = RetrieverModel(
             vector_store=vs,
             columns=["product_id", "product_name", "price"],
         )
+        payload = _describe_payload()
+        original_refresh = VectorStoreModel.refresh
         with patch.object(
-            VectorStoreModel, "refresh", autospec=True
+            VectorStoreModel,
+            "refresh",
+            autospec=True,
+            side_effect=lambda self, **kw: original_refresh(self, details=payload),
         ) as mocked_refresh, patch(
             "dao_ai.tools.vector_search._vsc_for_refresh", return_value=None
         ), patch(
             "dao_ai.tools.vector_search._probe_index_columns", return_value=None
-        ), patch(
-            "dao_ai.tools.vector_search._fetch_column_types",
-            return_value={
-                "product_id": "bigint",
-                "product_name": "string",
-                "price": "double",
-            },
         ):
             tool = create_vector_search_tool(retriever=retriever, name="product_search")
 
-        mocked_refresh.assert_not_called()
+        mocked_refresh.assert_called_once()
         enum = (
             tool.args_schema.model_json_schema()["$defs"]["DynamicFilterItem"][
                 "properties"
             ]["key"]["enum"]
         )
-        # Only the three declared columns are in the enum:
-        assert "product_id" in enum and "price <=" in enum
+        assert "product_id" in enum and "price" in enum
+        # Everything outside the declared subset is absent:
         assert "sku" not in enum and "category" not in enum
 
+    def test_yaml_column_not_on_index_dropped_with_warning(self) -> None:
+        """Config declares a bogus column not on the index → dropped, WARN
+        logged with column name + index name. LLM can never emit a filter
+        that would fail at the VS API."""
+        vs = self._make_vs(with_columns=False)
+        retriever = RetrieverModel(
+            vector_store=vs,
+            columns=["product_id", "product_name", "nonexistent_col_xyz"],
+        )
+        payload = _describe_payload()
+        original_refresh = VectorStoreModel.refresh
+
+        # loguru bypasses stdlib logging — capture via a dedicated sink.
+        from loguru import logger as loguru_logger
+
+        captured: list[str] = []
+        sink_id = loguru_logger.add(
+            lambda msg: captured.append(str(msg)),
+            level="WARNING",
+            format="{message} {extra}",
+        )
+        try:
+            with patch.object(
+                VectorStoreModel,
+                "refresh",
+                autospec=True,
+                side_effect=lambda self, **kw: original_refresh(self, details=payload),
+            ), patch(
+                "dao_ai.tools.vector_search._vsc_for_refresh", return_value=None
+            ), patch(
+                "dao_ai.tools.vector_search._probe_index_columns", return_value=None
+            ):
+                tool = create_vector_search_tool(
+                    retriever=retriever, name="product_search"
+                )
+        finally:
+            loguru_logger.remove(sink_id)
+
+        enum = (
+            tool.args_schema.model_json_schema()["$defs"]["DynamicFilterItem"][
+                "properties"
+            ]["key"]["enum"]
+        )
+        assert "product_id" in enum
+        assert "product_name" in enum
+        assert not any(k.startswith("nonexistent_col_xyz") for k in enum)
+
+        warnings_text = " ".join(captured)
+        assert "nonexistent_col_xyz" in warnings_text
+        assert "products_description_index" in warnings_text
+
+    def test_source_table_never_called_for_schema(self) -> None:
+        """Regression guard: schema-building code must call
+        ``wc.tables.get`` only on the INDEX's full_name (mirrors
+        databricks-langchain), never on any other UC entity — most
+        importantly, never on the source table (whose columns aren't
+        guaranteed to be on the index).
+        """
+        vs = self._make_vs(with_columns=False)
+        retriever = RetrieverModel(vector_store=vs)
+        payload = _describe_payload()
+        original_refresh = VectorStoreModel.refresh
+        wc_spy = MagicMock()
+        # Simulate a successful UC Tables lookup on the index.
+        fake_index_table = MagicMock()
+        fake_index_table.columns = [
+            MagicMock(name="product_id", type_text="bigint"),
+            MagicMock(name="product_name", type_text="string"),
+        ]
+        # MagicMock's name attr is special; set explicitly.
+        for col, real_name in zip(
+            fake_index_table.columns, ["product_id", "product_name"]
+        ):
+            col.name = real_name
+        wc_spy.tables.get.return_value = fake_index_table
+
+        with patch.object(
+            VectorStoreModel,
+            "refresh",
+            autospec=True,
+            side_effect=lambda self, **kw: original_refresh(self, details=payload),
+        ), patch(
+            "dao_ai.tools.vector_search._vsc_for_refresh", return_value=None
+        ), patch(
+            "dao_ai.tools.vector_search._probe_index_columns", return_value=None
+        ), patch.object(
+            VectorStoreModel,
+            "workspace_client_from",
+            autospec=True,
+            return_value=wc_spy,
+        ):
+            create_vector_search_tool(retriever=retriever, name="product_search")
+
+        # Every call to wc.tables.get must target the index full name.
+        assert wc_spy.tables.get.call_count >= 1
+        for call in wc_spy.tables.get.call_args_list:
+            args, kwargs = call.args, call.kwargs
+            target = args[0] if args else kwargs.get("full_name")
+            assert target == vs.index.full_name, (
+                f"wc.tables.get called with non-index target {target!r}; "
+                f"only the index itself is allowed"
+            )
+
     def test_refresh_failure_soft_fallback(self) -> None:
-        """If refresh raises we must NOT propagate — the tool still builds,
-        with the pre-change free-form ``FilterItem`` schema. That's a
-        deliberate demo-resilience choice."""
+        """If both refresh AND the UC Tables index lookup fail, and no
+        declared columns are given, the tool still builds with the
+        pre-change free-form ``FilterItem`` schema."""
         vs = self._make_vs(with_columns=False)
         retriever = RetrieverModel(vector_store=vs)
         with patch(
@@ -360,17 +462,43 @@ class TestFactoryColumnHydration:
         ), patch(
             "dao_ai.tools.vector_search._probe_index_columns", return_value=None
         ), patch(
-            "dao_ai.tools.vector_search._fetch_column_types", return_value=None
+            "dao_ai.tools.vector_search._fetch_index_column_types",
+            return_value=None,
         ):
             tool = create_vector_search_tool(retriever=retriever, name="product_search")
 
-        # No columns → args_schema is the module-level VectorSearchInput
-        # (free-form key). Sanity: the schema does NOT carry an enum.
         schema = tool.args_schema.model_json_schema()
         filter_ref = schema["$defs"].get("FilterItem") or schema["$defs"].get(
             "DynamicFilterItem"
         )
         assert "enum" not in filter_ref["properties"]["key"]
+
+    def test_refresh_failure_with_yaml_falls_back_to_yaml(self) -> None:
+        """When discovery fails but config has columns, trust config — the
+        LLM enum is built from declared columns (may hit VS API errors if the
+        user made a typo, matching pre-branch behavior)."""
+        vs = self._make_vs(with_columns=False)
+        retriever = RetrieverModel(
+            vector_store=vs, columns=["product_id", "product_name"]
+        )
+        with patch(
+            "dao_ai.tools.vector_search._vsc_for_refresh", return_value=None
+        ), patch.object(
+            VectorStoreModel,
+            "refresh",
+            autospec=True,
+            side_effect=RuntimeError("describe unauthorized"),
+        ), patch(
+            "dao_ai.tools.vector_search._probe_index_columns", return_value=None
+        ):
+            tool = create_vector_search_tool(retriever=retriever, name="product_search")
+
+        enum = (
+            tool.args_schema.model_json_schema()["$defs"]["DynamicFilterItem"][
+                "properties"
+            ]["key"]["enum"]
+        )
+        assert "product_id" in enum and "product_name" in enum
 
 
 # ---------------------------------------------------------------------------
@@ -409,6 +537,68 @@ class TestVectorColumnStripping:
         assert _vector_column_names_from_describe(None) == set()
         assert _vector_column_names_from_describe({}) == set()
         assert _vector_column_names_from_describe({"delta_sync_index_spec": {}}) == set()
+
+    def test_direct_access_managed_embedding_vector_names(self) -> None:
+        """Direct-Access indexes carry the source list under
+        ``direct_access_index_spec`` (not ``delta_sync_index_spec``)."""
+        details = {
+            "name": "cat.sch.ix",
+            "endpoint_name": "ep",
+            "primary_key": "id",
+            "direct_access_index_spec": {
+                "embedding_source_columns": [
+                    {"name": "description", "embedding_model_endpoint_name": "e"}
+                ],
+            },
+        }
+        assert _vector_column_names_from_describe(details) == {"description_vector"}
+
+    def test_self_managed_embedding_vector_column_stripped(self) -> None:
+        """Self-managed indexes precompute vectors under an arbitrary
+        column name declared in ``embedding_vector_columns``. That column
+        (whatever it's called) must be stripped."""
+        details = {
+            "name": "cat.sch.ix",
+            "endpoint_name": "ep",
+            "primary_key": "id",
+            "delta_sync_index_spec": {
+                "source_table": "cat.sch.docs",
+                "embedding_vector_columns": [{"name": "my_embedding"}],
+            },
+        }
+        assert _vector_column_names_from_describe(details) == {"my_embedding"}
+
+    def test_self_managed_on_direct_access_spec(self) -> None:
+        """Self-managed embeddings can appear under either spec container."""
+        details = {
+            "name": "cat.sch.ix",
+            "endpoint_name": "ep",
+            "primary_key": "id",
+            "direct_access_index_spec": {
+                "embedding_vector_columns": [{"name": "vector"}],
+            },
+        }
+        assert _vector_column_names_from_describe(details) == {"vector"}
+
+    def test_business_column_named_foo_vector_preserved_direct_access(self) -> None:
+        """A Direct-Access index with no embedding-source declaration
+        (e.g. a describe payload that doesn't populate them) must NOT
+        strip a business column literally named ``<x>_vector``. The
+        describe-driven path returns only actual synthesised names — any
+        column not in that set survives."""
+        details = {
+            "name": "cat.sch.ix",
+            "endpoint_name": "ep",
+            "primary_key": "id",
+            "direct_access_index_spec": {
+                "embedding_source_columns": [
+                    {"name": "description", "embedding_model_endpoint_name": "e"}
+                ],
+            },
+        }
+        # Only ``description_vector`` is a synthesised name. A hypothetical
+        # business column named ``product_vector`` is preserved.
+        assert "product_vector" not in _vector_column_names_from_describe(details)
 
     def _make_probe_setup(
         self, *, scan_fields: list[str], describe: dict | None
@@ -629,10 +819,6 @@ class TestFactoryEntryShapes:
                     self, details=payload
                 ),
             ),
-            patch(
-                "dao_ai.tools.vector_search._fetch_column_types",
-                return_value=PRODUCTS_TYPES,
-            ),
         )
 
     def _bare_vs(self) -> VectorStoreModel:
@@ -649,7 +835,7 @@ class TestFactoryEntryShapes:
 
     def test_vector_store_param_entry(self) -> None:
         vs = self._bare_vs()
-        with self._patches()[0], self._patches()[1], self._patches()[2], self._patches()[3]:
+        with self._patches()[0], self._patches()[1], self._patches()[2]:
             tool = create_vector_search_tool(vector_store=vs, name="via_vs")
         enum = tool.args_schema.model_json_schema()["$defs"][
             "DynamicFilterItem"
@@ -679,15 +865,15 @@ class TestFactoryEntryShapes:
 
 @pytest.mark.unit
 class TestBackwardCompatibility:
-    """Nothing about existing YAML-declared configurations should change.
+    """Nothing about existing config-declared configurations should change.
     Regression guards for the shape the majority of dao-ai users are on.
     """
 
-    def test_existing_yaml_shape_produces_narrowed_enum_with_types(self) -> None:
-        # This mirrors the shape used in commerce_swarm.yaml — columns
-        # declared, types not. The factory should still narrow to the
-        # declared columns and (if source_table is set + types available)
-        # be type-aware.
+    def test_existing_yaml_shape_produces_narrowed_enum(self) -> None:
+        """The commerce_swarm.yaml shape — columns declared, no explicit
+        types. Factory validates config against the live index and builds
+        a permissive Literal enum (all operators per column). Regression
+        column keys are still rejected."""
         vs = VectorStoreModel(
             index=IndexModel(
                 schema=SchemaModel(
@@ -700,32 +886,35 @@ class TestBackwardCompatibility:
             columns=PRODUCTS_COLUMNS,
         )
         retriever = RetrieverModel(vector_store=vs, columns=PRODUCTS_COLUMNS)
+        payload = _describe_payload()
+        original_refresh = VectorStoreModel.refresh
         with patch(
             "dao_ai.tools.vector_search._vsc_for_refresh", return_value=None
         ), patch(
             "dao_ai.tools.vector_search._probe_index_columns", return_value=None
-        ), patch.object(VectorStoreModel, "refresh", autospec=True) as mocked_refresh, patch(
-            "dao_ai.tools.vector_search._fetch_column_types",
-            return_value=PRODUCTS_TYPES,
+        ), patch.object(
+            VectorStoreModel,
+            "refresh",
+            autospec=True,
+            side_effect=lambda self, **kw: original_refresh(self, details=payload),
         ):
             tool = create_vector_search_tool(
                 retriever=retriever, name="product_search"
             )
-        # YAML gave us columns → refresh should NOT have been called.
-        mocked_refresh.assert_not_called()
         enum = tool.args_schema.model_json_schema()["$defs"][
             "DynamicFilterItem"
         ]["properties"]["key"]["enum"]
         # Regression key not present:
         assert "name NOT LIKE" not in enum
-        # Type awareness applied:
-        assert "price LIKE" not in enum
-        assert "is_b2b_only <" not in enum
+        # Every declared column is present:
+        for c in PRODUCTS_COLUMNS:
+            assert c in enum
 
-    def test_no_types_fetched_still_produces_working_tool(self) -> None:
-        """If source_table isn't set (or UC Tables API returns nothing),
-        the enum should exist but with all operators — the tool still
-        prevents unknown columns, it just doesn't narrow per-type."""
+    def test_no_types_still_produces_working_tool(self) -> None:
+        """When the UC Tables index lookup fails and no discovery is
+        available, declared columns are trusted as-is and every column
+        gets every operator suffix (permissive fallback). The tool still
+        narrows to the declared columns, blocking hallucinated keys."""
         vs = self._bare_vs_no_source()
         retriever = RetrieverModel(vector_store=vs, columns=["a", "b"])
         with patch(
@@ -733,7 +922,8 @@ class TestBackwardCompatibility:
         ), patch(
             "dao_ai.tools.vector_search._probe_index_columns", return_value=None
         ), patch.object(VectorStoreModel, "refresh", autospec=True), patch(
-            "dao_ai.tools.vector_search._fetch_column_types", return_value=None
+            "dao_ai.tools.vector_search._fetch_index_column_types",
+            return_value=None,
         ):
             tool = create_vector_search_tool(retriever=retriever, name="t")
         enum = tool.args_schema.model_json_schema()["$defs"][
@@ -754,3 +944,176 @@ class TestBackwardCompatibility:
             ),
             endpoint=VectorSearchEndpoint(name="dbdemos_vs_endpoint"),
         )
+
+
+@pytest.mark.unit
+class TestMcpAdapterEntryPoint:
+    """Both entry points into the factory (`VectorSearchToolModel.as_tools()`
+    and `register_vector_search()` MCP adapter) call the same
+    `create_vector_search_tool(**args)` — so the dynamic args_schema is
+    identical regardless of how the tool is provided. Regression guard
+    against a future divergent build path.
+    """
+
+    def test_kwargs_and_dict_expansion_produce_same_schema(self) -> None:
+        vs = VectorStoreModel(
+            index=IndexModel(
+                schema=SchemaModel(
+                    catalog_name="retail_consumer_goods",
+                    schema_name="commerce_swarm",
+                ),
+                name="products_description_index",
+            ),
+            endpoint=VectorSearchEndpoint(name="dbdemos_vs_endpoint"),
+            columns=PRODUCTS_COLUMNS,
+        )
+        retriever = RetrieverModel(vector_store=vs, columns=PRODUCTS_COLUMNS)
+        payload = _describe_payload()
+        original_refresh = VectorStoreModel.refresh
+
+        def _build(args: dict) -> Any:
+            with patch(
+                "dao_ai.tools.vector_search._vsc_for_refresh", return_value=None
+            ), patch(
+                "dao_ai.tools.vector_search._probe_index_columns", return_value=None
+            ), patch.object(
+                VectorStoreModel,
+                "refresh",
+                autospec=True,
+                side_effect=lambda self, **kw: original_refresh(self, details=payload),
+            ):
+                return create_vector_search_tool(**args)
+
+        # ``as_tools()`` style: kwargs pass-through
+        tool_a = _build({"retriever": retriever, "name": "product_search"})
+        # MCP adapter style: `create_vector_search_tool(**args)` where args
+        # arrived as a dict deserialised from tool config.
+        tool_b = _build({"retriever": retriever, "name": "product_search"})
+
+        schema_a = tool_a.args_schema.model_json_schema()
+        schema_b = tool_b.args_schema.model_json_schema()
+        enum_a = schema_a["$defs"]["DynamicFilterItem"]["properties"]["key"]["enum"]
+        enum_b = schema_b["$defs"]["DynamicFilterItem"]["properties"]["key"]["enum"]
+        assert enum_a == enum_b
+        assert "product_name" in enum_a
+
+
+@pytest.mark.unit
+class TestIndexScopedTypeLookup:
+    """Type-aware operator narrowing driven by ``wc.tables.get(index)``.
+
+    The index is a UC entity; asking the UC Tables API for its columns
+    returns column names AND their Databricks types in one call. This is
+    the databricks-langchain pattern — types come from the same
+    authoritative source as the columns, never the source table.
+    """
+
+    def _wc_with_index_table(
+        self, cols_and_types: list[tuple[str, str]]
+    ) -> MagicMock:
+        wc = MagicMock()
+        table = MagicMock()
+        fake_cols: list[MagicMock] = []
+        for name, tt in cols_and_types:
+            c = MagicMock()
+            c.name = name
+            c.type_text = tt
+            fake_cols.append(c)
+        table.columns = fake_cols
+        wc.tables.get.return_value = table
+        return wc
+
+    def test_type_aware_enum_from_index_uc_lookup(self) -> None:
+        vs = VectorStoreModel(
+            index=IndexModel(
+                schema=SchemaModel(
+                    catalog_name="retail_consumer_goods",
+                    schema_name="commerce_swarm",
+                ),
+                name="products_description_index",
+            ),
+            endpoint=VectorSearchEndpoint(name="dbdemos_vs_endpoint"),
+        )
+        retriever = RetrieverModel(vector_store=vs)
+        wc = self._wc_with_index_table(
+            [
+                ("product_id", "bigint"),
+                ("product_name", "string"),
+                ("price", "double"),
+                ("is_b2b_only", "boolean"),
+                # A vector column that must be stripped by the leading-
+                # underscore rule (no describe payload available).
+                ("__db_description_vector", "array<float>"),
+            ]
+        )
+        with patch(
+            "dao_ai.tools.vector_search._vsc_for_refresh", return_value=None
+        ), patch(
+            "dao_ai.tools.vector_search._probe_index_columns", return_value=None
+        ), patch.object(
+            VectorStoreModel, "refresh", autospec=True
+        ), patch.object(
+            VectorStoreModel,
+            "workspace_client_from",
+            autospec=True,
+            return_value=wc,
+        ):
+            tool = create_vector_search_tool(
+                retriever=retriever, name="product_search"
+            )
+        enum = (
+            tool.args_schema.model_json_schema()["$defs"]["DynamicFilterItem"][
+                "properties"
+            ]["key"]["enum"]
+        )
+        # Vector column stripped.
+        assert not any("__db_description_vector" in k for k in enum), enum
+        # Type-aware operators:
+        assert "product_name LIKE" in enum  # string → LIKE
+        assert "product_name >" not in enum  # …not ordering
+        assert "price <=" in enum  # double → ordering
+        assert "price LIKE" not in enum  # …not LIKE
+        assert "is_b2b_only NOT" in enum  # bool → equality/NOT
+        assert "is_b2b_only <" not in enum  # …no ordering
+
+    def test_soft_fallback_when_index_uc_lookup_fails(self) -> None:
+        """UC Tables call fails → factory falls through to scan-based
+        column discovery, keeps permissive operators."""
+        vs = VectorStoreModel(
+            index=IndexModel(
+                schema=SchemaModel(
+                    catalog_name="retail_consumer_goods",
+                    schema_name="commerce_swarm",
+                ),
+                name="products_description_index",
+            ),
+            endpoint=VectorSearchEndpoint(name="dbdemos_vs_endpoint"),
+        )
+        retriever = RetrieverModel(vector_store=vs)
+        wc = MagicMock()
+        wc.tables.get.side_effect = PermissionError("no access")
+
+        with patch(
+            "dao_ai.tools.vector_search._vsc_for_refresh", return_value=None
+        ), patch(
+            "dao_ai.tools.vector_search._probe_index_columns",
+            return_value=["product_id", "product_name"],
+        ), patch.object(
+            VectorStoreModel, "refresh", autospec=True
+        ), patch.object(
+            VectorStoreModel,
+            "workspace_client_from",
+            autospec=True,
+            return_value=wc,
+        ):
+            tool = create_vector_search_tool(retriever=retriever, name="t")
+
+        enum = (
+            tool.args_schema.model_json_schema()["$defs"]["DynamicFilterItem"][
+                "properties"
+            ]["key"]["enum"]
+        )
+        # Columns still narrowed (regression still blocked); operators
+        # permissive.
+        assert "product_id" in enum and "product_name" in enum
+        assert "product_id LIKE" in enum  # permissive fallback

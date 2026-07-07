@@ -300,23 +300,39 @@ def _vsc_for_refresh(vector_store: "VectorStoreModel") -> VectorSearchClient | N
 
 
 def _vector_column_names_from_describe(details: dict | None) -> set[str]:
-    """Return the exact managed-embedding vector column names.
+    """Return the exact vector column names to strip from an index probe.
 
-    Databricks synthesises one vector column per ``embedding_source_column``
-    named ``<source>_vector``. We read the source names from ``describe()``
-    so we strip *only* those synthetics — never a business column that
-    happens to end in ``_vector``.
+    Handles both embedding modes and both index-spec containers:
+
+      * **Managed embeddings** — Databricks synthesises one vector column
+        per ``embedding_source_columns[].name`` entry, named
+        ``<source>_vector``. We read the source names and mint the
+        synthesised names.
+      * **Self-managed embeddings** — the user pre-computes vectors; the
+        vector column is named by ``embedding_vector_columns[].name``
+        (any user-chosen name, e.g. ``vector`` or ``my_embedding``).
+        Strip that exact name.
+      * **Delta-Sync indexes** carry the source list under
+        ``delta_sync_index_spec``; **Direct-Access indexes** under
+        ``direct_access_index_spec``. We check both.
+
+    Reading names from ``describe()`` means we strip only actual
+    synthesised or user-declared vector columns — never a business column
+    that happens to end in ``_vector``.
     """
     if not isinstance(details, dict):
         return set()
-    delta_spec = details.get("delta_sync_index_spec") or {}
-    src_cols = delta_spec.get("embedding_source_columns") or []
     names: set[str] = set()
-    for entry in src_cols:
-        if isinstance(entry, dict):
-            src = entry.get("name")
-            if src:
+    for spec_key in ("delta_sync_index_spec", "direct_access_index_spec"):
+        spec = details.get(spec_key) or {}
+        # Managed embeddings: strip ``<source>_vector``.
+        for entry in spec.get("embedding_source_columns") or []:
+            if isinstance(entry, dict) and (src := entry.get("name")):
                 names.add(f"{src}_vector")
+        # Self-managed embeddings: strip the user-declared name directly.
+        for entry in spec.get("embedding_vector_columns") or []:
+            if isinstance(entry, dict) and (vec := entry.get("name")):
+                names.add(vec)
     return names
 
 
@@ -388,41 +404,65 @@ def _probe_index_columns(
         return names or None
     except Exception as e:  # noqa: BLE001
         logger.debug(
-            "Vector index column probe (scan) failed; "
-            "falling back to source-table columns",
+            "Vector index column probe (scan) failed",
             index=vector_store.index.full_name,
             error=f"{type(e).__name__}: {e}",
         )
         return None
 
 
-def _fetch_column_types(vector_store: "VectorStoreModel") -> dict[str, str] | None:
-    """Return ``{column_name: databricks_type_string}`` from the source table.
+def _fetch_index_column_types(
+    vector_store: "VectorStoreModel",
+) -> dict[str, str] | None:
+    """Return ``{column_name: databricks_type_string}`` from the INDEX itself.
 
-    Uses the Unity Catalog Tables API via the ``VectorStoreModel``'s ambient
-    ``WorkspaceClient``. Returns ``None`` when the source table is unknown or
-    the API call fails — callers should treat that as "unknown types" and
-    permit all operators on all columns.
+    A Vector Search index is a UC entity and its columns are queryable via
+    the Unity Catalog Tables API. This is the pattern databricks-langchain
+    uses (``databricks_langchain.vector_search_retriever_tool``); it gives
+    us BOTH column names AND their Databricks types from a single
+    authoritative source — the index — without depending on the source
+    table (whose columns are a superset and not guaranteed to overlap).
+
+    Vector-embedding columns are stripped automatically:
+      * ``<source>_vector`` — managed-embedding synthesised (via describe)
+      * anything with a leading underscore — CDF / system reserved
+      * ``__db_*_vector`` — db-managed embedding vector
+
+    Returns ``None`` on any failure (soft-fail; caller keeps the
+    permissive operator behavior for every column).
     """
-    if vector_store.source_table is None:
+    if vector_store.index is None:
         return None
     try:
         wc = vector_store.workspace_client_from(None)
-        table = wc.tables.get(vector_store.source_table.full_name)
+        table = wc.tables.get(vector_store.index.full_name)
         cols = getattr(table, "columns", None) or []
-        out: dict[str, str] = {}
-        for col in cols:
-            name = getattr(col, "name", None)
-            t = getattr(col, "type_text", None) or getattr(col, "type_name", None)
-            if name and t:
-                out[name] = str(t)
-        return out or None
     except Exception as e:  # noqa: BLE001
         logger.debug(
-            "column type discovery failed; permitting all filter operators",
+            "UC Tables lookup on VS index failed; "
+            "type-aware operator narrowing disabled",
+            index=vector_store.index.full_name,
             error=f"{type(e).__name__}: {e}",
         )
         return None
+
+    known_vector_cols = _vector_column_names_from_describe(
+        getattr(vector_store, "_index_details", None)
+    )
+    out: dict[str, str] = {}
+    for col in cols:
+        name = getattr(col, "name", None)
+        t = getattr(col, "type_text", None) or getattr(col, "type_name", None)
+        if not name or not t:
+            continue
+        if name.startswith("_"):
+            continue
+        if known_vector_cols and name in known_vector_cols:
+            continue
+        if not known_vector_cols and name.endswith("_vector"):
+            continue
+        out[name] = str(t)
+    return out or None
 
 
 def _build_filter_item_model(
@@ -621,88 +661,112 @@ def create_vector_search_tool(
         raise ValueError("vector_store.index is required for vector search")
 
     index_name: str = vector_store.index.full_name
-    # ``vector_store.columns`` is the authoritative source (populated in YAML
-    # or by ``VectorStoreModel.refresh()``); ``retriever.columns`` is a
-    # projection override. The former ``vector_store.index.columns`` fallback
-    # was dead code — IndexModel does not carry that field.
-    columns: list[str] = list(retriever.columns or vector_store.columns or [])
+    # Column + type source of truth (precedence):
+    #   1. declared ``retriever.columns`` / ``vector_store.columns``, intersected
+    #      with the columns actually on the index — anything declared declared
+    #      that isn't on the index is dropped with a WARN so the LLM can
+    #      never emit a filter key that would fail at the VS API.
+    #   2. Index discovery. The index is a UC entity, so ``wc.tables.get(
+    #      index.full_name)`` returns column names AND their Databricks
+    #      types in one call (mirrors the databricks-langchain library).
+    #      Fallback: ``index.describe().columns_to_sync`` (Direct-Access) →
+    #      ``index.scan().data[0].fields[].key`` (Delta-Sync fallback).
+    #      Vector/system columns are stripped in every path.
+    #   3. Neither available → soft-fallback: build with free-form
+    #      ``FilterItem`` (LLM sees ``key: str``, pre-branch behavior).
+    #
+    # Never source-table columns: source-table has audit columns not on the
+    # index. Both column NAMES and TYPES come from the index itself.
+    declared_columns: list[str] = list(
+        retriever.columns or vector_store.columns or []
+    )
 
-    # If YAML declared no columns, try to hydrate them from the live index at
-    # tool-build time. Two-step fallback:
+    # Always attempt index discovery so we can validate declared against the
+    # live index. Two-step:
     #
-    #   1. ``VectorStoreModel.refresh()`` — reads ``index.describe()``.
-    #      Populates ``source_table``, ``primary_key``, ``endpoint``, and
-    #      (for Direct-Access indexes) ``columns`` from
-    #      ``delta_sync_index_spec.columns_to_sync``. Delta-Sync indexes do
-    #      not carry ``columns_to_sync`` in their describe response, so on
-    #      those we still need step 2.
+    #   * ``refresh()`` populates ``_index_details`` (used by probe for
+    #     vector-column stripping) and, for Direct-Access indexes only,
+    #     ``vector_store.columns`` from ``columns_to_sync``. Note that on
+    #     Delta-Sync indexes and when declared already set ``vector_store.columns``,
+    #     refresh does NOT overwrite — we cannot read ``vector_store.columns``
+    #     to distinguish "from declared" vs "from index".
+    #   * ``_probe_index_columns()`` runs ``index.scan(num_results=1)`` and
+    #     reads the actual field set off the returned document. This is
+    #     authoritative for both index types and independent of declared state.
     #
-    #   2. UC Tables API on the discovered source table — returns both
-    #      column names AND their Databricks types. We call this
-    #      unconditionally (once we have a source_table) because we want
-    #      the types anyway to build the type-aware operator enum below.
-    #
-    # Both steps are soft-fail: if either can't complete (auth, permissions,
-    # network), we log a warning and continue. The tool still builds; the
-    # LLM just gets a free-form ``key`` field (pre-change behavior).
-    # Column auto-discovery — three-step fallback, all soft-fail:
-    #
-    #   1. ``VectorStoreModel.refresh()`` → ``index.describe()`` populates
-    #      ``source_table``, ``primary_key``, ``endpoint``, and (Direct-
-    #      Access indexes only) ``columns`` from ``columns_to_sync``.
-    #   2. ``_probe_index_columns`` → ``index.scan(num_results=1)`` reads
-    #      the actual indexed column set from the returned document —
-    #      required for Delta-Sync indexes whose describe() omits
-    #      ``columns_to_sync``. This is the authoritative filter-key set:
-    #      only columns present in the *index* can be filtered on.
-    #   3. ``_fetch_column_types`` → UC Tables API on the source table
-    #      returns column names AND types. Names are a superset (source
-    #      table has audit columns not indexed); we intersect with (2) to
-    #      keep only the filterable ones and get typed operator narrowing.
-    #
-    # If YAML already declares ``columns`` we still call step 3 to get
-    # types for the operator enum. Missing types just relax the enum to
-    # all suffixes on every column (pre-change behavior).
-    column_types: dict[str, str] | None = None
-    if not columns:
-        # Only pay for a VectorSearchClient + describe + scan when the user
-        # didn't already give us columns via YAML. Everything below is
-        # soft-fail so a network hiccup / permission gap degrades the LLM
-        # experience (looser enum) but never breaks tool construction.
-        vsc_for_discovery: VectorSearchClient | None = _vsc_for_refresh(vector_store)
-        try:
-            vector_store.refresh(vsc=vsc_for_discovery)
-            columns = list(vector_store.columns or [])
-        except Exception as e:  # noqa: BLE001
-            logger.warning(
-                "Vector Search index describe() failed; "
-                "column auto-discovery may be incomplete",
-                index=index_name,
-                error=f"{type(e).__name__}: {e}",
-            )
-        if not columns:
-            probed = _probe_index_columns(vector_store, vsc_for_discovery)
-            if probed:
-                columns = probed
-
-    # Type-aware operator narrowing applies whether columns came from YAML
-    # or from discovery. We call ``_fetch_column_types`` regardless; the
-    # helper is a no-op when ``source_table`` isn't populated. Intersect
-    # with the (possibly YAML-declared) column list so we only advertise
-    # filter keys we can actually type — anything we can't type keeps its
-    # full operator suite (see :func:`_operators_for_type`).
-    if columns:
-        table_types = _fetch_column_types(vector_store)
-        if table_types:
-            in_index = set(columns)
-            column_types = {k: v for k, v in table_types.items() if k in in_index}
-
-        logger.debug(
-            "Vector Search columns resolved",
+    # Soft-fail: if both steps fail and declared has columns, trust declared. If
+    # neither has anything, fall back to free-form ``FilterItem``.
+    discovered_columns: list[str] = []
+    columns_before_refresh = list(vector_store.columns or [])
+    vsc_for_discovery: VectorSearchClient | None = _vsc_for_refresh(vector_store)
+    try:
+        vector_store.refresh(vsc=vsc_for_discovery)
+    except Exception as e:  # noqa: BLE001
+        logger.warning(
+            "Vector Search index describe() failed; "
+            "column auto-discovery may be incomplete",
             index=index_name,
-            columns=columns,
-            have_types=bool(column_types),
+            error=f"{type(e).__name__}: {e}",
         )
+    # Prefer UC Tables on the index — it returns names AND types together.
+    index_type_map: dict[str, str] | None = _fetch_index_column_types(vector_store)
+    if index_type_map:
+        discovered_columns = list(index_type_map.keys())
+    else:
+        # Fallback: scan (authoritative filterable set on Delta-Sync).
+        probed = _probe_index_columns(vector_store, vsc_for_discovery)
+        if probed:
+            discovered_columns = probed
+        else:
+            # Direct-Access indexes: refresh may have populated columns from
+            # ``columns_to_sync`` — accept those only if they weren't already
+            # set by declared (i.e. the value changed).
+            columns_after_refresh = list(vector_store.columns or [])
+            if (
+                columns_after_refresh
+                and columns_after_refresh != columns_before_refresh
+            ):
+                discovered_columns = columns_after_refresh
+
+    if declared_columns and discovered_columns:
+        in_index = set(discovered_columns)
+        kept: list[str] = []
+        for col in declared_columns:
+            if col in in_index:
+                kept.append(col)
+            else:
+                logger.warning(
+                    "Declared column not present on index; "
+                    "dropping from filter enum",
+                    column=col,
+                    index=index_name,
+                )
+        columns: list[str] = kept
+    elif declared_columns:
+        # Discovery failed; trust declared (best-effort — LLM may hit VS API
+        # errors if declared lists a bogus column, matching pre-branch behavior).
+        columns = declared_columns
+    else:
+        columns = discovered_columns
+
+    # Types come from the same UC entity as the columns — if the UC Tables
+    # call above succeeded, we have per-column types and can enable
+    # type-aware operator narrowing (LIKE only on strings, ordering only on
+    # numerics/temporal, etc.). Intersect with the final column set so we
+    # never advertise a type for a column we're not exposing.
+    column_types: dict[str, str] | None = None
+    if index_type_map and columns:
+        in_use = set(columns)
+        narrowed = {k: v for k, v in index_type_map.items() if k in in_use}
+        if narrowed:
+            column_types = narrowed
+
+    logger.debug(
+        "Vector Search columns resolved",
+        index=index_name,
+        columns=columns,
+        have_types=bool(column_types),
+    )
     search_parameters: SearchParametersModel = retriever.search_parameters
     rerank_config: Optional[RerankParametersModel] = retriever.rerank
     instructed_config: Optional[InstructedRetrieverModel] = retriever.instructed
@@ -882,7 +946,7 @@ def create_vector_search_tool(
         #      so DatabricksVectorSearch uses the forwarded-bearer WorkspaceClient
         #      directly.
         #   2. Explicit PAT/SP — DATABRICKS_TOKEN / DATABRICKS_CLIENT_ID env vars
-        #      OR YAML vector_store.pat / .client_id / .client_secret; already
+        #      OR declared vector_store.pat / .client_id / .client_secret; already
         #      collected into `client_args` upstream.
         #   3. Ambient App SP on Serverless v5 — WorkspaceClient.config.auth_type
         #      is oauth-m2m; the library handles it natively when we pass

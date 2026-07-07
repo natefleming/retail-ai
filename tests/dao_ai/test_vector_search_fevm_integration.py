@@ -290,13 +290,17 @@ class TestDynamicSchemaHydration:
         # description, price, is_b2b_only.
         for c in ("product_id", "product_name", "brand", "category", "price", "is_b2b_only"):
             assert c in enum, f"missing column {c!r} in {enum}"
-        # Type-aware guardrails:
+        # Type-aware guardrails (types come from wc.tables.get on the
+        # index — same UC entity as the columns):
         assert "product_name LIKE" in enum  # string col gets LIKE
         assert "product_name >" not in enum  # …but not ordering
         assert "price <=" in enum  # numeric col gets ordering
         assert "price LIKE" not in enum  # …but not LIKE
         assert "is_b2b_only NOT" in enum  # bool gets equality/NOT
         assert "is_b2b_only <" not in enum  # …but no ordering
+        # Regression key still absent (LLM cannot emit ``name`` — real
+        # column is ``product_name``).
+        assert not any(k.startswith("name ") or k == "name" for k in enum), enum
 
     def test_regression_products_bad_key_rejected_before_vs_call(self) -> None:
         """The exact regression from trace fc785d795b... — must fail at
