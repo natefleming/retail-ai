@@ -503,3 +503,114 @@ class TestModelServingSystemResources:
         db = DatabaseModel(name="x", project="x", on_behalf_of_user=True)
         resources = list(db.as_resources())
         assert all(not isinstance(r, DatabricksLakebase) for r in resources)
+
+
+# =============================================================================
+# _resolve_lakebase_database_path — pure config rendering, no SDK call.
+#
+# The resolver returns the Databricks Apps postgres resource path
+# deterministically:
+#   1. If ``db.database`` is already a full resource path, use verbatim.
+#   2. Otherwise, construct ``{branch_path}/databases/databricks-postgres``
+#      (the Databricks auto-provisioning default resource id).
+#
+# No SDK lookup — auth is not required at bundle-generation time. Users
+# with custom-provisioned databases declare the full path in
+# ``db.database``. Deploy-time validation catches wrong paths clearly.
+# =============================================================================
+
+
+@pytest.mark.unit
+class TestResolveLakebaseDatabasePathDeterministic:
+    def test_default_construction_uses_databricks_postgres_hyphen(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """DatabaseModel with just project + branch set → resource path
+        ends in ``/databases/databricks-postgres``. No SDK call is made."""
+        from dao_ai.apps.resources import _resolve_lakebase_database_path
+        from dao_ai.config import DatabaseModel
+
+        db = DatabaseModel(project="commerce-swarm", branch="production")
+
+        # Spy: touching db.workspace_client would blow up because there's
+        # no configured auth in the test. If the resolver reaches for it,
+        # this test fails loudly.
+        def _boom(_self: object) -> object:
+            raise AssertionError(
+                "_resolve_lakebase_database_path must not access workspace_client"
+            )
+
+        monkeypatch.setattr(
+            DatabaseModel, "workspace_client", property(_boom)
+        )
+
+        result = _resolve_lakebase_database_path(
+            db, "projects/commerce-swarm/branches/production"
+        )
+        assert result == (
+            "projects/commerce-swarm/branches/production/databases/databricks-postgres"
+        )
+
+    def test_full_path_in_database_field_passthrough(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Escape hatch: user declared a full resource path in
+        ``db.database`` (legacy shape). Resolver returns verbatim,
+        no SDK call."""
+        from dao_ai.apps.resources import _resolve_lakebase_database_path
+        from dao_ai.config import DatabaseModel
+
+        custom_path = (
+            "projects/retail-consumer-goods/branches/production/"
+            "databases/db-vllm-t1lbxazynr"
+        )
+        db = DatabaseModel(
+            project="retail-consumer-goods",
+            branch="production",
+            database=custom_path,
+        )
+
+        def _boom(_self: object) -> object:
+            raise AssertionError(
+                "_resolve_lakebase_database_path must not access workspace_client"
+            )
+
+        monkeypatch.setattr(
+            DatabaseModel, "workspace_client", property(_boom)
+        )
+
+        result = _resolve_lakebase_database_path(
+            db, "projects/retail-consumer-goods/branches/production"
+        )
+        assert result == custom_path
+
+    def test_custom_database_id_field_used_in_construction(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Preferred shape for custom-provisioned databases: user sets
+        ``database_id`` to the Lakebase resource id (short hyphenated
+        form). Resolver constructs the path using that id. No SDK call."""
+        from dao_ai.apps.resources import _resolve_lakebase_database_path
+        from dao_ai.config import DatabaseModel
+
+        db = DatabaseModel(
+            project="retail-consumer-goods",
+            branch="production",
+            database_id="db-vllm-t1lbxazynr",
+        )
+
+        def _boom(_self: object) -> object:
+            raise AssertionError(
+                "_resolve_lakebase_database_path must not access workspace_client"
+            )
+
+        monkeypatch.setattr(
+            DatabaseModel, "workspace_client", property(_boom)
+        )
+
+        result = _resolve_lakebase_database_path(
+            db, "projects/retail-consumer-goods/branches/production"
+        )
+        assert result == (
+            "projects/retail-consumer-goods/branches/production/databases/db-vllm-t1lbxazynr"
+        )

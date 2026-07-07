@@ -273,7 +273,7 @@ pytest --cov=dao_ai --cov-report=html tests/
 
 1. Choose the appropriate category in `config/examples/` based on **primary feature** demonstrated:
    - `01_getting_started/` - Foundation concepts for beginners
-   - `02_tools/` - Tool integrations (Genie, Vector Search, Slack, MCP, etc.)
+   - `02_tools/` - Tool integrations (Genie, AI Search, Slack, MCP, etc.)
    - `04_genie/` - Performance optimization strategies
    - `05_memory/` - State management and persistence
    - `06_on_behalf_of_user/` - User-level authentication and access control

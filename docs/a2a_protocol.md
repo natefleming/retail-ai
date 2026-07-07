@@ -206,7 +206,7 @@ Databricks Apps forwards the caller's bearer token via the
 `x-forwarded-access-token` header. dao-ai's A2A executor reads it from
 the FastAPI request (via a2a-sdk's `DefaultCallContextBuilder`) and
 injects it into `configurable.headers`, exactly mirroring the
-Responses-path handler. Downstream tools (UC functions, Vector Search,
+Responses-path handler. Downstream tools (UC functions, AI Search,
 Genie, model invocations) that have `on_behalf_of_user: true` see the
 end-user's token unchanged.
 

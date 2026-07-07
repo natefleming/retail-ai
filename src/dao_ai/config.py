@@ -1133,22 +1133,30 @@ LLMModel = InferenceEndpointModel
 BestOfNConfig.model_rebuild()
 
 
-class VectorSearchEndpointType(str, Enum):
-    """Vector search endpoint compute profile."""
+class AiSearchEndpointType(str, Enum):
+    """AI Search endpoint compute profile.
+
+    (Formerly ``VectorSearchEndpointType`` — Databricks rebranded Vector
+    Search to AI Search. The old name remains as an alias for backwards
+    compatibility; it will eventually be deprecated.)
+    """
 
     STANDARD = "STANDARD"
     OPTIMIZED_STORAGE = "OPTIMIZED_STORAGE"
 
 
-class VectorSearchEndpoint(BaseModel):
-    """Vector search endpoint that hosts one or more vector search indexes."""
+class AiSearchEndpoint(BaseModel):
+    """AI Search endpoint that hosts one or more indexes.
+
+    (Formerly ``VectorSearchEndpoint``. See :class:`AiSearchEndpointType`.)
+    """
 
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
     name: str = Field(
-        description="Vector search endpoint name in the workspace.",
+        description="AI Search endpoint name in the workspace.",
     )
-    type: VectorSearchEndpointType = Field(
-        default=VectorSearchEndpointType.STANDARD,
+    type: AiSearchEndpointType = Field(
+        default=AiSearchEndpointType.STANDARD,
         description="Endpoint type: STANDARD or OPTIMIZED_STORAGE.",
     )
     target_qps: Optional[int] = Field(
@@ -1164,9 +1172,9 @@ class VectorSearchEndpoint(BaseModel):
     )
 
     @field_serializer("type")
-    def serialize_type(self, value: VectorSearchEndpointType) -> str:
+    def serialize_type(self, value: AiSearchEndpointType) -> str:
         """Ensure enum is serialized to string value."""
-        if isinstance(value, VectorSearchEndpointType):
+        if isinstance(value, AiSearchEndpointType):
             return value.value
         return str(value)
 
@@ -1175,12 +1183,18 @@ class VectorSearchEndpoint(BaseModel):
         """Reject target_qps on non-STANDARD endpoints (SDK constraint)."""
         if (
             self.target_qps is not None
-            and self.type != VectorSearchEndpointType.STANDARD
+            and self.type != AiSearchEndpointType.STANDARD
         ):
             raise ValueError(
                 f"target_qps is only supported on STANDARD endpoints, not {self.type!r}"
             )
         return self
+
+
+# Backwards-compatible aliases — Vector Search naming will eventually be
+# deprecated. Both names refer to the same class.
+VectorSearchEndpointType = AiSearchEndpointType
+VectorSearchEndpoint = AiSearchEndpoint
 
 
 class IndexModel(IsDatabricksResource, HasFullName):
@@ -2934,9 +2948,13 @@ class SkillModel(BaseModel):
         )
 
 
-class VectorStoreModel(IsDatabricksResource, ManagedResource):
+class AiSearchIndexModel(IsDatabricksResource, ManagedResource):
     """
-    Configuration model for a Databricks Vector Search store.
+    Configuration model for a Databricks AI Search index.
+
+    (Formerly ``VectorStoreModel``. Databricks rebranded Vector Search to
+    AI Search; the old class name remains as an alias defined at the end
+    of the class body for backwards compatibility.)
 
     Supports two modes:
     1. **Use Existing Index**: Provide only `index` (fully qualified name).
@@ -3283,6 +3301,11 @@ class VectorStoreModel(IsDatabricksResource, ManagedResource):
         provider.create_vector_store(self)
 
 
+# Backwards-compatible alias — Vector Search naming will eventually be
+# deprecated. Both names refer to the same class.
+VectorStoreModel = AiSearchIndexModel
+
+
 class ConnectionModel(IsDatabricksResource, HasFullName):
     """Unity Catalog connection for external data sources and MCP servers."""
 
@@ -3393,7 +3416,32 @@ class DatabaseModel(IsDatabricksResource):
     )
     database: Optional[AnyVariable] = Field(
         default="databricks_postgres",
-        description="Database name within the PostgreSQL server.",
+        description=(
+            "PostgreSQL-level database name (used in connection strings / "
+            "``PGDATABASE`` at runtime). Distinct from ``database_id``, "
+            "which is the Databricks resource id used in Apps resource "
+            "paths. Convention for auto-provisioned Lakebase projects is "
+            "underscored (``databricks_postgres``); for custom projects "
+            "the pg-level name can be anything (e.g. ``vllm_analytics``). "
+            "As an escape hatch, if this value is set to a full resource "
+            "path (starting with ``projects/``), it takes precedence over "
+            "``database_id`` when constructing the Apps resource binding."
+        ),
+    )
+    database_id: Optional[AnyVariable] = Field(
+        default="databricks-postgres",
+        description=(
+            "Databricks Lakebase resource id — the hyphenated identifier at "
+            "the end of the resource path "
+            "``projects/<project>/branches/<branch>/databases/<database_id>``. "
+            "Distinct from ``database`` (the pg-level DB name). The default "
+            "``databricks-postgres`` matches the resource id Databricks "
+            "auto-provisions with every new Lakebase project — so leaving "
+            "this at default works for the common case. Override when your "
+            "project has a custom-provisioned database (its resource id is "
+            "whatever appears in ``databricks api get "
+            "/api/2.0/postgres/projects/<p>/branches/<b>/databases``)."
+        ),
     )
     port: Optional[AnyVariable] = Field(
         default=5432,
@@ -4149,9 +4197,15 @@ class ColumnInfo(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     name: str = Field(description="Column name as it appears in the database")
-    type: Literal["string", "number", "boolean", "datetime"] = Field(
+    type: Literal["string", "number", "boolean", "datetime", "array"] = Field(
         default="string",
-        description="Column data type for value validation",
+        description=(
+            "Column data type. ``array`` denotes an ARRAY<primitive> column "
+            "on the index; on Databricks VS Standard endpoints these filter "
+            "via element containment (equality only). The element type is "
+            "irrelevant for filtering, so a single ``array`` value covers "
+            "ARRAY<STRING>, ARRAY<INT>, etc."
+        ),
     )
     operators: list[str] = Field(
         default=["", "NOT", "<", "<=", ">", ">=", "LIKE", "NOT LIKE"],
@@ -4430,9 +4484,17 @@ class RetrieverModel(BaseModel):
     vector_store: VectorStoreModel = Field(
         description="Vector search index configuration used for similarity search.",
     )
-    columns: Optional[list[str]] = Field(
+    columns: Optional[list[str | ColumnInfo]] = Field(
         default_factory=list,
-        description="Columns to return from search results. Defaults to the vector store's columns.",
+        description=(
+            "Columns to expose to the LLM as filterable + returnable. Accepts "
+            "either bare strings (name only — types are discovered from the "
+            "index at build time via UC Tables) or ColumnInfo objects that "
+            "declare name / type / operators / description. Hand-declared "
+            "ColumnInfo items are authoritative and skip build-time discovery. "
+            "The two forms may be mixed in one list. Defaults to the vector "
+            "store's columns (bare strings)."
+        ),
     )
     search_parameters: SearchParametersModel = Field(
         default_factory=SearchParametersModel,
@@ -4450,8 +4512,7 @@ class RetrieverModel(BaseModel):
     @model_validator(mode="after")
     def set_default_columns(self) -> Self:
         if not self.columns:
-            columns: Sequence[str] = self.vector_store.columns
-            self.columns = columns
+            self.columns = list(self.vector_store.columns or [])
         return self
 
     @model_validator(mode="after")
@@ -4473,7 +4534,11 @@ class FunctionType(str, Enum):
     MCP = "mcp"
     INLINE = "inline"
     GENIE = "genie"
+    # Vector Search was renamed to AI Search by Databricks. Both YAML
+    # values (``vector_search`` and ``ai_search``) route to the same
+    # tool model; ``vector_search`` will eventually be deprecated.
     VECTOR_SEARCH = "vector_search"
+    AI_SEARCH = "ai_search"
     SEARCH = "search"
     APP = "app"
     SERVING_ENDPOINT = "serving_endpoint"
@@ -4539,7 +4604,7 @@ class BaseFunctionModel(ABC, BaseModel):
         discriminator="type",
     )
     type: FunctionType = Field(
-        description="Function type discriminator (python, factory, inline, mcp, unity_catalog, genie, vector_search, search, agent, a2a).",
+        description="Function type discriminator (python, factory, inline, mcp, unity_catalog, genie, ai_search, vector_search (legacy alias for ai_search), search, agent, a2a).",
     )
     human_in_the_loop: Optional[HumanInTheLoopModel] = Field(
         default=None,
@@ -5165,26 +5230,33 @@ class GenieToolModel(BaseFunctionModel):
         return [result]
 
 
-class VectorSearchToolModel(BaseFunctionModel):
-    """First-class Vector Search tool that delegates to ``dao_ai.tools.create_vector_search_tool``.
+class AiSearchToolModel(BaseFunctionModel):
+    """First-class AI Search tool that delegates to ``dao_ai.tools.create_ai_search_tool``.
 
-    Equivalent to ``type: factory + name: dao_ai.tools.create_vector_search_tool``,
+    (Formerly ``VectorSearchToolModel``. Databricks rebranded Vector Search
+    to AI Search; the old class name remains as an alias.)
+
+    Equivalent to ``type: factory + name: dao_ai.tools.create_ai_search_tool``,
     but with typed fields. Exactly one of ``retriever`` or ``vector_store`` is
-    required.
+    required. Accepts either ``type: ai_search`` (new) or ``type: vector_search``
+    (legacy) in YAML.
     """
 
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
-    type: Literal[FunctionType.VECTOR_SEARCH] = Field(
-        default=FunctionType.VECTOR_SEARCH,
-        description="Function type discriminator. Must be 'vector_search'.",
+    type: Literal[FunctionType.VECTOR_SEARCH, FunctionType.AI_SEARCH] = Field(
+        default=FunctionType.AI_SEARCH,
+        description=(
+            "Function type discriminator. Accepts 'ai_search' (preferred) "
+            "or 'vector_search' (legacy alias)."
+        ),
     )
     retriever: Optional[RetrieverModel] = Field(
         default=None,
         description="Full retriever configuration with search parameters and reranking. Mutually exclusive with vector_store.",
     )
-    vector_store: Optional[VectorStoreModel] = Field(
+    vector_store: Optional[AiSearchIndexModel] = Field(
         default=None,
-        description="Direct vector store reference (uses default search parameters). Mutually exclusive with retriever.",
+        description="Direct AI Search index reference (uses default search parameters). Mutually exclusive with retriever.",
     )
     name: Optional[str] = Field(
         default=None,
@@ -5199,25 +5271,30 @@ class VectorSearchToolModel(BaseFunctionModel):
     def _retriever_or_vector_store(self) -> Self:
         if self.retriever is None and self.vector_store is None:
             raise ValueError(
-                "VectorSearchToolModel requires exactly one of 'retriever' or 'vector_store'."
+                "AiSearchToolModel requires exactly one of 'retriever' or 'vector_store'."
             )
         if self.retriever is not None and self.vector_store is not None:
             raise ValueError(
-                "VectorSearchToolModel cannot accept both 'retriever' and 'vector_store'."
+                "AiSearchToolModel cannot accept both 'retriever' and 'vector_store'."
             )
         return self
 
     def as_tools(self, **kwargs: Any) -> Sequence[RunnableLike]:
-        from dao_ai.tools import create_vector_search_tool
+        from dao_ai.tools import create_ai_search_tool
 
         return [
-            create_vector_search_tool(
+            create_ai_search_tool(
                 retriever=self.retriever,
                 vector_store=self.vector_store,
                 name=self.name,
                 description=self.description,
             )
         ]
+
+
+# Backwards-compatible alias — Vector Search naming will eventually be
+# deprecated. Both names refer to the same class.
+VectorSearchToolModel = AiSearchToolModel
 
 
 class SearchToolModel(BaseFunctionModel):
@@ -5572,7 +5649,7 @@ AnyTool: TypeAlias = (
         UnityCatalogFunctionModel,
         McpFunctionModel,
         GenieToolModel,
-        VectorSearchToolModel,
+        AiSearchToolModel,
         SearchToolModel,
         AppToolModel,
         ServingEndpointToolModel,

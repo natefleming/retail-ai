@@ -66,7 +66,7 @@ DAO supports several first-class tool types plus an escape hatch for arbitrary f
 | Tool Type | Use Case | Example |
 |-----------|----------|---------|
 | **Genie** | Natural-language SQL via a Genie space, with optional caching | `type: genie` + `genie_room: *room` |
-| **Vector Search** | Semantic / hybrid search over a vector index, with optional instructed retrieval | `type: vector_search` + `retriever: *retriever` |
+| **AI Search** | Semantic / hybrid search over a Databricks AI Search index (formerly Vector Search), with optional instructed retrieval | `type: ai_search` (or legacy `vector_search`) + `retriever: *retriever` |
 | **Search** | Web search (DuckDuckGo) | `type: search` |
 | **Unity Catalog** | Governed SQL functions | `type: unity_catalog` + `resource: *fn` |
 | **MCP** | External services via Model Context Protocol | `type: mcp` + `connection: *mcp_conn` |
@@ -90,11 +90,11 @@ tools:
         capacity: 100
         time_to_live_seconds: 3600
 
-  # Vector Search - first-class, supports instructed retriever
+  # AI Search (formerly Vector Search) - first-class, supports instructed retriever
   product_search:
     name: product_search
     function:
-      type: vector_search
+      type: ai_search   # legacy alias: vector_search
       retriever: *products_retriever     # or: vector_store: *products_vs
       name: product_search
       description: "Search the product catalog by description / brand / category."
@@ -166,7 +166,7 @@ The old `type: factory + name: dao_ai.tools.create_*` shape continues to work in
 | --- | --- |
 | `type: factory`, `name: dao_ai.tools.create_genie_tool`, `args: { genie_room: ..., lru_cache_parameters: ... }` | `type: genie`, `genie_room: ...`, `lru_cache: ...` |
 | `type: factory`, `name: dao_ai.tools.create_genie_toolkit`, `args: { genie_room: ..., lru_cache_parameters: ..., context_aware_cache_parameters: ... }` | `type: genie`, `genie_room: ...`, `lru_cache: ...`, `context_aware_cache: ...` (any cache promotes to toolkit) |
-| `type: factory`, `name: dao_ai.tools.create_vector_search_tool`, `args: { retriever: ... }` | `type: vector_search`, `retriever: ...` |
+| `type: factory`, `name: dao_ai.tools.create_ai_search_tool`, `args: { retriever: ... }` | `type: ai_search`, `retriever: ...` |
 | `type: factory`, `name: dao_ai.tools.create_search_tool` | `type: search` |
 | `type: factory`, `name: dao_ai.tools.create_agent_endpoint_tool`, `args: { llm: <endpoint>, ... }` | `type: serving_endpoint`, `endpoint: <name-or-model>` (FMAPI + UC ResponsesAgent endpoints; lazy `task` discovery) |
 | `type: factory`, `name: dao_ai.tools.create_responses_agent_tool` / `create_chat_completions_agent_tool`, `args: { app: ..., ... }` | `type: app`, `app: <app>` (lazy `/agent/info` discovery; set `api:` to skip) |
@@ -428,9 +428,11 @@ genie_tool:
 - `consecutive_cache_hits`: How many times the same cached SQL has been returned consecutively (when > 1)
 - `auto_invalidated`: Set to `true` when the circuit breaker triggered auto-invalidation
 
-## 5. Vector Search Reranking & Instructed Retrieval
+## 5. AI Search Reranking & Instructed Retrieval
 
-**The problem:** Vector search (semantic similarity) is fast but sometimes returns loosely related results. It's like a librarian who quickly grabs 50 books that *might* be relevant.
+*(AI Search is the current Databricks name; older docs and configs may still call it Vector Search — dao-ai accepts both.)*
+
+**The problem:** AI Search (semantic similarity) is fast but sometimes returns loosely related results. It's like a librarian who quickly grabs 50 books that *might* be relevant.
 
 **The solution:** Reranking is like having an expert review those 50 books and pick the best 5 that *actually* answer your question.
 
@@ -462,7 +464,7 @@ retrievers:
 
 | Approach | Pros | Cons |
 |----------|------|------|
-| **Vector Search Only** | Fast, scalable | Embedding similarity ≠ relevance |
+| **AI Search Only** | Fast, scalable | Embedding similarity ≠ relevance |
 | **Reranking** | More accurate relevance | Slightly higher latency |
 | **Both (Two-Stage)** | Best of both worlds | Optimal quality/speed tradeoff |
 
@@ -495,7 +497,7 @@ rerank:
 
 ### Instructed Retrieval
 
-**The problem:** Standard vector search ignores metadata constraints entirely. When a user asks "Milwaukee power drills under $200 from last month", vector search only matches on semantic similarity — it can't enforce brand, price, or recency constraints. Queries with multiple intents or exclusions ("cordless tools excluding DeWalt") fare even worse.
+**The problem:** Standard AI Search ignores metadata constraints entirely. When a user asks "Milwaukee power drills under $200 from last month", semantic similarity alone can't enforce brand, price, or recency constraints. Queries with multiple intents or exclusions ("cordless tools excluding DeWalt") fare even worse.
 
 **The solution:** Instructed Retrieval extends basic RAG by automatically translating natural language constraints into executable metadata filters. An LLM decomposes complex queries into focused subqueries with filters, executes them in parallel, and merges results using Reciprocal Rank Fusion (RRF).
 
@@ -507,7 +509,7 @@ rerank:
 
 ### How Instructed Retrieval Works
 
-![Instructed retrieval pipeline: LLM decomposes the query into filters and subqueries, fans out to parallel vector searches, merges via Reciprocal Rank Fusion, then reranks with constraint awareness](images/instructed-retrieval-pipeline.png)
+![Instructed retrieval pipeline: LLM decomposes the query into filters and subqueries, fans out to parallel AI Search calls, merges via Reciprocal Rank Fusion, then reranks with constraint awareness](images/instructed-retrieval-pipeline.png)
 
 ### Instructed Retrieval Configuration
 

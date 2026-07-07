@@ -15,7 +15,7 @@ agents:
     name: product_expert
     model: *claude_sonnet
     tools:
-      - *vector_search_tool
+      - *ai_search_tool
       - *genie_tool
     prompt: |
       You are a product expert. Answer questions about inventory and pricing.
@@ -50,7 +50,7 @@ DAO AI Builder generates valid YAML configurations that work seamlessly with thi
 - **[Configuration Reference](docs/configuration-reference.md)** - Complete YAML configuration guide
 - **[Examples](docs/examples.md)** - Ready-to-use example configurations
 - **[A2A Protocol](docs/a2a_protocol.md)** - Google Agent2Agent endpoints on every Apps deployment
-- **[MCP Server](docs/mcp_server.md)** - Expose dao-ai Genie + Vector Search tools as MCP via `dao-ai generate-mcp`
+- **[MCP Server](docs/mcp_server.md)** - Expose dao-ai Genie + AI Search tools as MCP via `dao-ai generate-mcp`
 - **[Background Agents](docs/background_agents.md)** - kickoff/poll/cancel for multi-minute graph runs
 
 ### Reference
@@ -73,7 +73,7 @@ Before you begin, you'll need:
 - **A Databricks workspace** (ask your IT team or see [Databricks docs](https://docs.databricks.com/))
   - Access to **Unity Catalog** (your organization's data catalog)
   - **Model Serving** or **Databricks Apps** enabled (for deploying AI agents)
-  - *Optional*: Vector Search, Genie (for advanced features)
+  - *Optional*: AI Search (formerly Vector Search), Genie (for advanced features)
 
 **Not sure if you have access?** Your Databricks administrator can grant you permissions.
 
@@ -317,7 +317,7 @@ DAO provides powerful capabilities for building production-ready AI agents:
 | **Orchestration Patterns** | Supervisor, Swarm, **Deep Agent** (langgraph deepagents — todo, filesystem, shell, sub-agents, skills, AGENTS.md memory) |
 | **On-Behalf-Of User** | Per-user permissions and governance |
 | **Advanced Caching** | Two-tier (LRU + Semantic) caching for cost optimization |
-| **Vector Search Reranking** | Improve RAG quality with FlashRank |
+| **AI Search Reranking** | Improve RAG quality with FlashRank |
 | **Human-in-the-Loop** | Approval workflows for sensitive operations |
 | **Memory & Persistence** | Long-term memory with structured schemas, background extraction, auto-injection; PostgreSQL, Lakebase, or in-memory backends |
 | **Prompt Registry** | Version and manage prompts in MLflow |
