@@ -245,8 +245,8 @@ COMMERCE_VS_ENDPOINT = VectorSearchEndpoint(name="dbdemos_vs_endpoint")
 def _bare_vector_store(index_name: str) -> VectorStoreModel:
     """VectorStoreModel with ONLY an index reference — no columns declared.
 
-    Forces the factory down the auto-discovery path (``refresh()`` +
-    ``_fetch_column_types``).
+    Forces the factory down the auto-discovery path
+    (``refresh()`` + ``_fetch_index_columns``).
     """
     return VectorStoreModel(
         index=IndexModel(schema=COMMERCE_SCHEMA, name=index_name),
@@ -273,8 +273,8 @@ class TestDynamicSchemaHydration:
 
     Each test builds a tool from just an index reference (no ``columns:``
     in YAML) and asserts (a) the args_schema exposes the live column set
-    with type-aware operator suffixes, (b) invalid keys are rejected by
-    pydantic without hitting the retriever, (c) valid keys pass through
+    with all 8 operator suffixes per column, (b) invalid keys are rejected
+    by pydantic without hitting the retriever, (c) valid keys pass through
     and the live search returns.
     """
 
@@ -290,14 +290,15 @@ class TestDynamicSchemaHydration:
         # description, price, is_b2b_only.
         for c in ("product_id", "product_name", "brand", "category", "price", "is_b2b_only"):
             assert c in enum, f"missing column {c!r} in {enum}"
-        # Type-aware guardrails (types come from wc.tables.get on the
-        # index — same UC entity as the columns):
-        assert "product_name LIKE" in enum  # string col gets LIKE
-        assert "product_name >" not in enum  # …but not ordering
-        assert "price <=" in enum  # numeric col gets ordering
-        assert "price LIKE" not in enum  # …but not LIKE
-        assert "is_b2b_only NOT" in enum  # bool gets equality/NOT
-        assert "is_b2b_only <" not in enum  # …but no ordering
+        # Every column gets every operator suffix — no type-aware
+        # narrowing. Databricks VS rejects invalid combinations at query
+        # time (matches upstream databricks-langchain).
+        assert "product_name LIKE" in enum
+        assert "product_name >" in enum      # ordering allowed on any col
+        assert "price <=" in enum
+        assert "price LIKE" in enum          # LIKE allowed on any col
+        assert "is_b2b_only NOT" in enum
+        assert "is_b2b_only <" in enum       # ordering allowed on any col
         # Regression key still absent (LLM cannot emit ``name`` — real
         # column is ``product_name``).
         assert not any(k.startswith("name ") or k == "name" for k in enum), enum

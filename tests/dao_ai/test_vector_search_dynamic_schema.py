@@ -29,6 +29,7 @@ import pytest
 from pydantic import ValidationError
 
 from dao_ai.config import (
+    ColumnInfo,
     FilterItem,
     IndexModel,
     RetrieverModel,
@@ -38,12 +39,12 @@ from dao_ai.config import (
 )
 from dao_ai.tools.vector_search import (
     VectorSearchInput,
+    _build_columns_description,
     _build_filter_item_model,
     _build_vector_search_input_model,
+    _fetch_index_columns,
     _legal_filter_keys,
-    _operators_for_type,
-    _explicit_columns_to_sync,
-    _fetch_source_table_column_types,
+    _normalize_declared_columns,
     _vector_column_names_from_describe,
     create_vector_search_tool,
 )
@@ -96,96 +97,31 @@ def _describe_payload(**overrides: Any) -> dict[str, Any]:
 
 
 @pytest.mark.unit
-class TestOperatorsForType:
-    """The type → operator-suffix mapping is what makes the Literal enum
-    semantically useful. Boundaries: no LIKE on numerics, no ordering on
-    booleans, only equality on booleans, unknown types get everything."""
-
-    def test_numeric_gets_equality_and_ordering(self) -> None:
-        for t in ("int", "bigint", "long", "double", "float", "decimal(10,2)"):
-            ops = _operators_for_type(t)
-            assert " <=" in ops
-            assert " LIKE" not in ops
-            assert " NOT LIKE" not in ops
-
-    def test_string_gets_equality_and_like(self) -> None:
-        for t in ("string", "varchar(255)", "char(3)", "text"):
-            ops = _operators_for_type(t)
-            assert " LIKE" in ops
-            assert " NOT LIKE" in ops
-            assert " <=" not in ops
-            assert " >" not in ops
-
-    def test_boolean_equality_only(self) -> None:
-        ops = _operators_for_type("boolean")
-        assert ops == ("", " NOT")
-
-    def test_temporal_behaves_like_numeric(self) -> None:
-        for t in ("timestamp", "date"):
-            ops = _operators_for_type(t)
-            assert " <=" in ops
-            assert " LIKE" not in ops
-
-    def test_unknown_or_missing_type_permits_all(self) -> None:
-        # We deliberately do NOT block operators on types we don't recognise —
-        # complex types like STRUCT/ARRAY can legitimately use unusual ops on
-        # nested fields, and stripping them would produce false negatives.
-        for t in ("", None, "struct<a:int>", "array<string>", "map<string,int>"):
-            ops = _operators_for_type(t)  # type: ignore[arg-type]
-            assert " LIKE" in ops
-            assert " <=" in ops
-            assert " NOT" in ops
-
-    def test_binary_gets_equality_only(self) -> None:
-        # Binary blobs have no meaningful ordering or LIKE semantics. We
-        # treat them like booleans.
-        for t in ("binary", "BINARY"):
-            ops = _operators_for_type(t)
-            assert ops == ("", " NOT"), f"binary type {t!r} should be equality-only, got {ops}"
-
-    def test_type_matching_is_case_insensitive(self) -> None:
-        # Databricks' DESCRIBE / UC Tables API returns type strings in mixed
-        # case ("BIGINT", "Double", "TIMESTAMP"). We must not miss them.
-        assert _operators_for_type("BIGINT") == _operators_for_type("bigint")
-        assert _operators_for_type("STRING") == _operators_for_type("string")
-        assert _operators_for_type("Boolean") == _operators_for_type("boolean")
-
-    def test_parameterized_types_matched_by_prefix(self) -> None:
-        # DESCRIBE returns parameterized versions of decimal/varchar/char.
-        # We match by prefix so these still map to the right family.
-        assert _operators_for_type("decimal(10,2)") == _operators_for_type("bigint")
-        assert _operators_for_type("varchar(255)") == _operators_for_type("string")
-        assert _operators_for_type("char(3)") == _operators_for_type("string")
-
-
-@pytest.mark.unit
 class TestLegalFilterKeys:
-    def test_cross_product_without_types_permits_all(self) -> None:
+    def test_cross_product_permits_all_suffixes(self) -> None:
         keys = _legal_filter_keys(["a", "b"])
         # 2 columns × 8 suffixes = 16
         assert len(keys) == 16
         assert "a" in keys and "a LIKE" in keys
         assert "b <=" in keys
+        assert "a NOT LIKE" in keys and "b >=" in keys
 
-    def test_cross_product_with_types_narrows_per_column(self) -> None:
+    def test_operator_overrides_restrict_a_specific_column(self) -> None:
+        # brand locked to equality + LIKE only; price falls through to
+        # the full 8-suffix set.
         keys = _legal_filter_keys(
-            ["price", "name", "flag"],
-            {"price": "double", "name": "string", "flag": "boolean"},
+            ["brand", "price"],
+            operator_overrides={"brand": ["", "LIKE"]},
         )
-        # 6 (numeric) + 4 (string) + 2 (bool) = 12
-        assert len(keys) == 12
-        assert "price <=" in keys and "price LIKE" not in keys
-        assert "name LIKE" in keys and "name >" not in keys
-        assert "flag NOT" in keys and "flag LIKE" not in keys
+        # 2 (brand override) + 8 (price default) = 10
+        assert len(keys) == 10
+        assert "brand" in keys and "brand LIKE" in keys
+        assert "brand NOT" not in keys and "brand <" not in keys
+        assert "price" in keys and "price LIKE" in keys and "price <" in keys
 
-    def test_missing_column_type_falls_back_to_all_suffixes(self) -> None:
-        keys = _legal_filter_keys(
-            ["price", "unknown"], {"price": "double"}
-        )
-        # price → 6 (numeric); unknown → 8 (fallback)
-        assert len(keys) == 14
-        assert "unknown LIKE" in keys
-        assert "unknown <" in keys
+    def test_empty_operator_overrides_uses_defaults(self) -> None:
+        keys = _legal_filter_keys(["a"], operator_overrides={})
+        assert len(keys) == 8
 
 
 @pytest.mark.unit
@@ -195,20 +131,29 @@ class TestBuildFilterItemModel:
         assert _build_filter_item_model([]) is FilterItem
 
     def test_columns_produce_literal_narrowed_key(self) -> None:
-        M = _build_filter_item_model(PRODUCTS_COLUMNS, PRODUCTS_TYPES)
+        M = _build_filter_item_model(PRODUCTS_COLUMNS)
         schema = M.model_json_schema()
         enum = schema["properties"]["key"]["enum"]
-        # Numeric/bool ops for product_id + price + is_b2b_only, string ops
-        # for the 6 text columns: 6 + 6 + 2 + 4*6 = 38.
-        assert len(enum) == 38
+        # Every column gets every suffix — no type-aware narrowing.
+        # 9 columns × 8 suffixes = 72.
+        assert len(enum) == 72
         assert "product_id" in enum and "product_id <=" in enum
         assert "product_name LIKE" in enum
         assert "is_b2b_only NOT" in enum
-        # And the regression key must NOT appear:
+        # The regression key must NOT appear (column doesn't exist):
         assert "name NOT LIKE" not in enum
-        # Nor should nonsense combos:
-        assert "price LIKE" not in enum
-        assert "is_b2b_only <" not in enum
+
+    def test_operator_overrides_narrow_a_specific_column(self) -> None:
+        # brand locked to ["", "LIKE"]; price gets all 8 suffixes.
+        M = _build_filter_item_model(
+            ["brand", "price"],
+            operator_overrides={"brand": ["", "LIKE"]},
+        )
+        enum = M.model_json_schema()["properties"]["key"]["enum"]
+        assert "brand" in enum and "brand LIKE" in enum
+        assert "brand NOT" not in enum and "brand <" not in enum
+        # price falls through to defaults
+        assert "price" in enum and "price LIKE" in enum and "price <" in enum
 
 
 @pytest.mark.unit
@@ -217,7 +162,7 @@ class TestBuildVectorSearchInputModel:
         assert _build_vector_search_input_model([]) is VectorSearchInput
 
     def test_valid_filter_accepted(self) -> None:
-        M = _build_vector_search_input_model(PRODUCTS_COLUMNS, PRODUCTS_TYPES)
+        M = _build_vector_search_input_model(PRODUCTS_COLUMNS)
         m = M(
             query="peanut-free dessert under 30",
             filters=[
@@ -232,7 +177,7 @@ class TestBuildVectorSearchInputModel:
     def test_regression_bad_column_key_rejected(self) -> None:
         """The exact key emitted by the LLM in trace fc785d795b... — must
         never make it past pydantic validation."""
-        M = _build_vector_search_input_model(PRODUCTS_COLUMNS, PRODUCTS_TYPES)
+        M = _build_vector_search_input_model(PRODUCTS_COLUMNS)
         with pytest.raises(ValidationError) as exc_info:
             M(
                 query="dessert",
@@ -241,19 +186,20 @@ class TestBuildVectorSearchInputModel:
         # Pydantic error message should reference the offending field.
         assert "filters" in str(exc_info.value) and "key" in str(exc_info.value)
 
-    def test_type_wrong_operator_rejected(self) -> None:
-        """LIKE on a numeric column, ordering on a bool — both must be
-        rejected by the type-aware enum."""
-        M = _build_vector_search_input_model(PRODUCTS_COLUMNS, PRODUCTS_TYPES)
-        for bad in ("price LIKE", "price NOT LIKE", "is_b2b_only <"):
-            with pytest.raises(ValidationError):
-                M(query="x", filters=[{"key": bad, "value": 0}])
+    def test_operator_override_rejects_disallowed_suffix(self) -> None:
+        """When ColumnInfo.operators locks a column to a subset, Pydantic
+        rejects any suffix outside that subset."""
+        M = _build_vector_search_input_model(
+            ["brand"], operator_overrides={"brand": ["", "LIKE"]}
+        )
+        with pytest.raises(ValidationError):
+            M(query="x", filters=[{"key": "brand NOT", "value": "y"}])
 
-    def test_falls_back_when_types_missing(self) -> None:
-        # No type info → all suffixes permitted on every column.
+    def test_permissive_when_no_overrides(self) -> None:
+        # No overrides → all 8 suffixes for every column.
         M = _build_vector_search_input_model(PRODUCTS_COLUMNS)
         ok = M(query="x", filters=[{"key": "price LIKE", "value": "3"}])
-        # No exception → falls back to permissive mode.
+        # No exception — the enum allows every suffix regardless of type.
         assert ok.filters[0].key == "price LIKE"
 
 
@@ -287,7 +233,7 @@ class TestFactoryColumnHydration:
         with patch(
             "dao_ai.tools.vector_search._vsc_for_refresh", return_value=None
         ), patch(
-            "dao_ai.tools.vector_search._fetch_source_table_column_types", return_value=None
+            "dao_ai.tools.vector_search._fetch_index_columns", return_value=None
         ), patch.object(
             VectorStoreModel,
             "refresh",
@@ -331,7 +277,7 @@ class TestFactoryColumnHydration:
         ) as mocked_refresh, patch(
             "dao_ai.tools.vector_search._vsc_for_refresh", return_value=None
         ), patch(
-            "dao_ai.tools.vector_search._fetch_source_table_column_types", return_value=None
+            "dao_ai.tools.vector_search._fetch_index_columns", return_value=None
         ):
             tool = create_vector_search_tool(retriever=retriever, name="product_search")
 
@@ -345,43 +291,25 @@ class TestFactoryColumnHydration:
         # Everything outside the declared subset is absent:
         assert "sku" not in enum and "category" not in enum
 
-    def test_yaml_column_not_on_index_dropped_with_warning(self) -> None:
-        """Config declares a bogus column not on the index → dropped, WARN
-        logged with column name + index name. LLM can never emit a filter
-        that would fail at the VS API."""
+    def test_yaml_columns_trusted_verbatim_no_drift_check(self) -> None:
+        """Bare-string ``retriever.columns`` are trusted verbatim: even a
+        column that isn't on the index is included in the enum. Drift
+        detection is not the framework's job — the VS API will reject the
+        filter at query time. Users who want authoritative schema control
+        should declare ColumnInfo instead."""
         vs = self._make_vs(with_columns=False)
         retriever = RetrieverModel(
             vector_store=vs,
             columns=["product_id", "product_name", "nonexistent_col_xyz"],
         )
-        payload = _describe_payload()
-        original_refresh = VectorStoreModel.refresh
-
-        # loguru bypasses stdlib logging — capture via a dedicated sink.
-        from loguru import logger as loguru_logger
-
-        captured: list[str] = []
-        sink_id = loguru_logger.add(
-            lambda msg: captured.append(str(msg)),
-            level="WARNING",
-            format="{message} {extra}",
-        )
-        try:
-            with patch.object(
-                VectorStoreModel,
-                "refresh",
-                autospec=True,
-                side_effect=lambda self, **kw: original_refresh(self, details=payload),
-            ), patch(
-                "dao_ai.tools.vector_search._vsc_for_refresh", return_value=None
-            ), patch(
-                "dao_ai.tools.vector_search._fetch_source_table_column_types", return_value=None
-            ):
-                tool = create_vector_search_tool(
-                    retriever=retriever, name="product_search"
-                )
-        finally:
-            loguru_logger.remove(sink_id)
+        with patch(
+            "dao_ai.tools.vector_search._vsc_for_refresh", return_value=None
+        ), patch(
+            "dao_ai.tools.vector_search._fetch_index_columns", return_value=None
+        ), patch.object(VectorStoreModel, "refresh", autospec=True):
+            tool = create_vector_search_tool(
+                retriever=retriever, name="product_search"
+            )
 
         enum = (
             tool.args_schema.model_json_schema()["$defs"]["DynamicFilterItem"][
@@ -390,47 +318,35 @@ class TestFactoryColumnHydration:
         )
         assert "product_id" in enum
         assert "product_name" in enum
-        assert not any(k.startswith("nonexistent_col_xyz") for k in enum)
-
-        warnings_text = " ".join(captured)
-        assert "nonexistent_col_xyz" in warnings_text
-        assert "products_description_index" in warnings_text
+        # All three declared cols get every operator suffix — no drift
+        # check against a live index.
+        assert "nonexistent_col_xyz" in enum
+        assert "nonexistent_col_xyz LIKE" in enum
 
     def test_source_table_never_called_for_schema(self) -> None:
-        """Regression guard: schema-building code must call
-        ``wc.tables.get`` only on the INDEX's full_name (mirrors
-        databricks-langchain), never on any other UC entity — most
-        importantly, never on the source table (whose columns aren't
-        guaranteed to be on the index).
+        """Regression guard: this PR intentionally removed source-table
+        UC lookup — only ``wc.tables.get(index.full_name)`` is allowed.
+        Matches upstream databricks-langchain (single call, index only).
+
+        Even under Mode B (bare strings declared), we call
+        ``_fetch_index_columns`` best-effort for description enrichment
+        — but never touch the source table.
         """
         vs = self._make_vs(with_columns=False)
-        retriever = RetrieverModel(vector_store=vs)
-        payload = _describe_payload()
-        original_refresh = VectorStoreModel.refresh
+        retriever = RetrieverModel(vector_store=vs, columns=["product_id"])
         wc_spy = MagicMock()
-        # Simulate a successful UC Tables lookup on the index.
         fake_index_table = MagicMock()
-        fake_index_table.columns = [
-            MagicMock(name="product_id", type_text="bigint"),
-            MagicMock(name="product_name", type_text="string"),
-        ]
-        # MagicMock's name attr is special; set explicitly.
-        for col, real_name in zip(
-            fake_index_table.columns, ["product_id", "product_name"]
-        ):
-            col.name = real_name
+        col = MagicMock()
+        col.name = "product_id"
+        col.type_text = "bigint"
+        col.type_name = "bigint"
+        col.comment = None
+        fake_index_table.columns = [col]
         wc_spy.tables.get.return_value = fake_index_table
 
-        with patch.object(
-            VectorStoreModel,
-            "refresh",
-            autospec=True,
-            side_effect=lambda self, **kw: original_refresh(self, details=payload),
-        ), patch(
+        with patch(
             "dao_ai.tools.vector_search._vsc_for_refresh", return_value=None
-        ), patch(
-            "dao_ai.tools.vector_search._fetch_source_table_column_types", return_value=None
-        ), patch.object(
+        ), patch.object(VectorStoreModel, "refresh", autospec=True), patch.object(
             VectorStoreModel,
             "workspace_client_from",
             autospec=True,
@@ -438,8 +354,8 @@ class TestFactoryColumnHydration:
         ):
             create_vector_search_tool(retriever=retriever, name="product_search")
 
-        # Every call to wc.tables.get must target the index full name.
-        assert wc_spy.tables.get.call_count >= 1
+        # Every call to wc.tables.get must target the index full name —
+        # never the source table.
         for call in wc_spy.tables.get.call_args_list:
             args, kwargs = call.args, call.kwargs
             target = args[0] if args else kwargs.get("full_name")
@@ -462,10 +378,7 @@ class TestFactoryColumnHydration:
             autospec=True,
             side_effect=RuntimeError("describe unauthorized"),
         ), patch(
-            "dao_ai.tools.vector_search._fetch_source_table_column_types", return_value=None
-        ), patch(
-            "dao_ai.tools.vector_search._fetch_index_column_types",
-            return_value=None,
+            "dao_ai.tools.vector_search._fetch_index_columns", return_value=None
         ):
             tool = create_vector_search_tool(retriever=retriever, name="product_search")
 
@@ -491,7 +404,7 @@ class TestFactoryColumnHydration:
             autospec=True,
             side_effect=RuntimeError("describe unauthorized"),
         ), patch(
-            "dao_ai.tools.vector_search._fetch_source_table_column_types", return_value=None
+            "dao_ai.tools.vector_search._fetch_index_columns", return_value=None
         ):
             tool = create_vector_search_tool(retriever=retriever, name="product_search")
 
@@ -602,163 +515,116 @@ class TestVectorColumnStripping:
         # business column named ``product_vector`` is preserved.
         assert "product_vector" not in _vector_column_names_from_describe(details)
 
-    def _make_source_table_setup(
+    def _make_index_uc_setup(
         self,
         *,
-        table_columns: list[tuple[str, str]],
+        table_columns: list[tuple[str, str | None, str | None]],
         describe: dict | None,
-        source_table_full_name: str = "cat.sch.products",
+        index_full_name: str = "cat.sch.probe_test_index",
     ) -> tuple[Any, Any]:
         """Build a MagicMock chain that mimics
-        ``vs.workspace_client_from(None).tables.get(source_table.full_name)``
+        ``vs.workspace_client_from(None).tables.get(index.full_name)``
         and stashes ``describe`` on the vector_store as ``_index_details``."""
         vs = MagicMock()
-        vs.index.full_name = "cat.sch.probe_test_index"
-        vs.source_table.full_name = source_table_full_name
+        vs.index.full_name = index_full_name
         vs._index_details = describe
         wc = MagicMock()
         table = MagicMock()
         table.columns = [
-            SimpleNamespace(name=n, type_text=t, type_name=t)
-            for n, t in table_columns
+            SimpleNamespace(name=n, type_text=t, type_name=t, comment=c)
+            for n, t, c in table_columns
         ]
         wc.tables.get.return_value = table
         vs.workspace_client_from.return_value = wc
         return vs, wc
 
-    def test_strips_synthesised_vector_column_from_describe(self) -> None:
-        vs, _ = self._make_source_table_setup(
+    def test_index_uc_strips_synthesised_vector_column(self) -> None:
+        vs, _ = self._make_index_uc_setup(
             table_columns=[
-                ("product_id", "bigint"),
-                ("product_name", "string"),
-                ("description", "string"),
-                # Source-table lookup runs against the actual source table,
-                # not the index — so the synthesised ``description_vector``
-                # column doesn't exist here. It's stripped anyway on the
-                # index-side lookup; this test exercises the source-table
-                # happy path where the source cols == index cols.
+                ("product_id", "bigint", None),
+                ("product_name", "string", "Full product name"),
+                ("description", "string", None),
+                ("description_vector", "array<double>", None),
             ],
-            describe=_describe_payload(),
+            describe=_describe_payload(),  # embedding source = "description"
         )
-        assert _fetch_source_table_column_types(vs) == {
-            "product_id": "bigint",
-            "product_name": "string",
-            "description": "string",
-        }
-
-    def test_preserves_business_column_ending_in_vector(self) -> None:
-        """A user column literally named ``product_vector`` on the source
-        table must survive — describe's ``embedding_source_columns`` is
-        the authoritative signal for what's a synthesised vector, and
-        ``product`` is not the embedding source (``description`` is)."""
-        describe = _describe_payload()
-        # Drop the default ``columns_to_sync`` so we're isolating the
-        # vector-stripping behavior, not the sync-subset intersection.
-        describe["delta_sync_index_spec"].pop("columns_to_sync", None)
-        vs, _ = self._make_source_table_setup(
-            table_columns=[
-                ("product_id", "bigint"),
-                ("product_name", "string"),
-                ("product_vector", "array<double>"),
-                ("description", "string"),
-            ],
-            describe=describe,  # embedding source = "description"
-        )
-        out = _fetch_source_table_column_types(vs)
+        out = _fetch_index_columns(vs)
         assert out is not None
-        assert "product_vector" in out  # preserved!
+        names = [n for n, _, _ in out]
+        assert names == ["product_id", "product_name", "description"]
+        # Description carried through when set.
+        assert dict((n, c) for n, _, c in out)["product_name"] == "Full product name"
 
-    def test_falls_back_to_suffix_heuristic_when_describe_missing(self) -> None:
-        """No describe details cached → we can't know which ``_vector``
-        column is synthesised, so we strip all of them. Same controlled
-        false-positive risk as the index-side lookup."""
-        vs, _ = self._make_source_table_setup(
-            table_columns=[
-                ("product_id", "bigint"),
-                ("product_name", "string"),
-                ("description_vector", "array<double>"),
-            ],
-            describe=None,
-        )
-        assert _fetch_source_table_column_types(vs) == {
-            "product_id": "bigint",
-            "product_name": "string",
-        }
-
-    def test_strips_cdf_underscore_prefix_fields(self) -> None:
-        vs, _ = self._make_source_table_setup(
-            table_columns=[
-                ("product_id", "bigint"),
-                ("_change_type", "string"),
-                ("_commit_version", "bigint"),
-                ("product_name", "string"),
-            ],
-            describe=_describe_payload(),
-        )
-        assert _fetch_source_table_column_types(vs) == {
-            "product_id": "bigint",
-            "product_name": "string",
-        }
-
-    def test_intersects_with_columns_to_sync_subset(self) -> None:
-        """When the user explicitly restricts sync to a subset, source-table
-        lookup must not advertise cols the index doesn't hold."""
+    def test_index_uc_preserves_business_column_ending_in_vector(self) -> None:
+        """A user column literally named ``product_vector`` must survive —
+        describe's ``embedding_source_columns`` is the authoritative signal
+        for what's a synthesised vector, and ``product`` is not the
+        embedding source (``description`` is)."""
         describe = _describe_payload()
-        # Explicit subset: only product_id + product_name are synced.
-        describe["delta_sync_index_spec"]["columns_to_sync"] = [
-            "product_id",
-            "product_name",
-        ]
-        vs, _ = self._make_source_table_setup(
+        vs, _ = self._make_index_uc_setup(
             table_columns=[
-                ("product_id", "bigint"),
-                ("product_name", "string"),
-                ("brand", "string"),       # NOT on the index
-                ("category", "string"),    # NOT on the index
-                ("description", "string"),
+                ("product_id", "bigint", None),
+                ("product_name", "string", None),
+                ("product_vector", "array<double>", None),
+                ("description", "string", None),
+                ("description_vector", "array<double>", None),
             ],
             describe=describe,
         )
-        out = _fetch_source_table_column_types(vs)
-        assert out == {"product_id": "bigint", "product_name": "string"}
+        out = _fetch_index_columns(vs)
+        assert out is not None
+        names = [n for n, _, _ in out]
+        assert "product_vector" in names
+        assert "description_vector" not in names
 
-    def test_empty_source_table_returns_none(self) -> None:
-        vs, _ = self._make_source_table_setup(
-            table_columns=[],
+    def test_index_uc_falls_back_to_suffix_heuristic_when_describe_missing(
+        self,
+    ) -> None:
+        vs, _ = self._make_index_uc_setup(
+            table_columns=[
+                ("product_id", "bigint", None),
+                ("product_name", "string", None),
+                ("description_vector", "array<double>", None),
+            ],
             describe=None,
         )
-        assert _fetch_source_table_column_types(vs) is None
+        out = _fetch_index_columns(vs)
+        assert out is not None
+        names = [n for n, _, _ in out]
+        assert names == ["product_id", "product_name"]
 
-    def test_uc_tables_permission_error_returns_none(self) -> None:
+    def test_index_uc_strips_cdf_underscore_prefix_fields(self) -> None:
+        vs, _ = self._make_index_uc_setup(
+            table_columns=[
+                ("product_id", "bigint", None),
+                ("_change_type", "string", None),
+                ("_commit_version", "bigint", None),
+                ("product_name", "string", None),
+            ],
+            describe=_describe_payload(),
+        )
+        out = _fetch_index_columns(vs)
+        assert out is not None
+        names = [n for n, _, _ in out]
+        assert names == ["product_id", "product_name"]
+
+    def test_index_uc_empty_returns_none(self) -> None:
+        vs, _ = self._make_index_uc_setup(table_columns=[], describe=None)
+        assert _fetch_index_columns(vs) is None
+
+    def test_index_uc_permission_error_returns_none(self) -> None:
         vs = MagicMock()
-        vs.source_table.full_name = "cat.sch.forbidden_source"
+        vs.index.full_name = "cat.sch.forbidden_index"
         vs._index_details = None
         wc = MagicMock()
         wc.tables.get.side_effect = PermissionError("forbidden")
         vs.workspace_client_from.return_value = wc
-        assert _fetch_source_table_column_types(vs) is None
+        assert _fetch_index_columns(vs) is None
 
-    def test_direct_access_no_source_table_returns_none(self) -> None:
-        """Direct-Access indexes have no source_table; the fallback returns
-        None and the caller uses ``refresh()``'s ``columns_to_sync`` handling
-        instead. Verifies no AttributeError on the None check."""
+    def test_index_uc_no_index_returns_none(self) -> None:
         vs = MagicMock()
-        vs.source_table = None
-        assert _fetch_source_table_column_types(vs) is None
-
-    def test_explicit_columns_to_sync_helper(self) -> None:
-        """``_explicit_columns_to_sync`` returns None when no subset is
-        declared (default = all cols) and a set when the user restricted."""
-        # No columns_to_sync in payload → None.
-        no_sync = _describe_payload()
-        no_sync["delta_sync_index_spec"].pop("columns_to_sync", None)
-        assert _explicit_columns_to_sync(no_sync) is None
-        # Explicit subset → set.
-        describe = _describe_payload()
-        describe["delta_sync_index_spec"]["columns_to_sync"] = ["a", "b"]
-        assert _explicit_columns_to_sync(describe) == {"a", "b"}
-        # None input → None.
-        assert _explicit_columns_to_sync(None) is None
+        vs.index = None
+        assert _fetch_index_columns(vs) is None
 
 
 @pytest.mark.unit
@@ -770,8 +636,7 @@ class TestFilterValueShapes:
 
     def _model(self):
         return _build_vector_search_input_model(
-            ["sku", "price", "is_b2b_only"],
-            {"sku": "string", "price": "double", "is_b2b_only": "boolean"},
+            ["sku", "price", "is_b2b_only"]
         )
 
     def test_string_scalar(self) -> None:
@@ -830,15 +695,14 @@ class TestScaleAndSpecialColumnNames:
     """
 
     def test_large_column_count_produces_working_enum(self) -> None:
-        # 50 columns × 4-6 ops-per-column = ~250 legal keys. This is well
-        # under pydantic's practical ceiling and well over any realistic
-        # commerce/product index.
+        # 50 columns × 8 suffixes = 400 legal keys. Well under pydantic's
+        # practical ceiling and well over any realistic commerce/product
+        # index.
         cols = [f"col_{i:04d}" for i in range(50)]
-        types = {c: ("string" if i % 2 else "bigint") for i, c in enumerate(cols)}
-        M = _build_vector_search_input_model(cols, types)
+        M = _build_vector_search_input_model(cols)
         schema = M.model_json_schema()
         enum = schema["$defs"]["DynamicFilterItem"]["properties"]["key"]["enum"]
-        assert 200 <= len(enum) <= 300, f"unexpected enum size {len(enum)}"
+        assert len(enum) == 400
         M(query="x", filters=[{"key": "col_0000 <=", "value": 1}])
         M(query="x", filters=[{"key": "col_0001 LIKE", "value": "x"}])
         with pytest.raises(ValidationError):
@@ -860,10 +724,13 @@ class TestScaleAndSpecialColumnNames:
         M(query="x", filters=[{"key": "b_col", "value": "z"}])
 
     def test_single_column_index(self) -> None:
-        # Trivial happy path with just one column.
-        M = _build_vector_search_input_model(["only"], {"only": "string"})
+        # Trivial happy path with just one column — all 8 suffixes.
+        M = _build_vector_search_input_model(["only"])
         enum = M.model_json_schema()["$defs"]["DynamicFilterItem"]["properties"]["key"]["enum"]
-        assert set(enum) == {"only", "only NOT", "only LIKE", "only NOT LIKE"}
+        assert set(enum) == {
+            "only", "only NOT", "only <", "only <=",
+            "only >", "only >=", "only LIKE", "only NOT LIKE",
+        }
 
 
 @pytest.mark.unit
@@ -885,7 +752,7 @@ class TestFactoryEntryShapes:
                 "dao_ai.tools.vector_search._vsc_for_refresh", return_value=None
             ),
             patch(
-                "dao_ai.tools.vector_search._fetch_source_table_column_types", return_value=None
+                "dao_ai.tools.vector_search._fetch_index_columns", return_value=None
             ),
             patch.object(
                 VectorStoreModel,
@@ -967,7 +834,7 @@ class TestBackwardCompatibility:
         with patch(
             "dao_ai.tools.vector_search._vsc_for_refresh", return_value=None
         ), patch(
-            "dao_ai.tools.vector_search._fetch_source_table_column_types", return_value=None
+            "dao_ai.tools.vector_search._fetch_index_columns", return_value=None
         ), patch.object(
             VectorStoreModel,
             "refresh",
@@ -996,16 +863,13 @@ class TestBackwardCompatibility:
         with patch(
             "dao_ai.tools.vector_search._vsc_for_refresh", return_value=None
         ), patch(
-            "dao_ai.tools.vector_search._fetch_source_table_column_types", return_value=None
-        ), patch.object(VectorStoreModel, "refresh", autospec=True), patch(
-            "dao_ai.tools.vector_search._fetch_index_column_types",
-            return_value=None,
-        ):
+            "dao_ai.tools.vector_search._fetch_index_columns", return_value=None
+        ), patch.object(VectorStoreModel, "refresh", autospec=True):
             tool = create_vector_search_tool(retriever=retriever, name="t")
         enum = tool.args_schema.model_json_schema()["$defs"][
             "DynamicFilterItem"
         ]["properties"]["key"]["enum"]
-        # No types → all 8 operator suffixes for each column.
+        # Every column always gets all 8 operator suffixes.
         assert len(enum) == 16
         assert "a LIKE" in enum and "a >=" in enum and "b NOT" in enum
 
@@ -1051,7 +915,7 @@ class TestMcpAdapterEntryPoint:
             with patch(
                 "dao_ai.tools.vector_search._vsc_for_refresh", return_value=None
             ), patch(
-                "dao_ai.tools.vector_search._fetch_source_table_column_types", return_value=None
+                "dao_ai.tools.vector_search._fetch_index_columns", return_value=None
             ), patch.object(
                 VectorStoreModel,
                 "refresh",
@@ -1099,7 +963,11 @@ class TestIndexScopedTypeLookup:
         wc.tables.get.return_value = table
         return wc
 
-    def test_type_aware_enum_from_index_uc_lookup(self) -> None:
+    def test_index_uc_discovery_powers_the_enum_when_no_config_columns(self) -> None:
+        """Primary discovery path: nothing declared → factory calls
+        ``_fetch_index_columns`` on the index UC entity, uses the resulting
+        column list as the enum names. All 8 operator suffixes apply to
+        every column (no type-aware narrowing)."""
         vs = VectorStoreModel(
             index=IndexModel(
                 schema=SchemaModel(
@@ -1111,29 +979,17 @@ class TestIndexScopedTypeLookup:
             endpoint=VectorSearchEndpoint(name="dbdemos_vs_endpoint"),
         )
         retriever = RetrieverModel(vector_store=vs)
-        wc = self._wc_with_index_table(
-            [
-                ("product_id", "bigint"),
-                ("product_name", "string"),
-                ("price", "double"),
-                ("is_b2b_only", "boolean"),
-                # A vector column that must be stripped by the leading-
-                # underscore rule (no describe payload available).
-                ("__db_description_vector", "array<float>"),
-            ]
-        )
         with patch(
             "dao_ai.tools.vector_search._vsc_for_refresh", return_value=None
         ), patch(
-            "dao_ai.tools.vector_search._fetch_source_table_column_types", return_value=None
-        ), patch.object(
-            VectorStoreModel, "refresh", autospec=True
-        ), patch.object(
-            VectorStoreModel,
-            "workspace_client_from",
-            autospec=True,
-            return_value=wc,
-        ):
+            "dao_ai.tools.vector_search._fetch_index_columns",
+            return_value=[
+                ("product_id", "bigint", None),
+                ("product_name", "string", "Full product name"),
+                ("price", "double", None),
+                ("is_b2b_only", "boolean", None),
+            ],
+        ), patch.object(VectorStoreModel, "refresh", autospec=True):
             tool = create_vector_search_tool(
                 retriever=retriever, name="product_search"
             )
@@ -1142,21 +998,22 @@ class TestIndexScopedTypeLookup:
                 "properties"
             ]["key"]["enum"]
         )
-        # Vector column stripped.
-        assert not any("__db_description_vector" in k for k in enum), enum
-        # Type-aware operators:
-        assert "product_name LIKE" in enum  # string → LIKE
-        assert "product_name >" not in enum  # …not ordering
-        assert "price <=" in enum  # double → ordering
-        assert "price LIKE" not in enum  # …not LIKE
-        assert "is_b2b_only NOT" in enum  # bool → equality/NOT
-        assert "is_b2b_only <" not in enum  # …no ordering
+        # 4 discovered columns × 8 suffixes = 32.
+        assert len(enum) == 32
+        # All suffixes valid for every column — no type-aware narrowing.
+        assert "product_name LIKE" in enum
+        assert "product_name >=" in enum        # string with ordering — allowed now
+        assert "price LIKE" in enum             # numeric with LIKE — allowed now
+        assert "is_b2b_only <" in enum          # bool with ordering — allowed now
+        # Hallucinated column still rejected (this is the regression):
+        assert "name NOT LIKE" not in enum
+        # Description enrichment (product_name has a UC comment):
+        assert "Full product name" in tool.description
 
     def test_soft_fallback_when_index_uc_lookup_fails(self) -> None:
-        """UC Tables call on the INDEX fails → factory falls through to
-        UC Tables on the SOURCE TABLE. Because the source-table lookup
-        also returns ``{name: type}``, columns AND type-aware operator
-        narrowing are both preserved on the fallback path."""
+        """UC Tables call fails AND nothing declared → factory degrades to
+        free-form ``FilterItem`` (pre-branch behavior). No source-table
+        fallback (dropped in this PR — matches upstream databricks-langchain)."""
         vs = VectorStoreModel(
             index=IndexModel(
                 schema=SchemaModel(
@@ -1168,35 +1025,269 @@ class TestIndexScopedTypeLookup:
             endpoint=VectorSearchEndpoint(name="dbdemos_vs_endpoint"),
         )
         retriever = RetrieverModel(vector_store=vs)
-        wc = MagicMock()
-        wc.tables.get.side_effect = PermissionError("no access")
 
         with patch(
             "dao_ai.tools.vector_search._vsc_for_refresh", return_value=None
         ), patch(
-            "dao_ai.tools.vector_search._fetch_source_table_column_types",
-            return_value={"product_id": "bigint", "product_name": "string"},
-        ), patch.object(
-            VectorStoreModel, "refresh", autospec=True
-        ), patch.object(
-            VectorStoreModel,
-            "workspace_client_from",
-            autospec=True,
-            return_value=wc,
-        ):
+            "dao_ai.tools.vector_search._fetch_index_columns", return_value=None
+        ), patch.object(VectorStoreModel, "refresh", autospec=True):
             tool = create_vector_search_tool(retriever=retriever, name="t")
 
-        enum = (
-            tool.args_schema.model_json_schema()["$defs"]["DynamicFilterItem"][
-                "properties"
-            ]["key"]["enum"]
+        schema = tool.args_schema.model_json_schema()
+        # No enum on filter key — free-form fallback.
+        filter_ref = schema["$defs"].get("FilterItem") or schema["$defs"].get(
+            "DynamicFilterItem"
         )
-        # Columns narrowed (regression blocked). Types come through from
-        # the source-table fallback, so operators are narrowed too:
-        # bigint gets NUMERIC ops (no LIKE), string gets STRING ops
-        # (no ordering).
-        assert "product_id" in enum and "product_name" in enum
-        assert "product_id LIKE" not in enum  # bigint — no LIKE
-        assert "product_id <=" in enum        # bigint — ordering OK
-        assert "product_name LIKE" in enum    # string — LIKE OK
-        assert "product_name <=" not in enum  # string — no ordering
+        assert "enum" not in filter_ref["properties"]["key"]
+
+
+# ---------------------------------------------------------------------------
+# Hand-declared ColumnInfo — the new first-class knob for column schema
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestNormalizeDeclaredColumns:
+    """The helper that splits ``list[str | ColumnInfo]`` into flat lookups."""
+
+    def test_all_strings_no_hand_declaration(self) -> None:
+        names, types, descs, ops, any_hand = _normalize_declared_columns(
+            ["a", "b", "c"]
+        )
+        assert names == ["a", "b", "c"]
+        assert types == {}
+        assert descs == {}
+        assert ops == {}
+        assert any_hand is False
+
+    def test_all_column_info(self) -> None:
+        items = [
+            ColumnInfo(name="brand", type="string", description="Brand name"),
+            ColumnInfo(name="price", type="number"),
+        ]
+        names, types, descs, ops, any_hand = _normalize_declared_columns(items)
+        assert names == ["brand", "price"]
+        assert types == {"brand": "STRING", "price": "NUMBER"}
+        assert descs == {"brand": "Brand name"}  # only where set
+        assert ops == {}  # neither set operators explicitly
+        assert any_hand is True
+
+    def test_column_info_explicit_operators(self) -> None:
+        items = [
+            ColumnInfo(name="brand", type="string", operators=["", "LIKE"]),
+        ]
+        _, _, _, ops, any_hand = _normalize_declared_columns(items)
+        assert ops == {"brand": ["", "LIKE"]}
+        assert any_hand is True
+
+    def test_mixed_str_and_column_info(self) -> None:
+        items = [
+            "product_id",
+            ColumnInfo(name="brand", type="string", description="Brand"),
+            "sku",
+        ]
+        names, types, descs, ops, any_hand = _normalize_declared_columns(items)
+        assert names == ["product_id", "brand", "sku"]
+        # Only brand has type/description; bare strings don't populate.
+        assert types == {"brand": "STRING"}
+        assert descs == {"brand": "Brand"}
+        assert ops == {}
+        assert any_hand is True
+
+    def test_empty_list(self) -> None:
+        names, types, descs, ops, any_hand = _normalize_declared_columns([])
+        assert names == [] and types == {} and descs == {} and ops == {}
+        assert any_hand is False
+
+
+@pytest.mark.unit
+class TestBuildColumnsDescription:
+    def test_names_only(self) -> None:
+        block = _build_columns_description(["a", "b"], {}, {})
+        assert "- a" in block
+        assert "- b" in block
+        assert "Supports operators" in block
+
+    def test_names_with_types(self) -> None:
+        block = _build_columns_description(
+            ["price", "brand"],
+            {"price": "INT64", "brand": "STRING"},
+            {},
+        )
+        assert "- price (INT64)" in block
+        assert "- brand (STRING)" in block
+
+    def test_names_with_types_and_descriptions(self) -> None:
+        block = _build_columns_description(
+            ["brand"],
+            {"brand": "STRING"},
+            {"brand": "Brand — MILWAUKEE, DEWALT, MAKITA"},
+        )
+        assert "- brand (STRING) : Brand — MILWAUKEE, DEWALT, MAKITA" in block
+
+    def test_empty_names_returns_empty(self) -> None:
+        assert _build_columns_description([], {}, {}) == ""
+
+
+@pytest.mark.unit
+class TestHandDeclaredColumnInfoInFactory:
+    """When retriever.columns contains a ColumnInfo, the factory:
+    * uses ColumnInfo.name / .description / .type in the description block,
+    * uses ColumnInfo.operators as operator_overrides in the enum,
+    * SKIPS build-time UC calls (the whole point of hand-declaration).
+    """
+
+    def _bare_vs(self) -> VectorStoreModel:
+        return VectorStoreModel(
+            index=IndexModel(
+                schema=SchemaModel(
+                    catalog_name="retail_consumer_goods",
+                    schema_name="commerce_swarm",
+                ),
+                name="products_description_index",
+            ),
+            endpoint=VectorSearchEndpoint(name="dbdemos_vs_endpoint"),
+        )
+
+    def test_hand_declared_skips_uc_calls(self) -> None:
+        """When any ColumnInfo is in the list, no UC Tables call is made
+        at build time — hand-declaration is authoritative."""
+        vs = self._bare_vs()
+        retriever = RetrieverModel(
+            vector_store=vs,
+            columns=[
+                ColumnInfo(name="brand", type="string", description="Brand"),
+                ColumnInfo(name="price", type="number"),
+            ],
+        )
+        fetch_mock = MagicMock(return_value=None)
+        with patch(
+            "dao_ai.tools.vector_search._vsc_for_refresh", return_value=None
+        ), patch(
+            "dao_ai.tools.vector_search._fetch_index_columns", fetch_mock
+        ), patch.object(VectorStoreModel, "refresh", autospec=True):
+            create_vector_search_tool(retriever=retriever, name="t")
+        # The factory must NOT have called _fetch_index_columns in
+        # hand-declared mode.
+        fetch_mock.assert_not_called()
+
+    def test_hand_declared_operators_narrow_enum(self) -> None:
+        vs = self._bare_vs()
+        retriever = RetrieverModel(
+            vector_store=vs,
+            columns=[
+                ColumnInfo(
+                    name="brand",
+                    type="string",
+                    operators=["", "LIKE"],  # explicitly locked
+                ),
+                ColumnInfo(name="price", type="number"),  # defaults
+            ],
+        )
+        with patch(
+            "dao_ai.tools.vector_search._vsc_for_refresh", return_value=None
+        ), patch(
+            "dao_ai.tools.vector_search._fetch_index_columns", return_value=None
+        ), patch.object(VectorStoreModel, "refresh", autospec=True):
+            tool = create_vector_search_tool(retriever=retriever, name="t")
+        enum = tool.args_schema.model_json_schema()["$defs"][
+            "DynamicFilterItem"
+        ]["properties"]["key"]["enum"]
+        # brand is locked to 2 ops; price gets full 8.
+        assert "brand" in enum and "brand LIKE" in enum
+        assert "brand NOT" not in enum and "brand <" not in enum
+        assert "price" in enum and "price LIKE" in enum and "price <" in enum
+
+    def test_hand_declared_default_operators_gets_all_suffixes(self) -> None:
+        """ColumnInfo without explicit operators → the default full-list
+        signals 'don't restrict', so all 8 suffixes apply."""
+        vs = self._bare_vs()
+        retriever = RetrieverModel(
+            vector_store=vs,
+            columns=[ColumnInfo(name="brand", type="string")],
+        )
+        with patch(
+            "dao_ai.tools.vector_search._vsc_for_refresh", return_value=None
+        ), patch(
+            "dao_ai.tools.vector_search._fetch_index_columns", return_value=None
+        ), patch.object(VectorStoreModel, "refresh", autospec=True):
+            tool = create_vector_search_tool(retriever=retriever, name="t")
+        enum = tool.args_schema.model_json_schema()["$defs"][
+            "DynamicFilterItem"
+        ]["properties"]["key"]["enum"]
+        # All 8 suffixes for brand.
+        assert len(enum) == 8
+
+    def test_hand_declared_description_appears_in_tool_description(self) -> None:
+        vs = self._bare_vs()
+        retriever = RetrieverModel(
+            vector_store=vs,
+            columns=[
+                ColumnInfo(
+                    name="brand",
+                    type="string",
+                    description="Brand — MILWAUKEE, DEWALT, MAKITA",
+                ),
+            ],
+        )
+        with patch(
+            "dao_ai.tools.vector_search._vsc_for_refresh", return_value=None
+        ), patch(
+            "dao_ai.tools.vector_search._fetch_index_columns", return_value=None
+        ), patch.object(VectorStoreModel, "refresh", autospec=True):
+            tool = create_vector_search_tool(retriever=retriever, name="t")
+        assert "Brand — MILWAUKEE, DEWALT, MAKITA" in tool.description
+        assert "- brand (STRING)" in tool.description
+
+    def test_mixed_str_and_column_info_both_in_enum(self) -> None:
+        vs = self._bare_vs()
+        retriever = RetrieverModel(
+            vector_store=vs,
+            columns=[
+                "product_id",
+                ColumnInfo(name="brand", type="string", operators=["", "LIKE"]),
+                "sku",
+            ],
+        )
+        with patch(
+            "dao_ai.tools.vector_search._vsc_for_refresh", return_value=None
+        ), patch(
+            "dao_ai.tools.vector_search._fetch_index_columns", return_value=None
+        ), patch.object(VectorStoreModel, "refresh", autospec=True):
+            tool = create_vector_search_tool(retriever=retriever, name="t")
+        enum = tool.args_schema.model_json_schema()["$defs"][
+            "DynamicFilterItem"
+        ]["properties"]["key"]["enum"]
+        # brand → 2 ops; product_id + sku → 8 ops each = 18 total.
+        assert len(enum) == 18
+        assert "brand LIKE" in enum and "brand NOT" not in enum
+        assert "product_id LIKE" in enum and "sku <=" in enum
+
+    def test_bare_strings_still_call_uc_for_description(self) -> None:
+        """Mode B: bare-string columns declared → UC call is still made
+        best-effort for description enrichment (types + comments)."""
+        vs = self._bare_vs()
+        retriever = RetrieverModel(
+            vector_store=vs, columns=["brand", "price"]
+        )
+        with patch(
+            "dao_ai.tools.vector_search._vsc_for_refresh", return_value=None
+        ), patch(
+            "dao_ai.tools.vector_search._fetch_index_columns",
+            return_value=[
+                ("brand", "STRING", "Brand — Milwaukee, DeWalt, ..."),
+                ("price", "INT64", None),
+            ],
+        ) as fetch_mock, patch.object(VectorStoreModel, "refresh", autospec=True):
+            tool = create_vector_search_tool(retriever=retriever, name="t")
+        # UC call happened (for description enrichment)
+        fetch_mock.assert_called_once()
+        # But the enum is built from declared names + all 8 suffixes each
+        # — no type-aware narrowing.
+        enum = tool.args_schema.model_json_schema()["$defs"][
+            "DynamicFilterItem"
+        ]["properties"]["key"]["enum"]
+        assert len(enum) == 16
+        assert "price LIKE" in enum  # numeric can LIKE — no narrowing
+        # Description enrichment came through
+        assert "Brand — Milwaukee" in tool.description

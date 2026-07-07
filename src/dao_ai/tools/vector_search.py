@@ -185,81 +185,39 @@ _FILTER_OPERATOR_SUFFIXES: tuple[str, ...] = (
     " NOT LIKE",
 )
 
-# Databricks type prefixes → subset of operator suffixes that make semantic
-# sense. Keys are matched case-insensitively against the *start* of the type
-# string (so "decimal(10,2)" still matches "decimal"). Anything unmatched
-# falls through to the full ``_FILTER_OPERATOR_SUFFIXES`` list — that's the
-# safe default for complex or unknown types.
-_NUMERIC_OPS: tuple[str, ...] = ("", " NOT", " <", " <=", " >", " >=")
-_STRING_OPS: tuple[str, ...] = ("", " NOT", " LIKE", " NOT LIKE")
-_BOOL_OPS: tuple[str, ...] = ("", " NOT")
-
-
-def _operators_for_type(type_str: str | None) -> tuple[str, ...]:
-    """Return the operator suffixes valid for a given Databricks column type.
-
-    Filters out combinations that don't semantically apply — e.g. ``LIKE`` on
-    an ``int``, ``<`` on a ``boolean``. Unknown / complex types (STRUCT, ARRAY,
-    MAP, custom UDT names) fall through to *all* suffixes so we don't
-    accidentally strip a legitimate combination.
-    """
-    t = (type_str or "").strip().lower()
-    if not t:
-        return _FILTER_OPERATOR_SUFFIXES
-    # Numeric family (integers + fixed/floating point + decimal).
-    if t.startswith(
-        (
-            "int",
-            "long",
-            "short",
-            "tinyint",
-            "smallint",
-            "bigint",
-            "float",
-            "double",
-            "decimal",
-            "numeric",
-            "real",
-            "byte",
-        )
-    ):
-        return _NUMERIC_OPS
-    # Temporal — ordering matters, LIKE doesn't.
-    if t.startswith(("timestamp", "date")):
-        return _NUMERIC_OPS
-    # Boolean: equality-only.
-    if t.startswith("bool"):
-        return _BOOL_OPS
-    # Binary: equality-only. Blobs don't support LIKE or ordering.
-    if t.startswith("binary"):
-        return _BOOL_OPS
-    # String family: equality + token match.
-    if t.startswith(("string", "varchar", "char", "text")):
-        return _STRING_OPS
-    # Complex types (STRUCT / ARRAY / MAP) and any unknown type fall
-    # through to *all* operators. Databricks Vector Search rejects
-    # unsupported filter combinations at query time, and stripping
-    # legitimate combinations here would be more harmful than the
-    # occasional server-side rejection.
-    return _FILTER_OPERATOR_SUFFIXES
-
 
 def _legal_filter_keys(
     columns: list[str],
-    types: dict[str, str] | None = None,
+    operator_overrides: dict[str, list[str]] | None = None,
 ) -> list[str]:
-    """Cross product of columns × operator suffixes, filtered by column type.
+    """Cross product of columns × the 8 operator suffixes.
 
-    ``["price", "name"]`` with ``{"price": "double", "name": "string"}`` →
-    ``["price", "price NOT", "price <", "price <=", "price >", "price >=",
-    "name", "name NOT", "name LIKE", "name NOT LIKE"]``. When ``types`` is
-    ``None`` or a column is missing from it, all operator suffixes are
-    permitted for that column.
+    Every column gets every suffix — no type-aware narrowing. Databricks
+    Vector Search rejects unsupported filter combinations at query time
+    (e.g. ``LIKE`` on a numeric); we let the API be the source of truth
+    for operator applicability, matching upstream databricks-langchain.
+
+    When ``operator_overrides`` names a column, that column's suffixes come
+    from the override list verbatim (bare strings like ``["", "LIKE"]``)
+    instead of the full ``_FILTER_OPERATOR_SUFFIXES`` set. This is the
+    hand-declared ``ColumnInfo.operators`` knob — users who want to lock
+    a column to a narrower operator set can do so.
+
+    Override entries are the operator strings as declared on ColumnInfo
+    (e.g. ``""``, ``"NOT"``, ``"LIKE"``) — no leading space; we add the
+    leading space here so the emitted enum shape matches
+    ``_FILTER_OPERATOR_SUFFIXES``.
     """
     result: list[str] = []
     for c in columns:
-        ops = _operators_for_type((types or {}).get(c)) if types else _FILTER_OPERATOR_SUFFIXES
-        for op in ops:
+        override = (operator_overrides or {}).get(c)
+        if override is not None:
+            # ColumnInfo.operators is stored without the leading space
+            # ("LIKE" not " LIKE"). Map to the suffix shape.
+            suffixes = tuple("" if op == "" else f" {op}" for op in override)
+        else:
+            suffixes = _FILTER_OPERATOR_SUFFIXES
+        for op in suffixes:
             result.append(f"{c}{op}")
     return result
 
@@ -336,117 +294,29 @@ def _vector_column_names_from_describe(details: dict | None) -> set[str]:
     return names
 
 
-def _explicit_columns_to_sync(details: dict | None) -> set[str] | None:
-    """Return the user-declared ``columns_to_sync`` subset, or ``None``.
-
-    Delta-Sync indexes default to syncing every source column; in that mode
-    ``describe()`` reports an empty / absent ``columns_to_sync``. When a
-    user explicitly restricts sync to a subset, the subset appears on
-    ``delta_sync_index_spec.columns_to_sync`` (or ``direct_access_index_spec``
-    for the Direct-Access variant). We use this to intersect against the
-    source-table column set so we don't advertise columns the index doesn't
-    actually carry.
-
-    Returns ``None`` when no subset is declared — the caller should treat
-    the full source-table column set as authoritative.
-    """
-    if not isinstance(details, dict):
-        return None
-    for spec_key in ("delta_sync_index_spec", "direct_access_index_spec"):
-        spec = details.get(spec_key) or {}
-        cols = spec.get("columns_to_sync")
-        if cols:
-            return {c for c in cols if isinstance(c, str)}
-    return None
-
-
-def _fetch_source_table_column_types(
+def _fetch_index_columns(
     vector_store: "VectorStoreModel",
-) -> dict[str, str] | None:
-    """Return ``{column_name: databricks_type_string}`` from the SOURCE TABLE.
-
-    Fallback for when ``_fetch_index_column_types`` (UC Tables on the INDEX)
-    fails — typically a permission / environment mismatch on the index UC
-    entity. Source-table lookup shares the exact same auth surface as the
-    primary path (both go through ``WorkspaceClient.tables.get``), so it
-    trades the auth-fragile scan-based probe for a pure metadata call.
-
-    For Delta-Sync managed-embedding indexes (the common case), the source
-    table's columns are the authoritative filterable set on the index —
-    Databricks syncs every source column plus the synthesised ``_vector``.
-    We strip:
-
-      * **Vector columns** via ``_vector_column_names_from_describe`` (both
-        managed and self-managed) — never the raw source column, only the
-        synthesised / user-declared vector name.
-      * **CDF / system fields** (leading underscore).
-
-    When ``describe()`` carries an explicit ``columns_to_sync`` subset we
-    intersect against it, so users who restrict sync only advertise the
-    columns the index actually holds.
-
-    Returns ``None`` when:
-      * There is no ``source_table`` (Direct-Access indexes; caller has one
-        more fallback via ``refresh()``'s ``columns_to_sync`` handling), or
-      * The UC Tables call fails, or
-      * After stripping there are no columns left.
-    """
-    if vector_store.source_table is None:
-        return None
-    try:
-        wc = vector_store.workspace_client_from(None)
-        table = wc.tables.get(vector_store.source_table.full_name)
-        cols = getattr(table, "columns", None) or []
-    except Exception as e:  # noqa: BLE001
-        logger.debug(
-            "UC Tables lookup on VS source_table failed; "
-            "fallback discovery unavailable",
-            source_table=vector_store.source_table.full_name,
-            error=f"{type(e).__name__}: {e}",
-        )
-        return None
-
-    details = getattr(vector_store, "_index_details", None)
-    known_vector_cols = _vector_column_names_from_describe(details)
-    sync_subset = _explicit_columns_to_sync(details)
-
-    out: dict[str, str] = {}
-    for col in cols:
-        name = getattr(col, "name", None)
-        t = getattr(col, "type_text", None) or getattr(col, "type_name", None)
-        if not name or not t:
-            continue
-        if name.startswith("_"):
-            continue
-        if known_vector_cols and name in known_vector_cols:
-            continue
-        if not known_vector_cols and name.endswith("_vector"):
-            continue
-        if sync_subset is not None and name not in sync_subset:
-            continue
-        out[name] = str(t)
-    return out or None
-
-
-def _fetch_index_column_types(
-    vector_store: "VectorStoreModel",
-) -> dict[str, str] | None:
-    """Return ``{column_name: databricks_type_string}`` from the INDEX itself.
+) -> list[tuple[str, str | None, str | None]] | None:
+    """Return ``[(name, type_str, comment)]`` from the INDEX itself.
 
     A Vector Search index is a UC entity and its columns are queryable via
-    the Unity Catalog Tables API. This is the pattern databricks-langchain
-    uses (``databricks_langchain.vector_search_retriever_tool``); it gives
-    us BOTH column names AND their Databricks types from a single
-    authoritative source — the index — without depending on the source
-    table (whose columns are a superset and not guaranteed to overlap).
+    the Unity Catalog Tables API. This is the same pattern
+    ``databricks_langchain.vector_search_retriever_tool`` uses; a single
+    ``wc.tables.get(index.full_name)`` call returns the authoritative
+    column list, their Databricks types, and any UC column comments the
+    catalog author set.
 
     Vector-embedding columns are stripped automatically:
       * ``<source>_vector`` — managed-embedding synthesised (via describe)
       * anything with a leading underscore — CDF / system reserved
       * ``__db_*_vector`` — db-managed embedding vector
 
-    Returns ``None`` on any failure (soft-fail; caller keeps the
-    permissive operator behavior for every column).
+    Returns ``None`` on any failure (soft-fail; caller falls back to
+    declared columns if present, otherwise free-form filter). No source-
+    table fallback — matches upstream databricks-langchain's single-call
+    behavior. Users hitting permission asymmetry (SP has source-table
+    grants but not index-UC-entity grants) should hand-declare via
+    ``ColumnInfo`` on ``retriever.columns``.
     """
     if vector_store.index is None:
         return None
@@ -457,7 +327,7 @@ def _fetch_index_column_types(
     except Exception as e:  # noqa: BLE001
         logger.debug(
             "UC Tables lookup on VS index failed; "
-            "type-aware operator narrowing disabled",
+            "column auto-discovery unavailable",
             index=vector_store.index.full_name,
             error=f"{type(e).__name__}: {e}",
         )
@@ -466,11 +336,10 @@ def _fetch_index_column_types(
     known_vector_cols = _vector_column_names_from_describe(
         getattr(vector_store, "_index_details", None)
     )
-    out: dict[str, str] = {}
+    out: list[tuple[str, str | None, str | None]] = []
     for col in cols:
         name = getattr(col, "name", None)
-        t = getattr(col, "type_text", None) or getattr(col, "type_name", None)
-        if not name or not t:
+        if not name:
             continue
         if name.startswith("_"):
             continue
@@ -478,13 +347,131 @@ def _fetch_index_column_types(
             continue
         if not known_vector_cols and name.endswith("_vector"):
             continue
-        out[name] = str(t)
+        t = getattr(col, "type_text", None) or getattr(col, "type_name", None)
+        comment = getattr(col, "comment", None)
+        out.append((name, str(t) if t else None, str(comment) if comment else None))
     return out or None
+
+
+# ColumnInfo.type values map to human-readable Databricks type labels used
+# in the tool description. These are not used for operator narrowing (the
+# 8 standard suffixes apply to every column) — only for the "Available
+# columns for filtering: brand (STRING) ..." block in the tool prompt.
+_COLUMN_INFO_TYPE_LABELS: dict[str, str] = {
+    "string": "STRING",
+    "number": "NUMBER",
+    "boolean": "BOOLEAN",
+    "datetime": "DATETIME",
+}
+
+
+def _normalize_declared_columns(
+    items: "list[str | ColumnInfo]",
+) -> tuple[
+    list[str],
+    dict[str, str],
+    dict[str, str],
+    dict[str, list[str]],
+    bool,
+]:
+    """Split a mixed ``list[str | ColumnInfo]`` into flat lookup tables.
+
+    Returns a tuple ``(names, types, descriptions, operator_overrides,
+    any_hand_declared)`` where:
+
+    * ``names`` — column names in declaration order
+    * ``types`` — ``{name: type_label}`` for ColumnInfo entries only;
+      bare strings do not populate this map
+    * ``descriptions`` — ``{name: description}`` for ColumnInfo entries
+      whose ``description`` field is set
+    * ``operator_overrides`` — ``{name: [ops]}`` for ColumnInfo entries
+      whose ``operators`` field was explicitly set by the user (detected
+      via Pydantic's ``model_fields_set``); other columns fall through to
+      the default 8-suffix set at ``_legal_filter_keys`` time
+    * ``any_hand_declared`` — ``True`` when at least one item is a
+      ``ColumnInfo``. Signals to the caller that hand-declaration is in
+      effect and build-time UC calls should be skipped.
+    """
+    # Late import — ColumnInfo is defined in config.py, which imports
+    # from this module transitively via the tool factory. Import at call
+    # time to avoid the circular.
+    from dao_ai.config import ColumnInfo
+
+    names: list[str] = []
+    types: dict[str, str] = {}
+    descriptions: dict[str, str] = {}
+    operator_overrides: dict[str, list[str]] = {}
+    any_hand_declared = False
+
+    for item in items:
+        if isinstance(item, ColumnInfo):
+            any_hand_declared = True
+            name = item.name
+            names.append(name)
+            type_label = _COLUMN_INFO_TYPE_LABELS.get(item.type, item.type.upper())
+            types[name] = type_label
+            if item.description:
+                descriptions[name] = item.description
+            # Only treat operators as an override when the user explicitly
+            # set them (Pydantic tracks this via model_fields_set). If the
+            # field defaulted to the full 8-op list, we let the standard
+            # `_legal_filter_keys` cross-product apply — same as bare
+            # strings — for consistency.
+            if "operators" in item.model_fields_set:
+                operator_overrides[name] = list(item.operators)
+        elif isinstance(item, str):
+            names.append(item)
+        else:
+            logger.debug(
+                "Ignoring unrecognized columns[] entry (not str or ColumnInfo)",
+                item_type=type(item).__name__,
+            )
+    return names, types, descriptions, operator_overrides, any_hand_declared
+
+
+def _build_columns_description(
+    names: list[str],
+    types: dict[str, str],
+    descriptions: dict[str, str],
+) -> str:
+    """Render the "Available columns for filtering" block.
+
+    Format matches upstream ``databricks_langchain.vector_search_retriever_tool``
+    style so the LLM sees the same shape it would from the industry-standard
+    library, plus dao-ai's per-column descriptions when available. Empty
+    ``names`` → empty string (caller can skip the block).
+
+    ``types`` and ``descriptions`` are best-effort. A column with neither is
+    listed as ``- name``.
+    """
+    if not names:
+        return ""
+
+    lines: list[str] = ["Available columns for filtering:"]
+    for name in names:
+        type_label = types.get(name)
+        desc = descriptions.get(name)
+        parts = [f"- {name}"]
+        if type_label:
+            parts.append(f"({type_label})")
+        if desc:
+            parts.append(f": {desc}")
+        elif type_label:
+            # We already emitted "(TYPE)"; nothing more needed.
+            pass
+        lines.append(" ".join(parts))
+    lines.append("")
+    lines.append(
+        "Supports operators: LIKE, NOT LIKE, NOT, <, <=, >, >=, and empty "
+        "(equality/IN). Combine into the filter key like "
+        '``{"key": "brand LIKE", "value": "DEWALT"}``.'
+    )
+    return "\n".join(lines)
 
 
 def _build_filter_item_model(
     columns: list[str],
-    types: dict[str, str] | None = None,
+    operator_overrides: dict[str, list[str]] | None = None,
 ) -> type[BaseModel]:
     """Build a per-tool FilterItem whose ``key`` is Literal-narrowed to columns.
 
@@ -495,15 +482,20 @@ def _build_filter_item_model(
     time, before the retriever is ever invoked.
 
     The narrowing surfaces on the LLM as a JSON-schema ``enum`` on the
-    ``key`` property. That is what closes the "guessed a column name that
-    doesn't exist" hallucination hole (regression: MLflow trace
+    ``key`` property. That closes the "guessed a column name that doesn't
+    exist" hallucination hole (regression: MLflow trace
     ``fc785d795b77675ac0e42fe5296b523a`` — LLM emitted ``"name NOT LIKE"``
     against a products index whose column is ``product_name``).
+
+    ``operator_overrides`` accepts per-column suffix lists from
+    hand-declared ``ColumnInfo.operators`` — users who want to lock a
+    column to a narrower operator set (e.g. ``brand`` limited to
+    ``["", "LIKE"]``) can do so.
     """
     if not columns:
         return FilterItem
 
-    legal_keys = _legal_filter_keys(columns, types)
+    legal_keys = _legal_filter_keys(columns, operator_overrides)
     key_type = Literal[*legal_keys]  # PEP 646 unpacking; Python 3.11+.
 
     return create_model(
@@ -526,7 +518,7 @@ def _build_filter_item_model(
 
 def _build_vector_search_input_model(
     columns: list[str],
-    types: dict[str, str] | None = None,
+    operator_overrides: dict[str, list[str]] | None = None,
 ) -> type[BaseModel]:
     """Build a per-tool VectorSearchInput whose ``filters[]`` is narrowed.
 
@@ -534,13 +526,15 @@ def _build_vector_search_input_model(
     :class:`VectorSearchInput` (behavior identical to pre-change). When
     columns are known, we build a subclass whose ``filters`` type is
     ``list[<DynamicFilterItem for these columns>]``, so the JSON schema
-    the LLM sees carries the enum of legal keys. Type-aware narrowing kicks
-    in when ``types`` is provided (see :func:`_operators_for_type`).
+    the LLM sees carries the enum of legal keys.
+
+    ``operator_overrides`` is forwarded to :func:`_build_filter_item_model`
+    for hand-declared ``ColumnInfo.operators`` support.
     """
     if not columns:
         return VectorSearchInput
 
-    filter_item_cls = _build_filter_item_model(columns, types)
+    filter_item_cls = _build_filter_item_model(columns, operator_overrides)
     return create_model(
         "DynamicVectorSearchInput",
         __base__=VectorSearchInput,
@@ -678,41 +672,45 @@ def create_vector_search_tool(
         raise ValueError("vector_store.index is required for vector search")
 
     index_name: str = vector_store.index.full_name
-    # Column + type source of truth (precedence):
-    #   1. declared ``retriever.columns`` / ``vector_store.columns``, intersected
-    #      with the columns actually on the index — anything declared declared
-    #      that isn't on the index is dropped with a WARN so the LLM can
-    #      never emit a filter key that would fail at the VS API.
-    #   2. Index discovery via UC Tables. Both the index and the source
-    #      table are UC entities, so ``wc.tables.get(...)`` returns column
-    #      names AND their Databricks types in one call. Primary path is
-    #      the INDEX (index-authoritative, mirrors databricks-langchain);
-    #      fallback is the SOURCE TABLE (same auth surface, no VSC / no
-    #      query cost). When ``describe()`` carries an explicit
-    #      ``columns_to_sync`` subset we intersect against it so
-    #      source-table lookups never advertise ghost columns.
-    #   3. Neither available → soft-fallback: build with free-form
-    #      ``FilterItem`` (LLM sees ``key: str``, pre-branch behavior).
-    declared_columns: list[str] = list(
+    # Column source of truth — three modes based on retriever.columns shape:
+    #
+    #   A. Hand-declared. Any item in the list is a ``ColumnInfo``. Names,
+    #      types, descriptions, and (optionally) per-column operator
+    #      restrictions come straight from the declaration. **No UC calls.**
+    #      Matches LangChain ``AttributeInfo`` / LlamaIndex ``MetadataInfo``
+    #      shape — the user owns the schema.
+    #
+    #   B. Bare strings only. Names come from the declared list; UC Tables
+    #      on the index is called best-effort to enrich the tool
+    #      description with types + column comments (not used for
+    #      enforcement). Enum is built from the declared names verbatim.
+    #
+    #   C. Empty. Discover names via a single ``wc.tables.get(index)``
+    #      call (same primary path as ``databricks_langchain``). If that
+    #      fails, degrade to free-form ``FilterItem`` (pre-branch behavior).
+    #
+    # No source-table fallback — matches upstream. Users with permission
+    # asymmetries (SP has source-table grants but not index-UC-entity
+    # grants) should hand-declare via ``ColumnInfo``.
+    declared_items: list[Any] = list(
         retriever.columns or vector_store.columns or []
     )
+    (
+        declared_names,
+        declared_types,
+        declared_descriptions,
+        operator_overrides_raw,
+        any_hand_declared,
+    ) = _normalize_declared_columns(declared_items)
+    operator_overrides: dict[str, list[str]] | None = (
+        operator_overrides_raw or None
+    )
 
-    # Always attempt index discovery so we can validate declared against the
-    # live index. Two steps:
-    #
-    #   * ``refresh()`` populates ``_index_details`` (used for vector-column
-    #     stripping and ``columns_to_sync`` intersection) and, for
-    #     Direct-Access indexes, ``vector_store.columns`` from
-    #     ``columns_to_sync``.
-    #   * UC Tables lookup, first on the index and — if that fails —
-    #     on the source table. Both share the ``WorkspaceClient`` auth
-    #     path; source-table lookup avoids the VSC / PAT / SP dance that
-    #     used to bite the scan-based probe.
-    #
-    # Soft-fail: if all discovery fails and declared has columns, trust
-    # declared. If neither has anything, fall back to free-form ``FilterItem``.
-    discovered_columns: list[str] = []
-    columns_before_refresh = list(vector_store.columns or [])
+    # ``refresh()`` still runs — it populates ``_index_details`` (needed
+    # for vector-column stripping via ``_vector_column_names_from_describe``)
+    # and, for Direct-Access indexes, ``vector_store.columns`` from
+    # ``columns_to_sync``. WARNING log only; downstream discovery is
+    # resilient to a refresh failure.
     vsc_for_refresh: VectorSearchClient | None = _vsc_for_refresh(vector_store)
     try:
         vector_store.refresh(vsc=vsc_for_refresh)
@@ -723,65 +721,51 @@ def create_vector_search_tool(
             index=index_name,
             error=f"{type(e).__name__}: {e}",
         )
-    # Prefer UC Tables on the index; fall back to UC Tables on the source
-    # table. Both paths return {name: type} so type-aware operator narrowing
-    # works on the fallback too. Direct-Access indexes have no source_table;
-    # the source-table lookup returns ``None`` and the ``columns_after_refresh``
-    # branch below catches them via refresh()'s columns_to_sync handling.
-    index_type_map: dict[str, str] | None = _fetch_index_column_types(vector_store)
-    if index_type_map is None:
-        index_type_map = _fetch_source_table_column_types(vector_store)
-    if index_type_map:
-        discovered_columns = list(index_type_map.keys())
-    else:
-        # Direct-Access indexes: refresh may have populated columns from
-        # ``columns_to_sync`` — accept those only if they weren't already
-        # set by declared (i.e. the value changed).
-        columns_after_refresh = list(vector_store.columns or [])
-        if (
-            columns_after_refresh
-            and columns_after_refresh != columns_before_refresh
-        ):
-            discovered_columns = columns_after_refresh
 
-    if declared_columns and discovered_columns:
-        in_index = set(discovered_columns)
-        kept: list[str] = []
-        for col in declared_columns:
-            if col in in_index:
-                kept.append(col)
-            else:
-                logger.warning(
-                    "Declared column not present on index; "
-                    "dropping from filter enum",
-                    column=col,
-                    index=index_name,
-                )
-        columns: list[str] = kept
-    elif declared_columns:
-        # Discovery failed; trust declared (best-effort — LLM may hit VS API
-        # errors if declared lists a bogus column, matching pre-branch behavior).
-        columns = declared_columns
-    else:
-        columns = discovered_columns
+    columns: list[str]
+    description_types: dict[str, str] = dict(declared_types)
+    description_descriptions: dict[str, str] = dict(declared_descriptions)
 
-    # Types come from the same UC entity as the columns — if the UC Tables
-    # call above succeeded, we have per-column types and can enable
-    # type-aware operator narrowing (LIKE only on strings, ordering only on
-    # numerics/temporal, etc.). Intersect with the final column set so we
-    # never advertise a type for a column we're not exposing.
-    column_types: dict[str, str] | None = None
-    if index_type_map and columns:
-        in_use = set(columns)
-        narrowed = {k: v for k, v in index_type_map.items() if k in in_use}
-        if narrowed:
-            column_types = narrowed
+    if any_hand_declared:
+        # Mode A — hand-declared authoritative. No UC calls.
+        columns = declared_names
+    elif declared_names:
+        # Mode B — bare strings. Enum from declared names; UC lookup is
+        # best-effort for description enrichment only.
+        columns = declared_names
+        index_cols = _fetch_index_columns(vector_store)
+        if index_cols:
+            uc_type_map = {name: t for name, t, _ in index_cols if t}
+            uc_comment_map = {name: c for name, _, c in index_cols if c}
+            for name in declared_names:
+                if name not in description_types and name in uc_type_map:
+                    description_types[name] = uc_type_map[name]
+                if name not in description_descriptions and name in uc_comment_map:
+                    description_descriptions[name] = uc_comment_map[name]
+    else:
+        # Mode C — nothing declared. Discover via UC.
+        index_cols = _fetch_index_columns(vector_store)
+        if index_cols:
+            columns = [name for name, _, _ in index_cols]
+            for name, t, c in index_cols:
+                if t and name not in description_types:
+                    description_types[name] = t
+                if c and name not in description_descriptions:
+                    description_descriptions[name] = c
+        else:
+            # Direct-Access indexes: refresh may have populated
+            # ``vector_store.columns`` from ``columns_to_sync``. Use those
+            # if the UC lookup returned nothing.
+            fallback = list(vector_store.columns or [])
+            columns = fallback
 
     logger.debug(
         "Vector Search columns resolved",
         index=index_name,
+        mode="hand-declared" if any_hand_declared else ("declared" if declared_names else "discovered"),
         columns=columns,
-        have_types=bool(column_types),
+        have_types=bool(description_types),
+        have_operator_overrides=bool(operator_overrides),
     )
     search_parameters: SearchParametersModel = retriever.search_parameters
     rerank_config: Optional[RerankParametersModel] = retriever.rerank
@@ -1002,17 +986,16 @@ def create_vector_search_tool(
     # Determine tool name and description
     tool_name: str = name or f"vector_search_{vector_store.index.name}"
 
-    # Build tool description with available columns for filtering
+    # Build tool description with available columns for filtering — matches
+    # the databricks-langchain "Available columns for filtering: name
+    # (TYPE): description" shape, enriched with hand-declared descriptions
+    # when the user provided ColumnInfo entries.
     base_description: str = description or f"Search documents in {index_name}"
-    if columns:
-        columns_list = ", ".join(columns)
-        tool_description = (
-            f"{base_description}. "
-            f"Available filter columns: {columns_list}. "
-            f"Filter operators: 'column' for equality, 'column NOT' for exclusion, "
-            f"'column <', 'column <=', 'column >', 'column >=' for comparison, "
-            f"'column LIKE' for token matching, 'column NOT LIKE' to exclude tokens."
-        )
+    columns_block: str = _build_columns_description(
+        columns, description_types, description_descriptions
+    )
+    if columns_block:
+        tool_description = f"{base_description}\n\n{columns_block}"
     else:
         tool_description = base_description
 
@@ -1242,7 +1225,7 @@ def create_vector_search_tool(
     # is serialised to just a description string and the LLM commonly emits
     # filters as a flat dict.
     VectorSearchSchema: type[BaseModel] = _build_vector_search_input_model(
-        columns, column_types
+        columns, operator_overrides
     )
 
     @tool(

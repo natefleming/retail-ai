@@ -4430,9 +4430,17 @@ class RetrieverModel(BaseModel):
     vector_store: VectorStoreModel = Field(
         description="Vector search index configuration used for similarity search.",
     )
-    columns: Optional[list[str]] = Field(
+    columns: Optional[list[str | ColumnInfo]] = Field(
         default_factory=list,
-        description="Columns to return from search results. Defaults to the vector store's columns.",
+        description=(
+            "Columns to expose to the LLM as filterable + returnable. Accepts "
+            "either bare strings (name only — types are discovered from the "
+            "index at build time via UC Tables) or ColumnInfo objects that "
+            "declare name / type / operators / description. Hand-declared "
+            "ColumnInfo items are authoritative and skip build-time discovery. "
+            "The two forms may be mixed in one list. Defaults to the vector "
+            "store's columns (bare strings)."
+        ),
     )
     search_parameters: SearchParametersModel = Field(
         default_factory=SearchParametersModel,
@@ -4450,8 +4458,7 @@ class RetrieverModel(BaseModel):
     @model_validator(mode="after")
     def set_default_columns(self) -> Self:
         if not self.columns:
-            columns: Sequence[str] = self.vector_store.columns
-            self.columns = columns
+            self.columns = list(self.vector_store.columns or [])
         return self
 
     @model_validator(mode="after")
