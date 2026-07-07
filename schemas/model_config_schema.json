@@ -2824,8 +2824,8 @@
               "type": "null"
             }
           ],
-          "default": "databricks-postgres",
-          "description": "Databricks Lakebase resource id \u2014 the hyphenated identifier at the end of the resource path ``projects/<project>/branches/<branch>/databases/<database_id>``. Distinct from ``database`` (the pg-level DB name). The default ``databricks-postgres`` matches the resource id Databricks auto-provisions with every new Lakebase project \u2014 so leaving this at default works for the common case. Override when your project has a custom-provisioned database (its resource id is whatever appears in ``databricks api get /api/2.0/postgres/projects/<p>/branches/<b>/databases``).",
+          "default": null,
+          "description": "Databricks Lakebase resource id \u2014 the hyphenated identifier at the end of the resource path ``projects/<project>/branches/<branch>/databases/<database_id>``. Distinct from ``database`` (the pg-level DB name). When left unset (the common case) the bundle generator auto-detects the resource id by calling ``postgres.list_databases()`` and matching by pg-name, then returning the resource's ``.name``. Set explicitly when you want to skip that lookup (e.g. offline bundle generation) or to point at a specific custom-provisioned database resource. Set the value to whatever appears as ``database_id`` under ``databricks api get /api/2.0/postgres/projects/<p>/branches/<b>/databases``. If unset AND the SDK lookup fails, the resolver falls back to ``databricks-postgres`` (Databricks' auto-provisioning default) and logs a WARNING.",
           "title": "Database Id"
         },
         "port": {

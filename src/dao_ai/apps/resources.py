@@ -496,13 +496,10 @@ def _resolve_lakebase_branch_path(db: DatabaseModel) -> str:
 
 
 _LAKEBASE_DEFAULT_DATABASE_RESOURCE_ID: str = "databricks-postgres"
-"""Backstop default for ``DatabaseModel.database_id`` when the field is None.
-
-Pydantic already defaults ``DatabaseModel.database_id`` to
-``"databricks-postgres"`` (the Databricks auto-provisioning convention),
-so this constant only matters if a caller passes a ``DatabaseModel``
-built without going through the normal Pydantic path (e.g. tests that
-construct raw dicts or bypass defaults).
+"""Databricks auto-provisions every new Lakebase project with a database
+whose resource id is this string. Used as the final backstop when
+``_resolve_lakebase_database_path`` can't reach the SDK and the user
+didn't set ``DatabaseModel.database_id`` explicitly.
 
 Kept as a module constant so the "magic string" lives in exactly one
 place and is grep-able.
@@ -512,43 +509,89 @@ place and is grep-able.
 def _resolve_lakebase_database_path(db: DatabaseModel, branch_path: str) -> str:
     """Return the Apps-platform database resource path for a Lakebase database.
 
-    Pure config rendering — no SDK call, no auth dependency at
-    bundle-generation time. Two paths:
+    Precedence, highest to lowest:
 
-    1. If ``db.database`` is already a full resource path
-       (``projects/<p>/branches/<b>/databases/<id>``), return it verbatim.
-       This is the historical escape hatch for configs that pre-declared
-       the full path.
-    2. Otherwise, construct ``{branch_path}/databases/{db.database_id}``.
-       ``db.database_id`` defaults to ``"databricks-postgres"`` in the
-       Pydantic field, which matches the resource id Databricks
-       auto-provisions with every new Lakebase project. Users with a
-       custom-provisioned database (e.g. resource id
-       ``db-vllm-t1lbxazynr``) simply override ``database_id`` in YAML —
-       no need to construct the full resource path by hand.
+    1. **Full resource path in ``db.database``** — user wrote a
+       ``projects/<p>/branches/<b>/databases/<id>`` string in the
+       ``database:`` field. Returned verbatim. Legacy escape hatch.
+    2. **Explicit ``db.database_id``** — user set the ``database_id``
+       field in YAML to a non-None value. Path is constructed as
+       ``{branch_path}/databases/{database_id}``. No SDK call. This is
+       the recommended shape for custom-provisioned Lakebase databases
+       whose resource id isn't the auto-provisioning default, or when
+       generate-bundle needs to run offline.
+    3. **SDK auto-detect** — call ``postgres.list_databases(branch_path)``.
+       If it returns databases and one has ``status.postgres_database``
+       matching ``db.database`` (pg-level name), return that database's
+       ``.name`` (full resource path). This is the original v0.1.101
+       behavior and works transparently for custom-provisioned setups
+       whose pg-level name matches what the user declared.
+    4. **SDK auto-detect fallback: first database** — SDK returned
+       databases but nothing matched by pg-name. Return the first
+       database's ``.name`` (Lakebase projects typically have exactly
+       one database). Log a debug line noting the fallback.
+    5. **SDK failed or returned empty** — log a WARNING (not silent),
+       fall back to constructing the path with the module constant
+       ``_LAKEBASE_DEFAULT_DATABASE_RESOURCE_ID`` (which matches
+       Databricks' auto-provisioning convention, ``databricks-postgres``).
+       A WARNING at generate-bundle time tells the operator to set
+       ``database_id`` explicitly or fix their profile. If the fallback
+       path doesn't match their actual database, deploy will fail with
+       a clear 404 naming the resource.
 
-    Validation happens at deploy time — Databricks Apps API rejects a
-    non-existent resource path with a clear error naming the exact
-    resource. Matches Terraform's ``databricks_app`` provider behavior
-    (which also takes the resource path verbatim from user config).
+    ``db.database_id`` has no Pydantic default — if unset in YAML the
+    resolver goes to level 3 (SDK auto-detect). Set it explicitly only
+    when you want to skip the SDK lookup.
     """
     from dao_ai.config import value_of
 
+    # (1) Legacy escape hatch: full resource path in ``database:``.
     database_value = value_of(db.database) if db.database is not None else None
     database_str: str = str(database_value) if database_value is not None else ""
-
     if database_str.startswith("projects/") and "/databases/" in database_str:
         return database_str
 
-    database_id_value = (
-        value_of(db.database_id) if db.database_id is not None else None
-    )
-    database_id: str = (
-        str(database_id_value)
-        if database_id_value
-        else _LAKEBASE_DEFAULT_DATABASE_RESOURCE_ID
-    )
-    return f"{branch_path}/databases/{database_id}"
+    # (2) Explicit database_id override — user set the field, skip SDK.
+    if db.database_id is not None:
+        override_value = value_of(db.database_id)
+        if override_value:
+            return f"{branch_path}/databases/{override_value}"
+
+    # (3, 4) SDK auto-detect.
+    try:
+        w = db.workspace_client
+        databases = list(w.postgres.list_databases(branch_path))
+    except Exception as e:
+        logger.warning(
+            f"Lakebase auto-detection failed under '{branch_path}': "
+            f"{type(e).__name__}: {e}. Falling back to the "
+            f"'{_LAKEBASE_DEFAULT_DATABASE_RESOURCE_ID}' default. Set "
+            f"'database_id' explicitly on DatabaseModel to skip this "
+            f"lookup, or point at a workspace where the '{db.project}' "
+            f"project lives via `-p <profile>`."
+        )
+        databases = []
+
+    if databases:
+        # (3) Match by pg-level name — same logic as v0.1.101.
+        if database_str:
+            for d in databases:
+                pg_name = d.status.postgres_database if d.status else None
+                if pg_name == database_str and d.name:
+                    return d.name
+        # (4) No pg-name match — return first database (common single-DB
+        # case; Lakebase projects almost always have exactly one).
+        if databases[0].name:
+            if database_str:
+                logger.debug(
+                    f"No Lakebase database matched postgres name "
+                    f"'{database_str}' under '{branch_path}'; falling "
+                    f"back to first database '{databases[0].name}'."
+                )
+            return databases[0].name
+
+    # (5) SDK failed or returned nothing. Use the module constant default.
+    return f"{branch_path}/databases/{_LAKEBASE_DEFAULT_DATABASE_RESOURCE_ID}"
 
 
 def _extract_app_resources(
