@@ -21,6 +21,7 @@ whole request went ``state=ERROR``.
 
 from __future__ import annotations
 
+from types import SimpleNamespace
 from typing import Any
 from unittest.mock import MagicMock, patch
 
@@ -41,7 +42,8 @@ from dao_ai.tools.vector_search import (
     _build_vector_search_input_model,
     _legal_filter_keys,
     _operators_for_type,
-    _probe_index_columns,
+    _explicit_columns_to_sync,
+    _fetch_source_table_column_types,
     _vector_column_names_from_describe,
     create_vector_search_tool,
 )
@@ -285,7 +287,7 @@ class TestFactoryColumnHydration:
         with patch(
             "dao_ai.tools.vector_search._vsc_for_refresh", return_value=None
         ), patch(
-            "dao_ai.tools.vector_search._probe_index_columns", return_value=None
+            "dao_ai.tools.vector_search._fetch_source_table_column_types", return_value=None
         ), patch.object(
             VectorStoreModel,
             "refresh",
@@ -329,7 +331,7 @@ class TestFactoryColumnHydration:
         ) as mocked_refresh, patch(
             "dao_ai.tools.vector_search._vsc_for_refresh", return_value=None
         ), patch(
-            "dao_ai.tools.vector_search._probe_index_columns", return_value=None
+            "dao_ai.tools.vector_search._fetch_source_table_column_types", return_value=None
         ):
             tool = create_vector_search_tool(retriever=retriever, name="product_search")
 
@@ -373,7 +375,7 @@ class TestFactoryColumnHydration:
             ), patch(
                 "dao_ai.tools.vector_search._vsc_for_refresh", return_value=None
             ), patch(
-                "dao_ai.tools.vector_search._probe_index_columns", return_value=None
+                "dao_ai.tools.vector_search._fetch_source_table_column_types", return_value=None
             ):
                 tool = create_vector_search_tool(
                     retriever=retriever, name="product_search"
@@ -427,7 +429,7 @@ class TestFactoryColumnHydration:
         ), patch(
             "dao_ai.tools.vector_search._vsc_for_refresh", return_value=None
         ), patch(
-            "dao_ai.tools.vector_search._probe_index_columns", return_value=None
+            "dao_ai.tools.vector_search._fetch_source_table_column_types", return_value=None
         ), patch.object(
             VectorStoreModel,
             "workspace_client_from",
@@ -460,7 +462,7 @@ class TestFactoryColumnHydration:
             autospec=True,
             side_effect=RuntimeError("describe unauthorized"),
         ), patch(
-            "dao_ai.tools.vector_search._probe_index_columns", return_value=None
+            "dao_ai.tools.vector_search._fetch_source_table_column_types", return_value=None
         ), patch(
             "dao_ai.tools.vector_search._fetch_index_column_types",
             return_value=None,
@@ -489,7 +491,7 @@ class TestFactoryColumnHydration:
             autospec=True,
             side_effect=RuntimeError("describe unauthorized"),
         ), patch(
-            "dao_ai.tools.vector_search._probe_index_columns", return_value=None
+            "dao_ai.tools.vector_search._fetch_source_table_column_types", return_value=None
         ):
             tool = create_vector_search_tool(retriever=retriever, name="product_search")
 
@@ -600,89 +602,163 @@ class TestVectorColumnStripping:
         # business column named ``product_vector`` is preserved.
         assert "product_vector" not in _vector_column_names_from_describe(details)
 
-    def _make_probe_setup(
-        self, *, scan_fields: list[str], describe: dict | None
+    def _make_source_table_setup(
+        self,
+        *,
+        table_columns: list[tuple[str, str]],
+        describe: dict | None,
+        source_table_full_name: str = "cat.sch.products",
     ) -> tuple[Any, Any]:
-        """Build a MagicMock chain that mimics vsc.get_index().scan() and
-        stashes ``describe`` on the vector_store as ``_index_details``."""
+        """Build a MagicMock chain that mimics
+        ``vs.workspace_client_from(None).tables.get(source_table.full_name)``
+        and stashes ``describe`` on the vector_store as ``_index_details``."""
         vs = MagicMock()
         vs.index.full_name = "cat.sch.probe_test_index"
+        vs.source_table.full_name = source_table_full_name
         vs._index_details = describe
-        idx = MagicMock()
-        idx.scan.return_value = {
-            "data": [{"fields": [{"key": k, "value": {}} for k in scan_fields]}]
-        }
-        vsc = MagicMock()
-        vsc.get_index.return_value = idx
-        return vs, vsc
+        wc = MagicMock()
+        table = MagicMock()
+        table.columns = [
+            SimpleNamespace(name=n, type_text=t, type_name=t)
+            for n, t in table_columns
+        ]
+        wc.tables.get.return_value = table
+        vs.workspace_client_from.return_value = wc
+        return vs, wc
 
     def test_strips_synthesised_vector_column_from_describe(self) -> None:
-        vs, vsc = self._make_probe_setup(
-            scan_fields=["product_id", "product_name", "description", "description_vector"],
+        vs, _ = self._make_source_table_setup(
+            table_columns=[
+                ("product_id", "bigint"),
+                ("product_name", "string"),
+                ("description", "string"),
+                # Source-table lookup runs against the actual source table,
+                # not the index — so the synthesised ``description_vector``
+                # column doesn't exist here. It's stripped anyway on the
+                # index-side lookup; this test exercises the source-table
+                # happy path where the source cols == index cols.
+            ],
             describe=_describe_payload(),
         )
-        assert _probe_index_columns(vs, vsc) == ["product_id", "product_name", "description"]
+        assert _fetch_source_table_column_types(vs) == {
+            "product_id": "bigint",
+            "product_name": "string",
+            "description": "string",
+        }
 
     def test_preserves_business_column_ending_in_vector(self) -> None:
-        """A user column literally named ``product_vector`` must survive
-        — the describe payload's ``embedding_source_columns`` is the
-        authoritative signal for what's a synthesised vector."""
-        vs, vsc = self._make_probe_setup(
-            scan_fields=[
-                "product_id",
-                "product_name",
-                "product_vector",  # a business column, NOT the embedding
-                "description",
-                "description_vector",  # the actual synthesised vector
+        """A user column literally named ``product_vector`` on the source
+        table must survive — describe's ``embedding_source_columns`` is
+        the authoritative signal for what's a synthesised vector, and
+        ``product`` is not the embedding source (``description`` is)."""
+        describe = _describe_payload()
+        # Drop the default ``columns_to_sync`` so we're isolating the
+        # vector-stripping behavior, not the sync-subset intersection.
+        describe["delta_sync_index_spec"].pop("columns_to_sync", None)
+        vs, _ = self._make_source_table_setup(
+            table_columns=[
+                ("product_id", "bigint"),
+                ("product_name", "string"),
+                ("product_vector", "array<double>"),
+                ("description", "string"),
             ],
-            describe=_describe_payload(),  # embedding source = "description"
+            describe=describe,  # embedding source = "description"
         )
-        cols = _probe_index_columns(vs, vsc)
-        assert cols is not None
-        assert "product_vector" in cols  # preserved!
-        assert "description_vector" not in cols  # actually synthesised, stripped
+        out = _fetch_source_table_column_types(vs)
+        assert out is not None
+        assert "product_vector" in out  # preserved!
 
     def test_falls_back_to_suffix_heuristic_when_describe_missing(self) -> None:
-        # No describe details cached → we can't know which _vector column
-        # is synthesised, so we strip all of them. This is a controlled
-        # false-positive risk documented in the docstring.
-        vs, vsc = self._make_probe_setup(
-            scan_fields=["product_id", "product_name", "description_vector"],
+        """No describe details cached → we can't know which ``_vector``
+        column is synthesised, so we strip all of them. Same controlled
+        false-positive risk as the index-side lookup."""
+        vs, _ = self._make_source_table_setup(
+            table_columns=[
+                ("product_id", "bigint"),
+                ("product_name", "string"),
+                ("description_vector", "array<double>"),
+            ],
             describe=None,
         )
-        assert _probe_index_columns(vs, vsc) == ["product_id", "product_name"]
+        assert _fetch_source_table_column_types(vs) == {
+            "product_id": "bigint",
+            "product_name": "string",
+        }
 
     def test_strips_cdf_underscore_prefix_fields(self) -> None:
-        vs, vsc = self._make_probe_setup(
-            scan_fields=["product_id", "_change_type", "_commit_version", "product_name"],
+        vs, _ = self._make_source_table_setup(
+            table_columns=[
+                ("product_id", "bigint"),
+                ("_change_type", "string"),
+                ("_commit_version", "bigint"),
+                ("product_name", "string"),
+            ],
             describe=_describe_payload(),
         )
-        assert _probe_index_columns(vs, vsc) == ["product_id", "product_name"]
+        assert _fetch_source_table_column_types(vs) == {
+            "product_id": "bigint",
+            "product_name": "string",
+        }
 
-    def test_empty_scan_result_returns_none(self) -> None:
+    def test_intersects_with_columns_to_sync_subset(self) -> None:
+        """When the user explicitly restricts sync to a subset, source-table
+        lookup must not advertise cols the index doesn't hold."""
+        describe = _describe_payload()
+        # Explicit subset: only product_id + product_name are synced.
+        describe["delta_sync_index_spec"]["columns_to_sync"] = [
+            "product_id",
+            "product_name",
+        ]
+        vs, _ = self._make_source_table_setup(
+            table_columns=[
+                ("product_id", "bigint"),
+                ("product_name", "string"),
+                ("brand", "string"),       # NOT on the index
+                ("category", "string"),    # NOT on the index
+                ("description", "string"),
+            ],
+            describe=describe,
+        )
+        out = _fetch_source_table_column_types(vs)
+        assert out == {"product_id": "bigint", "product_name": "string"}
+
+    def test_empty_source_table_returns_none(self) -> None:
+        vs, _ = self._make_source_table_setup(
+            table_columns=[],
+            describe=None,
+        )
+        assert _fetch_source_table_column_types(vs) is None
+
+    def test_uc_tables_permission_error_returns_none(self) -> None:
         vs = MagicMock()
-        vs.index.full_name = "cat.sch.empty_index"
+        vs.source_table.full_name = "cat.sch.forbidden_source"
         vs._index_details = None
-        idx = MagicMock()
-        idx.scan.return_value = {"data": []}
-        vsc = MagicMock()
-        vsc.get_index.return_value = idx
-        assert _probe_index_columns(vs, vsc) is None
+        wc = MagicMock()
+        wc.tables.get.side_effect = PermissionError("forbidden")
+        vs.workspace_client_from.return_value = wc
+        assert _fetch_source_table_column_types(vs) is None
 
-    def test_scan_permission_error_returns_none(self) -> None:
+    def test_direct_access_no_source_table_returns_none(self) -> None:
+        """Direct-Access indexes have no source_table; the fallback returns
+        None and the caller uses ``refresh()``'s ``columns_to_sync`` handling
+        instead. Verifies no AttributeError on the None check."""
         vs = MagicMock()
-        vs.index.full_name = "cat.sch.forbidden_index"
-        vs._index_details = None
-        idx = MagicMock()
-        idx.scan.side_effect = PermissionError("forbidden")
-        vsc = MagicMock()
-        vsc.get_index.return_value = idx
-        assert _probe_index_columns(vs, vsc) is None
+        vs.source_table = None
+        assert _fetch_source_table_column_types(vs) is None
 
-    def test_null_vsc_returns_none(self) -> None:
-        # Guard against the caller not being able to mint a
-        # VectorSearchClient (e.g. no ambient auth available).
-        assert _probe_index_columns(MagicMock(), None) is None
+    def test_explicit_columns_to_sync_helper(self) -> None:
+        """``_explicit_columns_to_sync`` returns None when no subset is
+        declared (default = all cols) and a set when the user restricted."""
+        # No columns_to_sync in payload → None.
+        no_sync = _describe_payload()
+        no_sync["delta_sync_index_spec"].pop("columns_to_sync", None)
+        assert _explicit_columns_to_sync(no_sync) is None
+        # Explicit subset → set.
+        describe = _describe_payload()
+        describe["delta_sync_index_spec"]["columns_to_sync"] = ["a", "b"]
+        assert _explicit_columns_to_sync(describe) == {"a", "b"}
+        # None input → None.
+        assert _explicit_columns_to_sync(None) is None
 
 
 @pytest.mark.unit
@@ -809,7 +885,7 @@ class TestFactoryEntryShapes:
                 "dao_ai.tools.vector_search._vsc_for_refresh", return_value=None
             ),
             patch(
-                "dao_ai.tools.vector_search._probe_index_columns", return_value=None
+                "dao_ai.tools.vector_search._fetch_source_table_column_types", return_value=None
             ),
             patch.object(
                 VectorStoreModel,
@@ -891,7 +967,7 @@ class TestBackwardCompatibility:
         with patch(
             "dao_ai.tools.vector_search._vsc_for_refresh", return_value=None
         ), patch(
-            "dao_ai.tools.vector_search._probe_index_columns", return_value=None
+            "dao_ai.tools.vector_search._fetch_source_table_column_types", return_value=None
         ), patch.object(
             VectorStoreModel,
             "refresh",
@@ -920,7 +996,7 @@ class TestBackwardCompatibility:
         with patch(
             "dao_ai.tools.vector_search._vsc_for_refresh", return_value=None
         ), patch(
-            "dao_ai.tools.vector_search._probe_index_columns", return_value=None
+            "dao_ai.tools.vector_search._fetch_source_table_column_types", return_value=None
         ), patch.object(VectorStoreModel, "refresh", autospec=True), patch(
             "dao_ai.tools.vector_search._fetch_index_column_types",
             return_value=None,
@@ -975,7 +1051,7 @@ class TestMcpAdapterEntryPoint:
             with patch(
                 "dao_ai.tools.vector_search._vsc_for_refresh", return_value=None
             ), patch(
-                "dao_ai.tools.vector_search._probe_index_columns", return_value=None
+                "dao_ai.tools.vector_search._fetch_source_table_column_types", return_value=None
             ), patch.object(
                 VectorStoreModel,
                 "refresh",
@@ -1049,7 +1125,7 @@ class TestIndexScopedTypeLookup:
         with patch(
             "dao_ai.tools.vector_search._vsc_for_refresh", return_value=None
         ), patch(
-            "dao_ai.tools.vector_search._probe_index_columns", return_value=None
+            "dao_ai.tools.vector_search._fetch_source_table_column_types", return_value=None
         ), patch.object(
             VectorStoreModel, "refresh", autospec=True
         ), patch.object(
@@ -1077,8 +1153,10 @@ class TestIndexScopedTypeLookup:
         assert "is_b2b_only <" not in enum  # …no ordering
 
     def test_soft_fallback_when_index_uc_lookup_fails(self) -> None:
-        """UC Tables call fails → factory falls through to scan-based
-        column discovery, keeps permissive operators."""
+        """UC Tables call on the INDEX fails → factory falls through to
+        UC Tables on the SOURCE TABLE. Because the source-table lookup
+        also returns ``{name: type}``, columns AND type-aware operator
+        narrowing are both preserved on the fallback path."""
         vs = VectorStoreModel(
             index=IndexModel(
                 schema=SchemaModel(
@@ -1096,8 +1174,8 @@ class TestIndexScopedTypeLookup:
         with patch(
             "dao_ai.tools.vector_search._vsc_for_refresh", return_value=None
         ), patch(
-            "dao_ai.tools.vector_search._probe_index_columns",
-            return_value=["product_id", "product_name"],
+            "dao_ai.tools.vector_search._fetch_source_table_column_types",
+            return_value={"product_id": "bigint", "product_name": "string"},
         ), patch.object(
             VectorStoreModel, "refresh", autospec=True
         ), patch.object(
@@ -1113,7 +1191,12 @@ class TestIndexScopedTypeLookup:
                 "properties"
             ]["key"]["enum"]
         )
-        # Columns still narrowed (regression still blocked); operators
-        # permissive.
+        # Columns narrowed (regression blocked). Types come through from
+        # the source-table fallback, so operators are narrowed too:
+        # bigint gets NUMERIC ops (no LIKE), string gets STRING ops
+        # (no ordering).
         assert "product_id" in enum and "product_name" in enum
-        assert "product_id LIKE" in enum  # permissive fallback
+        assert "product_id LIKE" not in enum  # bigint — no LIKE
+        assert "product_id <=" in enum        # bigint — ordering OK
+        assert "product_name LIKE" in enum    # string — LIKE OK
+        assert "product_name <=" not in enum  # string — no ordering

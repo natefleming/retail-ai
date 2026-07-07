@@ -519,7 +519,7 @@ def _capture_client_args_and_invoke(
     captured: dict[str, Any] = {}
     with patch("dao_ai.tools.vector_search.DatabricksVectorSearch") as MockDVS, \
         patch("dao_ai.tools.vector_search._vsc_for_refresh", return_value=None), \
-        patch("dao_ai.tools.vector_search._probe_index_columns", return_value=None):
+        patch("dao_ai.tools.vector_search._fetch_source_table_column_types", return_value=None):
         # Build-time refresh is stubbed out; these tests exercise the
         # query-time auth-mode behavior, not schema hydration.
         vs_model.refresh = MagicMock(return_value=None)

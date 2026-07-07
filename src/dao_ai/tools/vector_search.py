@@ -336,79 +336,96 @@ def _vector_column_names_from_describe(details: dict | None) -> set[str]:
     return names
 
 
-def _probe_index_columns(
-    vector_store: "VectorStoreModel",
-    vsc: VectorSearchClient | None,
-) -> list[str] | None:
-    """Discover the actual set of columns stored in the vector index.
+def _explicit_columns_to_sync(details: dict | None) -> set[str] | None:
+    """Return the user-declared ``columns_to_sync`` subset, or ``None``.
 
-    ``index.describe()`` on Delta-Sync indexes does *not* carry the
-    ``columns_to_sync`` list, and the source table generally has more
-    columns than the index (audit fields, embedding-source raw text, etc.).
-    We ``scan(num_results=1)`` the index and read the ``fields[].key`` list
-    off the returned document — that gives us the ground-truth column set.
+    Delta-Sync indexes default to syncing every source column; in that mode
+    ``describe()`` reports an empty / absent ``columns_to_sync``. When a
+    user explicitly restricts sync to a subset, the subset appears on
+    ``delta_sync_index_spec.columns_to_sync`` (or ``direct_access_index_spec``
+    for the Direct-Access variant). We use this to intersect against the
+    source-table column set so we don't advertise columns the index doesn't
+    actually carry.
 
-    Two categories of field are stripped from the return value:
-
-      * **Managed-embedding vector columns** — synthesised as
-        ``<source>_vector``. We prefer to read the exact source names from
-        ``describe()``'s ``embedding_source_columns`` and drop just those
-        (so a business column literally named e.g. ``product_vector`` is
-        NOT stripped). If ``describe()`` isn't available, we fall back to
-        the ``*_vector`` suffix heuristic.
-      * **Change-data-feed system fields** (``_change_type``,
-        ``_commit_version``, ``_commit_timestamp``) — anything with a
-        leading underscore. Databricks reserves the leading-underscore
-        namespace for CDF/system columns, so this is safe.
-
-    Returns ``None`` on any failure (soft-fail; the caller falls back to
-    whatever ``columns`` it already has).
+    Returns ``None`` when no subset is declared — the caller should treat
+    the full source-table column set as authoritative.
     """
-    if vsc is None:
+    if not isinstance(details, dict):
+        return None
+    for spec_key in ("delta_sync_index_spec", "direct_access_index_spec"):
+        spec = details.get(spec_key) or {}
+        cols = spec.get("columns_to_sync")
+        if cols:
+            return {c for c in cols if isinstance(c, str)}
+    return None
+
+
+def _fetch_source_table_column_types(
+    vector_store: "VectorStoreModel",
+) -> dict[str, str] | None:
+    """Return ``{column_name: databricks_type_string}`` from the SOURCE TABLE.
+
+    Fallback for when ``_fetch_index_column_types`` (UC Tables on the INDEX)
+    fails — typically a permission / environment mismatch on the index UC
+    entity. Source-table lookup shares the exact same auth surface as the
+    primary path (both go through ``WorkspaceClient.tables.get``), so it
+    trades the auth-fragile scan-based probe for a pure metadata call.
+
+    For Delta-Sync managed-embedding indexes (the common case), the source
+    table's columns are the authoritative filterable set on the index —
+    Databricks syncs every source column plus the synthesised ``_vector``.
+    We strip:
+
+      * **Vector columns** via ``_vector_column_names_from_describe`` (both
+        managed and self-managed) — never the raw source column, only the
+        synthesised / user-declared vector name.
+      * **CDF / system fields** (leading underscore).
+
+    When ``describe()`` carries an explicit ``columns_to_sync`` subset we
+    intersect against it, so users who restrict sync only advertise the
+    columns the index actually holds.
+
+    Returns ``None`` when:
+      * There is no ``source_table`` (Direct-Access indexes; caller has one
+        more fallback via ``refresh()``'s ``columns_to_sync`` handling), or
+      * The UC Tables call fails, or
+      * After stripping there are no columns left.
+    """
+    if vector_store.source_table is None:
         return None
     try:
-        idx = vsc.get_index(index_name=vector_store.index.full_name)
-        # Prefer the authoritative set of vector column names from the
-        # describe payload; we already cached it via VectorStoreModel.refresh().
-        known_vector_cols = _vector_column_names_from_describe(
-            getattr(vector_store, "_index_details", None)
-        )
-        scan = idx.scan(num_results=1) or {}
-        data = scan.get("data") or []
-        if not data:
-            return None
-        first = data[0]
-        # scan() returns {"fields": [{"key": name, "value": …}, …]}
-        fields = first.get("fields") if isinstance(first, dict) else None
-        if not fields:
-            return None
-        names: list[str] = []
-        for f in fields:
-            k = f.get("key") if isinstance(f, dict) else None
-            if not k:
-                continue
-            # CDF / system fields — leading underscore is reserved.
-            if k.startswith("_"):
-                continue
-            # Managed-embedding vector column.
-            if known_vector_cols:
-                if k in known_vector_cols:
-                    continue
-            elif k.endswith("_vector"):
-                # Fallback heuristic when describe payload isn't available.
-                # False positives here would be rare (a business column
-                # named ``*_vector``) but non-zero; the primary path above
-                # avoids them entirely.
-                continue
-            names.append(k)
-        return names or None
+        wc = vector_store.workspace_client_from(None)
+        table = wc.tables.get(vector_store.source_table.full_name)
+        cols = getattr(table, "columns", None) or []
     except Exception as e:  # noqa: BLE001
         logger.debug(
-            "Vector index column probe (scan) failed",
-            index=vector_store.index.full_name,
+            "UC Tables lookup on VS source_table failed; "
+            "fallback discovery unavailable",
+            source_table=vector_store.source_table.full_name,
             error=f"{type(e).__name__}: {e}",
         )
         return None
+
+    details = getattr(vector_store, "_index_details", None)
+    known_vector_cols = _vector_column_names_from_describe(details)
+    sync_subset = _explicit_columns_to_sync(details)
+
+    out: dict[str, str] = {}
+    for col in cols:
+        name = getattr(col, "name", None)
+        t = getattr(col, "type_text", None) or getattr(col, "type_name", None)
+        if not name or not t:
+            continue
+        if name.startswith("_"):
+            continue
+        if known_vector_cols and name in known_vector_cols:
+            continue
+        if not known_vector_cols and name.endswith("_vector"):
+            continue
+        if sync_subset is not None and name not in sync_subset:
+            continue
+        out[name] = str(t)
+    return out or None
 
 
 def _fetch_index_column_types(
@@ -666,41 +683,39 @@ def create_vector_search_tool(
     #      with the columns actually on the index — anything declared declared
     #      that isn't on the index is dropped with a WARN so the LLM can
     #      never emit a filter key that would fail at the VS API.
-    #   2. Index discovery. The index is a UC entity, so ``wc.tables.get(
-    #      index.full_name)`` returns column names AND their Databricks
-    #      types in one call (mirrors the databricks-langchain library).
-    #      Fallback: ``index.describe().columns_to_sync`` (Direct-Access) →
-    #      ``index.scan().data[0].fields[].key`` (Delta-Sync fallback).
-    #      Vector/system columns are stripped in every path.
+    #   2. Index discovery via UC Tables. Both the index and the source
+    #      table are UC entities, so ``wc.tables.get(...)`` returns column
+    #      names AND their Databricks types in one call. Primary path is
+    #      the INDEX (index-authoritative, mirrors databricks-langchain);
+    #      fallback is the SOURCE TABLE (same auth surface, no VSC / no
+    #      query cost). When ``describe()`` carries an explicit
+    #      ``columns_to_sync`` subset we intersect against it so
+    #      source-table lookups never advertise ghost columns.
     #   3. Neither available → soft-fallback: build with free-form
     #      ``FilterItem`` (LLM sees ``key: str``, pre-branch behavior).
-    #
-    # Never source-table columns: source-table has audit columns not on the
-    # index. Both column NAMES and TYPES come from the index itself.
     declared_columns: list[str] = list(
         retriever.columns or vector_store.columns or []
     )
 
     # Always attempt index discovery so we can validate declared against the
-    # live index. Two-step:
+    # live index. Two steps:
     #
-    #   * ``refresh()`` populates ``_index_details`` (used by probe for
-    #     vector-column stripping) and, for Direct-Access indexes only,
-    #     ``vector_store.columns`` from ``columns_to_sync``. Note that on
-    #     Delta-Sync indexes and when declared already set ``vector_store.columns``,
-    #     refresh does NOT overwrite — we cannot read ``vector_store.columns``
-    #     to distinguish "from declared" vs "from index".
-    #   * ``_probe_index_columns()`` runs ``index.scan(num_results=1)`` and
-    #     reads the actual field set off the returned document. This is
-    #     authoritative for both index types and independent of declared state.
+    #   * ``refresh()`` populates ``_index_details`` (used for vector-column
+    #     stripping and ``columns_to_sync`` intersection) and, for
+    #     Direct-Access indexes, ``vector_store.columns`` from
+    #     ``columns_to_sync``.
+    #   * UC Tables lookup, first on the index and — if that fails —
+    #     on the source table. Both share the ``WorkspaceClient`` auth
+    #     path; source-table lookup avoids the VSC / PAT / SP dance that
+    #     used to bite the scan-based probe.
     #
-    # Soft-fail: if both steps fail and declared has columns, trust declared. If
-    # neither has anything, fall back to free-form ``FilterItem``.
+    # Soft-fail: if all discovery fails and declared has columns, trust
+    # declared. If neither has anything, fall back to free-form ``FilterItem``.
     discovered_columns: list[str] = []
     columns_before_refresh = list(vector_store.columns or [])
-    vsc_for_discovery: VectorSearchClient | None = _vsc_for_refresh(vector_store)
+    vsc_for_refresh: VectorSearchClient | None = _vsc_for_refresh(vector_store)
     try:
-        vector_store.refresh(vsc=vsc_for_discovery)
+        vector_store.refresh(vsc=vsc_for_refresh)
     except Exception as e:  # noqa: BLE001
         logger.warning(
             "Vector Search index describe() failed; "
@@ -708,25 +723,26 @@ def create_vector_search_tool(
             index=index_name,
             error=f"{type(e).__name__}: {e}",
         )
-    # Prefer UC Tables on the index — it returns names AND types together.
+    # Prefer UC Tables on the index; fall back to UC Tables on the source
+    # table. Both paths return {name: type} so type-aware operator narrowing
+    # works on the fallback too. Direct-Access indexes have no source_table;
+    # the source-table lookup returns ``None`` and the ``columns_after_refresh``
+    # branch below catches them via refresh()'s columns_to_sync handling.
     index_type_map: dict[str, str] | None = _fetch_index_column_types(vector_store)
+    if index_type_map is None:
+        index_type_map = _fetch_source_table_column_types(vector_store)
     if index_type_map:
         discovered_columns = list(index_type_map.keys())
     else:
-        # Fallback: scan (authoritative filterable set on Delta-Sync).
-        probed = _probe_index_columns(vector_store, vsc_for_discovery)
-        if probed:
-            discovered_columns = probed
-        else:
-            # Direct-Access indexes: refresh may have populated columns from
-            # ``columns_to_sync`` — accept those only if they weren't already
-            # set by declared (i.e. the value changed).
-            columns_after_refresh = list(vector_store.columns or [])
-            if (
-                columns_after_refresh
-                and columns_after_refresh != columns_before_refresh
-            ):
-                discovered_columns = columns_after_refresh
+        # Direct-Access indexes: refresh may have populated columns from
+        # ``columns_to_sync`` — accept those only if they weren't already
+        # set by declared (i.e. the value changed).
+        columns_after_refresh = list(vector_store.columns or [])
+        if (
+            columns_after_refresh
+            and columns_after_refresh != columns_before_refresh
+        ):
+            discovered_columns = columns_after_refresh
 
     if declared_columns and discovered_columns:
         in_index = set(discovered_columns)
