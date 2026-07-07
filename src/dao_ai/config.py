@@ -3416,7 +3416,32 @@ class DatabaseModel(IsDatabricksResource):
     )
     database: Optional[AnyVariable] = Field(
         default="databricks_postgres",
-        description="Database name within the PostgreSQL server.",
+        description=(
+            "PostgreSQL-level database name (used in connection strings / "
+            "``PGDATABASE`` at runtime). Distinct from ``database_id``, "
+            "which is the Databricks resource id used in Apps resource "
+            "paths. Convention for auto-provisioned Lakebase projects is "
+            "underscored (``databricks_postgres``); for custom projects "
+            "the pg-level name can be anything (e.g. ``vllm_analytics``). "
+            "As an escape hatch, if this value is set to a full resource "
+            "path (starting with ``projects/``), it takes precedence over "
+            "``database_id`` when constructing the Apps resource binding."
+        ),
+    )
+    database_id: Optional[AnyVariable] = Field(
+        default="databricks-postgres",
+        description=(
+            "Databricks Lakebase resource id — the hyphenated identifier at "
+            "the end of the resource path "
+            "``projects/<project>/branches/<branch>/databases/<database_id>``. "
+            "Distinct from ``database`` (the pg-level DB name). The default "
+            "``databricks-postgres`` matches the resource id Databricks "
+            "auto-provisions with every new Lakebase project — so leaving "
+            "this at default works for the common case. Override when your "
+            "project has a custom-provisioned database (its resource id is "
+            "whatever appears in ``databricks api get "
+            "/api/2.0/postgres/projects/<p>/branches/<b>/databases``)."
+        ),
     )
     port: Optional[AnyVariable] = Field(
         default=5432,

@@ -495,76 +495,60 @@ def _resolve_lakebase_branch_path(db: DatabaseModel) -> str:
     return f"projects/{db.project}/branches/{branch_id}"
 
 
+_LAKEBASE_DEFAULT_DATABASE_RESOURCE_ID: str = "databricks-postgres"
+"""Backstop default for ``DatabaseModel.database_id`` when the field is None.
+
+Pydantic already defaults ``DatabaseModel.database_id`` to
+``"databricks-postgres"`` (the Databricks auto-provisioning convention),
+so this constant only matters if a caller passes a ``DatabaseModel``
+built without going through the normal Pydantic path (e.g. tests that
+construct raw dicts or bypass defaults).
+
+Kept as a module constant so the "magic string" lives in exactly one
+place and is grep-able.
+"""
+
+
 def _resolve_lakebase_database_path(db: DatabaseModel, branch_path: str) -> str:
     """Return the Apps-platform database resource path for a Lakebase database.
 
-    The Apps platform's ``postgres`` resource ``database`` field requires
-    full resource form:
-    ``projects/{project_id}/branches/{branch_id}/databases/{database_id}``.
+    Pure config rendering — no SDK call, no auth dependency at
+    bundle-generation time. Two paths:
 
-    The Lakebase ``Database`` resource carries two distinct names:
+    1. If ``db.database`` is already a full resource path
+       (``projects/<p>/branches/<b>/databases/<id>``), return it verbatim.
+       This is the historical escape hatch for configs that pre-declared
+       the full path.
+    2. Otherwise, construct ``{branch_path}/databases/{db.database_id}``.
+       ``db.database_id`` defaults to ``"databricks-postgres"`` in the
+       Pydantic field, which matches the resource id Databricks
+       auto-provisions with every new Lakebase project. Users with a
+       custom-provisioned database (e.g. resource id
+       ``db-vllm-t1lbxazynr``) simply override ``database_id`` in YAML —
+       no need to construct the full resource path by hand.
 
-    1. ``Database.name`` -- the platform resource path (random ID suffix,
-       e.g. ``db-pmke-laez4ing20``). This is what the Apps platform binds to.
-    2. ``Database.status.postgres_database`` -- the Postgres-level database
-       name used by the connection (e.g. ``databricks_postgres``). This is
-       what ``DatabaseModel.database`` carries in dao-ai configs.
-
-    Resolution rules:
-
-    * If ``db.database`` already looks like a full resource path
-      (``projects/.../databases/...``), return it as-is.
-    * Otherwise, list databases under the branch and find the one whose
-      ``status.postgres_database`` matches ``db.database``; return its
-      ``name``.
-    * If no match is found, fall back to the first database under the
-      branch (most Lakebase projects have exactly one).
-    * If the API call fails or returns no databases, raise ``RuntimeError``
-      with a clear message. Silently constructing a path from ``db.database``
-      produces a deploy-time 404 (``db.database`` is the pg-level database
-      name -- typically ``databricks_postgres`` -- not the Lakebase resource
-      id -- typically ``databricks-postgres``); this manifests as a mystery
-      404 far from the auth root cause. Fail loud instead.
+    Validation happens at deploy time — Databricks Apps API rejects a
+    non-existent resource path with a clear error naming the exact
+    resource. Matches Terraform's ``databricks_app`` provider behavior
+    (which also takes the resource path verbatim from user config).
     """
     from dao_ai.config import value_of
 
     database_value = value_of(db.database) if db.database is not None else None
-    database_id: str = str(database_value) if database_value is not None else ""
+    database_str: str = str(database_value) if database_value is not None else ""
 
-    if database_id.startswith("projects/") and "/databases/" in database_id:
-        return database_id
+    if database_str.startswith("projects/") and "/databases/" in database_str:
+        return database_str
 
-    try:
-        w = db.workspace_client
-        databases = list(w.postgres.list_databases(branch_path))
-    except Exception as e:
-        raise RuntimeError(
-            f"Could not list Lakebase databases under '{branch_path}': {e}. "
-            f"The Databricks profile in scope cannot reach this Lakebase project. "
-            f"Re-run with `-p <profile>` / `--profile <profile>` pointing at a "
-            f"workspace where the '{db.project}' project lives."
-        ) from e
-
-    if database_id:
-        for d in databases:
-            pg_name = d.status.postgres_database if d.status else None
-            if pg_name == database_id and d.name:
-                return d.name
-
-    if databases and databases[0].name:
-        if database_id:
-            logger.debug(
-                f"No Lakebase database matched postgres name '{database_id}' under "
-                f"'{branch_path}'; falling back to first database "
-                f"'{databases[0].name}'."
-            )
-        return databases[0].name
-
-    raise RuntimeError(
-        f"No Lakebase databases found under '{branch_path}'. Provision the "
-        f"database before generating the bundle, or re-run with `-p <profile>` "
-        f"pointing at the workspace where the '{db.project}' project lives."
+    database_id_value = (
+        value_of(db.database_id) if db.database_id is not None else None
     )
+    database_id: str = (
+        str(database_id_value)
+        if database_id_value
+        else _LAKEBASE_DEFAULT_DATABASE_RESOURCE_ID
+    )
+    return f"{branch_path}/databases/{database_id}"
 
 
 def _extract_app_resources(
