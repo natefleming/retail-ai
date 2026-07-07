@@ -415,7 +415,7 @@ Full-featured, production-ready agent applications.
 | `executive_assistant.yaml` | Comprehensive assistant with email, calendar, Slack |
 | `deep_research.yaml` | Multi-step research agent with web search |
 | `reservations_system.yaml` | Restaurant reservation management system |
-| `genie_vector_search_hybrid.yaml` | Combined SQL and vector search capabilities |
+| `genie_vector_search_hybrid.yaml` | Combined SQL and AI Search capabilities |
 | `genie_and_genie_mcp.yaml` | Multiple Genie instances via MCP (experimental) |
 
 **Prerequisites:** All concepts from previous categories  

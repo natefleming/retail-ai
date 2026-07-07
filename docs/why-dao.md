@@ -29,7 +29,7 @@ Databricks is a cloud platform where companies store and analyze their data. Thi
 Databricks provides several tools that DAO integrates with:
 - **Unity Catalog**: Your organization's data catalog with security and permissions
 - **Model Serving**: Turns AI models into APIs that applications can call
-- **Vector Search**: Finds relevant information using semantic similarity (understanding meaning, not just keywords)
+- **AI Search** (formerly Vector Search): Finds relevant information using semantic similarity (understanding meaning, not just keywords)
 - **Genie**: Lets people ask questions in plain English and automatically generates SQL queries
 - **MLflow**: Tracks experiments, versions models, and manages deployments
 

@@ -34,7 +34,7 @@
 - [How do I orchestrate a parallel fan-out pattern?](#how-do-i-orchestrate-a-parallel-fan-out-pattern)
 - [How do I add guardrails to my agent?](#how-do-i-add-guardrails-to-my-agent)
 - [How do I add tools to my agent (UC functions, REST, MCP)?](#how-do-i-add-tools-to-my-agent-uc-functions-rest-mcp)
-- [How do I do RAG / vector search with reranking?](#how-do-i-do-rag-vector-search-with-reranking)
+- [How do I do RAG / AI Search with reranking?](#how-do-i-do-rag--ai-search-with-reranking)
 - [How do I run long-running tasks?](#how-do-i-run-long-running-tasks)
 
 **MLflow Tracing & Monitoring**
@@ -212,7 +212,7 @@ databricks bundle run <app-name>
 ### How do I optimize agent performance?
 
 1. **Enable caching** for Genie queries (LRU + Context-Aware cache) — see [Lab 12 — Genie Context-Aware Caching](https://github.com/natefleming/dao-ai-workshop/tree/main/L300-advanced/lab-12-genie-caching)
-2. **Use reranking** for vector search to improve result quality — see [Lab 6 — Vector Search + FlashRank](https://github.com/natefleming/dao-ai-workshop/tree/main/L200-real-agents/lab-06-vector-search) and [Lab 11 — Instructed Retrieval + LLM Rerank](https://github.com/natefleming/dao-ai-workshop/tree/main/L300-advanced/lab-11-instructed-retrieval)
+2. **Use reranking** on AI Search to improve result quality — see [Lab 6 — AI Search + FlashRank](https://github.com/natefleming/dao-ai-workshop/tree/main/L200-real-agents/lab-06-vector-search) and [Lab 11 — Instructed Retrieval + LLM Rerank](https://github.com/natefleming/dao-ai-workshop/tree/main/L300-advanced/lab-11-instructed-retrieval)
 3. **Tune similarity thresholds** to balance cache hit rate vs. accuracy
 4. **Monitor MLflow traces** to identify bottlenecks — see [Lab 24 — UC OTEL Trace Tables](https://github.com/natefleming/dao-ai-workshop/tree/main/L300-advanced/lab-24-uc-trace-location) for durable trace storage
 5. **Use appropriate model sizes** (larger models = slower but more accurate)
@@ -224,7 +224,7 @@ databricks bundle run <app-name>
 Latency depends on your configuration:
 
 - **Simple query with cache hit**: 50-200ms
-- **Vector search with reranking**: 200-500ms
+- **AI Search with reranking**: 200-500ms
 - **Genie NL-to-SQL (no cache)**: 2-5 seconds
 - **Multi-agent orchestration**: 1-10 seconds (depends on complexity)
 
@@ -287,7 +287,7 @@ This lets the same config target different secret scopes per environment. See [B
 
 Set `on_behalf_of_user: true` on any Databricks resource you want the deployed agent to reach *as the calling user* rather than as the agent's own service principal. The Apps runtime forwards the caller's `x-forwarded-access-token` through to that resource for every request.
 
-The flag is accepted by any Databricks resource — most commonly LLMs (`resources.models.*`), downstream Apps (`resources.apps.*`), UC tables (`resources.tables.*`), warehouses, and Vector Search indexes.
+The flag is accepted by any Databricks resource — most commonly LLMs (`resources.models.*`), downstream Apps (`resources.apps.*`), UC tables (`resources.tables.*`), warehouses, and AI Search indexes.
 
 ```yaml
 resources:
@@ -629,9 +629,9 @@ See the workshop's tool-grounding progression: [Lab 2 — Grounding with Unity C
 
 **Learn more:** [`docs/key-capabilities.md`](key-capabilities.md) · [`docs/mcp_server.md`](mcp_server.md) · [`config/examples/14_basic_tools/`](../config/examples/14_basic_tools/) (REST, Slack) · [`config/examples/02_mcp/`](../config/examples/02_mcp/) (custom / external / filtered MCP)
 
-### How do I do RAG / vector search with reranking?
+### How do I do RAG / AI Search with reranking?
 
-Declare a `vector_stores:` resource pointing at a Databricks Vector Search index over a Delta table with Change Data Feed enabled, then wire it into a `retrievers:` block that composes ANN search with a rerank stage.
+Declare a `vector_stores:` resource pointing at a Databricks AI Search index (formerly Vector Search) over a Delta table with Change Data Feed enabled, then wire it into a `retrievers:` block that composes ANN search with a rerank stage.
 
 ```yaml
 resources:
@@ -657,7 +657,7 @@ retrievers:
 
 Reference the retriever from an `agents:` block (`agents.<name>.retrievers: [*kb_retriever]`) — the agent grounds each turn on the top-`top_n` reranked results.
 
-For filter-heavy queries (*"Milwaukee power tools under $100"*), layer an **instructed retriever** on top: query decomposition into structured filters + a residual semantic query, then LLM-based rerank with natural-language instructions. See [Lab 6 — Knowledge-base Retrieval with Vector Search](https://github.com/natefleming/dao-ai-workshop/tree/main/L200-real-agents/lab-06-vector-search) for the base pattern and [Lab 11 — Instructed Retrieval](https://github.com/natefleming/dao-ai-workshop/tree/main/L300-advanced/lab-11-instructed-retrieval) for the filter-decomposition variant.
+For filter-heavy queries (*"Milwaukee power tools under $100"*), layer an **instructed retriever** on top: query decomposition into structured filters + a residual semantic query, then LLM-based rerank with natural-language instructions. See [Lab 6 — Knowledge-base Retrieval with AI Search](https://github.com/natefleming/dao-ai-workshop/tree/main/L200-real-agents/lab-06-vector-search) for the base pattern and [Lab 11 — Instructed Retrieval](https://github.com/natefleming/dao-ai-workshop/tree/main/L300-advanced/lab-11-instructed-retrieval) for the filter-decomposition variant.
 
 **Learn more:** [`docs/key-capabilities.md`](key-capabilities.md) · [`config/examples/03_reranking/`](../config/examples/03_reranking/) · [`config/examples/16_instructed_retriever/`](../config/examples/16_instructed_retriever/)
 

@@ -139,8 +139,12 @@ def _client_args_from_ambient_wc(wc: WorkspaceClient) -> dict[str, Any] | None:
         return None
 
 
-class VectorSearchInput(BaseModel):
-    """Arguments for the dao-ai vector_search tool factory.
+class AiSearchInput(BaseModel):
+    """Arguments for the dao-ai AI Search tool factory.
+
+    (Formerly ``VectorSearchInput``. Databricks rebranded Vector Search to
+    AI Search; the old class name remains as an alias defined at the end
+    of this module for backwards compatibility.)
 
     Co-located with the @tool decorator so the JSON schema rendered to the LLM
     matches the factory's runtime expectations. Without an explicit args_schema,
@@ -555,10 +559,10 @@ def _build_vector_search_input_model(
     columns: list[str],
     operator_overrides: dict[str, list[str]] | None = None,
 ) -> type[BaseModel]:
-    """Build a per-tool VectorSearchInput whose ``filters[]`` is narrowed.
+    """Build a per-tool AiSearchInput whose ``filters[]`` is narrowed.
 
     When ``columns`` is empty we return the module-level
-    :class:`VectorSearchInput` (behavior identical to pre-change). When
+    :class:`AiSearchInput` (behavior identical to pre-change). When
     columns are known, we build a subclass whose ``filters`` type is
     ``list[<DynamicFilterItem for these columns>]``, so the JSON schema
     the LLM sees carries the enum of legal keys.
@@ -567,12 +571,12 @@ def _build_vector_search_input_model(
     for hand-declared ``ColumnInfo.operators`` support.
     """
     if not columns:
-        return VectorSearchInput
+        return AiSearchInput
 
     filter_item_cls = _build_filter_item_model(columns, operator_overrides)
     return create_model(
         "DynamicVectorSearchInput",
-        __base__=VectorSearchInput,
+        __base__=AiSearchInput,
         __module__=__name__,
         filters=(
             Optional[list[filter_item_cls]],  # type: ignore[valid-type]
@@ -664,14 +668,18 @@ def _rerank_documents(
     return reranked_docs
 
 
-def create_vector_search_tool(
+def create_ai_search_tool(
     retriever: Optional[RetrieverModel | dict[str, Any]] = None,
     vector_store: Optional[VectorStoreModel | dict[str, Any]] = None,
     name: Optional[str] = None,
     description: Optional[str] = None,
 ) -> StructuredTool:
     """
-    Create a Vector Search tool with dynamic schema and optional reranking.
+    Create an AI Search tool with dynamic schema and optional reranking.
+
+    (Formerly ``create_vector_search_tool``. Databricks rebranded Vector
+    Search to AI Search; the old function name remains as an alias
+    defined at the end of this module for backwards compatibility.)
 
     Args:
         retriever: Full retriever configuration with search parameters and reranking
@@ -1470,6 +1478,12 @@ def create_vector_search_tool(
 
         return json.dumps(serialized_docs)
 
-    logger.success("Vector search tool created", name=tool_name, index=index_name)
+    logger.success("AI Search tool created", name=tool_name, index=index_name)
 
     return _vector_search_tool
+
+
+# Backwards-compatible aliases — Vector Search naming will eventually be
+# deprecated. Both names refer to the same class / function.
+VectorSearchInput = AiSearchInput
+create_vector_search_tool = create_ai_search_tool

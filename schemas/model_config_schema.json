@@ -753,6 +753,425 @@
       "title": "AgentModel",
       "type": "object"
     },
+    "AiSearchEndpoint": {
+      "additionalProperties": false,
+      "description": "AI Search endpoint that hosts one or more indexes.\n\n(Formerly ``VectorSearchEndpoint``. See :class:`AiSearchEndpointType`.)",
+      "properties": {
+        "name": {
+          "description": "AI Search endpoint name in the workspace.",
+          "title": "Name",
+          "type": "string"
+        },
+        "type": {
+          "$ref": "#/$defs/AiSearchEndpointType",
+          "default": "STANDARD",
+          "description": "Endpoint type: STANDARD or OPTIMIZED_STORAGE."
+        },
+        "target_qps": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Target queries-per-second for the endpoint. STANDARD only. Scales endpoint compute linearly; capacity changes take effect the next time an index on this endpoint is created or synced. Public Preview. Honored at endpoint-creation time only \u2014 if the endpoint already exists, this value is ignored.",
+          "title": "Target Qps"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "title": "AiSearchEndpoint",
+      "type": "object"
+    },
+    "AiSearchEndpointType": {
+      "description": "AI Search endpoint compute profile.\n\n(Formerly ``VectorSearchEndpointType`` \u2014 Databricks rebranded Vector\nSearch to AI Search. The old name remains as an alias for backwards\ncompatibility; it will eventually be deprecated.)",
+      "enum": [
+        "STANDARD",
+        "OPTIMIZED_STORAGE"
+      ],
+      "title": "AiSearchEndpointType",
+      "type": "string"
+    },
+    "AiSearchIndexModel": {
+      "additionalProperties": false,
+      "description": "Configuration model for a Databricks AI Search index.\n\n(Formerly ``VectorStoreModel``. Databricks rebranded Vector Search to\nAI Search; the old class name remains as an alias defined at the end\nof the class body for backwards compatibility.)\n\nSupports two modes:\n1. **Use Existing Index**: Provide only `index` (fully qualified name).\n   Used for querying an existing vector search index at runtime.\n2. **Provisioning Mode**: Provide `source_table` + `embedding_source_column`.\n   Used for creating a new vector search index.\n\nExamples:\n    Minimal configuration (use existing index):\n    ```yaml\n    vector_stores:\n      products_search:\n        index:\n          name: catalog.schema.my_index\n    ```\n\n    Full provisioning configuration:\n    ```yaml\n    vector_stores:\n      products_search:\n        source_table:\n          schema: *my_schema\n          name: products\n        embedding_source_column: description\n        endpoint:\n          name: my_endpoint\n    ```",
+      "properties": {
+        "on_behalf_of_user": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": false,
+          "description": "Use the calling user's identity (OBO). Works in Model Serving and Databricks Apps.",
+          "title": "On Behalf Of User"
+        },
+        "service_principal": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ServicePrincipalModel"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Service principal for OAuth M2M authentication. Expands to client_id and client_secret."
+        },
+        "client_id": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CompositeVariableModel"
+            },
+            {
+              "$ref": "#/$defs/EnvironmentVariableModel"
+            },
+            {
+              "$ref": "#/$defs/SecretVariableModel"
+            },
+            {
+              "$ref": "#/$defs/PrimitiveVariableModel"
+            },
+            {
+              "type": "string"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "OAuth client ID for service principal authentication.",
+          "title": "Client Id"
+        },
+        "client_secret": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CompositeVariableModel"
+            },
+            {
+              "$ref": "#/$defs/EnvironmentVariableModel"
+            },
+            {
+              "$ref": "#/$defs/SecretVariableModel"
+            },
+            {
+              "$ref": "#/$defs/PrimitiveVariableModel"
+            },
+            {
+              "type": "string"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "OAuth client secret for service principal authentication.",
+          "title": "Client Secret"
+        },
+        "workspace_host": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CompositeVariableModel"
+            },
+            {
+              "$ref": "#/$defs/EnvironmentVariableModel"
+            },
+            {
+              "$ref": "#/$defs/SecretVariableModel"
+            },
+            {
+              "$ref": "#/$defs/PrimitiveVariableModel"
+            },
+            {
+              "type": "string"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Databricks workspace URL (e.g., 'https://my-workspace.cloud.databricks.com').",
+          "title": "Workspace Host"
+        },
+        "pat": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CompositeVariableModel"
+            },
+            {
+              "$ref": "#/$defs/EnvironmentVariableModel"
+            },
+            {
+              "$ref": "#/$defs/SecretVariableModel"
+            },
+            {
+              "$ref": "#/$defs/PrimitiveVariableModel"
+            },
+            {
+              "type": "string"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Personal access token for PAT-based authentication.",
+          "title": "Pat"
+        },
+        "index": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/IndexModel"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Vector search index to query. Required for runtime; auto-generated in provisioning mode."
+        },
+        "source_table": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TableModel"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Source table for provisioning a new vector search index. Omit when using an existing index."
+        },
+        "embedding_source_column": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Column in the source table containing text to embed. Required in provisioning mode.",
+          "title": "Embedding Source Column"
+        },
+        "embedding_model": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/InferenceEndpointModel"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Embedding model endpoint. Defaults to 'databricks-gte-large-en' in provisioning mode."
+        },
+        "endpoint": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/AiSearchEndpoint"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Vector search endpoint hosting the index. Auto-detected in provisioning mode."
+        },
+        "source_path": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/VolumePathModel"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Volume path for source data files (alternative to source_table)."
+        },
+        "checkpoint_path": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/VolumePathModel"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Volume path for sync checkpoint storage."
+        },
+        "primary_key": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Primary key column in the source table. Auto-detected if omitted.",
+          "title": "Primary Key"
+        },
+        "columns": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Columns to include in search results.",
+          "title": "Columns"
+        },
+        "doc_uri": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Column name containing document URIs for provenance tracking.",
+          "title": "Doc Uri"
+        }
+      },
+      "title": "AiSearchIndexModel",
+      "type": "object"
+    },
+    "AiSearchToolModel": {
+      "additionalProperties": false,
+      "description": "First-class AI Search tool that delegates to ``dao_ai.tools.create_ai_search_tool``.\n\n(Formerly ``VectorSearchToolModel``. Databricks rebranded Vector Search\nto AI Search; the old class name remains as an alias.)\n\nEquivalent to ``type: factory + name: dao_ai.tools.create_ai_search_tool``,\nbut with typed fields. Exactly one of ``retriever`` or ``vector_store`` is\nrequired. Accepts either ``type: ai_search`` (new) or ``type: vector_search``\n(legacy) in YAML.",
+      "properties": {
+        "type": {
+          "default": "ai_search",
+          "description": "Function type discriminator. Accepts 'ai_search' (preferred) or 'vector_search' (legacy alias).",
+          "enum": [
+            "vector_search",
+            "ai_search"
+          ],
+          "title": "Type",
+          "type": "string"
+        },
+        "human_in_the_loop": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/HumanInTheLoopModel"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Human-in-the-loop approval configuration for this tool."
+        },
+        "retriever": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RetrieverModel"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Full retriever configuration with search parameters and reranking. Mutually exclusive with vector_store."
+        },
+        "vector_store": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/AiSearchIndexModel"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Direct AI Search index reference (uses default search parameters). Mutually exclusive with retriever."
+        },
+        "name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Tool name visible to the LLM.",
+          "title": "Name"
+        },
+        "description": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Tool description shown to the LLM during function calling.",
+          "title": "Description"
+        }
+      },
+      "title": "AiSearchToolModel",
+      "type": "object"
+    },
     "AppModel": {
       "additionalProperties": false,
       "description": "Application-level configuration for deployment, model registration, and orchestration.",
@@ -6466,7 +6885,7 @@
         "vector_search": {
           "anyOf": [
             {
-              "$ref": "#/$defs/VectorStoreModel"
+              "$ref": "#/$defs/AiSearchIndexModel"
             },
             {
               "type": "null"
@@ -7533,7 +7952,7 @@
         },
         "vector_stores": {
           "additionalProperties": {
-            "$ref": "#/$defs/VectorStoreModel"
+            "$ref": "#/$defs/AiSearchIndexModel"
           },
           "description": "Vector search index configurations for semantic retrieval.",
           "title": "Vector Stores",
@@ -7654,7 +8073,7 @@
       "description": "Retriever combining a vector store with search parameters, reranking, and instructed retrieval.",
       "properties": {
         "vector_store": {
-          "$ref": "#/$defs/VectorStoreModel",
+          "$ref": "#/$defs/AiSearchIndexModel",
           "description": "Vector search index configuration used for similarity search."
         },
         "columns": {
@@ -8738,7 +9157,7 @@
               "$ref": "#/$defs/GenieToolModel"
             },
             {
-              "$ref": "#/$defs/VectorSearchToolModel"
+              "$ref": "#/$defs/AiSearchToolModel"
             },
             {
               "$ref": "#/$defs/SearchToolModel"
@@ -8998,422 +9417,6 @@
         }
       },
       "title": "UnityCatalogFunctionSqlTestModel",
-      "type": "object"
-    },
-    "VectorSearchEndpoint": {
-      "additionalProperties": false,
-      "description": "Vector search endpoint that hosts one or more vector search indexes.",
-      "properties": {
-        "name": {
-          "description": "Vector search endpoint name in the workspace.",
-          "title": "Name",
-          "type": "string"
-        },
-        "type": {
-          "$ref": "#/$defs/VectorSearchEndpointType",
-          "default": "STANDARD",
-          "description": "Endpoint type: STANDARD or OPTIMIZED_STORAGE."
-        },
-        "target_qps": {
-          "anyOf": [
-            {
-              "exclusiveMinimum": 0,
-              "type": "integer"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "description": "Target queries-per-second for the endpoint. STANDARD only. Scales endpoint compute linearly; capacity changes take effect the next time an index on this endpoint is created or synced. Public Preview. Honored at endpoint-creation time only \u2014 if the endpoint already exists, this value is ignored.",
-          "title": "Target Qps"
-        }
-      },
-      "required": [
-        "name"
-      ],
-      "title": "VectorSearchEndpoint",
-      "type": "object"
-    },
-    "VectorSearchEndpointType": {
-      "description": "Vector search endpoint compute profile.",
-      "enum": [
-        "STANDARD",
-        "OPTIMIZED_STORAGE"
-      ],
-      "title": "VectorSearchEndpointType",
-      "type": "string"
-    },
-    "VectorSearchToolModel": {
-      "additionalProperties": false,
-      "description": "First-class Vector Search tool that delegates to ``dao_ai.tools.create_vector_search_tool``.\n\nEquivalent to ``type: factory + name: dao_ai.tools.create_vector_search_tool``,\nbut with typed fields. Exactly one of ``retriever`` or ``vector_store`` is\nrequired.",
-      "properties": {
-        "type": {
-          "const": "vector_search",
-          "default": "vector_search",
-          "description": "Function type discriminator. Must be 'vector_search'.",
-          "title": "Type",
-          "type": "string"
-        },
-        "human_in_the_loop": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/HumanInTheLoopModel"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "description": "Human-in-the-loop approval configuration for this tool."
-        },
-        "retriever": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/RetrieverModel"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "description": "Full retriever configuration with search parameters and reranking. Mutually exclusive with vector_store."
-        },
-        "vector_store": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/VectorStoreModel"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "description": "Direct vector store reference (uses default search parameters). Mutually exclusive with retriever."
-        },
-        "name": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "description": "Tool name visible to the LLM.",
-          "title": "Name"
-        },
-        "description": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "description": "Tool description shown to the LLM during function calling.",
-          "title": "Description"
-        }
-      },
-      "title": "VectorSearchToolModel",
-      "type": "object"
-    },
-    "VectorStoreModel": {
-      "additionalProperties": false,
-      "description": "Configuration model for a Databricks Vector Search store.\n\nSupports two modes:\n1. **Use Existing Index**: Provide only `index` (fully qualified name).\n   Used for querying an existing vector search index at runtime.\n2. **Provisioning Mode**: Provide `source_table` + `embedding_source_column`.\n   Used for creating a new vector search index.\n\nExamples:\n    Minimal configuration (use existing index):\n    ```yaml\n    vector_stores:\n      products_search:\n        index:\n          name: catalog.schema.my_index\n    ```\n\n    Full provisioning configuration:\n    ```yaml\n    vector_stores:\n      products_search:\n        source_table:\n          schema: *my_schema\n          name: products\n        embedding_source_column: description\n        endpoint:\n          name: my_endpoint\n    ```",
-      "properties": {
-        "on_behalf_of_user": {
-          "anyOf": [
-            {
-              "type": "boolean"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": false,
-          "description": "Use the calling user's identity (OBO). Works in Model Serving and Databricks Apps.",
-          "title": "On Behalf Of User"
-        },
-        "service_principal": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/ServicePrincipalModel"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "description": "Service principal for OAuth M2M authentication. Expands to client_id and client_secret."
-        },
-        "client_id": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/CompositeVariableModel"
-            },
-            {
-              "$ref": "#/$defs/EnvironmentVariableModel"
-            },
-            {
-              "$ref": "#/$defs/SecretVariableModel"
-            },
-            {
-              "$ref": "#/$defs/PrimitiveVariableModel"
-            },
-            {
-              "type": "string"
-            },
-            {
-              "type": "integer"
-            },
-            {
-              "type": "number"
-            },
-            {
-              "type": "boolean"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "description": "OAuth client ID for service principal authentication.",
-          "title": "Client Id"
-        },
-        "client_secret": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/CompositeVariableModel"
-            },
-            {
-              "$ref": "#/$defs/EnvironmentVariableModel"
-            },
-            {
-              "$ref": "#/$defs/SecretVariableModel"
-            },
-            {
-              "$ref": "#/$defs/PrimitiveVariableModel"
-            },
-            {
-              "type": "string"
-            },
-            {
-              "type": "integer"
-            },
-            {
-              "type": "number"
-            },
-            {
-              "type": "boolean"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "description": "OAuth client secret for service principal authentication.",
-          "title": "Client Secret"
-        },
-        "workspace_host": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/CompositeVariableModel"
-            },
-            {
-              "$ref": "#/$defs/EnvironmentVariableModel"
-            },
-            {
-              "$ref": "#/$defs/SecretVariableModel"
-            },
-            {
-              "$ref": "#/$defs/PrimitiveVariableModel"
-            },
-            {
-              "type": "string"
-            },
-            {
-              "type": "integer"
-            },
-            {
-              "type": "number"
-            },
-            {
-              "type": "boolean"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "description": "Databricks workspace URL (e.g., 'https://my-workspace.cloud.databricks.com').",
-          "title": "Workspace Host"
-        },
-        "pat": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/CompositeVariableModel"
-            },
-            {
-              "$ref": "#/$defs/EnvironmentVariableModel"
-            },
-            {
-              "$ref": "#/$defs/SecretVariableModel"
-            },
-            {
-              "$ref": "#/$defs/PrimitiveVariableModel"
-            },
-            {
-              "type": "string"
-            },
-            {
-              "type": "integer"
-            },
-            {
-              "type": "number"
-            },
-            {
-              "type": "boolean"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "description": "Personal access token for PAT-based authentication.",
-          "title": "Pat"
-        },
-        "index": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/IndexModel"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "description": "Vector search index to query. Required for runtime; auto-generated in provisioning mode."
-        },
-        "source_table": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/TableModel"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "description": "Source table for provisioning a new vector search index. Omit when using an existing index."
-        },
-        "embedding_source_column": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "description": "Column in the source table containing text to embed. Required in provisioning mode.",
-          "title": "Embedding Source Column"
-        },
-        "embedding_model": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/InferenceEndpointModel"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "description": "Embedding model endpoint. Defaults to 'databricks-gte-large-en' in provisioning mode."
-        },
-        "endpoint": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/VectorSearchEndpoint"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "description": "Vector search endpoint hosting the index. Auto-detected in provisioning mode."
-        },
-        "source_path": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/VolumePathModel"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "description": "Volume path for source data files (alternative to source_table)."
-        },
-        "checkpoint_path": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/VolumePathModel"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "description": "Volume path for sync checkpoint storage."
-        },
-        "primary_key": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "description": "Primary key column in the source table. Auto-detected if omitted.",
-          "title": "Primary Key"
-        },
-        "columns": {
-          "anyOf": [
-            {
-              "items": {
-                "type": "string"
-              },
-              "type": "array"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "description": "Columns to include in search results.",
-          "title": "Columns"
-        },
-        "doc_uri": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "description": "Column name containing document URIs for provenance tracking.",
-          "title": "Doc Uri"
-        }
-      },
-      "title": "VectorStoreModel",
       "type": "object"
     },
     "VerifierModel": {

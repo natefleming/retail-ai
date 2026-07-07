@@ -1,6 +1,6 @@
 # MCP Server for dao-ai
 
-The `dao_ai.mcp` package turns any dao-ai config defining `create_genie_toolkit` or `create_vector_search_tool` factories into a [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server hosted on Databricks Apps. Any MCP client — Claude Desktop, Cursor, agent platforms, dao-ai itself — can connect to a deployed app and call those tools natively over [Streamable HTTP](https://modelcontextprotocol.io/specification/2025-03-26/basic/transports).
+The `dao_ai.mcp` package turns any dao-ai config defining `create_genie_toolkit` or `create_ai_search_tool` (formerly `create_vector_search_tool`, still supported) factories into a [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server hosted on Databricks Apps. Any MCP client — Claude Desktop, Cursor, agent platforms, dao-ai itself — can connect to a deployed app and call those tools natively over [Streamable HTTP](https://modelcontextprotocol.io/specification/2025-03-26/basic/transports).
 
 This is the **server** side. dao-ai's existing `dao_ai.apps.mcp` module is the client side (primitives for *consuming* external MCP servers from a dao-ai agent). The two are independent.
 
@@ -10,8 +10,8 @@ This is the **server** side. dao-ai's existing `dao_ai.apps.mcp` module is the c
 
 You already have:
 
-- a dao-ai config that wires Genie spaces, vector-search retrievers, the cache chain, and OBO/SP auth via Pydantic models;
-- factories like `dao_ai.tools.create_genie_toolkit` and `dao_ai.tools.create_vector_search_tool` that produce battle-tested tool implementations (LRU + pg_vector semantic cache, query decomposition + RRF + FlashRank + instruction-aware reranking + verifier).
+- a dao-ai config that wires Genie spaces, AI Search retrievers, the cache chain, and OBO/SP auth via Pydantic models;
+- factories like `dao_ai.tools.create_genie_toolkit` and `dao_ai.tools.create_ai_search_tool` (legacy alias `create_vector_search_tool`) that produce battle-tested tool implementations (LRU + pg_vector semantic cache, query decomposition + RRF + FlashRank + instruction-aware reranking + verifier).
 
 `dao-ai generate-mcp` lets you ship those exact tools as an MCP endpoint without writing or maintaining a parallel server. One command, one app, all the dao-ai retrieval features at the other end of an MCP client.
 
@@ -76,7 +76,9 @@ The server boots, reads its config via `dao_ai.config.AppConfig.from_file(initia
               │                       → LRUCacheService
               │     registers: ask_<name> + <name>_feedback (MCP tools)
               │
-              ├─► Vector Search adapter ── dao_ai.tools.create_vector_search_tool
+              ├─► AI Search adapter ── dao_ai.tools.create_ai_search_tool
+              │     (accepts the legacy dao_ai.tools.create_vector_search_tool
+              │      factory name too — both resolve to the same function)
               │     invokes the factory, wraps the returned StructuredTool
               │     registers: <name>
               │
@@ -100,7 +102,7 @@ register_adapter(McpAdapter(
 ))
 ```
 
-Add the import to `dao_ai/mcp/service.py` (alongside the shipped `genie` and `vector_search` imports), and your factory is now exposed as an MCP tool whenever a config references it.
+Add the import to `dao_ai/mcp/service.py` (alongside the shipped `genie` and `vector_search` / AI Search imports), and your factory is now exposed as an MCP tool whenever a config references it.
 
 ### Names and descriptions
 
@@ -132,9 +134,9 @@ Every tool response includes a structured `_meta` block in the JSON payload — 
 { "_meta": { "tool_name": "...", "conversation_id": "...", "message_id": "...", "rating": "NEGATIVE", "was_cache_hit": true } }
 ```
 
-**Vector search:**
+**AI Search:**
 ```json
-{ "_meta": { "tool_name": "product_vector_search", "result_count": 20, "latency_ms": 4557, "trace_id": null } }
+{ "_meta": { "tool_name": "product_ai_search", "result_count": 20, "latency_ms": 4557, "trace_id": null } }
 ```
 
 The client honors these `_meta` fields on inbound `tools/call`:
@@ -150,14 +152,14 @@ The MCP server's YAML is a (subset of a) dao-ai `AppConfig`. It needs:
 
 - `parameters:` — declared `${var.NAME}` references (CLI overrides, env-var fallback, defaults).
 - `resources.genie_rooms`, `resources.warehouses`, `resources.databases`, `resources.vector_stores` — the dao-ai resource models, identical to what the agent runtime consumes.
-- `retrievers:` — only needed for vector-search tools.
-- `tools:` — one entry per MCP tool to expose. Each `tools.<name>.function` must be a `factory` whose `name` matches a registered adapter (`dao_ai.tools.create_genie_toolkit` or `dao_ai.tools.create_vector_search_tool`).
+- `retrievers:` — only needed for AI Search tools.
+- `tools:` — one entry per MCP tool to expose. Each `tools.<name>.function` must be a `factory` whose `name` matches a registered adapter (`dao_ai.tools.create_genie_toolkit` or `dao_ai.tools.create_ai_search_tool` / legacy `create_vector_search_tool`).
 
 The `app:` and `agents:` blocks are **intentionally omitted** — the MCP server has no agent runtime to configure. Server name and log level come from env vars `DAO_AI_MCP_SERVER_NAME` (default `mcp-dao-ai` — chosen so Databricks Multi-Agent Supervisor's `mcp-` discovery prefix matches) and `DAO_AI_MCP_LOG_LEVEL` (default `INFO`).
 
 See `config/examples/15_complete_applications/sporting_goods_store_mcp.yaml` for a worked example.
 
-> **Note on tool types in MCP configs.** The MCP server adapter currently matches on the factory **name** (`dao_ai.tools.create_genie_toolkit` / `dao_ai.tools.create_vector_search_tool`) as its discriminator. For MCP server configs you must use the `type: factory` shape shown below — the first-class `type: genie` / `type: vector_search` shapes are supported by agent runtimes but not yet by the MCP adapter. (Agent-runtime configs can mix both shapes freely; only the MCP server is the constraint here.)
+> **Note on tool types in MCP configs.** The MCP server adapter currently matches on the factory **name** (`dao_ai.tools.create_genie_toolkit` / `dao_ai.tools.create_ai_search_tool` / legacy `create_vector_search_tool`) as its discriminator. For MCP server configs you must use the `type: factory` shape shown below — the first-class `type: genie` / `type: ai_search` (or `vector_search`) shapes are supported by agent runtimes but not yet by the MCP adapter. (Agent-runtime configs can mix both shapes freely; only the MCP server is the constraint here.)
 
 ### Cache parameters
 
@@ -190,9 +192,9 @@ The chain composes outer-to-inner: `LRUCacheService → PostgresContextAwareGeni
 
 The Postgres semantic cache needs `CREATE` privilege on its target schema in the Lakebase database. Most Apps deployments require an explicit grant in your Lakebase project; the cache will gracefully fall back to the underlying `GenieService` on permission errors but won't memoize.
 
-### Vector-search retriever
+### AI Search retriever
 
-The vector-search adapter passes the entire `args.retriever` block straight through to `create_vector_search_tool`. Anything that factory supports — query decomposition, FlashRank, instruction-aware reranking, query routing, result verification, metadata filters — works without code changes.
+The AI Search adapter passes the entire `args.retriever` block straight through to `create_ai_search_tool` (legacy alias: `create_vector_search_tool`). Anything that factory supports — query decomposition, FlashRank, instruction-aware reranking, query routing, result verification, metadata filters — works without code changes.
 
 ---
 
@@ -227,7 +229,7 @@ After `generate-mcp`, run `uv sync` in the output directory to produce `uv.lock`
 `generate-mcp` derives App resource bindings via `dao_ai.apps.resources.generate_app_resources` and converts them with `dao_ai.apps.bundle._convert_to_bundle_resources`. The resulting `databricks.yml` declares:
 
 - `genie_space` (CAN_RUN) — one per `create_genie_toolkit` entry.
-- `uc_securable` (TABLE / SELECT) — one per VS index. Vector-search indexes use the `TABLE` securable type since Databricks Apps' resource schema doesn't have a native `VECTOR_SEARCH_INDEX` type.
+- `uc_securable` (TABLE / SELECT) — one per AI Search index. AI Search / vector-search indexes use the `TABLE` securable type since Databricks Apps' resource schema doesn't have a native `VECTOR_SEARCH_INDEX` type.
 - `sql_warehouse` (CAN_USE) — for Genie SQL execution and cached-SQL re-execution.
 - `postgres` (CAN_CONNECT_AND_CREATE) — for the Lakebase autoscaling project backing the semantic cache.
 - `serving_endpoint` (CAN_QUERY) — for embedding and decomposition LLM endpoints.
@@ -237,7 +239,7 @@ Lakebase `database_instances` are **not** auto-provisioned. The MCP bundle assum
 
 ### Auth
 
-Defaults to **App SP** auth via Databricks Apps' auto-injected `DATABRICKS_CLIENT_ID` / `DATABRICKS_CLIENT_SECRET`. To use **OBO** (the requesting user's identity), set `on_behalf_of_user: true` on the relevant resource model (`GenieRoomModel`, `WarehouseModel`, `VectorStoreModel`, `DatabaseModel`). The MCP server captures `x-forwarded-access-token` per-request and dao-ai's existing `IsDatabricksResource.workspace_client_from(context)` machinery uses it when the flag is set.
+Defaults to **App SP** auth via Databricks Apps' auto-injected `DATABRICKS_CLIENT_ID` / `DATABRICKS_CLIENT_SECRET`. To use **OBO** (the requesting user's identity), set `on_behalf_of_user: true` on the relevant resource model (`GenieRoomModel`, `WarehouseModel`, `AiSearchIndexModel` / `VectorStoreModel`, `DatabaseModel`). The MCP server captures `x-forwarded-access-token` per-request and dao-ai's existing `IsDatabricksResource.workspace_client_from(context)` machinery uses it when the flag is set.
 
 The request-context middleware tags every log line with `obo_present=<true|false>` so you can confirm header propagation at a glance.
 
@@ -339,5 +341,5 @@ The Apps logs (`databricks apps logs <app-name> -p <profile>`) include structure
 ## Related modules
 
 - `dao_ai.apps.mcp` — **client** primitives for consuming external MCP servers from a dao-ai agent (security helpers, etc.). Independent of `dao_ai.mcp`.
-- `dao_ai.tools.create_genie_toolkit`, `dao_ai.tools.create_vector_search_tool` — the underlying factories the MCP server delegates to.
+- `dao_ai.tools.create_genie_toolkit`, `dao_ai.tools.create_ai_search_tool` (legacy alias: `create_vector_search_tool`) — the underlying factories the MCP server delegates to.
 - `dao_ai.apps.bundle.write_bundle` — the corresponding `dao-ai generate-bundle` entry point for agent deployments. `write_mcp_bundle` mirrors its shape.

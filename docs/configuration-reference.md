@@ -160,12 +160,12 @@ tools:
       functions: *my_schema     # Use UC Functions MCP
       genie_room: *genie        # Use Genie MCP for a single space (per-space URL)
       genie: bool               # Use workspace-wide Genie MCP (all spaces, no space_id)
-      vector_search: *store     # Use Vector Search MCP
+      vector_search: *store     # Use AI Search MCP (field name kept for backwards compat)
       include_tools: [string]   # Tools to load (allowlist, supports glob)
       exclude_tools: [string]   # Tools to exclude (denylist, supports glob)
       meta:                     # _meta sent on every tool call (MCP spec, public preview on Databricks)
         warehouse_id: string    # DBSQL: pin a specific warehouse
-        num_results: int        # Vector Search: cap result count
+        num_results: int        # AI Search: cap result count
         # ... any other server-specific keys (see Databricks managed MCP docs)
       # type: app — call a Databricks App as a tool
       app: *app_resource        # DatabricksAppModel ref (required for type: app)
@@ -499,16 +499,18 @@ resources:
       - databricks-claude-sonnet-4   # legacy Model Serving fallback
 ```
 
-### Vector Search endpoint capacity (`target_qps`)
+### AI Search endpoint capacity (`target_qps`)
 
 **`vector_stores.<name>.endpoint.target_qps`** *(int, optional, Public Preview)* —
-Target queries-per-second for the Vector Search endpoint. **STANDARD endpoints only**;
-setting this on an `OPTIMIZED_STORAGE` endpoint raises a config-validation error.
-Endpoint compute scales linearly with `target_qps`, so cost scales linearly too.
-**Honored at endpoint-creation time only** — if the endpoint already exists, this
-value is ignored (a debug log entry records the configured value but no API call
-is made). To change capacity on a live endpoint, use the Databricks UI, REST API,
-or SDK directly. See the [Databricks Vector Search QPS scaling docs](https://docs.databricks.com/aws/en/generative-ai/vector-search) for the underlying capability.
+Target queries-per-second for the AI Search endpoint (formerly Vector Search).
+**STANDARD endpoints only**; setting this on an `OPTIMIZED_STORAGE` endpoint raises
+a config-validation error. Endpoint compute scales linearly with `target_qps`, so
+cost scales linearly too. **Honored at endpoint-creation time only** — if the
+endpoint already exists, this value is ignored (a debug log entry records the
+configured value but no API call is made). To change capacity on a live endpoint,
+use the Databricks UI, REST API, or SDK directly. See the
+[Databricks AI Search QPS scaling docs](https://docs.databricks.com/aws/en/generative-ai/vector-search)
+for the underlying capability.
 
 ### Skills (`resources.skills`)
 
