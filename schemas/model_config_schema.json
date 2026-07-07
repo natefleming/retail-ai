@@ -1632,12 +1632,13 @@
         },
         "type": {
           "default": "string",
-          "description": "Column data type for value validation",
+          "description": "Column data type. ``array`` denotes an ARRAY<primitive> column on the index; on Databricks VS Standard endpoints these filter via element containment (equality only). The element type is irrelevant for filtering, so a single ``array`` value covers ARRAY<STRING>, ARRAY<INT>, etc.",
           "enum": [
             "string",
             "number",
             "boolean",
-            "datetime"
+            "datetime",
+            "array"
           ],
           "title": "Type",
           "type": "string"
@@ -7660,7 +7661,14 @@
           "anyOf": [
             {
               "items": {
-                "type": "string"
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "$ref": "#/$defs/ColumnInfo"
+                  }
+                ]
               },
               "type": "array"
             },
@@ -7668,7 +7676,7 @@
               "type": "null"
             }
           ],
-          "description": "Columns to return from search results. Defaults to the vector store's columns.",
+          "description": "Columns to expose to the LLM as filterable + returnable. Accepts either bare strings (name only \u2014 types are discovered from the index at build time via UC Tables) or ColumnInfo objects that declare name / type / operators / description. Hand-declared ColumnInfo items are authoritative and skip build-time discovery. The two forms may be mixed in one list. Defaults to the vector store's columns (bare strings).",
           "title": "Columns"
         },
         "search_parameters": {
