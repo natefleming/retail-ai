@@ -959,12 +959,25 @@ class InferenceEndpointModel(IsDatabricksResource):
         description="Human-readable description of this model configuration.",
     )
     temperature: Optional[float] = Field(
-        default=0.1,
-        description="Sampling temperature controlling output randomness (0.0 = deterministic, 1.0 = creative).",
+        default=None,
+        description=(
+            "Sampling temperature. When unset, dao-ai omits `temperature` "
+            "from the outbound payload entirely, so the serving endpoint "
+            "uses its own default. This is required by reasoning-mode "
+            "endpoints (e.g. Anthropic Sonnet 5) that reject the parameter "
+            "outright. Set explicitly (e.g. 0.1 for deterministic, 1.0 for "
+            "creative) to override the endpoint default."
+        ),
     )
     max_tokens: Optional[int] = Field(
-        default=8192,
-        description="Maximum number of tokens in the model response.",
+        default=None,
+        description=(
+            "Maximum tokens in the model response. When unset, dao-ai "
+            "omits `max_tokens` from the outbound payload so the serving "
+            "endpoint uses its own default. Set explicitly to cap output "
+            "length. Ignored by the Responses API (endpoint enforces its "
+            "own limit)."
+        ),
     )
     fallbacks: Optional[list[Union[str, "InferenceEndpointModel"]]] = Field(
         default_factory=list,
