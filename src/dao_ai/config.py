@@ -7911,17 +7911,6 @@ class AppModel(BaseModel):
         default=True,
         description="Whether the MLflow AgentServer enables the chat proxy endpoint for Databricks Apps.",
     )
-    mcp_only: bool = Field(
-        default=False,
-        description=(
-            "If True, this app:`` block configures an MCP-only deployment (consumed "
-            "by ``dao-ai generate-mcp`` / ``dao_ai.mcp.server``) and the validators "
-            "that normally require ``agents`` or a ``registered_model`` are skipped. "
-            "Use this when you want to set ``app.name`` (which the MCP server reads "
-            "as ``serverInfo.name`` and as the deployed Databricks App name) without "
-            "also having to declare a stub agent."
-        ),
-    )
     environment_vars: Optional[dict[str, AnyVariable]] = Field(
         default_factory=dict,
         description="Environment variables set on the serving endpoint or Databricks App.",
@@ -8108,10 +8097,6 @@ class AppModel(BaseModel):
         # treated as implicit sub-agents by create_deep_agent_graph.
         if self.orchestration is not None and self.orchestration.deep_agent is not None:
             return self
-        # MCP-only deployments (dao-ai generate-mcp) expose dao-ai tools as an
-        # MCP server with no agent runtime — agents are meaningless here.
-        if self.mcp_only:
-            return self
         raise ValueError("At least one agent must be specified")
 
     @model_validator(mode="after")
@@ -8168,10 +8153,6 @@ class AppModel(BaseModel):
     @model_validator(mode="after")
     def validate_registered_model_required_for_serving(self) -> Self:
         """Ensure registered_model is provided when deployment target is not apps."""
-        # MCP-only deployments don't register a model — they expose dao-ai tools
-        # directly over MCP from a Databricks App.
-        if self.mcp_only:
-            return self
         if (
             self.registered_model is None
             and self.deployment_target != DeploymentTarget.APPS
@@ -8224,10 +8205,6 @@ class AppModel(BaseModel):
                 self.orchestration is not None
                 and self.orchestration.deep_agent is not None
             ):
-                return self
-            # MCP-only deployments have no agent runtime; orchestration default
-            # is meaningless. Bail out early.
-            if self.mcp_only:
                 return self
             raise ValueError("At least one agent must be specified")
 

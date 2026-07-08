@@ -1,16 +1,12 @@
 """Config loader for the dao-ai MCP server.
 
-Re-uses dao-ai's full :class:`dao_ai.config.AppConfig` schema rather than
-maintaining a parallel one. The MCP server's YAML is a (subset of a) dao-ai
-``AppConfig``: the same ``resources.*`` blocks the agent runtime consumes,
-plus a ``tools.<name>`` block declaring which MCP tools to expose. We pass
-``initialize=False`` so the server doesn't provision Genie spaces, register
-MLflow experiments, or run any of the side effects ``initialize()`` has — the
-MCP server only consumes configuration, it doesn't own the agent lifecycle.
+Re-uses dao-ai's full :class:`dao_ai.config.AppConfig` schema. The MCP
+server runs the same agent graph that ``dao_ai.apps.server`` runs, so we
+call the full :meth:`AppConfig.initialize` pipeline — hooks, resource
+resolution, everything the agent runtime expects.
 
-The ``app:`` block is intentionally optional. dao-ai's ``AppModel`` validator
-requires at least one agent, which is meaningless for an MCP-only deployment.
-We let server-name and log-level fall back to env vars then defaults.
+``app.name`` is required: the MCP server derives its ``serverInfo.name`` and
+the single-exposed tool's name from it.
 """
 
 from __future__ import annotations
@@ -37,11 +33,21 @@ def load_app_config(
     path: str | Path,
     *,
     params: dict[str, str] | None = None,
+    initialize: bool = True,
 ) -> AppConfig:
-    """Load a dao-ai ``AppConfig`` from YAML, skipping side-effecting initialization."""
+    """Load a dao-ai ``AppConfig`` from YAML.
+
+    ``initialize=True`` (default) runs :meth:`AppConfig.initialize` — resource
+    resolution + initialization hooks. Runtime server boot needs this so the
+    agent graph has all resources bound. Bundle-generation paths and unit
+    tests pass ``initialize=False`` to avoid touching live Databricks
+    resources.
+    """
     resolved = Path(path).resolve()
     logger.debug("mcp.config.load.start", path=str(resolved))
-    config: AppConfig = AppConfig.from_file(resolved, params=params, initialize=False)
+    config: AppConfig = AppConfig.from_file(
+        resolved, params=params, initialize=initialize
+    )
     logger.info(
         "mcp.config.load.done",
         path=str(resolved),

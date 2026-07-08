@@ -1,19 +1,34 @@
 # MCP Server for dao-ai
 
-The `dao_ai.mcp` package turns any dao-ai config defining `create_genie_toolkit` or `create_ai_search_tool` (formerly `create_vector_search_tool`, still supported) factories into a [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server hosted on Databricks Apps. Any MCP client — Claude Desktop, Cursor, agent platforms, dao-ai itself — can connect to a deployed app and call those tools natively over [Streamable HTTP](https://modelcontextprotocol.io/specification/2025-03-26/basic/transports).
+The `dao_ai.mcp` package turns any dao-ai agent config into a
+[Model Context Protocol (MCP)](https://modelcontextprotocol.io) server
+hosted on Databricks Apps. The emitted server exposes **one** MCP tool:
+the whole dao-ai agent graph. Any MCP client — Claude Desktop, Cursor,
+Databricks Multi-Agent Supervisor, another dao-ai agent — can call the
+agent as a single tool over
+[Streamable HTTP](https://modelcontextprotocol.io/specification/2025-03-26/basic/transports).
 
-This is the **server** side. dao-ai's existing `dao_ai.apps.mcp` module is the client side (primitives for *consuming* external MCP servers from a dao-ai agent). The two are independent.
+This is the **server** side. `dao_ai.apps.mcp` is the **client** side
+(primitives for *consuming* external MCP servers from a dao-ai agent). The
+two are independent.
 
 ---
 
 ## Why
 
-You already have:
+Customers integrating dao-ai with an external agent framework
+(LangGraph, ADK, OpenAI Agents SDK, MAS, IDE assistants) don't want to
+re-implement dao-ai's orchestration — they want to plug the dao-ai agent
+in as a single high-level capability. Individual tools (Genie, Vector
+Search, UC functions) already have first-class Databricks MCP surfaces or
+UC exposure; publishing them a second time from a dao-ai MCP server is
+duplicative.
 
-- a dao-ai config that wires Genie spaces, AI Search retrievers, the cache chain, and OBO/SP auth via Pydantic models;
-- factories like `dao_ai.tools.create_genie_toolkit` and `dao_ai.tools.create_ai_search_tool` (legacy alias `create_vector_search_tool`) that produce battle-tested tool implementations (LRU + pg_vector semantic cache, query decomposition + RRF + FlashRank + instruction-aware reranking + verifier).
-
-`dao-ai generate-mcp` lets you ship those exact tools as an MCP endpoint without writing or maintaining a parallel server. One command, one app, all the dao-ai retrieval features at the other end of an MCP client.
+`dao-ai generate-mcp` bundles a Databricks App that runs the same graph
+`generate-bundle` deploys — but with an MCP entrypoint instead of an
+MLflow AgentServer HTTP entrypoint. OBO tokens from the caller flow
+through the graph unchanged: downstream Genie / Vector Search / UC
+function calls run as the caller, not as the App's service principal.
 
 ---
 
@@ -23,195 +38,173 @@ You already have:
 # 1. Install the optional MCP extra
 pip install 'dao-ai[mcp]'
 
-# 2. Generate a deploy-ready bundle from an existing dao-ai config
+# 2. Generate a deploy-ready bundle from your dao-ai config
 dao-ai generate-mcp \
-  -c config/examples/15_complete_applications/sporting_goods_store_mcp.yaml \
-  -o ./sporting-goods-mcp \
-  --var "warehouse_id=<id>" \
-  --var "merchandising_genie_space_id=<uuid>" \
-  --var "sales_pricing_genie_space_id=<uuid>" \
-  --var "vector_search_endpoint=<endpoint-name>" \
-  --var "products_index_name=<catalog>.<schema>.products_description_index"
+  -c my_agent.yaml \
+  -o ./my-agent-mcp \
+  -p <profile>
 
 # 3. Deploy to Databricks Apps
-cd sporting-goods-mcp
+cd my-agent-mcp
+uv sync
 databricks bundle deploy -t dev -p <profile>
-databricks bundle run mcp_dao_ai -t dev -p <profile>
+databricks bundle run <app-name> -t dev -p <profile>
 ```
 
-The default Databricks App name is `mcp-dao-ai` (with the underscore-form `mcp_dao_ai` for the bundle resource key). The `mcp-` prefix is a discovery signal for Databricks Multi-Agent Supervisor (MAS), which pattern-matches it when enumerating MCP-hosted Apps across an account. Override the name explicitly by setting `app.name` in your dao-ai config.
+The deployed App name is `config.app.name`. The MCP tool exposed at
+`/mcp` is a slugified form of the same value; its description is
+`config.app.description`. Point any MCP client at
+`https://<app-url>/mcp`.
 
-The bundle ships with `bundle.engine: direct`. The app exposes a single Streamable HTTP endpoint at `/mcp/` and serves `/healthz` + `/readyz` for platform probes.
+---
 
-Point any MCP client at `https://<app-url>/mcp/`.
+## Configuration requirements
+
+Your dao-ai config needs:
+
+- `app.name` — Databricks App name **and** MCP tool name (slugified).
+- `app.description` — recommended; surfaced as the MCP tool description.
+- `app.deployment_target: apps` — the MCP server runs on Databricks Apps.
+- At least one agent (or an `orchestration.deep_agent` block) — the
+  server calls `AppConfig.as_responses_agent()` at boot.
+- Any resources the agent needs (Genie rooms, Vector Search indexes,
+  Lakebase, warehouses, models) — same as `generate-bundle`.
+
+The MCP server prefers `mcp-`-prefixed app names because Databricks
+Multi-Agent Supervisor pattern-matches that prefix when auto-discovering
+MCP-hosted Apps across an account.
 
 ---
 
 ## Architecture
 
-### Discovery
-
-The server boots, reads its config via `dao_ai.config.AppConfig.from_file(initialize=False)`, walks `config.tools`, and dispatches each entry by its `function.name` to a registered adapter. Tools whose factory has no adapter are skipped with a warning.
-
 ```
 ┌───────────────────────────────┐
 │   FastAPI + RequestContext    │  /healthz, /readyz
-│       middleware              │
-│        │                      │
-│        ▼                      │
-│   FastMCP (Streamable HTTP)   │  /mcp/   (stateless, json_response)
+│       middleware              │  captures every request header into a
+│        │                      │  contextvar (x-forwarded-access-token,
+│        ▼                      │  x-request-id, ...)
+│   FastMCP (Streamable HTTP)   │  /mcp   (stateless, json_response)
 │   ── session_manager driven   │
 │      by FastAPI.lifespan      │
 │        │                      │
 │        ▼                      │
-│   register_tools_from_config  │  walks AppConfig.tools
-│        │                      │
-│        ▼                      │
-│   adapter.register()          │  per factory_name
-└─────────────┬─────────────────┘
-              │
-              ├─► Genie adapter   ── dao_ai.tools.create_genie_toolkit
-              │     rebuilds: Genie → GenieService
-              │                       → PostgresContextAwareGenieService
-              │                       → LRUCacheService
-              │     registers: ask_<name> + <name>_feedback (MCP tools)
-              │
-              ├─► AI Search adapter ── dao_ai.tools.create_ai_search_tool
-              │     (accepts the legacy dao_ai.tools.create_vector_search_tool
-              │      factory name too — both resolve to the same function)
-              │     invokes the factory, wraps the returned StructuredTool
-              │     registers: <name>
-              │
-              └─► (your custom adapter)
+│   register_agent_as_tool      │  builds config.as_responses_agent()
+│        │                      │  once at boot; registers one tool
+│        ▼                      │  named after config.app.name
+│   invoke_agent(input) ────────┼─► dao-ai agent graph
+│                               │      · headers forwarded via
+│                               │        custom_inputs.configurable.headers
+│                               │      · downstream OBO honored by
+│                               │        IsDatabricksResource.workspace_client_from
+└───────────────────────────────┘
 ```
 
-### Adapter registry
+The single MCP tool accepts either a plain string (wrapped into a single
+user turn internally) or a Responses-style input array. It returns the
+final assistant message text — non-streaming; MCP progress events aren't
+emitted.
 
-Adapters live under `dao_ai/mcp/adapters/`. Each one is a module that calls `register_adapter(...)` at import time:
+### Response shape
 
-```python
-from dao_ai.mcp.adapters import McpAdapter, register_adapter
+Every `tools/call` response is a `CallToolResult` with:
 
-def _register(mcp, tool_name, args, workspace_client):
-    # build tool implementation from args, register on mcp
-    ...
+| Field | Purpose |
+|---|---|
+| `content[0].text` | Plain-text final assistant message — for legacy MCP clients that ignore `structuredContent`. |
+| `structuredContent` | `AgentInvocationResult` (schema advertised on `outputSchema`): `final_message`, `trace_id` (fully-qualified UC location — e.g. `trace:/catalog.schema.prefix/<hex>`), `confidence` (reserved). |
+| `_meta.databricks.trace_id` | Same UC-qualified trace id as `structuredContent.trace_id`. Copy so schema-unaware callers can still jump to the MLflow trace. |
+| `_meta.databricks.experiment_id` | Bound experiment id from the runtime `MLFLOW_EXPERIMENT_ID` env. |
+| `_meta.databricks.model` | Primary agent's `model.name` from the config. |
+| `_meta.databricks.latency_ms` | Wall-clock around `agent.apredict()`. |
+| `_meta.databricks.request_id` | Server-assigned request id (matches server logs). |
+| `_meta.databricks.obo_present` | `true` when the caller forwarded an `x-forwarded-access-token`. Useful for verifying OBO passthrough without a diagnostic tool. |
+| `isError` | `true` when `agent.apredict()` raises. Content still reaches the caller LLM (unlike a JSON-RPC error which strips content). |
 
-register_adapter(McpAdapter(
-    factory_name="dao_ai.tools.create_my_thing",
-    register=_register,
-))
+### Experiment provisioning
+
+`generate-mcp` emits an MLflow experiment resource in the DAB — parity
+with `generate-bundle`. Behaviour:
+
+- If `config.app.experiment` is set → binds by literal experiment id
+  (and if `manage_permissions: false`, requests `CAN_READ` only).
+- Otherwise → declares
+  `experiments.<app-name>-experiment.name = /Users/${workspace.current_user.userName}/<app-name>`
+  in the top-level `experiments:` block and binds via
+  `${resources.experiments.<key>.id}` so DABs materializes + grants
+  `CAN_EDIT` to the App SP.
+
+The emitted `app.yaml` sets `MLFLOW_EXPERIMENT_ID: valueFrom: experiment`
+(camelCase — the Apps runtime consumes this file directly, DABs isn't in
+the loop). When `config.app.trace_location` is set,
+`MLFLOW_TRACING_SQL_WAREHOUSE_ID` is also injected as a literal id, and
+the trace warehouse is added to the App's `resources` list so the
+platform grants the App SP `CAN_USE` on it.
+
+### OBO passthrough
+
+Verified end-to-end. To observe: check the MCP server's app logs for a
+line like:
+
+```
+mcp.agent_tool.invoke.headers | request_id=<uuid> | obo_present=True |
+  obo_token_fingerprint=<sha256[:16]> | obo_token_subject=<sub-claim> |
+  header_count=<n>
 ```
 
-Add the import to `dao_ai/mcp/service.py` (alongside the shipped `genie` and `vector_search` / AI Search imports), and your factory is now exposed as an MCP tool whenever a config references it.
+`obo_token_subject` is a best-effort decode of the JWT `sub` claim (no
+signature verification — diagnostic only). Compare across calls:
 
-### Names and descriptions
+- Direct HTTP call from a Databricks user → `sub` = user email.
+- Nested call from a dao-ai consumer app with
+  `on_behalf_of_user: true` on the MCP tool → `sub` = user email
+  (identity flows through).
+- Nested call with `on_behalf_of_user: false` → `sub` = the consumer
+  App's SP `client_id`.
 
-The MCP tool's **name** is the YAML key (`tools.<name>`). The **description** comes from `args.description` in the YAML — or from the LangChain tool object the factory returns. No MCP-side prefixes or suffixes are added; what the LLM sees is exactly what dao-ai's factory advertises.
-
-### `_meta` contract
-
-Every tool response includes a structured `_meta` block in the JSON payload — invisible to the model, visible to the MCP client.
-
-**`ask_<name>` (Genie):**
-```json
-{
-  "_meta": {
-    "tool_name": "merchandising_analytics",
-    "space_id": "01f1539922fb...",
-    "cache_hit": true,
-    "served_by": "merchandising_analytics-lru",
-    "latency_ms": 4841,
-    "message_id": "01f...",
-    "cache_entry_id": null,
-    "conversation_id": "01f...",
-    "trace_id": null
-  }
-}
-```
-
-**`<name>_feedback` (Genie):**
-```json
-{ "_meta": { "tool_name": "...", "conversation_id": "...", "message_id": "...", "rating": "NEGATIVE", "was_cache_hit": true } }
-```
-
-**AI Search:**
-```json
-{ "_meta": { "tool_name": "product_ai_search", "result_count": 20, "latency_ms": 4557, "trace_id": null } }
-```
-
-The client honors these `_meta` fields on inbound `tools/call`:
-- `progressToken` → progress notifications during long cache misses.
-- `dao-ai/conversation_id` → forwarded to `ask_question` for multi-turn.
-- `dao-ai/disable_cache` → walks straight to the underlying `GenieService`, skipping cache layers.
+The raw token itself is never logged.
 
 ---
 
-## Configuration
+## OBO / user headers
 
-The MCP server's YAML is a (subset of a) dao-ai `AppConfig`. It needs:
+Every incoming HTTP request has its headers captured by
+`RequestContextMiddleware` and stored in a contextvar. The tool
+implementation copies them into
+`ResponsesAgentRequest.custom_inputs.configurable.headers`, which flows
+into the agent graph's `Context`. From there, dao-ai's existing
+`IsDatabricksResource.workspace_client_from(context)` pattern picks up
+`x-forwarded-access-token` and issues OBO'd clients for any resource
+that declares `on_behalf_of_user: true`.
 
-- `parameters:` — declared `${var.NAME}` references (CLI overrides, env-var fallback, defaults).
-- `resources.genie_rooms`, `resources.warehouses`, `resources.databases`, `resources.vector_stores` — the dao-ai resource models, identical to what the agent runtime consumes.
-- `retrievers:` — only needed for AI Search tools.
-- `tools:` — one entry per MCP tool to expose. Each `tools.<name>.function` must be a `factory` whose `name` matches a registered adapter (`dao_ai.tools.create_genie_toolkit` or `dao_ai.tools.create_ai_search_tool` / legacy `create_vector_search_tool`).
+This means an MCP client that forwards a user bearer token gets:
 
-The `app:` and `agents:` blocks are **intentionally omitted** — the MCP server has no agent runtime to configure. Server name and log level come from env vars `DAO_AI_MCP_SERVER_NAME` (default `mcp-dao-ai` — chosen so Databricks Multi-Agent Supervisor's `mcp-` discovery prefix matches) and `DAO_AI_MCP_LOG_LEVEL` (default `INFO`).
+- Genie calls run as the user
+- Vector Search / UC function calls run as the user
+- Lakebase writes attributed to the user
 
-See `config/examples/15_complete_applications/sporting_goods_store_mcp.yaml` for a worked example.
-
-> **Note on tool types in MCP configs.** The MCP server adapter currently matches on the factory **name** (`dao_ai.tools.create_genie_toolkit` / `dao_ai.tools.create_ai_search_tool` / legacy `create_vector_search_tool`) as its discriminator. For MCP server configs you must use the `type: factory` shape shown below — the first-class `type: genie` / `type: ai_search` (or `vector_search`) shapes are supported by agent runtimes but not yet by the MCP adapter. (Agent-runtime configs can mix both shapes freely; only the MCP server is the constraint here.)
-
-### Cache parameters
-
-A `create_genie_toolkit` tool entry can configure both cache layers:
-
-```yaml
-tools:
-  merchandising_analytics:
-    name: merchandising_analytics
-    function:
-      type: factory
-      name: dao_ai.tools.create_genie_toolkit
-      args:
-        name: merchandising_analytics
-        description: "Query merchandising analytics..."
-        genie_room: *merch_room
-        lru_cache_parameters:        # outer layer — exact match
-          warehouse: *wh
-          capacity: 100
-          time_to_live_seconds: 3600
-        context_aware_cache_parameters:  # middle layer — semantic match
-          database: *retail_db
-          warehouse: *wh
-          embedding_model: *embed
-          similarity_threshold: 0.85
-          time_to_live_seconds: 86400
-```
-
-The chain composes outer-to-inner: `LRUCacheService → PostgresContextAwareGenieService → GenieService`. Each lookup short-circuits on hit. Both layers are optional — drop a block to disable that layer.
-
-The Postgres semantic cache needs `CREATE` privilege on its target schema in the Lakebase database. Most Apps deployments require an explicit grant in your Lakebase project; the cache will gracefully fall back to the underlying `GenieService` on permission errors but won't memoize.
-
-### AI Search retriever
-
-The AI Search adapter passes the entire `args.retriever` block straight through to `create_ai_search_tool` (legacy alias: `create_vector_search_tool`). Anything that factory supports — query decomposition, FlashRank, instruction-aware reranking, query routing, result verification, metadata filters — works without code changes.
+with **no code changes** in the agent config beyond the usual
+`on_behalf_of_user` flags.
 
 ---
 
-## Deployment
+## Deployment artifacts
 
 `dao-ai generate-mcp` emits:
 
 ```
 output/
-├── databricks.yml        # bundle.engine: direct; App + bound resources
-├── app.yaml              # command: ["dao-ai-mcp-server"]
-├── pyproject.toml        # dao-ai[mcp]>=<version>
-├── <your-config>.yaml    # rendered with parameters: stripped
-└── README.md             # generated deploy snippet
+├── databricks.yml     # DAB with bundle.engine: direct; App + bound resources
+├── app.yaml           # command: ["dao-ai-mcp-server"]
+├── pyproject.toml     # dao-ai[mcp]>=<version>
+├── <your-config>.yaml # rendered with parameters: stripped
+└── README.md          # generated deploy snippet + exposed tool name
 ```
 
-After `generate-mcp`, run `uv sync` in the output directory to produce `uv.lock` from your environment. Databricks Apps' native uv support then activates at deploy: BUILD runs `uv sync --locked --no-dev` and the runtime command `["dao-ai-mcp-server"]` invokes the console script installed in `.venv/bin/`. Databricks-internal users need to rewrite internal-proxy URLs in the lock before deploy — see `docs/cli-reference.md` for the sed one-liner.
+After `generate-mcp`, run `uv sync` in the output directory to produce
+`uv.lock`. Databricks Apps' native uv support then activates at deploy:
+BUILD runs `uv sync --locked --no-dev`, and the runtime command
+`["dao-ai-mcp-server"]` invokes the console script from `.venv/bin/`.
 
 ### CLI flags
 
@@ -220,84 +213,21 @@ After `generate-mcp`, run `uv sync` in the output directory to produce `uv.lock`
 | `-c / --config` | Path to your dao-ai config YAML. |
 | `-o / --output-dir` | Where to write the bundle. |
 | `--force` | Overwrite existing files in the output directory. |
-| `--development` | Build the local dao-ai wheel and bundle it under `output/dist/`; the generated pyproject installs from there. Use this when the MCP server code hasn't shipped to PyPI yet. |
-| `-p / --profile` | Databricks CLI profile — drives `_resolve_all_resources` so generated bundle paths (e.g. Lakebase database IDs) come from the target workspace. **Always pass this if your config references resources resolved at generate-time.** |
+| `--development` | Build the local dao-ai wheel and bundle it under `output/dist/`; the generated pyproject installs from there. Use when dao-ai changes haven't shipped to PyPI yet. |
+| `-p / --profile` | Databricks CLI profile — drives `_resolve_all_resources` so generated bundle paths (e.g. Lakebase database IDs) come from the target workspace. Always pass this when your config references resources resolved at generate time. |
 | `--var KEY=VALUE` / `--param KEY=VALUE` | Override declared `${var.KEY}` substitutions. Repeatable. |
 
 ### App resource bindings
 
-`generate-mcp` derives App resource bindings via `dao_ai.apps.resources.generate_app_resources` and converts them with `dao_ai.apps.bundle._convert_to_bundle_resources`. The resulting `databricks.yml` declares:
+`generate-mcp` derives App resource bindings via
+`dao_ai.apps.resources.generate_app_resources` and converts them with
+`dao_ai.apps.bundle._convert_to_bundle_resources`. The resulting
+`databricks.yml` declares whatever bindings the agent needs — genie
+space, sql warehouse, postgres, uc securable, serving endpoint, secret —
+identical to what `generate-bundle` emits.
 
-- `genie_space` (CAN_RUN) — one per `create_genie_toolkit` entry.
-- `uc_securable` (TABLE / SELECT) — one per AI Search index. AI Search / vector-search indexes use the `TABLE` securable type since Databricks Apps' resource schema doesn't have a native `VECTOR_SEARCH_INDEX` type.
-- `sql_warehouse` (CAN_USE) — for Genie SQL execution and cached-SQL re-execution.
-- `postgres` (CAN_CONNECT_AND_CREATE) — for the Lakebase autoscaling project backing the semantic cache.
-- `serving_endpoint` (CAN_QUERY) — for embedding and decomposition LLM endpoints.
-- `secret` (READ) — for any secret-scope refs in the config.
-
-Lakebase `database_instances` are **not** auto-provisioned. The MCP bundle assumes the Lakebase project already exists (or that you'll add an `database_instances` declaration manually for the rare new-project case). This avoids accidentally re-creating shared instances across deploys.
-
-### Auth
-
-Defaults to **App SP** auth via Databricks Apps' auto-injected `DATABRICKS_CLIENT_ID` / `DATABRICKS_CLIENT_SECRET`. To use **OBO** (the requesting user's identity), set `on_behalf_of_user: true` on the relevant resource model (`GenieRoomModel`, `WarehouseModel`, `AiSearchIndexModel` / `VectorStoreModel`, `DatabaseModel`). The MCP server captures `x-forwarded-access-token` per-request and dao-ai's existing `IsDatabricksResource.workspace_client_from(context)` machinery uses it when the flag is set.
-
-The request-context middleware tags every log line with `obo_present=<true|false>` so you can confirm header propagation at a glance.
-
----
-
-## Custom adapters
-
-To expose a third dao-ai factory as an MCP tool, drop a new module under `dao_ai/mcp/adapters/`:
-
-```python
-# dao_ai/mcp/adapters/my_thing.py
-from typing import Any
-from databricks.sdk import WorkspaceClient
-from mcp.server.fastmcp import FastMCP
-
-from dao_ai.mcp.adapters import McpAdapter, register_adapter
-
-FACTORY = "dao_ai.tools.create_my_thing"
-
-def _register(
-    mcp: FastMCP,
-    tool_name: str,
-    args: dict[str, Any],
-    workspace_client: WorkspaceClient,
-) -> None:
-    description = args.get("description") or f"dao-ai tool '{tool_name}'."
-
-    @mcp.tool(name=tool_name, description=description)
-    async def my_tool(query: str) -> dict[str, Any]:
-        ...  # call into your factory's tool, shape the response
-        return {"result": ..., "_meta": {"tool_name": tool_name}}
-
-register_adapter(McpAdapter(factory_name=FACTORY, register=_register))
-```
-
-Add the side-effect import to `dao_ai/mcp/service.py`:
-
-```python
-from dao_ai.mcp.adapters import my_thing as _my_thing_adapter  # noqa: F401
-```
-
-Now any `tools.<name>` whose factory is `dao_ai.tools.create_my_thing` becomes an MCP tool when the server boots.
-
----
-
-## Troubleshooting
-
-| Symptom | Cause | Fix |
-|---|---|---|
-| App boots but `/healthz` returns empty body. | Databricks Apps' edge proxy intercepts `/healthz` for its own platform health check. | Use `/readyz` (or any other path) to verify the app's own routes. |
-| `Task group is not initialized` 500 on every request. | FastMCP's session manager wasn't started. | Already fixed in `dao_ai.mcp.server.build_app` via FastAPI lifespan. |
-| Databricks Agent Bricks Supervisor fails to register the app with `INVALID_PARAMETER_VALUE: Failed to register tools from Databricks App MCP server '<name>'. Verify the app exists, is running, and exposes MCP tools.` | MAS POSTs to `<app-url>/mcp` (no trailing slash) and treats anything other than 200 as failure. The dao-ai MCP server serves MCP at exactly `/mcp` — confirm with `curl -X POST <app-url>/mcp -d '{"jsonrpc":"2.0","id":1,"method":"initialize",...}'` and expect a 200. If you see 307, you're on a pre-fix build; redeploy. |
-| 307 on `POST /mcp/` (with trailing slash). | The MCP route is at `/mcp` (no slash); requests to `/mcp/` get FastAPI's standard slash-redirect. | Strip the trailing slash, or follow the redirect. |
-| MCP returns no SQL → LRU never caches (`Not caching: response has no SQL query`). | Genie returned a free-text response, not a SQL query. Often means the question isn't SQL-eliciting or the Genie space lacks the relevant tables. | Use a more concrete question matching the space's data sources. |
-| `permission denied for schema public` at semantic-cache init. | The App SP can connect to Lakebase but doesn't have `CREATE` on `public`. | A Lakebase superuser must `GRANT CREATE ON SCHEMA public TO "<app-sp-role>"`. |
-| `permission denied for table genie_context_aware_cache` or `permission denied for sequence genie_context_aware_cache_id_seq` at semantic-cache write. | Your `DatabaseModel` is connecting to Lakebase using the **App's auto-injected SP** instead of the **stable cache SP**. The configured SP that originally created the cache tables is the one allowed to write to them; when a different App SP connects ambient, it can't write to tables it doesn't own. Cause is almost always one of: (a) `client_id` / `client_secret` not set on the `DatabaseModel`, (b) they're set but the App SP doesn't have `READ` on the referenced secret scope, or (c) the env-var fallback didn't resolve. | Configure the stable cache SP on the `DatabaseModel`: ```yaml\ndatabases:\n  retail_database:\n    project: retail-consumer-goods\n    client_id:\n      options:\n      - {scope: my-scope, secret: CACHE_SP_CLIENT_ID}\n      - {env: CACHE_SP_CLIENT_ID}\n    client_secret:\n      options:\n      - {scope: my-scope, secret: CACHE_SP_CLIENT_SECRET}\n      - {env: CACHE_SP_CLIENT_SECRET}\n``` `dao-ai generate-mcp` auto-emits `secret` App-resource bindings for these refs so the App SP gets `READ` on the scope at deploy time. Verify the auth mode at boot — `mcp.cache.auth.mode | mode=service_principal | sp_client_id=...` confirms the correct path. If you see `mode=ambient`, the secret didn't resolve — check the scope ACL or env. |
-| Lakebase resource path wrong on `bundle deploy` (`database does not exist`). | `dao-ai generate-mcp` resolved against the wrong workspace's Lakebase project. | Pass `-p <profile>` to `dao-ai generate-mcp` so the resource resolver targets the right workspace. |
-| `trace_id=null` in every `_meta`. | App isn't bound to an MLflow experiment. | Set `MLFLOW_EXPERIMENT_ID` env var on the App resource (mirror `generate-bundle`'s experiment-resource pattern). Future enhancement. |
+Lakebase `database_instances` are **not** auto-provisioned. The bundle
+assumes the Lakebase project already exists.
 
 ---
 
@@ -316,30 +246,71 @@ curl -sS -X POST \
   -H "Content-Type: application/json" \
   -H "Accept: application/json, text/event-stream" \
   -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"smoke","version":"1"}}}' \
-  "$APP_URL/mcp/"
+  "$APP_URL/mcp"
 
 curl -sS -X POST \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -H "Accept: application/json, text/event-stream" \
   -d '{"jsonrpc":"2.0","id":2,"method":"tools/list"}' \
-  "$APP_URL/mcp/"
+  "$APP_URL/mcp"
 
-# Call a tool
+# Call the agent
 curl -sS -X POST \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -H "Accept: application/json, text/event-stream" \
-  -d '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"merchandising_analytics","arguments":{"question":"Count products per department"}}}' \
-  "$APP_URL/mcp/"
+  -d '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"<slugified-app-name>","arguments":{"input":"What are our top-selling SKUs?"}}}' \
+  "$APP_URL/mcp"
 ```
 
-The Apps logs (`databricks apps logs <app-name> -p <profile>`) include structured loguru events for every tool call — `mcp.genie.query.start/done`, `mcp.vs.start/done`, `mcp.adapter.*.registered`, and the underlying dao-ai cache-layer events (`Cache MISS`, `Cache HIT | layer=...-lru | cache_age_seconds=...`). Use those to trace cache progression and instructed-retrieval pipeline activity.
+The Apps logs (`databricks apps logs <app-name> -p <profile>`) include
+structured loguru events for boot (`mcp.agent_tool.registered`) and
+every tool call (dao-ai's existing graph / span emissions).
+
+---
+
+## Consuming the deployed MCP server from another dao-ai agent
+
+Use dao-ai's first-class `type: app` MCP tool in a consumer config to
+call this deployed server:
+
+```yaml
+tools:
+  retail_agent:
+    type: app
+    args:
+      app: <deployed-mcp-app-name>
+      tool: <slugified-app-name>
+```
+
+The consumer's OBO flow automatically forwards
+`x-forwarded-access-token` to the deployed MCP server, which then
+propagates it to the nested agent's downstream calls. Traces from both
+tiers land in the consumer's MLflow experiment (set
+`app.trace_location` on both sides for a unified UC OTEL table).
+
+---
+
+## Troubleshooting
+
+| Symptom | Cause | Fix |
+|---|---|---|
+| `POST /mcp/` returns 307. | The MCP route is at `/mcp` (no trailing slash); requests to `/mcp/` get FastAPI's slash-redirect. | Strip the trailing slash, or follow the redirect. |
+| `Task group is not initialized` 500 on every request. | FastMCP's session manager wasn't started. | Already handled in `dao_ai.mcp.server.build_app` via FastAPI lifespan. |
+| `INVALID_PARAMETER_VALUE: Failed to register tools from Databricks App MCP server '<name>'` from MAS. | MAS POSTs to `<app-url>/mcp` (no trailing slash) and treats anything other than 200 as failure. | Confirm with `curl -X POST <app-url>/mcp -d '{"jsonrpc":"2.0","id":1,"method":"initialize",...}'`. Expect a 200. |
+| Downstream tool spans show the App SP identity, not the caller. | The caller isn't forwarding a bearer token, or the resource models don't set `on_behalf_of_user: true`. | Ensure the MCP client sets `Authorization: Bearer <user-token>` and the config sets `on_behalf_of_user: true` on the relevant Genie / VS / warehouse / database models. |
+| `trace_id=null` on every response. | App isn't bound to an MLflow experiment. | Set `app.trace_location` (UC schema) and `app.experiment` in the config. |
 
 ---
 
 ## Related modules
 
-- `dao_ai.apps.mcp` — **client** primitives for consuming external MCP servers from a dao-ai agent (security helpers, etc.). Independent of `dao_ai.mcp`.
-- `dao_ai.tools.create_genie_toolkit`, `dao_ai.tools.create_ai_search_tool` (legacy alias: `create_vector_search_tool`) — the underlying factories the MCP server delegates to.
-- `dao_ai.apps.bundle.write_bundle` — the corresponding `dao-ai generate-bundle` entry point for agent deployments. `write_mcp_bundle` mirrors its shape.
+- `dao_ai.mcp.agent_tool` — the single-tool registration surface.
+- `dao_ai.mcp.server` — FastAPI + FastMCP entrypoint.
+- `dao_ai.mcp.generate` — `write_mcp_bundle` bundle emission.
+- `dao_ai.apps.bundle.write_bundle` — the `dao-ai generate-bundle` entry
+  point for the standard AgentServer HTTP deployment. `write_mcp_bundle`
+  mirrors its shape.
+- `dao_ai.apps.mcp` — **client** primitives for consuming external MCP
+  servers from a dao-ai agent.
