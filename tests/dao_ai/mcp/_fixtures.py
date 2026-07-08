@@ -33,6 +33,22 @@ parameters:
   vs_index:
     description: "vector search index full name"
 
+app:
+  name: mcp-dao-ai-test
+  description: "Test MCP agent server exposing the dao-ai graph."
+  log_level: WARNING
+  deployment_target: apps
+  trace_location:
+    schema:
+      catalog_name: test_catalog
+      schema_name: test_schema
+    warehouse: ${var.warehouse_id}
+    table_prefix: mcp_test
+  agents:
+    - name: default
+      model:
+        name: databricks-meta-llama-3-1-8b-instruct
+
 resources:
   models:
     embedding_model: &embedding_model
@@ -109,7 +125,7 @@ tools:
 
 @contextmanager
 def mcp_config(tmp_path: Path) -> Iterator[str]:
-    """Write a synthetic MCP-only config YAML and set the env vars its refs need."""
+    """Write a synthetic MCP config YAML and set the env vars its refs need."""
     path = tmp_path / "dao_ai_mcp.yaml"
     path.write_text(SAMPLE_YAML)
     prior = {

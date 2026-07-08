@@ -1940,9 +1940,10 @@ def handle_generate_bundle_command(options: Namespace) -> None:
 def handle_generate_mcp_command(options: Namespace) -> None:
     """Emit a Databricks Apps bundle that runs the dao-ai MCP server.
 
-    Unlike ``generate-bundle``, this does NOT require ``config.app`` (the MCP
-    server has no agent runtime to configure). It only requires at least one
-    ``tools.<name>`` entry whose factory has a registered MCP adapter.
+    The emitted server exposes the whole dao-ai agent graph as a single MCP
+    tool. Requires ``config.app.name`` (used as both the deployed App name
+    and the MCP tool name); ``config.app.description`` is strongly
+    recommended (surfaced to MCP clients as the tool description).
     """
     logger.debug("Generating MCP bundle...")
     config_path: str = options.config

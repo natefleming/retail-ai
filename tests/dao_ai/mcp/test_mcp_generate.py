@@ -17,7 +17,7 @@ def test_write_mcp_bundle_emits_expected_files(tmp_path: Path) -> None:
     from dao_ai.mcp.generate import write_mcp_bundle
 
     with mcp_config(tmp_path) as path:
-        config = load_app_config(path)
+        config = load_app_config(path, initialize=False)
     out = tmp_path / "out"
     write_mcp_bundle(config, out, force=True)
 
@@ -56,28 +56,77 @@ def test_write_mcp_bundle_emits_expected_files(tmp_path: Path) -> None:
 
 
 @pytest.mark.unit
-def test_write_mcp_bundle_rejects_config_without_recognized_tools(
-    tmp_path: Path,
-) -> None:
-    """A config whose tools all use unrecognized factories should not generate."""
+def test_write_mcp_bundle_readme_names_the_agent_tool(tmp_path: Path) -> None:
+    """README must advertise the single tool derived from `app.name`."""
     from dao_ai.mcp.config import load_app_config
     from dao_ai.mcp.generate import write_mcp_bundle
 
-    yaml_text = """
-parameters:
-  catalog:
-    default: test
-tools:
-  current_time:
-    name: current_time
-    function:
-      type: python
-      name: dao_ai.tools.current_time_tool
-"""
-    src = tmp_path / "src.yaml"
-    src.write_text(yaml_text)
-
-    config = load_app_config(str(src))
+    with mcp_config(tmp_path) as path:
+        config = load_app_config(path, initialize=False)
     out = tmp_path / "out"
-    with pytest.raises(ValueError, match="No MCP-registerable tools"):
-        write_mcp_bundle(config, out, force=True)
+    write_mcp_bundle(config, out, force=True)
+
+    readme = (out / "README.md").read_text()
+    # `app.name: mcp-dao-ai-test` in the fixture → slugified tool name.
+    assert "mcp_dao_ai_test" in readme
+    assert "Test MCP agent server" in readme
+
+
+@pytest.mark.unit
+def test_write_mcp_bundle_requires_app_name(tmp_path: Path) -> None:
+    """A config without `app.name` should error early."""
+    from dao_ai.mcp.generate import write_mcp_bundle
+
+    class _StubConfig:
+        app = None
+        parameters: dict = {}
+
+    with pytest.raises(ValueError, match="config.app.name"):
+        write_mcp_bundle(_StubConfig(), tmp_path / "out", force=True)
+
+
+@pytest.mark.unit
+def test_write_mcp_bundle_wires_mlflow_experiment(tmp_path: Path) -> None:
+    """Phase 2 Change 1: experiment provisioning must mirror generate-bundle.
+
+    Asserts that the emitted DAB declares an experiment in the top-level
+    ``experiments:`` block, binds it as an App resource, and injects
+    ``MLFLOW_EXPERIMENT_ID: value_from: experiment`` into the app.yaml env
+    block. When ``app.trace_location`` is set, also asserts the trace
+    warehouse binding + ``MLFLOW_TRACING_SQL_WAREHOUSE_ID`` env var.
+    """
+    from dao_ai.mcp.config import load_app_config
+    from dao_ai.mcp.generate import write_mcp_bundle
+
+    with mcp_config(tmp_path) as path:
+        config = load_app_config(path, initialize=False)
+    out = tmp_path / "out"
+    write_mcp_bundle(config, out, force=True)
+
+    databricks = (out / "databricks.yml").read_text()
+    app_yaml = (out / "app.yaml").read_text()
+
+    # Experiment resource declared at top-level + bound in the App.
+    assert "experiments:" in databricks, (
+        f"expected top-level experiments: block; got:\n{databricks}"
+    )
+    assert "mcp-dao-ai-test-experiment" in databricks
+    assert "name: experiment" in databricks
+    assert "${resources.experiments.mcp-dao-ai-test-experiment.id}" in databricks
+
+    # env var wired via valueFrom (camelCase — Apps runtime consumes this
+    # file directly; snake_case only works in DABs resources blocks).
+    assert "MLFLOW_EXPERIMENT_ID" in app_yaml
+    assert "valueFrom: experiment" in app_yaml, (
+        f"expected valueFrom: experiment for MLFLOW_EXPERIMENT_ID; got:\n{app_yaml}"
+    )
+
+    # trace_location is set in the fixture — expect warehouse env var and
+    # the warehouse bound as an App resource. The fixture's
+    # `resources.warehouses.default` already binds `wh-test`, so
+    # `_extract_raw_trace_location_resources` de-dupes and doesn't emit a
+    # second `trace_warehouse` — we just verify the id is present as a
+    # sql_warehouse resource.
+    assert "MLFLOW_TRACING_SQL_WAREHOUSE_ID" in app_yaml
+    assert "wh-test" in app_yaml
+    assert "sql_warehouse" in databricks and "id: wh-test" in databricks

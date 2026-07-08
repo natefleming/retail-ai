@@ -1,10 +1,10 @@
-"""dao-ai MCP server — exposes dao-ai's Genie cache + advanced retrieval as MCP tools.
+"""dao-ai MCP server — exposes a dao-ai agent as a single MCP tool.
 
-Tools are discovered dynamically from ``AppConfig.tools`` via a pluggable
-adapter registry (``dao_ai.mcp.adapters``). Each adapter knows how to turn one
-dao-ai tool factory (e.g. ``dao_ai.tools.create_genie_toolkit``) into one or
-more MCP tools, lifting name and description from the underlying dao-ai
-factory output rather than hardcoding them on the MCP side.
+The MCP server registers exactly one tool per deployment: the whole
+dao-ai agent graph built by :meth:`AppConfig.as_responses_agent`. The
+tool's name is derived from ``config.app.name`` (slugified); its
+description is ``config.app.description``. See
+:func:`dao_ai.mcp.agent_tool.register_agent_as_tool`.
 
 Public entrypoints:
 

@@ -2,12 +2,9 @@
 
 Streamable HTTP transport with ``stateless_http=True`` and
 ``json_response=True`` so the App scales horizontally on Databricks Apps
-without sticky sessions. dao-ai's blocking ``ask_question`` /
-``send_feedback`` / VS retrieval are wrapped in ``asyncio.to_thread`` so the
-FastAPI event loop stays unblocked under concurrent load.
-
-Tools are discovered dynamically by walking ``AppConfig.tools`` and looking up
-each ``function.name`` against the adapter registry.
+without sticky sessions. The MCP surface exposes exactly one tool: the
+whole dao-ai agent, wired to the graph produced by
+:meth:`AppConfig.as_responses_agent`.
 """
 
 from __future__ import annotations
@@ -16,6 +13,7 @@ import os
 import sys
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from typing import Any
 
 import mlflow
 import uvicorn
@@ -25,9 +23,10 @@ from loguru import logger
 from mcp.server.fastmcp import FastMCP
 
 from dao_ai.config import AppConfig
-from dao_ai.logging import configure_logging
+from dao_ai.logging import configure_logging, suppress_autolog_context_warnings
 from dao_ai.mcp import __version__
 from dao_ai.mcp._request_context import RequestContextMiddleware
+from dao_ai.mcp.agent_tool import register_agent_as_tool
 from dao_ai.mcp.config import (
     LOG_LEVEL_ENV,
     SERVER_NAME_ENV,
@@ -35,7 +34,6 @@ from dao_ai.mcp.config import (
     log_level_for,
     server_name_for,
 )
-from dao_ai.mcp.service import register_tools_from_config
 
 DEFAULT_CONFIG_PATH = "dao_ai.yaml"
 DEFAULT_PORT = 8000
@@ -43,34 +41,64 @@ DEFAULT_PORT = 8000
 CONFIG_PATH_ENV = "DAO_AI_MCP_CONFIG_PATH"
 
 
-def build_app(config: AppConfig) -> FastAPI:
-    """Build the FastAPI app with the MCP transport mounted at root.
+def _configure_mlflow(config: AppConfig) -> None:
+    """Mirror ``dao_ai.apps.handlers`` mlflow setup for the MCP server.
 
-    Kept separate from :func:`main` for testability — callers can construct an
-    in-process ASGI app from a synthetic config.
+    Sets registry + tracking URIs, binds the experiment (with optional UC
+    ``trace_location``), and enables LangChain autolog. Errors on
+    experiment binding are logged but do not abort startup — the deploy-time
+    experiment linkage will still route traces to the right place.
     """
+    mlflow.set_registry_uri("databricks-uc")
+    try:
+        mlflow.set_tracking_uri("databricks")
+    except Exception:
+        logger.warning("mcp.server.mlflow.tracking_uri.skip", exc_info=True)
+
+    experiment_id: str | None = os.environ.get("MLFLOW_EXPERIMENT_ID")
+    if experiment_id:
+        set_experiment_kwargs: dict[str, Any] = {"experiment_id": experiment_id}
+        if config.app and config.app.trace_location:
+            from mlflow.entities import UnityCatalog
+
+            trace_loc = config.app.trace_location
+            trace_loc_kwargs: dict[str, Any] = {
+                "catalog_name": trace_loc.catalog_name,
+                "schema_name": trace_loc.schema_name,
+            }
+            table_prefix = trace_loc.resolved_table_prefix
+            if table_prefix:
+                trace_loc_kwargs["table_prefix"] = table_prefix
+            set_experiment_kwargs["trace_location"] = UnityCatalog(**trace_loc_kwargs)
+        try:
+            mlflow.set_experiment(**set_experiment_kwargs)
+        except Exception as exc:
+            logger.warning(
+                "mcp.server.mlflow.set_experiment.skip",
+                error=str(exc),
+            )
+
+    mlflow.langchain.autolog(run_tracer_inline=True)
+    suppress_autolog_context_warnings()
+
+
+def build_app(config: AppConfig) -> FastAPI:
+    """Build the FastAPI app with the MCP transport mounted at root."""
     server_name = server_name_for(config)
 
     # Keep FastMCP's default ``streamable_http_path="/mcp"`` and mount the
     # inner app at the parent's root. This makes the external endpoint
     # ``/mcp`` (no trailing slash) match the inner Starlette route exactly,
-    # so requests don't hit FastAPI's trailing-slash redirect machinery —
-    # which would otherwise emit a 307 to ``http://localhost:8000/mcp/``
-    # (the internal host name), breaking clients that don't follow redirects.
-    # Databricks Agent Bricks Supervisor is one such client: it POSTs to
-    # ``<app-url>/mcp`` verbatim and treats anything other than 200 as a
-    # registration failure.
+    # so requests don't hit FastAPI's trailing-slash redirect machinery.
+    # Databricks Agent Bricks Supervisor POSTs to ``<app-url>/mcp`` verbatim
+    # and treats anything other than 200 as a registration failure.
     mcp = FastMCP(
         server_name,
         stateless_http=True,
         json_response=True,
     )
-    registered_names = register_tools_from_config(mcp, config)
+    registered_tool = register_agent_as_tool(mcp, config)
 
-    # The streamable-HTTP transport's session manager needs to be started in a
-    # task group BEFORE the first request arrives. We chain it into FastAPI's
-    # lifespan so uvicorn drives it during startup/shutdown. Without this every
-    # request 500s with "Task group is not initialized".
     @asynccontextmanager
     async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
         async with mcp.session_manager.run():
@@ -88,7 +116,7 @@ def build_app(config: AppConfig) -> FastAPI:
                 "ok": True,
                 "version": __version__,
                 "server_name": server_name,
-                "tools": sorted(registered_names),
+                "tools": [registered_tool],
             }
         )
 
@@ -96,9 +124,6 @@ def build_app(config: AppConfig) -> FastAPI:
     def readyz() -> JSONResponse:
         return JSONResponse({"ok": True, "version": __version__})
 
-    # Mount FastMCP's ASGI app at root. /healthz + /readyz remain accessible
-    # because FastAPI matches @app.get-registered routes before the mount in
-    # the routes list, so they win over the catch-all mount.
     app.mount("/", mcp.streamable_http_app())
     return app
 
@@ -114,15 +139,12 @@ def main() -> None:
         version=__version__,
         config_path=config_path,
         server_name=server_name_for(config),
-        tool_count=len(config.tools),
+        app_name=config.app.name if config.app else None,
         server_name_env=SERVER_NAME_ENV,
         log_level_env=LOG_LEVEL_ENV,
     )
 
-    try:
-        mlflow.set_tracking_uri("databricks")
-    except Exception:
-        logger.warning("mcp.server.mlflow.tracking_uri.skip", exc_info=True)
+    _configure_mlflow(config)
 
     port = int(os.environ.get("DATABRICKS_APP_PORT", DEFAULT_PORT))
     host = os.environ.get("DATABRICKS_APP_HOST", "0.0.0.0")
