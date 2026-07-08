@@ -96,6 +96,42 @@ def test_chat_unity_ai_gateway_llm_type_is_distinct() -> None:
 
 
 # ---------------------------------------------------------------------------
+# Sampling-param defaults (temperature, max_tokens)
+# ---------------------------------------------------------------------------
+
+
+def test_as_chat_model_omits_temperature_and_max_tokens_when_unset() -> None:
+    """Reasoning-mode endpoints (e.g. Sonnet 5) reject any `temperature`
+    value, and callers often want the endpoint's own `max_tokens` default.
+    When the user does not set these in YAML, dao-ai must construct
+    ChatDatabricks with `temperature=None` and `max_tokens=None` so the
+    databricks-langchain client drops both fields from the payload."""
+    model = InferenceEndpointModel(name="databricks-claude-sonnet-5")
+    assert model.temperature is None
+    assert model.max_tokens is None
+    with patch("dao_ai.config.ChatDatabricks") as mock_chat:
+        model.as_chat_model()
+    kwargs = mock_chat.call_args.kwargs
+    assert kwargs["temperature"] is None
+    assert kwargs["max_tokens"] is None
+
+
+def test_as_chat_model_forwards_explicit_temperature_and_max_tokens() -> None:
+    """Explicit values must still flow through — the None default is only
+    the *absence-of-config* behavior, not a suppression of user intent."""
+    model = InferenceEndpointModel(
+        name="databricks-claude-sonnet-4-5",
+        temperature=0.3,
+        max_tokens=1024,
+    )
+    with patch("dao_ai.config.ChatDatabricks") as mock_chat:
+        model.as_chat_model()
+    kwargs = mock_chat.call_args.kwargs
+    assert kwargs["temperature"] == 0.3
+    assert kwargs["max_tokens"] == 1024
+
+
+# ---------------------------------------------------------------------------
 # as_chat_model routing
 # ---------------------------------------------------------------------------
 
