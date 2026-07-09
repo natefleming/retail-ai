@@ -4718,6 +4718,17 @@ class LakebaseRetrieverModel(BaseRetrieverModel):
     vector_store: LakebaseVectorStoreModel = Field(
         description="Lakebase table + columns + embedding model.",
     )
+    rerank: Optional[RerankParametersModel | bool] = Field(
+        default=None,
+        description=(
+            "Optional FlashRank cross-encoder reranking pass over the "
+            "retriever's raw hits. Set to ``true`` for defaults, or "
+            "provide a ``RerankParametersModel`` for a specific model + "
+            "``top_n``. Applies to ANN / BM25 / HYBRID output uniformly. "
+            "For LLM instruction-aware reranking use ``instructed.rerank`` "
+            "instead."
+        ),
+    )
 
     # Note: ``columns`` and ``search_parameters`` are inherited from
     # ``BaseRetrieverModel``. Description below repurposes the inherited
@@ -4737,6 +4748,13 @@ class LakebaseRetrieverModel(BaseRetrieverModel):
             raise ValueError(
                 f"query_type={qt!r} requires 'tsvector_column' on the vector store."
             )
+        return self
+
+    @model_validator(mode="after")
+    def _set_default_reranker(self) -> Self:
+        """``rerank: true`` → default FlashRank model. Parity with ai_search."""
+        if isinstance(self.rerank, bool) and self.rerank:
+            self.rerank = RerankParametersModel(model="ms-marco-MiniLM-L-12-v2")
         return self
 
     def as_tools(self, **kwargs: Any) -> Sequence[RunnableLike]:

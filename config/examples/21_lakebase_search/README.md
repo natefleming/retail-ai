@@ -67,6 +67,7 @@ flowchart TB
 | [`bm25_only.yaml`](./bm25_only.yaml) | BM25 | Exact-term lookup (SKUs, error codes) — no embedding calls |
 | [`filters_and_traces.yaml`](./filters_and_traces.yaml) | HYBRID | Static filters (equality / IN / comparison / LIKE) + `trace_location` to UC OTEL tables |
 | [`dynamic_schema.yaml`](./dynamic_schema.yaml) | HYBRID | Hand-declared `ColumnInfo` with per-column operator narrowing + LLM-facing descriptions (Mode A discovery) |
+| [`reranked.yaml`](./reranked.yaml) | HYBRID / ANN | FlashRank cross-encoder reranking (`rerank: true` shorthand + full `RerankParametersModel` form) |
 
 ## Prerequisites
 
@@ -247,3 +248,37 @@ cd /tmp/lakebase-agent
 databricks bundle deploy --target dev -p <profile>
 databricks bundle run dao-ai-lakebase-hybrid-example --target dev -p <profile>
 ```
+
+## Reranking
+
+FlashRank cross-encoder reranking, same shape ai_search uses. The retriever
+fetches `num_results` docs (ANN / BM25 / HYBRID); FlashRank then re-scores
+each `(query, doc)` pair and returns the top `rerank.top_n` in descending
+score order. Every returned `Document.metadata` carries a `reranker_score`
+field.
+
+```yaml
+retrievers:
+  kb_reranked:
+    vector_store: *products_vector_store
+    search_parameters:
+      num_results: 20                   # cast a wide net
+      query_type: HYBRID
+    rerank:                             # narrow to top-5 after cross-encoder
+      model: ms-marco-MiniLM-L-12-v2
+      top_n: 5
+```
+
+**`rerank: true` shorthand** — equivalent to
+`rerank: { model: ms-marco-MiniLM-L-12-v2 }` with no `top_n`, matching
+`ai_search`'s default coercion.
+
+**No serving endpoint required.** FlashRank is a local ONNX cross-encoder;
+weights download once to `~/.dao_ai/cache/flashrank/` (or
+`/tmp/dao_ai/cache/flashrank` under Databricks Apps / Model Serving).
+
+**Works with all three query types.** ANN / BM25 / HYBRID all produce a
+`list[Document]`; the same rerank pass runs on any of them. Verified live
+against `retail-consumer-goods`.
+
+See [`reranked.yaml`](./reranked.yaml) for a full config.
