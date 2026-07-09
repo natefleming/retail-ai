@@ -1219,10 +1219,17 @@ def _extract_sdk_secrets_from_config(config: AppConfig) -> list[AppResource]:
 
 
 def _extract_raw_vector_search_resources(
-    vector_stores: dict[str, VectorStoreModel],
+    vector_stores: dict[str, Any],
 ) -> list[dict[str, Any]]:
     """
     Extract vector search index resources as raw dicts for the REST API.
+
+    ``vector_stores`` is the discriminated-union dict, so entries may be
+    either :class:`AiSearchVectorStoreModel` or
+    :class:`LakebaseVectorStoreModel`. Only the former produces a
+    ``VECTOR_SEARCH_INDEX``-shaped bundle resource — Lakebase entries
+    authenticate via their nested ``DatabaseModel`` at runtime and don't
+    have an equivalent App-platform resource type.
 
     Vector search indexes are stored as TABLE securables in Unity Catalog,
     so the App platform expects ``securable_type: "TABLE"`` with SELECT
@@ -1232,8 +1239,14 @@ def _extract_raw_vector_search_resources(
     retryable error and the fallback strips the index out entirely, so the
     App ends up unable to read the index at runtime.
     """
+    from dao_ai.config import AiSearchVectorStoreModel
+
     resources: list[dict[str, Any]] = []
     for key, vs in vector_stores.items():
+        if not isinstance(vs, AiSearchVectorStoreModel):
+            # LakebaseVectorStoreModel entries emit nothing here — their
+            # auth flows through ``vs.database`` at runtime.
+            continue
         if vs.index is None:
             continue
 
@@ -1824,8 +1837,13 @@ def get_resource_env_mappings(config: AppConfig) -> list[dict[str, Any]]:
             }
         )
 
-    # Map vector search indexes
+    # Map vector search indexes — AI Search only. Lakebase entries have
+    # no `index` field (their table + auth is reached via `database`).
+    from dao_ai.config import AiSearchVectorStoreModel
+
     for key, vs in config.resources.vector_stores.items():
+        if not isinstance(vs, AiSearchVectorStoreModel):
+            continue
         if vs.index:
             env_mappings.append(
                 {
