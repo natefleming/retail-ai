@@ -441,6 +441,8 @@ databricks grants update schema <catalog>.<schema> -p <profile> \
   --json "{\"changes\":[{\"principal\":\"$SP\",\"add\":[\"USE_SCHEMA\",\"CREATE_TABLE\",\"MODIFY\",\"SELECT\"]}]}"
 ```
 
+**Run `dao-ai link-trace-destination` between `bundle deploy` and `bundle run`** so the UC linkage is established from your machine on a fresh (0-traces) experiment — the app's own runtime link attempt is rejected on re-deploys with `already contains traces`, which causes silent trace loss. `generate-bundle` prints a one-line reminder in its "Next steps" when `trace_location` is set. See [`docs/cli-reference.md#link-trace-destination`](docs/cli-reference.md#link-trace-destination) for details, including the migration playbook (Databricks does not allow un-linking or changing a UC destination once set — moving traces to a different `catalog` / `schema` / `table_prefix` requires a fresh experiment).
+
 When `trace_location` is unset, `generate-bundle` emits a loud warning. Local notebook/CLI runs and Model Serving deploys are unaffected and continue to use the default control-plane path. See `config/examples/01_getting_started/ai_gateway.yaml` for a commented example.
 
 ### Multi-Cloud Deployment

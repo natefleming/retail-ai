@@ -343,6 +343,80 @@ Examples:
         help="Output format (default: text).",
     )
 
+    # Link-trace-destination command
+    link_trace_parser: ArgumentParser = subparsers.add_parser(
+        "link-trace-destination",
+        help="Link an MLflow experiment to its UC trace destination",
+        description="""
+Link an MLflow experiment to the Unity Catalog trace destination
+declared under ``app.trace_location`` in the config. Idempotent — safe
+to run repeatedly.
+
+Run this AFTER ``databricks bundle deploy`` and BEFORE
+``databricks bundle run``. Fixes the case where MLflow rejects the
+runtime link attempt with "already contains traces" on a re-deploy or
+after a trace-location change, which otherwise causes silent trace loss.
+
+Experiment resolution order:
+  1. ``--experiment-id`` flag (explicit override)
+  2. ``config.app.experiment.resolved_id`` if ``experiment:`` is set
+  3. Bundle-declared experiment name (``/Users/<current-user>/<app-name>``)
+     looked up via MlflowClient — matches what dao-ai generate-bundle
+     writes for the auto-declared experiment path.
+
+No-op when ``config.app.trace_location`` is not set.
+        """,
+        epilog="""
+Examples:
+  # Typical bundle flow — insert between deploy and run
+  databricks bundle deploy --target dev -p fevm
+  dao-ai link-trace-destination -c config.yaml -p fevm
+  databricks bundle run my-app --target dev -p fevm
+
+  # Explicit experiment id
+  dao-ai link-trace-destination -c config.yaml --experiment-id 1234567890 -p fevm
+
+Notes:
+  * Restart the app after linking. MLflow's tracer provider is
+    initialized once at process startup and caches the resolved UC
+    destination — linking against a running app won't retroactively
+    route in-flight traces to the new location. Trigger
+    `databricks apps restart <name>` (or any bundle re-deploy).
+  * Databricks does NOT allow un-linking a UC trace destination.
+    The OSS `mlflow.tracing.unset_experiment_trace_location` API exists,
+    but the Databricks control plane rejects it with:
+      BAD_REQUEST: Unlinking an experiment from a Unity Catalog trace
+      location is not allowed.
+    Consequently, `catalog` / `schema` / `table_prefix` cannot be
+    changed once the experiment is linked. To move traces to a different
+    UC destination, create a fresh experiment (new name or id), point
+    `MLFLOW_EXPERIMENT_ID` at it, link, then restart. The old experiment
+    continues writing to its original UC destination forever.
+        """,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    link_trace_parser.add_argument(
+        "-c",
+        "--config",
+        type=str,
+        required=True,
+        metavar="FILE",
+        help="Path to the model configuration file (must set app.trace_location).",
+    )
+    link_trace_parser.add_argument(
+        "-p",
+        "--profile",
+        type=str,
+        help="Databricks profile to use for authentication.",
+    )
+    link_trace_parser.add_argument(
+        "--experiment-id",
+        type=str,
+        metavar="ID",
+        help="Explicit experiment id (skips resolution from config/bundle name).",
+    )
+    _add_var_argument(link_trace_parser)
+
     # Graph command
     graph_parser: ArgumentParser = subparsers.add_parser(
         "graph",
@@ -1175,6 +1249,142 @@ def handle_create_experiment_command(options: Namespace) -> None:
         print(f"name:              {experiment.name}")
         print(f"artifact_location: {experiment.artifact_location}")
         print(f"lifecycle_stage:   {experiment.lifecycle_stage}")
+
+
+def handle_link_trace_destination_command(options: Namespace) -> None:
+    """Link an MLflow experiment to its UC trace destination (idempotent).
+
+    Standalone verb intended to run between ``databricks bundle deploy``
+    and ``databricks bundle run``. Fixes silent trace loss on re-deploys
+    where the runtime's link attempt is rejected with "already contains
+    traces" — this call runs from the operator's machine with their own
+    credentials, so the tag-based idempotency check (or the API call
+    itself, on a truly-first link) can succeed cleanly.
+    """
+    _apply_profile_context(options.profile)
+
+    try:
+        config: AppConfig = AppConfig.from_file(
+            options.config, params=_parse_var_args(options.var)
+        )
+    except ConfigVariableError as e:
+        _print_config_variable_error(e)
+        sys.exit(1)
+
+    if not (config.app and config.app.trace_location):
+        print(
+            "No app.trace_location configured — nothing to link.",
+            file=sys.stderr,
+        )
+        return
+
+    experiment_id: Optional[str] = _resolve_experiment_id_for_link(
+        config, options.experiment_id
+    )
+    if experiment_id is None:
+        sys.exit(1)  # _resolve_* already printed a diagnostic
+
+    from dao_ai.providers.databricks import _link_experiment_trace_location
+
+    try:
+        _link_experiment_trace_location(config, experiment_id)
+    except Exception as e:  # noqa: BLE001
+        print(
+            f"Failed to link experiment {experiment_id} to UC trace destination: "
+            f"{type(e).__name__}: {e}",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    print(
+        f"Linked experiment {experiment_id} to "
+        f"{config.app.trace_location.catalog_name}."
+        f"{config.app.trace_location.schema_name}"
+        + (
+            f" (table_prefix={config.app.trace_location.resolved_table_prefix})"
+            if config.app.trace_location.resolved_table_prefix
+            else ""
+        )
+    )
+
+
+def _resolve_experiment_id_for_link(
+    config: AppConfig,
+    override: Optional[str],
+) -> Optional[str]:
+    """Resolve the MLflow experiment id for link-trace-destination.
+
+    Resolution order:
+      1. ``override`` from ``--experiment-id`` flag.
+      2. ``config.app.experiment.resolved_id`` (path A — user set ``experiment:``).
+      3. Bundle-declared name ``/Users/<current-user>/<app-name>`` looked up
+         via ``MlflowClient.get_experiment_by_name`` (path B — the default
+         auto-declared bundle experiment).
+
+    Returns ``None`` on failure after printing a diagnostic to stderr. The
+    caller exits(1); we don't raise so the CLI's user-facing output stays
+    clean.
+    """
+    if override:
+        return override
+
+    if config.app.experiment is not None:
+        resolved = config.app.experiment.resolved_id
+        if resolved:
+            return resolved
+        print(
+            "app.experiment is set but resolved_id is None — pass "
+            "--experiment-id explicitly or run `dao-ai create-experiment` first.",
+            file=sys.stderr,
+        )
+        return None
+
+    # Path B: mirror bundle.py's deterministic name convention. DABs'
+    # `--target dev` presets prefix bundle-resource names with
+    # `[dev <sanitized-user>]` — try both the unprefixed name (prod-mode
+    # deploys) and the dev-prefixed name (personal dev deploys) so the
+    # CLI works in either mode without the operator having to specify.
+    app_name = config.app.name.lower().replace("_", "-")
+    try:
+        from databricks.sdk import WorkspaceClient
+        from mlflow.tracking import MlflowClient
+
+        current_user = WorkspaceClient().current_user.me().user_name or "unknown"
+        # DABs sanitizes the user for the dev prefix: lowercase, strip the
+        # email domain, replace non-alnum with underscores.
+        dev_tag = current_user.split("@", 1)[0].lower()
+        dev_tag = "".join(c if c.isalnum() else "_" for c in dev_tag)
+        candidates = [
+            f"/Users/{current_user}/{app_name}",
+            f"/Users/{current_user}/[dev {dev_tag}] {app_name}",
+        ]
+        mc = MlflowClient()
+        exp = None
+        for name in candidates:
+            exp = mc.get_experiment_by_name(name)
+            if exp is not None:
+                break
+    except Exception as e:  # noqa: BLE001
+        print(
+            f"Could not look up bundle-declared experiment: "
+            f"{type(e).__name__}: {e}",
+            file=sys.stderr,
+        )
+        return None
+    if exp is None:
+        print(
+            "Experiment not found under any of these names:",
+            file=sys.stderr,
+        )
+        for name in candidates:
+            print(f"  - {name}", file=sys.stderr)
+        print(
+            "Run `databricks bundle deploy` first (which materializes the "
+            "experiment), or pass --experiment-id explicitly.",
+            file=sys.stderr,
+        )
+        return None
+    return exp.experiment_id
 
 
 def handle_graph_command(options: Namespace) -> None:
@@ -2068,6 +2278,8 @@ def main() -> None:
             handle_schema_command(options)
         case "create-experiment":
             handle_create_experiment_command(options)
+        case "link-trace-destination":
+            handle_link_trace_destination_command(options)
         case "validate":
             handle_validate_command(options)
         case "graph":
