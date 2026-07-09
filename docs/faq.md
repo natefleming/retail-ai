@@ -693,7 +693,7 @@ See [Lab 15 — Background Agents](https://github.com/natefleming/dao-ai-worksho
 
 ### How do I route traces to a UC schema?
 
-Declare `app.trace_location:` on the AppConfig. The dao-ai deploy paths (both Databricks Apps and Model Serving) will call `mlflow.set_experiment(experiment_id=..., trace_location=UnityCatalog(...))` at boot, and MLflow will lazily materialize four Delta tables in the target schema — `<prefix>_otel_spans`, `<prefix>_otel_logs`, `<prefix>_otel_metrics`, `<prefix>_otel_annotations` — on the first trace flush.
+Declare `app.trace_location:` on the AppConfig, then link the experiment to the UC destination as an explicit deploy step. MLflow lazily materializes four Delta tables in the target schema — `<prefix>_otel_spans`, `<prefix>_otel_logs`, `<prefix>_otel_metrics`, `<prefix>_otel_annotations` — on the first trace flush after linking.
 
 ```yaml
 app:
@@ -706,7 +706,22 @@ app:
     table_prefix: hardware_store         # optional; defaults to the experiment_id
 ```
 
-Everything about the wiring is identical for Apps and Model Serving — same `_link_experiment_trace_location` call is invoked from both deploy paths. The only asymmetry is what permissions the endpoint's runtime SP needs on the target schema (see next question).
+**Deploy flow for Databricks Apps** (bundle path):
+
+```bash
+dao-ai generate-bundle -c my_config.yaml -o ./bundle
+cd ./bundle
+databricks bundle deploy --target dev -p <profile>
+dao-ai link-trace-destination -c ../my_config.yaml -p <profile>   # explicit link step
+databricks bundle run <app-name> --target dev -p <profile>
+databricks apps restart <app-name> -p <profile>                   # required
+```
+
+The `link-trace-destination` step is idempotent — safe on every deploy — but load-bearing on re-deploys. It runs from your machine with your credentials, before the app boots. Skipping it (and relying on the app's own runtime link attempt in `dao_ai.apps.handlers`) causes silent trace loss on re-deploys because MLflow rejects re-linking with `already contains traces`.
+
+**Model Serving** deploys via `dao-ai deploy` link automatically inside `deploy_apps_agent` / `deploy_model_serving_agent` (same `link_experiment_trace_location` helper) — no manual step required.
+
+**Important once linked:** Databricks does NOT allow un-linking or changing a UC trace destination. `catalog` / `schema` / `table_prefix` are permanent for that experiment. To move traces to a different destination, create a fresh experiment (new name or id) and re-link it — see [`docs/cli-reference.md#link-trace-destination`](cli-reference.md#link-trace-destination) for the full migration playbook.
 
 See [Lab 24 — UC OTEL Trace Tables](https://github.com/natefleming/dao-ai-workshop/tree/main/L300-advanced/lab-24-uc-trace-location) for the walkthrough. **Note:** in-process notebook usage of the same config additionally needs `mlflow.langchain.autolog(run_tracer_inline=True)` + `dao_ai.logging.suppress_autolog_context_warnings()` — the deploy runtime does both automatically at boot, but the notebook flow must do them explicitly.
 

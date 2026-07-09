@@ -377,15 +377,21 @@ Examples:
   dao-ai link-trace-destination -c config.yaml --experiment-id 1234567890 -p fevm
 
 Notes:
-  * Restart the app after linking. The MLflow OTEL exporter binds the
-    trace destination at process startup, so linking against a running
-    app won't retroactively route in-flight traces to the new location —
-    trigger `databricks apps restart <name>` (or any bundle re-deploy).
-  * MLflow does NOT support un-linking a UC trace destination or moving
-    an experiment back to control-plane storage. To "reset" traces to a
-    different UC schema, create a fresh experiment (new name or id) and
-    point `MLFLOW_EXPERIMENT_ID` at the new one. The old experiment
-    continues to write to its original UC destination forever.
+  * Restart the app after linking. MLflow's tracer provider is
+    initialized once at process startup and caches the resolved UC
+    destination — linking against a running app won't retroactively
+    route in-flight traces to the new location. Trigger
+    `databricks apps restart <name>` (or any bundle re-deploy).
+  * Databricks does NOT allow un-linking a UC trace destination.
+    The OSS `mlflow.tracing.unset_experiment_trace_location` API exists,
+    but the Databricks control plane rejects it with:
+      BAD_REQUEST: Unlinking an experiment from a Unity Catalog trace
+      location is not allowed.
+    Consequently, `catalog` / `schema` / `table_prefix` cannot be
+    changed once the experiment is linked. To move traces to a different
+    UC destination, create a fresh experiment (new name or id), point
+    `MLFLOW_EXPERIMENT_ID` at it, link, then restart. The old experiment
+    continues writing to its original UC destination forever.
         """,
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
