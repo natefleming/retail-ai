@@ -1070,7 +1070,9 @@ class TestNormalizeDeclaredColumns:
         assert names == ["brand", "price"]
         assert types == {"brand": "STRING", "price": "NUMBER"}
         assert descs == {"brand": "Brand name"}  # only where set
-        assert ops == {}  # neither set operators explicitly
+        # `string` falls through to the full 8-op default; `number` gets
+        # the per-type default (drops LIKE / NOT LIKE).
+        assert ops == {"price": ["", "NOT", "<", "<=", ">", ">="]}
         assert any_hand is True
 
     def test_column_info_explicit_operators(self) -> None:
@@ -1094,6 +1096,35 @@ class TestNormalizeDeclaredColumns:
         assert descs == {"brand": "Brand"}
         assert ops == {}
         assert any_hand is True
+
+    def test_type_driven_operator_defaults(self) -> None:
+        """Per-type default operator whitelist when `operators` not hand-set."""
+        items = [
+            ColumnInfo(name="name", type="string"),
+            ColumnInfo(name="qty", type="number"),
+            ColumnInfo(name="active", type="boolean"),
+            ColumnInfo(name="ts", type="datetime"),
+            ColumnInfo(name="tags", type="array"),
+        ]
+        _, _, _, ops, _ = _normalize_declared_columns(items)
+        # string → no override (falls through to full 8-op default)
+        assert "name" not in ops
+        # number / datetime → equality + NOT + comparisons (no LIKE)
+        assert ops["qty"] == ["", "NOT", "<", "<=", ">", ">="]
+        assert ops["ts"] == ["", "NOT", "<", "<=", ">", ">="]
+        # boolean → equality + NOT only
+        assert ops["active"] == ["", "NOT"]
+        # array → equality only (VS rejects everything else)
+        assert ops["tags"] == [""]
+
+    def test_hand_set_operators_win_over_type_default(self) -> None:
+        """Explicit `operators` always wins, even for non-string types."""
+        items = [
+            ColumnInfo(name="qty", type="number", operators=["", "LIKE"]),
+        ]
+        _, _, _, ops, _ = _normalize_declared_columns(items)
+        # Nonsensical for a number, but the user asked for it.
+        assert ops["qty"] == ["", "LIKE"]
 
     def test_empty_list(self) -> None:
         names, types, descs, ops, any_hand = _normalize_declared_columns([])
@@ -1194,10 +1225,12 @@ class TestHandDeclaredColumnInfoInFactory:
         enum = tool.args_schema.model_json_schema()["$defs"][
             "DynamicFilterItem"
         ]["properties"]["key"]["enum"]
-        # brand is locked to 2 ops; price gets full 8.
+        # brand is hand-locked to 2 ops; price falls to the per-type
+        # numeric default (equality + NOT + comparisons, no LIKE).
         assert "brand" in enum and "brand LIKE" in enum
         assert "brand NOT" not in enum and "brand <" not in enum
-        assert "price" in enum and "price LIKE" in enum and "price <" in enum
+        assert "price" in enum and "price <" in enum
+        assert "price LIKE" not in enum and "price NOT LIKE" not in enum
 
     def test_hand_declared_default_operators_gets_all_suffixes(self) -> None:
         """ColumnInfo without explicit operators → the default full-list

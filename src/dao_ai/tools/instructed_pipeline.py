@@ -68,6 +68,115 @@ RunSearch = Callable[[str, dict[str, Any]], list[Document]]
 Mode = Literal["standard", "instructed"]
 
 
+# Base column name from a suffixed filter key ("priority >=" → "priority").
+# Suffixes are exactly the ones defined by _FILTER_OPERATOR_SUFFIXES in
+# vector_search.py — kept as a local tuple to avoid a cross-module import.
+_FILTER_KEY_SUFFIXES: tuple[str, ...] = (
+    " NOT LIKE",
+    " LIKE",
+    " NOT",
+    " <=",
+    " >=",
+    " <",
+    " >",
+)
+
+
+def _base_column_name(key: str) -> str:
+    """Strip a trailing operator suffix from a filter key."""
+    for suffix in _FILTER_KEY_SUFFIXES:
+        if key.endswith(suffix):
+            return key[: -len(suffix)]
+    return key
+
+
+def _coerce_scalar(value: Any, col_type: str) -> Any:
+    """Coerce a single scalar to the column's declared type.
+
+    Raises ValueError on failure so the caller can drop-and-warn. Returns
+    the value untouched when it's already type-compatible or when
+    ``col_type`` is ``string`` / ``array`` (no coercion needed).
+    """
+    from datetime import datetime
+
+    if col_type == "string" or col_type == "array":
+        return value
+    if col_type == "number":
+        if isinstance(value, bool):
+            raise ValueError(f"bool {value!r} not accepted as number")
+        if isinstance(value, (int, float)):
+            return value
+        s = str(value).strip()
+        # Prefer int when the string has no fractional part.
+        try:
+            return int(s)
+        except ValueError:
+            pass
+        return float(s)  # raises ValueError on bad input
+    if col_type == "boolean":
+        if isinstance(value, bool):
+            return value
+        s = str(value).strip().lower()
+        if s in {"true", "1", "yes"}:
+            return True
+        if s in {"false", "0", "no"}:
+            return False
+        raise ValueError(f"{value!r} not a boolean")
+    if col_type == "datetime":
+        if isinstance(value, datetime):
+            return value.isoformat()
+        # Accept anything datetime.fromisoformat can parse; keep the
+        # canonical ISO string on the wire so backends can render it into
+        # SQL / VS filter unchanged.
+        datetime.fromisoformat(str(value))
+        return str(value)
+    return value
+
+
+def coerce_filter_values(
+    filters: dict[str, Any],
+    columns: list["ColumnInfo"],
+) -> dict[str, Any]:
+    """Coerce LLM-emitted filter values to their column-declared type.
+
+    Trims a common LLM failure mode: decomposition emits
+    ``{"priority": "high"}`` on an integer column, Postgres 500s. Coerces
+    strings to ``int`` / ``float`` / ``bool`` / ``datetime`` per
+    ``ColumnInfo.type``; on failure drops the entry and logs a warning
+    tagged ``dao_ai.filter.coercion_failed`` so the query still runs
+    (degraded — one filter fewer — rather than hard-failing the tool call).
+
+    Suffixed keys (``"priority >="``) resolve to the base column via
+    :func:`_base_column_name`. Unknown columns pass through untouched
+    (the backend will reject them if invalid). List values coerce
+    element-wise; the whole entry is dropped if any element fails.
+    """
+    if not filters or not columns:
+        return filters
+    by_name: dict[str, ColumnInfo] = {c.name: c for c in columns}
+    coerced: dict[str, Any] = {}
+    for key, value in filters.items():
+        col = by_name.get(_base_column_name(key))
+        if col is None:
+            coerced[key] = value
+            continue
+        try:
+            if isinstance(value, list):
+                coerced[key] = [_coerce_scalar(v, col.type) for v in value]
+            else:
+                coerced[key] = _coerce_scalar(value, col.type)
+        except (ValueError, TypeError) as e:
+            logger.warning(
+                "dao_ai.filter.coercion_failed | col={} type={} value={!r} err={}: {} — dropping filter",
+                col.name,
+                col.type,
+                value,
+                type(e).__name__,
+                e,
+            )
+    return coerced
+
+
 def _normalize_filter_values(
     filters: dict[str, Any], case: Optional[str]
 ) -> dict[str, Any]:
@@ -153,6 +262,9 @@ def _execute_instructed_search(
             if sq.filters:
                 for item in sq.filters:
                     sq_filters_dict[item.key] = item.value
+            sq_filters_dict = coerce_filter_values(
+                sq_filters_dict, instructed_columns
+            )
             sq_filters = _normalize_filter_values(
                 sq_filters_dict, decomposition_config.normalize_filter_case
             )

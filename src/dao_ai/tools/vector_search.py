@@ -190,6 +190,24 @@ _FILTER_OPERATOR_SUFFIXES: tuple[str, ...] = (
 )
 
 
+# Per-type default operator whitelist for ColumnInfo entries whose
+# `operators` field wasn't hand-set. Applied by
+# `_normalize_declared_columns` when the user declares only `type`.
+# User-set `operators` always wins.
+#
+# - string:   full 8 (equality + IN + comparisons + LIKE + negations)
+# - number:   drop LIKE/NOT LIKE (nonsensical on numerics)
+# - boolean:  equality + NOT only (comparisons + LIKE are meaningless)
+# - datetime: drop LIKE/NOT LIKE (comparisons are the useful range ops)
+# - array:    equality only (VS rejects everything else on array cols)
+_DEFAULT_OPERATORS_BY_TYPE: dict[str, list[str]] = {
+    "number": ["", "NOT", "<", "<=", ">", ">="],
+    "boolean": ["", "NOT"],
+    "datetime": ["", "NOT", "<", "<=", ">", ">="],
+    "array": [""],
+}
+
+
 def _legal_filter_keys(
     columns: list[str],
     operator_overrides: dict[str, list[str]] | None = None,
@@ -434,17 +452,15 @@ def _normalize_declared_columns(
             types[name] = type_label
             if item.description:
                 descriptions[name] = item.description
-            # Only treat operators as an override when the user explicitly
-            # set them (Pydantic tracks this via model_fields_set). If the
-            # field defaulted to the full 8-op list, we let the standard
-            # `_legal_filter_keys` cross-product apply — same as bare
-            # strings — for consistency. Exception: type=="array" narrows
-            # to equality-only ("") by default, since VS rejects every
-            # other operator on array columns.
+            # User-set operators always win (tracked via Pydantic
+            # `model_fields_set`). Otherwise apply the per-type default
+            # from `_DEFAULT_OPERATORS_BY_TYPE` — number/boolean/datetime/
+            # array get narrower whitelists; string falls through to the
+            # full 8-operator cross-product at `_legal_filter_keys` time.
             if "operators" in item.model_fields_set:
                 operator_overrides[name] = list(item.operators)
-            elif item.type == "array":
-                operator_overrides[name] = [""]
+            elif item.type in _DEFAULT_OPERATORS_BY_TYPE:
+                operator_overrides[name] = list(_DEFAULT_OPERATORS_BY_TYPE[item.type])
         elif isinstance(item, str):
             names.append(item)
         else:
