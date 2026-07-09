@@ -1,0 +1,94 @@
+# Lakebase Search with static filters + MLflow trace_location.
+#
+# Demonstrates:
+#   - Static config-time filters on `search_parameters.filters` — merged with
+#     any call-time filters the LLM passes on the tool.
+#   - Multiple filter operators: equality, IN, comparison, IS NULL, LIKE.
+#   - `trace_location` sending MLflow OTEL traces to a UC Delta table set —
+#     the retriever's `@mlflow.trace(span_type=RETRIEVER)` spans
+#     (`lakebase_ann_search`, `lakebase_bm25_search`, `lakebase_hybrid_search`)
+#     land alongside the outer tool span so downstream trace tooling
+#     (analyze-mlflow-trace, retrieving-mlflow-traces) works unmodified.
+
+resources:
+  llms:
+    default_llm: &default_llm
+      name: databricks-claude-sonnet-4-5
+
+  databases:
+    kb_lakebase: &kb_lakebase
+      project: my-lakebase-project
+      # For deployment inside a Databricks App, use a service principal:
+      # client_id:     { scope: my_scope, secret: SP_CLIENT_ID }
+      # client_secret: { scope: my_scope, secret: SP_CLIENT_SECRET }
+      # workspace_host: { scope: my_scope, secret: WORKSPACE_HOST }
+
+tools:
+  # Only surface published, high-priority auth-related docs to the agent.
+  # Filter columns must appear in vector_store.metadata_columns (allowlist).
+  # Supported operators: =, !=, <, <=, >, >=, in, not_in, like, ilike, is_null.
+  active_auth_kb: &active_auth_kb
+    name: active_auth_kb
+    function:
+      type: lakebase_search
+      retriever:
+        vector_store:
+          database: *kb_lakebase
+          schema_name: dao_ai_kb
+          table: kb_articles
+          content_column: passage
+          embedding_column: embedding
+          tsvector_column: passage_tsv
+          embedding_model: databricks-gte-large-en
+          metadata_columns: [category, status, priority, source_url]
+        search_parameters:
+          query_type: HYBRID
+          num_results: 5
+          filters:
+            # Scalar equality — bare value shorthand.
+            category: auth
+            # IN operator — dict-form with `values` list.
+            status:
+              op: in
+              values: [published, reviewed]
+            # Comparison — dict-form with `value` scalar.
+            priority:
+              op: ">="
+              value: 2
+            # LIKE / ILIKE — case-sensitive / -insensitive pattern match.
+            source_url:
+              op: ilike
+              value: "https://docs.%.com/%"
+
+agents:
+  auth_agent:
+    name: auth_agent
+    model: *default_llm
+    tools:
+      - *active_auth_kb
+    prompt: |
+      You answer authentication questions. Always call active_auth_kb; it is
+      already scoped to published, high-priority auth docs.
+
+app:
+  name: dao-ai-lb-filters-example
+  registered_model:
+    name: dao_ai_lb_filters_example
+  agents:
+    - name: auth_agent
+      model: *default_llm
+      tools:
+        - *active_auth_kb
+      prompt: |
+        You answer authentication questions. Always call active_auth_kb; it is
+        already scoped to published, high-priority auth docs.
+  # Ship OTEL traces to UC — dao-ai calls
+  #   mlflow.set_experiment(trace_location=UnityCatalog(...))
+  # at startup and materializes four Delta tables:
+  #   <catalog>.<schema>.<prefix>_otel_{spans,logs,metrics,annotations}
+  trace_location:
+    schema:
+      catalog_name: my_catalog
+      schema_name: default
+    warehouse: <sql-warehouse-id>
+    table_prefix: lakebase_filters_example

@@ -12,6 +12,7 @@ The examples follow a natural progression:
     → 10_agent_integrations → 11_prompt_engineering → 12_middleware → 13_orchestration
     → 14_basic_tools → 15_complete_applications → 16_instructed_retriever
     → 17_parallel_tools → 18_visualization → 19_background_agents
+    → 20_a2a_protocol → 21_lakebase_search
 ```
 
 Start at `01_getting_started` if you're new, or jump directly to the category that matches your needs.
@@ -56,6 +57,10 @@ Start at `01_getting_started` if you're new, or jump directly to the category th
 ### ⏱️ Background Tasks?
 **Background kickoff + poll/stream retrieval (deep research, multi-tool workflows):**
 - [`19_background_agents/`](../config/examples/19_background_agents/) - OpenAI Responses API–compatible `/v1/responses` on Apps + `background=true` on Model Serving, backed by Lakebase
+
+### 🔎 Retrieval from Lakebase Postgres?
+**ANN / BM25 / hybrid RRF over a Lakebase table (as a sibling of `ai_search`):**
+- [`21_lakebase_search/`](../config/examples/21_lakebase_search/) - `type: lakebase_search` using the `lakebase_vector` + `lakebase_text` extensions, with filter-operator coverage and a UC OTEL `trace_location` example
 
 ### 🏗️ Complete Solutions?
 **Full applications:**

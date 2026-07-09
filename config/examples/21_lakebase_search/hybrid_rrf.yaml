@@ -1,0 +1,69 @@
+# Hybrid Lakebase Search — dense ANN + BM25 fused via Reciprocal Rank Fusion.
+#
+# Fetches top-k from each mode independently, then combines them client-side
+# via RRF (k=60). Best of both worlds: semantic recall from ANN, exact-term
+# precision from BM25.
+#
+# Prerequisites (in addition to the ANN example):
+#   CREATE EXTENSION IF NOT EXISTS lakebase_text;
+#   ALTER TABLE kb_articles
+#     ADD COLUMN passage_tsv TSVECTOR
+#     GENERATED ALWAYS AS (to_tsvector('english', passage)) STORED;
+#   CREATE INDEX kb_articles_passage_tsv_bm25
+#     ON kb_articles USING lakebase_bm25 (passage_tsv);
+
+resources:
+  llms:
+    default_llm: &default_llm
+      name: databricks-claude-sonnet-4-5
+
+  databases:
+    kb_lakebase: &kb_lakebase
+      project: my-lakebase-project
+
+tools:
+  kb_hybrid: &kb_hybrid
+    name: kb_hybrid
+    function:
+      type: lakebase_search
+      retriever:
+        vector_store:
+          database: *kb_lakebase
+          schema_name: dao_ai_kb
+          table: kb_articles
+          content_column: passage
+          embedding_column: embedding
+          tsvector_column: passage_tsv            # required for HYBRID / BM25
+          # bm25_index_name auto-derives from
+          #   <schema_name>.<table>_<tsvector_column>_bm25
+          # Set it explicitly here to override that convention.
+          embedding_model: databricks-gte-large-en
+          metadata_columns: [category, source_url]
+        search_parameters:
+          query_type: HYBRID                      # ANN | BM25 | HYBRID
+          num_results: 5
+
+agents:
+  kb_agent:
+    name: kb_agent
+    model: *default_llm
+    tools:
+      - *kb_hybrid
+    prompt: |
+      You are a knowledge-base assistant. Call kb_hybrid to get documents that
+      match both semantically and lexically, then answer using only the
+      retrieved content.
+
+app:
+  name: dao-ai-lakebase-hybrid-example
+  registered_model:
+    name: dao_ai_lakebase_hybrid_example
+  agents:
+    - name: kb_agent
+      model: *default_llm
+      tools:
+        - *kb_hybrid
+      prompt: |
+        You are a knowledge-base assistant. Call kb_hybrid to get documents that
+        match both semantically and lexically, then answer using only the
+        retrieved content.

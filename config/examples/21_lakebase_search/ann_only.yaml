@@ -1,0 +1,63 @@
+# Minimal Lakebase Search agent — ANN (semantic) mode only.
+#
+# Prerequisites:
+#   1. Lakebase Search enabled on your project (workspace UI → Compute →
+#      Postgres → <project> → Settings → Enable Lakebase Search).
+#   2. Extensions installed in the target database:
+#        CREATE EXTENSION IF NOT EXISTS lakebase_vector CASCADE;
+#   3. A table with a VECTOR(N) column (N must match the embedding endpoint's
+#      output dimension — 1024 for databricks-gte-large-en).
+#   4. A lakebase_ann index on the vector column:
+#        CREATE INDEX ON kb_articles USING lakebase_ann (embedding vector_cosine_ops);
+#
+# ANN mode never touches the tsvector_column / lakebase_bm25 index, so you
+# can omit those entirely for an ANN-only deployment.
+
+resources:
+  llms:
+    default_llm: &default_llm
+      name: databricks-claude-sonnet-4-5
+
+  databases:
+    kb_lakebase: &kb_lakebase
+      project: my-lakebase-project
+
+tools:
+  kb_search: &kb_search
+    name: kb_search
+    function:
+      type: lakebase_search
+      vector_store:
+        database: *kb_lakebase
+        schema_name: dao_ai_kb
+        table: kb_articles
+        content_column: passage
+        embedding_column: embedding
+        embedding_model: databricks-gte-large-en   # string shorthand
+        metadata_columns: [category, source_url]
+        distance_metric: cosine                    # or l2 / ip
+
+agents:
+  kb_agent:
+    name: kb_agent
+    model: *default_llm
+    tools:
+      - *kb_search
+    prompt: |
+      You are a knowledge-base assistant. Use kb_search to look up relevant
+      documents before answering. Cite the source URL from the metadata when
+      possible.
+
+app:
+  name: dao-ai-lakebase-ann-example
+  registered_model:
+    name: dao_ai_lakebase_ann_example
+  agents:
+    - name: kb_agent
+      model: *default_llm
+      tools:
+        - *kb_search
+      prompt: |
+        You are a knowledge-base assistant. Use kb_search to look up relevant
+        documents before answering. Cite the source URL from the metadata when
+        possible.
