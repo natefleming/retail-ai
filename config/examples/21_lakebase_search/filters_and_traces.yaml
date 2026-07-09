@@ -93,23 +93,23 @@ tools:
         search_parameters:
           query_type: HYBRID
           num_results: 5
+          # Filter keys follow ai_search's suffixed-key convention. The
+          # bare column name means equality; the LLM-facing FilterItem
+          # list uses the exact same suffix language.
+          #
+          # Supported suffixes (identical to ai_search):
+          #   ""          equality             ("col": <value>)
+          #   " NOT"      not-equals / not-in  ("col NOT": <value|list>)
+          #   " <" " <=" " >" " >="  comparisons
+          #   " LIKE"     case-insensitive     ("col LIKE": "pattern%")
+          #   " NOT LIKE" case-insensitive not ("col NOT LIKE": "pattern")
+          #
+          # A list value with the bare / NOT suffix triggers IN / NOT IN.
           filters:
-            # Scalar equality — bare value shorthand.
-            category: auth
-            # IN operator — dict-form with `values` list.
-            status:
-              op: in
-              values:
-                - published
-                - reviewed
-            # Comparison — dict-form with `value` scalar.
-            priority:
-              op: ">="
-              value: 2
-            # LIKE / ILIKE — case-sensitive / -insensitive pattern match.
-            source_url:
-              op: ilike
-              value: "https://docs.%.com/%"
+            category: auth                          # equality
+            "status": [published, reviewed]         # list value → IN
+            "priority >=": 2                        # comparison
+            "source_url LIKE": "https://docs.%.com/%"   # LIKE (Postgres ILIKE)
 
 agents:
   auth_agent:

@@ -38,8 +38,21 @@ _OPS_CLASS = {
     "l2": "vector_l2_ops",
     "ip": "vector_ip_ops",
 }
-_ALLOWED_OPS = {"=", "!=", "<", "<=", ">", ">=", "like", "ilike"}
 _RRF_K = 60
+
+# Filter-key suffixes we recognize on the dict keys reaching `_build_where`.
+# These match ai_search's `_FILTER_OPERATOR_SUFFIXES` (with the leading
+# space). Order matters — longest first so we don't misparse
+# `"col NOT LIKE"` as `"col NOT" + " LIKE"` or similar.
+_FILTER_SUFFIXES: tuple[str, ...] = (
+    " NOT LIKE",
+    " LIKE",
+    " <=",
+    " >=",
+    " NOT",
+    " <",
+    " >",
+)
 
 
 class LakebaseSearchMode(str, Enum):
@@ -150,53 +163,89 @@ class LakebaseRetriever(BaseRetriever):
             cols.extend(extra)
         return sql.SQL(", ").join(cols)
 
+    def _parse_filter_key(self, key: str) -> tuple[str, str]:
+        """Split ``"col SUFFIX"`` into ``(col, suffix)``.
+
+        Suffix is one of ``_FILTER_SUFFIXES`` (with leading space) or ``""``
+        for equality. Matches ai_search's operator-suffix convention on
+        ``FilterItem.key`` so downstream tooling / prompts are portable.
+        """
+        for suffix in _FILTER_SUFFIXES:
+            if key.endswith(suffix):
+                return key[: -len(suffix)], suffix
+        return key, ""
+
     def _build_where(
         self, filters: dict[str, Any]
     ) -> tuple[sql.Composable, list[Any]]:
-        """Translate a filter dict into a WHERE fragment + params.
+        """Translate a suffix-keyed filter dict into a WHERE fragment + params.
 
-        Unknown columns and operators raise ValueError before any SQL is built.
-        Values are always passed as parameters (``%s``); column names are
-        wrapped in ``sql.Identifier`` for safe quoting.
+        Keys use ai_search's operator-suffix convention (``"col LIKE"``,
+        ``"col >="``, ``"col NOT"``, plain ``"col"`` for equality). Values
+        may be scalars or lists — lists trigger IN semantics on the ``""`` /
+        ``" NOT"`` suffixes and are rejected on comparison / LIKE suffixes.
+
+        ``LIKE`` / ``NOT LIKE`` translate to Postgres ``ILIKE`` /
+        ``NOT ILIKE`` (case-insensitive is the agent-friendly default).
+
+        Unknown columns and operators raise ``ValueError`` before any SQL is
+        built. Column names are wrapped in ``sql.Identifier`` for safe
+        quoting; values are always bound as ``%s`` parameters.
         """
         if not filters:
             return sql.SQL(""), []
 
         clauses: list[sql.Composable] = []
         params: list[Any] = []
-        for key, spec in filters.items():
-            if key not in self._allowed_filter_cols:
+        for raw_key, value in filters.items():
+            col_name, suffix = self._parse_filter_key(raw_key)
+            if col_name not in self._allowed_filter_cols:
                 raise ValueError(
-                    f"Unknown filter column {key!r}; "
+                    f"Unknown filter column {col_name!r} (from key {raw_key!r}); "
                     f"allowed: {sorted(self._allowed_filter_cols)}"
                 )
-            col = sql.Identifier(key)
+            col = sql.Identifier(col_name)
+            is_list = isinstance(value, list)
 
-            if not isinstance(spec, dict):
-                clauses.append(sql.SQL("{} = %s").format(col))
-                params.append(spec)
-                continue
-
-            op = str(spec.get("op", "=")).lower()
-            if op == "in":
-                clauses.append(sql.SQL("{} = ANY(%s)").format(col))
-                params.append(list(spec["values"]))
-            elif op == "not_in":
-                clauses.append(sql.SQL("NOT ({} = ANY(%s))").format(col))
-                params.append(list(spec["values"]))
-            elif op == "is_null":
-                is_null = bool(spec.get("value", True))
-                clauses.append(
-                    sql.SQL("{} IS NULL").format(col)
-                    if is_null
-                    else sql.SQL("{} IS NOT NULL").format(col)
-                )
-            elif op in _ALLOWED_OPS:
-                op_sql = sql.SQL(op.upper()) if op in {"like", "ilike"} else sql.SQL(op)
+            if suffix == "":
+                if is_list:
+                    clauses.append(sql.SQL("{} = ANY(%s)").format(col))
+                    params.append(list(value))
+                else:
+                    clauses.append(sql.SQL("{} = %s").format(col))
+                    params.append(value)
+            elif suffix == " NOT":
+                if is_list:
+                    clauses.append(sql.SQL("NOT ({} = ANY(%s))").format(col))
+                    params.append(list(value))
+                else:
+                    clauses.append(sql.SQL("{} <> %s").format(col))
+                    params.append(value)
+            elif suffix in {" <", " <=", " >", " >="}:
+                if is_list:
+                    raise ValueError(
+                        f"Comparison suffix {suffix.strip()!r} on {col_name!r} "
+                        "does not support list values"
+                    )
+                op_sql = sql.SQL(suffix.strip())
                 clauses.append(sql.SQL("{} {} %s").format(col, op_sql))
-                params.append(spec["value"])
-            else:
-                raise ValueError(f"Unsupported filter op {op!r} on column {key!r}")
+                params.append(value)
+            elif suffix == " LIKE":
+                if is_list:
+                    raise ValueError(
+                        f"LIKE suffix on {col_name!r} does not support list values"
+                    )
+                clauses.append(sql.SQL("{} ILIKE %s").format(col))
+                params.append(value)
+            elif suffix == " NOT LIKE":
+                if is_list:
+                    raise ValueError(
+                        f"NOT LIKE suffix on {col_name!r} does not support list values"
+                    )
+                clauses.append(sql.SQL("NOT ({} ILIKE %s)").format(col))
+                params.append(value)
+            else:  # pragma: no cover — suffix set is closed
+                raise ValueError(f"Unsupported filter suffix {suffix!r}")
 
         return sql.SQL(" AND ") + sql.SQL(" AND ").join(clauses), params
 
