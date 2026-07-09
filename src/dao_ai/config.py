@@ -3793,6 +3793,58 @@ class DatabaseModel(IsDatabricksResource):
             provider.create_lakebase_autoscaling(self)
             provider.create_lakebase_autoscaling_role(self)
 
+    def execute_sql(
+        self,
+        statements: str | Sequence[str],
+        parameters: Sequence[Any] | None = None,
+    ) -> None:
+        """Execute one or more SQL statements against this database.
+
+        Convenience wrapper around the synchronous connection pool
+        (:class:`dao_ai.memory.postgres.PostgresPoolManager`). Runs
+        every statement in a single transaction; commits on success and
+        rolls back on error. Intended for ad-hoc DDL/DML from notebooks
+        and setup scripts — not a substitute for a proper ORM or
+        parameterized bulk-write path.
+
+        Args:
+            statements: A single SQL string OR a sequence of SQL strings.
+                Strings are executed verbatim (no additional splitting
+                on ``;``). When passing a sequence, ``parameters`` must
+                be ``None`` — parameter binding is only supported when
+                a single statement is provided.
+            parameters: Optional positional parameters passed to
+                ``cursor.execute()``. Only valid when ``statements`` is
+                a single string.
+        """
+        from dao_ai.memory.postgres import PostgresPoolManager
+
+        if isinstance(statements, str):
+            stmts: list[str] = [statements]
+        else:
+            stmts = list(statements)
+            if parameters is not None:
+                raise ValueError(
+                    "`parameters` is only supported when `statements` is a "
+                    "single string; got a sequence."
+                )
+        if not stmts:
+            return
+
+        pool = PostgresPoolManager.get_pool(self)
+        with pool.connection() as conn:
+            try:
+                with conn.cursor() as cur:
+                    for stmt in stmts:
+                        if parameters is not None:
+                            cur.execute(stmt, parameters)
+                        else:
+                            cur.execute(stmt)
+                conn.commit()
+            except Exception:
+                conn.rollback()
+                raise
+
 
 class GenieLRUCacheParametersModel(BaseModel):
     """Configuration for a simple LRU (Least Recently Used) Genie response cache."""
@@ -4612,9 +4664,10 @@ class AiSearchRetrieverModel(BaseRetrieverModel):
 class LakebaseVectorStoreModel(BaseModel):
     """Configuration for a Databricks Lakebase Postgres table used for retrieval.
 
-    Points at a table that already has ``lakebase_vector`` (and optionally
-    ``lakebase_text``) extensions installed and appropriate indexes built.
-    Stage-1 scope: existing tables only; provisioning is deferred.
+    Points at a table that has ``lakebase_vector`` (and optionally
+    ``lakebase_text``) extensions installed and appropriate indexes
+    built. Call :meth:`provision` to idempotently create the extensions,
+    table, and indexes if they don't exist yet.
 
     Example (existing table, hybrid-ready):
     ```yaml
@@ -4713,6 +4766,106 @@ class LakebaseVectorStoreModel(BaseModel):
                 f"{self.schema_name}.{self.table}_{self.tsvector_column}_bm25"
             )
         return self
+
+    def provision(
+        self,
+        *,
+        dimension: int,
+        metadata_column_types: dict[str, str] | None = None,
+        id_column_type: str = "text",
+    ) -> None:
+        """Idempotently create the Postgres extensions + table + indexes.
+
+        Runs ``CREATE EXTENSION IF NOT EXISTS`` for ``lakebase_vector``
+        (and ``lakebase_text`` when ``tsvector_column`` is configured),
+        then ``CREATE TABLE IF NOT EXISTS`` for the retrieval table with
+        columns matching this vector-store config, then
+        ``CREATE INDEX IF NOT EXISTS`` for the ``lakebase_ann`` index on
+        ``embedding_column`` (and ``lakebase_bm25`` on ``tsvector_column``
+        when configured). Every statement is safe to re-run — no rows or
+        indexes are dropped.
+
+        The generated table has this shape (all columns nullable except
+        the id + content column):
+
+        - ``{id_column} {id_column_type} PRIMARY KEY``
+        - ``{content_column} text NOT NULL``
+        - ``{embedding_column} vector({dimension})``
+        - Optional: ``{tsvector_column} tsvector GENERATED ALWAYS AS
+          (to_tsvector('{tsv_language}', {content_column})) STORED``
+        - Each metadata column typed via ``metadata_column_types``
+          (defaults to ``text`` when unspecified).
+
+        Args:
+            dimension: Vector dimension of the ``embedding_column``. Must
+                match the ``embedding_model`` endpoint's output shape
+                (e.g. ``1024`` for ``databricks-gte-large-en``). No
+                auto-detection — the caller knows the endpoint.
+            metadata_column_types: Optional ``{name: pg_type}`` overrides
+                for entries in ``metadata_columns``. Any name not listed
+                defaults to ``text``. Use standard Postgres type names
+                (``int``, ``bigint``, ``numeric``, ``timestamp``, etc.).
+            id_column_type: Postgres type for the primary-key column.
+                Defaults to ``text`` to match the ``kb_articles`` seed
+                convention; use ``bigint`` / ``uuid`` etc. as needed.
+
+        This method is idempotent. It does NOT drop the existing table
+        or its data — pointing ``provision()`` at an existing table with
+        a different schema is a no-op (Postgres accepts the ``CREATE
+        TABLE IF NOT EXISTS`` silently even when the shape differs). To
+        rebuild from scratch, drop the table manually first.
+        """
+        if dimension <= 0:
+            raise ValueError(
+                f"dimension must be a positive int; got {dimension!r}"
+            )
+        meta_types = metadata_column_types or {}
+        qualified = f"{self.schema_name}.{self.table}"
+
+        stmts: list[str] = ["CREATE EXTENSION IF NOT EXISTS lakebase_vector CASCADE;"]
+        if self.tsvector_column:
+            stmts.append("CREATE EXTENSION IF NOT EXISTS lakebase_text;")
+
+        cols: list[str] = [
+            f"{self.id_column} {id_column_type} PRIMARY KEY",
+            f"{self.content_column} text NOT NULL",
+            f"{self.embedding_column} vector({dimension})",
+        ]
+        for col in self.metadata_columns or []:
+            col_type = meta_types.get(col, "text")
+            cols.append(f"{col} {col_type}")
+        if self.tsvector_column:
+            cols.append(
+                f"{self.tsvector_column} tsvector GENERATED ALWAYS AS "
+                f"(to_tsvector('{self.tsv_language}', {self.content_column})) STORED"
+            )
+        stmts.append(
+            f"CREATE TABLE IF NOT EXISTS {qualified} (\n    "
+            + ",\n    ".join(cols)
+            + "\n);"
+        )
+
+        # ANN index — name follows the same convention the tool uses when
+        # reading back (`<table>_<column>_ann`). vector_cosine_ops matches
+        # the default `distance_metric`; overridden below when needed.
+        ops_map = {
+            "cosine": "vector_cosine_ops",
+            "l2": "vector_l2_ops",
+            "ip": "vector_ip_ops",
+        }
+        ops = ops_map[self.distance_metric]
+        ann_index = f"{self.table}_{self.embedding_column}_ann"
+        stmts.append(
+            f"CREATE INDEX IF NOT EXISTS {ann_index} "
+            f"ON {qualified} USING lakebase_ann ({self.embedding_column} {ops});"
+        )
+        if self.tsvector_column:
+            bm25_index = f"{self.table}_{self.tsvector_column}_bm25"
+            stmts.append(
+                f"CREATE INDEX IF NOT EXISTS {bm25_index} "
+                f"ON {qualified} USING lakebase_bm25 ({self.tsvector_column});"
+            )
+        self.database.execute_sql(stmts)
 
 
 class LakebaseRetrieverModel(BaseRetrieverModel):
