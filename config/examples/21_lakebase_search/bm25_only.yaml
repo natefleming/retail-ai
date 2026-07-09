@@ -1,3 +1,5 @@
+# yaml-language-server: $schema=../../../schemas/model_config_schema.json
+
 # Pure BM25 Lakebase Search — lexical / keyword retrieval, no embedding calls.
 #
 # Use when you want exact-term matching and don't need semantic recall — e.g.,
@@ -8,14 +10,25 @@
 # `embedding_column` even in BM25-only mode. The column simply isn't touched
 # during retrieval — but the retriever validates its presence at config load.
 
+parameters:
+  lakebase_project:
+    description: Lakebase autoscaling Postgres project id
+    default: my-lakebase-project
+  schema_name:
+    description: Postgres schema holding the KB table
+    default: dao_ai_kb
+  table_name:
+    description: Table with tsvector column
+    default: kb_articles
+
 resources:
-  llms:
+  models:
     default_llm: &default_llm
       name: databricks-claude-sonnet-4-5
 
   databases:
     kb_lakebase: &kb_lakebase
-      project: my-lakebase-project
+      project: ${var.lakebase_project}
 
 tools:
   kb_lexical: &kb_lexical
@@ -25,13 +38,14 @@ tools:
       retriever:
         vector_store:
           database: *kb_lakebase
-          schema_name: dao_ai_kb
-          table: kb_articles
+          schema_name: ${var.schema_name}
+          table: ${var.table_name}
           content_column: passage
           embedding_column: embedding             # required by schema, unused at query time
           tsvector_column: passage_tsv            # required for BM25
           embedding_model: databricks-gte-large-en
-          metadata_columns: [category]
+          metadata_columns:
+            - category
         search_parameters:
           query_type: BM25
           num_results: 5

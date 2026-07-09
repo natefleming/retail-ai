@@ -1,3 +1,5 @@
+# yaml-language-server: $schema=../../../schemas/model_config_schema.json
+
 # Hybrid Lakebase Search — dense ANN + BM25 fused via Reciprocal Rank Fusion.
 #
 # Fetches top-k from each mode independently, then combines them client-side
@@ -12,14 +14,25 @@
 #   CREATE INDEX kb_articles_passage_tsv_bm25
 #     ON kb_articles USING lakebase_bm25 (passage_tsv);
 
+parameters:
+  lakebase_project:
+    description: Lakebase autoscaling Postgres project id
+    default: my-lakebase-project
+  schema_name:
+    description: Postgres schema holding the KB table
+    default: dao_ai_kb
+  table_name:
+    description: Table with vector + tsvector columns
+    default: kb_articles
+
 resources:
-  llms:
+  models:
     default_llm: &default_llm
       name: databricks-claude-sonnet-4-5
 
   databases:
     kb_lakebase: &kb_lakebase
-      project: my-lakebase-project
+      project: ${var.lakebase_project}
 
 tools:
   kb_hybrid: &kb_hybrid
@@ -29,8 +42,8 @@ tools:
       retriever:
         vector_store:
           database: *kb_lakebase
-          schema_name: dao_ai_kb
-          table: kb_articles
+          schema_name: ${var.schema_name}
+          table: ${var.table_name}
           content_column: passage
           embedding_column: embedding
           tsvector_column: passage_tsv            # required for HYBRID / BM25
@@ -38,7 +51,9 @@ tools:
           #   <schema_name>.<table>_<tsvector_column>_bm25
           # Set it explicitly here to override that convention.
           embedding_model: databricks-gte-large-en
-          metadata_columns: [category, source_url]
+          metadata_columns:
+            - category
+            - source_url
         search_parameters:
           query_type: HYBRID                      # ANN | BM25 | HYBRID
           num_results: 5

@@ -1,3 +1,5 @@
+# yaml-language-server: $schema=../../../schemas/model_config_schema.json
+
 # Lakebase Search with static filters + MLflow trace_location.
 #
 # Demonstrates:
@@ -10,18 +12,61 @@
 #     land alongside the outer tool span so downstream trace tooling
 #     (analyze-mlflow-trace, retrieving-mlflow-traces) works unmodified.
 
+parameters:
+  lakebase_project:
+    description: Lakebase autoscaling Postgres project id
+    default: my-lakebase-project
+  schema_name:
+    description: Postgres schema holding the KB table
+    default: dao_ai_kb
+  table_name:
+    description: Table with vector + tsvector columns
+    default: kb_articles
+  trace_catalog:
+    description: UC catalog where OTEL trace Delta tables live
+    default: my_catalog
+  trace_schema:
+    description: UC schema where OTEL trace Delta tables live
+    default: default
+  trace_warehouse_id:
+    description: SQL warehouse id used by MLflow to materialize trace tables
+    default: my-warehouse-id
+  secret_scope:
+    description: Databricks secret scope holding the SP client id / secret / host
+    default: my_secret_scope
+
+# Anchored option lists — dao-ai resolves the first entry that yields a value
+# (secret scope preferred; falls back to env var for local dev).
+variables:
+  client_id: &client_id
+    options:
+      - scope: ${var.secret_scope}
+        secret: SP_CLIENT_ID
+      - env: SP_CLIENT_ID
+
+  client_secret: &client_secret
+    options:
+      - scope: ${var.secret_scope}
+        secret: SP_CLIENT_SECRET
+      - env: SP_CLIENT_SECRET
+
+  workspace_host: &workspace_host
+    options:
+      - scope: ${var.secret_scope}
+        secret: DATABRICKS_HOST
+      - env: DATABRICKS_HOST
+
 resources:
-  llms:
+  models:
     default_llm: &default_llm
       name: databricks-claude-sonnet-4-5
 
   databases:
     kb_lakebase: &kb_lakebase
-      project: my-lakebase-project
-      # For deployment inside a Databricks App, use a service principal:
-      # client_id:     { scope: my_scope, secret: SP_CLIENT_ID }
-      # client_secret: { scope: my_scope, secret: SP_CLIENT_SECRET }
-      # workspace_host: { scope: my_scope, secret: WORKSPACE_HOST }
+      project: ${var.lakebase_project}
+      client_id: *client_id
+      client_secret: *client_secret
+      workspace_host: *workspace_host
 
 tools:
   # Only surface published, high-priority auth-related docs to the agent.
@@ -34,13 +79,17 @@ tools:
       retriever:
         vector_store:
           database: *kb_lakebase
-          schema_name: dao_ai_kb
-          table: kb_articles
+          schema_name: ${var.schema_name}
+          table: ${var.table_name}
           content_column: passage
           embedding_column: embedding
           tsvector_column: passage_tsv
           embedding_model: databricks-gte-large-en
-          metadata_columns: [category, status, priority, source_url]
+          metadata_columns:
+            - category
+            - status
+            - priority
+            - source_url
         search_parameters:
           query_type: HYBRID
           num_results: 5
@@ -50,7 +99,9 @@ tools:
             # IN operator — dict-form with `values` list.
             status:
               op: in
-              values: [published, reviewed]
+              values:
+                - published
+                - reviewed
             # Comparison — dict-form with `value` scalar.
             priority:
               op: ">="
@@ -88,7 +139,7 @@ app:
   #   <catalog>.<schema>.<prefix>_otel_{spans,logs,metrics,annotations}
   trace_location:
     schema:
-      catalog_name: my_catalog
-      schema_name: default
-    warehouse: <sql-warehouse-id>
+      catalog_name: ${var.trace_catalog}
+      schema_name: ${var.trace_schema}
+    warehouse: ${var.trace_warehouse_id}
     table_prefix: lakebase_filters_example
