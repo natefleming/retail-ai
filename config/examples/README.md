@@ -13,6 +13,7 @@ members of the tool config — no factory import path required. The original
 | --- | --- | --- |
 | Genie | `type: factory`, `name: dao_ai.tools.create_genie_tool`, `args: { genie_room: ..., lru_cache_parameters: ... }` | `type: genie`, `genie_room: ...`, `lru_cache: ...` |
 | Vector Search | `type: factory`, `name: dao_ai.tools.create_vector_search_tool`, `args: { retriever: ... }` | `type: vector_search`, `retriever: ...` |
+| Lakebase Search | *(no factory equivalent — first-class only)* | `type: lakebase_search`, `vector_store: ...` (or `retriever: ...`) |
 | Web Search | `type: factory`, `name: dao_ai.tools.create_search_tool` | `type: search` |
 
 Genie with caching (LRU + context-aware) now lives under a single tool type —
@@ -216,6 +217,18 @@ Or jump directly to the category that matches your current need.
 
 ---
 
+### [21. Lakebase Search](21_lakebase_search/)
+**Retrieval over Databricks Lakebase Postgres**
+- ANN semantic search via `lakebase_vector` + `lakebase_ann`
+- BM25 lexical search via `lakebase_text` + `lakebase_bm25`
+- Hybrid mode with client-side Reciprocal Rank Fusion
+- Filter operator coverage (equality, IN, comparison, LIKE, IS NULL)
+- `trace_location` example shipping OTEL spans to a UC Delta table set
+
+👉 First-class retrieval tool when your source of truth already lives in Lakebase
+
+---
+
 ## 🚀 Quick Start
 
 ### Validate a Configuration
@@ -288,6 +301,9 @@ dao-ai pipeline --deploy --run -c config/examples/07_human_in_the_loop/human_in_
 
 **...define simple tools directly in YAML (inline)**
 → See [`17_parallel_tools/`](17_parallel_tools/)
+
+**...retrieve from a Lakebase Postgres table**
+→ Head to [`21_lakebase_search/`](21_lakebase_search/)
 
 ---
 
@@ -391,6 +407,7 @@ Use MLflow to track agent performance and costs.
 | 15_complete_applications | ⭐⭐⭐⭐⭐ | 6-8 hrs | All above |
 | 16_instructed_retriever | ⭐⭐⭐ | 2 hrs | Vector search setup |
 | 17_parallel_tools | ⭐⭐ | 1 hr | Category 01 |
+| 21_lakebase_search | ⭐⭐⭐ | 1-2 hrs | Lakebase project + `lakebase_vector` / `lakebase_text` extensions enabled |
 
 ---
 

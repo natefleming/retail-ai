@@ -67,6 +67,7 @@ DAO supports several first-class tool types plus an escape hatch for arbitrary f
 |-----------|----------|---------|
 | **Genie** | Natural-language SQL via a Genie space, with optional caching | `type: genie` + `genie_room: *room` |
 | **AI Search** | Semantic / hybrid search over a Databricks AI Search index (formerly Vector Search), with optional instructed retrieval | `type: ai_search` (or legacy `vector_search`) + `retriever: *retriever` |
+| **Lakebase Search** | ANN / BM25 / hybrid (RRF) retrieval over a Databricks Lakebase Postgres table using the `lakebase_vector` and `lakebase_text` extensions | `type: lakebase_search` + `vector_store: *store` (or `retriever: *retriever`) |
 | **Search** | Web search (DuckDuckGo) | `type: search` |
 | **Unity Catalog** | Governed SQL functions | `type: unity_catalog` + `resource: *fn` |
 | **MCP** | External services via Model Context Protocol | `type: mcp` + `connection: *mcp_conn` |
