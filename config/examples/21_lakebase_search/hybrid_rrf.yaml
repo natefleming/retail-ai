@@ -61,10 +61,13 @@ resources:
       client_secret: *client_secret
       workspace_host: *workspace_host
 
-retrievers:
-  kb_hybrid_retriever: &kb_hybrid_retriever
-    type: lakebase_search
-    vector_store:
+  # Register the vector store under `resources.vector_stores` so multiple
+  # retrievers can share one definition (dao-ai 0.1.108+). The `type:`
+  # discriminator selects the concrete class — either `ai_search` (default,
+  # AiSearchVectorStoreModel) or `lakebase_search` (LakebaseVectorStoreModel).
+  vector_stores:
+    kb_hybrid_vs: &kb_hybrid_vs
+      type: lakebase_search
       database: *kb_lakebase
       schema_name: ${var.schema_name}
       table: ${var.table_name}
@@ -78,6 +81,11 @@ retrievers:
       metadata_columns:
         - category
         - source_url
+
+retrievers:
+  kb_hybrid_retriever: &kb_hybrid_retriever
+    type: lakebase_search
+    vector_store: *kb_hybrid_vs                 # reference the registered store
     search_parameters:
       query_type: HYBRID                      # ANN | BM25 | HYBRID
       num_results: 5

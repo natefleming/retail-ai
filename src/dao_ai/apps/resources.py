@@ -217,15 +217,28 @@ def _extract_llm_resources(
 
 
 def _extract_vector_search_resources(
-    vector_stores: dict[str, VectorStoreModel],
+    vector_stores: dict[str, Any],
 ) -> list[dict[str, Any]]:
-    """Extract vector search index resources from VectorStoreModels.
+    """Extract AI Search vector-search-index resources from vector stores.
+
+    ``vector_stores`` is the discriminated-union dict, so entries may be
+    either :class:`AiSearchVectorStoreModel` or
+    :class:`LakebaseVectorStoreModel`. Only the former produces a
+    ``vector-search-index`` bundle resource — Lakebase entries authenticate
+    via their nested ``DatabaseModel`` at runtime and don't have an
+    equivalent Databricks-App resource type.
 
     Skips resources where ``on_behalf_of_user=True`` (served via
     ``user_api_scopes``).
     """
+    from dao_ai.config import AiSearchVectorStoreModel
+
     resources: list[dict[str, Any]] = []
     for key, vs in vector_stores.items():
+        if not isinstance(vs, AiSearchVectorStoreModel):
+            # LakebaseVectorStoreModel entries emit nothing here — their
+            # auth flows through ``vs.database`` at runtime.
+            continue
         if vs.index is None:
             continue
         if vs.on_behalf_of_user:

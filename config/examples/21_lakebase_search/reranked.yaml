@@ -60,11 +60,9 @@ resources:
       client_secret: *client_secret
       workspace_host: *workspace_host
 
-retrievers:
-  # Cast a wide net, then rerank down to the top 5 most relevant.
-  kb_reranked_retriever: &kb_reranked_retriever
-    type: lakebase_search
-    vector_store:
+  vector_stores:
+    kb_reranked_vs: &kb_reranked_vs
+      type: lakebase_search
       database: *kb_lakebase
       schema_name: ${var.schema_name}
       table: ${var.table_name}
@@ -73,6 +71,24 @@ retrievers:
       tsvector_column: passage_tsv
       embedding_model: databricks-gte-large-en
       metadata_columns: [category, priority]
+
+    # Same table, narrower metadata surface for the ANN-only variant.
+    kb_reranked_default_vs: &kb_reranked_default_vs
+      type: lakebase_search
+      database: *kb_lakebase
+      schema_name: ${var.schema_name}
+      table: ${var.table_name}
+      content_column: passage
+      embedding_column: embedding
+      tsvector_column: passage_tsv
+      embedding_model: databricks-gte-large-en
+      metadata_columns: [category]
+
+retrievers:
+  # Cast a wide net, then rerank down to the top 5 most relevant.
+  kb_reranked_retriever: &kb_reranked_retriever
+    type: lakebase_search
+    vector_store: *kb_reranked_vs
     search_parameters:
       query_type: HYBRID
       num_results: 20                # broad recall — cast the wide net
@@ -84,15 +100,7 @@ retrievers:
   # (returns all num_results docs, just reordered by rerank score).
   kb_reranked_default_retriever: &kb_reranked_default_retriever
     type: lakebase_search
-    vector_store:
-      database: *kb_lakebase
-      schema_name: ${var.schema_name}
-      table: ${var.table_name}
-      content_column: passage
-      embedding_column: embedding
-      tsvector_column: passage_tsv
-      embedding_model: databricks-gte-large-en
-      metadata_columns: [category]
+    vector_store: *kb_reranked_default_vs
     search_parameters:
       query_type: ANN
       num_results: 5
