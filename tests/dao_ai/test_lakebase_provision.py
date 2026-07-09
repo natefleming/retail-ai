@@ -1,4 +1,4 @@
-"""Unit tests for `DatabaseModel.execute_sql` + `LakebaseVectorStoreModel.provision`.
+"""Unit tests for `DatabaseModel.execute_update` + `LakebaseVectorStoreModel.provision`.
 
 Both helpers wrap `PostgresPoolManager.get_pool(db).connection()`.
 We mock the pool + cursor and assert the exact SQL statements emitted.
@@ -28,7 +28,7 @@ def _db() -> DatabaseModel:
 
 
 @pytest.mark.unit
-class TestExecuteSql:
+class TestExecuteUpdate:
     def test_single_statement(self) -> None:
         cur = MagicMock()
         pool, conn = _mock_pool(cur)
@@ -36,7 +36,7 @@ class TestExecuteSql:
             "dao_ai.memory.postgres.PostgresPoolManager.get_pool",
             return_value=pool,
         ):
-            _db().execute_sql("SELECT 1")
+            _db().execute_update("SELECT 1")
         cur.execute.assert_called_once_with("SELECT 1")
         conn.commit.assert_called_once()
         conn.rollback.assert_not_called()
@@ -48,7 +48,7 @@ class TestExecuteSql:
             "dao_ai.memory.postgres.PostgresPoolManager.get_pool",
             return_value=pool,
         ):
-            _db().execute_sql(["CREATE EXTENSION x;", "CREATE TABLE y (id int);"])
+            _db().execute_update(["CREATE EXTENSION x;", "CREATE TABLE y (id int);"])
         assert cur.execute.call_count == 2
         cur.execute.assert_any_call("CREATE EXTENSION x;")
         cur.execute.assert_any_call("CREATE TABLE y (id int);")
@@ -63,7 +63,7 @@ class TestExecuteSql:
             return_value=pool,
         ):
             with pytest.raises(RuntimeError, match="boom"):
-                _db().execute_sql("bad sql")
+                _db().execute_update("bad sql")
         conn.commit.assert_not_called()
         conn.rollback.assert_called_once()
 
@@ -74,7 +74,7 @@ class TestExecuteSql:
             "dao_ai.memory.postgres.PostgresPoolManager.get_pool",
             return_value=pool,
         ):
-            _db().execute_sql([])
+            _db().execute_update([])
         cur.execute.assert_not_called()
         # No pool acquisition either
         pool.connection.assert_not_called()
@@ -86,12 +86,116 @@ class TestExecuteSql:
             "dao_ai.memory.postgres.PostgresPoolManager.get_pool",
             return_value=pool,
         ):
-            _db().execute_sql("SELECT %s", parameters=(42,))
+            _db().execute_update("SELECT %s", parameters=(42,))
         cur.execute.assert_called_once_with("SELECT %s", (42,))
 
     def test_parameters_with_sequence_rejected(self) -> None:
         with pytest.raises(ValueError, match="single string"):
-            _db().execute_sql(["a", "b"], parameters=(1,))
+            _db().execute_update(["a", "b"], parameters=(1,))
+
+
+@pytest.mark.unit
+class TestExecuteQuery:
+    def test_returns_rows_from_select(self) -> None:
+        cur = MagicMock()
+        cur.description = [("id",), ("name",)]
+        cur.fetchall.return_value = [{"id": 1, "name": "a"}, {"id": 2, "name": "b"}]
+        pool, _ = _mock_pool(cur)
+        with patch(
+            "dao_ai.memory.postgres.PostgresPoolManager.get_pool",
+            return_value=pool,
+        ):
+            rows = _db().execute_query("SELECT id, name FROM t")
+        assert rows == [{"id": 1, "name": "a"}, {"id": 2, "name": "b"}]
+        cur.execute.assert_called_once_with("SELECT id, name FROM t")
+
+    def test_empty_result_returns_empty_list(self) -> None:
+        cur = MagicMock()
+        cur.description = None  # e.g. SELECT with no rows on some drivers
+        pool, _ = _mock_pool(cur)
+        with patch(
+            "dao_ai.memory.postgres.PostgresPoolManager.get_pool",
+            return_value=pool,
+        ):
+            rows = _db().execute_query("SELECT id FROM t WHERE FALSE")
+        assert rows == []
+
+    def test_parameters_forwarded(self) -> None:
+        cur = MagicMock()
+        cur.description = [("id",)]
+        cur.fetchall.return_value = [{"id": 7}]
+        pool, _ = _mock_pool(cur)
+        with patch(
+            "dao_ai.memory.postgres.PostgresPoolManager.get_pool",
+            return_value=pool,
+        ):
+            rows = _db().execute_query("SELECT id FROM t WHERE id = %s", parameters=(7,))
+        cur.execute.assert_called_once_with(
+            "SELECT id FROM t WHERE id = %s", (7,)
+        )
+        assert rows == [{"id": 7}]
+
+
+@pytest.mark.unit
+class TestExecuteMany:
+    def test_forwards_to_executemany(self) -> None:
+        cur = MagicMock()
+        pool, conn = _mock_pool(cur)
+        rows = [(1, "a"), (2, "b"), (3, "c")]
+        with patch(
+            "dao_ai.memory.postgres.PostgresPoolManager.get_pool",
+            return_value=pool,
+        ):
+            _db().execute_many("INSERT INTO t (id, name) VALUES (%s, %s)", rows)
+        cur.executemany.assert_called_once_with(
+            "INSERT INTO t (id, name) VALUES (%s, %s)", rows
+        )
+        conn.commit.assert_called_once()
+        conn.rollback.assert_not_called()
+
+    def test_rollback_on_error(self) -> None:
+        cur = MagicMock()
+        cur.executemany.side_effect = RuntimeError("boom")
+        pool, conn = _mock_pool(cur)
+        with patch(
+            "dao_ai.memory.postgres.PostgresPoolManager.get_pool",
+            return_value=pool,
+        ):
+            with pytest.raises(RuntimeError, match="boom"):
+                _db().execute_many("bad sql", [(1,)])
+        conn.commit.assert_not_called()
+        conn.rollback.assert_called_once()
+
+
+@pytest.mark.unit
+class TestConnect:
+    def test_yields_cursor_and_commits(self) -> None:
+        cur = MagicMock()
+        pool, conn = _mock_pool(cur)
+        with patch(
+            "dao_ai.memory.postgres.PostgresPoolManager.get_pool",
+            return_value=pool,
+        ):
+            with _db().connect() as ctx_cur:
+                assert ctx_cur is cur
+                ctx_cur.execute("SELECT 1")
+        cur.execute.assert_called_once_with("SELECT 1")
+        conn.commit.assert_called_once()
+        conn.rollback.assert_not_called()
+
+    def test_rollback_on_error(self) -> None:
+        cur = MagicMock()
+        pool, conn = _mock_pool(cur)
+        with patch(
+            "dao_ai.memory.postgres.PostgresPoolManager.get_pool",
+            return_value=pool,
+        ):
+            with pytest.raises(RuntimeError, match="boom"):
+                with _db().connect() as ctx_cur:
+                    ctx_cur.execute("SELECT 1")
+                    raise RuntimeError("boom")
+        conn.commit.assert_not_called()
+        conn.rollback.assert_called_once()
 
 
 def _vs(**overrides) -> LakebaseVectorStoreModel:

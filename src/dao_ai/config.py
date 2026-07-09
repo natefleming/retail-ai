@@ -5,6 +5,7 @@ import re
 import sys
 from abc import ABC, abstractmethod
 from enum import Enum
+from contextlib import contextmanager
 from os import PathLike
 from pathlib import Path
 from typing import (
@@ -13,6 +14,7 @@ from typing import (
     Any,
     Callable,
     Final,
+    Iterable,
     Iterator,
     Literal,
     Mapping,
@@ -3793,12 +3795,12 @@ class DatabaseModel(IsDatabricksResource):
             provider.create_lakebase_autoscaling(self)
             provider.create_lakebase_autoscaling_role(self)
 
-    def execute_sql(
+    def execute_update(
         self,
         statements: str | Sequence[str],
         parameters: Sequence[Any] | None = None,
     ) -> None:
-        """Execute one or more SQL statements against this database.
+        """Execute one or more write SQL statements against this database.
 
         Convenience wrapper around the synchronous connection pool
         (:class:`dao_ai.memory.postgres.PostgresPoolManager`). Runs
@@ -3806,6 +3808,9 @@ class DatabaseModel(IsDatabricksResource):
         rolls back on error. Intended for ad-hoc DDL/DML from notebooks
         and setup scripts — not a substitute for a proper ORM or
         parameterized bulk-write path.
+
+        For read statements (SELECT, RETURNING, SHOW) use
+        :meth:`execute_query` instead — this method drops any result set.
 
         Args:
             statements: A single SQL string OR a sequence of SQL strings.
@@ -3840,6 +3845,110 @@ class DatabaseModel(IsDatabricksResource):
                             cur.execute(stmt, parameters)
                         else:
                             cur.execute(stmt)
+                conn.commit()
+            except Exception:
+                conn.rollback()
+                raise
+
+    def execute_query(
+        self,
+        query: str,
+        parameters: Sequence[Any] | None = None,
+    ) -> list[dict[str, Any]]:
+        """Run a read query and return the fetched rows.
+
+        Companion to :meth:`execute_update` for the read direction. Takes
+        exactly one SELECT-style statement and returns its rows as
+        ``list[dict]`` keyed by column name (Lakebase pools use
+        ``row_factory=dict_row``). Returns an empty list when the query
+        yields no rows.
+
+        Args:
+            query: The SQL query text (single statement).
+            parameters: Optional positional parameters passed to
+                ``cursor.execute()``.
+        """
+        from dao_ai.memory.postgres import PostgresPoolManager
+
+        pool = PostgresPoolManager.get_pool(self)
+        with pool.connection() as conn, conn.cursor() as cur:
+            if parameters is not None:
+                cur.execute(query, parameters)
+            else:
+                cur.execute(query)
+            if cur.description is None:
+                return []
+            return list(cur.fetchall())
+
+    def execute_many(
+        self,
+        query: str,
+        param_seq: Iterable[Sequence[Any]],
+    ) -> None:
+        """Execute a parameterized write statement across many rows.
+
+        Wraps psycopg's ``cursor.executemany()`` — one server round-trip
+        for all rows, much faster than a Python-level loop of
+        ``execute_update`` calls. Intended for bulk INSERT / UPDATE
+        with pre-computed parameter tuples.
+
+        Runs inside a single transaction. Commits on success, rolls
+        back on error.
+
+        .. code-block:: python
+
+            database.execute_many(
+                "UPDATE kb_articles SET embedding = %s::vector WHERE id = %s",
+                [(vec, row_id) for row_id, vec in zip(ids, vectors)],
+            )
+        """
+        from dao_ai.memory.postgres import PostgresPoolManager
+
+        pool = PostgresPoolManager.get_pool(self)
+        with pool.connection() as conn:
+            try:
+                with conn.cursor() as cur:
+                    cur.executemany(query, param_seq)
+                conn.commit()
+            except Exception:
+                conn.rollback()
+                raise
+
+    @contextmanager
+    def connect(self) -> Iterator[Any]:
+        """Yield a psycopg cursor scoped to a single transaction.
+
+        Companion escape hatch to :meth:`execute_update` /
+        :meth:`execute_query` for the cases where those aren't enough —
+        multi-statement transactions that need row-level control,
+        streaming ``fetchmany`` loops, ``executemany`` on precomputed
+        rows, or any workflow psycopg handles natively.
+
+        Auto-commits when the ``with`` block exits normally and rolls
+        back on any exception. Hides the
+        :class:`dao_ai.memory.postgres.PostgresPoolManager` import so
+        notebook code has a single-line entry point:
+
+        .. code-block:: python
+
+            with database.connect() as cur:
+                cur.execute("SELECT id, passage FROM t WHERE embedding IS NULL")
+                rows = cur.fetchall()
+                if rows:
+                    vectors = embedder.embed_documents([r["passage"] for r in rows])
+                    for row, vec in zip(rows, vectors):
+                        cur.execute(
+                            "UPDATE t SET embedding = %s::vector WHERE id = %s",
+                            (vec, row["id"]),
+                        )
+        """
+        from dao_ai.memory.postgres import PostgresPoolManager
+
+        pool = PostgresPoolManager.get_pool(self)
+        with pool.connection() as conn:
+            try:
+                with conn.cursor() as cur:
+                    yield cur
                 conn.commit()
             except Exception:
                 conn.rollback()
@@ -4865,7 +4974,7 @@ class LakebaseVectorStoreModel(BaseModel):
                 f"CREATE INDEX IF NOT EXISTS {bm25_index} "
                 f"ON {qualified} USING lakebase_bm25 ({self.tsvector_column});"
             )
-        self.database.execute_sql(stmts)
+        self.database.execute_update(stmts)
 
 
 class LakebaseRetrieverModel(BaseRetrieverModel):
