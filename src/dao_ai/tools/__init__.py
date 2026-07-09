@@ -38,6 +38,7 @@ from dao_ai.tools.time import (
     time_until_tool,
 )
 from dao_ai.tools.unity_catalog import create_uc_tools
+from dao_ai.tools.lakebase_search import create_lakebase_search_tool
 from dao_ai.tools.vector_search import (
     create_ai_search_tool,
     create_vector_search_tool,
@@ -80,6 +81,7 @@ __all__ = [
     "create_tools",
     "create_uc_tools",
     "create_ai_search_tool",
+    "create_lakebase_search_tool",
     "create_vector_search_tool",
     "create_visualization_tool",
     "current_time_tool",
