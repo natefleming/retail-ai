@@ -661,6 +661,58 @@ For filter-heavy queries (*"Milwaukee power tools under $100"*), layer an **inst
 
 **Learn more:** [`docs/key-capabilities.md`](key-capabilities.md) · [`config/examples/03_reranking/`](../config/examples/03_reranking/) · [`config/examples/16_instructed_retriever/`](../config/examples/16_instructed_retriever/)
 
+### How do I use Lakebase Postgres as the retrieval backend instead of AI Search?
+
+Use `type: lakebase_search` on the retriever and register the table under `resources.vector_stores` alongside your AI Search stores — the two backends share the `resources.vector_stores` dict via a discriminated union.
+
+```yaml
+resources:
+  databases:
+    kb_lakebase: &kb_lakebase
+      project: my-lakebase-project
+      client_id: *client_id
+      client_secret: *client_secret
+
+  vector_stores:
+    kb_hybrid_vs: &kb_hybrid_vs
+      type: lakebase_search             # required for the Lakebase branch
+      database: *kb_lakebase
+      table: kb_articles
+      content_column: passage
+      embedding_column: embedding
+      tsvector_column: passage_tsv      # required for BM25 / HYBRID
+      embedding_model: databricks-gte-large-en
+      metadata_columns: [category, priority]
+
+retrievers:
+  kb_retriever:
+    type: lakebase_search
+    vector_store: *kb_hybrid_vs
+    search_parameters:
+      query_type: HYBRID                # ANN + BM25 fused via RRF
+      num_results: 20
+    rerank:
+      model: ms-marco-MiniLM-L-12-v2    # same FlashRank shape as ai_search
+      top_n: 5
+```
+
+**Table setup.** dao-ai ships two helpers so the notebook doesn't need to hand-write DDL:
+
+- `LakebaseVectorStoreModel.provision(dimension, metadata_column_types=None)` — idempotently creates the `lakebase_vector` / `lakebase_text` extensions, the table (with generated `passage_tsv` when a tsvector column is configured), and the `lakebase_ann` + `lakebase_bm25` indexes.
+- `dao_ai.lakebase.backfill_embeddings(vector_store, embedder=None)` — encodes + populates rows where `embedding IS NULL`. Defaults `embedder` to `vector_store.embedding_model.as_embeddings_model()` so write-side and read-side embeddings stay consistent.
+
+```python
+retriever.vector_store.provision(dimension=1024, metadata_column_types={"priority": "int"})
+retriever.vector_store.database.execute_update(Path("data/kb_articles.sql").read_text())
+
+from dao_ai.lakebase import backfill_embeddings
+backfill_embeddings(retriever.vector_store)
+```
+
+When to reach for `lakebase_search`: your source of truth already lives in Postgres, you want hybrid ANN + BM25 in a single call without a separate vector index, or you want to share auth + connection pooling with existing Lakebase workloads. The retriever exposes the same `filters:` and `rerank:` shape `ai_search` uses, so agent code doesn't change when you switch backends.
+
+**Learn more:** [`config/examples/21_lakebase_search/`](../config/examples/21_lakebase_search/) · [Lab 11 — Lakebase Search Retrieval](https://github.com/natefleming/dao-ai-workshop/tree/main/L200-real-agents/lab-11-lakebase-search)
+
 ### How do I run long-running tasks?
 
 Enable **background agents** via `app.background:` on the AppConfig. The deployed app then exposes an OpenAI Responses-API-shaped kickoff / poll / cancel surface: a POST kicks off work and returns immediately with a `response_id`; subsequent GETs poll for status; a DELETE cancels an in-flight run. Response state is persisted in a Lakebase-backed responses store so a run survives app restarts.
