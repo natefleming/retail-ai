@@ -175,9 +175,11 @@ def _collect_resources_with_obo_flag(
         return ()
 
     llms: Sequence[InferenceEndpointModel] = list(config.resources.models.values())
-    vector_indexes: Sequence[VectorStoreModel] = list(
-        config.resources.vector_stores.values()
-    )
+    # Each entry is either AiSearchVectorStoreModel (IsDatabricksResource
+    # directly) or LakebaseVectorStoreModel (delegates auth + as_resources
+    # to its nested DatabaseModel). Both quack as IsDatabricksResource
+    # via delegation for the deploy iteration below.
+    vector_indexes: Sequence[Any] = list(config.resources.vector_stores.values())
     warehouses: Sequence[WarehouseModel] = list(config.resources.warehouses.values())
     genie_rooms: Sequence[GenieRoomModel] = list(config.resources.genie_rooms.values())
     functions: Sequence[FunctionModel] = list(config.resources.functions.values())

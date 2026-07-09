@@ -2966,13 +2966,16 @@ class SkillModel(BaseModel):
         )
 
 
-class AiSearchIndexModel(IsDatabricksResource, ManagedResource):
+class AiSearchVectorStoreModel(IsDatabricksResource, ManagedResource):
     """
-    Configuration model for a Databricks AI Search index.
+    Configuration model for a Databricks AI Search vector store.
 
-    (Formerly ``VectorStoreModel``. Databricks rebranded Vector Search to
-    AI Search; the old class name remains as an alias defined at the end
-    of the class body for backwards compatibility.)
+    (Formerly ``VectorStoreModel`` / ``AiSearchIndexModel``. Databricks
+    rebranded Vector Search to AI Search; ``AiSearchVectorStoreModel`` is
+    the current name — chosen to parallel ``LakebaseVectorStoreModel`` so
+    both retriever backends can co-exist under ``resources.vector_stores``.
+    Both legacy names remain as aliases defined at the end of the class
+    body for backwards compatibility.)
 
     Supports two modes:
     1. **Use Existing Index**: Provide only `index` (fully qualified name).
@@ -3045,6 +3048,13 @@ class AiSearchIndexModel(IsDatabricksResource, ManagedResource):
     doc_uri: Optional[str] = Field(
         default=None,
         description="Column name containing document URIs for provenance tracking.",
+    )
+    # Discriminator field for the ``AnyVectorStore`` union. Plain-string
+    # Literal (not the enum instance) to keep yaml.safe_dump round-tripping
+    # clean — same pattern as ``AnyRetriever``.
+    type: Literal["ai_search"] = Field(
+        default="ai_search",
+        description="Discriminator. Must be 'ai_search' (or omitted — defaults).",
     )
 
     _index_details: Optional[dict[str, Any]] = PrivateAttr(default=None)
@@ -3319,9 +3329,11 @@ class AiSearchIndexModel(IsDatabricksResource, ManagedResource):
         provider.create_vector_store(self)
 
 
-# Backwards-compatible alias — Vector Search naming will eventually be
-# deprecated. Both names refer to the same class.
-VectorStoreModel = AiSearchIndexModel
+# Backwards-compatible aliases — both legacy names point at the same class.
+# Python code importing either continues to work. Prefer
+# ``AiSearchVectorStoreModel`` in new code.
+AiSearchIndexModel = AiSearchVectorStoreModel
+VectorStoreModel = AiSearchVectorStoreModel
 
 
 class ConnectionModel(IsDatabricksResource, HasFullName):
@@ -4796,6 +4808,13 @@ class LakebaseVectorStoreModel(BaseModel):
 
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
 
+    # Discriminator field for the ``AnyVectorStore`` union. Plain-string
+    # Literal to keep yaml.safe_dump round-tripping clean — same pattern
+    # as ``AnyRetriever``.
+    type: Literal["lakebase_search"] = Field(
+        default="lakebase_search",
+        description="Discriminator. Must be 'lakebase_search'.",
+    )
     database: DatabaseModel = Field(
         description=(
             "Lakebase (or PostgreSQL) database connection. Reuses the "
@@ -4875,6 +4894,27 @@ class LakebaseVectorStoreModel(BaseModel):
                 f"{self.schema_name}.{self.table}_{self.tsvector_column}_bm25"
             )
         return self
+
+    # -- IsDatabricksResource-shaped delegation --------------------------
+    # LakebaseVectorStoreModel is not itself a Databricks resource — its
+    # auth genuinely lives on the nested ``database``. Delegating the
+    # three IsDatabricksResource members that deploy paths iterate
+    # (``as_resources()``, ``api_scopes``, ``on_behalf_of_user``) keeps
+    # ``resources.vector_stores`` polymorphic without lying about class
+    # identity or forcing multiple inheritance. Callers that need to
+    # dispatch further (e.g. only emit ``vector-search-index`` bundle
+    # resources for AI Search) still do so via ``isinstance``.
+
+    @property
+    def on_behalf_of_user(self) -> bool:
+        return self.database.on_behalf_of_user
+
+    @property
+    def api_scopes(self) -> Sequence[str]:
+        return self.database.api_scopes
+
+    def as_resources(self) -> Sequence["DatabricksResource"]:
+        return self.database.as_resources()
 
     def provision(
         self,
@@ -5045,6 +5085,40 @@ AnyRetriever: TypeAlias = Annotated[
         Annotated[LakebaseRetrieverModel, Tag(RetrieverType.LAKEBASE_SEARCH.value)],
     ],
     Discriminator(_retriever_discriminator),
+]
+
+
+def _vector_store_discriminator(v: Any) -> str:
+    """Callable discriminator for :data:`AnyVectorStore`.
+
+    Mirrors :func:`_retriever_discriminator`. Defaults to ``"ai_search"``
+    when the ``type`` field is absent — load-bearing back-compat hook
+    that lets existing YAML ``resources.vector_stores:`` entries (which
+    never specified ``type:``) keep parsing as
+    :class:`AiSearchVectorStoreModel`.
+    """
+    if isinstance(v, (AiSearchVectorStoreModel, LakebaseVectorStoreModel)):
+        return v.type if isinstance(v.type, str) else v.type.value
+    if isinstance(v, dict):
+        raw = v.get("type")
+        if raw is None:
+            return "ai_search"
+        return raw.value if hasattr(raw, "value") else str(raw)
+    raise ValueError(
+        f"cannot infer vector_store discriminator from {type(v).__name__}"
+    )
+
+
+# Discriminated union — Pydantic dispatches to the concrete class using
+# the callable above. Existing YAML entries under
+# ``resources.vector_stores`` that omit ``type`` default to
+# :class:`AiSearchVectorStoreModel` for back-compat.
+AnyVectorStore: TypeAlias = Annotated[
+    Union[
+        Annotated[AiSearchVectorStoreModel, Tag("ai_search")],
+        Annotated[LakebaseVectorStoreModel, Tag("lakebase_search")],
+    ],
+    Discriminator(_vector_store_discriminator),
 ]
 
 
@@ -5776,9 +5850,9 @@ class AiSearchToolModel(BaseFunctionModel):
         default=None,
         description="Full retriever configuration with search parameters and reranking. Mutually exclusive with vector_store.",
     )
-    vector_store: Optional[AiSearchIndexModel] = Field(
+    vector_store: Optional[AiSearchVectorStoreModel] = Field(
         default=None,
-        description="Direct AI Search index reference (uses default search parameters). Mutually exclusive with retriever.",
+        description="Direct AI Search vector-store reference (uses default search parameters). Mutually exclusive with retriever.",
     )
     name: Optional[str] = Field(
         default=None,
@@ -9540,9 +9614,16 @@ class ResourcesModel(BaseModel):
             "the legacy key is still accepted via validation alias and will be removed in a future major release."
         ),
     )
-    vector_stores: dict[str, VectorStoreModel] = Field(
+    vector_stores: dict[str, AnyVectorStore] = Field(
         default_factory=dict,
-        description="Vector search index configurations for semantic retrieval.",
+        description=(
+            "Named vector-store configurations, keyed by name. Each entry "
+            "is a discriminated union — the ``type`` field selects between "
+            "``AiSearchVectorStoreModel`` (default, `type: ai_search`) and "
+            "``LakebaseVectorStoreModel`` (`type: lakebase_search`). "
+            "Existing YAMLs that omit ``type`` continue to parse as AI Search "
+            "vector stores."
+        ),
     )
     genie_rooms: dict[str, GenieRoomModel] = Field(
         default_factory=dict,

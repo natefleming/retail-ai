@@ -68,12 +68,9 @@ resources:
       client_secret: *client_secret
       workspace_host: *workspace_host
 
-retrievers:
-  # Only surface published, high-priority auth-related docs to the agent.
-  # Filter columns must appear in vector_store.metadata_columns (allowlist).
-  active_auth_retriever: &active_auth_retriever
-    type: lakebase_search
-    vector_store:
+  vector_stores:
+    active_auth_vs: &active_auth_vs
+      type: lakebase_search
       database: *kb_lakebase
       schema_name: ${var.schema_name}
       table: ${var.table_name}
@@ -86,6 +83,13 @@ retrievers:
         - status
         - priority
         - source_url
+
+retrievers:
+  # Only surface published, high-priority auth-related docs to the agent.
+  # Filter columns must appear in vector_store.metadata_columns (allowlist).
+  active_auth_retriever: &active_auth_retriever
+    type: lakebase_search
+    vector_store: *active_auth_vs
     search_parameters:
       query_type: HYBRID
       num_results: 5

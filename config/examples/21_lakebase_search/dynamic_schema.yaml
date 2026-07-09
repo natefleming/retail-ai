@@ -61,10 +61,9 @@ resources:
       client_secret: *client_secret
       workspace_host: *workspace_host
 
-retrievers:
-  scoped_kb_retriever: &scoped_kb_retriever
-    type: lakebase_search
-    vector_store:
+  vector_stores:
+    hardware_kb_vs: &hardware_kb_vs
+      type: lakebase_search
       database: *kb_lakebase
       schema_name: ${var.schema_name}
       table: ${var.table_name}
@@ -73,11 +72,16 @@ retrievers:
       tsvector_column: passage_tsv
       embedding_model: databricks-gte-large-en
       # metadata_columns still set for Document.metadata surfacing;
-      # columns below is what drives the LLM args_schema.
+      # `columns` on the retriever is what drives the LLM args_schema.
       metadata_columns:
         - category
         - priority
         - source_url
+
+retrievers:
+  scoped_kb_retriever: &scoped_kb_retriever
+    type: lakebase_search
+    vector_store: *hardware_kb_vs
     # Hand-declared columns (Mode A — no Postgres discovery call).
     columns:
       - name: category

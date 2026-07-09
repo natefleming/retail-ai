@@ -55,10 +55,9 @@ resources:
       client_secret: *client_secret
       workspace_host: *workspace_host
 
-retrievers:
-  kb_bm25: &kb_bm25
-    type: lakebase_search
-    vector_store:
+  vector_stores:
+    kb_bm25_vs: &kb_bm25_vs
+      type: lakebase_search
       database: *kb_lakebase
       schema_name: ${var.schema_name}
       table: ${var.table_name}
@@ -68,6 +67,11 @@ retrievers:
       embedding_model: databricks-gte-large-en
       metadata_columns:
         - category
+
+retrievers:
+  kb_bm25: &kb_bm25
+    type: lakebase_search
+    vector_store: *kb_bm25_vs
     search_parameters:
       query_type: BM25
       num_results: 5
