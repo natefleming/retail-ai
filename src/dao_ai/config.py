@@ -4545,6 +4545,151 @@ class RetrieverModel(BaseModel):
         return self
 
 
+class LakebaseVectorStoreModel(BaseModel):
+    """Configuration for a Databricks Lakebase Postgres table used for retrieval.
+
+    Points at a table that already has ``lakebase_vector`` (and optionally
+    ``lakebase_text``) extensions installed and appropriate indexes built.
+    Stage-1 scope: existing tables only; provisioning is deferred.
+
+    Example (existing table, hybrid-ready):
+    ```yaml
+    vector_store:
+      database:
+        project: my-lakebase-project
+      table: kb_articles
+      content_column: passage
+      embedding_column: embedding
+      tsvector_column: passage_tsv
+      embedding_model: databricks-gte-large-en
+      metadata_columns: [category, source_url]
+      bm25_index_name: kb_articles_passage_bm25
+      distance_metric: cosine
+    ```
+    """
+
+    model_config = ConfigDict(use_enum_values=True, extra="forbid")
+
+    database: DatabaseModel = Field(
+        description=(
+            "Lakebase (or PostgreSQL) database connection. Reuses the "
+            "existing DatabaseModel — pool + auth handled by "
+            "``dao_ai.memory.postgres`` pool managers."
+        ),
+    )
+    schema_name: str = Field(
+        default="public",
+        description="Postgres schema containing the retrieval table.",
+    )
+    table: str = Field(
+        description="Source table with vector (and optionally tsvector) columns.",
+    )
+    id_column: str = Field(
+        default="id",
+        description="Primary-key column exposed as ``Document.metadata['id']``.",
+    )
+    content_column: str = Field(
+        description="Text column returned as ``Document.page_content``.",
+    )
+    embedding_column: str = Field(
+        description=(
+            "``VECTOR(N)`` column indexed by ``lakebase_ann``. "
+            "Dimension must match the embedding model."
+        ),
+    )
+    tsvector_column: Optional[str] = Field(
+        default=None,
+        description=(
+            "``tsvector`` column indexed by ``lakebase_bm25``. "
+            "Required for BM25 and HYBRID query types."
+        ),
+    )
+    metadata_columns: Optional[list[str]] = Field(
+        default_factory=list,
+        description="Additional columns surfaced on ``Document.metadata``.",
+    )
+    embedding_model: InferenceEndpointModel = Field(
+        description=(
+            "Embedding endpoint used to embed the query at retrieval time. "
+            "Accepts a bare endpoint name (e.g. ``databricks-gte-large-en``) "
+            "which is coerced to ``InferenceEndpointModel(name=<str>)``."
+        ),
+    )
+    bm25_index_name: Optional[str] = Field(
+        default=None,
+        description=(
+            "Regclass name required by ``to_bm25query(..., <index>::regclass)``. "
+            "Auto-derived from ``<schema>.<table>_<tsvector_column>_bm25`` if omitted."
+        ),
+    )
+    distance_metric: Literal["cosine", "l2", "ip"] = Field(
+        default="cosine",
+        description=(
+            "Vector distance operator: ``cosine`` (``<=>`` / ``vector_cosine_ops``), "
+            "``l2`` (``<->`` / ``vector_l2_ops``), ``ip`` (``<#>`` / ``vector_ip_ops``)."
+        ),
+    )
+    tsv_language: str = Field(
+        default="english",
+        description="Text-search dictionary passed to ``to_tsvector(<lang>, ...)``.",
+    )
+
+    @field_validator("embedding_model", mode="before")
+    @classmethod
+    def _coerce_embedding_model(cls, v: Any) -> Any:
+        """Accept a bare endpoint name string as shorthand."""
+        if isinstance(v, str):
+            return InferenceEndpointModel(name=v)
+        return v
+
+    @model_validator(mode="after")
+    def _derive_bm25_index_name(self) -> Self:
+        if self.bm25_index_name is None and self.tsvector_column is not None:
+            self.bm25_index_name = (
+                f"{self.schema_name}.{self.table}_{self.tsvector_column}_bm25"
+            )
+        return self
+
+
+class LakebaseRetrieverModel(BaseModel):
+    """Full Lakebase retriever config — vector store plus search parameters."""
+
+    model_config = ConfigDict(use_enum_values=True, extra="forbid")
+
+    vector_store: LakebaseVectorStoreModel = Field(
+        description="Lakebase table + columns + embedding model.",
+    )
+    columns: Optional[list[str | ColumnInfo]] = Field(
+        default_factory=list,
+        description=(
+            "Columns to expose to the LLM as filterable + returnable. "
+            "Defaults to ``vector_store.metadata_columns`` when unset."
+        ),
+    )
+    search_parameters: SearchParametersModel = Field(
+        default_factory=SearchParametersModel,
+        description=(
+            "Search tuning. For Lakebase, ``query_type`` accepts "
+            "``'ANN'``, ``'BM25'``, or ``'HYBRID'`` (RRF client-side)."
+        ),
+    )
+
+    @model_validator(mode="after")
+    def _set_default_columns(self) -> Self:
+        if not self.columns:
+            self.columns = list(self.vector_store.metadata_columns or [])
+        return self
+
+    @model_validator(mode="after")
+    def _bm25_requires_tsvector(self) -> Self:
+        qt = (self.search_parameters.query_type or "ANN").upper()
+        if qt in {"BM25", "HYBRID"} and self.vector_store.tsvector_column is None:
+            raise ValueError(
+                f"query_type={qt!r} requires 'tsvector_column' on the vector store."
+            )
+        return self
+
+
 class FunctionType(str, Enum):
     PYTHON = "python"
     FACTORY = "factory"
@@ -4557,6 +4702,7 @@ class FunctionType(str, Enum):
     # tool model; ``vector_search`` will eventually be deprecated.
     VECTOR_SEARCH = "vector_search"
     AI_SEARCH = "ai_search"
+    LAKEBASE_SEARCH = "lakebase_search"
     SEARCH = "search"
     APP = "app"
     SERVING_ENDPOINT = "serving_endpoint"
@@ -5315,6 +5461,67 @@ class AiSearchToolModel(BaseFunctionModel):
 VectorSearchToolModel = AiSearchToolModel
 
 
+class LakebaseSearchToolModel(BaseFunctionModel):
+    """First-class Lakebase retrieval tool that delegates to ``dao_ai.tools.create_lakebase_search_tool``.
+
+    Retrieves from a Databricks Lakebase Postgres table using the
+    ``lakebase_vector`` and (optionally) ``lakebase_text`` extensions.
+    Exactly one of ``retriever`` or ``vector_store`` is required.
+    """
+
+    model_config = ConfigDict(use_enum_values=True, extra="forbid")
+    type: Literal[FunctionType.LAKEBASE_SEARCH] = Field(
+        default=FunctionType.LAKEBASE_SEARCH,
+        description="Function type discriminator. Must be 'lakebase_search'.",
+    )
+    retriever: Optional[LakebaseRetrieverModel] = Field(
+        default=None,
+        description=(
+            "Full Lakebase retriever configuration with search parameters. "
+            "Mutually exclusive with ``vector_store``."
+        ),
+    )
+    vector_store: Optional[LakebaseVectorStoreModel] = Field(
+        default=None,
+        description=(
+            "Direct Lakebase table reference (uses default search parameters). "
+            "Mutually exclusive with ``retriever``."
+        ),
+    )
+    name: Optional[str] = Field(
+        default=None,
+        description="Tool name visible to the LLM.",
+    )
+    description: Optional[str] = Field(
+        default=None,
+        description="Tool description shown to the LLM during function calling.",
+    )
+
+    @model_validator(mode="after")
+    def _retriever_or_vector_store(self) -> Self:
+        if self.retriever is None and self.vector_store is None:
+            raise ValueError(
+                "LakebaseSearchToolModel requires exactly one of 'retriever' or 'vector_store'."
+            )
+        if self.retriever is not None and self.vector_store is not None:
+            raise ValueError(
+                "LakebaseSearchToolModel cannot accept both 'retriever' and 'vector_store'."
+            )
+        return self
+
+    def as_tools(self, **kwargs: Any) -> Sequence[RunnableLike]:
+        from dao_ai.tools import create_lakebase_search_tool
+
+        return [
+            create_lakebase_search_tool(
+                retriever=self.retriever,
+                vector_store=self.vector_store,
+                name=self.name,
+                description=self.description,
+            )
+        ]
+
+
 class SearchToolModel(BaseFunctionModel):
     """First-class web search tool that delegates to ``dao_ai.tools.create_search_tool``.
 
@@ -5668,6 +5875,7 @@ AnyTool: TypeAlias = (
         McpFunctionModel,
         GenieToolModel,
         AiSearchToolModel,
+        LakebaseSearchToolModel,
         SearchToolModel,
         AppToolModel,
         ServingEndpointToolModel,
