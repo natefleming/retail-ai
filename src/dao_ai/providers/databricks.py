@@ -265,7 +265,9 @@ def build_auth_policy(config: AppConfig) -> AuthPolicy:
     )
 
 
-def _link_experiment_trace_location(config: AppConfig, experiment_id: str) -> None:
+def link_experiment_trace_location(
+    config: AppConfig, experiment_id: str
+) -> None:
     """Link an MLflow experiment to its UC trace location.
 
     Wraps ``mlflow.set_experiment(experiment_id=..., trace_location=
@@ -274,16 +276,17 @@ def _link_experiment_trace_location(config: AppConfig, experiment_id: str) -> No
     UCSchemaLocation(...))`` + ``mlflow.tracing.enablement.
     set_experiment_trace_location(...)`` which emit deprecation warnings.
 
-    This call (when reaching a runnable warehouse) creates the OTEL trace
-    Delta tables in the configured UC schema and registers the experiment
-    as a writer of those tables. It auto-starts a STOPPED warehouse and
-    waits up to 1200s for RUNNING.
+    Idempotent: reads the experiment's current UC trace-destination tags
+    (via ``MlflowClient.get_experiment``) and skips the API call when the
+    destination already matches the desired config. This avoids MLflow's
+    "already contains traces" rejection on re-deploys of an experiment
+    that was previously linked to the same UC schema.
 
-    The behavior is identical for Model Serving and Apps callers — both
-    paths need the experiment linked to its UC trace destination before
-    any code path that reads the model's auth_policy resources (Model
-    Serving register_model / agents.deploy) or before the App's runtime
-    handlers.py reaches its first request.
+    On a truly conflicting state (experiment has traces + no UC linkage,
+    or linkage points somewhere else), the underlying RestException
+    surfaces — no silent swallow. Callers that want to tolerate this
+    (Apps runtime, where re-linking sometimes fails on a broken deploy
+    state) wrap the call in their own try/except and log the diagnostic.
 
     Args:
         config: The AppConfig. No-op if ``config.app.trace_location`` is None.
@@ -303,32 +306,84 @@ def _link_experiment_trace_location(config: AppConfig, experiment_id: str) -> No
     if table_prefix:
         uc_kwargs["table_prefix"] = table_prefix
 
+    if _experiment_already_linked(experiment_id, loc, table_prefix):
+        logger.info(
+            "Experiment already linked to matching UC trace destination, skipping",
+            experiment_id=experiment_id,
+            catalog=loc.catalog_name,
+            schema=loc.schema_name,
+            table_prefix=table_prefix,
+        )
+        return
+
     try:
         mlflow.set_experiment(
             experiment_id=experiment_id,
             trace_location=UnityCatalog(**uc_kwargs),
         )
-        logger.info(
-            "Linked experiment to UC trace location",
-            catalog=loc.catalog_name,
-            schema=loc.schema_name,
-            table_prefix=table_prefix,
-        )
     except mlflow.exceptions.RestException as e:
-        # The link is idempotent for our purposes — re-linking a schema
-        # that the experiment already writes to is a no-op. The platform
-        # rejects re-linking when the experiment already has traces with
-        # the "already contains traces" error, which we tolerate. Other
-        # RestExceptions (warehouse timeouts, schema permission errors)
-        # surface so the caller can fail loudly.
+        # Fall-through safety net: if the tag-based idempotency check
+        # above missed (transient MlflowClient error, e.g.) and the
+        # actual link is already in place, MLflow rejects the re-link
+        # with "already contains traces". Treat that as idempotent and
+        # continue. Other RestExceptions (warehouse timeouts, schema
+        # permission errors) surface so the caller can fail loudly.
         if "already contains traces" in str(e):
             logger.warning(
-                "UC trace destination already linked or experiment has "
-                "existing traces, skipping",
+                "UC trace destination re-link rejected ('already contains "
+                "traces') — assuming prior link is still in effect",
                 experiment_id=experiment_id,
             )
-        else:
-            raise
+            return
+        raise
+    logger.info(
+        "Linked experiment to UC trace location",
+        catalog=loc.catalog_name,
+        schema=loc.schema_name,
+        table_prefix=table_prefix,
+    )
+
+
+# Kept as a private alias for internal call sites; new callers use the
+# public name above. Remove once we're confident no external code depends
+# on the private symbol.
+_link_experiment_trace_location = link_experiment_trace_location
+
+
+def _experiment_already_linked(
+    experiment_id: str,
+    loc: Any,
+    table_prefix: Optional[str],
+) -> bool:
+    """True when the experiment's UC trace tags already match the target.
+
+    MLflow stamps the linked destination as tags on the experiment
+    (``mlflow.trace.destinationType`` = ``UC_SCHEMA``, plus catalog /
+    schema / table_prefix). Reading them avoids a re-link API call that
+    would otherwise fail with "already contains traces" on any experiment
+    that has received a trace since the initial link.
+
+    Any error looking up the experiment (permissions, transient API
+    failure, etc.) returns ``False`` so the caller falls through to the
+    normal link attempt — safest default.
+    """
+    try:
+        from mlflow.tracking import MlflowClient
+
+        exp = MlflowClient().get_experiment(experiment_id)
+    except Exception:  # noqa: BLE001
+        return False
+    tags = exp.tags or {}
+    if tags.get("mlflow.trace.destinationType") != "UC_SCHEMA":
+        return False
+    if tags.get("mlflow.trace.uc.catalogName") != loc.catalog_name:
+        return False
+    if tags.get("mlflow.trace.uc.schemaName") != loc.schema_name:
+        return False
+    # Explicit None on both sides is a match; the tag is absent (or empty)
+    # when the initial link omitted table_prefix.
+    existing_prefix: Optional[str] = tags.get("mlflow.trace.uc.tablePrefix") or None
+    return existing_prefix == table_prefix
 
 
 def _grant_experiment_permissions_to_principal(

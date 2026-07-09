@@ -10,7 +10,7 @@ with both Databricks Model Serving and Databricks Apps environments.
 """
 
 import os
-from typing import Any, AsyncGenerator
+from typing import AsyncGenerator
 
 import mlflow
 from dotenv import load_dotenv
@@ -69,33 +69,39 @@ if config.app and config.app.log_level:
 # for the run in the current (correct) experiment but it lives in the default.
 _experiment_id: str | None = os.environ.get("MLFLOW_EXPERIMENT_ID")
 if _experiment_id:
-    _set_experiment_kwargs: dict[str, Any] = {"experiment_id": _experiment_id}
-    if config.app and config.app.trace_location:
-        # Post-3.11 API: pass trace_location to set_experiment so the UC OTEL
-        # tables become the export destination for spans on this experiment.
-        # Replaces mlflow.tracing.set_destination + set_experiment_trace_location.
-        from mlflow.entities import UnityCatalog
+    # Always set the active experiment id first — this is the load-bearing
+    # call that keeps autolog-generated runs under the right experiment.
+    # It never fails on "already contains traces" because it's not a link
+    # operation.
+    mlflow.set_experiment(experiment_id=_experiment_id)
 
-        _loc = config.app.trace_location
-        _trace_loc_kwargs: dict[str, Any] = {
-            "catalog_name": _loc.catalog_name,
-            "schema_name": _loc.schema_name,
-        }
-        _table_prefix = _loc.resolved_table_prefix
-        if _table_prefix:
-            _trace_loc_kwargs["table_prefix"] = _table_prefix
-        _set_experiment_kwargs["trace_location"] = UnityCatalog(**_trace_loc_kwargs)
-    try:
-        mlflow.set_experiment(**_set_experiment_kwargs)
-    except Exception as _set_exp_err:
-        # If the auto-created SP lacks USE CATALOG on the trace schema, the
-        # trace_location bind will fail. The experiment linkage from deploy
-        # time survives — traces land there via the UC OTEL tables that were
-        # already linked. Log a warning; do not raise.
-        logger.warning(
-            "Could not set experiment at app startup "
-            f"(experiment linkage from deploy time is still in effect): {_set_exp_err}"
-        )
+    # If a trace_location is configured, try to link it via the idempotent
+    # helper. The helper reads the experiment's current UC-destination tags
+    # and skips the API call when the linkage already matches — which is
+    # the common re-deploy case. When the linkage is genuinely missing and
+    # the experiment already has traces (the broken state), the underlying
+    # MLflow RestException surfaces here and we log loudly so the operator
+    # sees the mismatch instead of silently dropping every future trace to
+    # a non-existent fallback table.
+    if config.app and config.app.trace_location:
+        try:
+            from dao_ai.providers.databricks import (
+                link_experiment_trace_location,
+            )
+
+            link_experiment_trace_location(config, _experiment_id)
+        except Exception as _link_err:  # noqa: BLE001
+            logger.warning(
+                "dao_ai.trace_location.link_failed "
+                "experiment_id={} err={}: {} — "
+                "traces from this app may not export to the configured UC "
+                "schema. Re-deploy with a fresh experiment (delete the "
+                "existing one, or set app.experiment.name to a new value) "
+                "to recover.",
+                _experiment_id,
+                type(_link_err).__name__,
+                _link_err,
+            )
 
 mlflow.langchain.autolog(run_tracer_inline=True)
 suppress_autolog_context_warnings()
