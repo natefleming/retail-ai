@@ -28,7 +28,7 @@ from pydantic import ValidationError
 
 from dao_ai.config import (
     IndexModel,
-    RetrieverModel,
+    AiSearchRetrieverModel,
     SchemaModel,
     SearchParametersModel,
     VectorSearchEndpoint,
@@ -73,14 +73,14 @@ HARDWARE_STORE_COLUMNS = [
 
 def _hardware_store_retriever(
     *, columns: list[str] | None = HARDWARE_STORE_COLUMNS
-) -> RetrieverModel:
+) -> AiSearchRetrieverModel:
     """Build a retriever mirroring ``hardware_store.yaml`` — same index,
     endpoint, primary_key, and (by default) column set."""
     schema = SchemaModel(
         catalog_name="retail_consumer_goods",
         schema_name="hardware_store",
     )
-    return RetrieverModel(
+    return AiSearchRetrieverModel(
         vector_store=VectorStoreModel(
             index=IndexModel(name="products_index", schema=schema),
             endpoint=VectorSearchEndpoint(name="dbdemos_vs_endpoint"),

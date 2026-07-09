@@ -33,7 +33,7 @@ from dao_ai.config import (
     InstructedRetrieverModel,
     InstructionAwareRerankModel,
     RerankParametersModel,
-    RetrieverModel,
+    AiSearchRetrieverModel,
     RouterModel,
     SearchParametersModel,
     SearchQuery,
@@ -669,7 +669,7 @@ def _rerank_documents(
 
 
 def create_ai_search_tool(
-    retriever: Optional[RetrieverModel | dict[str, Any]] = None,
+    retriever: Optional[AiSearchRetrieverModel | dict[str, Any]] = None,
     vector_store: Optional[VectorStoreModel | dict[str, Any]] = None,
     name: Optional[str] = None,
     description: Optional[str] = None,
@@ -703,10 +703,10 @@ def create_ai_search_tool(
     if vector_store is not None:
         if isinstance(vector_store, dict):
             vector_store = VectorStoreModel(**vector_store)
-        retriever = RetrieverModel(vector_store=vector_store)
+        retriever = AiSearchRetrieverModel(vector_store=vector_store)
     else:
         if isinstance(retriever, dict):
-            retriever = RetrieverModel(**retriever)
+            retriever = AiSearchRetrieverModel(**retriever)
 
     vector_store: VectorStoreModel = retriever.vector_store
 
@@ -779,23 +779,30 @@ def create_ai_search_tool(
         columns = declared_names
         index_cols = _fetch_index_columns(vector_store)
         if index_cols:
-            uc_type_map = {name: t for name, t, _ in index_cols if t}
-            uc_comment_map = {name: c for name, _, c in index_cols if c}
-            for name in declared_names:
-                if name not in description_types and name in uc_type_map:
-                    description_types[name] = uc_type_map[name]
-                if name not in description_descriptions and name in uc_comment_map:
-                    description_descriptions[name] = uc_comment_map[name]
+            # NB: use ``col_name`` instead of ``name`` — the outer function
+            # takes a ``name`` parameter (the LLM-facing tool name), and
+            # binding ``name`` in a for-loop here shadows it. After the loop,
+            # ``name`` would leak the last declared column, and the eventual
+            # ``tool_name = name or ...`` (line ~1041) would pick up that
+            # stale value instead of the caller's tool name.
+            uc_type_map = {col_name: t for col_name, t, _ in index_cols if t}
+            uc_comment_map = {col_name: c for col_name, _, c in index_cols if c}
+            for col_name in declared_names:
+                if col_name not in description_types and col_name in uc_type_map:
+                    description_types[col_name] = uc_type_map[col_name]
+                if col_name not in description_descriptions and col_name in uc_comment_map:
+                    description_descriptions[col_name] = uc_comment_map[col_name]
     else:
         # Mode C — nothing declared. Discover via UC.
         index_cols = _fetch_index_columns(vector_store)
         if index_cols:
-            columns = [name for name, _, _ in index_cols]
-            for name, t, c in index_cols:
-                if t and name not in description_types:
-                    description_types[name] = t
-                if c and name not in description_descriptions:
-                    description_descriptions[name] = c
+            # Same ``col_name`` shadowing avoidance as above.
+            columns = [col_name for col_name, _, _ in index_cols]
+            for col_name, t, c in index_cols:
+                if t and col_name not in description_types:
+                    description_types[col_name] = t
+                if c and col_name not in description_descriptions:
+                    description_descriptions[col_name] = c
         else:
             # Direct-Access indexes: refresh may have populated
             # ``vector_store.columns`` from ``columns_to_sync``. Use those
@@ -807,11 +814,12 @@ def create_ai_search_tool(
     # every other operator on ARRAY columns at query time; narrowing the
     # enum prevents the LLM from emitting invalid filters in the first
     # place. Hand-declared overrides (via ColumnInfo.operators) still win.
-    for name, uc_type in description_types.items():
-        if name in operator_overrides:
+    # (``col_name`` again — see the shadowing note above.)
+    for col_name, uc_type in description_types.items():
+        if col_name in operator_overrides:
             continue
         if _is_array_type(uc_type):
-            operator_overrides[name] = [""]
+            operator_overrides[col_name] = [""]
 
     logger.debug(
         "Vector Search columns resolved",
