@@ -68,10 +68,7 @@ class TestLinkExperimentTraceLocation:
         cfg = _cfg("cat", "sch", "my_prefix")
         exp = _FakeExperiment(
             tags={
-                "mlflow.trace.destinationType": "UC_SCHEMA",
-                "mlflow.trace.uc.catalogName": "cat",
-                "mlflow.trace.uc.schemaName": "sch",
-                "mlflow.trace.uc.tablePrefix": "my_prefix",
+                "mlflow.experiment.databricksTraceDestinationPath": "cat.sch.my_prefix",
             }
         )
         with (
@@ -88,10 +85,7 @@ class TestLinkExperimentTraceLocation:
         cfg = _cfg("cat", "sch", "wanted_prefix")
         exp = _FakeExperiment(
             tags={
-                "mlflow.trace.destinationType": "UC_SCHEMA",
-                "mlflow.trace.uc.catalogName": "cat",
-                "mlflow.trace.uc.schemaName": "sch",
-                "mlflow.trace.uc.tablePrefix": "other_prefix",
+                "mlflow.experiment.databricksTraceDestinationPath": "cat.sch.other_prefix",
             }
         )
         with (
@@ -108,9 +102,7 @@ class TestLinkExperimentTraceLocation:
         cfg = _cfg("cat", "wanted_schema")
         exp = _FakeExperiment(
             tags={
-                "mlflow.trace.destinationType": "UC_SCHEMA",
-                "mlflow.trace.uc.catalogName": "cat",
-                "mlflow.trace.uc.schemaName": "old_schema",
+                "mlflow.experiment.databricksTraceDestinationPath": "cat.old_schema.some_prefix",
             }
         )
         with (
@@ -121,17 +113,17 @@ class TestLinkExperimentTraceLocation:
             link_experiment_trace_location(cfg, "exp1")
         set_exp.assert_called_once()
 
-    def test_prefix_none_matches_missing_tag(self) -> None:
-        """No-prefix config + no-prefix tag → considered a match."""
+    def test_prefix_none_matches_any_existing_prefix(self) -> None:
+        """Config-side prefix=None (MLflow auto-assigns) → any existing prefix on
+        the same catalog/schema is compatible."""
         from dao_ai.providers.databricks import link_experiment_trace_location
 
         cfg = _cfg("cat", "sch", None)
         exp = _FakeExperiment(
             tags={
-                "mlflow.trace.destinationType": "UC_SCHEMA",
-                "mlflow.trace.uc.catalogName": "cat",
-                "mlflow.trace.uc.schemaName": "sch",
-                # tablePrefix tag absent — MLflow default when link had no prefix
+                # MLflow substituted the experiment id as the prefix when
+                # link was called without an explicit table_prefix.
+                "mlflow.experiment.databricksTraceDestinationPath": "cat.sch.2118001471326798",
             }
         )
         with (
@@ -141,6 +133,24 @@ class TestLinkExperimentTraceLocation:
             mc.return_value.get_experiment.return_value = exp
             link_experiment_trace_location(cfg, "exp1")
         set_exp.assert_not_called()
+
+    def test_malformed_destination_path_falls_through_to_link(self) -> None:
+        """A destination-path tag with too few segments to parse → attempt link."""
+        from dao_ai.providers.databricks import link_experiment_trace_location
+
+        cfg = _cfg("cat", "sch")
+        exp = _FakeExperiment(
+            tags={
+                "mlflow.experiment.databricksTraceDestinationPath": "just_one_part",
+            }
+        )
+        with (
+            patch("dao_ai.providers.databricks.mlflow.set_experiment") as set_exp,
+            patch("mlflow.tracking.MlflowClient") as mc,
+        ):
+            mc.return_value.get_experiment.return_value = exp
+            link_experiment_trace_location(cfg, "exp1")
+        set_exp.assert_called_once()
 
     def test_get_experiment_error_falls_through_to_link(self) -> None:
         """If we can't read the experiment tags, attempt the link — safest default."""

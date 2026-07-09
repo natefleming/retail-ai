@@ -355,13 +355,20 @@ def _experiment_already_linked(
     loc: Any,
     table_prefix: Optional[str],
 ) -> bool:
-    """True when the experiment's UC trace tags already match the target.
+    """True when the experiment's linked UC destination already matches.
 
-    MLflow stamps the linked destination as tags on the experiment
-    (``mlflow.trace.destinationType`` = ``UC_SCHEMA``, plus catalog /
-    schema / table_prefix). Reading them avoids a re-link API call that
-    would otherwise fail with "already contains traces" on any experiment
-    that has received a trace since the initial link.
+    MLflow records the linked destination as a single dotted-string tag
+    ``mlflow.experiment.databricksTraceDestinationPath`` (validated by
+    reading MLflow 3.11 source — ``utils/mlflow_tags.py`` and
+    ``tracking/fluent.py:329-336``). Format:
+    ``<catalog>.<schema>.<table_prefix>``. When ``table_prefix`` was
+    omitted at link time, MLflow substitutes the experiment id.
+
+    We match by parsing the tag and comparing catalog + schema exactly.
+    For ``table_prefix``: an explicit non-None config-side value must
+    match the tag's third segment; a None config-side value matches any
+    prefix (the user asked MLflow to auto-assign, so any existing
+    linkage with the right catalog/schema is compatible).
 
     Any error looking up the experiment (permissions, transient API
     failure, etc.) returns ``False`` so the caller falls through to the
@@ -374,16 +381,25 @@ def _experiment_already_linked(
     except Exception:  # noqa: BLE001
         return False
     tags = exp.tags or {}
-    if tags.get("mlflow.trace.destinationType") != "UC_SCHEMA":
+    destination_path: Optional[str] = tags.get(
+        "mlflow.experiment.databricksTraceDestinationPath"
+    )
+    if not destination_path:
         return False
-    if tags.get("mlflow.trace.uc.catalogName") != loc.catalog_name:
+    parts = destination_path.split(".")
+    if len(parts) < 2:
         return False
-    if tags.get("mlflow.trace.uc.schemaName") != loc.schema_name:
+    tag_catalog, tag_schema = parts[0], parts[1]
+    tag_prefix = parts[2] if len(parts) >= 3 else None
+    if tag_catalog != loc.catalog_name:
         return False
-    # Explicit None on both sides is a match; the tag is absent (or empty)
-    # when the initial link omitted table_prefix.
-    existing_prefix: Optional[str] = tags.get("mlflow.trace.uc.tablePrefix") or None
-    return existing_prefix == table_prefix
+    if tag_schema != loc.schema_name:
+        return False
+    if table_prefix is not None and tag_prefix != table_prefix:
+        return False
+    # table_prefix is None on the config side → any existing prefix is
+    # compatible (user delegated naming to MLflow).
+    return True
 
 
 def _grant_experiment_permissions_to_principal(
