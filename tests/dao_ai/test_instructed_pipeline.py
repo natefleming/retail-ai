@@ -232,6 +232,94 @@ class TestInstructedMode:
             "result_for_sub2",
         }
 
+    def test_bad_type_filter_coerced_before_dispatch(
+        self, instructed_cfg: InstructedRetrieverModel
+    ) -> None:
+        """Regression: LLM emits `{priority: "3"}` (string) on int column.
+
+        The pipeline must coerce "3" → 3 BEFORE calling run_search — the
+        earlier lakebase failure was decomposition returning a string
+        value and Postgres 500'ing on the numeric column.
+        """
+        captured: list[dict[str, Any]] = []
+
+        def run_search(q: str, f: dict[str, Any]) -> list[Document]:
+            captured.append(dict(f))
+            return _docs("ok")
+
+        with (
+            patch(
+                "dao_ai.tools.instructed_pipeline._get_cached_llm"
+            ) as mock_llm,
+            patch(
+                "dao_ai.tools.instructed_pipeline.decompose_query"
+            ) as mock_decompose,
+        ):
+            mock_llm.return_value = MagicMock()
+            mock_decompose.return_value = [
+                SearchQuery(
+                    text="high priority",
+                    filters=[FilterItem(key="priority", value="3")],
+                ),
+            ]
+            execute_instructed_pipeline(
+                run_search=run_search,
+                query="q",
+                base_filters={},
+                instructed_config=instructed_cfg,
+                router_config=None,
+                verifier_config=None,
+                decomposition_config=instructed_cfg.decomposition,
+                instruction_rerank_config=None,
+                instructed_columns=instructed_cfg.columns,
+            )
+        # Coerced from "3" → 3 before dispatch.
+        assert captured == [{"priority": 3}]
+
+    def test_uncoercible_filter_dropped_and_search_continues(
+        self, instructed_cfg: InstructedRetrieverModel
+    ) -> None:
+        """Regression of the earlier lakebase 500: `{priority: "high"}`
+        on an int col is dropped-and-warned so the search still runs
+        (degraded, one fewer filter) rather than hard-failing."""
+        captured: list[dict[str, Any]] = []
+
+        def run_search(q: str, f: dict[str, Any]) -> list[Document]:
+            captured.append(dict(f))
+            return _docs("ok")
+
+        with (
+            patch(
+                "dao_ai.tools.instructed_pipeline._get_cached_llm"
+            ) as mock_llm,
+            patch(
+                "dao_ai.tools.instructed_pipeline.decompose_query"
+            ) as mock_decompose,
+        ):
+            mock_llm.return_value = MagicMock()
+            mock_decompose.return_value = [
+                SearchQuery(
+                    text="most important",
+                    filters=[
+                        FilterItem(key="category", value="auth"),
+                        FilterItem(key="priority", value="high"),  # bad
+                    ],
+                ),
+            ]
+            execute_instructed_pipeline(
+                run_search=run_search,
+                query="q",
+                base_filters={},
+                instructed_config=instructed_cfg,
+                router_config=None,
+                verifier_config=None,
+                decomposition_config=instructed_cfg.decomposition,
+                instruction_rerank_config=None,
+                instructed_columns=instructed_cfg.columns,
+            )
+        # `priority: "high"` dropped; `category: "auth"` kept.
+        assert captured == [{"category": "auth"}]
+
     def test_empty_decomposition_falls_back(
         self, instructed_cfg: InstructedRetrieverModel
     ) -> None:
