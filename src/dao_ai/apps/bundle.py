@@ -906,6 +906,14 @@ def write_bundle(
     print("\nNext steps:")
     print(f"  cd {output_dir}")
     print("  databricks bundle deploy --target dev")
+    if config.app and config.app.trace_location:
+        # Idempotent — safe on every deploy — but load-bearing on
+        # re-deploys and after trace_location changes. See
+        # `dao-ai link-trace-destination --help` for the full story.
+        print(
+            f"  dao-ai link-trace-destination -c <your-config.yaml>"
+            f"   # links UC trace destination for {app_name}"
+        )
     print(f"  databricks bundle run {app_name} --target dev")
     print()
     print("  # Apps' build phase installs deps directly from requirements.txt;")
