@@ -384,12 +384,28 @@ app:
     max_tokens_before_summary: int | null     # Triggers summarization at this token count
     max_messages_before_summary: int | null   # OR triggers at this message count (mutually exclusive)
 
-  # OTEL trace storage in Unity Catalog Delta tables
+  # OTEL trace storage in Unity Catalog Delta tables.
+  # Requires an explicit post-deploy link step:
+  #   `dao-ai link-trace-destination -c my_config.yaml -p <profile>`
+  # See `docs/cli-reference.md#link-trace-destination` for the flow and
+  # for the migration playbook (changing table_prefix / catalog / schema
+  # requires a fresh experiment — MLflow does not support in-place edits
+  # to a UC trace destination once the experiment has any traces).
   trace_location:
     # Either provide a schema + warehouse (preferred), or pass a single
     # "catalog.schema" string and the warehouse separately.
     schema: *my_schema
     warehouse: *warehouse | string    # WarehouseModel ref OR warehouse-id string
+    table_prefix: string | null       # Prefix for the OTEL tables
+                                      # (<prefix>_otel_{spans,logs,metrics}).
+                                      # null → MLflow uses the experiment id
+                                      # as the prefix (backend-assigned).
+                                      # Changing this on an existing experiment
+                                      # requires the unset → set swap; on some
+                                      # Databricks backends the swap is rejected
+                                      # once the experiment has traces. See
+                                      # `docs/cli-reference.md#link-trace-destination`
+                                      # for the migration playbook.
 
   # Production monitoring via MLflow GenAI scorers
   monitoring:

@@ -169,6 +169,24 @@ When `trace_location` is unset, `generate-bundle` emits a `⚠` warning to alert
 
 See `config/examples/01_getting_started/ai_gateway.yaml` for a drop-in example.
 
+#### Linking the UC trace destination — run `dao-ai link-trace-destination` between deploy and run
+
+MLflow requires the UC trace-destination link to be established on an experiment **before** that experiment receives any traces. On a re-deploy (or after a `trace_location` change), the experiment already has traces from prior runs, so the app's runtime attempt to link is rejected with `already contains traces` and every subsequent trace silently drops with `TABLE_DOES_NOT_EXIST`.
+
+The fix is a standalone CLI verb that links from **your** machine (operator credentials, deterministic timing) instead of relying on the running app to link itself:
+
+```bash
+databricks bundle deploy --target dev -p <profile>
+dao-ai link-trace-destination -c my_config.yaml -p <profile>
+databricks bundle run <app-name> --target dev -p <profile>
+# then restart to pick up the freshly-linked destination:
+databricks apps restart <app-name> -p <profile>
+```
+
+The verb is idempotent — safe on every deploy — but load-bearing on re-deploys and after `trace_location` changes. `generate-bundle` prints a one-line reminder in its "Next steps" when `trace_location` is configured.
+
+See [Link Trace Destination](#link-trace-destination) for full flag reference and the migration playbook for moving traces between destinations.
+
 ### Overwriting Existing Files
 
 If the output directory already contains generated files, they are skipped by default. Use `--force` to overwrite:
@@ -210,6 +228,91 @@ uv sync
 databricks bundle deploy --target dev
 databricks bundle run <app-name> --target dev
 ```
+
+## Link Trace Destination
+
+`dao-ai link-trace-destination` attaches an MLflow experiment to its Unity Catalog trace destination declared under `app.trace_location`. Run it as an explicit step **between** `databricks bundle deploy` and `databricks bundle run` — see the [background above](#linking-the-uc-trace-destination--run-dao-ai-link-trace-destination-between-deploy-and-run) for why the app's runtime attempt is unreliable.
+
+### Basic usage
+
+```bash
+databricks bundle deploy --target dev -p <profile>
+dao-ai link-trace-destination -c my_config.yaml -p <profile>
+databricks bundle run <app-name> --target dev -p <profile>
+databricks apps restart <app-name> -p <profile>    # required — see below
+```
+
+### Flags
+
+| Flag | Purpose |
+|---|---|
+| `-c FILE`, `--config FILE` | Config file. Must set `app.trace_location`. |
+| `-p PROFILE`, `--profile PROFILE` | Databricks profile for auth. |
+| `--experiment-id ID` | Skip resolution and use this experiment id directly. |
+| `--param KEY=VALUE` / `--var KEY=VALUE` | Config parameter overrides (repeatable). |
+
+### Experiment resolution
+
+Tries in order:
+
+1. `--experiment-id` explicit override.
+2. `config.app.experiment.resolved_id` when the config sets an explicit `experiment:` block.
+3. Bundle-declared name lookup — tries **both** the plain `/Users/<user>/<app-name>` name AND the DABs `--target dev`-prefixed variant `/Users/<user>/[dev <sanitized-user>] <app-name>`, so the same command works for prod deploys and personal dev deploys.
+
+If none of the above resolves, the CLI prints the candidates and exits 1.
+
+### Two things that surprise operators
+
+**1. You must restart the app after linking.** MLflow's OTEL exporter binds the trace destination at **process startup**. Running `link-trace-destination` while the app is up does not retroactively route in-flight traces to the new location — the running exporter is already bound to whatever destination was in effect when it started. Trigger `databricks apps restart <name>` (or any bundle re-deploy) so the app picks up the fresh linkage.
+
+**2. Changing a UC trace destination is restricted.** MLflow *does* expose `mlflow.tracing.unset_experiment_trace_location(location, experiment_id=...)` for un-linking (OSS API, `tracing/enablement.py:115-163`), and `mlflow.tracing.set_experiment_trace_location(...)` for the follow-up re-link — the OSS-supported swap is `unset → set`. On Databricks, though:
+
+- **Re-linking to the *same* tuple** — safe (idempotent, returns existing).
+- **Un-linking + re-linking to a *different* tuple** — MLflow's own client-side guard is based on the `mlflow.experiment.databricksTraceDestinationPath` tag, not on trace count; after `unset`, the tag is removed so a fresh `set` should be accepted. However, the Databricks control plane may still reject with `already contains traces` when the experiment has existing spans — the exact policy depends on backend version. **Untested against a live Databricks workspace as of this doc; verify on your workspace before scripting a migration.**
+- **`table_prefix` / `catalog` / `schema` change without un-linking first** — always rejected.
+
+If you need to change the destination and the swap path is blocked by the backend, fall back to the migration playbook below (create a fresh experiment).
+
+### Migration playbook — moving traces to a new UC destination
+
+When you actually need to change `table_prefix`, `catalog`, `schema`, or want traces to land somewhere new, you can't mutate the existing experiment — create a fresh one and re-point the app:
+
+```yaml
+# 1. In your config, point at a new experiment. Two options:
+#
+#    (a) Change the experiment name explicitly:
+app:
+  experiment:
+    name: /Users/me@databricks.com/my-app-v2       # new path
+
+#    (b) Rename the app itself (auto-declared experiment path derives
+#        from app.name — a rename gives you a fresh experiment):
+app:
+  name: my-app-v2                                  # was: my-app
+
+# 2. (Optional) update trace_location. `table_prefix` is optional in
+#    dao-ai — if omitted, MLflow uses the experiment id as the prefix,
+#    which is fine (and often preferred) since a fresh experiment
+#    already gives you a fresh table namespace. Only set an explicit
+#    `table_prefix` when you want a human-readable name in the OTEL
+#    Delta tables (e.g. for dashboarding).
+  trace_location:
+    schema: *my_schema
+    warehouse: *my_warehouse
+    # table_prefix: my_app_v2_traces               # optional
+```
+
+```bash
+# 3. Deploy → link → run → restart.
+dao-ai generate-bundle -c my_config.yaml -o ./bundle --force
+cd ./bundle
+databricks bundle deploy --target dev -p <profile>
+dao-ai link-trace-destination -c ../my_config.yaml -p <profile>
+databricks bundle run <new-app-name> --target dev -p <profile>
+databricks apps restart <new-app-name> -p <profile>
+```
+
+The **old** experiment can be un-linked from its UC destination via `mlflow.tracing.unset_experiment_trace_location(location, experiment_id=<old-id>)` (subject to the Databricks-backend caveat above), or deleted outright via `mlflow.delete_experiment(<old-id>)` / the workspace UI (soft-delete; hard purge is a workspace cleanup job).
 
 ## Interactive Chat
 
