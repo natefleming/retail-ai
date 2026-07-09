@@ -28,6 +28,42 @@ parameters:
   table_name:
     description: Table with vector + text columns
     default: kb_articles
+  # Lakebase currently requires SP credentials for programmatic access
+  # inside a Databricks App. Configure the secret scope + keys here so the
+  # deployed App reads the SP creds from a Databricks secret scope; env-var
+  # fallbacks are used for local dev.
+  secret_scope:
+    description: Databricks secret scope holding the SP client id / secret / host
+    default: my_secret_scope
+  sp_client_id_key:
+    description: Secret-scope key for the SP client id
+    default: SP_CLIENT_ID
+  sp_client_secret_key:
+    description: Secret-scope key for the SP client secret
+    default: SP_CLIENT_SECRET
+  workspace_host_key:
+    description: Secret-scope key for the Databricks workspace host URL
+    default: DATABRICKS_HOST
+
+# Anchored option lists — dao-ai's ``value_of`` picks the first option that
+# resolves. Prefer secret scope (deploy path); fall back to env var (local
+# dev). Any option may be null; unresolved options are skipped.
+variables:
+  client_id: &client_id
+    options:
+      - scope: ${var.secret_scope}
+        secret: ${var.sp_client_id_key}
+      - env: ${var.sp_client_id_key}
+  client_secret: &client_secret
+    options:
+      - scope: ${var.secret_scope}
+        secret: ${var.sp_client_secret_key}
+      - env: ${var.sp_client_secret_key}
+  workspace_host: &workspace_host
+    options:
+      - scope: ${var.secret_scope}
+        secret: ${var.workspace_host_key}
+      - env: ${var.workspace_host_key}
 
 resources:
   models:
@@ -37,23 +73,34 @@ resources:
   databases:
     kb_lakebase: &kb_lakebase
       project: ${var.lakebase_project}
+      client_id: *client_id
+      client_secret: *client_secret
+      workspace_host: *workspace_host
+
+# Top-level retrievers block — same shape ai_search uses. Tools reference
+# these by anchor rather than inlining the retriever config into
+# ``function.retriever``.
+retrievers:
+  kb_ann: &kb_ann
+    type: lakebase_search
+    vector_store:
+      database: *kb_lakebase
+      schema_name: ${var.schema_name}
+      table: ${var.table_name}
+      content_column: passage
+      embedding_column: embedding
+      embedding_model: databricks-gte-large-en   # string shorthand → InferenceEndpointModel
+      metadata_columns:
+        - category
+        - source_url
+      distance_metric: cosine                    # cosine | l2 | ip
 
 tools:
   kb_search: &kb_search
     name: kb_search
     function:
       type: lakebase_search
-      vector_store:
-        database: *kb_lakebase
-        schema_name: ${var.schema_name}
-        table: ${var.table_name}
-        content_column: passage
-        embedding_column: embedding
-        embedding_model: databricks-gte-large-en   # string shorthand → InferenceEndpointModel
-        metadata_columns:
-          - category
-          - source_url
-        distance_metric: cosine                    # cosine | l2 | ip
+      retriever: *kb_ann
 
 agents:
   kb_agent:

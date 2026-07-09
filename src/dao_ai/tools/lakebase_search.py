@@ -14,6 +14,7 @@ import json
 from typing import Any, Optional
 
 import mlflow
+from langchain_core.documents import Document
 from langchain_core.tools import StructuredTool
 from loguru import logger
 from mlflow.entities import SpanType
@@ -347,18 +348,60 @@ def create_lakebase_search_tool(
         static_dict = dict(retriever_model.search_parameters.filters or {})
         merged: dict[str, Any] = {**static_dict, **runtime_dict}
 
-        effective_params = retriever_model.search_parameters.model_copy(
-            update={"filters": merged}
-        )
-        lb_retriever.search_parameters = effective_params
+        # If instructed retrieval is configured, route through the shared
+        # pipeline (router → decompose → parallel → RRF → FlashRank →
+        # instruction rerank → verifier). Fast path below runs the raw
+        # retriever + optional FlashRank when no instructed config is set.
+        if retriever_model.instructed is not None:
+            from dao_ai.tools.instructed_pipeline import (
+                execute_instructed_pipeline,
+            )
 
-        docs = lb_retriever.invoke(query)
+            # Backend adapter — fresh LakebaseRetriever per subquery so
+            # concurrent ThreadPoolExecutor calls inside the pipeline are
+            # thread-safe (no shared search_parameters mutation).
+            def _run_search(qtxt: str, flt: dict[str, Any]) -> list[Document]:
+                sub_params = retriever_model.search_parameters.model_copy(
+                    update={"filters": flt or {}}
+                )
+                sub_retriever = LakebaseRetriever(
+                    vector_store=vs,
+                    search_parameters=sub_params,
+                )
+                return list(sub_retriever.invoke(qtxt))
 
-        # Optional FlashRank cross-encoder pass. Same helper ai_search
-        # uses — reranker_score lands in each Document.metadata.
-        if ranker is not None and rerank_config is not None and docs:
-            logger.debug("Applying FlashRank reranking to Lakebase results")
-            docs = rerank_documents(query, docs, ranker, rerank_config)
+            inst = retriever_model.instructed
+            docs = execute_instructed_pipeline(
+                run_search=_run_search,
+                query=query,
+                base_filters=merged,
+                instructed_config=inst,
+                router_config=inst.router,
+                verifier_config=inst.verifier,
+                decomposition_config=inst.decomposition,
+                instruction_rerank_config=inst.rerank,
+                instructed_columns=inst.columns,
+                primary_key=vs.id_column,
+                ranker=ranker,
+                rerank_config=rerank_config,
+            )
+        else:
+            # Fast path — no instructed pipeline. Mutation of
+            # search_parameters is safe here since this thread is the only
+            # caller (unlike the ThreadPoolExecutor fan-out above).
+            effective_params = retriever_model.search_parameters.model_copy(
+                update={"filters": merged}
+            )
+            lb_retriever.search_parameters = effective_params
+
+            docs = lb_retriever.invoke(query)
+
+            # Optional FlashRank cross-encoder pass. Same helper
+            # ai_search uses — reranker_score lands in each
+            # Document.metadata.
+            if ranker is not None and rerank_config is not None and docs:
+                logger.debug("Applying FlashRank reranking to Lakebase results")
+                docs = rerank_documents(query, docs, ranker, rerank_config)
 
         serialized = [
             {"page_content": d.page_content, "metadata": _jsonable(d.metadata)}

@@ -1,0 +1,139 @@
+# yaml-language-server: $schema=../../../schemas/model_config_schema.json
+
+# Lakebase Search with instructed retrieval — parity with ai_search's
+# `instructed:` field. The full pipeline:
+#
+#   1. Router picks "standard" or "instructed" mode from the query text.
+#   2. If instructed: an LLM decomposes the user query into 1–3
+#      constraint-aware subqueries (with structured filters).
+#   3. Each subquery runs in parallel against Lakebase (ANN / BM25 /
+#      HYBRID — whichever query_type is configured).
+#   4. Results merged via Reciprocal Rank Fusion.
+#   5. Optional FlashRank cross-encoder rerank.
+#   6. LLM instruction-aware rerank scores each doc against the user's
+#      constraints.
+#   7. Optional verifier LLM checks the results; on failure, retries with
+#      feedback (up to max_retries).
+#
+# All of this is backend-agnostic — the same pipeline runs for ai_search.
+# Only the search call itself is Lakebase-specific.
+
+parameters:
+  lakebase_project:
+    default: my-lakebase-project
+  schema_name:
+    default: dao_ai_kb
+  table_name:
+    default: kb_articles
+  secret_scope:
+    default: my_secret_scope
+  sp_client_id_key:
+    default: SP_CLIENT_ID
+  sp_client_secret_key:
+    default: SP_CLIENT_SECRET
+  workspace_host_key:
+    default: DATABRICKS_HOST
+
+variables:
+  client_id: &client_id
+    options:
+      - scope: ${var.secret_scope}
+        secret: ${var.sp_client_id_key}
+      - env: ${var.sp_client_id_key}
+  client_secret: &client_secret
+    options:
+      - scope: ${var.secret_scope}
+        secret: ${var.sp_client_secret_key}
+      - env: ${var.sp_client_secret_key}
+  workspace_host: &workspace_host
+    options:
+      - scope: ${var.secret_scope}
+        secret: ${var.workspace_host_key}
+      - env: ${var.workspace_host_key}
+
+resources:
+  models:
+    default_llm: &default_llm
+      name: databricks-claude-sonnet-4-5
+    # Fast, low-latency model for router / decomposition / verify.
+    fast_llm: &fast_llm
+      name: databricks-claude-sonnet-4-5
+
+  databases:
+    kb_lakebase: &kb_lakebase
+      project: ${var.lakebase_project}
+      client_id: *client_id
+      client_secret: *client_secret
+      workspace_host: *workspace_host
+
+retrievers:
+  kb_instructed_retriever: &kb_instructed_retriever
+    type: lakebase_search
+    vector_store:
+      database: *kb_lakebase
+      schema_name: ${var.schema_name}
+      table: ${var.table_name}
+      content_column: passage
+      embedding_column: embedding
+      tsvector_column: passage_tsv
+      embedding_model: databricks-gte-large-en
+      metadata_columns:
+        - category
+        - priority
+    search_parameters:
+      query_type: HYBRID
+      num_results: 20
+    instructed:
+      columns:
+        - name: category
+          type: string
+          description: "Article category (auth, billing, shipping, returns)"
+        - name: priority
+          type: number
+          description: "Priority tier 1 (highest) through 5 (lowest)"
+      constraints:
+        - "Prefer high-priority articles (priority <= 2) when the user asks for the most important info."
+      decomposition:
+        model: *fast_llm
+        max_subqueries: 3
+        rrf_k: 60
+      rerank:
+        model: *fast_llm
+        instructions: "Prioritize articles that directly answer the user's question."
+        top_n: 5
+      router:
+        model: *fast_llm
+        default_mode: instructed
+        auto_bypass: true
+      verifier:
+        model: *fast_llm
+        on_failure: warn
+        max_retries: 1
+
+tools:
+  kb_instructed: &kb_instructed
+    name: kb_instructed
+    function:
+      type: lakebase_search
+      retriever: *kb_instructed_retriever
+
+agents:
+  kb_agent:
+    name: kb_agent
+    model: *default_llm
+    tools:
+      - *kb_instructed
+    prompt: |
+      You are a knowledge-base assistant. Call kb_instructed to search.
+
+app:
+  name: dao-ai-lb-instructed-example
+  registered_model:
+    name: dao_ai_lb_instructed_example
+  agents:
+    - name: kb_agent
+      model: *default_llm
+      tools:
+        - *kb_instructed
+      prompt: |
+        You are a knowledge-base assistant. Call kb_instructed to search.

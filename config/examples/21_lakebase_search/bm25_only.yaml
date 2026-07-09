@@ -12,14 +12,36 @@
 
 parameters:
   lakebase_project:
-    description: Lakebase autoscaling Postgres project id
     default: my-lakebase-project
   schema_name:
-    description: Postgres schema holding the KB table
     default: dao_ai_kb
   table_name:
-    description: Table with tsvector column
     default: kb_articles
+  secret_scope:
+    default: my_secret_scope
+  sp_client_id_key:
+    default: SP_CLIENT_ID
+  sp_client_secret_key:
+    default: SP_CLIENT_SECRET
+  workspace_host_key:
+    default: DATABRICKS_HOST
+
+variables:
+  client_id: &client_id
+    options:
+      - scope: ${var.secret_scope}
+        secret: ${var.sp_client_id_key}
+      - env: ${var.sp_client_id_key}
+  client_secret: &client_secret
+    options:
+      - scope: ${var.secret_scope}
+        secret: ${var.sp_client_secret_key}
+      - env: ${var.sp_client_secret_key}
+  workspace_host: &workspace_host
+    options:
+      - scope: ${var.secret_scope}
+        secret: ${var.workspace_host_key}
+      - env: ${var.workspace_host_key}
 
 resources:
   models:
@@ -29,26 +51,33 @@ resources:
   databases:
     kb_lakebase: &kb_lakebase
       project: ${var.lakebase_project}
+      client_id: *client_id
+      client_secret: *client_secret
+      workspace_host: *workspace_host
+
+retrievers:
+  kb_bm25: &kb_bm25
+    type: lakebase_search
+    vector_store:
+      database: *kb_lakebase
+      schema_name: ${var.schema_name}
+      table: ${var.table_name}
+      content_column: passage
+      embedding_column: embedding             # required by schema, unused at query time
+      tsvector_column: passage_tsv            # required for BM25
+      embedding_model: databricks-gte-large-en
+      metadata_columns:
+        - category
+    search_parameters:
+      query_type: BM25
+      num_results: 5
 
 tools:
   kb_lexical: &kb_lexical
     name: kb_lexical
     function:
       type: lakebase_search
-      retriever:
-        vector_store:
-          database: *kb_lakebase
-          schema_name: ${var.schema_name}
-          table: ${var.table_name}
-          content_column: passage
-          embedding_column: embedding             # required by schema, unused at query time
-          tsvector_column: passage_tsv            # required for BM25
-          embedding_model: databricks-gte-large-en
-          metadata_columns:
-            - category
-        search_parameters:
-          query_type: BM25
-          num_results: 5
+      retriever: *kb_bm25
 
 agents:
   lexical_agent:

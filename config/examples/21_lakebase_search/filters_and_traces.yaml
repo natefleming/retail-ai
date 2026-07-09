@@ -68,48 +68,51 @@ resources:
       client_secret: *client_secret
       workspace_host: *workspace_host
 
-tools:
+retrievers:
   # Only surface published, high-priority auth-related docs to the agent.
   # Filter columns must appear in vector_store.metadata_columns (allowlist).
-  # Supported operators: =, !=, <, <=, >, >=, in, not_in, like, ilike, is_null.
+  active_auth_retriever: &active_auth_retriever
+    type: lakebase_search
+    vector_store:
+      database: *kb_lakebase
+      schema_name: ${var.schema_name}
+      table: ${var.table_name}
+      content_column: passage
+      embedding_column: embedding
+      tsvector_column: passage_tsv
+      embedding_model: databricks-gte-large-en
+      metadata_columns:
+        - category
+        - status
+        - priority
+        - source_url
+    search_parameters:
+      query_type: HYBRID
+      num_results: 5
+      # Filter keys follow ai_search's suffixed-key convention. The
+      # bare column name means equality; the LLM-facing FilterItem
+      # list uses the exact same suffix language.
+      #
+      # Supported suffixes (identical to ai_search):
+      #   ""          equality             ("col": <value>)
+      #   " NOT"      not-equals / not-in  ("col NOT": <value|list>)
+      #   " <" " <=" " >" " >="  comparisons
+      #   " LIKE"     case-insensitive     ("col LIKE": "pattern%")
+      #   " NOT LIKE" case-insensitive not ("col NOT LIKE": "pattern")
+      #
+      # A list value with the bare / NOT suffix triggers IN / NOT IN.
+      filters:
+        category: auth                          # equality
+        "status": [published, reviewed]         # list value → IN
+        "priority >=": 2                        # comparison
+        "source_url LIKE": "https://docs.%.com/%"   # LIKE (Postgres ILIKE)
+
+tools:
   active_auth_kb: &active_auth_kb
     name: active_auth_kb
     function:
       type: lakebase_search
-      retriever:
-        vector_store:
-          database: *kb_lakebase
-          schema_name: ${var.schema_name}
-          table: ${var.table_name}
-          content_column: passage
-          embedding_column: embedding
-          tsvector_column: passage_tsv
-          embedding_model: databricks-gte-large-en
-          metadata_columns:
-            - category
-            - status
-            - priority
-            - source_url
-        search_parameters:
-          query_type: HYBRID
-          num_results: 5
-          # Filter keys follow ai_search's suffixed-key convention. The
-          # bare column name means equality; the LLM-facing FilterItem
-          # list uses the exact same suffix language.
-          #
-          # Supported suffixes (identical to ai_search):
-          #   ""          equality             ("col": <value>)
-          #   " NOT"      not-equals / not-in  ("col NOT": <value|list>)
-          #   " <" " <=" " >" " >="  comparisons
-          #   " LIKE"     case-insensitive     ("col LIKE": "pattern%")
-          #   " NOT LIKE" case-insensitive not ("col NOT LIKE": "pattern")
-          #
-          # A list value with the bare / NOT suffix triggers IN / NOT IN.
-          filters:
-            category: auth                          # equality
-            "status": [published, reviewed]         # list value → IN
-            "priority >=": 2                        # comparison
-            "source_url LIKE": "https://docs.%.com/%"   # LIKE (Postgres ILIKE)
+      retriever: *active_auth_retriever
 
 agents:
   auth_agent:

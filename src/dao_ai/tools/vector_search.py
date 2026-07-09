@@ -1091,225 +1091,11 @@ def create_ai_search_tool(
     else:
         tool_description = base_description
 
-    @mlflow.trace(name="execute_instructed_retrieval", span_type=SpanType.RETRIEVER)
-    def _execute_instructed_retrieval(
-        vs: DatabricksVectorSearch,
-        query: str,
-        base_filters: dict[str, Any],
-        previous_feedback: str | None = None,
-        context: Context | None = None,
-    ) -> list[Document]:
-        """Execute instructed retrieval with query decomposition and RRF merging."""
-        logger.trace(
-            "Executing instructed retrieval", query=query, base_filters=base_filters
-        )
-        try:
-            decomposition_llm = _get_cached_llm(decomposition_config.model, context)
-
-            subqueries: list[SearchQuery] = decompose_query(
-                llm=decomposition_llm,
-                query=query,
-                columns=instructed_columns,
-                constraints=instructed_config.constraints,
-                max_subqueries=decomposition_config.max_subqueries,
-                examples=decomposition_config.examples,
-                previous_feedback=previous_feedback,
-                resource_info=ResourceInfo(
-                    "model_serving",
-                    decomposition_config.model.on_behalf_of_user,
-                    decomposition_config.model.name,
-                ),
-            )
-
-            if not subqueries:
-                logger.warning(
-                    "Query decomposition returned no subqueries, using original"
-                )
-                return vs.similarity_search(
-                    query=query,
-                    k=search_parameters.num_results or 5,
-                    filter=base_filters if base_filters else None,
-                    query_type=search_parameters.query_type or "ANN",
-                )
-
-            def normalize_filter_values(
-                filters: dict[str, Any], case: str | None
-            ) -> dict[str, Any]:
-                """Normalize string filter values to specified case."""
-                logger.trace("Normalizing filter values", filters=filters, case=case)
-                if not case or not filters:
-                    return filters
-                normalized = {}
-                for key, value in filters.items():
-                    if isinstance(value, str):
-                        normalized[key] = (
-                            value.upper() if case == "uppercase" else value.lower()
-                        )
-                    elif isinstance(value, list):
-                        normalized[key] = [
-                            v.upper()
-                            if case == "uppercase"
-                            else v.lower()
-                            if isinstance(v, str)
-                            else v
-                            for v in value
-                        ]
-                    else:
-                        normalized[key] = value
-                return normalized
-
-            # Normalize base_filters once for consistent case matching
-            normalized_base_filters = normalize_filter_values(
-                base_filters, decomposition_config.normalize_filter_case
-            )
-
-            def execute_search(sq: SearchQuery) -> list[Document]:
-                logger.trace("Executing search", query=sq.text, filters=sq.filters)
-                # Convert FilterItem list to dict
-                sq_filters_dict: dict[str, Any] = {}
-                if sq.filters:
-                    for item in sq.filters:
-                        sq_filters_dict[item.key] = item.value
-                sq_filters = normalize_filter_values(
-                    sq_filters_dict, decomposition_config.normalize_filter_case
-                )
-                k: int = search_parameters.num_results or 5
-                query_type: str = search_parameters.query_type or "ANN"
-                # Decomposed filters take precedence over base filters
-                combined_filters: dict[str, Any] = {
-                    **normalized_base_filters,
-                    **sq_filters,
-                }
-                logger.trace(
-                    "Executing search",
-                    query=sq.text,
-                    k=k,
-                    query_type=query_type,
-                    filters=combined_filters,
-                )
-                return vs.similarity_search(
-                    query=sq.text,
-                    k=k,
-                    filter=combined_filters if combined_filters else None,
-                    query_type=query_type,
-                )
-
-            logger.debug(
-                "Executing parallel searches",
-                num_subqueries=len(subqueries),
-                queries=[sq.text[:50] for sq in subqueries],
-            )
-
-            with ThreadPoolExecutor(
-                max_workers=decomposition_config.max_subqueries
-            ) as executor:
-                # Wrap once: every subquery thread runs inside the caller's
-                # captured contextvars so the MLflow active-span ContextVar
-                # propagates and the per-subquery autolog spans nest under
-                # the parent decomposed-retrieval span.
-                all_results = list(
-                    executor.map(in_caller_context(execute_search), subqueries)
-                )
-
-            merged = rrf_merge(
-                all_results,
-                k=decomposition_config.rrf_k,
-                primary_key=vector_store.primary_key,
-            )
-
-            logger.debug(
-                "Instructed retrieval complete",
-                num_subqueries=len(subqueries),
-                total_results=sum(len(r) for r in all_results),
-                merged_results=len(merged),
-            )
-
-            # Fallback when decomposed filters are too restrictive
-            if not merged:
-                logger.warning(
-                    "All instructed subqueries returned empty results, "
-                    "falling back to standard unfiltered search",
-                    num_subqueries=len(subqueries),
-                    queries=[sq.text[:50] for sq in subqueries],
-                )
-                return vs.similarity_search(
-                    query=query,
-                    k=search_parameters.num_results or 5,
-                    filter=base_filters if base_filters else None,
-                    query_type=search_parameters.query_type or "ANN",
-                )
-
-            return merged
-
-        except Exception as e:
-            logger.warning(
-                "Instructed retrieval failed, falling back to standard search",
-                error=str(e),
-            )
-            return vs.similarity_search(
-                query=query,
-                k=search_parameters.num_results or 5,
-                filter=base_filters if base_filters else None,
-                query_type=search_parameters.query_type or "ANN",
-            )
-
-    @mlflow.trace(name="execute_standard_search", span_type=SpanType.RETRIEVER)
-    def _execute_standard_search(
-        vs: DatabricksVectorSearch,
-        query: str,
-        base_filters: dict[str, Any],
-    ) -> list[Document]:
-        """Execute standard single-query search."""
-        logger.trace("Performing standard vector search", query_preview=query[:50])
-        return vs.similarity_search(
-            query=query,
-            k=search_parameters.num_results or 5,
-            filter=base_filters if base_filters else None,
-            query_type=search_parameters.query_type or "ANN",
-        )
-
-    @mlflow.trace(name="apply_post_processing", span_type=SpanType.RETRIEVER)
-    def _apply_post_processing(
-        documents: list[Document],
-        query: str,
-        mode: Literal["standard", "instructed"],
-        auto_bypass: bool,
-        context: Context | None = None,
-    ) -> list[Document]:
-        """Apply instruction-aware reranking based on mode and bypass settings."""
-        # Skip post-processing for standard mode when auto_bypass is enabled
-        if mode == "standard" and auto_bypass:
-            span = mlflow.get_current_active_span()
-            if span:
-                span.set_attribute(ATTR_ROUTER_BYPASSED, True)
-            return documents
-
-        # Apply instruction-aware reranking if configured
-        if instruction_rerank_config and instructed_config:
-            instruction_llm = (
-                _get_cached_llm(instruction_rerank_config.model, context)
-                if instruction_rerank_config.model
-                else None
-            )
-
-            if instruction_llm:
-                documents = instruction_aware_rerank(
-                    llm=instruction_llm,
-                    query=query,
-                    documents=documents,
-                    instructions=instruction_rerank_config.instructions,
-                    columns=instructed_columns,
-                    top_n=instruction_rerank_config.top_n,
-                    resource_info=ResourceInfo(
-                        "model_serving",
-                        instruction_rerank_config.model.on_behalf_of_user,
-                        instruction_rerank_config.model.name,
-                    )
-                    if instruction_rerank_config.model
-                    else None,
-                )
-
-        return documents
+    # Pipeline logic (execute_instructed_retrieval + apply_post_processing +
+    # verifier retry loop) lives in ``dao_ai.tools.instructed_pipeline`` so
+    # ``lakebase_search`` shares the same code path. See ``_run_search``
+    # inside the tool closure below for the backend adapter that wraps
+    # ``vs.similarity_search``.
 
     # Use @tool decorator for proper ToolRuntime injection. args_schema=
     # gives the LLM a structural JSON schema for `filters` (type=array,
@@ -1348,154 +1134,38 @@ def create_ai_search_tool(
             **(search_parameters.filters or {}),
         }
 
-        # Determine execution mode via router or config
-        mode: Literal["standard", "instructed"] = "standard"
-        auto_bypass = True
+        # Backend adapter for the shared instructed pipeline. Captures this
+        # invocation's ``vs`` (which may be OBO-scoped) plus the retriever's
+        # ``k`` + ``query_type``. The pipeline calls this once per subquery
+        # in instructed mode and once with base_filters in standard mode.
+        def _run_search(qtxt: str, flt: dict[str, Any]) -> list[Document]:
+            return vs.similarity_search(
+                query=qtxt,
+                k=search_parameters.num_results or 5,
+                filter=flt if flt else None,
+                query_type=search_parameters.query_type or "ANN",
+            )
 
-        logger.trace("Router configuration", router_config=router_config)
-        logger.trace("Instructed configuration", instructed_config=instructed_config)
-        logger.trace(
-            "Instruction-aware rerank configuration",
-            instruction_aware=instruction_rerank_config,
+        # All routing / decomposition / rerank / verify logic lives in
+        # ``dao_ai.tools.instructed_pipeline`` — same code path
+        # lakebase_search uses.
+        from dao_ai.tools.instructed_pipeline import execute_instructed_pipeline
+
+        documents = execute_instructed_pipeline(
+            run_search=_run_search,
+            query=query,
+            base_filters=base_filters,
+            instructed_config=instructed_config,
+            router_config=router_config,
+            verifier_config=verifier_config,
+            decomposition_config=decomposition_config,
+            instruction_rerank_config=instruction_rerank_config,
+            instructed_columns=instructed_columns,
+            primary_key=vector_store.primary_key,
+            ranker=ranker,
+            rerank_config=rerank_config,
+            context=context,
         )
-
-        if router_config:
-            router_llm = (
-                _get_cached_llm(router_config.model, context)
-                if router_config.model
-                else None
-            )
-            auto_bypass = router_config.auto_bypass
-
-            if router_llm and instructed_config:
-                try:
-                    mode = route_query(
-                        llm=router_llm,
-                        query=query,
-                        columns=instructed_columns,
-                        resource_info=ResourceInfo(
-                            "model_serving",
-                            router_config.model.on_behalf_of_user,
-                            router_config.model.name,
-                        ),
-                    )
-                except Exception as e:
-                    # Router fail-safe: default to standard mode
-                    logger.warning(
-                        "Router failed, defaulting to standard mode", error=str(e)
-                    )
-                    span = mlflow.get_current_active_span()
-                    if span:
-                        span.set_attribute(ATTR_ROUTER_FALLBACK, True)
-                    mode = router_config.default_mode
-            else:
-                mode = router_config.default_mode
-        elif instructed_config:
-            # No router but instructed is configured - use instructed mode
-            mode = "instructed"
-            auto_bypass = False
-
-        logger.trace("Routing mode", mode=mode, auto_bypass=auto_bypass)
-        span = mlflow.get_current_active_span()
-        if span:
-            span.set_attribute(ATTR_ROUTER_MODE, mode)
-
-        # Search + verify loop: re-executes search with feedback on verification failure
-        retry_count = 0
-        max_retries = verifier_config.max_retries if verifier_config else 0
-        previous_feedback: str | None = None
-
-        while True:
-            # Execute search based on mode
-            if mode == "instructed" and instructed_config and decomposition_config:
-                documents = _execute_instructed_retrieval(
-                    vs, query, base_filters, previous_feedback, context=context
-                )
-            else:
-                documents = _execute_standard_search(vs, query, base_filters)
-
-            # Apply FlashRank reranking if configured
-            if ranker and rerank_config and documents:
-                logger.debug("Applying FlashRank reranking")
-                documents = rerank_documents(query, documents, ranker, rerank_config)
-
-            # Apply instruction-aware reranking
-            documents = _apply_post_processing(
-                documents, query, mode, auto_bypass, context=context
-            )
-
-            # Verification (if configured)
-            if not verifier_config:
-                break
-
-            # Skip verification for standard mode when auto_bypass is enabled
-            if mode == "standard" and auto_bypass:
-                break
-
-            verifier_llm = (
-                _get_cached_llm(verifier_config.model, context)
-                if verifier_config.model
-                else None
-            )
-            if not verifier_llm:
-                break
-
-            constraints = instructed_config.constraints if instructed_config else None
-
-            verification_result = verify_results(
-                llm=verifier_llm,
-                query=query,
-                documents=documents,
-                columns=instructed_columns,
-                constraints=constraints,
-                previous_feedback=previous_feedback,
-                resource_info=ResourceInfo(
-                    "model_serving",
-                    verifier_config.model.on_behalf_of_user,
-                    verifier_config.model.name,
-                )
-                if verifier_config.model
-                else None,
-            )
-
-            _span = mlflow.get_current_active_span()
-            if verification_result.passed:
-                if _span:
-                    _span.set_attribute(ATTR_VERIFIER_OUTCOME, "passed")
-                    _span.set_attribute(ATTR_VERIFIER_RETRIES, retry_count)
-                break
-
-            # Warn-only: annotate and stop
-            if verifier_config.on_failure == "warn":
-                if _span:
-                    _span.set_attribute(ATTR_VERIFIER_OUTCOME, "warned")
-                documents = add_verification_metadata(documents, verification_result)
-                break
-
-            # Retries exhausted
-            if retry_count >= max_retries:
-                if _span:
-                    _span.set_attribute(ATTR_VERIFIER_OUTCOME, "exhausted")
-                    _span.set_attribute(ATTR_VERIFIER_RETRIES, retry_count)
-                documents = add_verification_metadata(
-                    documents, verification_result, exhausted=True
-                )
-                break
-
-            # Standard mode can't meaningfully retry (no decomposition to adjust)
-            if mode != "instructed":
-                if _span:
-                    _span.set_attribute(ATTR_VERIFIER_OUTCOME, "warned")
-                documents = add_verification_metadata(documents, verification_result)
-                break
-
-            # Retry: re-execute search with verifier feedback
-            retry_count += 1
-            previous_feedback = verification_result.feedback
-            logger.debug(
-                "Retrying search with verification feedback",
-                retry=retry_count,
-            )
 
         # Serialize documents to JSON format for LLM consumption
         serialized_docs: list[dict[str, Any]] = []
