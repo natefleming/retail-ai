@@ -565,3 +565,152 @@ class TestToolFactory:
         )
         raw = tool.invoke({"query": "password"})
         assert json.loads(raw)
+
+
+# ---------------------------------------------------------------------------
+# Rerank (PR A)
+# ---------------------------------------------------------------------------
+
+
+class TestRerank:
+    """Live coverage for FlashRank reranking on lakebase_search output.
+
+    FlashRank is a local cross-encoder — no serving endpoint required.
+    First-time run downloads the model to `~/.dao_ai/cache/flashrank/`
+    (or `/tmp/dao_ai/cache/flashrank` under Model Serving).
+    """
+
+    def test_reranker_score_populated_on_every_doc(
+        self, vector_store: LakebaseVectorStoreModel
+    ) -> None:
+        retriever = LakebaseRetrieverModel(
+            vector_store=vector_store,
+            rerank=True,  # default FlashRank model
+            search_parameters=SearchParametersModel(
+                query_type="ANN", num_results=10
+            ),
+        )
+        tool = create_lakebase_search_tool(retriever=retriever)
+        raw = tool.invoke({"query": "how do I reset my password?"})
+        parsed = json.loads(raw)
+        assert parsed
+        for d in parsed:
+            assert "reranker_score" in d["metadata"], d["metadata"]
+
+    def test_top_n_truncates(
+        self, vector_store: LakebaseVectorStoreModel
+    ) -> None:
+        from dao_ai.config import RerankParametersModel
+
+        retriever = LakebaseRetrieverModel(
+            vector_store=vector_store,
+            rerank=RerankParametersModel(
+                model="ms-marco-MiniLM-L-12-v2", top_n=3
+            ),
+            search_parameters=SearchParametersModel(
+                query_type="ANN", num_results=10
+            ),
+        )
+        tool = create_lakebase_search_tool(retriever=retriever)
+        raw = tool.invoke({"query": "password"})
+        parsed = json.loads(raw)
+        assert len(parsed) == 3, f"top_n=3 → 3 docs, got {len(parsed)}"
+
+    def test_rerank_orders_by_score_descending(
+        self, vector_store: LakebaseVectorStoreModel
+    ) -> None:
+        retriever = LakebaseRetrieverModel(
+            vector_store=vector_store,
+            rerank=True,
+            search_parameters=SearchParametersModel(
+                query_type="ANN", num_results=10
+            ),
+        )
+        tool = create_lakebase_search_tool(retriever=retriever)
+        raw = tool.invoke({"query": "password reset"})
+        parsed = json.loads(raw)
+        assert len(parsed) >= 2
+        scores = [d["metadata"]["reranker_score"] for d in parsed]
+        # Non-increasing order.
+        assert scores == sorted(scores, reverse=True), scores
+
+    def test_rerank_promotes_topically_relevant_top_1(
+        self, vector_store: LakebaseVectorStoreModel
+    ) -> None:
+        """Query 'password reset' → the seeded doc explicitly about
+        resetting passwords should rank #1 after FlashRank, even if the
+        raw ANN top-1 was a related-but-less-direct doc."""
+        retriever = LakebaseRetrieverModel(
+            vector_store=vector_store,
+            rerank=True,
+            search_parameters=SearchParametersModel(
+                query_type="ANN", num_results=10
+            ),
+        )
+        tool = create_lakebase_search_tool(retriever=retriever)
+        raw = tool.invoke({"query": "how do I reset my password?"})
+        parsed = json.loads(raw)
+        assert parsed
+        top_content = parsed[0]["page_content"].lower()
+        # Seeded doc d01: "To reset your password, go to Settings..."
+        # or d12: "Password reset links expire..." — either is a
+        # topically direct hit.
+        assert "reset" in top_content and "password" in top_content
+
+    def test_rerank_works_with_bm25(
+        self, vector_store: LakebaseVectorStoreModel
+    ) -> None:
+        retriever = LakebaseRetrieverModel(
+            vector_store=vector_store,
+            rerank=True,
+            search_parameters=SearchParametersModel(
+                query_type="BM25", num_results=5
+            ),
+        )
+        tool = create_lakebase_search_tool(retriever=retriever)
+        raw = tool.invoke({"query": "password reset"})
+        parsed = json.loads(raw)
+        assert parsed
+        for d in parsed:
+            assert "reranker_score" in d["metadata"]
+
+    def test_rerank_works_with_hybrid(
+        self, vector_store: LakebaseVectorStoreModel
+    ) -> None:
+        retriever = LakebaseRetrieverModel(
+            vector_store=vector_store,
+            rerank=True,
+            search_parameters=SearchParametersModel(
+                query_type="HYBRID", num_results=5
+            ),
+        )
+        tool = create_lakebase_search_tool(retriever=retriever)
+        raw = tool.invoke({"query": "reset my forgotten password"})
+        parsed = json.loads(raw)
+        assert parsed
+        for d in parsed:
+            assert "reranker_score" in d["metadata"]
+
+    def test_rerank_preserves_document_metadata(
+        self, vector_store: LakebaseVectorStoreModel
+    ) -> None:
+        """The rerank pass adds `reranker_score` on top of the retriever's
+        existing metadata — id, category, and per-mode score/distance
+        should still be there."""
+        retriever = LakebaseRetrieverModel(
+            vector_store=vector_store,
+            rerank=True,
+            search_parameters=SearchParametersModel(
+                query_type="ANN", num_results=5
+            ),
+        )
+        tool = create_lakebase_search_tool(retriever=retriever)
+        raw = tool.invoke({"query": "password"})
+        parsed = json.loads(raw)
+        assert parsed
+        for d in parsed:
+            m = d["metadata"]
+            assert "id" in m, m
+            assert "category" in m, m
+            assert "_distance" in m, m  # ANN metric
+            assert "reranker_score" in m, m

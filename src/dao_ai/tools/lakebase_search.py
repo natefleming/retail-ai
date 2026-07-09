@@ -26,12 +26,15 @@ from dao_ai.config import (
     FilterItem,
     LakebaseRetrieverModel,
     LakebaseVectorStoreModel,
+    RerankParametersModel,
 )
 from dao_ai.retrievers.lakebase import LakebaseRetriever
 from dao_ai.tools.vector_search import (
     _build_filter_item_model,
     _is_array_type,
     _normalize_declared_columns,
+    build_flashrank_ranker,
+    rerank_documents,
 )
 
 
@@ -317,6 +320,18 @@ def create_lakebase_search_tool(
         overrides=operator_overrides,
     )
 
+    # Optional FlashRank ranker — parity with ai_search. Reuses the shared
+    # helper from vector_search.py so both backends share the same init +
+    # ONNX-compatibility patching. Returns None when rerank is unset OR
+    # when init failed (soft-fail); the downstream "if ranker" guard
+    # handles both uniformly.
+    rerank_config = (
+        retriever_model.rerank
+        if isinstance(retriever_model.rerank, RerankParametersModel)
+        else None
+    )
+    ranker = build_flashrank_ranker(rerank_config)
+
     @mlflow.trace(name=tool_name, span_type=SpanType.RETRIEVER)
     def _lakebase_search(
         query: str,
@@ -338,6 +353,13 @@ def create_lakebase_search_tool(
         lb_retriever.search_parameters = effective_params
 
         docs = lb_retriever.invoke(query)
+
+        # Optional FlashRank cross-encoder pass. Same helper ai_search
+        # uses — reranker_score lands in each Document.metadata.
+        if ranker is not None and rerank_config is not None and docs:
+            logger.debug("Applying FlashRank reranking to Lakebase results")
+            docs = rerank_documents(query, docs, ranker, rerank_config)
+
         serialized = [
             {"page_content": d.page_content, "metadata": _jsonable(d.metadata)}
             for d in docs

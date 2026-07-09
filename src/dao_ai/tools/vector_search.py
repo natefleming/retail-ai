@@ -596,8 +596,99 @@ def _build_vector_search_input_model(
     )
 
 
+def build_flashrank_ranker(
+    rerank_config: Optional[RerankParametersModel],
+) -> Optional[Ranker]:
+    """Initialize a FlashRank ``Ranker`` from a rerank config, or ``None``.
+
+    Returns ``None`` when:
+    - ``rerank_config`` is ``None`` or has no ``model`` set (nothing to init).
+    - Ranker construction throws (soft-fail — logs a warning; caller should
+      skip reranking when the returned value is ``None``).
+
+    Under Databricks Model Serving the home directory isn't writable, so
+    the FlashRank cache is forced to ``/tmp/dao_ai/cache/flashrank`` (any
+    user-configured ``cache_dir`` is overridden with a warning).
+
+    Also installs an ONNX-compatibility patch on the returned ranker so
+    ``token_type_ids`` is always populated on the ONNX input tensor —
+    some ONNX runtimes require the key even when the model doesn't use
+    it, and FlashRank normally omits it when all zeros
+    (https://github.com/huggingface/optimum/issues/1500).
+
+    Shared by :func:`create_ai_search_tool` and
+    :func:`create_lakebase_search_tool` — same FlashRank init for both
+    backends.
+    """
+    if rerank_config is None or not rerank_config.model:
+        return None
+
+    logger.debug(
+        "Initializing FlashRank ranker",
+        model=rerank_config.model,
+        top_n=rerank_config.top_n or "auto",
+    )
+    try:
+        if is_in_model_serving():
+            cache_dir = "/tmp/dao_ai/cache/flashrank"
+            if rerank_config.cache_dir != cache_dir:
+                logger.warning(
+                    "FlashRank cache_dir overridden in Model Serving",
+                    configured=rerank_config.cache_dir,
+                    actual=cache_dir,
+                )
+        else:
+            cache_dir = os.path.expanduser(rerank_config.cache_dir)
+        ranker = Ranker(model_name=rerank_config.model, cache_dir=cache_dir)
+
+        # ONNX-compatibility patch — always emit token_type_ids.
+        if ranker.session is not None:
+            import numpy as np
+
+            _original_rerank = ranker.rerank  # noqa: F841 (kept for parity)
+
+            def _patched_rerank(request):
+                query = request.query
+                passages = request.passages
+                query_passage_pairs = [[query, p["text"]] for p in passages]
+
+                input_text = ranker.tokenizer.encode_batch(query_passage_pairs)
+                input_ids = np.array([e.ids for e in input_text])
+                token_type_ids = np.array([e.type_ids for e in input_text])
+                attention_mask = np.array([e.attention_mask for e in input_text])
+
+                onnx_input = {
+                    "input_ids": input_ids.astype(np.int64),
+                    "attention_mask": attention_mask.astype(np.int64),
+                    "token_type_ids": token_type_ids.astype(np.int64),
+                }
+
+                outputs = ranker.session.run(None, onnx_input)
+                logits = outputs[0]
+
+                if logits.shape[1] == 1:
+                    scores = 1 / (1 + np.exp(-logits.flatten()))
+                else:
+                    exp_logits = np.exp(logits)
+                    scores = exp_logits[:, 1] / np.sum(exp_logits, axis=1)
+
+                for score, passage in zip(scores, passages):
+                    passage["score"] = score
+
+                passages.sort(key=lambda x: x["score"], reverse=True)
+                return passages
+
+            ranker.rerank = _patched_rerank
+
+        logger.success("FlashRank ranker initialized", model=rerank_config.model)
+        return ranker
+    except Exception as e:  # noqa: BLE001
+        logger.warning("Failed to initialize FlashRank ranker", error=str(e))
+        return None
+
+
 @mlflow.trace(name="rerank_documents", span_type=SpanType.RERANKER)
-def _rerank_documents(
+def rerank_documents(
     query: str,
     documents: list[Document],
     ranker: Ranker,
@@ -606,10 +697,14 @@ def _rerank_documents(
     """
     Rerank documents using FlashRank cross-encoder model.
 
+    Backend-agnostic — takes a ``list[Document]`` from any retriever
+    (`ai_search`, `lakebase_search`, ...) and returns a re-ordered list
+    with each doc's metadata carrying a ``reranker_score`` (0-1).
+
     Args:
         query: The search query string
         documents: List of documents to rerank
-        ranker: The FlashRank Ranker instance
+        ranker: The FlashRank Ranker instance (see :func:`build_flashrank_ranker`)
         rerank_config: Reranking configuration
 
     Returns:
@@ -851,75 +946,10 @@ def create_ai_search_tool(
         instructed_config.verifier if instructed_config else None
     )
 
-    # Initialize FlashRank ranker if configured
-    ranker: Optional[Ranker] = None
-    if rerank_config and rerank_config.model:
-        logger.debug(
-            "Initializing FlashRank ranker",
-            model=rerank_config.model,
-            top_n=rerank_config.top_n or "auto",
-        )
-        try:
-            # Use /tmp for cache in Model Serving (home dir may not be writable)
-            if is_in_model_serving():
-                cache_dir = "/tmp/dao_ai/cache/flashrank"
-                if rerank_config.cache_dir != cache_dir:
-                    logger.warning(
-                        "FlashRank cache_dir overridden in Model Serving",
-                        configured=rerank_config.cache_dir,
-                        actual=cache_dir,
-                    )
-            else:
-                cache_dir = os.path.expanduser(rerank_config.cache_dir)
-            ranker = Ranker(model_name=rerank_config.model, cache_dir=cache_dir)
-
-            # Patch rerank to always include token_type_ids for ONNX compatibility
-            # Some ONNX runtimes require token_type_ids even when the model doesn't use them
-            # FlashRank conditionally excludes them when all zeros, but ONNX may still expect them
-            # See: https://github.com/huggingface/optimum/issues/1500
-            if ranker.session is not None:
-                import numpy as np
-
-                _original_rerank = ranker.rerank
-
-                def _patched_rerank(request):
-                    query = request.query
-                    passages = request.passages
-                    query_passage_pairs = [[query, p["text"]] for p in passages]
-
-                    input_text = ranker.tokenizer.encode_batch(query_passage_pairs)
-                    input_ids = np.array([e.ids for e in input_text])
-                    token_type_ids = np.array([e.type_ids for e in input_text])
-                    attention_mask = np.array([e.attention_mask for e in input_text])
-
-                    # Always include token_type_ids (the fix for ONNX compatibility)
-                    onnx_input = {
-                        "input_ids": input_ids.astype(np.int64),
-                        "attention_mask": attention_mask.astype(np.int64),
-                        "token_type_ids": token_type_ids.astype(np.int64),
-                    }
-
-                    outputs = ranker.session.run(None, onnx_input)
-                    logits = outputs[0]
-
-                    if logits.shape[1] == 1:
-                        scores = 1 / (1 + np.exp(-logits.flatten()))
-                    else:
-                        exp_logits = np.exp(logits)
-                        scores = exp_logits[:, 1] / np.sum(exp_logits, axis=1)
-
-                    for score, passage in zip(scores, passages):
-                        passage["score"] = score
-
-                    passages.sort(key=lambda x: x["score"], reverse=True)
-                    return passages
-
-                ranker.rerank = _patched_rerank
-
-            logger.success("FlashRank ranker initialized", model=rerank_config.model)
-        except Exception as e:
-            logger.warning("Failed to initialize FlashRank ranker", error=str(e))
-            rerank_config = None
+    # Initialize FlashRank ranker if configured. On init failure the helper
+    # returns None and we skip the reranker; the downstream "if ranker" guard
+    # handles both "not configured" and "init failed" uniformly.
+    ranker: Optional[Ranker] = build_flashrank_ranker(rerank_config)
 
     # Log instructed retrieval configuration
     if instructed_config and decomposition_config:
@@ -1387,7 +1417,7 @@ def create_ai_search_tool(
             # Apply FlashRank reranking if configured
             if ranker and rerank_config and documents:
                 logger.debug("Applying FlashRank reranking")
-                documents = _rerank_documents(query, documents, ranker, rerank_config)
+                documents = rerank_documents(query, documents, ranker, rerank_config)
 
             # Apply instruction-aware reranking
             documents = _apply_post_processing(

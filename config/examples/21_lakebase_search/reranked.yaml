@@ -1,0 +1,103 @@
+# yaml-language-server: $schema=../../../schemas/model_config_schema.json
+
+# Lakebase Search with FlashRank cross-encoder reranking.
+#
+# The retriever fetches num_results docs from Lakebase (ANN/BM25/HYBRID),
+# then FlashRank re-scores each (query, doc) pair and returns the top_n
+# in descending score order. Each returned Document.metadata carries a
+# `reranker_score` field.
+#
+# FlashRank is a *local* cross-encoder — no serving endpoint required.
+# Model weights download once to ~/.dao_ai/cache/flashrank/ (or
+# /tmp/dao_ai/cache/flashrank under Databricks Apps / Model Serving).
+#
+# Same shape ai_search uses. Set `rerank: true` for the default
+# ms-marco-MiniLM-L-12-v2 model, or provide a RerankParametersModel for
+# a specific model + top_n.
+
+parameters:
+  lakebase_project:
+    description: Lakebase autoscaling Postgres project id
+    default: my-lakebase-project
+  schema_name:
+    default: dao_ai_kb
+  table_name:
+    default: kb_articles
+
+resources:
+  models:
+    default_llm: &default_llm
+      name: databricks-claude-sonnet-4-5
+
+  databases:
+    kb_lakebase: &kb_lakebase
+      project: ${var.lakebase_project}
+
+tools:
+  # Cast a wide net, then rerank down to the top 5 most relevant.
+  kb_reranked: &kb_reranked
+    name: kb_reranked
+    function:
+      type: lakebase_search
+      retriever:
+        vector_store:
+          database: *kb_lakebase
+          schema_name: ${var.schema_name}
+          table: ${var.table_name}
+          content_column: passage
+          embedding_column: embedding
+          tsvector_column: passage_tsv
+          embedding_model: databricks-gte-large-en
+          metadata_columns: [category, priority]
+        search_parameters:
+          query_type: HYBRID
+          num_results: 20                # broad recall — cast the wide net
+        rerank:
+          model: ms-marco-MiniLM-L-12-v2
+          top_n: 5                       # narrow to top-5 after reranking
+
+  # Simpler variant — bool defaults to ms-marco-MiniLM-L-12-v2, no top_n
+  # (returns all num_results docs, just reordered by rerank score).
+  kb_reranked_default: &kb_reranked_default
+    name: kb_reranked_default
+    function:
+      type: lakebase_search
+      retriever:
+        vector_store:
+          database: *kb_lakebase
+          schema_name: ${var.schema_name}
+          table: ${var.table_name}
+          content_column: passage
+          embedding_column: embedding
+          tsvector_column: passage_tsv
+          embedding_model: databricks-gte-large-en
+          metadata_columns: [category]
+        search_parameters:
+          query_type: ANN
+          num_results: 5
+        rerank: true                     # shorthand → default FlashRank model
+
+agents:
+  kb_agent:
+    name: kb_agent
+    model: *default_llm
+    tools:
+      - *kb_reranked
+    prompt: |
+      You are a knowledge-base assistant. Call kb_reranked to fetch the
+      top-5 most relevant documents (cross-encoder reranked) and answer
+      using only the retrieved content.
+
+app:
+  name: dao-ai-lb-reranked-example
+  registered_model:
+    name: dao_ai_lb_reranked_example
+  agents:
+    - name: kb_agent
+      model: *default_llm
+      tools:
+        - *kb_reranked
+      prompt: |
+        You are a knowledge-base assistant. Call kb_reranked to fetch the
+        top-5 most relevant documents (cross-encoder reranked) and answer
+        using only the retrieved content.

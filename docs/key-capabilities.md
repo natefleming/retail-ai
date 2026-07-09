@@ -433,6 +433,8 @@ genie_tool:
 
 *(AI Search is the current Databricks name; older docs and configs may still call it Vector Search — dao-ai accepts both.)*
 
+> **`lakebase_search` parity (Stage 2, PR A):** the same `rerank` field with identical semantics is now available on `LakebaseRetrieverModel`. Set `rerank: true` for the default FlashRank model or provide a full `RerankParametersModel` — applies uniformly to the retriever's ANN, BM25, or HYBRID output. See [config/examples/21_lakebase_search/reranked.yaml](../config/examples/21_lakebase_search/reranked.yaml).
+
 **The problem:** AI Search (semantic similarity) is fast but sometimes returns loosely related results. It's like a librarian who quickly grabs 50 books that *might* be relevant.
 
 **The solution:** Reranking is like having an expert review those 50 books and pick the best 5 that *actually* answer your question.
