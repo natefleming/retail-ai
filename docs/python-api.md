@@ -109,12 +109,22 @@ databases = config.resources.databases
 ## Creating Infrastructure
 
 ```python
-# Create vector stores
-for name, vs in vector_stores.items():
-    vs.create()
+from dao_ai.config import AiSearchVectorStoreModel, LakebaseVectorStoreModel
 
-# Create specific infrastructure components
-config.resources.vector_stores["my_store"].create()
+# `vector_stores` is a discriminated union — each entry is either an
+# AiSearchVectorStoreModel or a LakebaseVectorStoreModel. AI Search stores
+# use `.create()` (provisions the index endpoint if configured); Lakebase
+# stores use `.provision(dimension=...)` (creates extensions + table +
+# indexes in Postgres).
+for name, vs in vector_stores.items():
+    if isinstance(vs, AiSearchVectorStoreModel):
+        vs.create()
+    elif isinstance(vs, LakebaseVectorStoreModel):
+        vs.provision(dimension=1024)  # matches your embedding endpoint
+
+# Or address a specific entry directly by name:
+config.resources.vector_stores["my_ai_store"].create()
+config.resources.vector_stores["my_lakebase_store"].provision(dimension=1024)
 ```
 
 ## Packaging and Deployment

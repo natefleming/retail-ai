@@ -56,8 +56,17 @@ resources:
       workspace_host: string
       pat: *secret
 
+  # `vector_stores` is a discriminated union — each entry is either an
+  # AiSearchVectorStoreModel (Databricks AI Search index) or a
+  # LakebaseVectorStoreModel (Postgres table with lakebase_vector /
+  # lakebase_text extensions). The `type:` field selects the concrete
+  # class; when omitted, defaults to `ai_search` for back-compat with
+  # legacy configs. Both types can co-exist under the same dict.
   vector_stores:
-    store_name: &store_name
+    # AI Search store — the historical default. `type: ai_search` is
+    # implicit when omitted.
+    ai_store: &ai_store
+      type: ai_search             # optional (default)
       endpoint:
         name: string
         type: STANDARD | OPTIMIZED_STORAGE
@@ -71,6 +80,21 @@ resources:
       embedding_model: *embedding_model
       embedding_source_column: string
       columns: [string]
+
+    # Lakebase Postgres store — `type: lakebase_search` is required.
+    # Auth flows through the nested `database` (DatabaseModel); no
+    # `endpoint` / `index` fields.
+    lakebase_store: &lakebase_store
+      type: lakebase_search        # required for the Lakebase branch
+      database: *lakebase_db       # DatabaseModel reference
+      schema_name: public          # Postgres schema
+      table: string                # Postgres table with vector column
+      content_column: string       # text column returned as Document.page_content
+      embedding_column: string     # VECTOR(N) column indexed by lakebase_ann
+      tsvector_column: string      # optional, required for BM25 / HYBRID
+      embedding_model: *embedding_model
+      metadata_columns: [string]
+      distance_metric: cosine | l2 | ip
 
   databases:
     # Lakebase (autoscaling)
