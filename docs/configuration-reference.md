@@ -388,9 +388,11 @@ app:
   # Requires an explicit post-deploy link step:
   #   `dao-ai link-trace-destination -c my_config.yaml -p <profile>`
   # See `docs/cli-reference.md#link-trace-destination` for the flow and
-  # for the migration playbook (changing table_prefix / catalog / schema
-  # requires a fresh experiment — MLflow does not support in-place edits
-  # to a UC trace destination once the experiment has any traces).
+  # for the migration playbook. IMPORTANT: once an experiment is linked
+  # to a UC destination, Databricks does NOT allow un-linking or
+  # changing the destination (verified live — the server rejects
+  # `unset_experiment_trace_location`). Changing catalog / schema /
+  # table_prefix requires creating a fresh experiment.
   trace_location:
     # Either provide a schema + warehouse (preferred), or pass a single
     # "catalog.schema" string and the warehouse separately.
@@ -400,12 +402,8 @@ app:
                                       # (<prefix>_otel_{spans,logs,metrics}).
                                       # null → MLflow uses the experiment id
                                       # as the prefix (backend-assigned).
-                                      # Changing this on an existing experiment
-                                      # requires the unset → set swap; on some
-                                      # Databricks backends the swap is rejected
-                                      # once the experiment has traces. See
-                                      # `docs/cli-reference.md#link-trace-destination`
-                                      # for the migration playbook.
+                                      # PERMANENT once linked — see the note
+                                      # above on the trace_location block.
 
   # Production monitoring via MLflow GenAI scorers
   monitoring:

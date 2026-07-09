@@ -265,13 +265,14 @@ If none of the above resolves, the CLI prints the candidates and exits 1.
 
 **1. You must restart the app after linking.** MLflow's OTEL exporter binds the trace destination at **process startup**. Running `link-trace-destination` while the app is up does not retroactively route in-flight traces to the new location — the running exporter is already bound to whatever destination was in effect when it started. Trigger `databricks apps restart <name>` (or any bundle re-deploy) so the app picks up the fresh linkage.
 
-**2. Changing a UC trace destination is restricted.** MLflow *does* expose `mlflow.tracing.unset_experiment_trace_location(location, experiment_id=...)` for un-linking (OSS API, `tracing/enablement.py:115-163`), and `mlflow.tracing.set_experiment_trace_location(...)` for the follow-up re-link — the OSS-supported swap is `unset → set`. On Databricks, though:
+**2. A UC-linked experiment is permanently bound to that destination on Databricks.** Verified against a live Databricks workspace (MLflow 3.11):
 
-- **Re-linking to the *same* tuple** — safe (idempotent, returns existing).
-- **Un-linking + re-linking to a *different* tuple** — MLflow's own client-side guard is based on the `mlflow.experiment.databricksTraceDestinationPath` tag, not on trace count; after `unset`, the tag is removed so a fresh `set` should be accepted. However, the Databricks control plane may still reject with `already contains traces` when the experiment has existing spans — the exact policy depends on backend version. **Untested against a live Databricks workspace as of this doc; verify on your workspace before scripting a migration.**
-- **`table_prefix` / `catalog` / `schema` change without un-linking first** — always rejected.
+- **Re-linking to the *same* destination** — safe (idempotent, no error).
+- **`mlflow.tracing.unset_experiment_trace_location(...)`** — the OSS API exists (`tracing/enablement.py:115-163`), but the Databricks control plane explicitly rejects it:
+  > `BAD_REQUEST: Unlinking an experiment from a Unity Catalog trace location is not allowed. Once linked, an experiment cannot be unlinked from its trace location.`
+- **Changing `table_prefix` / `catalog` / `schema`** — impossible, since you can't un-link first. The `unset → set` swap that OSS MLflow supports does not work here.
 
-If you need to change the destination and the swap path is blocked by the backend, fall back to the migration playbook below (create a fresh experiment).
+There is no `force`, `replace`, or delete-and-recreate-linkage flag anywhere in the client or server API. The only recovery path is the fresh-experiment migration playbook below.
 
 ### Migration playbook — moving traces to a new UC destination
 
@@ -312,7 +313,7 @@ databricks bundle run <new-app-name> --target dev -p <profile>
 databricks apps restart <new-app-name> -p <profile>
 ```
 
-The **old** experiment can be un-linked from its UC destination via `mlflow.tracing.unset_experiment_trace_location(location, experiment_id=<old-id>)` (subject to the Databricks-backend caveat above), or deleted outright via `mlflow.delete_experiment(<old-id>)` / the workspace UI (soft-delete; hard purge is a workspace cleanup job).
+The **old** experiment stays linked to its original destination — Databricks does not allow un-linking. If you no longer need the old data, delete the experiment outright via `mlflow.delete_experiment(<old-id>)` (or the workspace UI). That's a soft-delete; a hard purge is a workspace cleanup job. The OTEL Delta tables the old experiment wrote to are not affected by experiment deletion — drop them separately if you want the storage back.
 
 ## Interactive Chat
 
