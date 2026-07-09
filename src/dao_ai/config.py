@@ -4536,6 +4536,34 @@ class BaseRetrieverModel(ABC, BaseModel):
         default_factory=SearchParametersModel,
         description="Search tuning: number of results, query type, and metadata filters.",
     )
+    rerank: Optional[RerankParametersModel | bool] = Field(
+        default=None,
+        description=(
+            "Optional FlashRank cross-encoder reranking pass over the "
+            "retriever's raw hits. Set to ``true`` for defaults, or provide "
+            "a ``RerankParametersModel`` for a specific model + ``top_n``. "
+            "For LLM instruction-aware reranking use ``instructed.rerank`` "
+            "instead."
+        ),
+    )
+    instructed: Optional[InstructedRetrieverModel] = Field(
+        default=None,
+        description=(
+            "Optional instructed-retrieval pipeline: LLM decomposes the "
+            "query into constraint-aware subqueries, runs them in parallel, "
+            "RRF-merges results, applies an LLM instruction-aware rerank, "
+            "and (optionally) verifies + retries. Both retriever backends "
+            "share the pipeline implementation in "
+            "``dao_ai.tools.instructed_pipeline``."
+        ),
+    )
+
+    @model_validator(mode="after")
+    def _set_default_reranker(self) -> Self:
+        """``rerank: true`` → default FlashRank model. Shared by all backends."""
+        if isinstance(self.rerank, bool) and self.rerank:
+            self.rerank = RerankParametersModel(model="ms-marco-MiniLM-L-12-v2")
+        return self
 
     @abstractmethod
     def as_tools(self, **kwargs: Any) -> Sequence[RunnableLike]:
@@ -4568,30 +4596,11 @@ class AiSearchRetrieverModel(BaseRetrieverModel):
     vector_store: VectorStoreModel = Field(
         description="AI Search / Vector Search index configuration used for similarity search.",
     )
-    rerank: Optional[RerankParametersModel | bool] = Field(
-        default=None,
-        description="Optional reranking configuration. Set to true for defaults, or provide RerankParametersModel for custom settings.",
-    )
-    instructed: Optional[InstructedRetrieverModel] = Field(
-        default=None,
-        description="Optional instructed retrieval with query decomposition, instruction-aware reranking, routing, and verification.",
-    )
 
     @model_validator(mode="after")
     def set_default_columns(self) -> Self:
         if not self.columns:
             self.columns = list(self.vector_store.columns or [])
-        return self
-
-    @model_validator(mode="after")
-    def set_default_reranker(self) -> Self:
-        """Convert bool to RerankParametersModel with defaults.
-
-        When rerank: true is used, sets the default FlashRank model
-        (ms-marco-MiniLM-L-12-v2) to enable reranking.
-        """
-        if isinstance(self.rerank, bool) and self.rerank:
-            self.rerank = RerankParametersModel(model="ms-marco-MiniLM-L-12-v2")
         return self
 
     def as_tools(self, **kwargs: Any) -> Sequence[RunnableLike]:
@@ -4718,34 +4727,6 @@ class LakebaseRetrieverModel(BaseRetrieverModel):
     vector_store: LakebaseVectorStoreModel = Field(
         description="Lakebase table + columns + embedding model.",
     )
-    rerank: Optional[RerankParametersModel | bool] = Field(
-        default=None,
-        description=(
-            "Optional FlashRank cross-encoder reranking pass over the "
-            "retriever's raw hits. Set to ``true`` for defaults, or "
-            "provide a ``RerankParametersModel`` for a specific model + "
-            "``top_n``. Applies to ANN / BM25 / HYBRID output uniformly. "
-            "For LLM instruction-aware reranking use ``instructed.rerank`` "
-            "instead."
-        ),
-    )
-    instructed: Optional[InstructedRetrieverModel] = Field(
-        default=None,
-        description=(
-            "Optional instructed-retrieval pipeline: LLM decomposes the "
-            "query into constraint-aware subqueries, runs them in parallel "
-            "against the Lakebase retriever, RRF-merges results, applies "
-            "an LLM instruction-aware rerank, and (optionally) verifies + "
-            "retries. Same semantics as ``AiSearchRetrieverModel.instructed`` "
-            "— shares the pipeline implementation in "
-            "``dao_ai.tools.instructed_pipeline``."
-        ),
-    )
-
-    # Note: ``columns`` and ``search_parameters`` are inherited from
-    # ``BaseRetrieverModel``. Description below repurposes the inherited
-    # ``columns`` default to draw from ``metadata_columns`` on the vector
-    # store rather than ``vector_store.columns`` (which doesn't exist here).
 
     @model_validator(mode="after")
     def _set_default_columns(self) -> Self:
@@ -4760,13 +4741,6 @@ class LakebaseRetrieverModel(BaseRetrieverModel):
             raise ValueError(
                 f"query_type={qt!r} requires 'tsvector_column' on the vector store."
             )
-        return self
-
-    @model_validator(mode="after")
-    def _set_default_reranker(self) -> Self:
-        """``rerank: true`` → default FlashRank model. Parity with ai_search."""
-        if isinstance(self.rerank, bool) and self.rerank:
-            self.rerank = RerankParametersModel(model="ms-marco-MiniLM-L-12-v2")
         return self
 
     def as_tools(self, **kwargs: Any) -> Sequence[RunnableLike]:

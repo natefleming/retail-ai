@@ -1092,6 +1092,82 @@
       "title": "AiSearchIndexModel",
       "type": "object"
     },
+    "AiSearchRetrieverModel": {
+      "additionalProperties": false,
+      "description": "Retriever backed by a Databricks AI Search (formerly Vector Search) index.\n\n(Formerly ``RetrieverModel``. Renamed to disambiguate now that Lakebase\nPostgres has its own retriever config \u2014 see :class:`LakebaseRetrieverModel`.)",
+      "properties": {
+        "columns": {
+          "anyOf": [
+            {
+              "items": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "$ref": "#/$defs/ColumnInfo"
+                  }
+                ]
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Columns to expose to the LLM as filterable + returnable. Accepts either bare strings (name only \u2014 types are discovered from the index at build time) or ColumnInfo objects that declare name / type / operators / description. Hand-declared ColumnInfo items are authoritative and skip build-time discovery. The two forms may be mixed in one list.",
+          "title": "Columns"
+        },
+        "search_parameters": {
+          "$ref": "#/$defs/SearchParametersModel",
+          "description": "Search tuning: number of results, query type, and metadata filters."
+        },
+        "rerank": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RerankParametersModel"
+            },
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Optional FlashRank cross-encoder reranking pass over the retriever's raw hits. Set to ``true`` for defaults, or provide a ``RerankParametersModel`` for a specific model + ``top_n``. For LLM instruction-aware reranking use ``instructed.rerank`` instead.",
+          "title": "Rerank"
+        },
+        "instructed": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/InstructedRetrieverModel"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Optional instructed-retrieval pipeline: LLM decomposes the query into constraint-aware subqueries, runs them in parallel, RRF-merges results, applies an LLM instruction-aware rerank, and (optionally) verifies + retries. Both retriever backends share the pipeline implementation in ``dao_ai.tools.instructed_pipeline``."
+        },
+        "type": {
+          "const": "ai_search",
+          "default": "ai_search",
+          "description": "Discriminator. Must be 'ai_search' (or omitted \u2014 defaults).",
+          "title": "Type",
+          "type": "string"
+        },
+        "vector_store": {
+          "$ref": "#/$defs/AiSearchIndexModel",
+          "description": "AI Search / Vector Search index configuration used for similarity search."
+        }
+      },
+      "required": [
+        "vector_store"
+      ],
+      "title": "AiSearchRetrieverModel",
+      "type": "object"
+    },
     "AiSearchToolModel": {
       "additionalProperties": false,
       "description": "First-class AI Search tool that delegates to ``dao_ai.tools.create_ai_search_tool``.\n\n(Formerly ``VectorSearchToolModel``. Databricks rebranded Vector Search\nto AI Search; the old class name remains as an alias.)\n\nEquivalent to ``type: factory + name: dao_ai.tools.create_ai_search_tool``,\nbut with typed fields. Exactly one of ``retriever`` or ``vector_store`` is\nrequired. Accepts either ``type: ai_search`` (new) or ``type: vector_search``\n(legacy) in YAML.",
@@ -1121,7 +1197,7 @@
         "retriever": {
           "anyOf": [
             {
-              "$ref": "#/$defs/RetrieverModel"
+              "$ref": "#/$defs/AiSearchRetrieverModel"
             },
             {
               "type": "null"
@@ -6300,8 +6376,8 @@
               "type": "null"
             }
           ],
-          "default": 0.1,
-          "description": "Sampling temperature controlling output randomness (0.0 = deterministic, 1.0 = creative).",
+          "default": null,
+          "description": "Sampling temperature. When unset, dao-ai omits `temperature` from the outbound payload entirely, so the serving endpoint uses its own default. This is required by reasoning-mode endpoints (e.g. Anthropic Sonnet 5) that reject the parameter outright. Set explicitly (e.g. 0.1 for deterministic, 1.0 for creative) to override the endpoint default.",
           "title": "Temperature"
         },
         "max_tokens": {
@@ -6313,8 +6389,8 @@
               "type": "null"
             }
           ],
-          "default": 8192,
-          "description": "Maximum number of tokens in the model response.",
+          "default": null,
+          "description": "Maximum tokens in the model response. When unset, dao-ai omits `max_tokens` from the outbound payload so the serving endpoint uses its own default. Set explicitly to cap output length. Ignored by the Responses API (endpoint enforces its own limit).",
           "title": "Max Tokens"
         },
         "fallbacks": {
@@ -6545,6 +6621,267 @@
         }
       },
       "title": "InstructionAwareRerankModel",
+      "type": "object"
+    },
+    "LakebaseRetrieverModel": {
+      "additionalProperties": false,
+      "description": "Full Lakebase retriever config \u2014 vector store plus search parameters.",
+      "properties": {
+        "columns": {
+          "anyOf": [
+            {
+              "items": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "$ref": "#/$defs/ColumnInfo"
+                  }
+                ]
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Columns to expose to the LLM as filterable + returnable. Accepts either bare strings (name only \u2014 types are discovered from the index at build time) or ColumnInfo objects that declare name / type / operators / description. Hand-declared ColumnInfo items are authoritative and skip build-time discovery. The two forms may be mixed in one list.",
+          "title": "Columns"
+        },
+        "search_parameters": {
+          "$ref": "#/$defs/SearchParametersModel",
+          "description": "Search tuning: number of results, query type, and metadata filters."
+        },
+        "rerank": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RerankParametersModel"
+            },
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Optional FlashRank cross-encoder reranking pass over the retriever's raw hits. Set to ``true`` for defaults, or provide a ``RerankParametersModel`` for a specific model + ``top_n``. For LLM instruction-aware reranking use ``instructed.rerank`` instead.",
+          "title": "Rerank"
+        },
+        "instructed": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/InstructedRetrieverModel"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Optional instructed-retrieval pipeline: LLM decomposes the query into constraint-aware subqueries, runs them in parallel, RRF-merges results, applies an LLM instruction-aware rerank, and (optionally) verifies + retries. Both retriever backends share the pipeline implementation in ``dao_ai.tools.instructed_pipeline``."
+        },
+        "type": {
+          "const": "lakebase_search",
+          "default": "lakebase_search",
+          "description": "Discriminator. Must be 'lakebase_search'.",
+          "title": "Type",
+          "type": "string"
+        },
+        "vector_store": {
+          "$ref": "#/$defs/LakebaseVectorStoreModel",
+          "description": "Lakebase table + columns + embedding model."
+        }
+      },
+      "required": [
+        "vector_store"
+      ],
+      "title": "LakebaseRetrieverModel",
+      "type": "object"
+    },
+    "LakebaseSearchToolModel": {
+      "additionalProperties": false,
+      "description": "First-class Lakebase retrieval tool that delegates to ``dao_ai.tools.create_lakebase_search_tool``.\n\nRetrieves from a Databricks Lakebase Postgres table using the\n``lakebase_vector`` and (optionally) ``lakebase_text`` extensions.\nExactly one of ``retriever`` or ``vector_store`` is required.",
+      "properties": {
+        "type": {
+          "const": "lakebase_search",
+          "default": "lakebase_search",
+          "description": "Function type discriminator. Must be 'lakebase_search'.",
+          "title": "Type",
+          "type": "string"
+        },
+        "human_in_the_loop": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/HumanInTheLoopModel"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Human-in-the-loop approval configuration for this tool."
+        },
+        "retriever": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/LakebaseRetrieverModel"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Full Lakebase retriever configuration with search parameters. Mutually exclusive with ``vector_store``."
+        },
+        "vector_store": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/LakebaseVectorStoreModel"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Direct Lakebase table reference (uses default search parameters). Mutually exclusive with ``retriever``."
+        },
+        "name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Tool name visible to the LLM.",
+          "title": "Name"
+        },
+        "description": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Tool description shown to the LLM during function calling.",
+          "title": "Description"
+        }
+      },
+      "title": "LakebaseSearchToolModel",
+      "type": "object"
+    },
+    "LakebaseVectorStoreModel": {
+      "additionalProperties": false,
+      "description": "Configuration for a Databricks Lakebase Postgres table used for retrieval.\n\nPoints at a table that already has ``lakebase_vector`` (and optionally\n``lakebase_text``) extensions installed and appropriate indexes built.\nStage-1 scope: existing tables only; provisioning is deferred.\n\nExample (existing table, hybrid-ready):\n```yaml\nvector_store:\n  database:\n    project: my-lakebase-project\n  table: kb_articles\n  content_column: passage\n  embedding_column: embedding\n  tsvector_column: passage_tsv\n  embedding_model: databricks-gte-large-en\n  metadata_columns: [category, source_url]\n  bm25_index_name: kb_articles_passage_bm25\n  distance_metric: cosine\n```",
+      "properties": {
+        "database": {
+          "$ref": "#/$defs/DatabaseModel",
+          "description": "Lakebase (or PostgreSQL) database connection. Reuses the existing DatabaseModel \u2014 pool + auth handled by ``dao_ai.memory.postgres`` pool managers."
+        },
+        "schema_name": {
+          "default": "public",
+          "description": "Postgres schema containing the retrieval table.",
+          "title": "Schema Name",
+          "type": "string"
+        },
+        "table": {
+          "description": "Source table with vector (and optionally tsvector) columns.",
+          "title": "Table",
+          "type": "string"
+        },
+        "id_column": {
+          "default": "id",
+          "description": "Primary-key column exposed as ``Document.metadata['id']``.",
+          "title": "Id Column",
+          "type": "string"
+        },
+        "content_column": {
+          "description": "Text column returned as ``Document.page_content``.",
+          "title": "Content Column",
+          "type": "string"
+        },
+        "embedding_column": {
+          "description": "``VECTOR(N)`` column indexed by ``lakebase_ann``. Dimension must match the embedding model.",
+          "title": "Embedding Column",
+          "type": "string"
+        },
+        "tsvector_column": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "``tsvector`` column indexed by ``lakebase_bm25``. Required for BM25 and HYBRID query types.",
+          "title": "Tsvector Column"
+        },
+        "metadata_columns": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Additional columns surfaced on ``Document.metadata``.",
+          "title": "Metadata Columns"
+        },
+        "embedding_model": {
+          "$ref": "#/$defs/InferenceEndpointModel",
+          "description": "Embedding endpoint used to embed the query at retrieval time. Accepts a bare endpoint name (e.g. ``databricks-gte-large-en``) which is coerced to ``InferenceEndpointModel(name=<str>)``."
+        },
+        "bm25_index_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Regclass name required by ``to_bm25query(..., <index>::regclass)``. Auto-derived from ``<schema>.<table>_<tsvector_column>_bm25`` if omitted.",
+          "title": "Bm25 Index Name"
+        },
+        "distance_metric": {
+          "default": "cosine",
+          "description": "Vector distance operator: ``cosine`` (``<=>`` / ``vector_cosine_ops``), ``l2`` (``<->`` / ``vector_l2_ops``), ``ip`` (``<#>`` / ``vector_ip_ops``).",
+          "enum": [
+            "cosine",
+            "l2",
+            "ip"
+          ],
+          "title": "Distance Metric",
+          "type": "string"
+        },
+        "tsv_language": {
+          "default": "english",
+          "description": "Text-search dictionary passed to ``to_tsvector(<lang>, ...)``.",
+          "title": "Tsv Language",
+          "type": "string"
+        }
+      },
+      "required": [
+        "database",
+        "table",
+        "content_column",
+        "embedding_column",
+        "embedding_model"
+      ],
+      "title": "LakebaseVectorStoreModel",
       "type": "object"
     },
     "LogLevel": {
@@ -8096,75 +8433,6 @@
       "title": "ResponseFormatModel",
       "type": "object"
     },
-    "RetrieverModel": {
-      "additionalProperties": false,
-      "description": "Retriever combining a vector store with search parameters, reranking, and instructed retrieval.",
-      "properties": {
-        "vector_store": {
-          "$ref": "#/$defs/AiSearchIndexModel",
-          "description": "Vector search index configuration used for similarity search."
-        },
-        "columns": {
-          "anyOf": [
-            {
-              "items": {
-                "anyOf": [
-                  {
-                    "type": "string"
-                  },
-                  {
-                    "$ref": "#/$defs/ColumnInfo"
-                  }
-                ]
-              },
-              "type": "array"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "description": "Columns to expose to the LLM as filterable + returnable. Accepts either bare strings (name only \u2014 types are discovered from the index at build time via UC Tables) or ColumnInfo objects that declare name / type / operators / description. Hand-declared ColumnInfo items are authoritative and skip build-time discovery. The two forms may be mixed in one list. Defaults to the vector store's columns (bare strings).",
-          "title": "Columns"
-        },
-        "search_parameters": {
-          "$ref": "#/$defs/SearchParametersModel",
-          "description": "Search tuning: number of results, query type, and metadata filters."
-        },
-        "rerank": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/RerankParametersModel"
-            },
-            {
-              "type": "boolean"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "description": "Optional reranking configuration. Set to true for defaults, or provide RerankParametersModel for custom settings.",
-          "title": "Rerank"
-        },
-        "instructed": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/InstructedRetrieverModel"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "description": "Optional instructed retrieval with query decomposition, instruction-aware reranking, routing, and verification."
-        }
-      },
-      "required": [
-        "vector_store"
-      ],
-      "title": "RetrieverModel",
-      "type": "object"
-    },
     "RouterModel": {
       "additionalProperties": false,
       "description": "Select internal execution mode based on query characteristics.\n\nUse fast models (GPT-3.5, Haiku, Llama 3 8B) to minimize latency (~50-100ms).\nRoutes to internal modes within the same retriever, not external retrievers.\nCross-index routing belongs at the agent/tool-selection level.\n\nExecution Modes:\n- \"standard\": Single similarity_search() for simple keyword/product searches\n- \"instructed\": Decompose -> Parallel Search -> RRF for constrained queries\n\nExample:\n    ```yaml\n    retriever:\n      instructed:\n        columns:\n          - name: brand_name\n            type: string\n        router:\n          model: *fast_llm\n          default_mode: standard\n          auto_bypass: true\n    ```",
@@ -9188,6 +9456,9 @@
               "$ref": "#/$defs/AiSearchToolModel"
             },
             {
+              "$ref": "#/$defs/LakebaseSearchToolModel"
+            },
+            {
               "$ref": "#/$defs/SearchToolModel"
             },
             {
@@ -10034,9 +10305,16 @@
     },
     "retrievers": {
       "additionalProperties": {
-        "$ref": "#/$defs/RetrieverModel"
+        "oneOf": [
+          {
+            "$ref": "#/$defs/AiSearchRetrieverModel"
+          },
+          {
+            "$ref": "#/$defs/LakebaseRetrieverModel"
+          }
+        ]
       },
-      "description": "Named retriever configurations combining a vector store with search parameters and optional reranking.",
+      "description": "Named retriever configurations, keyed by name. Each entry is a discriminated union \u2014 the ``type`` field selects between ``AiSearchRetrieverModel`` (default, `type: ai_search`) and ``LakebaseRetrieverModel`` (`type: lakebase_search`). Existing YAMLs that omit ``type`` continue to parse as AI Search retrievers.",
       "title": "Retrievers",
       "type": "object"
     },
