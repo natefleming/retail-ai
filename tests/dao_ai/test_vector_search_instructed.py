@@ -17,7 +17,7 @@ from dao_ai.config import (
     FilterItem,
     InstructedRetrieverModel,
     LLMModel,
-    RetrieverModel,
+    AiSearchRetrieverModel,
     RouterModel,
     SearchQuery,
     VectorStoreModel,
@@ -93,7 +93,7 @@ class TestEmptyResultFallback:
         vector_store = _create_mock_vector_store()
         llm_model = LLMModel(name="test-decomp-model")
         instructed = _make_instructed(llm_model, max_subqueries=2)
-        retriever = RetrieverModel(
+        retriever = AiSearchRetrieverModel(
             vector_store=vector_store,
             instructed=instructed,
         )
@@ -152,7 +152,7 @@ class TestEmptyResultFallback:
         vector_store = _create_mock_vector_store()
         llm_model = LLMModel(name="test-decomp-model")
         instructed = _make_instructed(llm_model)
-        retriever = RetrieverModel(
+        retriever = AiSearchRetrieverModel(
             vector_store=vector_store,
             instructed=instructed,
         )
@@ -211,7 +211,7 @@ class TestVerificationRetryLoop:
             max_retries=1,
         )
         instructed = _make_instructed(llm_model, verifier=verifier)
-        retriever = RetrieverModel(
+        retriever = AiSearchRetrieverModel(
             vector_store=vector_store,
             instructed=instructed,
         )
@@ -289,7 +289,7 @@ class TestVerificationRetryLoop:
             max_retries=3,
         )
         instructed = _make_instructed(llm_model, verifier=verifier)
-        retriever = RetrieverModel(
+        retriever = AiSearchRetrieverModel(
             vector_store=vector_store,
             instructed=instructed,
         )
@@ -345,7 +345,7 @@ class TestVerificationRetryLoop:
             max_retries=1,
         )
         instructed = _make_instructed(llm_model, verifier=verifier)
-        retriever = RetrieverModel(
+        retriever = AiSearchRetrieverModel(
             vector_store=vector_store,
             instructed=instructed,
         )
@@ -406,7 +406,7 @@ class TestStandardModeNoRetry:
         # Router with auto_bypass=False so verification actually runs in standard mode
         router = RouterModel(auto_bypass=False)
         instructed = _make_instructed(llm_model, verifier=verifier, router=router)
-        retriever = RetrieverModel(
+        retriever = AiSearchRetrieverModel(
             vector_store=vector_store,
             instructed=instructed,
         )

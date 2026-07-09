@@ -39,7 +39,7 @@ from langchain_core.messages import ToolMessage
 
 from dao_ai.config import (
     IndexModel,
-    RetrieverModel,
+    AiSearchRetrieverModel,
     SchemaModel,
     SearchParametersModel,
     VectorSearchEndpoint,
@@ -85,12 +85,12 @@ def _extract_documents(result):
     return result
 
 
-def _products_retriever() -> RetrieverModel:
+def _products_retriever() -> AiSearchRetrieverModel:
     schema = SchemaModel(
         catalog_name="retail_consumer_goods",
         schema_name="dao_ai_phase2",
     )
-    return RetrieverModel(
+    return AiSearchRetrieverModel(
         vector_store=VectorStoreModel(
             index=IndexModel(name="products_index", schema=schema),
             endpoint=VectorSearchEndpoint(name="dao_ai_workshop_vs"),
@@ -102,12 +102,12 @@ def _products_retriever() -> RetrieverModel:
     )
 
 
-def _kb_retriever() -> RetrieverModel:
+def _kb_retriever() -> AiSearchRetrieverModel:
     schema = SchemaModel(
         catalog_name="retail_consumer_goods",
         schema_name="dao_ai_phase2",
     )
-    return RetrieverModel(
+    return AiSearchRetrieverModel(
         vector_store=VectorStoreModel(
             index=IndexModel(name="kb_articles_index", schema=schema),
             endpoint=VectorSearchEndpoint(name="dao_ai_workshop_vs"),
@@ -281,7 +281,7 @@ class TestDynamicSchemaHydration:
     def test_products_columns_discovered_from_live_index(self) -> None:
         vs = _bare_vector_store("products_description_index")
         tool = create_vector_search_tool(
-            retriever=RetrieverModel(vector_store=vs),
+            retriever=AiSearchRetrieverModel(vector_store=vs),
             name="product_search",
         )
         enum = _tool_enum_keys(tool)
@@ -308,7 +308,7 @@ class TestDynamicSchemaHydration:
         pydantic validation, NOT surface to the retriever."""
         vs = _bare_vector_store("products_description_index")
         tool = create_vector_search_tool(
-            retriever=RetrieverModel(vector_store=vs),
+            retriever=AiSearchRetrieverModel(vector_store=vs),
             name="product_search",
         )
         from pydantic import ValidationError
@@ -324,7 +324,7 @@ class TestDynamicSchemaHydration:
     def test_products_valid_filter_reaches_vs_and_returns(self) -> None:
         vs = _bare_vector_store("products_description_index")
         tool = create_vector_search_tool(
-            retriever=RetrieverModel(vector_store=vs),
+            retriever=AiSearchRetrieverModel(vector_store=vs),
             name="product_search",
         )
         tool_call = LCToolCall(
@@ -348,7 +348,7 @@ class TestDynamicSchemaHydration:
     def test_faqs_columns_discovered_from_live_index(self) -> None:
         vs = _bare_vector_store("faqs_index")
         tool = create_vector_search_tool(
-            retriever=RetrieverModel(vector_store=vs),
+            retriever=AiSearchRetrieverModel(vector_store=vs),
             name="faq_search",
         )
         enum = _tool_enum_keys(tool)
@@ -358,7 +358,7 @@ class TestDynamicSchemaHydration:
     def test_policies_columns_discovered_from_live_index(self) -> None:
         vs = _bare_vector_store("policies_index")
         tool = create_vector_search_tool(
-            retriever=RetrieverModel(vector_store=vs),
+            retriever=AiSearchRetrieverModel(vector_store=vs),
             name="policy_search",
         )
         enum = _tool_enum_keys(tool)
@@ -368,7 +368,7 @@ class TestDynamicSchemaHydration:
     def test_multiple_valid_filters_across_types(self) -> None:
         vs = _bare_vector_store("products_description_index")
         tool = create_vector_search_tool(
-            retriever=RetrieverModel(vector_store=vs),
+            retriever=AiSearchRetrieverModel(vector_store=vs),
             name="product_search",
         )
         tool_call = LCToolCall(

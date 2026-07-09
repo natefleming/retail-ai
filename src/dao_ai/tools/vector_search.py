@@ -33,7 +33,7 @@ from dao_ai.config import (
     InstructedRetrieverModel,
     InstructionAwareRerankModel,
     RerankParametersModel,
-    RetrieverModel,
+    AiSearchRetrieverModel,
     RouterModel,
     SearchParametersModel,
     SearchQuery,
@@ -669,7 +669,7 @@ def _rerank_documents(
 
 
 def create_ai_search_tool(
-    retriever: Optional[RetrieverModel | dict[str, Any]] = None,
+    retriever: Optional[AiSearchRetrieverModel | dict[str, Any]] = None,
     vector_store: Optional[VectorStoreModel | dict[str, Any]] = None,
     name: Optional[str] = None,
     description: Optional[str] = None,
@@ -703,10 +703,10 @@ def create_ai_search_tool(
     if vector_store is not None:
         if isinstance(vector_store, dict):
             vector_store = VectorStoreModel(**vector_store)
-        retriever = RetrieverModel(vector_store=vector_store)
+        retriever = AiSearchRetrieverModel(vector_store=vector_store)
     else:
         if isinstance(retriever, dict):
-            retriever = RetrieverModel(**retriever)
+            retriever = AiSearchRetrieverModel(**retriever)
 
     vector_store: VectorStoreModel = retriever.vector_store
 

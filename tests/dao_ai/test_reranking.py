@@ -7,7 +7,7 @@ from conftest import add_databricks_resource_attrs
 
 from dao_ai.config import (
     RerankParametersModel,
-    RetrieverModel,
+    AiSearchRetrieverModel,
     SchemaModel,
     TableModel,
     VectorStoreModel,
@@ -67,13 +67,13 @@ def create_mock_vector_store() -> Mock:
 
 @pytest.mark.unit
 class TestRetrieverModelWithReranker:
-    """Unit tests for RetrieverModel with reranking configuration."""
+    """Unit tests for AiSearchRetrieverModel with reranking configuration."""
 
     def test_rerank_as_bool_true(self) -> None:
         """Test that rerank=True is converted to RerankParametersModel with FlashRank default."""
         vector_store = create_mock_vector_store()
 
-        retriever = RetrieverModel(vector_store=vector_store, rerank=True)
+        retriever = AiSearchRetrieverModel(vector_store=vector_store, rerank=True)
 
         assert isinstance(retriever.rerank, RerankParametersModel)
         # When rerank=True, the default FlashRank model is set
@@ -84,7 +84,7 @@ class TestRetrieverModelWithReranker:
         """Test that rerank=False remains False."""
         vector_store = create_mock_vector_store()
 
-        retriever = RetrieverModel(vector_store=vector_store, rerank=False)
+        retriever = AiSearchRetrieverModel(vector_store=vector_store, rerank=False)
 
         assert retriever.rerank is False
 
@@ -93,7 +93,7 @@ class TestRetrieverModelWithReranker:
         vector_store = create_mock_vector_store()
 
         rerank_config = RerankParametersModel(model="ms-marco-MiniLM-L-6-v2", top_n=3)
-        retriever = RetrieverModel(vector_store=vector_store, rerank=rerank_config)
+        retriever = AiSearchRetrieverModel(vector_store=vector_store, rerank=rerank_config)
 
         assert isinstance(retriever.rerank, RerankParametersModel)
         assert retriever.rerank.model == "ms-marco-MiniLM-L-6-v2"
@@ -103,7 +103,7 @@ class TestRetrieverModelWithReranker:
         """Test that rerank=None remains None."""
         vector_store = create_mock_vector_store()
 
-        retriever = RetrieverModel(vector_store=vector_store, rerank=None)
+        retriever = AiSearchRetrieverModel(vector_store=vector_store, rerank=None)
 
         assert retriever.rerank is None
 
@@ -116,7 +116,7 @@ class TestVectorSearchToolCreation:
     def test_creates_tool_without_reranker(self, mock_vector_search: MagicMock) -> None:
         """Test that tool is created without reranker when not configured."""
         # Create mock retriever config without reranking
-        retriever_config = Mock(spec=RetrieverModel)
+        retriever_config = Mock(spec=AiSearchRetrieverModel)
         retriever_config.rerank = None
         retriever_config.instructed = None
         retriever_config.columns = ["text"]
@@ -208,7 +208,7 @@ class TestVectorSearchToolCreation:
     ) -> None:
         """Test that validation fails when both retriever and vector_store are provided."""
         # Create mock retriever and vector store
-        retriever_config = Mock(spec=RetrieverModel)
+        retriever_config = Mock(spec=AiSearchRetrieverModel)
         vector_store_config = Mock(spec=VectorStoreModel)
 
         with pytest.raises(
@@ -226,7 +226,7 @@ class TestVectorSearchToolCreation:
             model="ms-marco-MiniLM-L-6-v2", top_n=5, cache_dir="/tmp/test"
         )
 
-        retriever_config = Mock(spec=RetrieverModel)
+        retriever_config = Mock(spec=AiSearchRetrieverModel)
         retriever_config.rerank = reranker_config
         retriever_config.instructed = None
         retriever_config.columns = ["text"]
@@ -316,7 +316,7 @@ class TestRerankingE2E:
     ) -> None:
         """Test that create_vector_search_tool returns a callable tool."""
         # Create mock retriever config
-        retriever_config = Mock(spec=RetrieverModel)
+        retriever_config = Mock(spec=AiSearchRetrieverModel)
         retriever_config.rerank = RerankParametersModel()
         retriever_config.instructed = None
         retriever_config.columns = ["text"]

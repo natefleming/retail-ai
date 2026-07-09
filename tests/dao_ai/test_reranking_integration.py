@@ -20,7 +20,7 @@ from langchain_core.messages import ToolMessage
 from dao_ai.config import (
     IndexModel,
     RerankParametersModel,
-    RetrieverModel,
+    AiSearchRetrieverModel,
     SchemaModel,
     SearchParametersModel,
     TableModel,
@@ -153,7 +153,7 @@ class TestRerankingWithRealIndex:
             ],
         )
 
-        retriever = RetrieverModel(
+        retriever = AiSearchRetrieverModel(
             vector_store=vector_store,
             search_parameters=SearchParametersModel(num_results=10),
         )
@@ -219,7 +219,7 @@ class TestRerankingWithRealIndex:
             ],
         )
 
-        retriever = RetrieverModel(
+        retriever = AiSearchRetrieverModel(
             vector_store=vector_store,
             search_parameters=SearchParametersModel(num_results=20),
             rerank=True,  # Enable with defaults
@@ -286,7 +286,7 @@ class TestRerankingWithRealIndex:
             ],
         )
 
-        retriever = RetrieverModel(
+        retriever = AiSearchRetrieverModel(
             vector_store=vector_store,
             search_parameters=SearchParametersModel(num_results=50),
             rerank=RerankParametersModel(
@@ -361,7 +361,7 @@ class TestRerankingWithRealIndex:
         )
 
         # Search without reranking
-        retriever_no_rerank = RetrieverModel(
+        retriever_no_rerank = AiSearchRetrieverModel(
             vector_store=vector_store,
             search_parameters=SearchParametersModel(num_results=10),
         )
@@ -372,7 +372,7 @@ class TestRerankingWithRealIndex:
         )
 
         # Search with reranking
-        retriever_with_rerank = RetrieverModel(
+        retriever_with_rerank = AiSearchRetrieverModel(
             vector_store=vector_store,
             search_parameters=SearchParametersModel(num_results=20),
             rerank=RerankParametersModel(top_n=10),

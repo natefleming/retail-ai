@@ -13,7 +13,7 @@ from dao_ai.config import (
     FilterItem,
     InstructedRetrieverModel,
     LLMModel,
-    RetrieverModel,
+    AiSearchRetrieverModel,
     SearchQuery,
     VectorStoreModel,
 )
@@ -174,15 +174,15 @@ def create_mock_vector_store() -> Mock:
 
 @pytest.mark.unit
 class TestRetrieverModelWithInstructed:
-    """Unit tests for RetrieverModel with instructed configuration."""
+    """Unit tests for AiSearchRetrieverModel with instructed configuration."""
 
     def test_retriever_with_instructed(self) -> None:
-        """Test that RetrieverModel accepts instructed configuration."""
+        """Test that AiSearchRetrieverModel accepts instructed configuration."""
         vector_store = create_mock_vector_store()
 
         instructed = InstructedRetrieverModel(columns=BASIC_COLUMNS)
 
-        retriever = RetrieverModel(
+        retriever = AiSearchRetrieverModel(
             vector_store=vector_store,
             instructed=instructed,
         )
@@ -191,10 +191,10 @@ class TestRetrieverModelWithInstructed:
         assert len(retriever.instructed.columns) == 2
 
     def test_retriever_without_instructed(self) -> None:
-        """Test that RetrieverModel works without instructed."""
+        """Test that AiSearchRetrieverModel works without instructed."""
         vector_store = create_mock_vector_store()
 
-        retriever = RetrieverModel(vector_store=vector_store)
+        retriever = AiSearchRetrieverModel(vector_store=vector_store)
 
         assert retriever.instructed is None
 

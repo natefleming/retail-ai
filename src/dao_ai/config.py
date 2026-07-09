@@ -9,6 +9,7 @@ from os import PathLike
 from pathlib import Path
 from typing import (
     TYPE_CHECKING,
+    Annotated,
     Any,
     Callable,
     Final,
@@ -86,8 +87,10 @@ from pydantic import (
     AliasChoices,
     BaseModel,
     ConfigDict,
+    Discriminator,
     Field,
     PrivateAttr,
+    Tag,
     field_serializer,
     field_validator,
     model_validator,
@@ -4495,28 +4498,75 @@ class RankingResult(BaseModel):
     )
 
 
-class RetrieverModel(BaseModel):
-    """Retriever combining a vector store with search parameters, reranking, and instructed retrieval."""
+class RetrieverType(str, Enum):
+    """Discriminator values for the ``AnyRetriever`` discriminated union.
+
+    Values match the corresponding ``FunctionType`` tool aliases so YAML
+    ``retrievers:`` entries and ``tools[].function.type`` entries speak the
+    same vocabulary.
+    """
+
+    AI_SEARCH = "ai_search"
+    LAKEBASE_SEARCH = "lakebase_search"
+
+
+class BaseRetrieverModel(ABC, BaseModel):
+    """Common surface for all retriever configs.
+
+    Every concrete retriever exposes ``columns`` + ``search_parameters`` and
+    knows how to produce a ``StructuredTool`` via :meth:`as_tools`. Concrete
+    subclasses add a ``type`` discriminator field (Literal-narrowed) and a
+    ``vector_store`` field whose type is retriever-specific.
+    """
 
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
-    vector_store: VectorStoreModel = Field(
-        description="Vector search index configuration used for similarity search.",
-    )
+
     columns: Optional[list[str | ColumnInfo]] = Field(
         default_factory=list,
         description=(
             "Columns to expose to the LLM as filterable + returnable. Accepts "
             "either bare strings (name only — types are discovered from the "
-            "index at build time via UC Tables) or ColumnInfo objects that "
-            "declare name / type / operators / description. Hand-declared "
-            "ColumnInfo items are authoritative and skip build-time discovery. "
-            "The two forms may be mixed in one list. Defaults to the vector "
-            "store's columns (bare strings)."
+            "index at build time) or ColumnInfo objects that declare name / "
+            "type / operators / description. Hand-declared ColumnInfo items "
+            "are authoritative and skip build-time discovery. The two forms "
+            "may be mixed in one list."
         ),
     )
     search_parameters: SearchParametersModel = Field(
         default_factory=SearchParametersModel,
         description="Search tuning: number of results, query type, and metadata filters.",
+    )
+
+    @abstractmethod
+    def as_tools(self, **kwargs: Any) -> Sequence[RunnableLike]:
+        """Build the retrieval tool(s) from this config.
+
+        Subclasses delegate to the matching factory
+        (``create_ai_search_tool`` / ``create_lakebase_search_tool``).
+        Signature mirrors :meth:`BaseFunctionModel.as_tools`.
+        """
+        ...
+
+
+class AiSearchRetrieverModel(BaseRetrieverModel):
+    """Retriever backed by a Databricks AI Search (formerly Vector Search) index.
+
+    (Formerly ``RetrieverModel``. Renamed to disambiguate now that Lakebase
+    Postgres has its own retriever config — see :class:`LakebaseRetrieverModel`.)
+    """
+
+    model_config = ConfigDict(use_enum_values=True, extra="forbid")
+
+    # String Literal instead of Literal[RetrieverType.AI_SEARCH] — Pydantic's
+    # use_enum_values doesn't coerce enum instances inside a Literal-typed
+    # field during model_dump, which broke yaml.safe_dump round-tripping.
+    # The enum values (:class:`RetrieverType`) still document the vocabulary.
+    type: Literal["ai_search"] = Field(
+        default="ai_search",
+        description="Discriminator. Must be 'ai_search' (or omitted — defaults).",
+    )
+    vector_store: VectorStoreModel = Field(
+        description="AI Search / Vector Search index configuration used for similarity search.",
     )
     rerank: Optional[RerankParametersModel | bool] = Field(
         default=None,
@@ -4543,6 +4593,11 @@ class RetrieverModel(BaseModel):
         if isinstance(self.rerank, bool) and self.rerank:
             self.rerank = RerankParametersModel(model="ms-marco-MiniLM-L-12-v2")
         return self
+
+    def as_tools(self, **kwargs: Any) -> Sequence[RunnableLike]:
+        from dao_ai.tools import create_ai_search_tool
+
+        return [create_ai_search_tool(retriever=self, **kwargs)]
 
 
 class LakebaseVectorStoreModel(BaseModel):
@@ -4651,28 +4706,23 @@ class LakebaseVectorStoreModel(BaseModel):
         return self
 
 
-class LakebaseRetrieverModel(BaseModel):
+class LakebaseRetrieverModel(BaseRetrieverModel):
     """Full Lakebase retriever config — vector store plus search parameters."""
 
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
 
+    type: Literal["lakebase_search"] = Field(
+        default="lakebase_search",
+        description="Discriminator. Must be 'lakebase_search'.",
+    )
     vector_store: LakebaseVectorStoreModel = Field(
         description="Lakebase table + columns + embedding model.",
     )
-    columns: Optional[list[str | ColumnInfo]] = Field(
-        default_factory=list,
-        description=(
-            "Columns to expose to the LLM as filterable + returnable. "
-            "Defaults to ``vector_store.metadata_columns`` when unset."
-        ),
-    )
-    search_parameters: SearchParametersModel = Field(
-        default_factory=SearchParametersModel,
-        description=(
-            "Search tuning. For Lakebase, ``query_type`` accepts "
-            "``'ANN'``, ``'BM25'``, or ``'HYBRID'`` (RRF client-side)."
-        ),
-    )
+
+    # Note: ``columns`` and ``search_parameters`` are inherited from
+    # ``BaseRetrieverModel``. Description below repurposes the inherited
+    # ``columns`` default to draw from ``metadata_columns`` on the vector
+    # store rather than ``vector_store.columns`` (which doesn't exist here).
 
     @model_validator(mode="after")
     def _set_default_columns(self) -> Self:
@@ -4688,6 +4738,48 @@ class LakebaseRetrieverModel(BaseModel):
                 f"query_type={qt!r} requires 'tsvector_column' on the vector store."
             )
         return self
+
+    def as_tools(self, **kwargs: Any) -> Sequence[RunnableLike]:
+        from dao_ai.tools import create_lakebase_search_tool
+
+        return [create_lakebase_search_tool(retriever=self, **kwargs)]
+
+
+def _retriever_discriminator(v: Any) -> str:
+    """Callable discriminator for :data:`AnyRetriever`.
+
+    Pydantic v2 tagged unions do not honour Literal defaults on missing tag
+    fields — the tag must be present in the raw input. This callable
+    normalizes both dict input (YAML) and already-instantiated models to a
+    discriminator string, defaulting to ``"ai_search"`` when ``type`` is
+    absent. That's the load-bearing back-compat hook that lets existing
+    YAML ``retrievers:`` entries (which never specified ``type:``) keep
+    parsing as AI Search retrievers.
+    """
+    if isinstance(v, BaseRetrieverModel):
+        return v.type if isinstance(v.type, str) else v.type.value
+    if isinstance(v, dict):
+        raw = v.get("type")
+        if raw is None:
+            return RetrieverType.AI_SEARCH.value
+        return raw.value if isinstance(raw, RetrieverType) else str(raw)
+    raise ValueError(
+        f"cannot infer retriever discriminator from {type(v).__name__}"
+    )
+
+
+# Discriminated union — Pydantic dispatches to the concrete class using the
+# callable above. Existing YAML retriever entries that omit ``type`` default
+# to ``AiSearchRetrieverModel`` for back-compat. Each Union member needs an
+# explicit ``Tag`` because the discriminator is callable (Pydantic v2
+# requirement).
+AnyRetriever: TypeAlias = Annotated[
+    Union[
+        Annotated[AiSearchRetrieverModel, Tag(RetrieverType.AI_SEARCH.value)],
+        Annotated[LakebaseRetrieverModel, Tag(RetrieverType.LAKEBASE_SEARCH.value)],
+    ],
+    Discriminator(_retriever_discriminator),
+]
 
 
 class FunctionType(str, Enum):
@@ -5414,7 +5506,7 @@ class AiSearchToolModel(BaseFunctionModel):
             "or 'vector_search' (legacy alias)."
         ),
     )
-    retriever: Optional[RetrieverModel] = Field(
+    retriever: Optional[AiSearchRetrieverModel] = Field(
         default=None,
         description="Full retriever configuration with search parameters and reranking. Mutually exclusive with vector_store.",
     )
@@ -9395,9 +9487,15 @@ class AppConfig(BaseModel):
         default=None,
         description="Databricks resource declarations: LLMs, vector stores, Genie rooms, tables, warehouses, databases, and more.",
     )
-    retrievers: dict[str, RetrieverModel] = Field(
+    retrievers: dict[str, AnyRetriever] = Field(
         default_factory=dict,
-        description="Named retriever configurations combining a vector store with search parameters and optional reranking.",
+        description=(
+            "Named retriever configurations, keyed by name. Each entry is a "
+            "discriminated union — the ``type`` field selects between "
+            "``AiSearchRetrieverModel`` (default, `type: ai_search`) and "
+            "``LakebaseRetrieverModel`` (`type: lakebase_search`). Existing "
+            "YAMLs that omit ``type`` continue to parse as AI Search retrievers."
+        ),
     )
     tools: dict[str, ToolModel] = Field(
         default_factory=dict,

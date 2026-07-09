@@ -361,12 +361,12 @@ def test_create_vector_search_tool_obo_passes_context_to_workspace_client_from()
     the user's x-forwarded-access-token flows through to the VS query."""
     from langgraph.runtime import Runtime
 
-    from dao_ai.config import RetrieverModel
+    from dao_ai.config import AiSearchRetrieverModel
     from dao_ai.state import Context
     from dao_ai.tools.vector_search import create_vector_search_tool
 
     vs_model = _make_obo_vector_store_mock()
-    retriever = RetrieverModel(vector_store=vs_model)
+    retriever = AiSearchRetrieverModel(vector_store=vs_model)
 
     with patch("dao_ai.tools.vector_search.DatabricksVectorSearch") as MockDVS:
         mock_vs_client = MagicMock()
@@ -407,13 +407,13 @@ def test_create_vector_search_tool_obo_off_does_not_use_context_headers() -> Non
     not crash even when headers are absent."""
     from langgraph.runtime import Runtime
 
-    from dao_ai.config import RetrieverModel
+    from dao_ai.config import AiSearchRetrieverModel
     from dao_ai.state import Context
     from dao_ai.tools.vector_search import create_vector_search_tool
 
     vs_model = _make_obo_vector_store_mock()
     vs_model.on_behalf_of_user = False  # OBO off
-    retriever = RetrieverModel(vector_store=vs_model)
+    retriever = AiSearchRetrieverModel(vector_store=vs_model)
 
     with patch("dao_ai.tools.vector_search.DatabricksVectorSearch") as MockDVS:
         MockDVS.return_value.similarity_search.return_value = []
@@ -509,12 +509,12 @@ def _capture_client_args_and_invoke(
     """
     from langgraph.runtime import Runtime
 
-    from dao_ai.config import RetrieverModel
+    from dao_ai.config import AiSearchRetrieverModel
     from dao_ai.state import Context
     from dao_ai.tools.vector_search import create_vector_search_tool
 
     vs_model.workspace_client_from.return_value = wc
-    retriever = RetrieverModel(vector_store=vs_model)
+    retriever = AiSearchRetrieverModel(vector_store=vs_model)
 
     captured: dict[str, Any] = {}
     with patch("dao_ai.tools.vector_search.DatabricksVectorSearch") as MockDVS, \

@@ -32,7 +32,7 @@ from dao_ai.config import (
     ColumnInfo,
     FilterItem,
     IndexModel,
-    RetrieverModel,
+    AiSearchRetrieverModel,
     SchemaModel,
     VectorSearchEndpoint,
     VectorStoreModel,
@@ -241,7 +241,7 @@ class TestFactoryColumnHydration:
             autospec=True,
             side_effect=lambda self, **kw: original_refresh(self, details=payload),
         ) as mocked_refresh:
-            retriever = RetrieverModel(vector_store=vs)
+            retriever = AiSearchRetrieverModel(vector_store=vs)
             tool = create_vector_search_tool(retriever=retriever, name="product_search")
 
         mocked_refresh.assert_called_once()
@@ -264,7 +264,7 @@ class TestFactoryColumnHydration:
         the live index. The result is declared ∩ index (in declaration order).
         """
         vs = self._make_vs(with_columns=False)
-        retriever = RetrieverModel(
+        retriever = AiSearchRetrieverModel(
             vector_store=vs,
             columns=["product_id", "product_name", "price"],
         )
@@ -299,7 +299,7 @@ class TestFactoryColumnHydration:
         filter at query time. Users who want authoritative schema control
         should declare ColumnInfo instead."""
         vs = self._make_vs(with_columns=False)
-        retriever = RetrieverModel(
+        retriever = AiSearchRetrieverModel(
             vector_store=vs,
             columns=["product_id", "product_name", "nonexistent_col_xyz"],
         )
@@ -334,7 +334,7 @@ class TestFactoryColumnHydration:
         — but never touch the source table.
         """
         vs = self._make_vs(with_columns=False)
-        retriever = RetrieverModel(vector_store=vs, columns=["product_id"])
+        retriever = AiSearchRetrieverModel(vector_store=vs, columns=["product_id"])
         wc_spy = MagicMock()
         fake_index_table = MagicMock()
         col = MagicMock()
@@ -370,7 +370,7 @@ class TestFactoryColumnHydration:
         declared columns are given, the tool still builds with the
         pre-change free-form ``FilterItem`` schema."""
         vs = self._make_vs(with_columns=False)
-        retriever = RetrieverModel(vector_store=vs)
+        retriever = AiSearchRetrieverModel(vector_store=vs)
         with patch(
             "dao_ai.tools.vector_search._vsc_for_refresh", return_value=None
         ), patch.object(
@@ -394,7 +394,7 @@ class TestFactoryColumnHydration:
         LLM enum is built from declared columns (may hit VS API errors if the
         user made a typo, matching pre-branch behavior)."""
         vs = self._make_vs(with_columns=False)
-        retriever = RetrieverModel(
+        retriever = AiSearchRetrieverModel(
             vector_store=vs, columns=["product_id", "product_name"]
         )
         with patch(
@@ -802,7 +802,7 @@ class TestFactoryEntryShapes:
     def test_both_retriever_and_vector_store_raises(self) -> None:
         vs = self._bare_vs()
         vs.columns = ["a"]
-        r = RetrieverModel(vector_store=vs, columns=["a"])
+        r = AiSearchRetrieverModel(vector_store=vs, columns=["a"])
         with pytest.raises(ValueError):
             create_vector_search_tool(retriever=r, vector_store=vs, name="both")
 
@@ -829,7 +829,7 @@ class TestBackwardCompatibility:
             endpoint=VectorSearchEndpoint(name="dbdemos_vs_endpoint"),
             columns=PRODUCTS_COLUMNS,
         )
-        retriever = RetrieverModel(vector_store=vs, columns=PRODUCTS_COLUMNS)
+        retriever = AiSearchRetrieverModel(vector_store=vs, columns=PRODUCTS_COLUMNS)
         payload = _describe_payload()
         original_refresh = VectorStoreModel.refresh
         with patch(
@@ -860,7 +860,7 @@ class TestBackwardCompatibility:
         gets every operator suffix (permissive fallback). The tool still
         narrows to the declared columns, blocking hallucinated keys."""
         vs = self._bare_vs_no_source()
-        retriever = RetrieverModel(vector_store=vs, columns=["a", "b"])
+        retriever = AiSearchRetrieverModel(vector_store=vs, columns=["a", "b"])
         with patch(
             "dao_ai.tools.vector_search._vsc_for_refresh", return_value=None
         ), patch(
@@ -908,7 +908,7 @@ class TestMcpAdapterEntryPoint:
             endpoint=VectorSearchEndpoint(name="dbdemos_vs_endpoint"),
             columns=PRODUCTS_COLUMNS,
         )
-        retriever = RetrieverModel(vector_store=vs, columns=PRODUCTS_COLUMNS)
+        retriever = AiSearchRetrieverModel(vector_store=vs, columns=PRODUCTS_COLUMNS)
         payload = _describe_payload()
         original_refresh = VectorStoreModel.refresh
 
@@ -979,7 +979,7 @@ class TestIndexScopedTypeLookup:
             ),
             endpoint=VectorSearchEndpoint(name="dbdemos_vs_endpoint"),
         )
-        retriever = RetrieverModel(vector_store=vs)
+        retriever = AiSearchRetrieverModel(vector_store=vs)
         with patch(
             "dao_ai.tools.vector_search._vsc_for_refresh", return_value=None
         ), patch(
@@ -1025,7 +1025,7 @@ class TestIndexScopedTypeLookup:
             ),
             endpoint=VectorSearchEndpoint(name="dbdemos_vs_endpoint"),
         )
-        retriever = RetrieverModel(vector_store=vs)
+        retriever = AiSearchRetrieverModel(vector_store=vs)
 
         with patch(
             "dao_ai.tools.vector_search._vsc_for_refresh", return_value=None
@@ -1154,7 +1154,7 @@ class TestHandDeclaredColumnInfoInFactory:
         """When any ColumnInfo is in the list, no UC Tables call is made
         at build time — hand-declaration is authoritative."""
         vs = self._bare_vs()
-        retriever = RetrieverModel(
+        retriever = AiSearchRetrieverModel(
             vector_store=vs,
             columns=[
                 ColumnInfo(name="brand", type="string", description="Brand"),
@@ -1174,7 +1174,7 @@ class TestHandDeclaredColumnInfoInFactory:
 
     def test_hand_declared_operators_narrow_enum(self) -> None:
         vs = self._bare_vs()
-        retriever = RetrieverModel(
+        retriever = AiSearchRetrieverModel(
             vector_store=vs,
             columns=[
                 ColumnInfo(
@@ -1203,7 +1203,7 @@ class TestHandDeclaredColumnInfoInFactory:
         """ColumnInfo without explicit operators → the default full-list
         signals 'don't restrict', so all 8 suffixes apply."""
         vs = self._bare_vs()
-        retriever = RetrieverModel(
+        retriever = AiSearchRetrieverModel(
             vector_store=vs,
             columns=[ColumnInfo(name="brand", type="string")],
         )
@@ -1221,7 +1221,7 @@ class TestHandDeclaredColumnInfoInFactory:
 
     def test_hand_declared_description_appears_in_tool_description(self) -> None:
         vs = self._bare_vs()
-        retriever = RetrieverModel(
+        retriever = AiSearchRetrieverModel(
             vector_store=vs,
             columns=[
                 ColumnInfo(
@@ -1242,7 +1242,7 @@ class TestHandDeclaredColumnInfoInFactory:
 
     def test_mixed_str_and_column_info_both_in_enum(self) -> None:
         vs = self._bare_vs()
-        retriever = RetrieverModel(
+        retriever = AiSearchRetrieverModel(
             vector_store=vs,
             columns=[
                 "product_id",
@@ -1268,7 +1268,7 @@ class TestHandDeclaredColumnInfoInFactory:
         """Mode B: bare-string columns declared → UC call is still made
         best-effort for description enrichment (types + comments)."""
         vs = self._bare_vs()
-        retriever = RetrieverModel(
+        retriever = AiSearchRetrieverModel(
             vector_store=vs, columns=["brand", "price"]
         )
         with patch(
@@ -1346,7 +1346,7 @@ class TestArrayColumnInFactory:
         """ColumnInfo(name='tags', type='array') → enum has only 'tags',
         no operator suffixes. This is the Do It Best hardware-iq use case."""
         vs = self._bare_vs()
-        retriever = RetrieverModel(
+        retriever = AiSearchRetrieverModel(
             vector_store=vs,
             columns=[
                 ColumnInfo(name="tags", type="array", description="Product tags"),
@@ -1375,7 +1375,7 @@ class TestArrayColumnInFactory:
     def test_hand_declared_array_with_explicit_operators_wins(self) -> None:
         """User explicit operators override the array-type default."""
         vs = self._bare_vs()
-        retriever = RetrieverModel(
+        retriever = AiSearchRetrieverModel(
             vector_store=vs,
             columns=[
                 ColumnInfo(name="tags", type="array", operators=["", "NOT"]),
@@ -1397,7 +1397,7 @@ class TestArrayColumnInFactory:
         """Mode C: nothing declared. `_fetch_index_columns` returns an
         array column → factory adds equality-only override."""
         vs = self._bare_vs()
-        retriever = RetrieverModel(vector_store=vs)
+        retriever = AiSearchRetrieverModel(vector_store=vs)
         with patch(
             "dao_ai.tools.vector_search._vsc_for_refresh", return_value=None
         ), patch(
@@ -1416,7 +1416,7 @@ class TestArrayColumnInFactory:
         """Auto-discovery with a mix: array column narrowed, scalar
         columns keep full 8 suffixes."""
         vs = self._bare_vs()
-        retriever = RetrieverModel(vector_store=vs)
+        retriever = AiSearchRetrieverModel(vector_store=vs)
         with patch(
             "dao_ai.tools.vector_search._vsc_for_refresh", return_value=None
         ), patch(
@@ -1441,7 +1441,7 @@ class TestArrayColumnInFactory:
         """When an array column is present, the tool description
         includes the array-contains hint."""
         vs = self._bare_vs()
-        retriever = RetrieverModel(
+        retriever = AiSearchRetrieverModel(
             vector_store=vs,
             columns=[
                 ColumnInfo(name="tags", type="array", description="Product tags"),

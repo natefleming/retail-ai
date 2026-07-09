@@ -96,14 +96,18 @@ for _, vector_store in vector_stores.items():
 from typing import Dict, Any, List
 
 from databricks.vector_search.index import VectorSearchIndex
-from dao_ai.config import RetrieverModel
+from dao_ai.config import AiSearchRetrieverModel
 
 
 question: str = "How many grills do we have in stock?"
 
 for name, retriever in config.retrievers.items():
-  retriever: RetrieverModel
-  index: VectorSearchIndex = retriever.vector_store.as_index() 
+  # AppConfig.retrievers is a discriminated union of AiSearchRetrieverModel
+  # and LakebaseRetrieverModel. This notebook is Vector Search only, so
+  # skip Lakebase entries.
+  if not isinstance(retriever, AiSearchRetrieverModel):
+    continue
+  index: VectorSearchIndex = retriever.vector_store.as_index()
   k: int = 3
 
   search_results: Dict[str, Any] = index.similarity_search(

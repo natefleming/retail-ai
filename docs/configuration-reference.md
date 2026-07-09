@@ -135,14 +135,29 @@ resources:
                                             # Raw "/Volumes/..." strings auto-promote
                                             # to VolumePathModel by the validator.
 
-# Retriever configurations
+# Retriever configurations — discriminated union of AiSearchRetrieverModel
+# and LakebaseRetrieverModel. The ``type`` field defaults to ``ai_search``
+# when omitted, so existing YAMLs continue to parse unchanged.
 retrievers:
-  retriever_name: &retriever_name
-    vector_store: *store_name
+  # AI Search retriever (default when ``type`` is omitted)
+  products_retriever: &products_retriever
+    type: ai_search                             # optional (default)
+    vector_store: *store_name                   # AiSearchIndexModel reference
     columns: [string]
     search_parameters:
       num_results: int
       query_type: ANN | HYBRID
+    rerank: bool | *rerank_params_model         # optional FlashRank / instruction-aware
+    instructed: *instructed_retriever_model     # optional query decomposition
+
+  # Lakebase Postgres retriever
+  kb_retriever: &kb_retriever
+    type: lakebase_search                       # required for the Lakebase branch
+    vector_store: *lakebase_vector_store_model  # LakebaseVectorStoreModel reference
+    columns: [string | *column_info]
+    search_parameters:
+      num_results: int
+      query_type: ANN | BM25 | HYBRID
 
 # Tool definitions
 tools:
