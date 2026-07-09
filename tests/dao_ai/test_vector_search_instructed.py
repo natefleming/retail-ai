@@ -77,9 +77,9 @@ def _make_instructed(
 class TestEmptyResultFallback:
     """Tests that empty instructed retrieval results trigger standard search fallback."""
 
-    @patch("dao_ai.tools.vector_search.rrf_merge")
-    @patch("dao_ai.tools.vector_search.decompose_query")
-    @patch("dao_ai.tools.vector_search._get_cached_llm")
+    @patch("dao_ai.tools.instructed_pipeline.rrf_merge")
+    @patch("dao_ai.tools.instructed_pipeline.decompose_query")
+    @patch("dao_ai.tools.instructed_pipeline._get_cached_llm")
     @patch("dao_ai.tools.vector_search.DatabricksVectorSearch")
     def test_empty_merge_falls_back_to_standard_search(
         self,
@@ -137,9 +137,9 @@ class TestEmptyResultFallback:
         )
         assert fallback_filter is None or fallback_filter == {}
 
-    @patch("dao_ai.tools.vector_search.rrf_merge")
-    @patch("dao_ai.tools.vector_search.decompose_query")
-    @patch("dao_ai.tools.vector_search._get_cached_llm")
+    @patch("dao_ai.tools.instructed_pipeline.rrf_merge")
+    @patch("dao_ai.tools.instructed_pipeline.decompose_query")
+    @patch("dao_ai.tools.instructed_pipeline._get_cached_llm")
     @patch("dao_ai.tools.vector_search.DatabricksVectorSearch")
     def test_nonempty_merge_does_not_fallback(
         self,
@@ -188,10 +188,10 @@ class TestEmptyResultFallback:
 class TestVerificationRetryLoop:
     """Tests that verification failure re-executes instructed search with feedback."""
 
-    @patch("dao_ai.tools.vector_search.verify_results")
-    @patch("dao_ai.tools.vector_search.rrf_merge")
-    @patch("dao_ai.tools.vector_search.decompose_query")
-    @patch("dao_ai.tools.vector_search._get_cached_llm")
+    @patch("dao_ai.tools.instructed_pipeline.verify_results")
+    @patch("dao_ai.tools.instructed_pipeline.rrf_merge")
+    @patch("dao_ai.tools.instructed_pipeline.decompose_query")
+    @patch("dao_ai.tools.instructed_pipeline._get_cached_llm")
     @patch("dao_ai.tools.vector_search.DatabricksVectorSearch")
     def test_retry_re_executes_search_with_feedback(
         self,
@@ -267,10 +267,10 @@ class TestVerificationRetryLoop:
         # verify_results should have been called twice
         assert mock_verify.call_count == 2
 
-    @patch("dao_ai.tools.vector_search.verify_results")
-    @patch("dao_ai.tools.vector_search.rrf_merge")
-    @patch("dao_ai.tools.vector_search.decompose_query")
-    @patch("dao_ai.tools.vector_search._get_cached_llm")
+    @patch("dao_ai.tools.instructed_pipeline.verify_results")
+    @patch("dao_ai.tools.instructed_pipeline.rrf_merge")
+    @patch("dao_ai.tools.instructed_pipeline.decompose_query")
+    @patch("dao_ai.tools.instructed_pipeline._get_cached_llm")
     @patch("dao_ai.tools.vector_search.DatabricksVectorSearch")
     def test_warn_mode_does_not_retry(
         self,
@@ -323,10 +323,10 @@ class TestVerificationRetryLoop:
         # Result should contain verification metadata
         assert result[0]["metadata"]["_verification_status"] == "failed"
 
-    @patch("dao_ai.tools.vector_search.verify_results")
-    @patch("dao_ai.tools.vector_search.rrf_merge")
-    @patch("dao_ai.tools.vector_search.decompose_query")
-    @patch("dao_ai.tools.vector_search._get_cached_llm")
+    @patch("dao_ai.tools.instructed_pipeline.verify_results")
+    @patch("dao_ai.tools.instructed_pipeline.rrf_merge")
+    @patch("dao_ai.tools.instructed_pipeline.decompose_query")
+    @patch("dao_ai.tools.instructed_pipeline._get_cached_llm")
     @patch("dao_ai.tools.vector_search.DatabricksVectorSearch")
     def test_retries_exhausted_annotates_docs(
         self,
@@ -385,8 +385,8 @@ class TestVerificationRetryLoop:
 class TestStandardModeNoRetry:
     """Tests that standard mode never retries verification, even when retry is configured."""
 
-    @patch("dao_ai.tools.vector_search.verify_results")
-    @patch("dao_ai.tools.vector_search._get_cached_llm")
+    @patch("dao_ai.tools.instructed_pipeline.verify_results")
+    @patch("dao_ai.tools.instructed_pipeline._get_cached_llm")
     @patch("dao_ai.tools.vector_search.DatabricksVectorSearch")
     def test_standard_mode_does_not_retry_on_verification_failure(
         self,

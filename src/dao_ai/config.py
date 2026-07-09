@@ -4729,6 +4729,18 @@ class LakebaseRetrieverModel(BaseRetrieverModel):
             "instead."
         ),
     )
+    instructed: Optional[InstructedRetrieverModel] = Field(
+        default=None,
+        description=(
+            "Optional instructed-retrieval pipeline: LLM decomposes the "
+            "query into constraint-aware subqueries, runs them in parallel "
+            "against the Lakebase retriever, RRF-merges results, applies "
+            "an LLM instruction-aware rerank, and (optionally) verifies + "
+            "retries. Same semantics as ``AiSearchRetrieverModel.instructed`` "
+            "— shares the pipeline implementation in "
+            "``dao_ai.tools.instructed_pipeline``."
+        ),
+    )
 
     # Note: ``columns`` and ``search_parameters`` are inherited from
     # ``BaseRetrieverModel``. Description below repurposes the inherited

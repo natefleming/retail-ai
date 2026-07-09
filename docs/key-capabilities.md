@@ -500,6 +500,13 @@ rerank:
 
 ### Instructed Retrieval
 
+> **`lakebase_search` parity (Stage 2, PR B):** the same `instructed:` field
+> works on `LakebaseRetrieverModel`. The pipeline (router → decomposition
+> → parallel search → RRF merge → instruction rerank → verifier retry loop)
+> is shared via `dao_ai.tools.instructed_pipeline` — both retrievers pass a
+> backend adapter callable. See
+> [config/examples/21_lakebase_search/instructed.yaml](../config/examples/21_lakebase_search/instructed.yaml).
+
 **The problem:** Standard AI Search ignores metadata constraints entirely. When a user asks "Milwaukee power drills under $200 from last month", semantic similarity alone can't enforce brand, price, or recency constraints. Queries with multiple intents or exclusions ("cordless tools excluding DeWalt") fare even worse.
 
 **The solution:** Instructed Retrieval extends basic RAG by automatically translating natural language constraints into executable metadata filters. An LLM decomposes complex queries into focused subqueries with filters, executes them in parallel, and merges results using Reciprocal Rank Fusion (RRF).

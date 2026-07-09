@@ -68,6 +68,7 @@ flowchart TB
 | [`filters_and_traces.yaml`](./filters_and_traces.yaml) | HYBRID | Static filters (equality / IN / comparison / LIKE) + `trace_location` to UC OTEL tables |
 | [`dynamic_schema.yaml`](./dynamic_schema.yaml) | HYBRID | Hand-declared `ColumnInfo` with per-column operator narrowing + LLM-facing descriptions (Mode A discovery) |
 | [`reranked.yaml`](./reranked.yaml) | HYBRID / ANN | FlashRank cross-encoder reranking (`rerank: true` shorthand + full `RerankParametersModel` form) |
+| [`instructed.yaml`](./instructed.yaml) | HYBRID | Full instructed-retrieval pipeline — router → LLM query decomposition → parallel search → RRF merge → instruction-aware LLM rerank → verifier |
 
 ## Prerequisites
 
@@ -282,3 +283,46 @@ weights download once to `~/.dao_ai/cache/flashrank/` (or
 against `retail-consumer-goods`.
 
 See [`reranked.yaml`](./reranked.yaml) for a full config.
+
+## Instructed retrieval
+
+Same shape `ai_search`'s `instructed:` field uses — the full pipeline
+(router → LLM query decomposition → parallel subquery search → RRF merge
+→ instruction-aware LLM rerank → verifier retry loop) lives in a shared
+module and works identically on Lakebase output.
+
+```yaml
+retrievers:
+  kb_instructed:
+    type: lakebase_search
+    vector_store: *kb_vs
+    search_parameters:
+      query_type: HYBRID
+      num_results: 20                # broad recall; pipeline narrows
+    instructed:
+      columns:
+        - name: category
+          type: string
+          description: "Article category"
+        - name: priority
+          type: number
+      constraints: ["Prefer priority <= 2 when the user asks for top info"]
+      decomposition: { model: *fast_llm, max_subqueries: 3, rrf_k: 60 }
+      rerank: { model: *fast_llm, top_n: 5 }
+      router: { model: *fast_llm, default_mode: instructed, auto_bypass: true }
+      verifier: { model: *fast_llm, on_failure: warn, max_retries: 1 }
+```
+
+**All fields are independent.** Omit `router` to always run instructed;
+omit `verifier` to skip the retry loop; combine with the top-level
+`rerank:` field to layer FlashRank cross-encoder rerank on top of the LLM
+rerank.
+
+**Verified live end-to-end** against `retail-consumer-goods` — trace
+inspection confirmed the pipeline spans (`decompose_query`,
+`lakebase_ann_search` / `lakebase_bm25_search` / `lakebase_hybrid_search`
+per subquery, `instruction_aware_rerank`, `verify_results`) all appear
+under the outer `lakebase_search` tool span, matching the shape
+`ai_search` produces.
+
+See [`instructed.yaml`](./instructed.yaml) for a full config.
