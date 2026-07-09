@@ -1,0 +1,103 @@
+# yaml-language-server: $schema=../../../schemas/model_config_schema.json
+
+# Hand-declared column schema for the LLM (Mode A discovery).
+#
+# `retriever.columns` accepts a mixed list of bare strings and ColumnInfo
+# entries. Any ColumnInfo item flips the factory to Mode A — the LLM-facing
+# args_schema is built entirely from the declaration; Postgres
+# information_schema.columns is NOT queried.
+#
+# ColumnInfo.operators locks a column to a subset of the 8 default
+# suffixes. Useful when:
+#   - You want to hide impossible-to-satisfy operators from the LLM (e.g.
+#     `priority LIKE` on an integer column).
+#   - You need to reserve a column for equality-only lookups (e.g. tenant
+#     IDs where LIKE would leak across tenants).
+#   - You want to add a rich `description` string that the LLM sees in the
+#     tool's args_schema (better filter accuracy).
+
+parameters:
+  lakebase_project:
+    description: Lakebase autoscaling Postgres project id
+    default: my-lakebase-project
+  schema_name:
+    default: dao_ai_kb
+  table_name:
+    default: kb_articles
+
+resources:
+  models:
+    default_llm: &default_llm
+      name: databricks-claude-sonnet-4-5
+
+  databases:
+    kb_lakebase: &kb_lakebase
+      project: ${var.lakebase_project}
+
+tools:
+  scoped_kb: &scoped_kb
+    name: scoped_kb
+    function:
+      type: lakebase_search
+      retriever:
+        vector_store:
+          database: *kb_lakebase
+          schema_name: ${var.schema_name}
+          table: ${var.table_name}
+          content_column: passage
+          embedding_column: embedding
+          tsvector_column: passage_tsv
+          embedding_model: databricks-gte-large-en
+          # metadata_columns still set for Document.metadata surfacing;
+          # columns below is what drives the LLM args_schema.
+          metadata_columns:
+            - category
+            - priority
+            - source_url
+        # Hand-declared columns (Mode A — no Postgres discovery call).
+        columns:
+          - name: category
+            type: string
+            operators:                   # locked to a subset of the 8 defaults
+              - ""
+              - LIKE
+            description: "Article category: auth, billing, shipping, returns"
+          - name: priority
+            type: number
+            operators:                   # comparison-only — LIKE makes no sense on an int
+              - ""
+              - "<"
+              - "<="
+              - ">"
+              - ">="
+            description: "Priority tier 1 (highest) - 5 (lowest)"
+          - name: source_url
+            type: string
+            description: "Canonical documentation URL"
+            # `operators` omitted → all 8 suffixes are legal (default).
+        search_parameters:
+          query_type: HYBRID
+          num_results: 5
+
+agents:
+  scoped_agent:
+    name: scoped_agent
+    model: *default_llm
+    tools:
+      - *scoped_kb
+    prompt: |
+      You answer knowledge-base questions. Prefer filtering on the
+      category or priority when the user's question implies scope.
+
+app:
+  name: dao-ai-lb-dyn-schema-example
+  registered_model:
+    name: dao_ai_lb_dyn_schema_example
+  agents:
+    - name: scoped_agent
+      model: *default_llm
+      tools:
+        - *scoped_kb
+      prompt: |
+        You answer knowledge-base questions. Prefer filtering on the
+        category or priority when the user's question implies scope.

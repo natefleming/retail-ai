@@ -219,6 +219,12 @@ def _retriever(
     filters: dict[str, Any] | None = None,
     k: int = 5,
 ) -> LakebaseRetriever:
+    """Build a retriever with static suffixed-key filters (config-time shape).
+
+    ``filters`` uses the ai_search-aligned dict form: keys are column names
+    optionally suffixed with an operator (``"col LIKE"``, ``"col >="``);
+    values may be scalars or lists (list ⇒ IN semantics).
+    """
     return LakebaseRetriever(
         vector_store=vs,
         search_parameters=SearchParametersModel(
@@ -292,7 +298,12 @@ class TestQueryTypes:
 
 
 class TestFilters:
-    """Live coverage for the operator allowlist in ``_build_where``."""
+    """Live coverage for the suffix-based operator convention in ``_build_where``.
+
+    Uses ai_search's suffixed-key dict shape (``"col LIKE"``, ``"col >="``,
+    plain ``"col"`` for equality, list value for IN). The LLM-facing
+    FilterItem list variant is exercised in :class:`TestToolFactory`.
+    """
 
     def test_scalar_equality(self, vector_store: LakebaseVectorStoreModel) -> None:
         docs = _retriever(
@@ -301,21 +312,25 @@ class TestFilters:
         assert docs
         assert all(d.metadata["category"] == "billing" for d in docs)
 
-    def test_in_operator(self, vector_store: LakebaseVectorStoreModel) -> None:
+    def test_in_via_list_value(
+        self, vector_store: LakebaseVectorStoreModel
+    ) -> None:
         docs = _retriever(
             vector_store,
             "ANN",
-            filters={"category": {"op": "in", "values": ["returns", "shipping"]}},
+            filters={"category": ["returns", "shipping"]},
             k=10,
         ).invoke("order")
         assert docs
         assert all(d.metadata["category"] in {"returns", "shipping"} for d in docs)
 
-    def test_not_in_operator(self, vector_store: LakebaseVectorStoreModel) -> None:
+    def test_not_in_via_list_value_and_not_suffix(
+        self, vector_store: LakebaseVectorStoreModel
+    ) -> None:
         docs = _retriever(
             vector_store,
             "ANN",
-            filters={"category": {"op": "not_in", "values": ["auth"]}},
+            filters={"category NOT": ["auth"]},
             k=10,
         ).invoke("account")
         assert docs
@@ -327,7 +342,7 @@ class TestFilters:
         docs = _retriever(
             vector_store,
             "ANN",
-            filters={"priority": {"op": ">=", "value": 2}},
+            filters={"priority >=": 2},
             k=10,
         ).invoke("service")
         assert docs
@@ -339,31 +354,49 @@ class TestFilters:
         docs = _retriever(
             vector_store,
             "ANN",
-            filters={"priority": {"op": "<", "value": 2}},
+            filters={"priority <": 2},
             k=10,
         ).invoke("service")
         assert docs
         assert all(d.metadata["priority"] < 2 for d in docs)
 
-    def test_not_equal(self, vector_store: LakebaseVectorStoreModel) -> None:
+    def test_not_equal_via_not_suffix(
+        self, vector_store: LakebaseVectorStoreModel
+    ) -> None:
         docs = _retriever(
             vector_store,
             "ANN",
-            filters={"category": {"op": "!=", "value": "billing"}},
+            filters={"category NOT": "billing"},
             k=10,
         ).invoke("customer")
         assert docs
         assert all(d.metadata["category"] != "billing" for d in docs)
 
-    def test_ilike_operator(self, vector_store: LakebaseVectorStoreModel) -> None:
+    def test_like_is_case_insensitive(
+        self, vector_store: LakebaseVectorStoreModel
+    ) -> None:
+        """LIKE translates to ILIKE at the SQL layer — mixed-case pattern
+        still matches lower-case data."""
         docs = _retriever(
             vector_store,
             "ANN",
-            filters={"category": {"op": "ilike", "value": "ship%"}},
+            filters={"category LIKE": "SHIP%"},
             k=10,
         ).invoke("delivery")
         assert docs
         assert all(d.metadata["category"] == "shipping" for d in docs)
+
+    def test_not_like_excludes_matches(
+        self, vector_store: LakebaseVectorStoreModel
+    ) -> None:
+        docs = _retriever(
+            vector_store,
+            "ANN",
+            filters={"category NOT LIKE": "auth%"},
+            k=10,
+        ).invoke("service")
+        assert docs
+        assert all(d.metadata["category"] != "auth" for d in docs)
 
     def test_filters_work_with_bm25(
         self, vector_store: LakebaseVectorStoreModel
@@ -383,7 +416,7 @@ class TestFilters:
         docs = _retriever(
             vector_store,
             "HYBRID",
-            filters={"category": {"op": "in", "values": ["returns", "billing"]}},
+            filters={"category": ["returns", "billing"]},
             k=5,
         ).invoke("get a refund")
         assert docs
@@ -395,6 +428,24 @@ class TestFilters:
         with pytest.raises(ValueError, match="Unknown filter column"):
             _retriever(
                 vector_store, "ANN", filters={"nonexistent_col": "x"}, k=3
+            ).invoke("anything")
+
+    def test_stage1_op_form_no_longer_supported(
+        self, vector_store: LakebaseVectorStoreModel
+    ) -> None:
+        """Stage-1 ``{op, value}`` dict values are no longer supported at
+        the retriever layer — the shape is treated as an unknown scalar
+        (which the DB then rejects). Regression guard so nobody
+        accidentally puts the Stage-1 form back on a static config and
+        gets a silent success."""
+        # Retriever accepts the shape as an "equality against a dict" and
+        # Postgres rejects at execute time. Assert we surface *some* error.
+        with pytest.raises(Exception):
+            _retriever(
+                vector_store,
+                "ANN",
+                filters={"category": {"op": "in", "values": ["faq"]}},
+                k=3,
             ).invoke("anything")
 
 
@@ -424,9 +475,11 @@ class TestToolFactory:
             assert "metadata" in item
             assert "id" in item["metadata"]
 
-    def test_tool_hybrid_with_filters(
+    def test_tool_hybrid_with_filter_item_list(
         self, vector_store: LakebaseVectorStoreModel
     ) -> None:
+        """LLM-facing FilterItem list is converted to a suffixed dict at the
+        tool boundary and reaches Postgres correctly."""
         tool = create_lakebase_search_tool(
             retriever=LakebaseRetrieverModel(
                 vector_store=vector_store,
@@ -438,9 +491,9 @@ class TestToolFactory:
         raw = tool.invoke(
             {
                 "query": "how do I get a refund?",
-                "filters": {
-                    "category": {"op": "in", "values": ["returns", "billing"]}
-                },
+                "filters": [
+                    {"key": "category", "value": ["returns", "billing"]},
+                ],
             }
         )
         parsed = json.loads(raw)
@@ -448,6 +501,51 @@ class TestToolFactory:
         assert all(
             item["metadata"]["category"] in {"returns", "billing"} for item in parsed
         )
+
+    def test_tool_dynamic_schema_rejects_unlisted_key(
+        self, vector_store: LakebaseVectorStoreModel
+    ) -> None:
+        """The tool's per-tool args_schema narrows filters[].key to a
+        Literal — an unlisted column is rejected by Pydantic before any
+        Postgres call happens."""
+        tool = create_lakebase_search_tool(
+            retriever=LakebaseRetrieverModel(
+                vector_store=vector_store,
+                search_parameters=SearchParametersModel(
+                    query_type="ANN", num_results=3
+                ),
+            )
+        )
+        with pytest.raises(Exception):
+            tool.invoke(
+                {
+                    "query": "hi",
+                    "filters": [{"key": "does_not_exist_col", "value": "x"}],
+                }
+            )
+
+    def test_tool_like_is_case_insensitive(
+        self, vector_store: LakebaseVectorStoreModel
+    ) -> None:
+        """End-to-end via the tool: LIKE with mixed-case pattern matches
+        lower-case data, proving LIKE→ILIKE flows through the whole stack."""
+        tool = create_lakebase_search_tool(
+            retriever=LakebaseRetrieverModel(
+                vector_store=vector_store,
+                search_parameters=SearchParametersModel(
+                    query_type="ANN", num_results=10
+                ),
+            )
+        )
+        raw = tool.invoke(
+            {
+                "query": "delivery",
+                "filters": [{"key": "category LIKE", "value": "SHIP%"}],
+            }
+        )
+        parsed = json.loads(raw)
+        assert parsed
+        assert all(item["metadata"]["category"] == "shipping" for item in parsed)
 
     def test_tool_from_vector_store_dict(
         self, database: DatabaseModel, seeded_table: None
