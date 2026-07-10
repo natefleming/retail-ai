@@ -32,36 +32,49 @@ configure_logging(level=log_level)
 
 config.initialize()
 
-# Set the active MLflow experiment BEFORE enabling autolog. If autolog is
-# enabled first, its instrumentation captures the initial LangChain callbacks
-# under the workspace-default experiment and the resulting run lives there —
-# subsequent set_experiment() calls change the active experiment but the run
-# is already stuck under the default. That produces
-# ``Span for run_id ... not found`` at trace-write time. See handlers.py for
-# the symmetric Apps-side fix.
-_experiment_id_env: str | None = os.environ.get("MLFLOW_EXPERIMENT_ID")
-if _experiment_id_env:
-    # Set the active experiment id first — load-bearing for autolog run
-    # placement. Trace-destination linkage is a separate concern handled
-    # by the idempotent helper below (same shape as apps/handlers.py).
-    mlflow.set_experiment(experiment_id=_experiment_id_env)
-    if config.app and config.app.trace_location:
-        try:
-            from dao_ai.providers.databricks import (  # noqa: E402
-                link_experiment_trace_location,
-            )
-
-            link_experiment_trace_location(config, _experiment_id_env)
-        except Exception as _link_err:  # noqa: BLE001
-            from loguru import logger as _log  # noqa: E402
-
-            _log.warning(
-                "dao_ai.trace_location.link_failed "
-                "experiment_id={} err={}: {}",
-                _experiment_id_env,
-                type(_link_err).__name__,
-                _link_err,
-            )
+# In-container experiment / trace-destination binding for Model Serving.
+#
+# Historically this file called ``mlflow.set_experiment(experiment_id=…)``
+# followed by ``link_experiment_trace_location(...)``. Both hit
+# ``GET /api/2.0/mlflow/experiments/get`` under the hood, which the
+# serverless Model Serving container's ambient auth cannot satisfy without
+# the served model having been logged with the experiment declared as a
+# resource dependency (see mlflow ``databricks_utils.py`` /
+# ``DatabricksModelServingConfigProvider``). Result was model-load crash:
+#
+#   mlflow.exceptions.RestException: INTERNAL_ERROR ... < 400 Bad Request
+#   < Unable to load OAuth Config
+#
+# The correct pattern (per Databricks MLflow eng — Aravind Segu in
+# #mlflow-3, Serena Ruan on es-1538671-swiggy, Shaylan Dias / Sid
+# Murching in #agents) is to make no in-container experiment binding
+# call at all. Both experiment placement and UC trace_location routing
+# are driven by env vars that ``agents.deploy()`` sets on the endpoint:
+#
+#   * ``MLFLOW_EXPERIMENT_ID`` — active experiment for autolog runs.
+#   * ``MLFLOW_TRACING_DESTINATION`` — UC schema for OTEL trace tables
+#     (set when ``config.app.trace_location`` is configured).
+#   * ``MLFLOW_TRACING_SQL_WAREHOUSE_ID`` — warehouse used for the
+#     UC-table export path.
+#
+# MLflow's ``_get_span_processors`` reads these directly and picks the
+# right processor + exporter (``DatabricksUCTableSpanExporter`` when a
+# UC destination is present, ``MlflowV3SpanExporter`` otherwise).
+#
+# An earlier iteration of this file wrapped ``set_experiment`` in a
+# try/except, then later swapped to ``set_destination(MlflowExperiment
+# Location(...))``. Both moved the crash aside but the ``set_destination``
+# path forced ``MlflowV3SpanProcessor`` (control-plane) and silently
+# bypassed the UC exporter path — verified empirically: with
+# ``trace_location`` configured, the OTEL span table was 0 rows while
+# ``mlflow.get_trace(...)`` returned the trace from the experiment's
+# default store. Removing the call restores UC routing.
+#
+# The Apps entrypoint (``handlers.py``) keeps the original
+# ``set_experiment`` + ``link_experiment_trace_location`` pattern —
+# Apps containers have full ambient OAuth so those REST calls succeed,
+# and Apps's tracing writer path relies on the explicit linkage.
+# The two entrypoints legitimately diverge here.
 
 mlflow.langchain.autolog(run_tracer_inline=True)
 suppress_autolog_context_warnings()
