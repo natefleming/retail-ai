@@ -68,6 +68,7 @@ flowchart TB
 | [`hardware_store_instructed.yaml`](./hardware_store_instructed.yaml) | 🎯 Instructed | Hardware store with instructed retrieval |
 | [`sporting_goods_store.yaml`](./sporting_goods_store.yaml) | 👔 Supervisor + 🧠 Lakebase | Merchandiser 360 multi-agent system for sporting goods lifecycle management |
 | [`procurement_supplier_a2a/`](./procurement_supplier_a2a/) | 🔁 A2A pair | Procurement officer agent calls a wholesale-supplier agent over the Google A2A protocol — two coordinated Databricks Apps deployments |
+| [`commerce/`](./commerce/) | 🔁 Pipeline (swarm + supervisor variants) | Self-contained LangGraph Commerce Agent v2.1 reference (B2C + B2B) with Lakebase memory, Unity AI Gateway, and three VS indexes. Config, data, and UC functions all live under `commerce/`. |
 
 ## Hardware Store Supervisor Architecture
 

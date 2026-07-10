@@ -1,6 +1,6 @@
 USE IDENTIFIER(:database);
 
-CREATE OR REPLACE TABLE credit_limits (
+CREATE TABLE IF NOT EXISTS credit_limits (
   customer_id STRING COMMENT 'FK -> customers.customer_id (B2B accounts only)' NOT NULL PRIMARY KEY
   ,credit_limit DOUBLE COMMENT 'Total credit line in USD'
   ,credit_available DOUBLE COMMENT 'Currently available credit'

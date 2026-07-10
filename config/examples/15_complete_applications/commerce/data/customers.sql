@@ -1,6 +1,6 @@
 USE IDENTIFIER(:database);
 
-CREATE OR REPLACE TABLE customers (
+CREATE TABLE IF NOT EXISTS customers (
   customer_id STRING COMMENT 'Unique customer identifier (used as user_id for memory namespace)' NOT NULL PRIMARY KEY
   ,email STRING COMMENT 'Primary email contact' NOT NULL
   ,first_name STRING COMMENT 'Given name (B2C) or "B2B" sentinel for business accounts'

@@ -1,5 +1,7 @@
 USE IDENTIFIER(:database);
 
+TRUNCATE TABLE orders;
+
 INSERT INTO orders (order_id, customer_id, status, total_amount, currency, channel, placed_at, shipped_at, delivered_at, tracking_number) VALUES
   ('O000001', 'C0071', 'confirmed', 518.86, 'USD', 'mobile', TIMESTAMP'2025-10-31 00:00:00', NULL, NULL, NULL),
   ('O000002', 'C0149', 'returned', 180.87, 'USD', 'store', TIMESTAMP'2025-09-23 00:00:00', TIMESTAMP'2025-09-25 00:00:00', TIMESTAMP'2025-09-29 00:00:00', '1Z88335073328'),

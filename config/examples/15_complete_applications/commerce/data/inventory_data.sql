@@ -1,5 +1,7 @@
 USE IDENTIFIER(:database);
 
+TRUNCATE TABLE inventory;
+
 INSERT INTO inventory (product_id, location_id, location_name, on_hand_qty, reserved_qty, reorder_threshold, last_counted_at) VALUES
   (1, 'WH-BUF', 'Buffalo Distribution Center', 414, 86, 50, TIMESTAMP'2026-06-13 00:00:00'),
   (1, 'WH-DAL', 'Dallas Cross-Dock', 2118, 84, 100, TIMESTAMP'2026-06-19 00:00:00'),

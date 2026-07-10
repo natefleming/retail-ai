@@ -670,28 +670,29 @@ What to look for:
 ## File layout
 
 ```
-commerce_swarm/
-├── README.md                                    # this file
-└── commerce_swarm.yaml                          # dao-ai config
-
-../../data/commerce_swarm/                        # DDL + seed data (10 tables × 2 files)
-├── products.sql + products_data.sql
-├── customers.sql + customers_data.sql
-├── orders.sql + orders_data.sql
-├── order_items.sql + order_items_data.sql
-├── inventory.sql + inventory_data.sql
-├── credit_limits.sql + credit_limits_data.sql
-├── cart.sql + cart_data.sql
-├── faqs.sql + faqs_data.sql
-├── policies.sql + policies_data.sql
-└── idempotency_log.sql                          # DDL only — empty at deploy
-
-../../functions/commerce_swarm/                   # 5 UC SQL functions
-├── find_product.sql
-├── get_order_history.sql
-├── check_stock.sql
-├── get_credit_limit.sql
-└── get_cart.sql
+commerce/                                        # use-case parent (self-contained)
+├── README.md                                    # umbrella overview
+├── data/                                        # DDL + seed data (10 tables × 2 files)
+│   ├── products.sql + products_data.sql
+│   ├── customers.sql + customers_data.sql
+│   ├── orders.sql + orders_data.sql
+│   ├── order_items.sql + order_items_data.sql
+│   ├── inventory.sql + inventory_data.sql
+│   ├── credit_limits.sql + credit_limits_data.sql
+│   ├── cart.sql + cart_data.sql
+│   ├── faqs.sql + faqs_data.sql
+│   ├── policies.sql + policies_data.sql
+│   └── idempotency_log.sql                      # DDL only — empty at deploy
+├── functions/                                   # 6 UC SQL functions
+│   ├── find_product.sql
+│   ├── get_order_history.sql
+│   ├── check_stock.sql
+│   ├── get_credit_limit.sql
+│   ├── get_cart.sql
+│   └── lookup_customer_by_user.sql
+└── commerce_supervisor/
+    ├── README.md                                # this file
+    └── commerce_supervisor.yaml                 # dao-ai config
 ```
 
 ---

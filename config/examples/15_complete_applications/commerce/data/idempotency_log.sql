@@ -1,6 +1,6 @@
 USE IDENTIFIER(:database);
 
-CREATE OR REPLACE TABLE idempotency_log (
+CREATE TABLE IF NOT EXISTS idempotency_log (
   idempotency_key STRING COMMENT 'Hash of (intent + payload + action) — primary key for short-circuit lookup' NOT NULL PRIMARY KEY
   ,intent STRING COMMENT 'Intent name (add_to_cart, place_order, refund, etc.)'
   ,action STRING COMMENT 'Concrete action executed via MCP (commercetools.add_to_cart, stripe.charge, etc.)'

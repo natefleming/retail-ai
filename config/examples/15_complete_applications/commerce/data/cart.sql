@@ -1,6 +1,6 @@
 USE IDENTIFIER(:database);
 
-CREATE OR REPLACE TABLE cart (
+CREATE TABLE IF NOT EXISTS cart (
   cart_id STRING COMMENT 'Cart identifier (one cart can contain multiple rows — one per product)' NOT NULL
   ,customer_id STRING COMMENT 'FK -> customers.customer_id' NOT NULL
   ,product_id BIGINT COMMENT 'FK -> products.product_id' NOT NULL

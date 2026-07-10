@@ -18,7 +18,7 @@
 #   • Idempotency log for UCP transactional commands
 #
 # Deploy:  dao-ai pipeline --deploy --run \
-#            -c config/examples/15_complete_applications/commerce_swarm.yaml \
+#            -c config/examples/15_complete_applications/commerce/commerce_swarm/commerce_swarm.yaml \
 #            -p fevm
 # =============================================================================
 
@@ -1049,38 +1049,38 @@ app:
 unity_catalog_functions:
 
 - function: *find_product
-  ddl: ../functions/commerce_swarm/find_product.sql
+  ddl: ../config/examples/15_complete_applications/commerce/functions/find_product.sql
   test:
     parameters:
       sku_or_id: "FRZ-CAKE-001"
 
 - function: *get_order_history
-  ddl: ../functions/commerce_swarm/get_order_history.sql
+  ddl: ../config/examples/15_complete_applications/commerce/functions/get_order_history.sql
   test:
     parameters:
       customer_id: "C0001"
       row_limit: 5
 
 - function: *check_stock
-  ddl: ../functions/commerce_swarm/check_stock.sql
+  ddl: ../config/examples/15_complete_applications/commerce/functions/check_stock.sql
   test:
     parameters:
       sku: "FRZ-CAKE-001"
 
 - function: *get_credit_limit
-  ddl: ../functions/commerce_swarm/get_credit_limit.sql
+  ddl: ../config/examples/15_complete_applications/commerce/functions/get_credit_limit.sql
   test:
     parameters:
       customer_id: "B0001"
 
 - function: *get_cart
-  ddl: ../functions/commerce_swarm/get_cart.sql
+  ddl: ../config/examples/15_complete_applications/commerce/functions/get_cart.sql
   test:
     parameters:
       customer_id: "C0001"
 
 - function: *lookup_customer_by_user
-  ddl: ../functions/commerce_swarm/lookup_customer_by_user.sql
+  ddl: ../config/examples/15_complete_applications/commerce/functions/lookup_customer_by_user.sql
   test:
     parameters:
       # Short-name form — exercises the SPLIT(email, '@')[0] match path.
@@ -1116,68 +1116,68 @@ datasets:
 - table:
     schema: *retail_schema
     name: products
-  ddl: ../data/commerce_swarm/products.sql
-  data: ../data/commerce_swarm/products_data.sql
+  ddl: ../config/examples/15_complete_applications/commerce/data/products.sql
+  data: ../config/examples/15_complete_applications/commerce/data/products_data.sql
   format: sql
 
 - table:
     schema: *retail_schema
     name: customers
-  ddl: ../data/commerce_swarm/customers.sql
-  data: ../data/commerce_swarm/customers_data.sql
+  ddl: ../config/examples/15_complete_applications/commerce/data/customers.sql
+  data: ../config/examples/15_complete_applications/commerce/data/customers_data.sql
   format: sql
 
 - table:
     schema: *retail_schema
     name: orders
-  ddl: ../data/commerce_swarm/orders.sql
-  data: ../data/commerce_swarm/orders_data.sql
+  ddl: ../config/examples/15_complete_applications/commerce/data/orders.sql
+  data: ../config/examples/15_complete_applications/commerce/data/orders_data.sql
   format: sql
 
 - table:
     schema: *retail_schema
     name: order_items
-  ddl: ../data/commerce_swarm/order_items.sql
-  data: ../data/commerce_swarm/order_items_data.sql
+  ddl: ../config/examples/15_complete_applications/commerce/data/order_items.sql
+  data: ../config/examples/15_complete_applications/commerce/data/order_items_data.sql
   format: sql
 
 - table:
     schema: *retail_schema
     name: inventory
-  ddl: ../data/commerce_swarm/inventory.sql
-  data: ../data/commerce_swarm/inventory_data.sql
+  ddl: ../config/examples/15_complete_applications/commerce/data/inventory.sql
+  data: ../config/examples/15_complete_applications/commerce/data/inventory_data.sql
   format: sql
 
 - table:
     schema: *retail_schema
     name: credit_limits
-  ddl: ../data/commerce_swarm/credit_limits.sql
-  data: ../data/commerce_swarm/credit_limits_data.sql
+  ddl: ../config/examples/15_complete_applications/commerce/data/credit_limits.sql
+  data: ../config/examples/15_complete_applications/commerce/data/credit_limits_data.sql
   format: sql
 
 - table:
     schema: *retail_schema
     name: cart
-  ddl: ../data/commerce_swarm/cart.sql
-  data: ../data/commerce_swarm/cart_data.sql
+  ddl: ../config/examples/15_complete_applications/commerce/data/cart.sql
+  data: ../config/examples/15_complete_applications/commerce/data/cart_data.sql
   format: sql
 
 - table:
     schema: *retail_schema
     name: faqs
-  ddl: ../data/commerce_swarm/faqs.sql
-  data: ../data/commerce_swarm/faqs_data.sql
+  ddl: ../config/examples/15_complete_applications/commerce/data/faqs.sql
+  data: ../config/examples/15_complete_applications/commerce/data/faqs_data.sql
   format: sql
 
 - table:
     schema: *retail_schema
     name: policies
-  ddl: ../data/commerce_swarm/policies.sql
-  data: ../data/commerce_swarm/policies_data.sql
+  ddl: ../config/examples/15_complete_applications/commerce/data/policies.sql
+  data: ../config/examples/15_complete_applications/commerce/data/policies_data.sql
   format: sql
 
 - table:
     schema: *retail_schema
     name: idempotency_log
-  ddl: ../data/commerce_swarm/idempotency_log.sql
+  ddl: ../config/examples/15_complete_applications/commerce/data/idempotency_log.sql
   # No data file — table starts empty and is populated by UCP at runtime.
