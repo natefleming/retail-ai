@@ -1,5 +1,7 @@
 USE IDENTIFIER(:database);
 
+TRUNCATE TABLE customers;
+
 INSERT INTO customers (customer_id, email, first_name, last_name, customer_type, segment, signup_date, city, state, country, loyalty_tier, created_at) VALUES
   ('C0001', 'uma.davis0@example.com', 'Uma', 'Davis', 'B2C', 'consumer', DATE'2024-01-26', 'Miami', 'FL', 'US', 'silver', CURRENT_TIMESTAMP()),
   ('C0002', 'ethan.xu1@example.com', 'Ethan', 'Xu', 'B2C', 'baker_hobbyist', DATE'2024-04-14', 'Dallas', 'TX', 'US', 'platinum', CURRENT_TIMESTAMP()),

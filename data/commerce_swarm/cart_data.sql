@@ -1,5 +1,7 @@
 USE IDENTIFIER(:database);
 
+TRUNCATE TABLE cart;
+
 INSERT INTO cart (cart_id, customer_id, product_id, sku, quantity, added_at) VALUES
   ('CART-00001', 'C0035', 21, 'CST-CAK-002', 5, TIMESTAMP'2026-06-21 08:00:00'),
   ('CART-00001', 'C0035', 5, 'FRZ-PIE-001', 3, TIMESTAMP'2026-06-21 08:00:00'),

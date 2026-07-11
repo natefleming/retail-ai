@@ -1,6 +1,6 @@
 USE IDENTIFIER(:database);
 
-CREATE OR REPLACE TABLE faqs (
+CREATE TABLE IF NOT EXISTS faqs (
   faq_id BIGINT COMMENT 'Unique FAQ identifier' NOT NULL PRIMARY KEY
   ,category STRING COMMENT 'FAQ topic category (shipping, returns, account, products, b2b, payment)'
   ,question STRING COMMENT 'Customer-facing question'

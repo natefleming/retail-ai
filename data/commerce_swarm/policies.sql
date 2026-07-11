@@ -1,6 +1,6 @@
 USE IDENTIFIER(:database);
 
-CREATE OR REPLACE TABLE policies (
+CREATE TABLE IF NOT EXISTS policies (
   policy_id BIGINT COMMENT 'Unique policy identifier' NOT NULL PRIMARY KEY
   ,title STRING COMMENT 'Policy title'
   ,category STRING COMMENT 'Policy category (returns, shipping, privacy, b2b_terms, payment, safety)'

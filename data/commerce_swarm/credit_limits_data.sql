@@ -1,5 +1,7 @@
 USE IDENTIFIER(:database);
 
+TRUNCATE TABLE credit_limits;
+
 INSERT INTO credit_limits (customer_id, credit_limit, credit_available, credit_used, payment_terms, risk_rating, last_review_date) VALUES
   ('B0001', 1000, 616.1, 383.9, 'Net30', 'D', DATE'2026-03-05'),
   ('B0002', 2500, 1676.12, 823.88, 'Net30', 'A', DATE'2026-05-13'),

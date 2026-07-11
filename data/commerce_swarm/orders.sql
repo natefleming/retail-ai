@@ -1,6 +1,6 @@
 USE IDENTIFIER(:database);
 
-CREATE OR REPLACE TABLE orders (
+CREATE TABLE IF NOT EXISTS orders (
   order_id STRING COMMENT 'Unique order identifier' NOT NULL PRIMARY KEY
   ,customer_id STRING COMMENT 'FK -> customers.customer_id' NOT NULL
   ,status STRING COMMENT 'Order lifecycle status (placed, confirmed, shipped, delivered, cancelled, returned)'

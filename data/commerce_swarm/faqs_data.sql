@@ -1,5 +1,7 @@
 USE IDENTIFIER(:database);
 
+TRUNCATE TABLE faqs;
+
 INSERT INTO faqs (faq_id, category, question, answer, updated_at) VALUES
   (1, 'shipping', 'How long does shipping take?', 'Standard shipping takes 3-5 business days within the continental US. Frozen and perishable orders ship via overnight or 2-day air with dry ice. Expedited options are available at checkout. B2B foodservice customers on contract terms have weekly scheduled delivery windows; see your account manager for the schedule.', CURRENT_TIMESTAMP()),
   (2, 'shipping', 'Do you ship internationally?', 'We currently ship to the continental US, Canada, and Mexico. Hawaii and Alaska are supported for non-perishable items only. International shipments to Canada and Mexico require additional 2-4 business days. We do not ship frozen items internationally at this time.', CURRENT_TIMESTAMP()),

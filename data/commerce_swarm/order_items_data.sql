@@ -1,5 +1,7 @@
 USE IDENTIFIER(:database);
 
+TRUNCATE TABLE order_items;
+
 INSERT INTO order_items (order_item_id, order_id, product_id, sku, quantity, unit_price, line_total) VALUES
   ('OI000001-01', 'O000001', 37, 'RTL-CHE-001', 6, 28.99, 173.94),
   ('OI000001-02', 'O000001', 1, 'FRZ-CAKE-001', 3, 34.99, 104.97),

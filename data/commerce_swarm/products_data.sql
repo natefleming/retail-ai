@@ -1,5 +1,7 @@
 USE IDENTIFIER(:database);
 
+TRUNCATE TABLE products;
+
 INSERT INTO products (product_id, sku, product_name, brand, category, subcategory, description, attributes, price, is_b2b_only, created_at, updated_at) VALUES
   (1, 'FRZ-CAKE-001', 'Classic Vanilla Ice Cream Cake (8")', 'Atelier Patisserie', 'Frozen Desserts', 'Ice Cream Cakes', 'An 8-inch vanilla ice cream cake layered with chocolate fudge ribbon and finished with hand-piped buttercream rosettes. Made with real cream and Madagascar vanilla beans, frozen for 30+ day shelf life. Serves 8-12. Ships in dry-ice-cooled insulated packaging.', '{"size": "8 inch", "serves": 10, "allergens": ["dairy", "egg", "wheat"], "shelf_life_days": 30}', 34.99, FALSE, CURRENT_TIMESTAMP(), CURRENT_TIMESTAMP()),
   (2, 'FRZ-CAKE-002', 'Triple Chocolate Mousse Cake (6")', 'Atelier Patisserie', 'Frozen Desserts', 'Mousse Cakes', 'Decadent triple-layer mousse cake featuring dark chocolate ganache, milk chocolate mousse, and white chocolate cream over a chocolate sponge base. Sized for intimate gatherings; serves 6-8. Naturally gluten-free.', '{"size": "6 inch", "serves": 7, "allergens": ["dairy", "egg"], "gluten_free": true}', 28.99, FALSE, CURRENT_TIMESTAMP(), CURRENT_TIMESTAMP()),

@@ -1,6 +1,6 @@
 USE IDENTIFIER(:database);
 
-CREATE OR REPLACE TABLE products (
+CREATE TABLE IF NOT EXISTS products (
   product_id BIGINT COMMENT 'Unique product identifier' NOT NULL PRIMARY KEY
   ,sku STRING COMMENT 'Stock Keeping Unit — unique product code' NOT NULL
   ,product_name STRING COMMENT 'Customer-facing product name'
