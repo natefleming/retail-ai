@@ -5405,6 +5405,114 @@ class McpRootModel(BaseModel):
     )
 
 
+class McpResourceModel(BaseModel):
+    """A static resource exposed by dao-ai's own MCP server via ``resources/list``.
+
+    Resources are read-only URIs the server publishes for client discovery
+    (system prompts, curated document snippets, etc). Content is served as
+    text — for binary payloads, register at the server-side rather than
+    declaring here.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+    uri: str = Field(
+        ...,
+        description="Resource URI advertised on resources/list, e.g. 'dao-ai://prompts/system'.",
+    )
+    name: str = Field(
+        ...,
+        description="Human-readable resource name shown in client UIs.",
+    )
+    description: Optional[str] = Field(
+        default=None,
+        description="What the resource contains — surfaced in the resources/list response.",
+    )
+    mime_type: str = Field(
+        default="text/plain",
+        description="MIME type of the resource payload. Defaults to text/plain.",
+    )
+    content: str = Field(
+        ...,
+        description="Static text content returned by the server on resources/read for this URI.",
+    )
+
+
+class McpPromptArgumentModel(BaseModel):
+    """A single argument on an McpPromptModel."""
+
+    model_config = ConfigDict(extra="forbid")
+    name: str = Field(
+        ...,
+        description="Argument name — must match a {placeholder} in the template.",
+    )
+    description: Optional[str] = Field(
+        default=None,
+        description="What the argument represents. Shown to clients requesting the prompt.",
+    )
+    required: bool = Field(
+        default=False,
+        description="Whether the client must supply this argument on prompts/get. Optional args are empty-string when omitted.",
+    )
+
+
+class McpPromptModel(BaseModel):
+    """A prompt template exposed by dao-ai's own MCP server via ``prompts/list``.
+
+    Clients call ``prompts/get`` with argument values; the server returns the
+    rendered template as a single user-role message. Placeholders in the
+    template use Python format-string syntax, e.g. ``{customer_name}``.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+    name: str = Field(
+        ...,
+        description="Prompt identifier used on prompts/list and prompts/get.",
+    )
+    description: Optional[str] = Field(
+        default=None,
+        description="What the prompt does — surfaced in prompts/list.",
+    )
+    template: str = Field(
+        ...,
+        description="Prompt template with Python format-string placeholders (e.g. 'Hello, {name}!').",
+    )
+    arguments: list[McpPromptArgumentModel] = Field(
+        default_factory=list,
+        description="Arguments the client can supply on prompts/get. Empty list means the template takes no arguments.",
+    )
+
+
+class McpServerCapabilitiesModel(BaseModel):
+    """Advanced capabilities emitted BY dao-ai when deployed as an MCP server.
+
+    Client-side capabilities are on ``McpFunctionModel.capabilities``. This
+    model is the server-side complement — declaring what the dao-ai MCP
+    server itself publishes and how it reports progress/logging to callers.
+
+    When None on ``AppModel`` (the default), dao-ai's MCP server publishes
+    only the single agent-as-tool it always has — byte-for-byte compatible
+    with pre-PR-2 behavior.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+    progress: bool = Field(
+        default=True,
+        description="Emit progress notifications from LangGraph astream_events during agent execution. Requires the caller to supply a progressToken via _meta on tools/call.",
+    )
+    logging: bool = Field(
+        default=True,
+        description="Route Python logger records into notifications/message on the active FastMCP session. Silent no-op when no session context is bound.",
+    )
+    resources: list[McpResourceModel] = Field(
+        default_factory=list,
+        description="Static resources published via resources/list. Empty list means no resources are advertised.",
+    )
+    prompts: list[McpPromptModel] = Field(
+        default_factory=list,
+        description="Prompt templates published via prompts/list. Empty list means no prompts are advertised.",
+    )
+
+
 class McpCapabilitiesModel(BaseModel):
     """Advanced MCP capabilities for an MCP client (McpFunctionModel).
 
@@ -8737,6 +8845,17 @@ class AppModel(BaseModel):
         "``table_prefix`` to namespace the OTEL tables. When set, "
         "``mlflow.set_experiment(trace_location=UnityCatalog(...))`` is called at startup "
         "and at deploy time for both Model Serving and Databricks Apps deployments.",
+    )
+    mcp_server: Optional[McpServerCapabilitiesModel] = Field(
+        default=None,
+        description=(
+            "Server-side MCP capabilities exposed when dao-ai is deployed as an "
+            "MCP server (``dao-ai generate-mcp``). Declares static resources, "
+            "prompt templates, and whether progress + logging notifications are "
+            "emitted from the agent tool. When None the server publishes only "
+            "the classic single-tool agent surface — zero regression from the "
+            "pre-PR-2 default."
+        ),
     )
     experiment: Optional[ExperimentModel] = Field(
         default=None,
