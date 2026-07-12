@@ -91,6 +91,16 @@ def build_app(config: AppConfig) -> FastAPI:
     """Build the FastAPI app with the MCP transport mounted at root."""
     server_name = server_name_for(config)
 
+    # Progress and logging notifications require a stateful HTTP session so
+    # the notifications channel stays open during the tool call. When those
+    # capabilities are on, opt into the stateful transport; otherwise keep
+    # the stateless default (needed for horizontal scaling on Databricks
+    # Apps without sticky sessions).
+    caps = (
+        getattr(config.app, "mcp_server", None) if config.app is not None else None
+    )
+    needs_stateful: bool = caps is not None and (caps.progress or caps.logging)
+
     # Keep FastMCP's default ``streamable_http_path="/mcp"`` and mount the
     # inner app at the parent's root. This makes the external endpoint
     # ``/mcp`` (no trailing slash) match the inner Starlette route exactly,
@@ -99,14 +109,20 @@ def build_app(config: AppConfig) -> FastAPI:
     # and treats anything other than 200 as a registration failure.
     mcp = FastMCP(
         server_name,
-        stateless_http=True,
-        json_response=True,
+        stateless_http=not needs_stateful,
+        json_response=not needs_stateful,
+    )
+    logger.info(
+        "mcp.server.transport",
+        stateless_http=not needs_stateful,
+        json_response=not needs_stateful,
+        progress=bool(caps and caps.progress),
+        logging=bool(caps and caps.logging),
     )
     registered_tool = register_agent_as_tool(mcp, config)
 
     # PR 2 — server-side capabilities. When absent, the loops below are
     # no-ops and the server keeps its pre-PR-2 single-tool surface.
-    caps = config.app.mcp_server if config.app is not None else None
     registered_resources: list[str] = []
     registered_prompts: list[str] = []
     if caps is not None:

@@ -279,6 +279,12 @@ def register_agent_as_tool(mcp: FastMCP, config: AppConfig) -> str:
         getattr(config.app, "mcp_server", None) if config.app is not None else None
     )
     progress_enabled: bool = _mcp_server_cfg is not None and _mcp_server_cfg.progress
+    logger.info(
+        "mcp.agent_tool.progress_config",
+        tool_name=tool_name,
+        mcp_server_present=_mcp_server_cfg is not None,
+        progress_enabled=progress_enabled,
+    )
 
     @mcp.tool(name=tool_name, description=description)
     async def invoke_agent(
@@ -340,8 +346,14 @@ def register_agent_as_tool(mcp: FastMCP, config: AppConfig) -> str:
         if progress_enabled:
             try:
                 await ctx.report_progress(progress=0.0, total=100.0, message="agent_start")
-            except Exception:
-                logger.trace("mcp.agent_tool.progress.start.skip", tool_name=tool_name)
+            except Exception as _exc:
+                # Progress channel failures must not fail the tool call —
+                # log at debug so operators can surface if needed.
+                logger.debug(
+                    "mcp.agent_tool.progress.start.skip",
+                    tool_name=tool_name,
+                    error=str(_exc),
+                )
             heartbeat_task = asyncio.create_task(
                 _heartbeat_progress(ctx, tool_name)
             )
