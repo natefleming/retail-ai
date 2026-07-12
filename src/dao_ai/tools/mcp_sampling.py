@@ -1,0 +1,389 @@
+"""Raw ClientSession-based MCP client for sampling + roots (PR 3).
+
+``langchain-mcp-adapters 0.3.0`` ``Callbacks`` surfaces
+``on_logging_message`` / ``on_progress`` / ``on_elicitation`` — but not
+``sampling_callback`` or ``list_roots_callback``. This module opens
+``mcp.client.streamable_http.streamablehttp_client`` +
+``mcp.client.session.ClientSession`` directly so those two callbacks can
+be wired. Everything else (logging, progress, elicitation, structured
+output, retries) is still handled by PR 1's ``MultiServerMCPClient`` path
+— this module is only reached when ``McpFunctionModel.capabilities``
+declares ``sampling`` or ``roots``.
+
+Sampling flow: the MCP server issues ``sampling/createMessage``; dao-ai
+translates the request into LangChain messages and routes it to the
+configured ``InferenceEndpointModel`` (AI Gateway if declared). The
+completion is returned as a ``CreateMessageResult``.
+
+Roots flow: the server calls ``roots/list``; dao-ai returns the URIs
+declared under ``capabilities.roots``.
+"""
+
+from __future__ import annotations
+
+from typing import Any, Sequence
+
+import mlflow
+from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
+from langchain_core.runnables.base import RunnableLike
+from langchain_core.tools import tool as create_tool
+from loguru import logger
+from mcp.client.session import ClientSession
+from mcp.client.streamable_http import streamablehttp_client
+from mcp.shared.context import RequestContext
+from mcp.types import (
+    CallToolResult,
+    CreateMessageRequestParams,
+    CreateMessageResult,
+    ErrorData,
+    ListRootsResult,
+    Root,
+    SamplingMessage,
+    TextContent,
+    Tool,
+)
+
+from dao_ai.config import (
+    McpCapabilitiesModel,
+    McpFunctionModel,
+)
+from dao_ai.state import Context as DaoAiContext
+
+
+# ---------------------------------------------------------------------------
+# Sampling callback — converts MCP CreateMessageRequest → LangChain call
+# ---------------------------------------------------------------------------
+
+
+class DaoAiSamplingCallback:
+    """Handles server-initiated ``sampling/createMessage`` by routing to the
+    configured ``InferenceEndpointModel``.
+
+    Instance is scoped to a single tool invocation so ``max_iterations`` can
+    be enforced via an instance counter — the server may sample multiple
+    times inside one ``tools/call``.
+    """
+
+    def __init__(self, function: McpFunctionModel) -> None:
+        caps: McpCapabilitiesModel | None = function.capabilities
+        if caps is None or caps.sampling is None:
+            raise ValueError(
+                "DaoAiSamplingCallback requires function.capabilities.sampling "
+                "to be set — check the route selection in create_mcp_tools."
+            )
+        self._function = function
+        self._sampling_cfg = caps.sampling
+        self._iteration_count: int = 0
+
+    async def __call__(
+        self,
+        context: RequestContext[ClientSession, Any],
+        params: CreateMessageRequestParams,
+    ) -> CreateMessageResult | ErrorData:
+        self._iteration_count += 1
+        if self._iteration_count > self._sampling_cfg.max_iterations:
+            logger.warning(
+                "mcp.sampling.max_iterations_exceeded",
+                count=self._iteration_count,
+                cap=self._sampling_cfg.max_iterations,
+            )
+            return ErrorData(
+                code=-32000,
+                message=(
+                    f"Sampling iteration cap exceeded: "
+                    f"{self._iteration_count} > {self._sampling_cfg.max_iterations}"
+                ),
+            )
+
+        span = mlflow.get_current_active_span()
+        if span is not None:
+            try:
+                span.add_event(
+                    "mcp.sampling.request",
+                    attributes={
+                        "mcp.sampling.iteration": self._iteration_count,
+                        "mcp.sampling.messages_count": len(params.messages),
+                        "mcp.sampling.max_tokens": params.maxTokens,
+                        "mcp.sampling.has_tools": bool(params.tools),
+                    },
+                )
+            except Exception:
+                logger.trace("mcp.sampling.span_event.skip")
+
+        lc_messages = _mcp_messages_to_langchain(params)
+        chat_model = self._sampling_cfg.endpoint.as_chat_model()
+
+        # allow_tool_use=False: drop tools from the sampling call to prevent
+        # recursion. The endpoint still runs, just without the tool surface.
+        # dao-ai's sampling contract is a single completion, not a nested loop.
+        if params.tools and not self._sampling_cfg.allow_tool_use:
+            logger.debug(
+                "mcp.sampling.tools_dropped",
+                count=len(params.tools),
+            )
+
+        try:
+            response = await chat_model.ainvoke(
+                lc_messages,
+                config={
+                    "max_tokens": params.maxTokens,
+                    "temperature": params.temperature,
+                    "stop": params.stopSequences,
+                },
+            )
+        except Exception as exc:
+            logger.exception("mcp.sampling.invoke.failed", error=str(exc))
+            return ErrorData(code=-32001, message=f"sampling invocation failed: {exc}")
+
+        content_text = _extract_text(response)
+        return CreateMessageResult(
+            role="assistant",
+            content=TextContent(type="text", text=content_text),
+            model=self._sampling_cfg.endpoint.name,
+            stopReason="endTurn",
+        )
+
+
+def _mcp_messages_to_langchain(
+    params: CreateMessageRequestParams,
+) -> list[BaseMessage]:
+    """Convert MCP sampling params (systemPrompt + messages) into a list of
+    LangChain messages the chat model can consume."""
+    out: list[BaseMessage] = []
+    if params.systemPrompt:
+        out.append(SystemMessage(content=params.systemPrompt))
+    for msg in params.messages:
+        text = _mcp_sampling_content_text(msg)
+        if msg.role == "assistant":
+            out.append(AIMessage(content=text))
+        else:
+            out.append(HumanMessage(content=text))
+    return out
+
+
+def _mcp_sampling_content_text(msg: SamplingMessage) -> str:
+    """Best-effort text extraction from a SamplingMessage.
+
+    SamplingMessage.content is a union — TextContent | ImageContent |
+    AudioContent | ToolUseContent | ToolResultContent | list[...]. dao-ai's
+    sampling implementation is text-only for PR 3; image/audio/tool content
+    is stringified. The AI Gateway image path lives in a separate PR.
+    """
+    content = msg.content
+    if isinstance(content, TextContent):
+        return content.text
+    if isinstance(content, list):
+        parts: list[str] = []
+        for item in content:
+            if isinstance(item, TextContent):
+                parts.append(item.text)
+            else:
+                parts.append(f"[{getattr(item, 'type', 'unknown')} content]")
+        return "\n".join(parts)
+    return f"[{getattr(content, 'type', 'unknown')} content]"
+
+
+def _extract_text(response: Any) -> str:
+    """Extract a plain-text completion from a LangChain AIMessage-ish."""
+    if hasattr(response, "content"):
+        content = response.content
+        if isinstance(content, str):
+            return content
+        if isinstance(content, list):
+            # Anthropic-style content blocks
+            texts: list[str] = []
+            for block in content:
+                if isinstance(block, dict):
+                    if block.get("type") == "text":
+                        texts.append(block.get("text", ""))
+                elif isinstance(block, str):
+                    texts.append(block)
+            return "".join(texts)
+    return str(response)
+
+
+# ---------------------------------------------------------------------------
+# List-roots callback — returns configured roots
+# ---------------------------------------------------------------------------
+
+
+class DaoAiListRootsCallback:
+    """Returns ``capabilities.roots`` to the server on ``roots/list``.
+
+    Named class (not a closure) so MLflow trace lineage shows the callback
+    ran, per ``feedback_subclass_for_trace_observability``.
+    """
+
+    def __init__(self, function: McpFunctionModel) -> None:
+        caps: McpCapabilitiesModel | None = function.capabilities
+        if caps is None:
+            raise ValueError(
+                "DaoAiListRootsCallback requires function.capabilities to be set."
+            )
+        self._function = function
+        self._roots = caps.roots
+
+    async def __call__(
+        self, context: RequestContext[ClientSession, Any]
+    ) -> ListRootsResult | ErrorData:
+        span = mlflow.get_current_active_span()
+        if span is not None:
+            try:
+                span.add_event(
+                    "mcp.roots.list",
+                    attributes={"mcp.roots.count": len(self._roots)},
+                )
+            except Exception:
+                logger.trace("mcp.roots.span_event.skip")
+        roots: list[Root] = []
+        for r in self._roots:
+            try:
+                roots.append(Root(uri=r.uri, name=r.name))  # type: ignore[arg-type]
+            except Exception as exc:
+                # A configured URI that doesn't match FileUrl validation must
+                # not sink the whole call — log + skip so the server sees the
+                # valid subset.
+                logger.warning(
+                    "mcp.roots.invalid_uri",
+                    uri=r.uri,
+                    error=str(exc),
+                )
+        return ListRootsResult(roots=roots)
+
+
+# ---------------------------------------------------------------------------
+# Raw-session tool-creation path
+# ---------------------------------------------------------------------------
+
+
+def sampling_or_roots_active(function: McpFunctionModel) -> bool:
+    """Route helper — True when the function needs the raw ClientSession path."""
+    caps = function.capabilities
+    if caps is None:
+        return False
+    return caps.sampling is not None or bool(caps.roots)
+
+
+async def acreate_mcp_tools_with_sampling(
+    function: McpFunctionModel,
+) -> Sequence[RunnableLike]:
+    """Async tool-creation path for sampling + roots.
+
+    Uses raw ``streamablehttp_client`` + ``ClientSession`` so
+    ``sampling_callback`` / ``list_roots_callback`` can be attached. Each
+    wrapped LangChain tool opens a fresh session per invocation to inherit
+    the OBO context, matching the classic path's semantics.
+    """
+    from dao_ai.tools.mcp import (
+        _extract_text_content,
+        _get_auth_resource,
+        _resolve_meta,
+    )
+    from dao_ai.tools.tracing import ResourceInfo, set_resource_attributes
+
+    # Discover tools via a probe session — no callbacks needed for list_tools.
+    async with _open_session(function, context=None) as session:
+        listed = await session.list_tools()
+        mcp_tools: list[Tool] = list(listed.tools)
+
+    logger.info(
+        "mcp.sampling.tools.discovered",
+        count=len(mcp_tools),
+        names=[t.name for t in mcp_tools],
+    )
+
+    def _wrap(mcp_tool: Tool) -> RunnableLike:
+        from langchain.tools import ToolRuntime
+
+        @create_tool(
+            mcp_tool.name,
+            description=mcp_tool.description or f"MCP tool: {mcp_tool.name}",
+            args_schema=mcp_tool.inputSchema,
+        )
+        async def _tool(
+            runtime: ToolRuntime[DaoAiContext] = None,
+            **kwargs: Any,
+        ) -> str:
+            auth_resource = _get_auth_resource(function)
+            set_resource_attributes(
+                ResourceInfo("mcp", auth_resource.on_behalf_of_user, mcp_tool.name)
+            )
+            context: DaoAiContext | None = runtime.context if runtime else None
+            async with _open_session(function, context=context) as session:
+                result: CallToolResult = await session.call_tool(
+                    mcp_tool.name,
+                    kwargs,
+                    meta=_resolve_meta(function.meta),
+                )
+                return _extract_text_content(result)
+
+        return _tool
+
+    return [_wrap(t) for t in mcp_tools]
+
+
+class _SessionCtx:
+    """Async context manager that layers ``streamablehttp_client`` +
+    ``ClientSession(sampling_callback, list_roots_callback)`` and threads
+    OBO headers when a request context is supplied.
+    """
+
+    def __init__(
+        self,
+        function: McpFunctionModel,
+        context: DaoAiContext | None,
+    ) -> None:
+        self._function = function
+        self._context = context
+        self._transport = None
+        self._session: ClientSession | None = None
+        self._sampling_cb: DaoAiSamplingCallback | None = None
+        self._roots_cb: DaoAiListRootsCallback | None = None
+
+    async def __aenter__(self) -> ClientSession:
+        from dao_ai.tools.mcp import _build_connection_config
+
+        conn = _build_connection_config(self._function, self._context)
+        url = conn.get("url") or self._function.mcp_url
+        headers = conn.get("headers") or None
+        auth = conn.get("auth")
+
+        caps = self._function.capabilities
+        if caps and caps.sampling:
+            self._sampling_cb = DaoAiSamplingCallback(self._function)
+        if caps and caps.roots:
+            self._roots_cb = DaoAiListRootsCallback(self._function)
+
+        # Enter the transport CM.
+        self._transport = streamablehttp_client(
+            url=url,
+            headers=headers,
+            auth=auth,
+        )
+        read_stream, write_stream, _ = await self._transport.__aenter__()
+
+        self._session = ClientSession(
+            read_stream,
+            write_stream,
+            sampling_callback=self._sampling_cb,
+            list_roots_callback=self._roots_cb,
+        )
+        await self._session.__aenter__()
+        await self._session.initialize()
+        return self._session
+
+    async def __aexit__(self, exc_type, exc, tb) -> None:
+        if self._session is not None:
+            await self._session.__aexit__(exc_type, exc, tb)
+        if self._transport is not None:
+            await self._transport.__aexit__(exc_type, exc, tb)
+
+
+def _open_session(
+    function: McpFunctionModel,
+    *,
+    context: DaoAiContext | None,
+) -> _SessionCtx:
+    """Return an async context manager yielding a raw ``ClientSession``
+    with sampling + list_roots callbacks bound from the capabilities config."""
+    return _SessionCtx(function, context)
