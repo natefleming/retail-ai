@@ -62,7 +62,7 @@ dependencies = [
     "grandalf>=0.8",
     "langchain>=1.2.12",
     "langchain-community>=0.4.1",
-    "langchain-mcp-adapters>=0.2.2",
+    "langchain-mcp-adapters>=0.3.0",
     "langchain-tavily>=0.2.15",
     "langgraph-checkpoint-postgres==3.0.5",
     "langgraph>=1.1.10",
