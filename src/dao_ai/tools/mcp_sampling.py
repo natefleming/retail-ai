@@ -21,9 +21,11 @@ declared under ``capabilities.roots``.
 
 from __future__ import annotations
 
-from typing import Any, Sequence
+from contextlib import AsyncExitStack, asynccontextmanager
+from typing import Any, AsyncIterator, Sequence
 
 import mlflow
+from langchain.tools import ToolRuntime
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
 from langchain_core.runnables.base import RunnableLike
 from langchain_core.tools import tool as create_tool
@@ -293,8 +295,6 @@ async def acreate_mcp_tools_with_sampling(
     )
 
     def _wrap(mcp_tool: Tool) -> RunnableLike:
-        from langchain.tools import ToolRuntime
-
         @create_tool(
             mcp_tool.name,
             description=mcp_tool.description or f"MCP tool: {mcp_tool.name}",
@@ -322,68 +322,93 @@ async def acreate_mcp_tools_with_sampling(
     return [_wrap(t) for t in mcp_tools]
 
 
-class _SessionCtx:
-    """Async context manager that layers ``streamablehttp_client`` +
-    ``ClientSession(sampling_callback, list_roots_callback)`` and threads
-    OBO headers when a request context is supplied.
-    """
-
-    def __init__(
-        self,
-        function: McpFunctionModel,
-        context: DaoAiContext | None,
-    ) -> None:
-        self._function = function
-        self._context = context
-        self._transport = None
-        self._session: ClientSession | None = None
-        self._sampling_cb: DaoAiSamplingCallback | None = None
-        self._roots_cb: DaoAiListRootsCallback | None = None
-
-    async def __aenter__(self) -> ClientSession:
-        from dao_ai.tools.mcp import _build_connection_config
-
-        conn = _build_connection_config(self._function, self._context)
-        url = conn.get("url") or self._function.mcp_url
-        headers = conn.get("headers") or None
-        auth = conn.get("auth")
-
-        caps = self._function.capabilities
-        if caps and caps.sampling:
-            self._sampling_cb = DaoAiSamplingCallback(self._function)
-        if caps and caps.roots:
-            self._roots_cb = DaoAiListRootsCallback(self._function)
-
-        # Enter the transport CM.
-        self._transport = streamablehttp_client(
-            url=url,
-            headers=headers,
-            auth=auth,
-        )
-        read_stream, write_stream, _ = await self._transport.__aenter__()
-
-        self._session = ClientSession(
-            read_stream,
-            write_stream,
-            sampling_callback=self._sampling_cb,
-            list_roots_callback=self._roots_cb,
-        )
-        await self._session.__aenter__()
-        await self._session.initialize()
-        return self._session
-
-    async def __aexit__(self, exc_type, exc, tb) -> None:
-        if self._session is not None:
-            await self._session.__aexit__(exc_type, exc, tb)
-        if self._transport is not None:
-            await self._transport.__aexit__(exc_type, exc, tb)
-
-
-def _open_session(
+@asynccontextmanager
+async def _open_session(
     function: McpFunctionModel,
     *,
     context: DaoAiContext | None,
-) -> _SessionCtx:
-    """Return an async context manager yielding a raw ``ClientSession``
-    with sampling + list_roots callbacks bound from the capabilities config."""
-    return _SessionCtx(function, context)
+) -> AsyncIterator[ClientSession]:
+    """Async context manager yielding a raw ``ClientSession`` with sampling
+    + list_roots callbacks bound from the capabilities config.
+
+    Uses ``AsyncExitStack`` to layer ``streamablehttp_client`` +
+    ``ClientSession`` so both context managers unwind inside the same event
+    loop even when the outer caller is a sync-over-async ``asyncio.run``
+    site — avoids the ``anyio.NoEventLoopError`` that surfaced when the
+    layered generators were GC'd after the loop had already closed.
+    """
+    from dao_ai.tools.mcp import _build_connection_config, _get_auth_resource
+
+    conn = _build_connection_config(function, context)
+    raw_url = conn.get("url") or function.mcp_url
+    url = str(raw_url) if raw_url is not None else ""
+    headers: dict[str, str] = dict(conn.get("headers") or {})
+    auth = conn.get("auth")
+
+    # Databricks Apps ingress (``*.databricksapps.com``) returns a bearer
+    # challenge whose ``WWW-Authenticate`` shape ``DatabricksOAuthClientProvider``
+    # doesn't reliably parse — the follow-up token exchange emits a URL with
+    # a missing scheme and httpcore raises ``UnsupportedProtocol``.
+    # Workaround: for App URLs, resolve a bearer token from the AMBIENT
+    # ``WorkspaceClient()`` (the caller App's runtime SP — the identity the
+    # target app grants CAN_USE to) and inject it as an ``Authorization``
+    # header, bypassing the OAuth challenge path entirely. The managed MCP
+    # endpoints on the workspace host (``/api/2.0/mcp/...``) keep the OAuth
+    # provider since those are authenticated via the function-scoped SP.
+    if ".databricksapps.com" in url:
+        try:
+            from databricks.sdk import WorkspaceClient
+
+            ambient_ws = WorkspaceClient()
+            hdrs = ambient_ws.config.authenticate()
+            if hdrs and "Authorization" in hdrs:
+                headers["Authorization"] = hdrs["Authorization"]
+                auth = None
+                logger.info(
+                    "mcp.sampling.app_bearer_auth",
+                    url=url,
+                    identity=ambient_ws.config.client_id or "ambient",
+                    has_auth_header=True,
+                )
+            else:
+                logger.warning(
+                    "mcp.sampling.app_bearer_auth.no_header",
+                    url=url,
+                )
+        except Exception as exc:
+            logger.warning(
+                "mcp.sampling.app_bearer_auth.failed",
+                url=url,
+                error=str(exc),
+            )
+
+    logger.info(
+        "mcp.sampling.open_session",
+        url=url,
+        url_type=type(raw_url).__name__,
+        has_auth=auth is not None,
+        has_headers=bool(headers),
+    )
+
+    caps = function.capabilities
+    sampling_cb: DaoAiSamplingCallback | None = None
+    roots_cb: DaoAiListRootsCallback | None = None
+    if caps and caps.sampling:
+        sampling_cb = DaoAiSamplingCallback(function)
+    if caps and caps.roots:
+        roots_cb = DaoAiListRootsCallback(function)
+
+    async with AsyncExitStack() as stack:
+        read_stream, write_stream, _ = await stack.enter_async_context(
+            streamablehttp_client(url=url, headers=headers or None, auth=auth)
+        )
+        session = await stack.enter_async_context(
+            ClientSession(
+                read_stream,
+                write_stream,
+                sampling_callback=sampling_cb,
+                list_roots_callback=roots_cb,
+            )
+        )
+        await session.initialize()
+        yield session
