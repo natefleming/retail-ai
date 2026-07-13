@@ -52,13 +52,16 @@ config.initialize()
 # are driven by env vars that ``agents.deploy()`` sets on the endpoint:
 #
 #   * ``MLFLOW_EXPERIMENT_ID`` — active experiment for autolog runs.
-#   * ``MLFLOW_TRACING_DESTINATION`` — UC schema for OTEL trace tables
-#     (set when ``config.app.trace_location`` is configured).
 #   * ``MLFLOW_TRACING_SQL_WAREHOUSE_ID`` — warehouse used for the
 #     UC-table export path.
 #
-# MLflow's ``_get_span_processors`` reads these directly and picks the
-# right processor + exporter (``DatabricksUCTableSpanExporter`` when a
+# ``MLFLOW_TRACING_DESTINATION`` is deliberately NOT set — it would parse
+# as a legacy ``UCSchemaLocation`` with hardcoded default table name
+# ``mlflow_experiment_trace_otel_spans`` and shadow the experiment-linked
+# UnityCatalog resolved via ``_resolve_experiment_uc_location``.
+#
+# MLflow's ``_get_span_processors`` reads the remaining env vars and picks
+# the right processor + exporter (``DatabricksUCTableSpanExporter`` when a
 # UC destination is present, ``MlflowV3SpanExporter`` otherwise).
 #
 # An earlier iteration of this file wrapped ``set_experiment`` in a

@@ -8706,8 +8706,17 @@ class AppModel(BaseModel):
         * ``experiment.id`` → ``MLFLOW_EXPERIMENT_ID`` (only when id is
           explicit at config-load; the ``name`` and auto-derive cases are
           resolved at deploy time in ``deploy_*_agent``).
-        * ``trace_location`` → ``MLFLOW_TRACING_DESTINATION`` /
-          ``MLFLOW_TRACING_SQL_WAREHOUSE_ID``.
+        * ``trace_location`` → ``MLFLOW_TRACING_SQL_WAREHOUSE_ID`` (documented).
+          ``MLFLOW_TRACING_DESTINATION`` is intentionally NOT set — Databricks
+          docs do not use it, and MLflow's ``_get_trace_location_from_env``
+          parses the ``<catalog>.<schema>`` string as legacy
+          ``UCSchemaLocation`` with the hardcoded default table name
+          ``mlflow_experiment_trace_otel_spans``, shadowing the correct
+          experiment-linked ``UnityCatalog`` (see docs.databricks.com/aws/en/
+          mlflow3/genai/tracing/trace-unity-catalog for the recommended
+          pattern). Trace-location routing at runtime relies on MLflow's
+          own fallback resolver reading the experiment's linked
+          ``UnityCatalog`` from the tracking store.
         """
         from dao_ai.utils import get_default_databricks_host
 
@@ -8730,10 +8739,6 @@ class AppModel(BaseModel):
             )
 
         if self.trace_location is not None:
-            self.environment_vars.setdefault(
-                "MLFLOW_TRACING_DESTINATION",
-                f"{self.trace_location.catalog_name}.{self.trace_location.schema_name}",
-            )
             self.environment_vars.setdefault(
                 "MLFLOW_TRACING_SQL_WAREHOUSE_ID",
                 self.trace_location.warehouse_id,
