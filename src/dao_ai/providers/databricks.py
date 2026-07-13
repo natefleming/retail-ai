@@ -346,6 +346,79 @@ def link_experiment_trace_location(
     )
 
 
+def apply_runtime_trace_destination(config: AppConfig) -> None:
+    """Populate MLflow's client-side trace-destination ContextVar with the
+    ``UnityCatalog`` matching ``config.app.trace_location``.
+
+    ``mlflow.set_experiment(..., trace_location=UnityCatalog(...))`` records
+    the server-side link, but the client-side OTEL span exporter reads
+    ``mlflow.tracing.utils.get_active_spans_table_name()`` — which returns
+    ``None`` unless the ``_MLFLOW_TRACE_USER_DESTINATION`` ContextVar was
+    set via ``mlflow.tracing.set_destination(...)``. When the ContextVar
+    is empty AND ``MLFLOW_TRACING_DESTINATION`` env is set to the 2-part
+    ``catalog.schema`` string, MLflow parses that as the deprecated
+    ``UCSchemaLocation`` whose ``full_otel_spans_table_name`` falls back
+    to the hardcoded default ``mlflow_experiment_trace_otel_spans`` — the
+    OTEL exporter then writes to a table that doesn't exist on the
+    prefixed schema, silently dropping traces.
+
+    Fix: after linking (or when the link is already in place), also set
+    the ContextVar to the correct ``UnityCatalog(catalog, schema,
+    table_prefix)``. Idempotent — safe to call multiple times.
+
+    No-op when ``config.app.trace_location`` is None.
+    """
+    if not (config.app and config.app.trace_location):
+        return
+
+    from mlflow.entities import UnityCatalog
+
+    loc = config.app.trace_location
+    uc_kwargs: dict[str, Any] = {
+        "catalog_name": loc.catalog_name,
+        "schema_name": loc.schema_name,
+    }
+    table_prefix = loc.resolved_table_prefix
+    if table_prefix:
+        uc_kwargs["table_prefix"] = table_prefix
+
+    try:
+        # ``mlflow.tracing.set_destination(UnityCatalog(...))`` explicitly
+        # rejects the table-prefix form ("not supported by set_destination").
+        # The correct API is ``mlflow.set_experiment(trace_location=UC(...))``
+        # which internally calls ``_sync_trace_destination_and_provider``
+        # to populate the ``_MLFLOW_TRACE_USER_DESTINATION`` ContextVar
+        # and reset the OTEL provider. We replicate that here so the
+        # runtime picks the correct table even when ``set_experiment`` is
+        # skipped (idempotent link-already-in-place path).
+        from mlflow.tracing.provider import (
+            _MLFLOW_TRACE_USER_DESTINATION,
+            provider,
+        )
+
+        destination = UnityCatalog(**uc_kwargs)
+        if provider.once._done:
+            provider.reset()
+        _MLFLOW_TRACE_USER_DESTINATION.set(destination)
+        logger.info(
+            "Set MLflow runtime trace destination",
+            catalog=loc.catalog_name,
+            schema=loc.schema_name,
+            table_prefix=table_prefix,
+        )
+    except Exception as exc:
+        # A failure here would silently drop traces — log loudly but do
+        # not raise, so the app still boots. Operators can diagnose via
+        # the log line + MLflow's own warnings on the first export.
+        logger.warning(
+            "Failed to set MLflow runtime trace destination",
+            catalog=loc.catalog_name,
+            schema=loc.schema_name,
+            table_prefix=table_prefix,
+            error=str(exc),
+        )
+
+
 # Kept as a private alias for internal call sites; new callers use the
 # public name above. Remove once we're confident no external code depends
 # on the private symbol.

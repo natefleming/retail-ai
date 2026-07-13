@@ -83,6 +83,16 @@ def _configure_mlflow(config: AppConfig) -> None:
                 error=str(exc),
             )
 
+        # Populate the client-side trace-destination ContextVar so the
+        # OTEL span exporter picks the prefixed UC table. Without this,
+        # the env-var-based fallback picks the deprecated UCSchemaLocation
+        # whose default table name is `mlflow_experiment_trace_otel_spans`
+        # and every export fails with TABLE_DOES_NOT_EXIST.
+        if config.app and config.app.trace_location:
+            from dao_ai.providers.databricks import apply_runtime_trace_destination
+
+            apply_runtime_trace_destination(config)
+
     mlflow.langchain.autolog(run_tracer_inline=True)
     suppress_autolog_context_warnings()
 

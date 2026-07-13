@@ -86,10 +86,17 @@ if _experiment_id:
     if config.app and config.app.trace_location:
         try:
             from dao_ai.providers.databricks import (
+                apply_runtime_trace_destination,
                 link_experiment_trace_location,
             )
 
             link_experiment_trace_location(config, _experiment_id)
+            # Also set the client-side ContextVar so the OTEL span exporter
+            # picks the prefixed UC table. Without this, MLflow's env-var
+            # parser falls back to the deprecated UCSchemaLocation whose
+            # default table name is `mlflow_experiment_trace_otel_spans`,
+            # and every export fails with TABLE_DOES_NOT_EXIST.
+            apply_runtime_trace_destination(config)
         except Exception as _link_err:  # noqa: BLE001
             logger.warning(
                 "dao_ai.trace_location.link_failed "
