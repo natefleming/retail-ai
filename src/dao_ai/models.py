@@ -1,7 +1,9 @@
+import asyncio
 import json
 import uuid
 from os import PathLike
 from pathlib import Path
+from uuid import UUID
 from typing import (
     TYPE_CHECKING,
     Any,
@@ -31,6 +33,7 @@ from langchain.agents.middleware.human_in_the_loop import (
     RespondDecision,
     ReviewConfig,
 )
+from langchain_core.callbacks import AsyncCallbackHandler
 from langchain_core.language_models import LanguageModelLike
 from langchain_core.messages import (
     AIMessage,
@@ -1353,6 +1356,68 @@ class LanggraphResponsesAgent(ResponsesAgent):
         seen_interrupt_keys: set[str] = set()
         structured_response: Any = None
 
+        # MCP notification envelopes captured from tools via LangChain's
+        # callback manager. A per-request AsyncCallbackHandler is attached
+        # to ``custom_inputs["callbacks"]`` below; tools call
+        # ``adispatch_custom_event(channel, envelope)`` and our handler
+        # pushes them onto ``mcp_event_queue``. The outer astream loop
+        # drains the queue between chunks and yields
+        # ``response.output_item.added(status="in_progress")`` events;
+        # the same envelopes accumulate into ``custom_outputs["mcp_events"]``
+        # for non-streaming replay.
+        mcp_event_queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
+        mcp_event_buffer: list[dict[str, Any]] = []
+        mcp_event_seq: int = 0
+
+        class _McpEventCollector(AsyncCallbackHandler):
+            def __init__(self, queue: asyncio.Queue[dict[str, Any]]) -> None:
+                self._queue = queue
+
+            async def on_custom_event(
+                self,
+                name: str,
+                data: Any,
+                *,
+                run_id: UUID,
+                tags: list[str] | None = None,
+                metadata: dict[str, Any] | None = None,
+                **kwargs: Any,
+            ) -> None:
+                if not isinstance(data, dict):
+                    return
+                channel = data.get("channel")
+                if not isinstance(channel, str) or not channel.startswith("mcp."):
+                    return
+                await self._queue.put(data)
+
+        _mcp_collector = _McpEventCollector(mcp_event_queue)
+        # Merge our handler into any callbacks the caller already provided.
+        existing_callbacks = custom_inputs.get("callbacks") or []
+        if not isinstance(existing_callbacks, list):
+            existing_callbacks = [existing_callbacks]
+        custom_inputs["callbacks"] = [*existing_callbacks, _mcp_collector]
+
+        async def _drain_mcp_queue() -> (
+            AsyncGenerator[ResponsesAgentStreamEvent, None]
+        ):
+            nonlocal mcp_event_seq
+            while not mcp_event_queue.empty():
+                envelope = mcp_event_queue.get_nowait()
+                mcp_event_buffer.append(envelope)
+                mcp_event_seq += 1
+                channel = str(envelope.get("channel", "mcp.event"))
+                server_name = str(envelope.get("server_name", "unknown"))
+                yield ResponsesAgentStreamEvent(
+                    type="response.output_item.added",
+                    item={
+                        "id": f"mcp_{server_name}_{item_id}_{mcp_event_seq}",
+                        "type": "custom_tool_call",
+                        "status": "in_progress",
+                        "name": channel,
+                        "input": envelope,
+                    },
+                )
+
         try:
             turn = await decide_graph_turn(
                 graph=self.graph,
@@ -1393,6 +1458,11 @@ class LanggraphResponsesAgent(ResponsesAgent):
                 ):
                     nodes: tuple[str, ...]
                     stream_mode: str
+
+                    # Surface any MCP envelopes the collector received while
+                    # the astream generator was awaiting this chunk.
+                    async for evt in _drain_mcp_queue():
+                        yield evt
 
                     if stream_mode == "messages":
                         messages_batch: Sequence[BaseMessage] = data
@@ -1492,6 +1562,17 @@ class LanggraphResponsesAgent(ResponsesAgent):
             trace_id = mlflow.get_active_trace_id()
             if trace_id:
                 custom_outputs["trace_id"] = trace_id
+
+            # Drain any envelopes that arrived after the last astream chunk
+            # (MCP notifications from tool completion often race the astream
+            # generator's exit).
+            async for evt in _drain_mcp_queue():
+                yield evt
+
+            # Mirror MCP notification envelopes into custom_outputs so
+            # non-streaming replays and batch callers see the same timeline.
+            if mcp_event_buffer:
+                custom_outputs["mcp_events"] = mcp_event_buffer
 
             # Extract visualization specs from tool messages collected during streaming
             visualizations: list[dict[str, Any]] = (

@@ -286,10 +286,14 @@ class TestProgressCallback:
             )
         span.add_event.assert_called_once()
         args, kwargs = span.add_event.call_args
-        assert args[0] == "mcp.progress"
-        attrs = kwargs["attributes"]
-        assert attrs["mcp.progress"] == 0.5
-        assert attrs["mcp.tool_name"] == "query"
+        # MLflow LiveSpan.add_event(event: SpanEvent) — single positional arg.
+        span_event = args[0]
+        assert span_event.name == "mcp.progress"
+        attrs = span_event.attributes
+        assert attrs["channel"] == "mcp.progress"
+        assert attrs["progress"] == 0.5
+        assert attrs["tool_name"] == "query"
+        assert attrs["server_name"] == "genie"
 
     def test_silent_when_no_active_span(self) -> None:
         with patch(
@@ -325,7 +329,7 @@ class TestLoggingCallback:
                 )
             )
         span.add_event.assert_called_once()
-        assert span.add_event.call_args[0][0] == "mcp.log.error"
+        assert span.add_event.call_args[0][0].name == "mcp.log.error"
 
     def test_drops_below_min_level(self) -> None:
         span = MagicMock()
