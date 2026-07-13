@@ -396,15 +396,31 @@ def apply_runtime_trace_destination(config: AppConfig) -> None:
             provider,
         )
 
-        destination = UnityCatalog(**uc_kwargs)
         if provider.once._done:
             provider.reset()
-        _MLFLOW_TRACE_USER_DESTINATION.set(destination)
+
+        if table_prefix:
+            # Prefixed case: set the ContextVar to a fully-qualified
+            # UnityCatalog so the exporter picks the correct table (e.g.
+            # ``<catalog>.<schema>.<prefix>_otel_spans``).
+            destination = UnityCatalog(**uc_kwargs)
+            _MLFLOW_TRACE_USER_DESTINATION.set(destination)
+        else:
+            # No-prefix case: constructing ``UnityCatalog(catalog, schema)``
+            # without ``table_prefix`` raises at ``full_table_prefix`` /
+            # ``full_otel_spans_table_name`` access time — the exporter
+            # then silently drops every span. Clear the ContextVar
+            # instead so MLflow's own ``_resolve_experiment_uc_location``
+            # kicks in and reads the experiment-linked ``UnityCatalog``
+            # (with the backend-computed experiment-id prefix) from the
+            # tracking store.
+            _MLFLOW_TRACE_USER_DESTINATION.set(None)
         logger.info(
             "Set MLflow runtime trace destination",
             catalog=loc.catalog_name,
             schema=loc.schema_name,
             table_prefix=table_prefix,
+            fallback_to_experiment_resolver=table_prefix is None,
         )
     except Exception as exc:
         # A failure here would silently drop traces — log loudly but do

@@ -187,6 +187,28 @@ The verb is idempotent — safe on every deploy — but load-bearing on re-deplo
 
 See [Link Trace Destination](#link-trace-destination) for full flag reference and the migration playbook for moving traces between destinations.
 
+#### Runtime trace-destination sync (`apply_runtime_trace_destination`)
+
+`link-trace-destination` writes the trace-destination tag on the experiment record so that future traces route to the configured UC schema. That works when MLflow's runtime picks up the linkage from the experiment — but if the app also has `MLFLOW_TRACING_DESTINATION` env set (dao-ai's `generate-bundle` sets it as `catalog.schema` for warehouse routing), MLflow parses that env value as the deprecated `UCSchemaLocation` and populates the `_MLFLOW_TRACE_USER_DESTINATION` ContextVar accordingly. The ContextVar SHADOWS MLflow's auto-resolver from experiment tags, so the exporter targets `mlflow_experiment_trace_otel_spans` (the un-prefixed default) which doesn't exist on the prefixed schema — and every span export fails with `TABLE_DOES_NOT_EXIST`.
+
+To close that gap, the App startup path (`apps/handlers.py`) and the MCP-server startup path (`mcp/server.py`) both call `apply_runtime_trace_destination(config)` from `dao_ai.providers.databricks` right after `link_experiment_trace_location`. The helper:
+
+- When `trace_location.table_prefix` is set: writes a `UnityCatalog(catalog, schema, table_prefix)` directly into `_MLFLOW_TRACE_USER_DESTINATION` so the exporter picks `<prefix>_otel_spans`.
+- When `trace_location` is set but `table_prefix` is unset: **clears** the ContextVar so MLflow's own `_resolve_experiment_uc_location` reads the experiment-linked `UnityCatalog` (with the backend-computed experiment-id prefix) from the tracking store. Constructing `UnityCatalog(catalog, schema)` without a prefix raises at export time — clearing the ContextVar is the safe path.
+- When `config.app.trace_location` is None: no-op. Traces use the MLflow control-plane store.
+
+The helper is only invoked from the two container entrypoints that HAVE ambient OAuth (Apps + MCP server). The Model Serving entrypoint (`apps/model_serving.py`) intentionally makes no in-container calls to MLflow — deploy-time `agents.deploy()` sets `MLFLOW_EXPERIMENT_ID` + `MLFLOW_TRACING_DESTINATION` + `MLFLOW_TRACING_SQL_WAREHOUSE_ID` on the endpoint, and the container relies on MLflow's env-driven routing (see the header comment in `model_serving.py` for the rationale — trying `mlflow.set_experiment` in the MS container hits an OAuth-config crash on any container whose model wasn't logged with the experiment as a resource dependency).
+
+#### `table_prefix` is permanent per experiment
+
+Once an experiment has been linked to a UC trace destination with a specific `table_prefix`, MLflow rejects any attempt to change it — you'll see `already contains traces` on the re-link. To change catalog / schema / table_prefix, provision a fresh experiment:
+
+```bash
+dao-ai create-experiment --name /Shared/my-app/dao-ai-fresh -p <profile>
+# Then reference the new experiment id under `app.experiment.id` in the config,
+# or rev `app.name` so the auto-declared experiment path is distinct.
+```
+
 ### Overwriting Existing Files
 
 If the output directory already contains generated files, they are skipped by default. Use `--force` to overwrite:
