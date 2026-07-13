@@ -90,6 +90,15 @@ if _experiment_id:
                 link_experiment_trace_location,
             )
 
+            # ``mlflow.set_experiment(experiment_id, trace_location=UC(...))``
+            # internally calls ``_sync_trace_destination_and_provider`` which
+            # populates the client-side ``_MLFLOW_TRACE_USER_DESTINATION``
+            # ContextVar. On re-deploys where the link is already in place,
+            # ``link_experiment_trace_location`` short-circuits — MLflow's
+            # own fallback resolver (``_resolve_experiment_uc_location``,
+            # provider.py:632) then reads the experiment's linked
+            # ``UnityCatalog`` from the tracking store on the first span
+            # export. No explicit ContextVar manipulation needed.
             link_experiment_trace_location(config, _experiment_id)
             # Also set the client-side ContextVar so the OTEL span exporter
             # picks the prefixed UC table. Without this, MLflow's env-var
