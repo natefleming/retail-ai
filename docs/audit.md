@@ -351,21 +351,50 @@ notification buffer), so clients that consume the aggregated response
 instead of the SSE stream still see the audit events at the end of the
 turn.
 
-## MLflow span attributes
+## MLflow span attributes + events
 
-For every audited invocation the outer agent span picks up these
-attributes (via `set_attribute`, immutable — receipts are the source of
-truth for anything sensitive):
+Audit information reaches MLflow traces through two mechanisms.
+
+**Attributes** on the enclosing tool-call span (immutable, via
+`set_attribute`):
 
 - `dao_ai.audit.receipt_id`
 - `dao_ai.audit.args_hash`
 - `dao_ai.audit.obo_token_present` (bool)
 - `dao_ai.audit.approver_sub` (HITL only)
 - `dao_ai.audit.decision` (HITL only)
-- Span event `dao_ai.audit.args_mismatch` on fail-closed rejections.
+
+**Events** attached to the currently-active span at receipt-write time:
+
+- `dao_ai.audit.receipt` — one event per receipt, carrying every
+  client-safe envelope field as an event attribute (same fields as the
+  streaming notification, sensitive fields excluded). Fires for every
+  successful receipt write — execution / approval / rejection / respond.
+- `dao_ai.audit.args_mismatch` — one event on fail-closed rejections
+  where the args hash drifted between HITL approval and execution.
 
 The raw OBO JWT is **never** attached to spans — traces have broader
 read access than the receipts table.
+
+### Why events, not spans, for receipts
+
+MLflow tracing distinguishes:
+
+- **Spans** — units of work with duration; each shows up as an
+  expandable row in the trace tree. Use when you have measurable
+  duration or sub-structure worth inspecting.
+- **Events** — point-in-time markers attached to an existing span;
+  carry a name + attributes + timestamp without inflating the tree.
+  Use when the occurrence is instantaneous or is really "context for
+  the enclosing operation."
+
+Audit receipts are point-in-time confirmations — no independent
+duration to time, no sub-structure to expand. Emitting them as events
+attached to the enclosing tool-call span (or outer turn span for
+rejects) keeps the trace tree narrow and matches the existing
+`dao_ai.audit.args_mismatch` pattern. If receipt writes ever grow to
+have interesting internal steps (e.g., WORM anchor commits, cross-
+region replication), the case for a dedicated span opens up.
 
 ## AuditToolkit
 
