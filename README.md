@@ -46,12 +46,13 @@ DAO AI Builder generates valid YAML configurations that work seamlessly with thi
 - **[Architecture](docs/architecture.md)** - Understand how DAO works under the hood
 
 ### Core Concepts
-- **[Key Capabilities](docs/key-capabilities.md)** - Explore 15 powerful features for production agents
+- **[Key Capabilities](docs/key-capabilities.md)** - Explore 20 powerful features for production agents
 - **[Configuration Reference](docs/configuration-reference.md)** - Complete YAML configuration guide
 - **[Examples](docs/examples.md)** - Ready-to-use example configurations
 - **[A2A Protocol](docs/a2a_protocol.md)** - Google Agent2Agent endpoints on every Apps deployment
 - **[MCP Server](docs/mcp_server.md)** - Expose a dao-ai agent as a single MCP tool via `dao-ai generate-mcp` — for integrating dao-ai into external agent frameworks (Claude Desktop, Cursor, MAS, ADK, etc.)
 - **[Background Agents](docs/background_agents.md)** - kickoff/poll/cancel for multi-minute graph runs
+- **[Auditable Tool Invocations](docs/audit.md)** - Tamper-evident approval receipts + agent-driven audit-trail queries (SOX / SOC2 / HIPAA-ready)
 
 ### Reference
 - **[CLI Reference](docs/cli-reference.md)** - Command-line interface documentation
@@ -319,6 +320,7 @@ DAO provides powerful capabilities for building production-ready AI agents:
 | **Advanced Caching** | Two-tier (LRU + Semantic) caching for cost optimization |
 | **AI Search Reranking** | Improve RAG quality with FlashRank |
 | **Human-in-the-Loop** | Approval workflows for sensitive operations |
+| **Auditable Tool Invocations** | Tamper-evident approval receipts to Lakebase — args-hash bound, fail-closed on drift, hash-chained per thread. See [docs/audit.md](docs/audit.md) |
 | **Memory & Persistence** | Long-term memory with structured schemas, background extraction, auto-injection; PostgreSQL, Lakebase, or in-memory backends |
 | **Prompt Registry** | Version and manage prompts in MLflow |
 | **Prompt Optimization** | Automated tuning with GEPA (Generative Evolution of Prompts and Agents) |
@@ -352,6 +354,7 @@ The `config/examples/` directory contains ready-to-use configurations organized 
 - `05_memory/conversation_summarization.yaml` - Long conversation handling
 - `06_on_behalf_of_user/obo_basic.yaml` - User-level access control
 - `07_human_in_the_loop/human_in_the_loop.yaml` - Approval workflows
+- `07_human_in_the_loop/human_in_the_loop_audited.yaml` - HITL with tamper-evident audit receipts
 
 And many more! Follow the numbered path or jump to what you need. See the full guide in [Examples Documentation](docs/examples.md).
 
