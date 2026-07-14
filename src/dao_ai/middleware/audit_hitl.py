@@ -20,9 +20,9 @@ delta.
 
 from __future__ import annotations
 
-import asyncio
 import json
-from datetime import datetime
+import secrets
+from datetime import datetime, timedelta, timezone
 from typing import TYPE_CHECKING, Any, Optional
 
 from langchain.agents.middleware.human_in_the_loop import (
@@ -79,9 +79,8 @@ class AuditedHumanInTheLoopMiddleware(HumanInTheLoopMiddleware):
         )
         self._audited_tools: dict[str, "AuditModel"] = dict(audited_tools)
         self._hitl_configs: dict[str, "HumanInTheLoopModel"] = dict(hitl_configs)
-        self._sinks_by_tool: dict[str, LakebaseAuditSink] = {
-            tool_name: AuditSinkManager.for_config(audit_model)
-            for tool_name, audit_model in audited_tools.items()
+        self._nonce_ttl_by_tool: dict[str, int] = {
+            name: cfg.nonce_ttl_seconds for name, cfg in audited_tools.items()
         }
 
     # ------------------------------------------------------------------
@@ -126,11 +125,7 @@ class AuditedHumanInTheLoopMiddleware(HumanInTheLoopMiddleware):
         args_hash: str = args_hash_of(args)
 
         thread_id: str = self._thread_id_for(runtime)
-        sink: LakebaseAuditSink = self._sinks_by_tool[tool_name]
-
-        nonce, nonce_exp = self._issue_nonce_sync(
-            sink=sink, thread_id=thread_id, tool_call_id=tool_call_id
-        )
+        nonce, nonce_exp = self._issue_local_nonce(tool_name)
 
         hitl_config: Optional["HumanInTheLoopModel"] = self._hitl_configs.get(tool_name)
         displayed_summary: str = self._render_displayed_summary(
@@ -196,33 +191,24 @@ class AuditedHumanInTheLoopMiddleware(HumanInTheLoopMiddleware):
                 return candidate
         return "unknown-thread"
 
-    def _issue_nonce_sync(
-        self,
-        *,
-        sink: LakebaseAuditSink,
-        thread_id: str,
-        tool_call_id: str,
-    ) -> tuple[str, datetime]:
+    def _issue_local_nonce(self, tool_name: str) -> tuple[str, datetime]:
         """
-        Issue a nonce from inside the sync ``after_model`` path.
+        Generate a nonce entirely in-process — no DB write.
 
-        LangChain calls this middleware synchronously even under an async
-        graph run. nest_asyncio is already installed in dao-ai's serving
-        entry points, which makes ``loop.run_until_complete`` on an active
-        loop safe. If we're outside a loop (e.g. in unit tests) we fall
-        back to ``asyncio.run``.
+        The interrupt-raising call site is synchronous (LangChain's
+        ``after_model`` runs sync even under an async graph). Attempting to
+        block on a Lakebase INSERT here would need ``nest_asyncio``, which
+        is incompatible with ``uvloop`` (raises
+        ``Can't patch loop of type <class 'uvloop.Loop'>``). Uvicorn uses
+        uvloop by default under Databricks Apps, so we keep the nonce
+        server-local for v1.
+
+        The single-use guarantee is enforced by :class:`AuditStash.take`
+        (per-process, per ``(thread_id, tool_call_id)``). Cross-process
+        persistence + atomic DB single-use lands in v1.5 as documented in
+        ``docs/audit.md`` under "Known limitations".
         """
-        coro = sink.nonces.issue(thread_id=thread_id, tool_call_id=tool_call_id)
-        try:
-            loop: asyncio.AbstractEventLoop = asyncio.get_running_loop()
-        except RuntimeError:
-            return asyncio.run(coro)
-        try:
-            import nest_asyncio
-
-            nest_asyncio.apply()
-        except ImportError:  # pragma: no cover — nest_asyncio is a hard dep
-            logger.warning(
-                "nest_asyncio not available; nonce issuance may block the event loop"
-            )
-        return loop.run_until_complete(coro)
+        ttl_seconds: int = self._nonce_ttl_by_tool.get(tool_name, 300)
+        nonce: str = secrets.token_urlsafe(32)
+        exp: datetime = datetime.now(timezone.utc) + timedelta(seconds=ttl_seconds)
+        return nonce, exp

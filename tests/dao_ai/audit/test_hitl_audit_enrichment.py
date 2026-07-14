@@ -111,11 +111,13 @@ def test_create_action_and_config_populates_stash(monkeypatch: Any) -> None:
     stash = AuditStash.take("t-1", "call-abc")
     assert stash is not None
     assert len(stash.args_hash_at_interrupt) == 64
-    assert stash.nonce == "nonce-call-abc"
+    # Nonces are process-local (v1) — generated via secrets.token_urlsafe(32),
+    # not persisted to Lakebase. Sink stub is no longer invoked.
+    assert stash.nonce and len(stash.nonce) >= 32
     assert stash.nonce_exp > datetime.now(timezone.utc)
     assert "Approve refund?" in stash.displayed_summary
     assert "refund" in stash.displayed_summary
-    assert len(fake_sink.nonces.issued) == 1
+    assert fake_sink.nonces.issued == []
 
 
 def test_non_audited_tool_skips_enrichment(monkeypatch: Any) -> None:
