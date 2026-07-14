@@ -15,7 +15,6 @@ from __future__ import annotations
 import asyncio
 import json
 from datetime import datetime
-from string import Template
 from typing import TYPE_CHECKING, Optional
 
 from loguru import logger
@@ -113,9 +112,13 @@ class LakebaseAuditSink:
         async with self._schema_lock:
             if self._schema_ready:
                 return
-            ddl: str = Template(_load_ddl_template()).safe_substitute(
-                receipts_table=self._receipts_table,
-                nonces_table=self._nonces_table,
+            # Plain string.replace instead of string.Template so PL/pgSQL
+            # dollar-quoting ($$ ... $$) is preserved verbatim — Template's
+            # `$$` → `$` collapse would break the trigger body.
+            ddl: str = (
+                _load_ddl_template()
+                .replace("${receipts_table}", self._receipts_table)
+                .replace("${nonces_table}", self._nonces_table)
             )
             pool: AsyncConnectionPool = await self._pool()
             async with pool.connection() as conn:
