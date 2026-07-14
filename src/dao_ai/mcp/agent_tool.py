@@ -25,6 +25,7 @@ The tool returns an MCP :class:`CallToolResult` with:
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import hashlib
 import json
@@ -34,7 +35,7 @@ import time
 from typing import Any, Optional
 
 from loguru import logger
-from mcp.server.fastmcp import FastMCP
+from mcp.server.fastmcp import Context, FastMCP
 from mcp.types import CallToolResult, TextContent
 from mlflow.types.responses import ResponsesAgentRequest, ResponsesAgentResponse
 from pydantic import BaseModel, Field
@@ -44,6 +45,44 @@ from dao_ai.mcp._request_context import current_request_headers, current_request
 from dao_ai.models import LanggraphResponsesAgent
 
 _SLUG_RE = re.compile(r"[^a-z0-9_]+")
+
+# Progress emission ------------------------------------------------------------
+
+_HEARTBEAT_INTERVAL_SEC = 2.0
+_HEARTBEAT_STEP = 5.0
+_HEARTBEAT_CEILING = 95.0
+
+
+async def _heartbeat_progress(ctx: Context, tool_name: str) -> None:
+    """Emit periodic in-flight progress notifications until cancelled.
+
+    Interpolates from 5→95 over the life of the enclosing agent call so the
+    client sees the tool is alive even when a Genie / VS / UC-fn hop takes
+    tens of seconds. Never reaches 100 — the terminal ``agent_complete`` /
+    ``agent_error`` progress is emitted by the caller after ``apredict``
+    returns/raises.
+
+    Silences all exceptions per MCP progress-callback convention: a broken
+    progress channel must not sink the tool call.
+    """
+    progress = 0.0
+    try:
+        while True:
+            await asyncio.sleep(_HEARTBEAT_INTERVAL_SEC)
+            progress = min(progress + _HEARTBEAT_STEP, _HEARTBEAT_CEILING)
+            try:
+                await ctx.report_progress(
+                    progress=progress, total=100.0, message="agent_in_flight"
+                )
+            except Exception:
+                logger.trace(
+                    "mcp.agent_tool.progress.heartbeat.skip",
+                    tool_name=tool_name,
+                    progress=progress,
+                )
+                return
+    except asyncio.CancelledError:
+        raise
 
 
 def _token_fingerprint(token: str) -> str:
@@ -236,9 +275,21 @@ def register_agent_as_tool(mcp: FastMCP, config: AppConfig) -> str:
     agent: LanggraphResponsesAgent = config.as_responses_agent()  # type: ignore[assignment]
     model_name = _first_agent_model_name(config)
 
+    _mcp_server_cfg = (
+        getattr(config.app, "mcp_server", None) if config.app is not None else None
+    )
+    progress_enabled: bool = _mcp_server_cfg is not None and _mcp_server_cfg.progress
+    logger.info(
+        "mcp.agent_tool.progress_config",
+        tool_name=tool_name,
+        mcp_server_present=_mcp_server_cfg is not None,
+        progress_enabled=progress_enabled,
+    )
+
     @mcp.tool(name=tool_name, description=description)
     async def invoke_agent(
         input: str | list[dict[str, Any]],
+        ctx: Context,
     ) -> AgentInvocationResult:
         """Delegate the caller's input to the dao-ai agent graph.
 
@@ -291,6 +342,21 @@ def register_agent_as_tool(mcp: FastMCP, config: AppConfig) -> str:
         # ``obo_present``) live on the ``_meta`` block of the response
         # rather than on a synthetic span.
         start = time.perf_counter()
+        heartbeat_task: asyncio.Task[None] | None = None
+        if progress_enabled:
+            try:
+                await ctx.report_progress(progress=0.0, total=100.0, message="agent_start")
+            except Exception as _exc:
+                # Progress channel failures must not fail the tool call —
+                # log at debug so operators can surface if needed.
+                logger.debug(
+                    "mcp.agent_tool.progress.start.skip",
+                    tool_name=tool_name,
+                    error=str(_exc),
+                )
+            heartbeat_task = asyncio.create_task(
+                _heartbeat_progress(ctx, tool_name)
+            )
         try:
             response: ResponsesAgentResponse = await agent.apredict(request)
             text = _extract_final_assistant_text(response)
@@ -303,6 +369,8 @@ def register_agent_as_tool(mcp: FastMCP, config: AppConfig) -> str:
                 request_id=request_id,
                 latency_ms=latency_ms,
             )
+            if heartbeat_task is not None:
+                heartbeat_task.cancel()
             error_text = f"Agent invocation failed: {exc}"
             error_result = AgentInvocationResult(final_message=error_text)
             return CallToolResult(
@@ -319,6 +387,17 @@ def register_agent_as_tool(mcp: FastMCP, config: AppConfig) -> str:
             )  # type: ignore[return-value]
 
         latency_ms = (time.perf_counter() - start) * 1000
+
+        if heartbeat_task is not None:
+            heartbeat_task.cancel()
+            try:
+                await ctx.report_progress(
+                    progress=100.0, total=100.0, message="agent_complete"
+                )
+            except Exception:
+                logger.trace(
+                    "mcp.agent_tool.progress.complete.skip", tool_name=tool_name
+                )
 
         result_model = AgentInvocationResult(
             final_message=text,

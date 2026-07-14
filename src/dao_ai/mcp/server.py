@@ -34,6 +34,11 @@ from dao_ai.mcp.config import (
     log_level_for,
     server_name_for,
 )
+from dao_ai.mcp.server_capabilities import (
+    register_prompts,
+    register_resources,
+    wire_log_forwarding,
+)
 
 DEFAULT_CONFIG_PATH = "dao_ai.yaml"
 DEFAULT_PORT = 8000
@@ -86,6 +91,16 @@ def build_app(config: AppConfig) -> FastAPI:
     """Build the FastAPI app with the MCP transport mounted at root."""
     server_name = server_name_for(config)
 
+    # Progress and logging notifications require a stateful HTTP session so
+    # the notifications channel stays open during the tool call. When those
+    # capabilities are on, opt into the stateful transport; otherwise keep
+    # the stateless default (needed for horizontal scaling on Databricks
+    # Apps without sticky sessions).
+    caps = (
+        getattr(config.app, "mcp_server", None) if config.app is not None else None
+    )
+    needs_stateful: bool = caps is not None and (caps.progress or caps.logging)
+
     # Keep FastMCP's default ``streamable_http_path="/mcp"`` and mount the
     # inner app at the parent's root. This makes the external endpoint
     # ``/mcp`` (no trailing slash) match the inner Starlette route exactly,
@@ -94,10 +109,27 @@ def build_app(config: AppConfig) -> FastAPI:
     # and treats anything other than 200 as a registration failure.
     mcp = FastMCP(
         server_name,
-        stateless_http=True,
-        json_response=True,
+        stateless_http=not needs_stateful,
+        json_response=not needs_stateful,
+    )
+    logger.info(
+        "mcp.server.transport",
+        stateless_http=not needs_stateful,
+        json_response=not needs_stateful,
+        progress=bool(caps and caps.progress),
+        logging=bool(caps and caps.logging),
     )
     registered_tool = register_agent_as_tool(mcp, config)
+
+    # PR 2 — server-side capabilities. When absent, the loops below are
+    # no-ops and the server keeps its pre-PR-2 single-tool surface.
+    registered_resources: list[str] = []
+    registered_prompts: list[str] = []
+    if caps is not None:
+        registered_resources = register_resources(mcp, caps.resources)
+        registered_prompts = register_prompts(mcp, caps.prompts)
+        if caps.logging:
+            wire_log_forwarding(mcp)
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
@@ -117,6 +149,8 @@ def build_app(config: AppConfig) -> FastAPI:
                 "version": __version__,
                 "server_name": server_name,
                 "tools": [registered_tool],
+                "resources": registered_resources,
+                "prompts": registered_prompts,
             }
         )
 
