@@ -33,12 +33,14 @@ Deliberately excluded (sensitive or agent-noise):
 from __future__ import annotations
 
 from datetime import datetime
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any, Optional, Union
 
 import mlflow
 from langchain_core.callbacks import adispatch_custom_event
 from langchain_core.runnables.config import RunnableConfig
 from loguru import logger
+
+from dao_ai.audit.base import ReceiptKind
 
 if TYPE_CHECKING:
     from dao_ai.audit.base import AuditReceipt
@@ -50,7 +52,7 @@ _AUDIT_RECEIPT_EVENT_NAME: str = "dao_ai.audit.receipt"
 
 def build_receipt_notification(receipt: "AuditReceipt") -> dict[str, Any]:
     """Return the JSON-serialisable, client-safe envelope for a receipt."""
-    recorded_at: Any = receipt.recorded_at
+    recorded_at: Union[datetime, str, None] = receipt.recorded_at
     return {
         "channel": AUDIT_RECEIPT_CHANNEL,
         "server_name": "dao_ai.audit",
@@ -87,10 +89,8 @@ def _hitl_involved(receipt: "AuditReceipt") -> bool:
     """Mirrors the Postgres GENERATED column semantics for the streaming envelope."""
     if receipt.args_hash_at_interrupt is not None:
         return True
-    kind: Any = receipt.receipt_kind
-    kind_value: str = (
-        kind.value if hasattr(kind, "value") else str(kind)
-    )
+    kind: Union[ReceiptKind, str] = receipt.receipt_kind
+    kind_value: str = kind.value if isinstance(kind, ReceiptKind) else str(kind)
     if kind_value == "rejection":
         return True
     if isinstance(receipt.decision, str) and receipt.decision in {

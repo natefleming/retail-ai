@@ -173,11 +173,9 @@ _QUERY_SAFE_COLUMNS: tuple[str, ...] = (
 def _row_to_receipt(row: dict[str, Any]) -> dict[str, Any]:
     """Normalise a psycopg row for agent consumption (drop sensitive fields, ISO dates).
 
-    The receipts table has a ``hitl_involved`` generated column (see
-    ``src/dao_ai/audit/ddl.sql``) so agents can filter on a single
-    boolean rather than reasoning about which nullable columns imply
-    HITL. Older receipts written before the column was added fall back
-    to the runtime rule (:func:`_row_had_hitl`).
+    The receipts table exposes a first-class ``hitl_involved`` GENERATED
+    column (see ``src/dao_ai/audit/ddl.sql``) that always populates —
+    the normaliser simply passes it through.
     """
     out: dict[str, Any] = {}
     for key, value in row.items():
@@ -198,29 +196,7 @@ def _row_to_receipt(row: dict[str, Any]) -> dict[str, Any]:
                 out[key] = value
         else:
             out[key] = value
-    # ``hitl_involved`` comes from the generated column; fall back to
-    # the runtime rule if the column is missing (older schema).
-    if not isinstance(out.get("hitl_involved"), bool):
-        out["hitl_involved"] = _row_had_hitl(row)
     return out
-
-
-def _row_had_hitl(row: dict[str, Any]) -> bool:
-    """
-    Return True when the receipt is the product of a HITL-audited tool call.
-
-    Mirrors the Postgres GENERATED column in ``ddl.sql``: any single
-    HITL signal is sufficient. Kept as a Python fallback for rows
-    written under older schema versions.
-    """
-    if row.get("args_hash_at_interrupt") is not None:
-        return True
-    if row.get("receipt_kind") == "rejection":
-        return True
-    decision = row.get("decision")
-    if isinstance(decision, str) and decision in {"approve", "edit", "reject", "respond"}:
-        return True
-    return False
 
 
 # ----------------------------------------------------------------------

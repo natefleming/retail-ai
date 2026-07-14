@@ -175,16 +175,15 @@ class AuditedHumanInTheLoopMiddleware(HumanInTheLoopMiddleware):
     def _thread_id_from_stash(tool_call_id: str) -> str:
         """
         Recover the thread_id under which the interrupt-time stash was
-        stored. AuditStash is keyed by ``(thread_id, tool_call_id)``; here
-        we scan for any entry with the given tool_call_id. This is safe
-        because tool_call_ids are LangChain-issued UUIDs and unique across
-        threads at any given moment.
+        stored, delegating to
+        :meth:`AuditStash.find_thread_id_by_tool_call_id` for the
+        encapsulated lookup. Returns ``"unknown-thread"`` when no entry
+        matches (e.g. process restart between interrupt and resume).
         """
-        with AuditStash._lock:
-            for (thread_id, existing_id) in AuditStash._entries:
-                if existing_id == tool_call_id:
-                    return thread_id
-        return "unknown-thread"
+        found: Optional[str] = AuditStash.find_thread_id_by_tool_call_id(
+            tool_call_id
+        )
+        return found if found is not None else "unknown-thread"
 
     # ------------------------------------------------------------------
     # Internals

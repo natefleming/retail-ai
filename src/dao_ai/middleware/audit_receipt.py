@@ -140,6 +140,25 @@ class AuditStash:
             return cls._entries.pop((thread_id, tool_call_id), None)
 
     @classmethod
+    def find_thread_id_by_tool_call_id(
+        cls, tool_call_id: str
+    ) -> Optional[str]:
+        """
+        Return the ``thread_id`` under which ``tool_call_id`` was stashed,
+        or ``None`` if no matching entry exists.
+
+        Tool call IDs are LangChain-issued UUIDs and unique across threads
+        at any given moment, so this reverse scan is unambiguous. Used by
+        :class:`AuditedHumanInTheLoopMiddleware._process_decision` to
+        locate the stash entry when it only has the tool_call_id in hand.
+        """
+        with cls._lock:
+            for (thread_id, existing_id) in cls._entries:
+                if existing_id == tool_call_id:
+                    return thread_id
+        return None
+
+    @classmethod
     def take_by_tool_name(
         cls, thread_id: str, tool_name: str
     ) -> Optional[tuple[str, AuditStashEntry]]:

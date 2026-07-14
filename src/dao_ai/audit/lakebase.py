@@ -219,6 +219,14 @@ class LakebaseAuditSink:
         return row["this_hash"]
 
     # ---- Nonces (called by NonceIssuer) --------------------------------
+    #
+    # v1.5 note: `record_nonce` and `consume_nonce` are provisioned for
+    # cross-process nonce persistence but unused in v1. The interrupt
+    # path in AuditedHumanInTheLoopMiddleware generates the nonce
+    # entirely in-process (memory-only `AuditStash`) because Uvicorn's
+    # uvloop is incompatible with nest_asyncio, which the sync HITL hook
+    # would need to bridge to an async DB write. See docs/audit.md
+    # "Known limitations" for the v1.5 plan.
 
     async def record_nonce(
         self,
@@ -228,6 +236,11 @@ class LakebaseAuditSink:
         tool_call_id: str,
         expires_at: datetime,
     ) -> None:
+        """
+        Persist a fresh nonce to the ``audit_receipts_nonces`` table.
+
+        Dormant in v1 — see module-level "v1.5 note" above.
+        """
         await self.ensure_schema()
         pool: AsyncConnectionPool = await self._pool()
         async with pool.connection() as conn:
@@ -252,6 +265,8 @@ class LakebaseAuditSink:
         Returns False when the nonce is missing, expired, already used, or
         bound to a different ``(thread_id, tool_call_id)`` pair — the caller
         (NonceIssuer.consume) raises AuditNonceError on False.
+
+        Dormant in v1 — see module-level "v1.5 note" above.
         """
         await self.ensure_schema()
         pool: AsyncConnectionPool = await self._pool()
