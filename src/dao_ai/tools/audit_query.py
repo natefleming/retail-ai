@@ -166,7 +166,12 @@ _QUERY_SAFE_COLUMNS: tuple[str, ...] = (
 
 
 def _row_to_receipt(row: dict[str, Any]) -> dict[str, Any]:
-    """Normalise a psycopg row for agent consumption (drop sensitive fields, ISO dates)."""
+    """Normalise a psycopg row for agent consumption (drop sensitive fields, ISO dates).
+
+    Also synthesises a boolean ``hitl_involved`` field so agents can
+    filter on a single flag rather than reasoning about which nullable
+    columns imply HITL. See :func:`_row_had_hitl` for the rule.
+    """
     out: dict[str, Any] = {}
     for key, value in row.items():
         if key == "args_jcs":
@@ -186,7 +191,41 @@ def _row_to_receipt(row: dict[str, Any]) -> dict[str, Any]:
                 out[key] = value
         else:
             out[key] = value
+    out["hitl_involved"] = _row_had_hitl(row)
     return out
+
+
+def _row_had_hitl(row: dict[str, Any]) -> bool:
+    """
+    Return True when the receipt is the product of a HITL-audited tool call.
+
+    A receipt reflects HITL involvement when any of the following holds:
+
+    - ``args_hash_at_interrupt`` is populated — the interrupt-time stash
+      was captured. Only the HITL enrichment path writes this column.
+    - ``decision`` is a HITL decision type (``approve``, ``edit``,
+      ``reject``, or ``respond``). Audit-only tools don't set a decision.
+    - ``receipt_kind`` is ``rejection`` — every rejection receipt comes
+      from a HITL non-execution path (reject / respond / args_mismatch).
+
+    Any single signal is sufficient. Audit-only tool invocations satisfy
+    none of them.
+    """
+    if row.get("args_hash_at_interrupt") is not None:
+        return True
+    if row.get("receipt_kind") == "rejection":
+        return True
+    decision = row.get("decision")
+    if isinstance(decision, str) and decision in {"approve", "edit", "reject", "respond"}:
+        return True
+    return False
+
+
+_HITL_INVOLVED_SQL_PREDICATE: str = (
+    "(args_hash_at_interrupt IS NOT NULL "
+    "OR receipt_kind = 'rejection' "
+    "OR decision IN ('approve', 'edit', 'reject', 'respond'))"
+)
 
 
 # ----------------------------------------------------------------------
@@ -206,6 +245,7 @@ def create_query_audit_receipts_tool(audit: AuditConfigInput) -> BaseTool:
         decision: Optional[str] = None,
         receipt_kind: Optional[str] = None,
         approver_sub: Optional[str] = None,
+        hitl_involved: Optional[bool] = None,
         since: Optional[str] = None,
         until: Optional[str] = None,
         limit: int = 20,
@@ -215,8 +255,13 @@ def create_query_audit_receipts_tool(audit: AuditConfigInput) -> BaseTool:
 
         Every audited tool call writes exactly one receipt. Use this tool to
         answer questions like "who approved the last refund?", "show
-        rejections in the past hour", or "list every audited call in this
-        thread".
+        rejections in the past hour", "which invocations required human
+        approval?", or "list every audited call in this thread".
+
+        Every returned row includes a synthesised ``hitl_involved``
+        boolean — true when the receipt came from a HITL-audited tool
+        call (approval, edit, rejection, respond, or args-mismatch),
+        false when it's a pure audit-only execution receipt.
 
         The raw OBO JWT is never returned — use ``obo_token_sub`` /
         ``obo_token_exp`` for attribution.
@@ -230,6 +275,10 @@ def create_query_audit_receipts_tool(audit: AuditConfigInput) -> BaseTool:
                 "approval".
             approver_sub: Filter by approver identity (matches the
                 X-Forwarded-User principal at approval time).
+            hitl_involved: When True, only receipts from HITL-audited tool
+                calls (any decision + all rejections). When False, only
+                pure audit-only execution receipts. When None (default),
+                no filter.
             since: ISO-8601 lower bound on recorded_at (inclusive).
             until: ISO-8601 upper bound on recorded_at (exclusive).
             limit: Maximum number of rows to return, 1-200 (default 20).
@@ -237,7 +286,8 @@ def create_query_audit_receipts_tool(audit: AuditConfigInput) -> BaseTool:
         Returns:
             List of receipts ordered by recorded_at DESC. Each row includes
             the hash-chain link fields (prev_hash, this_hash) so downstream
-            code can verify integrity.
+            code can verify integrity, plus a synthesised ``hitl_involved``
+            boolean.
         """
         clauses: list[str] = []
         params: list[Any] = []
@@ -256,6 +306,10 @@ def create_query_audit_receipts_tool(audit: AuditConfigInput) -> BaseTool:
         if approver_sub is not None:
             clauses.append("approver_sub = %s")
             params.append(approver_sub)
+        if hitl_involved is True:
+            clauses.append(_HITL_INVOLVED_SQL_PREDICATE)
+        elif hitl_involved is False:
+            clauses.append(f"NOT {_HITL_INVOLVED_SQL_PREDICATE}")
         if since is not None:
             clauses.append("recorded_at >= %s")
             params.append(_parse_iso(since))
