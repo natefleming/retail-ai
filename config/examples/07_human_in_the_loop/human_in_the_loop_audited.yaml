@@ -39,7 +39,7 @@ schemas:
 resources:
   warehouses:
     shared_warehouse: &shared_warehouse
-      name: "Shared Unity Catalog Serverless"
+      name: "Serverless Starter Warehouse"
 
   models:
     default_llm: &default_llm
@@ -51,7 +51,7 @@ resources:
   databases:
     # Single Lakebase — hosts the HITL checkpointer AND the audit receipts.
     audit_db: &audit_db
-      project: retail-consumer-goods
+      project: retail-consumer-goods-audit
       autoscaling_min_cu: 0
       autoscaling_max_cu: 4
       client_id: *client_id
@@ -102,6 +102,29 @@ tools:
         review_prompt: "Approve greeting (no audit trail)."
         allowed_decisions: [approve, reject]
 
+  # Audit-query tool — lets the agent inspect its own audit trail. The factory
+  # accepts the same YAML block as any other tool's `audit:` field, so this
+  # tool reads from the exact table other audited tools write to.
+  query_audit_receipts: &query_audit_receipts
+    name: query_audit_receipts
+    function:
+      type: factory
+      name: dao_ai.tools.audit_query.create_query_audit_receipts_tool
+      args:
+        audit:
+          database: *audit_db
+          table: audit_receipts
+
+  verify_audit_hash_chain: &verify_audit_hash_chain
+    name: verify_audit_hash_chain
+    function:
+      type: factory
+      name: dao_ai.tools.audit_query.create_verify_audit_hash_chain_tool
+      args:
+        audit:
+          database: *audit_db
+          table: audit_receipts
+
 # =============================================================================
 # AGENTS
 # =============================================================================
@@ -114,6 +137,8 @@ agents:
       - *current_time_audited
       - *say_hello_audited
       - *say_hello_hitl_only
+      - *query_audit_receipts
+      - *verify_audit_hash_chain
     prompt: |
       You are an administrative agent used to demonstrate the dao-ai audit
       trail. When you invoke `say_hello_audited`, the system will pause for
