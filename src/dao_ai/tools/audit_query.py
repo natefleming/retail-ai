@@ -162,15 +162,18 @@ _QUERY_SAFE_COLUMNS: tuple[str, ...] = (
     "recorded_at",
     "prev_hash",
     "this_hash",
+    "hitl_involved",
 )
 
 
 def _row_to_receipt(row: dict[str, Any]) -> dict[str, Any]:
     """Normalise a psycopg row for agent consumption (drop sensitive fields, ISO dates).
 
-    Also synthesises a boolean ``hitl_involved`` field so agents can
-    filter on a single flag rather than reasoning about which nullable
-    columns imply HITL. See :func:`_row_had_hitl` for the rule.
+    The receipts table has a ``hitl_involved`` generated column (see
+    ``src/dao_ai/audit/ddl.sql``) so agents can filter on a single
+    boolean rather than reasoning about which nullable columns imply
+    HITL. Older receipts written before the column was added fall back
+    to the runtime rule (:func:`_row_had_hitl`).
     """
     out: dict[str, Any] = {}
     for key, value in row.items():
@@ -191,7 +194,10 @@ def _row_to_receipt(row: dict[str, Any]) -> dict[str, Any]:
                 out[key] = value
         else:
             out[key] = value
-    out["hitl_involved"] = _row_had_hitl(row)
+    # ``hitl_involved`` comes from the generated column; fall back to
+    # the runtime rule if the column is missing (older schema).
+    if not isinstance(out.get("hitl_involved"), bool):
+        out["hitl_involved"] = _row_had_hitl(row)
     return out
 
 
@@ -199,17 +205,9 @@ def _row_had_hitl(row: dict[str, Any]) -> bool:
     """
     Return True when the receipt is the product of a HITL-audited tool call.
 
-    A receipt reflects HITL involvement when any of the following holds:
-
-    - ``args_hash_at_interrupt`` is populated — the interrupt-time stash
-      was captured. Only the HITL enrichment path writes this column.
-    - ``decision`` is a HITL decision type (``approve``, ``edit``,
-      ``reject``, or ``respond``). Audit-only tools don't set a decision.
-    - ``receipt_kind`` is ``rejection`` — every rejection receipt comes
-      from a HITL non-execution path (reject / respond / args_mismatch).
-
-    Any single signal is sufficient. Audit-only tool invocations satisfy
-    none of them.
+    Mirrors the Postgres GENERATED column in ``ddl.sql``: any single
+    HITL signal is sufficient. Kept as a Python fallback for rows
+    written under older schema versions.
     """
     if row.get("args_hash_at_interrupt") is not None:
         return True
@@ -219,13 +217,6 @@ def _row_had_hitl(row: dict[str, Any]) -> bool:
     if isinstance(decision, str) and decision in {"approve", "edit", "reject", "respond"}:
         return True
     return False
-
-
-_HITL_INVOLVED_SQL_PREDICATE: str = (
-    "(args_hash_at_interrupt IS NOT NULL "
-    "OR receipt_kind = 'rejection' "
-    "OR decision IN ('approve', 'edit', 'reject', 'respond'))"
-)
 
 
 # ----------------------------------------------------------------------
@@ -307,9 +298,9 @@ def create_query_audit_receipts_tool(audit: AuditConfigInput) -> BaseTool:
             clauses.append("approver_sub = %s")
             params.append(approver_sub)
         if hitl_involved is True:
-            clauses.append(_HITL_INVOLVED_SQL_PREDICATE)
+            clauses.append("hitl_involved = TRUE")
         elif hitl_involved is False:
-            clauses.append(f"NOT {_HITL_INVOLVED_SQL_PREDICATE}")
+            clauses.append("hitl_involved = FALSE")
         if since is not None:
             clauses.append("recorded_at >= %s")
             params.append(_parse_iso(since))

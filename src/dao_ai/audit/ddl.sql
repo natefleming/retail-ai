@@ -44,8 +44,23 @@ CREATE TABLE IF NOT EXISTS ${receipts_table} (
     recorded_at               TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 
     prev_hash                 TEXT,
-    this_hash                 TEXT NOT NULL
+    this_hash                 TEXT NOT NULL,
+
+    -- Generated first-class HITL marker. Kept as a GENERATED ALWAYS ...
+    -- STORED column so it's always in sync with its source fields, is
+    -- index-friendly, and can be filtered on directly in SQL / BI tools
+    -- without recomputing the predicate every query. The rule mirrors
+    -- ``dao_ai.tools.audit_query._row_had_hitl``: any single HITL
+    -- signal is sufficient.
+    hitl_involved             BOOLEAN GENERATED ALWAYS AS (
+        args_hash_at_interrupt IS NOT NULL
+        OR receipt_kind = 'rejection'
+        OR decision IN ('approve', 'edit', 'reject', 'respond')
+    ) STORED
 );
+
+CREATE INDEX IF NOT EXISTS ${receipts_table}_hitl_involved_idx
+    ON ${receipts_table} (hitl_involved, recorded_at);
 
 CREATE INDEX IF NOT EXISTS ${receipts_table}_thread_recorded_idx
     ON ${receipts_table} (thread_id, recorded_at);
