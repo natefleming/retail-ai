@@ -45,7 +45,7 @@ from dao_ai.audit import (
     args_hash_of,
     canonical_jcs,
 )
-from dao_ai.middleware.base import AgentMiddleware, wrap_tool_call
+from dao_ai.middleware.base import AgentMiddleware
 
 if TYPE_CHECKING:
     from langchain.agents.middleware.types import ToolCallRequest
@@ -253,7 +253,6 @@ class AuditReceiptMiddleware(AgentMiddleware):
         """Return the tool names covered by this middleware (defensive copy)."""
         return list(self._audited_tools.keys())
 
-    @wrap_tool_call
     async def awrap_tool_call(
         self,
         request: "ToolCallRequest",
