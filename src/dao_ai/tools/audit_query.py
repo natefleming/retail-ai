@@ -42,6 +42,7 @@ from typing import Any, Optional, Sequence, Union
 from langchain_community.agent_toolkits.base import BaseToolkit
 from langchain_core.tools import BaseTool, tool
 from loguru import logger
+from psycopg import sql
 from psycopg.rows import dict_row
 from psycopg_pool import AsyncConnectionPool
 from pydantic import ConfigDict, Field
@@ -287,12 +288,19 @@ def create_query_audit_receipts_tool(audit: AuditConfigInput) -> BaseTool:
         if until is not None:
             clauses.append("recorded_at < %s")
             params.append(_parse_iso(until))
-        where: str = ("WHERE " + " AND ".join(clauses)) if clauses else ""
+        where_sql: sql.Composable = (
+            sql.SQL("WHERE ") + sql.SQL(" AND ").join(sql.SQL(c) for c in clauses)
+            if clauses
+            else sql.SQL("")
+        )
         capped_limit: int = max(1, min(int(limit), 200))
-        columns: str = ", ".join(_QUERY_SAFE_COLUMNS)
-        sql: str = (
-            f"SELECT {columns} FROM {receipts_table} "
-            f"{where} ORDER BY recorded_at DESC LIMIT %s"
+        query: sql.Composed = sql.SQL(
+            "SELECT {cols} FROM {table} {where} "
+            "ORDER BY recorded_at DESC LIMIT %s"
+        ).format(
+            cols=sql.SQL(", ").join(sql.Identifier(c) for c in _QUERY_SAFE_COLUMNS),
+            table=sql.Identifier(receipts_table),
+            where=where_sql,
         )
         params.append(capped_limit)
 
@@ -301,7 +309,7 @@ def create_query_audit_receipts_tool(audit: AuditConfigInput) -> BaseTool:
         pool: AsyncConnectionPool = await sink._pool()
         async with pool.connection() as conn:
             async with conn.cursor(row_factory=dict_row) as cur:
-                await cur.execute(sql, tuple(params))
+                await cur.execute(query, tuple(params))
                 rows: list[dict[str, Any]] = list(await cur.fetchall())
         logger.info(
             "query_audit_receipts",
@@ -346,16 +354,18 @@ def create_get_audit_receipt_by_id_tool(audit: AuditConfigInput) -> BaseTool:
         Returns:
             The receipt as a JSON-serialisable dict, or ``None`` if not found.
         """
-        columns: str = ", ".join(_QUERY_SAFE_COLUMNS)
-        sql: str = (
-            f"SELECT {columns} FROM {receipts_table} WHERE receipt_id = %s LIMIT 1"
+        query: sql.Composed = sql.SQL(
+            "SELECT {cols} FROM {table} WHERE receipt_id = %s LIMIT 1"
+        ).format(
+            cols=sql.SQL(", ").join(sql.Identifier(c) for c in _QUERY_SAFE_COLUMNS),
+            table=sql.Identifier(receipts_table),
         )
         sink: LakebaseAuditSink = _sink_for(audit_model)
         await sink.ensure_schema()
         pool: AsyncConnectionPool = await sink._pool()
         async with pool.connection() as conn:
             async with conn.cursor(row_factory=dict_row) as cur:
-                await cur.execute(sql, (receipt_id,))
+                await cur.execute(query, (receipt_id,))
                 row: Optional[dict[str, Any]] = await cur.fetchone()
         if row is None:
             return None
@@ -397,17 +407,17 @@ def create_verify_audit_hash_chain_tool(audit: AuditConfigInput) -> BaseTool:
               - ``breaks``: list of {index, receipt_id, expected_prev_hash,
                 actual_prev_hash} for every break detected
         """
-        sql: str = (
-            f"SELECT receipt_id, prev_hash, this_hash, recorded_at "
-            f"FROM {receipts_table} "
-            f"WHERE thread_id = %s ORDER BY recorded_at ASC"
-        )
+        query: sql.Composed = sql.SQL(
+            "SELECT receipt_id, prev_hash, this_hash, recorded_at "
+            "FROM {table} "
+            "WHERE thread_id = %s ORDER BY recorded_at ASC"
+        ).format(table=sql.Identifier(receipts_table))
         sink: LakebaseAuditSink = _sink_for(audit_model)
         await sink.ensure_schema()
         pool: AsyncConnectionPool = await sink._pool()
         async with pool.connection() as conn:
             async with conn.cursor(row_factory=dict_row) as cur:
-                await cur.execute(sql, (thread_id,))
+                await cur.execute(query, (thread_id,))
                 rows: list[dict[str, Any]] = list(await cur.fetchall())
 
         breaks: list[dict[str, Any]] = []
@@ -524,7 +534,17 @@ def create_summarize_audit_activity_tool(audit: AuditConfigInput) -> BaseTool:
         clauses, params = _build_window_clauses(
             since=since, until=until, thread_id=thread_id, tool_name=tool_name
         )
-        where: str = ("WHERE " + " AND ".join(clauses)) if clauses else ""
+        table_id: sql.Identifier = sql.Identifier(receipts_table)
+        where_sql: sql.Composable = (
+            sql.SQL("WHERE ") + sql.SQL(" AND ").join(sql.SQL(c) for c in clauses)
+            if clauses
+            else sql.SQL("")
+        )
+        where_with_approver_sql: sql.Composable = (
+            where_sql + sql.SQL(" AND approver_sub IS NOT NULL")
+            if clauses
+            else sql.SQL("WHERE approver_sub IS NOT NULL")
+        )
 
         sink: LakebaseAuditSink = _sink_for(audit_model)
         await sink.ensure_schema()
@@ -532,14 +552,18 @@ def create_summarize_audit_activity_tool(audit: AuditConfigInput) -> BaseTool:
         async with pool.connection() as conn:
             async with conn.cursor(row_factory=dict_row) as cur:
                 await cur.execute(
-                    f"SELECT COUNT(*) AS n FROM {receipts_table} {where}",
+                    sql.SQL("SELECT COUNT(*) AS n FROM {table} {where}").format(
+                        table=table_id, where=where_sql
+                    ),
                     tuple(params),
                 )
                 total: int = int((await cur.fetchone() or {"n": 0})["n"])
 
                 await cur.execute(
-                    f"SELECT receipt_kind, COUNT(*) AS n "
-                    f"FROM {receipts_table} {where} GROUP BY receipt_kind",
+                    sql.SQL(
+                        "SELECT receipt_kind, COUNT(*) AS n "
+                        "FROM {table} {where} GROUP BY receipt_kind"
+                    ).format(table=table_id, where=where_sql),
                     tuple(params),
                 )
                 by_receipt_kind: dict[str, int] = {
@@ -547,8 +571,10 @@ def create_summarize_audit_activity_tool(audit: AuditConfigInput) -> BaseTool:
                 }
 
                 await cur.execute(
-                    f"SELECT COALESCE(decision, 'null') AS decision, COUNT(*) AS n "
-                    f"FROM {receipts_table} {where} GROUP BY decision",
+                    sql.SQL(
+                        "SELECT COALESCE(decision, 'null') AS decision, COUNT(*) AS n "
+                        "FROM {table} {where} GROUP BY decision"
+                    ).format(table=table_id, where=where_sql),
                     tuple(params),
                 )
                 by_decision: dict[str, int] = {
@@ -556,8 +582,10 @@ def create_summarize_audit_activity_tool(audit: AuditConfigInput) -> BaseTool:
                 }
 
                 await cur.execute(
-                    f"SELECT COALESCE(execution_status, 'null') AS execution_status, "
-                    f"COUNT(*) AS n FROM {receipts_table} {where} GROUP BY execution_status",
+                    sql.SQL(
+                        "SELECT COALESCE(execution_status, 'null') AS execution_status, "
+                        "COUNT(*) AS n FROM {table} {where} GROUP BY execution_status"
+                    ).format(table=table_id, where=where_sql),
                     tuple(params),
                 )
                 by_execution_status: dict[str, int] = {
@@ -565,8 +593,10 @@ def create_summarize_audit_activity_tool(audit: AuditConfigInput) -> BaseTool:
                 }
 
                 await cur.execute(
-                    f"SELECT hitl_involved, COUNT(*) AS n "
-                    f"FROM {receipts_table} {where} GROUP BY hitl_involved",
+                    sql.SQL(
+                        "SELECT hitl_involved, COUNT(*) AS n "
+                        "FROM {table} {where} GROUP BY hitl_involved"
+                    ).format(table=table_id, where=where_sql),
                     tuple(params),
                 )
                 hitl_involved_counts: dict[str, int] = {
@@ -575,9 +605,11 @@ def create_summarize_audit_activity_tool(audit: AuditConfigInput) -> BaseTool:
                 }
 
                 await cur.execute(
-                    f"SELECT tool_name, COUNT(*) AS n "
-                    f"FROM {receipts_table} {where} "
-                    f"GROUP BY tool_name ORDER BY n DESC LIMIT 10",
+                    sql.SQL(
+                        "SELECT tool_name, COUNT(*) AS n "
+                        "FROM {table} {where} "
+                        "GROUP BY tool_name ORDER BY n DESC LIMIT 10"
+                    ).format(table=table_id, where=where_sql),
                     tuple(params),
                 )
                 top_tools: list[dict[str, Any]] = [
@@ -585,14 +617,12 @@ def create_summarize_audit_activity_tool(audit: AuditConfigInput) -> BaseTool:
                     for r in await cur.fetchall()
                 ]
 
-                where_with_approver: str = (
-                    where + (" AND " if clauses else "WHERE ")
-                    + "approver_sub IS NOT NULL"
-                )
                 await cur.execute(
-                    f"SELECT approver_sub, COUNT(*) AS n "
-                    f"FROM {receipts_table} {where_with_approver} "
-                    f"GROUP BY approver_sub ORDER BY n DESC LIMIT 10",
+                    sql.SQL(
+                        "SELECT approver_sub, COUNT(*) AS n "
+                        "FROM {table} {where} "
+                        "GROUP BY approver_sub ORDER BY n DESC LIMIT 10"
+                    ).format(table=table_id, where=where_with_approver_sql),
                     tuple(params),
                 )
                 top_approvers: list[dict[str, Any]] = [
@@ -601,15 +631,18 @@ def create_summarize_audit_activity_tool(audit: AuditConfigInput) -> BaseTool:
                 ]
 
                 await cur.execute(
-                    f"SELECT COUNT(DISTINCT tool_name) AS n "
-                    f"FROM {receipts_table} {where}",
+                    sql.SQL(
+                        "SELECT COUNT(DISTINCT tool_name) AS n FROM {table} {where}"
+                    ).format(table=table_id, where=where_sql),
                     tuple(params),
                 )
                 unique_tools: int = int((await cur.fetchone() or {"n": 0})["n"])
 
                 await cur.execute(
-                    f"SELECT COUNT(DISTINCT approver_sub) AS n "
-                    f"FROM {receipts_table} {where_with_approver}",
+                    sql.SQL(
+                        "SELECT COUNT(DISTINCT approver_sub) AS n "
+                        "FROM {table} {where}"
+                    ).format(table=table_id, where=where_with_approver_sql),
                     tuple(params),
                 )
                 unique_approvers: int = int((await cur.fetchone() or {"n": 0})["n"])
@@ -680,15 +713,17 @@ def create_find_security_incidents_tool(audit: AuditConfigInput) -> BaseTool:
             "OR (execution_status = 'not_executed_rejected' "
             "AND (decision IS NULL OR decision NOT IN ('reject','respond'))))"
         )
-        where: str = "WHERE " + " AND ".join(clauses)
-        capped_limit: int = max(1, min(int(limit), 200))
-        sql: str = (
-            f"SELECT receipt_id, thread_id, tool_name, approver_sub, "
-            f"execution_status, execution_error, hitl_involved, "
-            f"recorded_at, decision "
-            f"FROM {receipts_table} {where} "
-            f"ORDER BY recorded_at DESC LIMIT %s"
+        where_sql: sql.Composable = sql.SQL("WHERE ") + sql.SQL(" AND ").join(
+            sql.SQL(c) for c in clauses
         )
+        capped_limit: int = max(1, min(int(limit), 200))
+        query: sql.Composed = sql.SQL(
+            "SELECT receipt_id, thread_id, tool_name, approver_sub, "
+            "execution_status, execution_error, hitl_involved, "
+            "recorded_at, decision "
+            "FROM {table} {where} "
+            "ORDER BY recorded_at DESC LIMIT %s"
+        ).format(table=sql.Identifier(receipts_table), where=where_sql)
         params.append(capped_limit)
 
         sink: LakebaseAuditSink = _sink_for(audit_model)
@@ -696,7 +731,7 @@ def create_find_security_incidents_tool(audit: AuditConfigInput) -> BaseTool:
         pool: AsyncConnectionPool = await sink._pool()
         async with pool.connection() as conn:
             async with conn.cursor(row_factory=dict_row) as cur:
-                await cur.execute(sql, tuple(params))
+                await cur.execute(query, tuple(params))
                 rows: list[dict[str, Any]] = list(await cur.fetchall())
 
         def _incident_type(row: dict[str, Any]) -> str:
@@ -765,23 +800,23 @@ def create_get_thread_timeline_tool(audit: AuditConfigInput) -> BaseTool:
                 including ``chain_break`` if the previous link doesn't
                 match.
         """
-        sql: str = (
-            f"SELECT receipt_id, tool_name, receipt_kind, decision, "
-            f"decision_detail, approver_sub, obo_token_sub, "
-            f"execution_status, hitl_involved, args_hash, "
-            f"args_hash_at_interrupt, prev_hash, this_hash, "
-            f"mlflow_trace_id, recorded_at "
-            f"FROM {receipts_table} "
-            f"WHERE thread_id = %s "
-            f"ORDER BY recorded_at ASC"
-        )
+        query: sql.Composed = sql.SQL(
+            "SELECT receipt_id, tool_name, receipt_kind, decision, "
+            "decision_detail, approver_sub, obo_token_sub, "
+            "execution_status, hitl_involved, args_hash, "
+            "args_hash_at_interrupt, prev_hash, this_hash, "
+            "mlflow_trace_id, recorded_at "
+            "FROM {table} "
+            "WHERE thread_id = %s "
+            "ORDER BY recorded_at ASC"
+        ).format(table=sql.Identifier(receipts_table))
 
         sink: LakebaseAuditSink = _sink_for(audit_model)
         await sink.ensure_schema()
         pool: AsyncConnectionPool = await sink._pool()
         async with pool.connection() as conn:
             async with conn.cursor(row_factory=dict_row) as cur:
-                await cur.execute(sql, (thread_id,))
+                await cur.execute(query, (thread_id,))
                 rows: list[dict[str, Any]] = list(await cur.fetchall())
 
         timeline: list[dict[str, Any]] = []
@@ -871,7 +906,10 @@ def create_get_approver_activity_tool(audit: AuditConfigInput) -> BaseTool:
         clauses, params = _build_window_clauses(since=since, until=until)
         clauses.append("approver_sub = %s")
         params.append(approver_sub)
-        where: str = "WHERE " + " AND ".join(clauses)
+        table_id: sql.Identifier = sql.Identifier(receipts_table)
+        where_sql: sql.Composable = sql.SQL("WHERE ") + sql.SQL(" AND ").join(
+            sql.SQL(c) for c in clauses
+        )
 
         sink: LakebaseAuditSink = _sink_for(audit_model)
         await sink.ensure_schema()
@@ -879,16 +917,20 @@ def create_get_approver_activity_tool(audit: AuditConfigInput) -> BaseTool:
         async with pool.connection() as conn:
             async with conn.cursor(row_factory=dict_row) as cur:
                 await cur.execute(
-                    f"SELECT COUNT(*) AS n, MIN(recorded_at) AS first_seen, "
-                    f"MAX(recorded_at) AS last_seen "
-                    f"FROM {receipts_table} {where}",
+                    sql.SQL(
+                        "SELECT COUNT(*) AS n, MIN(recorded_at) AS first_seen, "
+                        "MAX(recorded_at) AS last_seen "
+                        "FROM {table} {where}"
+                    ).format(table=table_id, where=where_sql),
                     tuple(params),
                 )
                 head: dict[str, Any] = (await cur.fetchone()) or {}
 
                 await cur.execute(
-                    f"SELECT COALESCE(decision, 'null') AS decision, COUNT(*) AS n "
-                    f"FROM {receipts_table} {where} GROUP BY decision",
+                    sql.SQL(
+                        "SELECT COALESCE(decision, 'null') AS decision, COUNT(*) AS n "
+                        "FROM {table} {where} GROUP BY decision"
+                    ).format(table=table_id, where=where_sql),
                     tuple(params),
                 )
                 by_decision: dict[str, int] = {
@@ -896,9 +938,11 @@ def create_get_approver_activity_tool(audit: AuditConfigInput) -> BaseTool:
                 }
 
                 await cur.execute(
-                    f"SELECT tool_name, COUNT(*) AS n "
-                    f"FROM {receipts_table} {where} "
-                    f"GROUP BY tool_name ORDER BY n DESC",
+                    sql.SQL(
+                        "SELECT tool_name, COUNT(*) AS n "
+                        "FROM {table} {where} "
+                        "GROUP BY tool_name ORDER BY n DESC"
+                    ).format(table=table_id, where=where_sql),
                     tuple(params),
                 )
                 tool_breakdown: list[dict[str, Any]] = [

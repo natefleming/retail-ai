@@ -18,6 +18,7 @@ from datetime import datetime
 from typing import TYPE_CHECKING, Optional
 
 from loguru import logger
+from psycopg import sql
 from psycopg.rows import dict_row
 from psycopg_pool import AsyncConnectionPool
 
@@ -154,12 +155,11 @@ class LakebaseAuditSink:
             receipt_kind=sealed.receipt_kind,
         )
 
-    def _insert_sql(self) -> str:
-        placeholders: str = ", ".join(["%s"] * len(_RECEIPT_COLUMNS))
-        return (
-            f"INSERT INTO {self._receipts_table} "
-            f"({', '.join(_RECEIPT_COLUMNS)}) "
-            f"VALUES ({placeholders})"
+    def _insert_sql(self) -> sql.Composed:
+        return sql.SQL("INSERT INTO {table} ({cols}) VALUES ({vals})").format(
+            table=sql.Identifier(self._receipts_table),
+            cols=sql.SQL(", ").join(sql.Identifier(c) for c in _RECEIPT_COLUMNS),
+            vals=sql.SQL(", ").join(sql.Placeholder() for _ in _RECEIPT_COLUMNS),
         )
 
     def _insert_params(self, r: AuditReceipt) -> tuple[object, ...]:
@@ -205,14 +205,14 @@ class LakebaseAuditSink:
         """Return the ``this_hash`` of the most recent receipt for ``thread_id``."""
         await self.ensure_schema()
         pool: AsyncConnectionPool = await self._pool()
+        query: sql.Composed = sql.SQL(
+            "SELECT this_hash FROM {table} "
+            "WHERE thread_id = %s "
+            "ORDER BY recorded_at DESC LIMIT 1"
+        ).format(table=sql.Identifier(self._receipts_table))
         async with pool.connection() as conn:
             async with conn.cursor(row_factory=dict_row) as cur:
-                await cur.execute(
-                    f"SELECT this_hash FROM {self._receipts_table} "
-                    f"WHERE thread_id = %s "
-                    f"ORDER BY recorded_at DESC LIMIT 1",
-                    (thread_id,),
-                )
+                await cur.execute(query, (thread_id,))
                 row: Optional[dict[str, str]] = await cur.fetchone()
         if row is None:
             return None
@@ -243,13 +243,14 @@ class LakebaseAuditSink:
         """
         await self.ensure_schema()
         pool: AsyncConnectionPool = await self._pool()
+        query: sql.Composed = sql.SQL(
+            "INSERT INTO {table} (nonce, thread_id, tool_call_id, expires_at) "
+            "VALUES (%s, %s, %s, %s)"
+        ).format(table=sql.Identifier(self._nonces_table))
         async with pool.connection() as conn:
             async with conn.cursor() as cur:
                 await cur.execute(
-                    f"INSERT INTO {self._nonces_table} "
-                    f"(nonce, thread_id, tool_call_id, expires_at) "
-                    f"VALUES (%s, %s, %s, %s)",
-                    (nonce, thread_id, tool_call_id, expires_at),
+                    query, (nonce, thread_id, tool_call_id, expires_at)
                 )
 
     async def consume_nonce(
@@ -270,18 +271,18 @@ class LakebaseAuditSink:
         """
         await self.ensure_schema()
         pool: AsyncConnectionPool = await self._pool()
+        query: sql.Composed = sql.SQL(
+            "UPDATE {table} "
+            "SET used_at = NOW() "
+            "WHERE nonce = %s "
+            "  AND thread_id = %s "
+            "  AND tool_call_id = %s "
+            "  AND used_at IS NULL "
+            "  AND expires_at > NOW() "
+            "RETURNING nonce"
+        ).format(table=sql.Identifier(self._nonces_table))
         async with pool.connection() as conn:
             async with conn.cursor(row_factory=dict_row) as cur:
-                await cur.execute(
-                    f"UPDATE {self._nonces_table} "
-                    f"SET used_at = NOW() "
-                    f"WHERE nonce = %s "
-                    f"  AND thread_id = %s "
-                    f"  AND tool_call_id = %s "
-                    f"  AND used_at IS NULL "
-                    f"  AND expires_at > NOW() "
-                    f"RETURNING nonce",
-                    (nonce, thread_id, tool_call_id),
-                )
+                await cur.execute(query, (nonce, thread_id, tool_call_id))
                 row: Optional[dict[str, str]] = await cur.fetchone()
         return row is not None
