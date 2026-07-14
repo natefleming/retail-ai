@@ -39,16 +39,20 @@ import json
 from datetime import datetime
 from typing import Any, Optional, Sequence, Union
 
+from langchain_community.agent_toolkits.base import BaseToolkit
 from langchain_core.tools import BaseTool, tool
 from loguru import logger
 from psycopg.rows import dict_row
 from psycopg_pool import AsyncConnectionPool
+from pydantic import ConfigDict, Field
 
 from dao_ai.audit import AuditSinkManager, LakebaseAuditSink
 from dao_ai.config import AuditModel
 
 __all__ = [
+    "AuditToolkit",
     "create_audit_query_tools",
+    "create_audit_toolkit",
     "create_get_audit_receipt_by_id_tool",
     "create_query_audit_receipts_tool",
     "create_verify_audit_hash_chain_tool",
@@ -352,12 +356,61 @@ def create_verify_audit_hash_chain_tool(audit: AuditConfigInput) -> BaseTool:
 
 
 def create_audit_query_tools(audit: AuditConfigInput) -> Sequence[BaseTool]:
-    """Return every audit-query tool bound to the given ``AuditModel``."""
+    """Return every audit-query tool bound to the given ``AuditModel``.
+
+    Prefer :func:`create_audit_toolkit` in YAML configs — it wraps the same
+    tools in a LangChain :class:`BaseToolkit` that dao-ai's factory-tool
+    resolver expands automatically (see
+    ``dao_ai.tools.python.create_factory_tool``). Use this list-returning
+    variant only when you need to plug tools into a codepath that expects
+    a raw list.
+    """
     return [
         create_query_audit_receipts_tool(audit),
         create_get_audit_receipt_by_id_tool(audit),
         create_verify_audit_hash_chain_tool(audit),
     ]
+
+
+class AuditToolkit(BaseToolkit):
+    """
+    LangChain toolkit bundling every dao-ai audit-query tool.
+
+    Follows the same shape as :class:`dao_ai.tools.genie.GenieToolkit`: the
+    ``tools`` list is populated at construction time by
+    :func:`create_audit_toolkit`, and ``get_tools`` returns the bundle
+    verbatim. dao-ai's factory-tool resolver invokes ``get_tools`` when it
+    sees a :class:`BaseToolkit` return, so registering this toolkit as a
+    single factory tool wires up the whole audit-query surface.
+    """
+
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+    tools: list[BaseTool] = Field(default_factory=list)
+
+    def get_tools(self) -> list[BaseTool]:
+        return list(self.tools)
+
+
+def create_audit_toolkit(audit: AuditConfigInput) -> AuditToolkit:
+    """Return an :class:`AuditToolkit` bound to the given ``AuditModel``.
+
+    Register in YAML with ``type: factory``::
+
+        tools:
+          audit_toolkit:
+            name: audit_toolkit
+            function:
+              type: factory
+              name: dao_ai.tools.audit_query.create_audit_toolkit
+              args:
+                audit: *audit_config
+
+    dao-ai's ``create_factory_tool`` sees ``BaseToolkit`` and expands to
+    ``get_tools()`` so the agent gets ``query_audit_receipts``,
+    ``get_audit_receipt_by_id``, and ``verify_audit_hash_chain`` in one
+    registration.
+    """
+    return AuditToolkit(tools=list(create_audit_query_tools(audit)))
 
 
 def _parse_iso(value: str) -> datetime:
