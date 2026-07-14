@@ -14,13 +14,15 @@ to duplicate ~75 lines of decision logic each; they now share
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Optional
+from typing import Any, Optional, Sequence
 
 from langchain_community.adapters.openai import convert_openai_messages
 from langchain_core.messages import BaseMessage
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.types import Command
 from loguru import logger
+
+from dao_ai.config import AuditModel, BaseFunctionModel, ToolModel
 
 
 @dataclass
@@ -68,6 +70,7 @@ async def decide_graph_turn(
     custom_inputs: Optional[dict[str, Any]],
     runtime_config: dict[str, Any],
     session_input: Optional[dict[str, Any]] = None,
+    tool_models: Optional[Sequence[ToolModel]] = None,
 ) -> GraphTurn:
     """Decide how to drive the next graph turn for a single request.
 
@@ -111,6 +114,8 @@ async def decide_graph_turn(
 
     session_input = session_input or {}
 
+    audited_hitl_tools: dict[str, AuditModel] = _audited_hitl_tools_from(tool_models)
+
     # 1. Explicit structured decisions.
     if custom_inputs and "decisions" in custom_inputs:
         decisions = custom_inputs["decisions"]
@@ -118,6 +123,17 @@ async def decide_graph_turn(
             "HITL: explicit decisions in custom_inputs",
             decisions_count=len(decisions) if hasattr(decisions, "__len__") else None,
         )
+        if audited_hitl_tools:
+            # `reject` and `respond` short-circuit the tool call — the audit
+            # middleware never fires for them, so this is the only site where
+            # a receipt can be written. Decoration for approve/edit happens
+            # inside AuditedHumanInTheLoopMiddleware._process_decision.
+            await _record_hitl_non_executions(
+                graph=graph,
+                decisions=decisions,
+                runtime_config=runtime_config,
+                audited_hitl_tools=audited_hitl_tools,
+            )
         return GraphTurn(resume_command=Command(resume={"decisions": decisions}))
 
     # 2. Snapshot-based resume from an interrupted graph.
@@ -144,6 +160,14 @@ async def decide_graph_turn(
                 "HITL: LLM parsed decisions from free-text resume",
                 decisions_count=len(decisions),
             )
+            if audited_hitl_tools:
+                await _record_hitl_non_executions(
+                    graph=graph,
+                    decisions=decisions,
+                    runtime_config=runtime_config,
+                    audited_hitl_tools=audited_hitl_tools,
+                    snapshot=snapshot,
+                )
             return GraphTurn(resume_command=Command(resume={"decisions": decisions}))
 
     # 3. Fresh invocation.
@@ -156,3 +180,216 @@ async def decide_graph_turn(
         has_genie_session=("genie_conversation_ids" in session_input),
     )
     return GraphTurn(graph_input=graph_input)
+
+
+# ----------------------------------------------------------------------
+# Audit-rejection tap
+# ----------------------------------------------------------------------
+
+
+def _audited_hitl_tools_from(
+    tool_models: Optional[Sequence[ToolModel]],
+) -> dict[str, AuditModel]:
+    """Return ``{tool_name: audit_config}`` for tools with both HITL and audit set."""
+    if not tool_models:
+        return {}
+    audited: dict[str, AuditModel] = {}
+    for tool_model in tool_models:
+        function = tool_model.function
+        if not isinstance(function, BaseFunctionModel):
+            continue
+        audit_config: Optional[AuditModel] = function.audit
+        hitl_config = function.human_in_the_loop
+        if audit_config is None or hitl_config is None:
+            continue
+        for func_tool in function.as_tools():
+            tool_name: Optional[str] = getattr(func_tool, "name", None)
+            if isinstance(tool_name, str) and tool_name:
+                audited[tool_name] = audit_config
+    return audited
+
+
+async def _record_hitl_non_executions(
+    *,
+    graph: CompiledStateGraph,
+    decisions: Any,
+    runtime_config: dict[str, Any],
+    audited_hitl_tools: dict[str, AuditModel],
+    snapshot: Any = None,
+) -> None:
+    """
+    Write receipts for HITL decisions that short-circuit tool execution.
+
+    ``reject`` and ``respond`` both cause LangChain's HITL middleware to
+    inject a synthetic ``ToolMessage`` in place of running the tool, so
+    the audit middleware's ``awrap_tool_call`` never fires — this tap is
+    the only site where such non-executions surface. ``approve`` and
+    ``edit`` still route through the middleware; their receipts are
+    written from there.
+
+    Best-effort — sink I/O failures are logged but do not block the
+    resume.
+    """
+    try:
+        from dao_ai.audit import (
+            AuditReceipt,
+            AuditSinkManager,
+            ExecutionStatus,
+            LakebaseAuditSink,
+            ReceiptKind,
+        )
+        from dao_ai.audit.base import canonical_jcs, sha256_hex
+        from dao_ai.middleware.audit_receipt import AuditStash, AuditStashEntry
+        from dao_ai.models import _extract_interrupt_value
+    except ImportError as exc:  # pragma: no cover — audit is bundled
+        logger.warning(
+            "Audit imports unavailable — skipping non-execution tap",
+            error=repr(exc),
+        )
+        return
+
+    from langchain.agents.middleware.human_in_the_loop import (
+        ActionRequest,
+        HITLRequest,
+    )
+
+    if not isinstance(decisions, list) or not decisions:
+        return
+
+    if snapshot is None:
+        snapshot = await graph.aget_state(config=runtime_config)
+    if not getattr(snapshot, "interrupts", ()):
+        return
+
+    interrupt_data: list[HITLRequest] = [
+        _extract_interrupt_value(interrupt) for interrupt in snapshot.interrupts
+    ]
+    all_actions: list[ActionRequest] = []
+    for hitl_request in interrupt_data:
+        all_actions.extend(hitl_request.get("action_requests", []))
+    if not all_actions:
+        return
+
+    thread_id: str = _thread_id_from_config(runtime_config)
+    approver_sub: Optional[str] = _approver_sub_from_config(runtime_config)
+    import uuid
+
+    _SHORT_CIRCUITING: set[str] = {"reject", "respond"}
+
+    for idx, decision in enumerate(decisions):
+        if idx >= len(all_actions):
+            break
+        if not isinstance(decision, dict):
+            continue
+        decision_type: Any = decision.get("type")
+        if decision_type not in _SHORT_CIRCUITING:
+            continue
+        action: ActionRequest = all_actions[idx]
+        tool_name: str = action.get("name", "")
+        audit_config: Optional[AuditModel] = audited_hitl_tools.get(tool_name)
+        if audit_config is None:
+            continue
+
+        sink: LakebaseAuditSink = AuditSinkManager.for_config(audit_config)
+        # Recover the interrupt-time stash by (thread_id, tool_name). This
+        # avoids depending on ``snapshot.values["messages"]`` being
+        # rehydrated to typed AIMessage objects, which the checkpointer
+        # does not always guarantee on resume paths.
+        stash_lookup: Optional[tuple[str, AuditStashEntry]] = (
+            AuditStash.take_by_tool_name(thread_id, tool_name)
+        )
+        tool_call_id: Optional[str] = None
+        stash_entry: Optional[AuditStashEntry] = None
+        if stash_lookup is not None:
+            tool_call_id, stash_entry = stash_lookup
+
+        args_dict: dict[str, Any] = action.get("args") or {}
+        args_jcs: str = canonical_jcs(args_dict)
+        args_hash: str = sha256_hex(args_jcs)
+
+        decision_detail: Optional[dict[str, Any]] = {
+            k: v for k, v in decision.items() if k != "type"
+        } or None
+
+        receipt = AuditReceipt(
+            receipt_id=uuid.uuid4().hex,
+            receipt_kind=ReceiptKind.REJECTION,
+            thread_id=thread_id,
+            tool_call_id=tool_call_id,
+            tool_name=tool_name,
+            args_jcs=args_jcs,
+            args_hash=args_hash,
+            args_hash_at_interrupt=(
+                stash_entry.args_hash_at_interrupt if stash_entry is not None else None
+            ),
+            displayed_summary=(
+                stash_entry.displayed_summary if stash_entry is not None else None
+            ),
+            decision=decision_type if isinstance(decision_type, str) else None,
+            decision_detail=decision_detail,
+            approver_sub=(
+                stash_entry.approver_sub if stash_entry is not None else None
+            ) or approver_sub,
+            confirmed_via=(
+                stash_entry.confirmed_via if stash_entry is not None else None
+            ) or "chat_ui",
+            nonce=stash_entry.nonce if stash_entry is not None else None,
+            nonce_exp=stash_entry.nonce_exp if stash_entry is not None else None,
+            execution_status=ExecutionStatus.NOT_EXECUTED_REJECTED,
+        )
+        try:
+            await sink.record(receipt)
+            logger.info(
+                "HITL non-execution receipt recorded",
+                tool_name=tool_name,
+                tool_call_id=tool_call_id,
+                decision=decision_type,
+                receipt_id=receipt.receipt_id,
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "Failed to write HITL non-execution receipt",
+                tool_name=tool_name,
+                tool_call_id=tool_call_id,
+                decision=decision_type,
+                error=repr(exc),
+            )
+        # Client notification for reject / respond receipts. The
+        # LangChain callback manager isn't in a runnable context here
+        # (this tap fires before graph.ainvoke), but the caller-provided
+        # runtime_config carries the ``callbacks`` list that
+        # ``LanggraphResponsesAgent.apredict_stream`` populated with the
+        # audit-event collector. adispatch_custom_event picks it up.
+        try:
+            from dao_ai.audit import dispatch_audit_receipt_notification
+
+            await dispatch_audit_receipt_notification(
+                receipt, config=runtime_config
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.debug(
+                "Failed to dispatch HITL non-execution receipt notification",
+                tool_name=tool_name,
+                tool_call_id=tool_call_id,
+                error=repr(exc)[:120],
+            )
+
+
+def _approver_sub_from_config(runtime_config: dict[str, Any]) -> Optional[str]:
+    configurable: Any = runtime_config.get("configurable")
+    if isinstance(configurable, dict):
+        user_id: Any = configurable.get("user_id")
+        if isinstance(user_id, str) and user_id:
+            return user_id
+    return None
+
+
+def _thread_id_from_config(runtime_config: dict[str, Any]) -> str:
+    configurable: Any = runtime_config.get("configurable")
+    if isinstance(configurable, dict):
+        candidate: Any = configurable.get("thread_id")
+        if isinstance(candidate, str) and candidate:
+            return candidate
+    return "unknown-thread"
+
+

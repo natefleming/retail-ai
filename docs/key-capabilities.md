@@ -650,7 +650,58 @@ tools:
         review_prompt: "This operation will modify production data. Approve?"
 ```
 
-## 7. Memory & State Persistence
+## 7. Auditable Tool Invocations & Approval Receipts
+
+**Why this matters:** Compliance-grade workloads need cryptographic-grade
+answers to "who approved this exact action?" — SOX, SOC2, and HIPAA all
+require it. Regular HITL pauses execution; **audit-enabled HITL** binds
+the approval to a byte-exact hash of the arguments, records a
+tamper-evident receipt to Lakebase with the approver's identity, links
+to the MLflow trace, and **fail-closes** the tool call if anything in
+the arg payload drifts between approval and execution.
+
+**Composition matrix:**
+
+| Configuration                              | What happens                                                |
+|--------------------------------------------|-------------------------------------------------------------|
+| `audit:` only                              | Every tool invocation writes an execution receipt.          |
+| `human_in_the_loop:` only                  | Pauses for approval — no receipt.                           |
+| `audit:` + `human_in_the_loop:`            | Pauses for approval; args-hash bound; receipt for approve/edit/reject/respond. |
+
+```yaml
+tools:
+  refund_customer:
+    function:
+      type: python
+      name: my_pkg.refund_customer
+      audit:
+        database: *audit_db      # anchor reuse
+        table: audit_receipts
+      human_in_the_loop:
+        review_prompt: "Refund of ${amount} to customer ${customer_id}?"
+        allowed_decisions: [approve, edit, reject]
+```
+
+**Agents can query their own audit trail** via `AuditToolkit` — a
+first-class LangChain toolkit factory that expands to
+`query_audit_receipts`, `get_audit_receipt_by_id`, and
+`verify_audit_hash_chain`:
+
+```yaml
+tools:
+  audit_toolkit:
+    function:
+      type: factory
+      name: dao_ai.tools.audit_query.create_audit_toolkit
+      args:
+        audit: *audit_config
+```
+
+Full deep-dive with call-flow diagrams for every decision path
+(approve / edit / reject / respond / args tampering), receipt schema,
+sensitive-data policy, and deployment steps: [**docs/audit.md**](audit.md).
+
+## 8. Memory & State Persistence
 
 **What is memory?** Your agent needs to remember past conversations. When a user asks "What about size XL?" the agent should remember they were talking about shirts.
 
@@ -759,7 +810,7 @@ memory:
 
 The `manage_memory` and `search_memory` tools are automatically added when a `store` is configured. The `search_user_profile` tool is added when the `user_profile` schema is included in the extraction config.
 
-## 8. MLflow Prompt Registry Integration
+## 9. MLflow Prompt Registry Integration
 
 **The problem:** Prompts (instructions you give to AI models) need constant refinement. Hardcoding them in YAML means every change requires redeployment.
 
@@ -791,7 +842,7 @@ agents:
     prompt: *product_expert_prompt  # Loaded from MLflow registry
 ```
 
-## 9. Automated Prompt Optimization
+## 10. Automated Prompt Optimization
 
 **What is this?** Instead of manually tweaking prompts through trial and error, DAO can automatically test variations and find the best one.
 
@@ -816,7 +867,7 @@ optimizations:
       num_candidates: 5
 ```
 
-## 10. Guardrails & Response Quality Middleware
+## 11. Guardrails & Response Quality Middleware
 
 **What are guardrails?** Safety and quality controls that validate agent responses before they reach users. Think of them as quality assurance checkpoints.
 
@@ -1120,7 +1171,7 @@ agents:
         prompt: *professional_tone_prompt
 ```
 
-## 11. Conversation Summarization
+## 12. Conversation Summarization
 
 **The problem:** AI models have a maximum amount of text they can process (the "context window"). Long conversations eventually exceed this limit.
 
@@ -1147,7 +1198,7 @@ The `LoggingSummarizationMiddleware` provides detailed observability:
 INFO | Summarization: BEFORE 25 messages (~12500 tokens) → AFTER 3 messages (~2100 tokens) | Reduced by ~10400 tokens
 ```
 
-## 12. Structured Output (Response Format)
+## 13. Structured Output (Response Format)
 
 **What is this?** A way to force your agent to return data in a specific JSON structure, making responses machine-readable and predictable.
 
@@ -1199,7 +1250,7 @@ See `config/examples/09_structured_output/structured_output.yaml` for a complete
 
 ---
 
-## 13. Custom Input & Custom Output Support
+## 14. Custom Input & Custom Output Support
 
 **What is this?** A flexible system for passing custom configuration values to your agents and receiving enriched output with runtime state.
 
@@ -1305,7 +1356,7 @@ When invoked with the `custom_inputs` above, the prompt automatically populates:
 - `session` state is automatically maintained and returned in `custom_outputs`
 - Backward compatible with legacy flat custom_inputs format
 
-## 14. Middleware (Input Validation, Logging, Monitoring)
+## 15. Middleware (Input Validation, Logging, Monitoring)
 
 **What is middleware?** Middleware are functions that wrap around agent execution to add cross-cutting concerns like validation, logging, authentication, and monitoring. They run before and after the agent processes requests.
 
@@ -1525,7 +1576,7 @@ agents:
 
 ---
 
-## 15. Hook System
+## 16. Hook System
 
 **What are hooks?** Hooks let you run custom code at specific moments in your agent's lifecycle — like "before starting" or "when shutting down".
 
@@ -1560,7 +1611,7 @@ agents:
 
 ---
 
-## 16. Deep Agents (Task Planning, Filesystem, Subagents, Skills)
+## 17. Deep Agents (Task Planning, Filesystem, Subagents, Skills)
 
 **What is this?** DAO AI integrates with the [Deep Agents](https://pypi.org/project/deepagents/) library to provide a suite of advanced agent capabilities through middleware factories. These give your agents the ability to plan tasks, read and write files, spawn subagents, discover skills, load memory context, and perform enhanced conversation summarization.
 
@@ -1911,7 +1962,7 @@ once. See [`config/examples/13_orchestration/deep_agent_*.yaml`](../config/examp
 
 ---
 
-## 17. Visualization (Vega-Lite)
+## 18. Visualization (Vega-Lite)
 
 Generate portable Vega-Lite chart specifications from structured data. The
 visualization tool is a factory tool that returns specs via tool output;
@@ -1973,7 +2024,7 @@ the spec using [vega-embed](https://github.com/vega/vega-embed).
 
 ---
 
-## 18. Background Agents
+## 19. Background Agents
 
 **What is this?** Agent runs that exceed Databricks' synchronous-request limits
 — Model Serving kills worker threads at ~5 min, Databricks Apps' DPAPI proxy
@@ -2042,7 +2093,7 @@ end-to-end demo notebook.
 
 ---
 
-## 19. Google A2A (Agent2Agent) Protocol Support
+## 20. Google A2A (Agent2Agent) Protocol Support
 
 **What is this?** Every dao-ai agent deployed to **Databricks Apps**
 automatically exposes a fully [A2A v0.3-compliant](https://a2a-protocol.org)

@@ -29,6 +29,7 @@ from typing import (
 import yaml
 
 if TYPE_CHECKING:
+    from dao_ai.audit import LakebaseAuditSink
     from dao_ai.genie.cache.context_aware.optimization import (
         ContextAwareCacheEvalDataset,
         ThresholdOptimizationResult,
@@ -5192,6 +5193,76 @@ class HumanInTheLoopModel(BaseModel):
         return self
 
 
+class AuditModel(BaseModel):
+    """
+    Configuration for tamper-evident audit receipts on tool invocations.
+
+    Presence of this block on a tool's ``function`` enables auditing for that
+    tool. When absent, no audit behavior is added and the runtime path is
+    bit-for-bit unchanged. Typically declared once as a YAML anchor
+    (``audit: &audit_sink { ... }``) and referenced from every tool that
+    should be audited (``audit: *audit_sink``).
+
+    Receipts are written to a Lakebase table specified by ``database`` and
+    ``table``; the destination table is created idempotently on first use
+    with an append-only trigger. Audit works with or without
+    ``human_in_the_loop`` on the same tool:
+
+    - Tool with ``audit`` only: an execution receipt is recorded on every
+      tool invocation (who/what/when/args_hash).
+    - Tool with ``audit`` and ``human_in_the_loop``: the receipt is enriched
+      with approval fields (decision, approver, nonce, args_hash binding)
+      and the tool call is aborted fail-closed if the args hash differs
+      between interrupt time and execution time.
+    """
+
+    model_config = ConfigDict(use_enum_values=True, extra="forbid")
+
+    database: DatabaseModel = Field(
+        ...,
+        description=(
+            "Lakebase database that stores audit receipts and, when combined "
+            "with human_in_the_loop, single-use approval nonces. Reuse the "
+            "same DatabaseModel anchor used for the HITL checkpointer to "
+            "avoid provisioning a second Lakebase."
+        ),
+    )
+    table: str = Field(
+        default="audit_receipts",
+        pattern=r"^[A-Za-z_][A-Za-z0-9_]*$",
+        max_length=48,
+        description=(
+            "Table name (unqualified) for audit receipts within the "
+            "configured Lakebase database. Must match the Postgres "
+            "unquoted-identifier grammar ``^[A-Za-z_][A-Za-z0-9_]*$`` and "
+            "be at most 48 characters so derived identifiers (indexes, "
+            "trigger names, function name — all suffixed with up to 15 "
+            "characters) stay within Postgres' 63-char identifier limit. "
+            "The table is created idempotently on first write."
+        ),
+    )
+    nonce_ttl_seconds: int = Field(
+        default=300,
+        ge=30,
+        le=3600,
+        description=(
+            "Server-issued nonce lifetime (seconds) for approvals. Resume "
+            "attempts arriving after this window are rejected fail-closed. "
+            "Only applies when the same tool also has human_in_the_loop set."
+        ),
+    )
+
+    def as_audit_sink(self) -> "LakebaseAuditSink":
+        """Return the audit sink instance for this configuration.
+
+        Lazy-imports the sink implementation so the disabled path never
+        loads the audit module or its dependencies.
+        """
+        from dao_ai.audit import AuditSinkManager
+
+        return AuditSinkManager.for_config(self)
+
+
 class BaseFunctionModel(ABC, BaseModel):
     """Base class for all function/tool implementations (Python, factory, inline, MCP, UC)."""
 
@@ -5205,6 +5276,18 @@ class BaseFunctionModel(ABC, BaseModel):
     human_in_the_loop: Optional[HumanInTheLoopModel] = Field(
         default=None,
         description="Human-in-the-loop approval configuration for this tool.",
+    )
+    audit: Optional[AuditModel] = Field(
+        default=None,
+        description=(
+            "Optional tamper-evident audit trail for this tool. Presence of "
+            "this block enables audit-receipt logging on every invocation; "
+            "absence leaves the runtime path unchanged. Typically declared "
+            "once as a YAML anchor and referenced from every tool that "
+            "should be audited. Composes with human_in_the_loop to produce "
+            "approval receipts with args-hash binding and fail-closed "
+            "execution."
+        ),
     )
 
     @abstractmethod
@@ -7246,7 +7329,11 @@ class AgentModel(BaseModel):
 
         graph: CompiledStateGraph = self.as_runnable()
         prompt_versions = get_cached_prompt_versions()
-        return create_responses_agent(graph, prompt_versions=prompt_versions)
+        return create_responses_agent(
+            graph,
+            prompt_versions=prompt_versions,
+            tool_models=self.tools,
+        )
 
 
 class SupervisorModel(BaseModel):
@@ -10525,8 +10612,15 @@ class AppConfig(BaseModel):
 
         graph: CompiledStateGraph = self.as_graph()
         prompt_versions = get_cached_prompt_versions()
+        tool_models: list[ToolModel] = [
+            tool
+            for agent in self.agents.values()
+            for tool in agent.tools
+        ]
         app: ResponsesAgent = create_responses_agent(
-            graph, prompt_versions=prompt_versions
+            graph,
+            prompt_versions=prompt_versions,
+            tool_models=tool_models,
         )
 
         background = self.app.background if self.app else None

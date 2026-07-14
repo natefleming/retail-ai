@@ -35,7 +35,7 @@ from langchain.agents.middleware.human_in_the_loop import (
 )
 from loguru import logger
 
-from dao_ai.config import HumanInTheLoopModel, ToolModel
+from dao_ai.config import AuditModel, HumanInTheLoopModel, ToolModel
 
 __all__ = [
     # LangChain middleware
@@ -178,13 +178,20 @@ def create_hitl_middleware_from_tool_models(
     creates the appropriate middleware. This is the primary entry point
     used by the agent node creation.
 
+    When a HITL-gated tool ALSO has ``audit`` configured, the returned
+    middleware is an ``AuditedHumanInTheLoopMiddleware`` which enriches
+    the interrupt payload with a nonce + args_hash + displayed_summary
+    (all stashed in ``AuditStash`` for the audit-receipt middleware to
+    pick up at execution time). Non-audited HITL tools see identical
+    behaviour to the vanilla LangChain middleware.
+
     Args:
         tool_models: List of ToolModel configurations from agent config
         description_prefix: Message prefix shown when pausing for review
 
     Returns:
-        List containing HumanInTheLoopMiddleware if any tools require approval,
-        empty list otherwise
+        HumanInTheLoopMiddleware (or the AuditedHumanInTheLoopMiddleware
+        subclass) if any tools require approval, otherwise ``None``.
 
     Example:
         from dao_ai.config import ToolModel, PythonFunctionModel, HumanInTheLoopModel
@@ -206,6 +213,8 @@ def create_hitl_middleware_from_tool_models(
     from dao_ai.config import BaseFunctionModel
 
     interrupt_on: dict[str, HumanInTheLoopModel] = {}
+    hitl_configs_by_tool: dict[str, HumanInTheLoopModel] = {}
+    audited_hitl_tools: dict[str, AuditModel] = {}
 
     for tool_model in tool_models:
         function = tool_model.function
@@ -217,16 +226,48 @@ def create_hitl_middleware_from_tool_models(
         if not hitl_config:
             continue
 
+        audit_config: AuditModel | None = function.audit
+
         # Get tool names created by this function
         for func_tool in function.as_tools():
             tool_name: str | None = getattr(func_tool, "name", None)
-            if tool_name:
-                interrupt_on[tool_name] = hitl_config
+            if not tool_name:
+                continue
+            interrupt_on[tool_name] = hitl_config
+            hitl_configs_by_tool[tool_name] = hitl_config
+            if audit_config is not None:
+                audited_hitl_tools[tool_name] = audit_config
+                logger.trace(
+                    "Tool configured for HITL with audit",
+                    tool_name=tool_name,
+                    audit_table=audit_config.table,
+                )
+            else:
                 logger.trace("Tool configured for HITL", tool_name=tool_name)
 
     if not interrupt_on:
         logger.trace("No tools require HITL - returning None")
         return None
+
+    if audited_hitl_tools:
+        # Lazy import so the vanilla HITL path never pulls the audit code.
+        from dao_ai.middleware.audit_hitl import AuditedHumanInTheLoopMiddleware
+
+        normalized_interrupt_on: dict[str, Any] = {
+            tool_name: _config_to_interrupt_on_entry(cfg)
+            for tool_name, cfg in interrupt_on.items()
+        }
+        logger.debug(
+            "Creating audited HITL middleware",
+            hitl_tool_count=len(normalized_interrupt_on),
+            audited_hitl_tool_count=len(audited_hitl_tools),
+        )
+        return AuditedHumanInTheLoopMiddleware(
+            interrupt_on=normalized_interrupt_on,
+            audited_tools=audited_hitl_tools,
+            hitl_configs=hitl_configs_by_tool,
+            description_prefix=description_prefix,
+        )
 
     return create_human_in_the_loop_middleware(
         interrupt_on=interrupt_on,

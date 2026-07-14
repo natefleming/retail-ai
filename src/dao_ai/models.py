@@ -70,6 +70,7 @@ from mlflow.types.responses_helpers import (
 )
 from pydantic import BaseModel, Field, create_model
 
+from dao_ai.config import ToolModel
 from dao_ai.hitl import decide_graph_turn
 from dao_ai.messages import (
     has_langchain_messages,
@@ -1009,9 +1010,11 @@ class LanggraphResponsesAgent(ResponsesAgent):
         self,
         graph: CompiledStateGraph,
         prompt_versions: list | None = None,
+        tool_models: Sequence[ToolModel] | None = None,
     ) -> None:
         self.graph = graph
         self._prompt_versions: list = prompt_versions or []
+        self._tool_models: Sequence[ToolModel] = tuple(tool_models or ())
 
         # Stage-1 diagnostic (MS-trace-persistence investigation): log the
         # trace-relevant env-var snapshot at endpoint boot. This is the
@@ -1114,6 +1117,7 @@ class LanggraphResponsesAgent(ResponsesAgent):
                 custom_inputs=request.custom_inputs,
                 runtime_config=custom_inputs,
                 session_input=session_input,
+                tool_models=self._tool_models,
             )
 
             if turn.should_skip_graph:
@@ -1386,7 +1390,10 @@ class LanggraphResponsesAgent(ResponsesAgent):
                 if not isinstance(data, dict):
                     return
                 channel = data.get("channel")
-                if not isinstance(channel, str) or not channel.startswith("mcp."):
+                if not isinstance(channel, str) or not (
+                    channel.startswith("mcp.")
+                    or channel.startswith("dao_ai.audit.")
+                ):
                     return
                 await self._queue.put(data)
 
@@ -1425,6 +1432,7 @@ class LanggraphResponsesAgent(ResponsesAgent):
                 custom_inputs=request.custom_inputs,
                 runtime_config=custom_inputs,
                 session_input=session_input,
+                tool_models=self._tool_models,
             )
 
             if turn.should_skip_graph:
@@ -2052,6 +2060,7 @@ def create_agent(graph: CompiledStateGraph) -> ChatAgent:
 def create_responses_agent(
     graph: CompiledStateGraph,
     prompt_versions: list | None = None,
+    tool_models: Sequence[ToolModel] | None = None,
 ) -> ResponsesAgent:
     """
     Create an MLflow-compatible ResponsesAgent from a LangGraph state machine.
@@ -2062,11 +2071,19 @@ def create_responses_agent(
     Args:
         graph: A compiled LangGraph state machine
         prompt_versions: Cached PromptVersion objects for post-inference trace linking
+        tool_models: Optional list of ToolModel configurations. Required for the
+            HITL audit-rejection tap to write rejection receipts when a tool has
+            both ``human_in_the_loop`` and ``audit`` set. Safe to omit for tools
+            without audit — the tap is a no-op when this is empty.
 
     Returns:
         An MLflow-compatible ResponsesAgent instance
     """
-    return LanggraphResponsesAgent(graph, prompt_versions=prompt_versions)
+    return LanggraphResponsesAgent(
+        graph,
+        prompt_versions=prompt_versions,
+        tool_models=tool_models,
+    )
 
 
 def _process_langchain_messages(

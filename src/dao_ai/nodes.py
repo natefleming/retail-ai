@@ -27,6 +27,9 @@ from dao_ai.config import (
     PromptModel,
     ToolModel,
 )
+from dao_ai.middleware.audit_receipt import (
+    create_audit_middleware_from_tool_models,
+)
 from dao_ai.middleware.core import create_factory_middleware
 from dao_ai.middleware.guardrails import GuardrailMiddleware
 from dao_ai.middleware.human_in_the_loop import (
@@ -173,6 +176,19 @@ def _create_middleware_list(
             hitl_tools=hitl_tool_names,
         )
         middleware_list.append(hitl_middlewares)
+
+    # Add audit-receipt middleware for tools with `audit:` configured. Ordered
+    # after HITL so the HITL interrupt fires first and the audit middleware
+    # sees the resumed tool call. Absent audit config → factory returns None
+    # and this branch is a no-op.
+    audit_middleware = create_audit_middleware_from_tool_models(tool_models)
+    if audit_middleware is not None:
+        logger.info(
+            "Audit-receipt configuration",
+            agent=agent.name,
+            audited_tools=list(audit_middleware.audited_tools),
+        )
+        middleware_list.append(audit_middleware)
 
     logger.info(
         "Middleware summary",

@@ -287,6 +287,18 @@
           "default": null,
           "description": "Human-in-the-loop approval configuration for this tool."
         },
+        "audit": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/AuditModel"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Optional tamper-evident audit trail for this tool. Presence of this block enables audit-receipt logging on every invocation; absence leaves the runtime path unchanged. Typically declared once as a YAML anchor and referenced from every tool that should be audited. Composes with human_in_the_loop to produce approval receipts with args-hash binding and fail-closed execution."
+        },
         "endpoint": {
           "anyOf": [
             {
@@ -797,9 +809,177 @@
       "title": "AiSearchEndpointType",
       "type": "string"
     },
-    "AiSearchIndexModel": {
+    "AiSearchRetrieverModel": {
       "additionalProperties": false,
-      "description": "Configuration model for a Databricks AI Search index.\n\n(Formerly ``VectorStoreModel``. Databricks rebranded Vector Search to\nAI Search; the old class name remains as an alias defined at the end\nof the class body for backwards compatibility.)\n\nSupports two modes:\n1. **Use Existing Index**: Provide only `index` (fully qualified name).\n   Used for querying an existing vector search index at runtime.\n2. **Provisioning Mode**: Provide `source_table` + `embedding_source_column`.\n   Used for creating a new vector search index.\n\nExamples:\n    Minimal configuration (use existing index):\n    ```yaml\n    vector_stores:\n      products_search:\n        index:\n          name: catalog.schema.my_index\n    ```\n\n    Full provisioning configuration:\n    ```yaml\n    vector_stores:\n      products_search:\n        source_table:\n          schema: *my_schema\n          name: products\n        embedding_source_column: description\n        endpoint:\n          name: my_endpoint\n    ```",
+      "description": "Retriever backed by a Databricks AI Search (formerly Vector Search) index.\n\n(Formerly ``RetrieverModel``. Renamed to disambiguate now that Lakebase\nPostgres has its own retriever config \u2014 see :class:`LakebaseRetrieverModel`.)",
+      "properties": {
+        "columns": {
+          "anyOf": [
+            {
+              "items": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "$ref": "#/$defs/ColumnInfo"
+                  }
+                ]
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Columns to expose to the LLM as filterable + returnable. Accepts either bare strings (name only \u2014 types are discovered from the index at build time) or ColumnInfo objects that declare name / type / operators / description. Hand-declared ColumnInfo items are authoritative and skip build-time discovery. The two forms may be mixed in one list.",
+          "title": "Columns"
+        },
+        "search_parameters": {
+          "$ref": "#/$defs/SearchParametersModel",
+          "description": "Search tuning: number of results, query type, and metadata filters."
+        },
+        "rerank": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RerankParametersModel"
+            },
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Optional FlashRank cross-encoder reranking pass over the retriever's raw hits. Set to ``true`` for defaults, or provide a ``RerankParametersModel`` for a specific model + ``top_n``. For LLM instruction-aware reranking use ``instructed.rerank`` instead.",
+          "title": "Rerank"
+        },
+        "instructed": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/InstructedRetrieverModel"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Optional instructed-retrieval pipeline: LLM decomposes the query into constraint-aware subqueries, runs them in parallel, RRF-merges results, applies an LLM instruction-aware rerank, and (optionally) verifies + retries. Both retriever backends share the pipeline implementation in ``dao_ai.tools.instructed_pipeline``."
+        },
+        "type": {
+          "const": "ai_search",
+          "default": "ai_search",
+          "description": "Discriminator. Must be 'ai_search' (or omitted \u2014 defaults).",
+          "title": "Type",
+          "type": "string"
+        },
+        "vector_store": {
+          "$ref": "#/$defs/AiSearchVectorStoreModel",
+          "description": "AI Search / Vector Search index configuration used for similarity search."
+        }
+      },
+      "required": [
+        "vector_store"
+      ],
+      "title": "AiSearchRetrieverModel",
+      "type": "object"
+    },
+    "AiSearchToolModel": {
+      "additionalProperties": false,
+      "description": "First-class AI Search tool that delegates to ``dao_ai.tools.create_ai_search_tool``.\n\n(Formerly ``VectorSearchToolModel``. Databricks rebranded Vector Search\nto AI Search; the old class name remains as an alias.)\n\nEquivalent to ``type: factory + name: dao_ai.tools.create_ai_search_tool``,\nbut with typed fields. Exactly one of ``retriever`` or ``vector_store`` is\nrequired. Accepts either ``type: ai_search`` (new) or ``type: vector_search``\n(legacy) in YAML.",
+      "properties": {
+        "type": {
+          "default": "ai_search",
+          "description": "Function type discriminator. Accepts 'ai_search' (preferred) or 'vector_search' (legacy alias).",
+          "enum": [
+            "vector_search",
+            "ai_search"
+          ],
+          "title": "Type",
+          "type": "string"
+        },
+        "human_in_the_loop": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/HumanInTheLoopModel"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Human-in-the-loop approval configuration for this tool."
+        },
+        "audit": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/AuditModel"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Optional tamper-evident audit trail for this tool. Presence of this block enables audit-receipt logging on every invocation; absence leaves the runtime path unchanged. Typically declared once as a YAML anchor and referenced from every tool that should be audited. Composes with human_in_the_loop to produce approval receipts with args-hash binding and fail-closed execution."
+        },
+        "retriever": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/AiSearchRetrieverModel"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Full retriever configuration with search parameters and reranking. Mutually exclusive with vector_store."
+        },
+        "vector_store": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/AiSearchVectorStoreModel"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Direct AI Search vector-store reference (uses default search parameters). Mutually exclusive with retriever."
+        },
+        "name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Tool name visible to the LLM.",
+          "title": "Name"
+        },
+        "description": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Tool description shown to the LLM during function calling.",
+          "title": "Description"
+        }
+      },
+      "title": "AiSearchToolModel",
+      "type": "object"
+    },
+    "AiSearchVectorStoreModel": {
+      "additionalProperties": false,
+      "description": "Configuration model for a Databricks AI Search vector store.\n\n(Formerly ``VectorStoreModel`` / ``AiSearchIndexModel``. Databricks\nrebranded Vector Search to AI Search; ``AiSearchVectorStoreModel`` is\nthe current name \u2014 chosen to parallel ``LakebaseVectorStoreModel`` so\nboth retriever backends can co-exist under ``resources.vector_stores``.\nBoth legacy names remain as aliases defined at the end of the class\nbody for backwards compatibility.)\n\nSupports two modes:\n1. **Use Existing Index**: Provide only `index` (fully qualified name).\n   Used for querying an existing vector search index at runtime.\n2. **Provisioning Mode**: Provide `source_table` + `embedding_source_column`.\n   Used for creating a new vector search index.\n\nExamples:\n    Minimal configuration (use existing index):\n    ```yaml\n    vector_stores:\n      products_search:\n        index:\n          name: catalog.schema.my_index\n    ```\n\n    Full provisioning configuration:\n    ```yaml\n    vector_stores:\n      products_search:\n        source_table:\n          schema: *my_schema\n          name: products\n        embedding_source_column: description\n        endpoint:\n          name: my_endpoint\n    ```",
       "properties": {
         "on_behalf_of_user": {
           "anyOf": [
@@ -1087,68 +1267,6 @@
           "default": null,
           "description": "Column name containing document URIs for provenance tracking.",
           "title": "Doc Uri"
-        }
-      },
-      "title": "AiSearchIndexModel",
-      "type": "object"
-    },
-    "AiSearchRetrieverModel": {
-      "additionalProperties": false,
-      "description": "Retriever backed by a Databricks AI Search (formerly Vector Search) index.\n\n(Formerly ``RetrieverModel``. Renamed to disambiguate now that Lakebase\nPostgres has its own retriever config \u2014 see :class:`LakebaseRetrieverModel`.)",
-      "properties": {
-        "columns": {
-          "anyOf": [
-            {
-              "items": {
-                "anyOf": [
-                  {
-                    "type": "string"
-                  },
-                  {
-                    "$ref": "#/$defs/ColumnInfo"
-                  }
-                ]
-              },
-              "type": "array"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "description": "Columns to expose to the LLM as filterable + returnable. Accepts either bare strings (name only \u2014 types are discovered from the index at build time) or ColumnInfo objects that declare name / type / operators / description. Hand-declared ColumnInfo items are authoritative and skip build-time discovery. The two forms may be mixed in one list.",
-          "title": "Columns"
-        },
-        "search_parameters": {
-          "$ref": "#/$defs/SearchParametersModel",
-          "description": "Search tuning: number of results, query type, and metadata filters."
-        },
-        "rerank": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/RerankParametersModel"
-            },
-            {
-              "type": "boolean"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "description": "Optional FlashRank cross-encoder reranking pass over the retriever's raw hits. Set to ``true`` for defaults, or provide a ``RerankParametersModel`` for a specific model + ``top_n``. For LLM instruction-aware reranking use ``instructed.rerank`` instead.",
-          "title": "Rerank"
-        },
-        "instructed": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/InstructedRetrieverModel"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "description": "Optional instructed-retrieval pipeline: LLM decomposes the query into constraint-aware subqueries, runs them in parallel, RRF-merges results, applies an LLM instruction-aware rerank, and (optionally) verifies + retries. Both retriever backends share the pipeline implementation in ``dao_ai.tools.instructed_pipeline``."
         },
         "type": {
           "const": "ai_search",
@@ -1156,96 +1274,9 @@
           "description": "Discriminator. Must be 'ai_search' (or omitted \u2014 defaults).",
           "title": "Type",
           "type": "string"
-        },
-        "vector_store": {
-          "$ref": "#/$defs/AiSearchIndexModel",
-          "description": "AI Search / Vector Search index configuration used for similarity search."
         }
       },
-      "required": [
-        "vector_store"
-      ],
-      "title": "AiSearchRetrieverModel",
-      "type": "object"
-    },
-    "AiSearchToolModel": {
-      "additionalProperties": false,
-      "description": "First-class AI Search tool that delegates to ``dao_ai.tools.create_ai_search_tool``.\n\n(Formerly ``VectorSearchToolModel``. Databricks rebranded Vector Search\nto AI Search; the old class name remains as an alias.)\n\nEquivalent to ``type: factory + name: dao_ai.tools.create_ai_search_tool``,\nbut with typed fields. Exactly one of ``retriever`` or ``vector_store`` is\nrequired. Accepts either ``type: ai_search`` (new) or ``type: vector_search``\n(legacy) in YAML.",
-      "properties": {
-        "type": {
-          "default": "ai_search",
-          "description": "Function type discriminator. Accepts 'ai_search' (preferred) or 'vector_search' (legacy alias).",
-          "enum": [
-            "vector_search",
-            "ai_search"
-          ],
-          "title": "Type",
-          "type": "string"
-        },
-        "human_in_the_loop": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/HumanInTheLoopModel"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "description": "Human-in-the-loop approval configuration for this tool."
-        },
-        "retriever": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/AiSearchRetrieverModel"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "description": "Full retriever configuration with search parameters and reranking. Mutually exclusive with vector_store."
-        },
-        "vector_store": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/AiSearchIndexModel"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "description": "Direct AI Search index reference (uses default search parameters). Mutually exclusive with retriever."
-        },
-        "name": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "description": "Tool name visible to the LLM.",
-          "title": "Name"
-        },
-        "description": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "description": "Tool description shown to the LLM during function calling.",
-          "title": "Description"
-        }
-      },
-      "title": "AiSearchToolModel",
+      "title": "AiSearchVectorStoreModel",
       "type": "object"
     },
     "AppModel": {
@@ -1631,6 +1662,18 @@
           "default": null,
           "description": "Unity Catalog location for storing MLflow traces in OTEL-format Delta tables. Accepts a schema reference or 'catalog.schema' string, with an optional ``table_prefix`` to namespace the OTEL tables. When set, ``mlflow.set_experiment(trace_location=UnityCatalog(...))`` is called at startup and at deploy time for both Model Serving and Databricks Apps deployments."
         },
+        "mcp_server": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/McpServerCapabilitiesModel"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Server-side MCP capabilities exposed when dao-ai is deployed as an MCP server (``dao-ai generate-mcp``). Declares static resources, prompt templates, and whether progress + logging notifications are emitted from the agent tool. When None the server publishes only the classic single-tool agent surface \u2014 zero regression from the pre-PR-2 default."
+        },
         "experiment": {
           "anyOf": [
             {
@@ -1741,6 +1784,18 @@
           "default": null,
           "description": "Human-in-the-loop approval configuration for this tool."
         },
+        "audit": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/AuditModel"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Optional tamper-evident audit trail for this tool. Presence of this block enables audit-receipt logging on every invocation; absence leaves the runtime path unchanged. Typically declared once as a YAML anchor and referenced from every tool that should be audited. Composes with human_in_the_loop to produce approval receipts with args-hash binding and fail-closed execution."
+        },
         "app": {
           "$ref": "#/$defs/DatabricksAppModel",
           "description": "Databricks App resource to call. Required. dao-ai dispatches via DatabricksOpenAI(workspace_client=...) using model='apps/<name>'. OBO is auto-derived from app.on_behalf_of_user. MCP apps (mcp- prefix) are rejected \u2014 use type: mcp instead."
@@ -1793,6 +1848,37 @@
         "app"
       ],
       "title": "AppToolModel",
+      "type": "object"
+    },
+    "AuditModel": {
+      "additionalProperties": false,
+      "description": "Configuration for tamper-evident audit receipts on tool invocations.\n\nPresence of this block on a tool's ``function`` enables auditing for that\ntool. When absent, no audit behavior is added and the runtime path is\nbit-for-bit unchanged. Typically declared once as a YAML anchor\n(``audit: &audit_sink { ... }``) and referenced from every tool that\nshould be audited (``audit: *audit_sink``).\n\nReceipts are written to a Lakebase table specified by ``database`` and\n``table``; the destination table is created idempotently on first use\nwith an append-only trigger. Audit works with or without\n``human_in_the_loop`` on the same tool:\n\n- Tool with ``audit`` only: an execution receipt is recorded on every\n  tool invocation (who/what/when/args_hash).\n- Tool with ``audit`` and ``human_in_the_loop``: the receipt is enriched\n  with approval fields (decision, approver, nonce, args_hash binding)\n  and the tool call is aborted fail-closed if the args hash differs\n  between interrupt time and execution time.",
+      "properties": {
+        "database": {
+          "$ref": "#/$defs/DatabaseModel",
+          "description": "Lakebase database that stores audit receipts and, when combined with human_in_the_loop, single-use approval nonces. Reuse the same DatabaseModel anchor used for the HITL checkpointer to avoid provisioning a second Lakebase."
+        },
+        "table": {
+          "default": "audit_receipts",
+          "description": "Table name (unqualified) for audit receipts within the configured Lakebase database. Must match the Postgres unquoted-identifier grammar ``^[A-Za-z_][A-Za-z0-9_]*$`` and be at most 48 characters so derived identifiers (indexes, trigger names, function name \u2014 all suffixed with up to 15 characters) stay within Postgres' 63-char identifier limit. The table is created idempotently on first write.",
+          "maxLength": 48,
+          "pattern": "^[A-Za-z_][A-Za-z0-9_]*$",
+          "title": "Table",
+          "type": "string"
+        },
+        "nonce_ttl_seconds": {
+          "default": 300,
+          "description": "Server-issued nonce lifetime (seconds) for approvals. Resume attempts arriving after this window are rejected fail-closed. Only applies when the same tool also has human_in_the_loop set.",
+          "maximum": 3600,
+          "minimum": 30,
+          "title": "Nonce Ttl Seconds",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "database"
+      ],
+      "title": "AuditModel",
       "type": "object"
     },
     "AuthorizationCodeOAuthFlow": {
@@ -4007,6 +4093,18 @@
           "default": null,
           "description": "Human-in-the-loop approval configuration for this tool."
         },
+        "audit": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/AuditModel"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Optional tamper-evident audit trail for this tool. Presence of this block enables audit-receipt logging on every invocation; absence leaves the runtime path unchanged. Typically declared once as a YAML anchor and referenced from every tool that should be audited. Composes with human_in_the_loop to produce approval receipts with args-hash binding and fail-closed execution."
+        },
         "name": {
           "description": "Fully qualified factory function name that returns a tool or list of tools.",
           "title": "Name",
@@ -5556,6 +5654,18 @@
           "default": null,
           "description": "Human-in-the-loop approval configuration for this tool."
         },
+        "audit": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/AuditModel"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Optional tamper-evident audit trail for this tool. Presence of this block enables audit-receipt logging on every invocation; absence leaves the runtime path unchanged. Typically declared once as a YAML anchor and referenced from every tool that should be audited. Composes with human_in_the_loop to produce approval receipts with args-hash binding and fail-closed execution."
+        },
         "genie_room": {
           "$ref": "#/$defs/GenieRoomModel",
           "description": "Genie space configuration."
@@ -6482,6 +6592,18 @@
           "default": null,
           "description": "Human-in-the-loop approval configuration for this tool."
         },
+        "audit": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/AuditModel"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Optional tamper-evident audit trail for this tool. Presence of this block enables audit-receipt logging on every invocation; absence leaves the runtime path unchanged. Typically declared once as a YAML anchor and referenced from every tool that should be audited. Composes with human_in_the_loop to produce approval receipts with args-hash binding and fail-closed execution."
+        },
         "code": {
           "description": "Python code defining a tool function decorated with @tool",
           "title": "Code",
@@ -6722,6 +6844,18 @@
           "default": null,
           "description": "Human-in-the-loop approval configuration for this tool."
         },
+        "audit": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/AuditModel"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Optional tamper-evident audit trail for this tool. Presence of this block enables audit-receipt logging on every invocation; absence leaves the runtime path unchanged. Typically declared once as a YAML anchor and referenced from every tool that should be audited. Composes with human_in_the_loop to produce approval receipts with args-hash binding and fail-closed execution."
+        },
         "retriever": {
           "anyOf": [
             {
@@ -6778,8 +6912,15 @@
     },
     "LakebaseVectorStoreModel": {
       "additionalProperties": false,
-      "description": "Configuration for a Databricks Lakebase Postgres table used for retrieval.\n\nPoints at a table that already has ``lakebase_vector`` (and optionally\n``lakebase_text``) extensions installed and appropriate indexes built.\nStage-1 scope: existing tables only; provisioning is deferred.\n\nExample (existing table, hybrid-ready):\n```yaml\nvector_store:\n  database:\n    project: my-lakebase-project\n  table: kb_articles\n  content_column: passage\n  embedding_column: embedding\n  tsvector_column: passage_tsv\n  embedding_model: databricks-gte-large-en\n  metadata_columns: [category, source_url]\n  bm25_index_name: kb_articles_passage_bm25\n  distance_metric: cosine\n```",
+      "description": "Configuration for a Databricks Lakebase Postgres table used for retrieval.\n\nPoints at a table that has ``lakebase_vector`` (and optionally\n``lakebase_text``) extensions installed and appropriate indexes\nbuilt. Call :meth:`provision` to idempotently create the extensions,\ntable, and indexes if they don't exist yet.\n\nExample (existing table, hybrid-ready):\n```yaml\nvector_store:\n  database:\n    project: my-lakebase-project\n  table: kb_articles\n  content_column: passage\n  embedding_column: embedding\n  tsvector_column: passage_tsv\n  embedding_model: databricks-gte-large-en\n  metadata_columns: [category, source_url]\n  bm25_index_name: kb_articles_passage_bm25\n  distance_metric: cosine\n```",
       "properties": {
+        "type": {
+          "const": "lakebase_search",
+          "default": "lakebase_search",
+          "description": "Discriminator. Must be 'lakebase_search'.",
+          "title": "Type",
+          "type": "string"
+        },
         "database": {
           "$ref": "#/$defs/DatabaseModel",
           "description": "Lakebase (or PostgreSQL) database connection. Reuses the existing DatabaseModel \u2014 pool + auth handled by ``dao_ai.memory.postgres`` pool managers."
@@ -6895,6 +7036,69 @@
       ],
       "title": "LogLevel",
       "type": "string"
+    },
+    "McpCapabilitiesModel": {
+      "additionalProperties": false,
+      "description": "Advanced MCP capabilities for an MCP client (McpFunctionModel).\n\nWhen None (the default on McpFunctionModel), the classic\nMultiServerMCPClient path runs with no callbacks or interceptors \u2014\nguaranteeing byte-for-byte behavior parity with the pre-capabilities\nversion.\n\nWhen set, dao-ai wires langchain-mcp-adapters ``Callbacks`` and\n``ToolCallInterceptor`` middleware around the client. If ``sampling`` or\n``roots`` is populated, dao-ai drops to a raw ``mcp.client.session.ClientSession``\npath since those callbacks are not surfaced by the adapter.",
+      "properties": {
+        "progress": {
+          "default": false,
+          "description": "Consume progress notifications from the MCP server; forward as MLflow span events on the enclosing tool span.",
+          "title": "Progress",
+          "type": "boolean"
+        },
+        "logging": {
+          "default": false,
+          "description": "Consume server-\u2192-client notifications via a session-scoped message_handler and advertise MCP's 'logging' capability so the server emits notifications/message frames. Forwards every notification (notifications/message and any custom notifications/<method>) as a channel-tagged envelope; notifications/progress is routed through the progress callback and skipped here to avoid duplicate emission.",
+          "title": "Logging",
+          "type": "boolean"
+        },
+        "elicitation": {
+          "anyOf": [
+            {
+              "enum": [
+                "hitl",
+                "reject"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Handle server-initiated elicitation/create. 'hitl' raises a LangGraph interrupt whose resume value becomes the ElicitResult; 'reject' returns action='cancel' without prompting.",
+          "title": "Elicitation"
+        },
+        "structured_output": {
+          "default": true,
+          "description": "Prefer CallToolResult.structuredContent and expand resource_link items into MLflow span attributes via a ToolCallInterceptor. Additive only; falls back to text extraction when structuredContent is absent.",
+          "title": "Structured Output",
+          "type": "boolean"
+        },
+        "sampling": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/McpSamplingCapabilityModel"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Handle server-initiated sampling/createMessage. Requires the raw ClientSession path (adapter does not surface sampling callback)."
+        },
+        "roots": {
+          "description": "URI roots advertised to the server via roots/list. Requires the raw ClientSession path (adapter does not surface list_roots callback). Empty list disables the capability.",
+          "items": {
+            "$ref": "#/$defs/McpRootModel"
+          },
+          "title": "Roots",
+          "type": "array"
+        }
+      },
+      "title": "McpCapabilitiesModel",
+      "type": "object"
     },
     "McpFunctionModel": {
       "additionalProperties": false,
@@ -7080,6 +7284,18 @@
           "default": null,
           "description": "Human-in-the-loop approval configuration for this tool."
         },
+        "audit": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/AuditModel"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Optional tamper-evident audit trail for this tool. Presence of this block enables audit-receipt logging on every invocation; absence leaves the runtime path unchanged. Typically declared once as a YAML anchor and referenced from every tool that should be audited. Composes with human_in_the_loop to produce approval receipts with args-hash binding and fail-closed execution."
+        },
         "transport": {
           "$ref": "#/$defs/TransportType",
           "default": "streamable_http",
@@ -7250,7 +7466,7 @@
         "vector_search": {
           "anyOf": [
             {
-              "$ref": "#/$defs/AiSearchIndexModel"
+              "$ref": "#/$defs/AiSearchVectorStoreModel"
             },
             {
               "type": "null"
@@ -7331,9 +7547,238 @@
           "default": null,
           "description": "Per-MCP-server `_meta` parameters (MCP spec). Sent as `_meta` on every tools/call request to this server. Common Databricks keys: warehouse_id (DBSQL); num_results, filters, query_type, columns, score_threshold, include_score, columns_to_rerank (Vector Search). Values support AnyVariable (env vars, secrets, defaults).",
           "title": "Meta"
+        },
+        "capabilities": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/McpCapabilitiesModel"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Advanced MCP capabilities (progress, logging, elicitation, structured output, sampling, roots). When None the classic MultiServerMCPClient path is used with no callbacks or interceptors \u2014 zero regression from the pre-capabilities behavior. See McpCapabilitiesModel."
         }
       },
       "title": "McpFunctionModel",
+      "type": "object"
+    },
+    "McpPromptArgumentModel": {
+      "additionalProperties": false,
+      "description": "A single argument on an McpPromptModel.",
+      "properties": {
+        "name": {
+          "description": "Argument name \u2014 must match a {placeholder} in the template.",
+          "title": "Name",
+          "type": "string"
+        },
+        "description": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "What the argument represents. Shown to clients requesting the prompt.",
+          "title": "Description"
+        },
+        "required": {
+          "default": false,
+          "description": "Whether the client must supply this argument on prompts/get. Optional args are empty-string when omitted.",
+          "title": "Required",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "title": "McpPromptArgumentModel",
+      "type": "object"
+    },
+    "McpPromptModel": {
+      "additionalProperties": false,
+      "description": "A prompt template exposed by dao-ai's own MCP server via ``prompts/list``.\n\nClients call ``prompts/get`` with argument values; the server returns the\nrendered template as a single user-role message. Placeholders in the\ntemplate use Python format-string syntax, e.g. ``{customer_name}``.",
+      "properties": {
+        "name": {
+          "description": "Prompt identifier used on prompts/list and prompts/get.",
+          "title": "Name",
+          "type": "string"
+        },
+        "description": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "What the prompt does \u2014 surfaced in prompts/list.",
+          "title": "Description"
+        },
+        "template": {
+          "description": "Prompt template with Python format-string placeholders (e.g. 'Hello, {name}!').",
+          "title": "Template",
+          "type": "string"
+        },
+        "arguments": {
+          "description": "Arguments the client can supply on prompts/get. Empty list means the template takes no arguments.",
+          "items": {
+            "$ref": "#/$defs/McpPromptArgumentModel"
+          },
+          "title": "Arguments",
+          "type": "array"
+        }
+      },
+      "required": [
+        "name",
+        "template"
+      ],
+      "title": "McpPromptModel",
+      "type": "object"
+    },
+    "McpResourceModel": {
+      "additionalProperties": false,
+      "description": "A static resource exposed by dao-ai's own MCP server via ``resources/list``.\n\nResources are read-only URIs the server publishes for client discovery\n(system prompts, curated document snippets, etc). Content is served as\ntext \u2014 for binary payloads, register at the server-side rather than\ndeclaring here.",
+      "properties": {
+        "uri": {
+          "description": "Resource URI advertised on resources/list, e.g. 'dao-ai://prompts/system'.",
+          "title": "Uri",
+          "type": "string"
+        },
+        "name": {
+          "description": "Human-readable resource name shown in client UIs.",
+          "title": "Name",
+          "type": "string"
+        },
+        "description": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "What the resource contains \u2014 surfaced in the resources/list response.",
+          "title": "Description"
+        },
+        "mime_type": {
+          "default": "text/plain",
+          "description": "MIME type of the resource payload. Defaults to text/plain.",
+          "title": "Mime Type",
+          "type": "string"
+        },
+        "content": {
+          "description": "Static text content returned by the server on resources/read for this URI.",
+          "title": "Content",
+          "type": "string"
+        }
+      },
+      "required": [
+        "uri",
+        "name",
+        "content"
+      ],
+      "title": "McpResourceModel",
+      "type": "object"
+    },
+    "McpRootModel": {
+      "additionalProperties": false,
+      "description": "A single URI root advertised to the MCP server via roots/list.\n\nRoots let the server scope filesystem / storage operations to a bounded set\nof URIs the client blesses.",
+      "properties": {
+        "uri": {
+          "description": "Root URI, e.g. 'file:///workspace' or 'databricks:///Volumes/catalog/schema/vol'.",
+          "title": "Uri",
+          "type": "string"
+        },
+        "name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Human-readable label for the root.",
+          "title": "Name"
+        }
+      },
+      "required": [
+        "uri"
+      ],
+      "title": "McpRootModel",
+      "type": "object"
+    },
+    "McpSamplingCapabilityModel": {
+      "additionalProperties": false,
+      "description": "Configuration for handling server-initiated sampling/createMessage requests.\n\nWhen present on an McpFunctionModel, dao-ai routes sampling requests to the\nreferenced inference endpoint via AI Gateway. Requires the raw ClientSession\ncode path since langchain-mcp-adapters does not surface sampling callbacks.",
+      "properties": {
+        "endpoint": {
+          "$ref": "#/$defs/InferenceEndpointModel",
+          "description": "LLM endpoint used to satisfy sampling requests. AI Gateway required."
+        },
+        "max_iterations": {
+          "default": 3,
+          "description": "Cap on nested sampling calls per outer tool invocation. Prevents runaway server-driven recursion.",
+          "title": "Max Iterations",
+          "type": "integer"
+        },
+        "allow_tool_use": {
+          "default": false,
+          "description": "Whether a sampling call may itself request tool use. Default false prevents cross-agent recursion.",
+          "title": "Allow Tool Use",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "endpoint"
+      ],
+      "title": "McpSamplingCapabilityModel",
+      "type": "object"
+    },
+    "McpServerCapabilitiesModel": {
+      "additionalProperties": false,
+      "description": "Advanced capabilities emitted BY dao-ai when deployed as an MCP server.\n\nClient-side capabilities are on ``McpFunctionModel.capabilities``. This\nmodel is the server-side complement \u2014 declaring what the dao-ai MCP\nserver itself publishes and how it reports progress/logging to callers.\n\nWhen None on ``AppModel`` (the default), dao-ai's MCP server publishes\nonly the single agent-as-tool it always has \u2014 byte-for-byte compatible\nwith pre-PR-2 behavior.",
+      "properties": {
+        "progress": {
+          "default": true,
+          "description": "Emit progress notifications from LangGraph astream_events during agent execution. Requires the caller to supply a progressToken via _meta on tools/call.",
+          "title": "Progress",
+          "type": "boolean"
+        },
+        "logging": {
+          "default": true,
+          "description": "Route Python logger records into notifications/message on the active FastMCP session. Silent no-op when no session context is bound.",
+          "title": "Logging",
+          "type": "boolean"
+        },
+        "resources": {
+          "description": "Static resources published via resources/list. Empty list means no resources are advertised.",
+          "items": {
+            "$ref": "#/$defs/McpResourceModel"
+          },
+          "title": "Resources",
+          "type": "array"
+        },
+        "prompts": {
+          "description": "Prompt templates published via prompts/list. Empty list means no prompts are advertised.",
+          "items": {
+            "$ref": "#/$defs/McpPromptModel"
+          },
+          "title": "Prompts",
+          "type": "array"
+        }
+      },
+      "title": "McpServerCapabilitiesModel",
       "type": "object"
     },
     "MemoryExtractionModel": {
@@ -8201,6 +8646,18 @@
           "default": null,
           "description": "Human-in-the-loop approval configuration for this tool."
         },
+        "audit": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/AuditModel"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Optional tamper-evident audit trail for this tool. Presence of this block enables audit-receipt logging on every invocation; absence leaves the runtime path unchanged. Typically declared once as a YAML anchor and referenced from every tool that should be audited. Composes with human_in_the_loop to produce approval receipts with args-hash binding and fail-closed execution."
+        },
         "name": {
           "description": "Fully qualified Python function name (e.g., 'my_package.tools.my_tool').",
           "title": "Name",
@@ -8317,9 +8774,16 @@
         },
         "vector_stores": {
           "additionalProperties": {
-            "$ref": "#/$defs/AiSearchIndexModel"
+            "oneOf": [
+              {
+                "$ref": "#/$defs/AiSearchVectorStoreModel"
+              },
+              {
+                "$ref": "#/$defs/LakebaseVectorStoreModel"
+              }
+            ]
           },
-          "description": "Vector search index configurations for semantic retrieval.",
+          "description": "Named vector-store configurations, keyed by name. Each entry is a discriminated union \u2014 the ``type`` field selects between ``AiSearchVectorStoreModel`` (default, `type: ai_search`) and ``LakebaseVectorStoreModel`` (`type: lakebase_search`). Existing YAMLs that omit ``type`` continue to parse as AI Search vector stores.",
           "title": "Vector Stores",
           "type": "object"
         },
@@ -8625,6 +9089,18 @@
           ],
           "default": null,
           "description": "Human-in-the-loop approval configuration for this tool."
+        },
+        "audit": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/AuditModel"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Optional tamper-evident audit trail for this tool. Presence of this block enables audit-receipt logging on every invocation; absence leaves the runtime path unchanged. Typically declared once as a YAML anchor and referenced from every tool that should be audited. Composes with human_in_the_loop to produce approval receipts with args-hash binding and fail-closed execution."
         }
       },
       "title": "SearchToolModel",
@@ -8775,6 +9251,18 @@
           ],
           "default": null,
           "description": "Human-in-the-loop approval configuration for this tool."
+        },
+        "audit": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/AuditModel"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Optional tamper-evident audit trail for this tool. Presence of this block enables audit-receipt logging on every invocation; absence leaves the runtime path unchanged. Typically declared once as a YAML anchor and referenced from every tool that should be audited. Composes with human_in_the_loop to produce approval receipts with args-hash binding and fail-closed execution."
         },
         "endpoint": {
           "anyOf": [
@@ -9599,6 +10087,18 @@
           ],
           "default": null,
           "description": "Human-in-the-loop approval configuration for this tool."
+        },
+        "audit": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/AuditModel"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Optional tamper-evident audit trail for this tool. Presence of this block enables audit-receipt logging on every invocation; absence leaves the runtime path unchanged. Typically declared once as a YAML anchor and referenced from every tool that should be audited. Composes with human_in_the_loop to produce approval receipts with args-hash binding and fail-closed execution."
         },
         "resource": {
           "$ref": "#/$defs/FunctionModel",

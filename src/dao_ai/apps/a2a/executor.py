@@ -46,7 +46,7 @@ from dao_ai.hitl import decide_graph_turn
 from dao_ai.state import Context as DaoContext
 
 if TYPE_CHECKING:
-    from dao_ai.config import AppConfig
+    from dao_ai.config import AppConfig, ToolModel
 
 
 class A2AAgentExecutor(AgentExecutor):
@@ -71,6 +71,15 @@ class A2AAgentExecutor(AgentExecutor):
         if self._graph is None:
             self._graph = self.config.as_graph()
         return self._graph
+
+    @property
+    def _tool_models(self) -> list["ToolModel"]:
+        """Flattened tool_models across every agent — used by the HITL audit tap."""
+        return [
+            tool
+            for agent in self.config.agents.values()
+            for tool in agent.tools
+        ]
 
     async def execute(self, context: RequestContext, event_queue: EventQueue) -> None:
         task_id = context.task_id
@@ -119,6 +128,7 @@ class A2AAgentExecutor(AgentExecutor):
                 messages=messages,
                 custom_inputs=custom_inputs,
                 runtime_config=runtime_config,
+                tool_models=self._tool_models,
             )
 
             if turn.should_skip_graph:
