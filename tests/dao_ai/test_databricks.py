@@ -2231,9 +2231,15 @@ def test_vector_store_create_mode_detection():
 
 
 @pytest.mark.unit
-def test_set_databricks_env_vars_injects_trace_location_env_vars():
-    """Test that set_databricks_env_vars auto-injects MLFLOW_TRACING_DESTINATION
-    and MLFLOW_TRACING_SQL_WAREHOUSE_ID when trace_location is configured."""
+def test_set_databricks_env_vars_injects_warehouse_but_not_destination():
+    """`set_databricks_env_vars` auto-injects `MLFLOW_TRACING_SQL_WAREHOUSE_ID`
+    when `trace_location` is set, but NOT `MLFLOW_TRACING_DESTINATION` —
+    Databricks docs (docs.databricks.com/aws/en/mlflow3/genai/tracing/
+    trace-unity-catalog) do not use that env var, and MLflow's env-var
+    parser converts the 2-part string to legacy UCSchemaLocation with a
+    hardcoded default table name, shadowing the correct experiment-linked
+    UnityCatalog.
+    """
     from dao_ai.config import AppModel, SchemaModel, TraceLocationModel
 
     schema = SchemaModel(catalog_name="my_catalog", schema_name="my_schema")
@@ -2243,6 +2249,7 @@ def test_set_databricks_env_vars_injects_trace_location_env_vars():
     mock_app.environment_vars = {}
     mock_app.service_principal = None
     mock_app.trace_location = trace_loc
+    mock_app.experiment = None
 
     with patch(
         "dao_ai.utils.get_default_databricks_host",
@@ -2250,51 +2257,21 @@ def test_set_databricks_env_vars_injects_trace_location_env_vars():
     ):
         AppModel.set_databricks_env_vars(mock_app)
 
-    assert (
-        mock_app.environment_vars["MLFLOW_TRACING_DESTINATION"]
-        == "my_catalog.my_schema"
-    )
+    assert "MLFLOW_TRACING_DESTINATION" not in mock_app.environment_vars
     assert mock_app.environment_vars["MLFLOW_TRACING_SQL_WAREHOUSE_ID"] == "abc123"
 
 
 @pytest.mark.unit
-def test_set_databricks_env_vars_does_not_override_explicit_trace_vars():
-    """Test that explicit environment_vars for tracing take precedence."""
-    from dao_ai.config import AppModel, SchemaModel, TraceLocationModel
-
-    schema = SchemaModel(catalog_name="my_catalog", schema_name="my_schema")
-    trace_loc = TraceLocationModel(schema=schema, warehouse="abc123")
-
-    mock_app = MagicMock(spec=AppModel)
-    mock_app.environment_vars = {
-        "MLFLOW_TRACING_DESTINATION": "override_catalog.override_schema",
-        "MLFLOW_TRACING_SQL_WAREHOUSE_ID": "override_wh",
-    }
-    mock_app.service_principal = None
-    mock_app.trace_location = trace_loc
-
-    with patch(
-        "dao_ai.utils.get_default_databricks_host",
-        return_value="https://test.databricks.com",
-    ):
-        AppModel.set_databricks_env_vars(mock_app)
-
-    assert (
-        mock_app.environment_vars["MLFLOW_TRACING_DESTINATION"]
-        == "override_catalog.override_schema"
-    )
-    assert mock_app.environment_vars["MLFLOW_TRACING_SQL_WAREHOUSE_ID"] == "override_wh"
-
-
-@pytest.mark.unit
 def test_set_databricks_env_vars_no_trace_vars_without_trace_location():
-    """Test that MLFLOW_TRACING_DESTINATION is not set when trace_location is None."""
+    """When trace_location is unset, neither MLFLOW_TRACING_DESTINATION nor
+    MLFLOW_TRACING_SQL_WAREHOUSE_ID is injected."""
     from dao_ai.config import AppModel
 
     mock_app = MagicMock(spec=AppModel)
     mock_app.environment_vars = {}
     mock_app.service_principal = None
     mock_app.trace_location = None
+    mock_app.experiment = None
 
     with patch(
         "dao_ai.utils.get_default_databricks_host",
