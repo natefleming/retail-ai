@@ -281,24 +281,38 @@ class AuditReceiptMiddleware(AgentMiddleware):
         mlflow_trace_id: Optional[str] = mlflow.get_active_trace_id()
 
         # 1. Fail-closed args-hash recheck (HITL tools only).
-        if stash is not None and stash.args_hash_at_interrupt != args_hash:
-            await _record_args_mismatch_receipt(
-                sink=sink,
-                thread_id=thread_id,
-                tool_call_id=tool_call_id,
-                tool_name=tool_name,
-                args_jcs=args_jcs,
-                args_hash=args_hash,
-                stash=stash,
-                context=context,
-                mlflow_trace_id=mlflow_trace_id,
+        #
+        # For approve decisions, args must be byte-equal to interrupt time.
+        # For edit decisions, the LangChain HITL middleware revises args to
+        # the user's edited_action.args — those must byte-equal the hash we
+        # stashed at _process_decision time.
+        if stash is not None:
+            expected_hash: str = (
+                stash.edited_args_hash
+                if stash.decision == "edit" and stash.edited_args_hash is not None
+                else stash.args_hash_at_interrupt
             )
-            _emit_span_event("dao_ai.audit.args_mismatch", tool_call_id=tool_call_id)
-            raise AuditNonceError(
-                f"Args hash mismatch for {tool_name}: interrupt "
-                f"{stash.args_hash_at_interrupt[:8]}... vs execution "
-                f"{args_hash[:8]}... — refusing to execute."
-            )
+            if expected_hash != args_hash:
+                await _record_args_mismatch_receipt(
+                    sink=sink,
+                    thread_id=thread_id,
+                    tool_call_id=tool_call_id,
+                    tool_name=tool_name,
+                    args_jcs=args_jcs,
+                    args_hash=args_hash,
+                    stash=stash,
+                    context=context,
+                    mlflow_trace_id=mlflow_trace_id,
+                )
+                _emit_span_event(
+                    "dao_ai.audit.args_mismatch", tool_call_id=tool_call_id
+                )
+                raise AuditNonceError(
+                    f"Args hash mismatch for {tool_name} (decision="
+                    f"{stash.decision or 'approve'}): expected "
+                    f"{expected_hash[:8]}... vs execution {args_hash[:8]}... "
+                    f"— refusing to execute."
+                )
 
         # 2. Invoke the tool.
         execution_status: ExecutionStatus = ExecutionStatus.OK

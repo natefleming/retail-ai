@@ -27,11 +27,12 @@ from typing import TYPE_CHECKING, Any, Optional
 
 from langchain.agents.middleware.human_in_the_loop import (
     ActionRequest,
+    Decision,
     HumanInTheLoopMiddleware,
     InterruptOnConfig,
     ReviewConfig,
 )
-from langchain_core.messages import ToolCall
+from langchain_core.messages import ToolCall, ToolMessage
 from langgraph.runtime import Runtime
 from loguru import logger
 
@@ -101,6 +102,89 @@ class AuditedHumanInTheLoopMiddleware(HumanInTheLoopMiddleware):
         if tool_name in self._audited_tools:
             self._enrich_and_stash(tool_call, action_request, runtime)
         return action_request, review_config
+
+    # ------------------------------------------------------------------
+    # Override to update the audit stash with the decision + edited-args
+    # hash BEFORE the tool executes. LangChain calls this per pending
+    # tool_call after the human resume payload is applied. Overriding
+    # (non-static) here works because Python's method resolution picks up
+    # the subclass method when the base class calls
+    # ``self._process_decision(...)``.
+    # ------------------------------------------------------------------
+    def _process_decision(  # type: ignore[override]
+        self,
+        decision: Decision,
+        tool_call: ToolCall,
+        config: InterruptOnConfig,
+    ) -> tuple[ToolCall | None, ToolMessage | None]:
+        result: tuple[ToolCall | None, ToolMessage | None] = (
+            HumanInTheLoopMiddleware._process_decision(decision, tool_call, config)
+        )
+        tool_name: str = tool_call["name"]
+        if tool_name in self._audited_tools:
+            self._decorate_stash_with_decision(decision, tool_call)
+        return result
+
+    def _decorate_stash_with_decision(
+        self,
+        decision: Decision,
+        tool_call: ToolCall,
+    ) -> None:
+        """
+        Push the resume-time decision + edited-args hash onto the pending
+        AuditStash entry so ``AuditReceiptMiddleware`` sees a fully-populated
+        approval receipt (and knows to compare against ``edited_args_hash``
+        instead of ``args_hash_at_interrupt`` when the decision was
+        ``edit``).
+        """
+        tool_call_id: Optional[str] = tool_call.get("id")
+        if tool_call_id is None:
+            return
+        thread_id: str = self._thread_id_from_stash(tool_call_id)
+        if thread_id == "unknown-thread":
+            # No stash entry exists (e.g. process restart between interrupt
+            # and resume) — nothing to decorate.
+            return
+        entry: Optional[AuditStashEntry] = AuditStash.take(thread_id, tool_call_id)
+        if entry is None:
+            return
+        decision_type: Any = decision.get("type") if isinstance(decision, dict) else None
+        if isinstance(decision_type, str):
+            entry.decision = decision_type
+        # Copy every field except ``type`` into decision_detail so the
+        # receipt records the edited action, reject message, respond text,
+        # etc. verbatim.
+        detail: dict[str, Any] = {
+            k: v for k, v in (decision or {}).items() if k != "type"
+        }
+        entry.decision_detail = detail or None
+        if entry.confirmed_via is None:
+            entry.confirmed_via = "chat_ui"
+        # For ``edit`` decisions, capture the edited canonical args + hash
+        # so the middleware knows the legitimate new hash to expect.
+        if decision_type == "edit" and isinstance(detail.get("edited_action"), dict):
+            edited: dict[str, Any] = detail["edited_action"]
+            edited_args: Any = edited.get("args") if isinstance(edited, dict) else None
+            if isinstance(edited_args, dict):
+                edited_jcs: str = canonical_jcs(edited_args)
+                entry.edited_args_jcs = edited_jcs
+                entry.edited_args_hash = args_hash_of(edited_args)
+        AuditStash.put(thread_id, tool_call_id, entry)
+
+    @staticmethod
+    def _thread_id_from_stash(tool_call_id: str) -> str:
+        """
+        Recover the thread_id under which the interrupt-time stash was
+        stored. AuditStash is keyed by ``(thread_id, tool_call_id)``; here
+        we scan for any entry with the given tool_call_id. This is safe
+        because tool_call_ids are LangChain-issued UUIDs and unique across
+        threads at any given moment.
+        """
+        with AuditStash._lock:
+            for (thread_id, existing_id) in AuditStash._entries:
+                if existing_id == tool_call_id:
+                    return thread_id
+        return "unknown-thread"
 
     # ------------------------------------------------------------------
     # Internals
