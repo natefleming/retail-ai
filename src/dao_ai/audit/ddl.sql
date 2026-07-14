@@ -51,11 +51,16 @@ CREATE TABLE IF NOT EXISTS ${receipts_table} (
     -- index-friendly, and can be filtered on directly in SQL / BI tools
     -- without recomputing the predicate every query. The rule mirrors
     -- ``dao_ai.tools.audit_query._row_had_hitl``: any single HITL
-    -- signal is sufficient.
+    -- signal is sufficient. Wrapped in COALESCE(..., FALSE) so audit-
+    -- only rows (where ``decision IS NULL``) land as FALSE rather than
+    -- NULL under SQL three-valued logic.
     hitl_involved             BOOLEAN GENERATED ALWAYS AS (
-        args_hash_at_interrupt IS NOT NULL
-        OR receipt_kind = 'rejection'
-        OR decision IN ('approve', 'edit', 'reject', 'respond')
+        COALESCE(
+            args_hash_at_interrupt IS NOT NULL
+            OR receipt_kind = 'rejection'
+            OR decision IN ('approve', 'edit', 'reject', 'respond'),
+            FALSE
+        )
     ) STORED
 );
 
