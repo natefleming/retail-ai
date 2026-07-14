@@ -29,6 +29,7 @@ from typing import (
 import yaml
 
 if TYPE_CHECKING:
+    from dao_ai.audit import LakebaseAuditSink
     from dao_ai.genie.cache.context_aware.optimization import (
         ContextAwareCacheEvalDataset,
         ThresholdOptimizationResult,
@@ -5245,7 +5246,7 @@ class AuditModel(BaseModel):
         ),
     )
 
-    def as_audit_sink(self) -> Any:
+    def as_audit_sink(self) -> "LakebaseAuditSink":
         """Return the audit sink instance for this configuration.
 
         Lazy-imports the sink implementation so the disabled path never
