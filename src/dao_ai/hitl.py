@@ -124,6 +124,12 @@ async def decide_graph_turn(
             decisions_count=len(decisions) if hasattr(decisions, "__len__") else None,
         )
         if audited_hitl_tools:
+            await _decorate_stash_with_decisions(
+                graph=graph,
+                decisions=decisions,
+                runtime_config=runtime_config,
+                audited_hitl_tools=audited_hitl_tools,
+            )
             await _record_hitl_rejections(
                 graph=graph,
                 decisions=decisions,
@@ -157,6 +163,13 @@ async def decide_graph_turn(
                 decisions_count=len(decisions),
             )
             if audited_hitl_tools:
+                await _decorate_stash_with_decisions(
+                    graph=graph,
+                    decisions=decisions,
+                    runtime_config=runtime_config,
+                    audited_hitl_tools=audited_hitl_tools,
+                    snapshot=snapshot,
+                )
                 await _record_hitl_rejections(
                     graph=graph,
                     decisions=decisions,
@@ -203,6 +216,95 @@ def _audited_hitl_tools_from(
             if isinstance(tool_name, str) and tool_name:
                 audited[tool_name] = audit_config
     return audited
+
+
+async def _decorate_stash_with_decisions(
+    *,
+    graph: CompiledStateGraph,
+    decisions: Any,
+    runtime_config: dict[str, Any],
+    audited_hitl_tools: dict[str, AuditModel],
+    snapshot: Any = None,
+) -> None:
+    """
+    Enrich each pending ``AuditStash`` entry with the decision + approver.
+
+    ``AuditReceiptMiddleware`` will consume the stash at execution time
+    (approve / edit path) and set ``receipt.decision`` from what we pushed
+    here. Rejections are handled separately in ``_record_hitl_rejections``.
+    """
+    try:
+        from dao_ai.middleware.audit_receipt import AuditStash
+        from dao_ai.models import _extract_interrupt_value
+    except ImportError as exc:  # pragma: no cover — bundled
+        logger.warning("Audit imports unavailable — skipping stash decoration", error=repr(exc))
+        return
+
+    from langchain.agents.middleware.human_in_the_loop import (
+        ActionRequest,
+        HITLRequest,
+    )
+
+    if not isinstance(decisions, list) or not decisions:
+        return
+    if snapshot is None:
+        snapshot = await graph.aget_state(config=runtime_config)
+    if not getattr(snapshot, "interrupts", ()):
+        return
+
+    interrupt_data: list[HITLRequest] = [
+        _extract_interrupt_value(interrupt) for interrupt in snapshot.interrupts
+    ]
+    all_actions: list[ActionRequest] = []
+    for hitl_request in interrupt_data:
+        all_actions.extend(hitl_request.get("action_requests", []))
+    if not all_actions:
+        return
+
+    thread_id: str = _thread_id_from_config(runtime_config)
+    tool_call_ids_by_index: dict[int, Optional[str]] = _tool_call_ids_from_snapshot(
+        snapshot=snapshot, actions=all_actions
+    )
+    approver_sub: Optional[str] = _approver_sub_from_config(runtime_config)
+
+    for idx, decision in enumerate(decisions):
+        if idx >= len(all_actions):
+            break
+        if not isinstance(decision, dict):
+            continue
+        decision_type: Any = decision.get("type")
+        if decision_type == "reject":
+            # Rejections don't fire awrap_tool_call — handled by _record_hitl_rejections.
+            continue
+        action: ActionRequest = all_actions[idx]
+        tool_name: str = action.get("name", "")
+        if tool_name not in audited_hitl_tools:
+            continue
+        tool_call_id: Optional[str] = tool_call_ids_by_index.get(idx)
+        if tool_call_id is None:
+            continue
+        # Non-destructive read/modify/put — preserves args_hash_at_interrupt + nonce.
+        entry = AuditStash.take(thread_id, tool_call_id)
+        if entry is None:
+            continue
+        entry.decision = str(decision_type) if decision_type is not None else None
+        entry.decision_detail = {
+            k: v for k, v in decision.items() if k != "type"
+        } or None
+        if approver_sub and not entry.approver_sub:
+            entry.approver_sub = approver_sub
+        if entry.confirmed_via is None:
+            entry.confirmed_via = "chat_ui"
+        AuditStash.put(thread_id, tool_call_id, entry)
+
+
+def _approver_sub_from_config(runtime_config: dict[str, Any]) -> Optional[str]:
+    configurable: Any = runtime_config.get("configurable")
+    if isinstance(configurable, dict):
+        user_id: Any = configurable.get("user_id")
+        if isinstance(user_id, str) and user_id:
+            return user_id
+    return None
 
 
 async def _record_hitl_rejections(
