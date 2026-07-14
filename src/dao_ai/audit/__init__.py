@@ -26,8 +26,14 @@ from dao_ai.audit.base import (
 from dao_ai.audit.lakebase import LakebaseAuditSink
 from dao_ai.audit.manager import AuditSinkManager
 from dao_ai.audit.nonces import AuditNonceError
+from dao_ai.audit.notifications import (
+    AUDIT_RECEIPT_CHANNEL,
+    build_receipt_notification,
+    dispatch_audit_receipt_notification,
+)
 
 __all__ = [
+    "AUDIT_RECEIPT_CHANNEL",
     "AuditNonceError",
     "AuditReceipt",
     "AuditSinkManager",
@@ -35,6 +41,8 @@ __all__ = [
     "LakebaseAuditSink",
     "ReceiptKind",
     "args_hash_of",
+    "build_receipt_notification",
     "canonical_jcs",
+    "dispatch_audit_receipt_notification",
     "sha256_hex",
 ]

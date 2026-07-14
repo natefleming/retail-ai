@@ -354,6 +354,25 @@ async def _record_hitl_non_executions(
                 decision=decision_type,
                 error=repr(exc),
             )
+        # Client notification for reject / respond receipts. The
+        # LangChain callback manager isn't in a runnable context here
+        # (this tap fires before graph.ainvoke), but the caller-provided
+        # runtime_config carries the ``callbacks`` list that
+        # ``LanggraphResponsesAgent.apredict_stream`` populated with the
+        # audit-event collector. adispatch_custom_event picks it up.
+        try:
+            from dao_ai.audit import dispatch_audit_receipt_notification
+
+            await dispatch_audit_receipt_notification(
+                receipt, config=runtime_config
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.debug(
+                "Failed to dispatch HITL non-execution receipt notification",
+                tool_name=tool_name,
+                tool_call_id=tool_call_id,
+                error=repr(exc)[:120],
+            )
 
 
 def _approver_sub_from_config(runtime_config: dict[str, Any]) -> Optional[str]:

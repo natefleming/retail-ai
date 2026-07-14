@@ -1390,7 +1390,10 @@ class LanggraphResponsesAgent(ResponsesAgent):
                 if not isinstance(data, dict):
                     return
                 channel = data.get("channel")
-                if not isinstance(channel, str) or not channel.startswith("mcp."):
+                if not isinstance(channel, str) or not (
+                    channel.startswith("mcp.")
+                    or channel.startswith("dao_ai.audit.")
+                ):
                     return
                 await self._queue.put(data)
 

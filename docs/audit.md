@@ -286,6 +286,71 @@ Two side tables live alongside it:
 - The receipts table has `BEFORE UPDATE`/`BEFORE DELETE` triggers that
   refuse mutation — append-only at the SQL layer.
 
+## Client-facing stream events
+
+Every successful receipt write also dispatches a
+``dao_ai.audit.receipt`` custom event through LangChain's callback
+manager. dao-ai's ``LanggraphResponsesAgent.apredict_stream`` picks
+these up alongside its existing MCP-notification handling and forwards
+them as ``response.output_item.added(status="in_progress")`` frames on
+the response stream. A UI can subscribe to these to render "audit
+trail captured for tool X" indicators inline with tool results:
+
+```json
+{
+  "type": "response.output_item.added",
+  "item": {
+    "id": "mcp_dao_ai.audit_<...>",
+    "type": "custom_tool_call",
+    "status": "in_progress",
+    "name": "dao_ai.audit.receipt",
+    "input": {
+      "channel": "dao_ai.audit.receipt",
+      "server_name": "dao_ai.audit",
+      "receipt_id": "aa27ce5b1e234b1297ace470cce57217",
+      "receipt_kind": "execution",
+      "tool_name": "refund_customer",
+      "tool_call_id": "toolu_...",
+      "thread_id": "audit-verify-thread-C",
+      "mlflow_trace_id": "trace:/retail_consumer_goods.audit_demo/...",
+      "decision": "approve",
+      "hitl_involved": true,
+      "execution_status": "ok",
+      "confirmed_via": "chat_ui",
+      "approver_sub": "nate_fleming@databricks_com",
+      "recorded_at": "2026-07-14T15:03:19.246575+00:00"
+    }
+  }
+}
+```
+
+**What the envelope carries (client-safe subset):**
+
+- `receipt_id`, `receipt_kind`, `thread_id`, `mlflow_trace_id`
+- `tool_name`, `tool_call_id`
+- `decision`, `hitl_involved`, `execution_status`, `confirmed_via`
+- `approver_sub`, `recorded_at`
+
+**What the envelope deliberately does NOT carry:**
+
+- `obo_access_token` — raw OBO JWT, sensitive credential material
+- `args_jcs`, `args_hash_at_interrupt`, `args_hash_at_resume` — internal
+- `nonce`, `nonce_exp` — server-only
+- `prev_hash`, `this_hash` — chain-verification queries fetch from Lakebase
+- `displayed_summary` — already shown to the user at interrupt time
+
+**Failure semantics.** The dispatch is fully best-effort:
+- Non-streaming caller (`apredict`) → no callback context → silent no-op.
+- Missing `callbacks` list on the runnable config → silent no-op.
+- Dispatch exception → logged at DEBUG and swallowed. The receipt has
+  already landed in Lakebase.
+
+**Non-streaming reply.** The same envelope also accumulates into
+``custom_outputs["mcp_events"]`` (via dao-ai's existing MCP
+notification buffer), so clients that consume the aggregated response
+instead of the SSE stream still see the audit events at the end of the
+turn.
+
 ## MLflow span attributes
 
 For every audited invocation the outer agent span picks up these

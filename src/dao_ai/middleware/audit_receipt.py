@@ -44,6 +44,7 @@ from dao_ai.audit import (
     ReceiptKind,
     args_hash_of,
     canonical_jcs,
+    dispatch_audit_receipt_notification,
 )
 from dao_ai.middleware.base import AgentMiddleware
 
@@ -326,7 +327,7 @@ class AuditReceiptMiddleware(AgentMiddleware):
                 else stash.args_hash_at_interrupt
             )
             if expected_hash != args_hash:
-                await _record_args_mismatch_receipt(
+                mismatch_receipt: AuditReceipt = await _record_args_mismatch_receipt(
                     sink=sink,
                     thread_id=thread_id,
                     tool_call_id=tool_call_id,
@@ -336,6 +337,9 @@ class AuditReceiptMiddleware(AgentMiddleware):
                     stash=stash,
                     context=context,
                     mlflow_trace_id=mlflow_trace_id,
+                )
+                await dispatch_audit_receipt_notification(
+                    mismatch_receipt, config=runtime.config
                 )
                 _emit_span_event(
                     "dao_ai.audit.args_mismatch", tool_call_id=tool_call_id
@@ -356,7 +360,7 @@ class AuditReceiptMiddleware(AgentMiddleware):
             execution_status = ExecutionStatus.ERROR
             execution_error = f"{type(exc).__name__}: {exc}"
             try:
-                await _record_execution_receipt(
+                error_receipt: AuditReceipt = await _record_execution_receipt(
                     sink=sink,
                     thread_id=thread_id,
                     tool_call_id=tool_call_id,
@@ -369,6 +373,9 @@ class AuditReceiptMiddleware(AgentMiddleware):
                     execution_status=execution_status,
                     execution_error=execution_error,
                 )
+                await dispatch_audit_receipt_notification(
+                    error_receipt, config=runtime.config
+                )
             except Exception as sink_exc:  # noqa: BLE001
                 logger.warning(
                     "Audit sink write failed on tool exception path",
@@ -380,7 +387,7 @@ class AuditReceiptMiddleware(AgentMiddleware):
 
         # 3. Success — record the receipt best-effort.
         try:
-            await _record_execution_receipt(
+            success_receipt: AuditReceipt = await _record_execution_receipt(
                 sink=sink,
                 thread_id=thread_id,
                 tool_call_id=tool_call_id,
@@ -392,6 +399,9 @@ class AuditReceiptMiddleware(AgentMiddleware):
                 mlflow_trace_id=mlflow_trace_id,
                 execution_status=execution_status,
                 execution_error=execution_error,
+            )
+            await dispatch_audit_receipt_notification(
+                success_receipt, config=runtime.config
             )
         except Exception as sink_exc:  # noqa: BLE001
             # Fail-open on sink I/O errors — the caller's tool call already
@@ -436,7 +446,7 @@ async def _record_execution_receipt(
     mlflow_trace_id: Optional[str],
     execution_status: ExecutionStatus,
     execution_error: Optional[str],
-) -> None:
+) -> AuditReceipt:
     obo_token, obo_exp, obo_sub = _extract_obo_evidence(context.headers)
     approver_email: Optional[str] = _extract_email(context.headers)
 
@@ -483,6 +493,7 @@ async def _record_execution_receipt(
         args_hash=args_hash,
         obo_present=obo_token is not None,
     )
+    return receipt
 
 
 async def _record_args_mismatch_receipt(
@@ -496,7 +507,7 @@ async def _record_args_mismatch_receipt(
     stash: AuditStashEntry,
     context: "Context",
     mlflow_trace_id: Optional[str],
-) -> None:
+) -> AuditReceipt:
     obo_token, obo_exp, obo_sub = _extract_obo_evidence(context.headers)
     approver_email: Optional[str] = _extract_email(context.headers)
 
@@ -543,6 +554,7 @@ async def _record_args_mismatch_receipt(
         args_hash=args_hash,
         obo_present=obo_token is not None,
     )
+    return receipt
 
 
 def _attach_span_attributes(
