@@ -51,6 +51,9 @@ from dao_ai.config import AuditModel
 
 __all__ = [
     "AuditToolkit",
+    "ToolLike",
+    "as_tool_list",
+    "as_toolkit",
     "create_audit_query_tools",
     "create_audit_toolkit",
     "create_get_audit_receipt_by_id_tool",
@@ -60,6 +63,7 @@ __all__ = [
 
 
 AuditConfigInput = Union[AuditModel, dict[str, Any]]
+ToolLike = Union[BaseTool, Sequence[BaseTool], BaseToolkit]
 
 
 def _coerce_audit_model(audit: AuditConfigInput) -> AuditModel:
@@ -71,6 +75,61 @@ def _coerce_audit_model(audit: AuditConfigInput) -> AuditModel:
     raise TypeError(
         f"`audit` must be an AuditModel or dict, got {type(audit).__name__}"
     )
+
+
+def as_tool_list(items: Optional[ToolLike]) -> list[BaseTool]:
+    """Normalise ``BaseTool | Sequence[BaseTool] | BaseToolkit | None`` to ``list[BaseTool]``.
+
+    Public shape-adapter for callers composing tool factories. Accepts:
+
+    - a single ``BaseTool`` → wrapped in a one-element list.
+    - a ``Sequence[BaseTool]`` (list, tuple) → copied to a fresh list;
+      strings are rejected explicitly so ``str`` won't sneak through as a
+      "sequence of chars".
+    - a ``BaseToolkit`` → expanded via ``get_tools()``.
+    - ``None`` → empty list.
+
+    Raises ``TypeError`` on any other input so misuse fails loudly at
+    the composition site rather than downstream in the middleware.
+    """
+    if items is None:
+        return []
+    if isinstance(items, BaseToolkit):
+        return list(items.get_tools())
+    if isinstance(items, BaseTool):
+        return [items]
+    if isinstance(items, str) or isinstance(items, bytes):
+        raise TypeError(
+            f"as_tool_list expected BaseTool | Sequence[BaseTool] | BaseToolkit; "
+            f"got {type(items).__name__}"
+        )
+    if isinstance(items, Sequence):
+        collected: list[BaseTool] = []
+        for entry in items:
+            if not isinstance(entry, BaseTool):
+                raise TypeError(
+                    f"as_tool_list Sequence must contain BaseTool instances; "
+                    f"got {type(entry).__name__}"
+                )
+            collected.append(entry)
+        return collected
+    raise TypeError(
+        f"as_tool_list expected BaseTool | Sequence[BaseTool] | BaseToolkit; "
+        f"got {type(items).__name__}"
+    )
+
+
+def as_toolkit(items: ToolLike) -> BaseToolkit:
+    """Normalise any of the three shapes into an :class:`AuditToolkit`-shaped ``BaseToolkit``.
+
+    Useful when a caller needs to hand a downstream API a ``BaseToolkit``
+    but has only individual tools or a list. Any existing ``BaseToolkit``
+    passed in is returned unchanged so identity is preserved (no wrapping
+    around a wrapping).
+    """
+    if isinstance(items, BaseToolkit):
+        return items
+    return AuditToolkit(tools=as_tool_list(items))
 
 
 def _sink_for(audit: AuditConfigInput) -> LakebaseAuditSink:
@@ -355,21 +414,31 @@ def create_verify_audit_hash_chain_tool(audit: AuditConfigInput) -> BaseTool:
 # ----------------------------------------------------------------------
 
 
-def create_audit_query_tools(audit: AuditConfigInput) -> Sequence[BaseTool]:
+def create_audit_query_tools(
+    audit: AuditConfigInput,
+    extra_tools: Optional[ToolLike] = None,
+) -> list[BaseTool]:
     """Return every audit-query tool bound to the given ``AuditModel``.
 
-    Prefer :func:`create_audit_toolkit` in YAML configs — it wraps the same
-    tools in a LangChain :class:`BaseToolkit` that dao-ai's factory-tool
-    resolver expands automatically (see
+    When ``extra_tools`` is provided (as a single ``BaseTool``, a
+    ``Sequence[BaseTool]``, or another ``BaseToolkit``) they are appended
+    to the returned list so callers can bundle custom tools alongside the
+    audit-query surface in a single registration.
+
+    Prefer :func:`create_audit_toolkit` in YAML configs — it wraps the
+    same tools in a LangChain :class:`BaseToolkit` that dao-ai's
+    factory-tool resolver expands automatically (see
     ``dao_ai.tools.python.create_factory_tool``). Use this list-returning
     variant only when you need to plug tools into a codepath that expects
     a raw list.
     """
-    return [
+    tools: list[BaseTool] = [
         create_query_audit_receipts_tool(audit),
         create_get_audit_receipt_by_id_tool(audit),
         create_verify_audit_hash_chain_tool(audit),
     ]
+    tools.extend(as_tool_list(extra_tools))
+    return tools
 
 
 class AuditToolkit(BaseToolkit):
@@ -391,8 +460,17 @@ class AuditToolkit(BaseToolkit):
         return list(self.tools)
 
 
-def create_audit_toolkit(audit: AuditConfigInput) -> AuditToolkit:
+def create_audit_toolkit(
+    audit: AuditConfigInput,
+    extra_tools: Optional[ToolLike] = None,
+) -> AuditToolkit:
     """Return an :class:`AuditToolkit` bound to the given ``AuditModel``.
+
+    When ``extra_tools`` is provided (as a single ``BaseTool``, a
+    ``Sequence[BaseTool]``, or another ``BaseToolkit``) those tools are
+    bundled into the returned toolkit alongside the audit-query tools —
+    dao-ai's factory-tool resolver expands the whole bundle via
+    ``get_tools()``.
 
     Register in YAML with ``type: factory``::
 
@@ -410,7 +488,7 @@ def create_audit_toolkit(audit: AuditConfigInput) -> AuditToolkit:
     ``get_audit_receipt_by_id``, and ``verify_audit_hash_chain`` in one
     registration.
     """
-    return AuditToolkit(tools=list(create_audit_query_tools(audit)))
+    return AuditToolkit(tools=create_audit_query_tools(audit, extra_tools))
 
 
 def _parse_iso(value: str) -> datetime:
