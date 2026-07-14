@@ -1,0 +1,204 @@
+# yaml-language-server: $schema=../../../schemas/model_config_schema.json
+
+# =============================================================================
+# Audited Human-in-the-Loop (HITL) example
+# =============================================================================
+# Adds tamper-evident audit receipts to the standard HITL flow. Every audited
+# tool invocation lands a signed row in a Lakebase table with the args hash,
+# approver identity, decision, and MLflow trace_id — enforced fail-closed on
+# any drift between the arguments approved at interrupt time and the arguments
+# executed after resume.
+#
+# Two-layer opt-in:
+#   1. `human_in_the_loop` on the tool  → pauses execution for approval
+#   2. `audit`               on the tool → records the receipt to Lakebase
+#
+# Composition:
+#   - HITL only            → interrupt fires, no receipt
+#   - Audit only           → tool auto-executes, execution receipt written
+#   - HITL + Audit         → interrupt fires, receipt on approve/reject/edit,
+#                            fail-closed on args-hash drift at execution time.
+
+variables:
+  client_id: &client_id
+    options:
+      - env: RETAIL_AI_DATABRICKS_CLIENT_ID
+      - scope: retail_consumer_goods
+        secret: RETAIL_AI_DATABRICKS_CLIENT_ID
+  client_secret: &client_secret
+    options:
+      - env: RETAIL_AI_DATABRICKS_CLIENT_SECRET
+      - scope: retail_consumer_goods
+        secret: RETAIL_AI_DATABRICKS_CLIENT_SECRET
+
+schemas:
+  audit_schema: &audit_schema
+    catalog_name: retail_consumer_goods
+    schema_name: audit_demo
+
+resources:
+  warehouses:
+    shared_warehouse: &shared_warehouse
+      name: "Shared Unity Catalog Serverless"
+
+  models:
+    default_llm: &default_llm
+      name: databricks-claude-sonnet-4
+      ai_gateway: true
+      temperature: 0.1
+      max_tokens: 8192
+
+  databases:
+    # Single Lakebase — hosts the HITL checkpointer AND the audit receipts.
+    audit_db: &audit_db
+      project: retail-consumer-goods
+      autoscaling_min_cu: 0
+      autoscaling_max_cu: 4
+      client_id: *client_id
+      client_secret: *client_secret
+
+# =============================================================================
+# TOOLS
+# =============================================================================
+tools:
+  # Audit-only: every invocation gets an execution receipt; no interrupt.
+  current_time_audited: &current_time_audited
+    name: current_time_audited
+    function:
+      type: python
+      name: dao_ai.tools.current_time_tool
+      audit:
+        database: *audit_db
+        table: audit_receipts
+
+  # HITL + Audit: interrupt fires; approval / rejection lands as a receipt;
+  # execution is fail-closed against args-hash drift.
+  say_hello_audited: &say_hello_audited
+    name: say_hello_audited
+    function:
+      type: python
+      name: dao_ai.tools.say_hello_tool
+      audit:
+        database: *audit_db
+        table: audit_receipts
+      human_in_the_loop:
+        review_prompt: |
+          Please review this greeting request. Confirming produces a signed
+          audit receipt tied to your identity, the exact arguments, and the
+          MLflow trace_id for this turn.
+        allowed_decisions:
+          - approve
+          - edit
+          - reject
+
+  # HITL only: no receipt written — kept in the config to demonstrate that
+  # audit is fully per-tool and never leaks across tools.
+  say_hello_hitl_only: &say_hello_hitl_only
+    name: say_hello_hitl_only
+    function:
+      type: python
+      name: dao_ai.tools.say_hello_tool
+      human_in_the_loop:
+        review_prompt: "Approve greeting (no audit trail)."
+        allowed_decisions: [approve, reject]
+
+# =============================================================================
+# AGENTS
+# =============================================================================
+agents:
+  audit_admin_agent: &audit_admin_agent
+    name: audit_admin_agent
+    description: "Administrative agent used to exercise the audit trail."
+    model: *default_llm
+    tools:
+      - *current_time_audited
+      - *say_hello_audited
+      - *say_hello_hitl_only
+    prompt: |
+      You are an administrative agent used to demonstrate the dao-ai audit
+      trail. When you invoke `say_hello_audited`, the system will pause for
+      human approval and record a tamper-evident receipt in Lakebase.
+      Invocations of `current_time_audited` proceed without an interrupt but
+      still produce an execution receipt.
+
+# =============================================================================
+# MEMORY — checkpointer required for HITL, backed by the same Lakebase
+# =============================================================================
+memory: &memory
+  checkpointer:
+    name: audit_hitl_checkpointer
+    database: *audit_db
+  store:
+    name: audit_hitl_store
+    database: *audit_db
+
+# =============================================================================
+# APPLICATION
+# =============================================================================
+app:
+  name: human_in_the_loop_audited
+  description: "HITL demo with tamper-evident audit receipts (v1)."
+  log_level: INFO
+
+  registered_model:
+    schema: *audit_schema
+    name: hitl_audited_demo
+
+  endpoint_name: hitl_audited_demo
+
+  # trace_location must be set for MLflow OTEL span attributes to land in UC.
+  # Run `dao-ai link-trace-destination` between `bundle deploy` and
+  # `bundle run` to link the experiment to the tables below.
+  trace_location:
+    schema: *audit_schema
+    warehouse: *shared_warehouse
+
+  agents:
+    - *audit_admin_agent
+
+  orchestration:
+    swarm:
+      default_agent: *audit_admin_agent
+    memory: *memory
+
+  input_example:
+    messages:
+      - role: user
+        content: "Please greet me by name."
+    custom_inputs:
+      configurable:
+        user_id: demo_user
+        thread_id: demo_thread
+      session: {}
+
+# =============================================================================
+# DEPLOYMENT NOTES
+# =============================================================================
+#
+# 1. Deploy to Databricks Apps (recommended for OBO capture):
+#      uv run dao-ai generate-bundle --force --development \
+#        -c config/examples/07_human_in_the_loop/human_in_the_loop_audited.yaml
+#      databricks bundle deploy -p <profile>
+#      uv run dao-ai link-trace-destination \
+#        -c config/examples/07_human_in_the_loop/human_in_the_loop_audited.yaml \
+#        -p <profile>
+#      databricks bundle run <app_name> -p <profile>
+#
+# 2. Every audited invocation lands a row in
+#    `retail_consumer_goods.audit_demo.audit_receipts` with:
+#      receipt_kind        execution | approval | rejection
+#      approver_sub        the X-Forwarded-User identity (HITL only)
+#      args_hash           SHA-256(JCS(args)) — byte-stable across restarts
+#      prev_hash/this_hash hash chain per thread — auditor detects tampering
+#      obo_access_token    raw OBO JWT when present (Apps only; NULL on MS)
+#      execution_status    ok | error | args_mismatch | not_executed_rejected
+#
+# 3. The table is created idempotently on first write with an append-only
+#    trigger — UPDATE/DELETE against it raises. UC ACLs are the primary
+#    access-control surface; grant SELECT on the whole table only to
+#    an `hitl_audit_reviewers` group.
+#
+# 4. Model Serving deploys: skip step 3's CLI call. MS handles the trace
+#    linking + SP experiment CAN_EDIT via `agents.deploy()`. OBO capture
+#    on MS uses `mlflow.models.get_request_headers()` and may be NULL
+#    when the caller doesn't forward an OAuth token.
