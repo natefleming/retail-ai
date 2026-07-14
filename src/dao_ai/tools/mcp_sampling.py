@@ -48,8 +48,71 @@ from mcp.types import (
 from dao_ai.config import (
     McpCapabilitiesModel,
     McpFunctionModel,
+    value_of,
 )
 from dao_ai.state import Context as DaoAiContext
+from dao_ai.tools.mcp_callbacks import (
+    DaoAiNotificationCallback,
+    _emit,
+    capture_runnable_config,
+)
+
+
+# ---------------------------------------------------------------------------
+# Raw-MCP progress + logging adapters
+#
+# ``langchain-mcp-adapters`` supplies a ``CallbackContext`` (with server_name /
+# tool_name) to its ``Callbacks`` protocol. The raw ``mcp.client.session``
+# hooks have no such context object — ``LoggingFnT`` takes ``(params,)`` and
+# ``ProgressFnT`` takes ``(progress, total, message)``. These thin wrappers
+# build the same normalized envelope used by ``dao_ai.tools.mcp_callbacks``
+# and dispatch through the shared ``_emit`` helper so span events + outer
+# stream events look identical across the MultiServer path and the raw
+# ClientSession path.
+# ---------------------------------------------------------------------------
+
+
+class _RawProgressAdapter:
+    """MCP ``ProgressFnT`` adapter that mirrors ``DaoAiProgressCallback``.
+
+    Captures the outer RunnableConfig at construction time so background
+    MCP listener tasks can dispatch through LangChain's callback manager
+    even when their own ContextVar has drifted.
+    """
+
+    def __init__(
+        self,
+        server_name: str,
+        tool_name: str,
+    ) -> None:
+        self._server_name = server_name
+        self._tool_name = tool_name
+        self._config = capture_runnable_config()
+
+    async def __call__(
+        self,
+        progress: float,
+        total: float | None,
+        message: str | None,
+    ) -> None:
+        envelope: dict[str, Any] = {
+            "channel": "mcp.progress",
+            "server_name": self._server_name,
+            "tool_name": self._tool_name,
+            "progress": progress,
+            "total": total if total is not None else -1.0,
+            "message": message or "",
+        }
+        await _emit("mcp.progress", envelope, self._config)
+
+
+# ---------------------------------------------------------------------------
+# Notification handling on the raw ClientSession path
+#
+# The raw path uses ``mcp.ClientSession(message_handler=...)`` directly, and
+# ``DaoAiNotificationCallback`` (from ``mcp_callbacks``) is a MessageHandlerFnT
+# out of the box — no local adapter needed.
+# ---------------------------------------------------------------------------
 
 
 # ---------------------------------------------------------------------------
@@ -309,11 +372,18 @@ async def acreate_mcp_tools_with_sampling(
                 ResourceInfo("mcp", auth_resource.on_behalf_of_user, mcp_tool.name)
             )
             context: DaoAiContext | None = runtime.context if runtime else None
+            caps = function.capabilities
+            call_kwargs: dict[str, Any] = {"meta": _resolve_meta(function.meta)}
+            if caps and caps.progress:
+                call_kwargs["progress_callback"] = _RawProgressAdapter(
+                    server_name="mcp_function",
+                    tool_name=mcp_tool.name,
+                )
             async with _open_session(function, context=context) as session:
                 result: CallToolResult = await session.call_tool(
                     mcp_tool.name,
                     kwargs,
-                    meta=_resolve_meta(function.meta),
+                    **call_kwargs,
                 )
                 return _extract_text_content(result)
 
@@ -349,31 +419,47 @@ async def _open_session(
     # challenge whose ``WWW-Authenticate`` shape ``DatabricksOAuthClientProvider``
     # doesn't reliably parse — the follow-up token exchange emits a URL with
     # a missing scheme and httpcore raises ``UnsupportedProtocol``.
-    # Workaround: for App URLs, resolve a bearer token from the AMBIENT
-    # ``WorkspaceClient()`` (the caller App's runtime SP — the identity the
-    # target app grants CAN_USE to) and inject it as an ``Authorization``
-    # header, bypassing the OAuth challenge path entirely. The managed MCP
-    # endpoints on the workspace host (``/api/2.0/mcp/...``) keep the OAuth
-    # provider since those are authenticated via the function-scoped SP.
+    # Workaround: for App URLs, resolve a bearer token from the
+    # **resource-scoped** ``WorkspaceClient`` (i.e. the SP declared on the
+    # McpFunctionModel via ``client_id`` / ``client_secret`` / ``workspace_host``,
+    # or on a nested ``app`` / ``connection`` resource) and inject it as an
+    # ``Authorization`` header, bypassing the OAuth challenge path entirely.
+    #
+    # Using the resource-scoped SP (not ambient) matters on Model Serving:
+    # the MS-created ambient SP is a "System Service Principal" that
+    # cannot be granted CAN_USE on a Databricks App via the standard
+    # permissions API (Databricks IAM constraint, verified with the
+    # Model Serving team — SSPs are not exposed as regular grantable
+    # principals). The resource-scoped SP (config's client_id/client_secret,
+    # a regular user-managed SP) can be granted CAN_USE like any other
+    # principal, so this path works on both Apps and MS.
+    #
+    # The managed MCP endpoints on the workspace host (``/api/2.0/mcp/...``)
+    # keep the OAuth provider since those authenticate via the same
+    # resource-scoped SP through ``_build_connection_config``.
     if ".databricksapps.com" in url:
         try:
-            from databricks.sdk import WorkspaceClient
-
-            ambient_ws = WorkspaceClient()
-            hdrs = ambient_ws.config.authenticate()
+            auth_resource = _get_auth_resource(function)
+            auth_ws = auth_resource.workspace_client_from(context)
+            hdrs = auth_ws.config.authenticate()
+            identity = (
+                value_of(auth_resource.client_id) if auth_resource.client_id else None
+            ) or auth_ws.config.client_id or "resource-scoped"
             if hdrs and "Authorization" in hdrs:
                 headers["Authorization"] = hdrs["Authorization"]
                 auth = None
                 logger.info(
                     "mcp.sampling.app_bearer_auth",
                     url=url,
-                    identity=ambient_ws.config.client_id or "ambient",
+                    identity=identity,
+                    resource_type=auth_resource.__class__.__name__,
                     has_auth_header=True,
                 )
             else:
                 logger.warning(
                     "mcp.sampling.app_bearer_auth.no_header",
                     url=url,
+                    resource_type=auth_resource.__class__.__name__,
                 )
         except Exception as exc:
             logger.warning(
@@ -393,10 +479,13 @@ async def _open_session(
     caps = function.capabilities
     sampling_cb: DaoAiSamplingCallback | None = None
     roots_cb: DaoAiListRootsCallback | None = None
+    message_handler: DaoAiNotificationCallback | None = None
     if caps and caps.sampling:
         sampling_cb = DaoAiSamplingCallback(function)
     if caps and caps.roots:
         roots_cb = DaoAiListRootsCallback(function)
+    if caps and caps.logging:
+        message_handler = DaoAiNotificationCallback(server_name="mcp_function")
 
     async with AsyncExitStack() as stack:
         read_stream, write_stream, _ = await stack.enter_async_context(
@@ -408,6 +497,7 @@ async def _open_session(
                 write_stream,
                 sampling_callback=sampling_cb,
                 list_roots_callback=roots_cb,
+                message_handler=message_handler,
             )
         )
         await session.initialize()

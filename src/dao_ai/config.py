@@ -5532,9 +5532,9 @@ class McpCapabilitiesModel(BaseModel):
         default=False,
         description="Consume progress notifications from the MCP server; forward as MLflow span events on the enclosing tool span.",
     )
-    logging: Optional[Literal["debug", "info", "warning", "error"]] = Field(
-        default=None,
-        description="Subscribe to server logging/message notifications at this minimum level; forward as MLflow span events. None disables the capability.",
+    logging: bool = Field(
+        default=False,
+        description="Consume server-→-client notifications via a session-scoped message_handler and advertise MCP's 'logging' capability so the server emits notifications/message frames. Forwards every notification (notifications/message and any custom notifications/<method>) as a channel-tagged envelope; notifications/progress is routed through the progress callback and skipped here to avoid duplicate emission.",
     )
     elicitation: Optional[Literal["hitl", "reject"]] = Field(
         default=None,

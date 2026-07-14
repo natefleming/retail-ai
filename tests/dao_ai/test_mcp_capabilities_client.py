@@ -20,7 +20,6 @@ import pytest
 from langchain_mcp_adapters.callbacks import (
     CallbackContext,
     ElicitationCallback,
-    LoggingMessageCallback,
     ProgressCallback,
 )
 from langchain_mcp_adapters.interceptors import (
@@ -31,8 +30,10 @@ from mcp.types import (
     CallToolResult,
     ElicitRequestFormParams,
     ElicitResult,
+    LoggingMessageNotification,
     LoggingMessageNotificationParams,
     ResourceLink,
+    ServerNotification,
     TextContent,
 )
 
@@ -43,7 +44,7 @@ from dao_ai.config import (
 )
 from dao_ai.tools.mcp_callbacks import (
     DaoAiElicitationCallback,
-    DaoAiLoggingCallback,
+    DaoAiNotificationCallback,
     DaoAiProgressCallback,
     _resume_value_to_elicit_result,
 )
@@ -57,7 +58,7 @@ class TestCapabilityModels:
     def test_defaults(self) -> None:
         caps = McpCapabilitiesModel()
         assert caps.progress is False
-        assert caps.logging is None
+        assert caps.logging is False
         assert caps.elicitation is None
         assert caps.structured_output is True
         assert caps.sampling is None
@@ -66,19 +67,15 @@ class TestCapabilityModels:
     def test_full_shape(self) -> None:
         caps = McpCapabilitiesModel(
             progress=True,
-            logging="info",
+            logging=True,
             elicitation="hitl",
             structured_output=True,
             roots=[McpRootModel(uri="file:///workspace", name="workspace")],
         )
         assert caps.progress is True
-        assert caps.logging == "info"
+        assert caps.logging is True
         assert caps.elicitation == "hitl"
         assert caps.roots[0].uri == "file:///workspace"
-
-    def test_invalid_logging_level_rejected(self) -> None:
-        with pytest.raises(ValueError):
-            McpCapabilitiesModel(logging="trace")  # type: ignore[arg-type]
 
     def test_invalid_elicitation_mode_rejected(self) -> None:
         with pytest.raises(ValueError):
@@ -87,11 +84,11 @@ class TestCapabilityModels:
     def test_mcpfunctionmodel_accepts_capabilities(self) -> None:
         model = McpFunctionModel(
             url="http://example.com/mcp",
-            capabilities=McpCapabilitiesModel(progress=True, logging="warning"),
+            capabilities=McpCapabilitiesModel(progress=True, logging=True),
         )
         assert model.capabilities is not None
         assert model.capabilities.progress is True
-        assert model.capabilities.logging == "warning"
+        assert model.capabilities.logging is True
 
 
 class TestBuildMcpClient:
@@ -117,7 +114,7 @@ class TestBuildMcpClient:
 
         caps = McpCapabilitiesModel(
             progress=True,
-            logging="info",
+            logging=True,
             elicitation="reject",
             structured_output=True,
         )
@@ -126,13 +123,21 @@ class TestBuildMcpClient:
             mcp_mod, "_build_connection_config", return_value={"url": "x"}
         ):
             mcp_mod._build_mcp_client(self._make_fn(capabilities=caps))
-            _, kwargs = mock_cls.call_args
+            args, kwargs = mock_cls.call_args
             assert kwargs["callbacks"] is not None
             assert kwargs["handle_tool_errors"] is False
             interceptors = kwargs["tool_interceptors"]
             assert len(interceptors) == 2
             assert isinstance(interceptors[0], DaoAiTraceInterceptor)
             assert isinstance(interceptors[1], DaoAiStructuredOutputInterceptor)
+            # logging=True → message_handler injected via session_kwargs
+            from dao_ai.tools.mcp_callbacks import DaoAiNotificationCallback
+
+            connections = args[0]
+            session_kwargs = connections["mcp_function"].get("session_kwargs") or {}
+            assert isinstance(
+                session_kwargs.get("message_handler"), DaoAiNotificationCallback
+            )
 
     def test_capabilities_path_skips_structured_interceptor_when_disabled(self) -> None:
         from dao_ai.tools import mcp as mcp_mod
@@ -255,9 +260,6 @@ class TestProtocolConformance:
     def test_progress_callback_is_protocol(self) -> None:
         assert isinstance(DaoAiProgressCallback(), ProgressCallback)
 
-    def test_logging_callback_is_protocol(self) -> None:
-        assert isinstance(DaoAiLoggingCallback("info"), LoggingMessageCallback)
-
     def test_elicitation_callback_is_protocol(self) -> None:
         assert isinstance(DaoAiElicitationCallback("reject"), ElicitationCallback)
 
@@ -286,10 +288,14 @@ class TestProgressCallback:
             )
         span.add_event.assert_called_once()
         args, kwargs = span.add_event.call_args
-        assert args[0] == "mcp.progress"
-        attrs = kwargs["attributes"]
-        assert attrs["mcp.progress"] == 0.5
-        assert attrs["mcp.tool_name"] == "query"
+        # MLflow LiveSpan.add_event(event: SpanEvent) — single positional arg.
+        span_event = args[0]
+        assert span_event.name == "mcp.progress"
+        attrs = span_event.attributes
+        assert attrs["channel"] == "mcp.progress"
+        assert attrs["progress"] == 0.5
+        assert attrs["tool_name"] == "query"
+        assert attrs["server_name"] == "genie"
 
     def test_silent_when_no_active_span(self) -> None:
         with patch(
@@ -308,40 +314,72 @@ class TestProgressCallback:
             )
 
 
-class TestLoggingCallback:
-    def test_forwards_at_or_above_min_level(self) -> None:
-        span = MagicMock()
-        with patch(
-            "dao_ai.tools.mcp_callbacks.mlflow.get_current_active_span",
-            return_value=span,
-        ):
-            cb = DaoAiLoggingCallback("warning")
-            asyncio.run(
-                cb(
-                    LoggingMessageNotificationParams(
-                        level="error", data="boom", logger="genie"
-                    ),
-                    CallbackContext(server_name="genie", tool_name="query"),
-                )
+class TestNotificationCallback:
+    @staticmethod
+    def _log_notification(level: str) -> ServerNotification:
+        return ServerNotification(
+            LoggingMessageNotification(
+                method="notifications/message",
+                params=LoggingMessageNotificationParams(
+                    level=level, data="boom", logger="genie"
+                ),
             )
-        span.add_event.assert_called_once()
-        assert span.add_event.call_args[0][0] == "mcp.log.error"
+        )
 
-    def test_drops_below_min_level(self) -> None:
+    def test_forwards_log_notification_generically(self) -> None:
         span = MagicMock()
         with patch(
             "dao_ai.tools.mcp_callbacks.mlflow.get_current_active_span",
             return_value=span,
         ):
-            cb = DaoAiLoggingCallback("warning")
-            asyncio.run(
-                cb(
-                    LoggingMessageNotificationParams(
-                        level="info", data="fyi", logger="genie"
+            cb = DaoAiNotificationCallback(server_name="genie")
+            asyncio.run(cb(self._log_notification("error")))
+        span.add_event.assert_called_once()
+        span_event = span.add_event.call_args[0][0]
+        # Span-event name equals the channel. For notifications/message
+        # frames MCP guarantees level+data on params; those are also lifted
+        # to top-level of the envelope for consumer convenience.
+        assert span_event.name == "mcp.log"
+        attrs = span_event.attributes
+        assert attrs["channel"] == "mcp.log"
+        assert attrs["method"] == "notifications/message"
+        assert attrs["server_name"] == "genie"
+        assert attrs["level"] == "error"
+        assert attrs["logger"] == "genie"
+        assert attrs["data"] == "boom"
+        # Raw params also carried through for consumers that want the
+        # original shape.
+        assert attrs["params"]["level"] == "error"
+
+    def test_ignores_exceptions_and_requests(self) -> None:
+        span = MagicMock()
+        with patch(
+            "dao_ai.tools.mcp_callbacks.mlflow.get_current_active_span",
+            return_value=span,
+        ):
+            cb = DaoAiNotificationCallback()
+            asyncio.run(cb(RuntimeError("transport blew up")))
+            asyncio.run(cb(SimpleNamespace(this_is_a="request-responder")))
+        span.add_event.assert_not_called()
+
+    def test_skips_progress_notification(self) -> None:
+        from mcp.types import ProgressNotification, ProgressNotificationParams
+
+        span = MagicMock()
+        with patch(
+            "dao_ai.tools.mcp_callbacks.mlflow.get_current_active_span",
+            return_value=span,
+        ):
+            cb = DaoAiNotificationCallback()
+            note = ServerNotification(
+                ProgressNotification(
+                    method="notifications/progress",
+                    params=ProgressNotificationParams(
+                        progressToken="t1", progress=0.5, total=1.0
                     ),
-                    CallbackContext(server_name="genie"),
                 )
             )
+            asyncio.run(cb(note))
         span.add_event.assert_not_called()
 
 
