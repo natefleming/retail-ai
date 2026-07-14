@@ -224,6 +224,7 @@ class AuditedHumanInTheLoopMiddleware(HumanInTheLoopMiddleware):
             thread_id,
             tool_call_id,
             AuditStashEntry(
+                tool_name=tool_name,
                 args_hash_at_interrupt=args_hash,
                 nonce=nonce,
                 nonce_exp=nonce_exp,

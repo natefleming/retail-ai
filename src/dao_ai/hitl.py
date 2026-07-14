@@ -17,7 +17,7 @@ from dataclasses import dataclass
 from typing import Any, Optional, Sequence
 
 from langchain_community.adapters.openai import convert_openai_messages
-from langchain_core.messages import AIMessage, BaseMessage
+from langchain_core.messages import BaseMessage
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.types import Command
 from loguru import logger
@@ -239,7 +239,7 @@ async def _record_hitl_non_executions(
             ReceiptKind,
         )
         from dao_ai.audit.base import canonical_jcs, sha256_hex
-        from dao_ai.middleware.audit_receipt import AuditStash
+        from dao_ai.middleware.audit_receipt import AuditStash, AuditStashEntry
         from dao_ai.models import _extract_interrupt_value
     except ImportError as exc:  # pragma: no cover — audit is bundled
         logger.warning(
@@ -271,9 +271,6 @@ async def _record_hitl_non_executions(
         return
 
     thread_id: str = _thread_id_from_config(runtime_config)
-    tool_call_ids_by_index: dict[int, Optional[str]] = _tool_call_ids_from_snapshot(
-        snapshot=snapshot, actions=all_actions
-    )
     approver_sub: Optional[str] = _approver_sub_from_config(runtime_config)
     import uuid
 
@@ -294,10 +291,17 @@ async def _record_hitl_non_executions(
             continue
 
         sink: LakebaseAuditSink = AuditSinkManager.for_config(audit_config)
-        tool_call_id: Optional[str] = tool_call_ids_by_index.get(idx)
-        stash_entry = None
-        if tool_call_id is not None:
-            stash_entry = AuditStash.take(thread_id, tool_call_id)
+        # Recover the interrupt-time stash by (thread_id, tool_name). This
+        # avoids depending on ``snapshot.values["messages"]`` being
+        # rehydrated to typed AIMessage objects, which the checkpointer
+        # does not always guarantee on resume paths.
+        stash_lookup: Optional[tuple[str, AuditStashEntry]] = (
+            AuditStash.take_by_tool_name(thread_id, tool_name)
+        )
+        tool_call_id: Optional[str] = None
+        stash_entry: Optional[AuditStashEntry] = None
+        if stash_lookup is not None:
+            tool_call_id, stash_entry = stash_lookup
 
         args_dict: dict[str, Any] = action.get("args") or {}
         args_jcs: str = canonical_jcs(args_dict)
@@ -370,44 +374,3 @@ def _thread_id_from_config(runtime_config: dict[str, Any]) -> str:
     return "unknown-thread"
 
 
-def _tool_call_ids_from_snapshot(
-    *,
-    snapshot: Any,
-    actions: list[Any],
-) -> dict[int, Optional[str]]:
-    """
-    Correlate each interrupt-side ActionRequest to a tool_call_id by
-    walking the last AIMessage on the snapshot and matching by (name, args).
-    Returns ``{action_index: tool_call_id | None}``.
-    """
-    values: Any = getattr(snapshot, "values", None)
-    if not isinstance(values, dict):
-        return {i: None for i in range(len(actions))}
-    messages_any: Any = values.get("messages", [])
-    if not isinstance(messages_any, list):
-        return {i: None for i in range(len(actions))}
-    last_ai: Optional[AIMessage] = next(
-        (m for m in reversed(messages_any) if isinstance(m, AIMessage)),
-        None,
-    )
-    if last_ai is None or not last_ai.tool_calls:
-        return {i: None for i in range(len(actions))}
-    tool_calls: list[dict[str, Any]] = [
-        {"name": tc.get("name"), "args": tc.get("args"), "id": tc.get("id")}
-        for tc in last_ai.tool_calls
-    ]
-    result: dict[int, Optional[str]] = {}
-    consumed: set[int] = set()
-    for idx, action in enumerate(actions):
-        target_name: Any = action.get("name")
-        target_args: Any = action.get("args")
-        matched: Optional[str] = None
-        for tc_idx, tc in enumerate(tool_calls):
-            if tc_idx in consumed:
-                continue
-            if tc["name"] == target_name and tc["args"] == target_args:
-                matched = tc.get("id")
-                consumed.add(tc_idx)
-                break
-        result[idx] = matched
-    return result

@@ -110,6 +110,7 @@ def test_create_action_and_config_populates_stash(monkeypatch: Any) -> None:
 
     stash = AuditStash.take("t-1", "call-abc")
     assert stash is not None
+    assert stash.tool_name == "refund"
     assert len(stash.args_hash_at_interrupt) == 64
     # Nonces are process-local (v1) — generated via secrets.token_urlsafe(32),
     # not persisted to Lakebase. Sink stub is no longer invoked.

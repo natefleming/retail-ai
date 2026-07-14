@@ -21,11 +21,17 @@ from dao_ai.middleware.audit_hitl import AuditedHumanInTheLoopMiddleware
 from dao_ai.middleware.audit_receipt import AuditStash, AuditStashEntry
 
 
-def _seed_stash(thread_id: str, tool_call_id: str, args: dict[str, Any]) -> None:
+def _seed_stash(
+    thread_id: str,
+    tool_call_id: str,
+    args: dict[str, Any],
+    tool_name: str = "refund",
+) -> None:
     """Simulate the interrupt-time stash population."""
     from datetime import datetime, timedelta, timezone
 
     entry = AuditStashEntry(
+        tool_name=tool_name,
         args_hash_at_interrupt=args_hash_of(args),
         nonce="nonce-abc",
         nonce_exp=datetime.now(timezone.utc) + timedelta(seconds=300),

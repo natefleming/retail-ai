@@ -75,6 +75,7 @@ class AuditStashEntry:
     """Data captured at interrupt time and consumed at execution time."""
 
     __slots__ = (
+        "tool_name",
         "args_hash_at_interrupt",
         "nonce",
         "nonce_exp",
@@ -91,6 +92,7 @@ class AuditStashEntry:
     def __init__(
         self,
         *,
+        tool_name: str,
         args_hash_at_interrupt: str,
         nonce: str,
         nonce_exp: datetime,
@@ -103,6 +105,7 @@ class AuditStashEntry:
         edited_args_jcs: Optional[str] = None,
         edited_args_hash: Optional[str] = None,
     ) -> None:
+        self.tool_name: str = tool_name
         self.args_hash_at_interrupt: str = args_hash_at_interrupt
         self.nonce: str = nonce
         self.nonce_exp: datetime = nonce_exp
@@ -134,6 +137,36 @@ class AuditStash:
         """Retrieve and remove the stash entry — single-use, mirrors nonce lifecycle."""
         with cls._lock:
             return cls._entries.pop((thread_id, tool_call_id), None)
+
+    @classmethod
+    def take_by_tool_name(
+        cls, thread_id: str, tool_name: str
+    ) -> Optional[tuple[str, AuditStashEntry]]:
+        """
+        Take the first stash entry matching ``(thread_id, tool_name)`` and
+        return ``(tool_call_id, entry)``.
+
+        Used by ``hitl.py`` when handling ``reject`` / ``respond`` — the
+        tool_call_id cannot always be reconstructed from the resume-time
+        snapshot (checkpointer serialization may not rehydrate messages as
+        ``AIMessage`` instances), but the ``ActionRequest`` name is always
+        available. tool_name is unique per interrupt per thread in
+        LangChain's HITL flow, so this scan is unambiguous within a thread.
+
+        Returns ``None`` when no matching entry exists (e.g. process
+        restart between interrupt and resume).
+        """
+        with cls._lock:
+            match_key: Optional[tuple[str, str]] = None
+            for (existing_thread, existing_call_id), entry in cls._entries.items():
+                if existing_thread == thread_id and entry.tool_name == tool_name:
+                    match_key = (existing_thread, existing_call_id)
+                    break
+            if match_key is None:
+                return None
+            tool_call_id: str = match_key[1]
+            entry = cls._entries.pop(match_key)
+            return tool_call_id, entry
 
     @classmethod
     def reset(cls) -> None:
