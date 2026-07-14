@@ -78,6 +78,53 @@ class TestAuditModelValidation:
         )
         assert high.nonce_ttl_seconds == 3600
 
+    def test_table_pattern_rejects_sql_injection(self) -> None:
+        """Table name with SQL fragments must be rejected at Pydantic validation."""
+        malicious_names: list[str] = [
+            "audit_receipts; DROP TABLE users; --",
+            "audit_receipts (dummy TEXT); DROP TABLE users; --",
+            "audit-receipts",  # hyphen requires quoting → not a bare identifier
+            "audit receipts",  # whitespace
+            "audit.receipts",  # schema-qualified would slip past a naive quote
+            'audit"receipts',  # embedded quote
+            "'audit_receipts'",  # quoted literal syntax
+            "1audit_receipts",  # cannot start with a digit
+            "",  # empty string
+        ]
+        for name in malicious_names:
+            with pytest.raises(ValidationError, match="table"):
+                AuditModel(
+                    database=DatabaseModel(project="test-lakebase"),
+                    table=name,
+                )
+
+    def test_table_pattern_accepts_safe_names(self) -> None:
+        """Legitimate identifier names must round-trip cleanly."""
+        for name in (
+            "audit_receipts",
+            "hitl_audit",
+            "Audit_Receipts_v2",
+            "_audit_receipts",  # leading underscore is a valid identifier
+            "a",  # single-char identifier is valid Postgres
+            "A" * 48,  # boundary of the length constraint
+        ):
+            model = AuditModel(
+                database=DatabaseModel(project="test-lakebase"),
+                table=name,
+            )
+            assert model.table == name
+
+    def test_table_length_over_48_rejected(self) -> None:
+        """Bare table over 48 chars would overflow the 63-char Postgres identifier
+        limit once derived index / trigger / function suffixes are appended.
+        """
+        too_long: str = "a" * 49
+        with pytest.raises(ValidationError, match="table"):
+            AuditModel(
+                database=DatabaseModel(project="test-lakebase"),
+                table=too_long,
+            )
+
 
 class TestAuditModelSerialization:
     """Tests for round-trip serialization of AuditModel via YAML."""

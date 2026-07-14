@@ -113,18 +113,41 @@ class LakebaseAuditSink:
         async with self._schema_lock:
             if self._schema_ready:
                 return
-            # Plain string.replace instead of string.Template so PL/pgSQL
-            # dollar-quoting ($$ ... $$) is preserved verbatim — Template's
-            # `$$` → `$` collapse would break the trigger body.
-            ddl: str = (
-                _load_ddl_template()
-                .replace("${receipts_table}", self._receipts_table)
-                .replace("${nonces_table}", self._nonces_table)
+            # Compose all DDL identifiers via psycopg.sql.Identifier so the
+            # table name (source: Pydantic-validated ``AuditModel.table``)
+            # can never inject SQL — matches the runtime-query pattern used
+            # everywhere else in the audit sink. Every derived identifier
+            # (trigger names, index names, function name) is wrapped
+            # explicitly rather than substituted as raw text.
+            ddl_composed: sql.Composed = sql.SQL(_load_ddl_template()).format(
+                receipts_table=sql.Identifier(self._receipts_table),
+                receipts_table_hitl_involved_idx=sql.Identifier(
+                    f"{self._receipts_table}_hitl_involved_idx"
+                ),
+                receipts_table_thread_recorded_idx=sql.Identifier(
+                    f"{self._receipts_table}_thread_recorded_idx"
+                ),
+                receipts_table_tool_call_idx=sql.Identifier(
+                    f"{self._receipts_table}_tool_call_idx"
+                ),
+                receipts_table_reject_mutation=sql.Identifier(
+                    f"{self._receipts_table}_reject_mutation"
+                ),
+                receipts_table_no_update=sql.Identifier(
+                    f"{self._receipts_table}_no_update"
+                ),
+                receipts_table_no_delete=sql.Identifier(
+                    f"{self._receipts_table}_no_delete"
+                ),
+                nonces_table=sql.Identifier(self._nonces_table),
+                nonces_table_thread_call_idx=sql.Identifier(
+                    f"{self._nonces_table}_thread_call_idx"
+                ),
             )
             pool: AsyncConnectionPool = await self._pool()
             async with pool.connection() as conn:
                 async with conn.cursor() as cur:
-                    await cur.execute(ddl)
+                    await cur.execute(ddl_composed)
             logger.info(
                 "Audit schema ensured",
                 receipts_table=self._receipts_table,

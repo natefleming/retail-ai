@@ -5229,10 +5229,16 @@ class AuditModel(BaseModel):
     )
     table: str = Field(
         default="audit_receipts",
+        pattern=r"^[A-Za-z_][A-Za-z0-9_]*$",
+        max_length=48,
         description=(
             "Table name (unqualified) for audit receipts within the "
-            "configured Lakebase database. The table is created "
-            "idempotently on first write."
+            "configured Lakebase database. Must match the Postgres "
+            "unquoted-identifier grammar ``^[A-Za-z_][A-Za-z0-9_]*$`` and "
+            "be at most 48 characters so derived identifiers (indexes, "
+            "trigger names, function name — all suffixed with up to 15 "
+            "characters) stay within Postgres' 63-char identifier limit. "
+            "The table is created idempotently on first write."
         ),
     )
     nonce_ttl_seconds: int = Field(
