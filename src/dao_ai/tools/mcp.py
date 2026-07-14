@@ -651,6 +651,25 @@ async def acreate_mcp_tools(
     Raises:
         RuntimeError: If connection to MCP server fails.
     """
+    # PR 3 — sampling / roots need a raw ClientSession (langchain-mcp-adapters
+    # 0.3.0 doesn't surface those two callbacks). Delegate to the
+    # SamplingRootsMCPClient path only when at least one of them is declared.
+    # All other capabilities (progress / logging / elicitation / structured
+    # output) still flow through the MultiServerMCPClient path below.
+    from dao_ai.tools.mcp_sampling import (
+        acreate_mcp_tools_with_sampling,
+        sampling_or_roots_active,
+    )
+
+    if sampling_or_roots_active(function):
+        logger.info(
+            "mcp.route.sampling_or_roots",
+            url=function.mcp_url,
+            sampling=function.capabilities.sampling is not None,  # type: ignore[union-attr]
+            roots_count=len(function.capabilities.roots),  # type: ignore[union-attr]
+        )
+        return await acreate_mcp_tools_with_sampling(function)
+
     mcp_url = function.mcp_url
     logger.debug("Creating MCP tools (async)", mcp_url=mcp_url)
 
@@ -771,6 +790,9 @@ def create_mcp_tools(
 
     For async contexts, use acreate_mcp_tools() directly.
 
+    Sampling / roots path is async-only — routes through ``asyncio.run``
+    just like the classic path.
+
     Args:
         function: The MCP function model configuration.
 
@@ -780,6 +802,13 @@ def create_mcp_tools(
     Raises:
         RuntimeError: If connection to MCP server fails.
     """
+    from dao_ai.tools.mcp_sampling import sampling_or_roots_active
+
+    if sampling_or_roots_active(function):
+        # Sampling / roots require an async raw ClientSession — delegate to
+        # the async path via asyncio.run so sync callers still work.
+        return asyncio.run(acreate_mcp_tools(function))
+
     mcp_url = function.mcp_url
     logger.debug("Creating MCP tools", mcp_url=mcp_url)
 
