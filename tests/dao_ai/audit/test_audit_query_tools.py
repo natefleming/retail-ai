@@ -63,15 +63,20 @@ class TestFactoryReturnsBaseTool:
         tool_obj = create_verify_audit_hash_chain_tool(audit)
         assert tool_obj.name == "verify_audit_hash_chain"
 
-    def test_bundle_factory_returns_all_three(self) -> None:
+    def test_bundle_factory_returns_full_toolkit(self) -> None:
+        """create_audit_query_tools returns every tool in the toolkit
+        (three basic query tools + four auditor-oriented tools)."""
         audit = AuditModel(database=DatabaseModel(project="test-lake"))
         tools = create_audit_query_tools(audit)
-        assert len(tools) == 3
         names = {t.name for t in tools}
         assert names == {
             "query_audit_receipts",
             "get_audit_receipt_by_id",
             "verify_audit_hash_chain",
+            "summarize_audit_activity",
+            "find_security_incidents",
+            "get_thread_timeline",
+            "get_approver_activity",
         }
 
 

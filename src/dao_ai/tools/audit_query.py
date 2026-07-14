@@ -56,8 +56,12 @@ __all__ = [
     "as_toolkit",
     "create_audit_query_tools",
     "create_audit_toolkit",
+    "create_find_security_incidents_tool",
+    "create_get_approver_activity_tool",
     "create_get_audit_receipt_by_id_tool",
+    "create_get_thread_timeline_tool",
     "create_query_audit_receipts_tool",
+    "create_summarize_audit_activity_tool",
     "create_verify_audit_hash_chain_tool",
 ]
 
@@ -481,9 +485,499 @@ def create_audit_query_tools(
         create_query_audit_receipts_tool(audit),
         create_get_audit_receipt_by_id_tool(audit),
         create_verify_audit_hash_chain_tool(audit),
+        create_summarize_audit_activity_tool(audit),
+        create_find_security_incidents_tool(audit),
+        create_get_thread_timeline_tool(audit),
+        create_get_approver_activity_tool(audit),
     ]
     tools.extend(as_tool_list(extra_tools))
     return tools
+
+
+# ----------------------------------------------------------------------
+# summarize_audit_activity
+# ----------------------------------------------------------------------
+
+
+def create_summarize_audit_activity_tool(audit: AuditConfigInput) -> BaseTool:
+    """Return a tool that produces top-level audit-activity stats for a time window."""
+    audit_model: AuditModel = _coerce_audit_model(audit)
+    receipts_table: str = audit_model.table
+
+    @tool
+    async def summarize_audit_activity(
+        since: Optional[str] = None,
+        until: Optional[str] = None,
+        thread_id: Optional[str] = None,
+        tool_name: Optional[str] = None,
+    ) -> dict[str, Any]:
+        """
+        Top-level summary of audit activity — the "how many, of what
+        kinds, by whom" report an auditor asks for first.
+
+        Answers questions like:
+        - "How many tool invocations were audited last week?"
+        - "What's the approve / reject / edit / respond ratio?"
+        - "Which tools generate the most audit volume?"
+        - "Which approvers were most active?"
+        - "How many args-mismatch security incidents fired?"
+
+        Args:
+            since: ISO-8601 lower bound on recorded_at (inclusive).
+            until: ISO-8601 upper bound on recorded_at (exclusive).
+            thread_id: Restrict to a single conversation.
+            tool_name: Restrict to invocations of a single tool.
+
+        Returns:
+            Dict with:
+              - ``total_receipts``: overall count in the window.
+              - ``by_receipt_kind``: {execution, rejection, approval}.
+              - ``by_decision``: {approve, edit, reject, respond, null}
+                (``null`` counts audit-only executions).
+              - ``by_execution_status``: {ok, error, args_mismatch,
+                not_executed_rejected}.
+              - ``hitl_involved``: {true, false}.
+              - ``unique_tools``: distinct ``tool_name`` count.
+              - ``unique_approvers``: distinct non-null ``approver_sub`` count.
+              - ``top_tools``: [{tool_name, receipts}] — top 10 by count.
+              - ``top_approvers``: [{approver_sub, receipts}] — top 10 by count.
+              - ``args_mismatch_count``: fail-closed rejection count.
+              - ``error_count``: ``execution_status='error'`` count.
+              - ``window``: {since, until} echoed as ISO strings.
+        """
+        clauses, params = _build_window_clauses(
+            since=since, until=until, thread_id=thread_id, tool_name=tool_name
+        )
+        where: str = ("WHERE " + " AND ".join(clauses)) if clauses else ""
+
+        sink: LakebaseAuditSink = _sink_for(audit_model)
+        await sink.ensure_schema()
+        pool: AsyncConnectionPool = await sink._pool()
+        async with pool.connection() as conn:
+            async with conn.cursor(row_factory=dict_row) as cur:
+                await cur.execute(
+                    f"SELECT COUNT(*) AS n FROM {receipts_table} {where}",
+                    tuple(params),
+                )
+                total: int = int((await cur.fetchone() or {"n": 0})["n"])
+
+                await cur.execute(
+                    f"SELECT receipt_kind, COUNT(*) AS n "
+                    f"FROM {receipts_table} {where} GROUP BY receipt_kind",
+                    tuple(params),
+                )
+                by_receipt_kind: dict[str, int] = {
+                    r["receipt_kind"]: int(r["n"]) for r in await cur.fetchall()
+                }
+
+                await cur.execute(
+                    f"SELECT COALESCE(decision, 'null') AS decision, COUNT(*) AS n "
+                    f"FROM {receipts_table} {where} GROUP BY decision",
+                    tuple(params),
+                )
+                by_decision: dict[str, int] = {
+                    r["decision"]: int(r["n"]) for r in await cur.fetchall()
+                }
+
+                await cur.execute(
+                    f"SELECT COALESCE(execution_status, 'null') AS execution_status, "
+                    f"COUNT(*) AS n FROM {receipts_table} {where} GROUP BY execution_status",
+                    tuple(params),
+                )
+                by_execution_status: dict[str, int] = {
+                    r["execution_status"]: int(r["n"]) for r in await cur.fetchall()
+                }
+
+                await cur.execute(
+                    f"SELECT hitl_involved, COUNT(*) AS n "
+                    f"FROM {receipts_table} {where} GROUP BY hitl_involved",
+                    tuple(params),
+                )
+                hitl_involved_counts: dict[str, int] = {
+                    ("true" if r["hitl_involved"] else "false"): int(r["n"])
+                    for r in await cur.fetchall()
+                }
+
+                await cur.execute(
+                    f"SELECT tool_name, COUNT(*) AS n "
+                    f"FROM {receipts_table} {where} "
+                    f"GROUP BY tool_name ORDER BY n DESC LIMIT 10",
+                    tuple(params),
+                )
+                top_tools: list[dict[str, Any]] = [
+                    {"tool_name": r["tool_name"], "receipts": int(r["n"])}
+                    for r in await cur.fetchall()
+                ]
+
+                where_with_approver: str = (
+                    where + (" AND " if clauses else "WHERE ")
+                    + "approver_sub IS NOT NULL"
+                )
+                await cur.execute(
+                    f"SELECT approver_sub, COUNT(*) AS n "
+                    f"FROM {receipts_table} {where_with_approver} "
+                    f"GROUP BY approver_sub ORDER BY n DESC LIMIT 10",
+                    tuple(params),
+                )
+                top_approvers: list[dict[str, Any]] = [
+                    {"approver_sub": r["approver_sub"], "receipts": int(r["n"])}
+                    for r in await cur.fetchall()
+                ]
+
+                await cur.execute(
+                    f"SELECT COUNT(DISTINCT tool_name) AS n "
+                    f"FROM {receipts_table} {where}",
+                    tuple(params),
+                )
+                unique_tools: int = int((await cur.fetchone() or {"n": 0})["n"])
+
+                await cur.execute(
+                    f"SELECT COUNT(DISTINCT approver_sub) AS n "
+                    f"FROM {receipts_table} {where_with_approver}",
+                    tuple(params),
+                )
+                unique_approvers: int = int((await cur.fetchone() or {"n": 0})["n"])
+
+        return {
+            "total_receipts": total,
+            "by_receipt_kind": by_receipt_kind,
+            "by_decision": by_decision,
+            "by_execution_status": by_execution_status,
+            "hitl_involved": hitl_involved_counts,
+            "unique_tools": unique_tools,
+            "unique_approvers": unique_approvers,
+            "top_tools": top_tools,
+            "top_approvers": top_approvers,
+            "args_mismatch_count": by_execution_status.get("args_mismatch", 0),
+            "error_count": by_execution_status.get("error", 0),
+            "window": {"since": since, "until": until},
+        }
+
+    return summarize_audit_activity
+
+
+# ----------------------------------------------------------------------
+# find_security_incidents
+# ----------------------------------------------------------------------
+
+
+def create_find_security_incidents_tool(audit: AuditConfigInput) -> BaseTool:
+    """Return a tool that surfaces anything an auditor would flag as "smoke"."""
+    audit_model: AuditModel = _coerce_audit_model(audit)
+    receipts_table: str = audit_model.table
+
+    @tool
+    async def find_security_incidents(
+        since: Optional[str] = None,
+        until: Optional[str] = None,
+        limit: int = 50,
+    ) -> list[dict[str, Any]]:
+        """
+        List audit receipts that represent security-relevant incidents.
+
+        Surfaces the three high-signal patterns an auditor triages first:
+
+        - ``execution_status = 'args_mismatch'`` — fail-closed rejection
+          because arguments changed between HITL approval and execution.
+          Strong indicator of tampering or a middleware bug.
+        - ``execution_status = 'error'`` — tool ran but raised. Not
+          always malicious, but auditor-visible.
+        - ``execution_status = 'not_executed_rejected'`` on receipts with
+          ``decision != 'reject'`` — an unusual state where execution
+          was blocked without an explicit user rejection.
+
+        Args:
+            since: ISO-8601 lower bound on recorded_at (inclusive).
+            until: ISO-8601 upper bound on recorded_at (exclusive).
+            limit: Maximum incidents to return, 1-200 (default 50).
+
+        Returns:
+            List of ``{receipt_id, thread_id, tool_name, approver_sub,
+            incident_type, execution_status, execution_error, recorded_at,
+            hitl_involved}`` ordered by recorded_at DESC. ``incident_type``
+            is one of ``args_mismatch`` | ``execution_error`` |
+            ``anomalous_non_execution``.
+        """
+        clauses, params = _build_window_clauses(since=since, until=until)
+        clauses.append(
+            "(execution_status IN ('args_mismatch','error') "
+            "OR (execution_status = 'not_executed_rejected' "
+            "AND (decision IS NULL OR decision NOT IN ('reject','respond'))))"
+        )
+        where: str = "WHERE " + " AND ".join(clauses)
+        capped_limit: int = max(1, min(int(limit), 200))
+        sql: str = (
+            f"SELECT receipt_id, thread_id, tool_name, approver_sub, "
+            f"execution_status, execution_error, hitl_involved, "
+            f"recorded_at, decision "
+            f"FROM {receipts_table} {where} "
+            f"ORDER BY recorded_at DESC LIMIT %s"
+        )
+        params.append(capped_limit)
+
+        sink: LakebaseAuditSink = _sink_for(audit_model)
+        await sink.ensure_schema()
+        pool: AsyncConnectionPool = await sink._pool()
+        async with pool.connection() as conn:
+            async with conn.cursor(row_factory=dict_row) as cur:
+                await cur.execute(sql, tuple(params))
+                rows: list[dict[str, Any]] = list(await cur.fetchall())
+
+        def _incident_type(row: dict[str, Any]) -> str:
+            status: Any = row.get("execution_status")
+            if status == "args_mismatch":
+                return "args_mismatch"
+            if status == "error":
+                return "execution_error"
+            return "anomalous_non_execution"
+
+        return [
+            {
+                "receipt_id": row["receipt_id"],
+                "thread_id": row["thread_id"],
+                "tool_name": row["tool_name"],
+                "approver_sub": row["approver_sub"],
+                "incident_type": _incident_type(row),
+                "execution_status": row["execution_status"],
+                "execution_error": row["execution_error"],
+                "hitl_involved": bool(row["hitl_involved"]),
+                "decision": row.get("decision"),
+                "recorded_at": (
+                    row["recorded_at"].isoformat()
+                    if isinstance(row["recorded_at"], datetime)
+                    else row["recorded_at"]
+                ),
+            }
+            for row in rows
+        ]
+
+    return find_security_incidents
+
+
+# ----------------------------------------------------------------------
+# get_thread_timeline
+# ----------------------------------------------------------------------
+
+
+def create_get_thread_timeline_tool(audit: AuditConfigInput) -> BaseTool:
+    """Return a tool that produces a full audit timeline for a single thread."""
+    audit_model: AuditModel = _coerce_audit_model(audit)
+    receipts_table: str = audit_model.table
+
+    @tool
+    async def get_thread_timeline(thread_id: str) -> dict[str, Any]:
+        """
+        Return the complete audit timeline for a conversation thread.
+
+        Every audited tool invocation in this thread, in order — so an
+        auditor can reconstruct "what did the agent do, in what
+        sequence, and did the human approve each sensitive step?".
+
+        Also inline-verifies the hash chain: any break shows up as
+        ``chain_break: true`` on the offending receipt.
+
+        Args:
+            thread_id: LangGraph thread identifier.
+
+        Returns:
+            Dict with:
+              - ``thread_id``: the thread queried
+              - ``receipt_count``: number of receipts in the timeline
+              - ``chain_valid``: True when every receipt's prev_hash
+                matches the previous receipt's this_hash
+              - ``timeline``: ordered list of receipt summaries, each
+                including ``chain_break`` if the previous link doesn't
+                match.
+        """
+        sql: str = (
+            f"SELECT receipt_id, tool_name, receipt_kind, decision, "
+            f"decision_detail, approver_sub, obo_token_sub, "
+            f"execution_status, hitl_involved, args_hash, "
+            f"args_hash_at_interrupt, prev_hash, this_hash, "
+            f"mlflow_trace_id, recorded_at "
+            f"FROM {receipts_table} "
+            f"WHERE thread_id = %s "
+            f"ORDER BY recorded_at ASC"
+        )
+
+        sink: LakebaseAuditSink = _sink_for(audit_model)
+        await sink.ensure_schema()
+        pool: AsyncConnectionPool = await sink._pool()
+        async with pool.connection() as conn:
+            async with conn.cursor(row_factory=dict_row) as cur:
+                await cur.execute(sql, (thread_id,))
+                rows: list[dict[str, Any]] = list(await cur.fetchall())
+
+        timeline: list[dict[str, Any]] = []
+        expected_prev: Optional[str] = None
+        chain_valid: bool = True
+        for row in rows:
+            actual_prev: Optional[str] = row["prev_hash"]
+            chain_break: bool = actual_prev != expected_prev
+            if chain_break:
+                chain_valid = False
+            timeline.append(
+                {
+                    "receipt_id": row["receipt_id"],
+                    "tool_name": row["tool_name"],
+                    "receipt_kind": row["receipt_kind"],
+                    "decision": row["decision"],
+                    "decision_detail": row["decision_detail"],
+                    "approver_sub": row["approver_sub"],
+                    "obo_token_sub": row["obo_token_sub"],
+                    "execution_status": row["execution_status"],
+                    "hitl_involved": bool(row["hitl_involved"]),
+                    "args_hash": row["args_hash"],
+                    "args_hash_at_interrupt": row["args_hash_at_interrupt"],
+                    "mlflow_trace_id": row["mlflow_trace_id"],
+                    "recorded_at": (
+                        row["recorded_at"].isoformat()
+                        if isinstance(row["recorded_at"], datetime)
+                        else row["recorded_at"]
+                    ),
+                    "chain_break": chain_break,
+                }
+            )
+            expected_prev = row["this_hash"]
+
+        return {
+            "thread_id": thread_id,
+            "receipt_count": len(rows),
+            "chain_valid": chain_valid,
+            "timeline": timeline,
+        }
+
+    return get_thread_timeline
+
+
+# ----------------------------------------------------------------------
+# get_approver_activity
+# ----------------------------------------------------------------------
+
+
+def create_get_approver_activity_tool(audit: AuditConfigInput) -> BaseTool:
+    """Return a tool that summarises a single approver's audit trail."""
+    audit_model: AuditModel = _coerce_audit_model(audit)
+    receipts_table: str = audit_model.table
+
+    @tool
+    async def get_approver_activity(
+        approver_sub: str,
+        since: Optional[str] = None,
+        until: Optional[str] = None,
+    ) -> dict[str, Any]:
+        """
+        Summarise every audit receipt attributed to a single approver.
+
+        Answers auditor questions like "show me everything user X
+        approved / rejected in the last quarter" and "which tools has
+        this approver ever authorized?".
+
+        Args:
+            approver_sub: The approver identity to look up (matches
+                ``receipt.approver_sub``).
+            since: ISO-8601 lower bound on recorded_at (inclusive).
+            until: ISO-8601 upper bound on recorded_at (exclusive).
+
+        Returns:
+            Dict with:
+              - ``approver_sub``: the identity queried
+              - ``total_decisions``: overall receipt count for this
+                approver in the window
+              - ``by_decision``: {approve, edit, reject, respond}
+              - ``unique_tools``: distinct tool_name count
+              - ``tool_breakdown``: [{tool_name, receipts}] ordered by
+                count desc
+              - ``first_seen`` / ``last_seen``: ISO timestamps of the
+                approver's oldest / newest receipt in the window
+              - ``window``: {since, until} echoed
+        """
+        clauses, params = _build_window_clauses(since=since, until=until)
+        clauses.append("approver_sub = %s")
+        params.append(approver_sub)
+        where: str = "WHERE " + " AND ".join(clauses)
+
+        sink: LakebaseAuditSink = _sink_for(audit_model)
+        await sink.ensure_schema()
+        pool: AsyncConnectionPool = await sink._pool()
+        async with pool.connection() as conn:
+            async with conn.cursor(row_factory=dict_row) as cur:
+                await cur.execute(
+                    f"SELECT COUNT(*) AS n, MIN(recorded_at) AS first_seen, "
+                    f"MAX(recorded_at) AS last_seen "
+                    f"FROM {receipts_table} {where}",
+                    tuple(params),
+                )
+                head: dict[str, Any] = (await cur.fetchone()) or {}
+
+                await cur.execute(
+                    f"SELECT COALESCE(decision, 'null') AS decision, COUNT(*) AS n "
+                    f"FROM {receipts_table} {where} GROUP BY decision",
+                    tuple(params),
+                )
+                by_decision: dict[str, int] = {
+                    r["decision"]: int(r["n"]) for r in await cur.fetchall()
+                }
+
+                await cur.execute(
+                    f"SELECT tool_name, COUNT(*) AS n "
+                    f"FROM {receipts_table} {where} "
+                    f"GROUP BY tool_name ORDER BY n DESC",
+                    tuple(params),
+                )
+                tool_breakdown: list[dict[str, Any]] = [
+                    {"tool_name": r["tool_name"], "receipts": int(r["n"])}
+                    for r in await cur.fetchall()
+                ]
+
+        first_seen: Any = head.get("first_seen")
+        last_seen: Any = head.get("last_seen")
+        return {
+            "approver_sub": approver_sub,
+            "total_decisions": int(head.get("n") or 0),
+            "by_decision": by_decision,
+            "unique_tools": len(tool_breakdown),
+            "tool_breakdown": tool_breakdown,
+            "first_seen": (
+                first_seen.isoformat() if isinstance(first_seen, datetime) else None
+            ),
+            "last_seen": (
+                last_seen.isoformat() if isinstance(last_seen, datetime) else None
+            ),
+            "window": {"since": since, "until": until},
+        }
+
+    return get_approver_activity
+
+
+# ----------------------------------------------------------------------
+# Shared window-clause helper
+# ----------------------------------------------------------------------
+
+
+def _build_window_clauses(
+    *,
+    since: Optional[str] = None,
+    until: Optional[str] = None,
+    thread_id: Optional[str] = None,
+    tool_name: Optional[str] = None,
+) -> tuple[list[str], list[Any]]:
+    """Build shared ``WHERE`` clauses + parameter list for windowed queries."""
+    clauses: list[str] = []
+    params: list[Any] = []
+    if since is not None:
+        clauses.append("recorded_at >= %s")
+        params.append(_parse_iso(since))
+    if until is not None:
+        clauses.append("recorded_at < %s")
+        params.append(_parse_iso(until))
+    if thread_id is not None:
+        clauses.append("thread_id = %s")
+        params.append(thread_id)
+    if tool_name is not None:
+        clauses.append("tool_name = %s")
+        params.append(tool_name)
+    return clauses, params
 
 
 class AuditToolkit(BaseToolkit):

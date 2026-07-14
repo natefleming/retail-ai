@@ -38,16 +38,23 @@ def test_toolkit_is_langchain_base_toolkit() -> None:
     assert isinstance(toolkit, BaseToolkit)
 
 
-def test_toolkit_get_tools_returns_all_three() -> None:
+_EXPECTED_TOOL_NAMES = {
+    "query_audit_receipts",
+    "get_audit_receipt_by_id",
+    "verify_audit_hash_chain",
+    "summarize_audit_activity",
+    "find_security_incidents",
+    "get_thread_timeline",
+    "get_approver_activity",
+}
+
+
+def test_toolkit_get_tools_returns_full_bundle() -> None:
     audit = AuditModel(database=DatabaseModel(project="test-lake"))
     toolkit = create_audit_toolkit(audit)
     tools = toolkit.get_tools()
     names = {t.name for t in tools}
-    assert names == {
-        "query_audit_receipts",
-        "get_audit_receipt_by_id",
-        "verify_audit_hash_chain",
-    }
+    assert names == _EXPECTED_TOOL_NAMES
 
 
 def test_toolkit_accepts_dict_config() -> None:
@@ -55,7 +62,7 @@ def test_toolkit_accepts_dict_config() -> None:
     toolkit = create_audit_toolkit(
         {"database": {"project": "test-lake"}, "table": "custom_receipts"}
     )
-    assert len(toolkit.get_tools()) == 3
+    assert len(toolkit.get_tools()) == len(_EXPECTED_TOOL_NAMES)
 
 
 def test_get_tools_returns_defensive_copy() -> None:
@@ -65,7 +72,7 @@ def test_get_tools_returns_defensive_copy() -> None:
     tools_first = toolkit.get_tools()
     tools_first.pop()
     tools_second = toolkit.get_tools()
-    assert len(tools_second) == 3
+    assert len(tools_second) == len(_EXPECTED_TOOL_NAMES)
 
 
 class TestAsToolList:
@@ -132,12 +139,7 @@ class TestFactoryExtraTools:
             audit, extra_tools=_sample_tool
         )
         names = {t.name for t in combined}
-        assert names == {
-            "query_audit_receipts",
-            "get_audit_receipt_by_id",
-            "verify_audit_hash_chain",
-            "_sample_tool",
-        }
+        assert names == _EXPECTED_TOOL_NAMES | {"_sample_tool"}
 
     def test_create_audit_toolkit_bundles_sequence(self) -> None:
         audit = AuditModel(database=DatabaseModel(project="test-lake"))
@@ -145,10 +147,7 @@ class TestFactoryExtraTools:
             audit, extra_tools=[_sample_tool, _second_sample_tool]
         )
         names = {t.name for t in toolkit.get_tools()}
-        assert names == {
-            "query_audit_receipts",
-            "get_audit_receipt_by_id",
-            "verify_audit_hash_chain",
+        assert names == _EXPECTED_TOOL_NAMES | {
             "_sample_tool",
             "_second_sample_tool",
         }
@@ -160,7 +159,7 @@ class TestFactoryExtraTools:
         names = {t.name for t in toolkit.get_tools()}
         assert "query_audit_receipts" in names and "_sample_tool" in names
 
-    def test_create_audit_toolkit_no_extras_still_3(self) -> None:
+    def test_create_audit_toolkit_no_extras_ships_bundle(self) -> None:
         audit = AuditModel(database=DatabaseModel(project="test-lake"))
         toolkit = create_audit_toolkit(audit)
-        assert len(toolkit.get_tools()) == 3
+        assert len(toolkit.get_tools()) == len(_EXPECTED_TOOL_NAMES)

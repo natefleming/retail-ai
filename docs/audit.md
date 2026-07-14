@@ -305,15 +305,43 @@ read access than the receipts table.
 ## AuditToolkit
 
 Agents can inspect their own audit trail via a first-class LangChain
-toolkit — `AuditToolkit`. Register it once and the agent gains three
-tools:
+toolkit — `AuditToolkit`. Register it once and the agent gains **seven**
+tools, from basic lookups to full auditor-grade reports:
+
+**Base lookups:**
 
 - `query_audit_receipts` — filtered listing (thread_id, tool_name,
-  decision, receipt_kind, approver_sub, since/until, limit).
+  decision, receipt_kind, approver_sub, hitl_involved, since/until,
+  limit). Returns each row with a synthesised `hitl_involved` flag.
 - `get_audit_receipt_by_id` — single-receipt lookup by `receipt_id`.
 - `verify_audit_hash_chain` — walks the per-thread chain and returns any
   `{index, receipt_id, expected_prev_hash, actual_prev_hash}` breaks —
   runtime detection of tampering that got past the append-only trigger.
+
+**Auditor-oriented reports:**
+
+- `summarize_audit_activity(since, until, thread_id?, tool_name?)` —
+  top-level dashboard. Returns overall counts, breakdowns by
+  `receipt_kind` / `decision` / `execution_status` / `hitl_involved`,
+  unique tools + approvers, top 10 tools + approvers, and the
+  args_mismatch / error counts. Answers "how many, of what kinds, by
+  whom, in this window?".
+- `find_security_incidents(since, until, limit)` — the "smoke" query.
+  Surfaces every `execution_status = args_mismatch` fail-closed
+  rejection, every `execution_status = error` tool exception, and every
+  anomalous non-execution (blocked without an explicit user reject or
+  respond). Each row tagged with an `incident_type` for triage.
+- `get_thread_timeline(thread_id)` — full ordered audit history for a
+  conversation, including inline hash-chain verification
+  (`chain_break: true` on any row whose `prev_hash` doesn't match the
+  previous receipt's `this_hash`). Lets an auditor reconstruct "what did
+  the agent do, in what sequence, and did the human approve each
+  sensitive step?".
+- `get_approver_activity(approver_sub, since, until)` — per-approver
+  breakdown: total decisions, split by decision type, unique tools
+  authorised, per-tool breakdown, first/last-seen timestamps.
+  Answers "show me everything user X approved / rejected in the last
+  quarter".
 
 ```yaml
 tools:
