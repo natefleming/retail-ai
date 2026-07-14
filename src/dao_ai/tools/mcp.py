@@ -302,6 +302,139 @@ def _extract_text_content(result: CallToolResult) -> str:
 _TRANSIENT_HTTP_STATUS_CODES = {429, 502, 503, 504}
 
 
+def _build_mcp_client(
+    function: McpFunctionModel,
+    context: "Context | None" = None,
+) -> MultiServerMCPClient:
+    """Construct a MultiServerMCPClient for a single ``mcp_function`` connection.
+
+    When ``function.capabilities`` is None (default), returns the classic
+    single-connection client with ``handle_tool_errors=False`` — preserving the
+    pre-0.3.0 ``ToolException`` semantics that dao-ai's agent loop relies on.
+
+    When ``function.capabilities`` is set, additionally attaches:
+    - ``Callbacks(on_progress=..., on_logging_message=..., on_elicitation=...)``
+      for the enabled server-→-client notifications.
+    - ``tool_interceptors=[DaoAiTraceInterceptor, ...]`` for MLflow correlation
+      and (optionally) structured-output observation.
+
+    Callback/interceptor construction is lazy: the classes are imported only
+    when at least one capability is enabled, keeping the classic import graph
+    unchanged.
+    """
+    connections = {"mcp_function": _build_connection_config(function, context)}
+
+    caps = function.capabilities
+    if caps is None:
+        return MultiServerMCPClient(connections, handle_tool_errors=False)
+
+    from langchain_mcp_adapters.callbacks import Callbacks
+    from langchain_mcp_adapters.interceptors import ToolCallInterceptor
+
+    from dao_ai.tools.mcp_callbacks import (
+        DaoAiElicitationCallback,
+        DaoAiLoggingCallback,
+        DaoAiProgressCallback,
+    )
+    from dao_ai.tools.mcp_interceptors import (
+        DaoAiStructuredOutputInterceptor,
+        DaoAiTraceInterceptor,
+    )
+
+    on_progress = DaoAiProgressCallback() if caps.progress else None
+    on_logging = DaoAiLoggingCallback(caps.logging) if caps.logging else None
+    on_elicit = DaoAiElicitationCallback(caps.elicitation) if caps.elicitation else None
+
+    callbacks: Callbacks | None = None
+    if any([on_progress, on_logging, on_elicit]):
+        callbacks = Callbacks(
+            on_logging_message=on_logging,
+            on_progress=on_progress,
+            on_elicitation=on_elicit,
+        )
+
+    interceptors: list[ToolCallInterceptor] = [DaoAiTraceInterceptor()]
+    if caps.structured_output:
+        interceptors.append(DaoAiStructuredOutputInterceptor())
+
+    return MultiServerMCPClient(
+        connections,
+        callbacks=callbacks,
+        tool_interceptors=interceptors,
+        handle_tool_errors=False,
+    )
+
+
+async def _call_tool_with_capabilities(
+    function: McpFunctionModel,
+    session: Any,
+    tool_name: str,
+    args: dict[str, Any],
+    meta: dict[str, Any] | None,
+) -> CallToolResult:
+    """Invoke ``session.call_tool`` honoring per-call capabilities.
+
+    langchain-mcp-adapters 0.3.0 wires ``progress_callback`` and
+    ``tool_interceptors`` inside its own ``load_mcp_tools()`` path. dao-ai's
+    custom tool wrapper uses the raw ``session.call_tool``, so we thread the
+    per-call progress callback and compose the interceptor onion manually
+    here. When ``function.capabilities`` is None, this is a straight
+    passthrough to ``session.call_tool`` — no behavior change.
+    """
+    caps = function.capabilities
+    if caps is None:
+        return await session.call_tool(tool_name, args, meta=meta)
+
+    from langchain_mcp_adapters.callbacks import CallbackContext
+    from langchain_mcp_adapters.interceptors import (
+        MCPToolCallRequest,
+        ToolCallInterceptor,
+    )
+
+    from dao_ai.tools.mcp_callbacks import DaoAiProgressCallback
+    from dao_ai.tools.mcp_interceptors import (
+        DaoAiStructuredOutputInterceptor,
+        DaoAiTraceInterceptor,
+    )
+
+    call_kwargs: dict[str, Any] = {"meta": meta}
+    if caps.progress:
+        progress_cb = DaoAiProgressCallback()
+        cb_ctx = CallbackContext(server_name="mcp_function", tool_name=tool_name)
+
+        async def _bound_progress(
+            progress: float, total: float | None, message: str | None
+        ) -> None:
+            await progress_cb(progress, total, message, cb_ctx)
+
+        call_kwargs["progress_callback"] = _bound_progress
+
+    interceptors: list[ToolCallInterceptor] = [DaoAiTraceInterceptor()]
+    if caps.structured_output:
+        interceptors.append(DaoAiStructuredOutputInterceptor())
+
+    async def _terminal_handler(request: MCPToolCallRequest) -> CallToolResult:
+        return await session.call_tool(request.name, request.args, **call_kwargs)
+
+    handler = _terminal_handler
+    for interceptor in reversed(interceptors):
+        prev = handler
+
+        async def _wrapped(
+            req: MCPToolCallRequest,
+            _interceptor: ToolCallInterceptor = interceptor,
+            _next: Any = prev,
+        ) -> Any:
+            return await _interceptor(req, _next)
+
+        handler = _wrapped
+
+    request = MCPToolCallRequest(
+        name=tool_name, args=args, server_name="mcp_function", headers=None
+    )
+    return await handler(request)  # type: ignore[return-value]
+
+
 def _is_transient_http_error(exc: BaseException) -> bool:
     """Return True for httpx.HTTPStatusError with a retryable status code."""
     if isinstance(exc, httpx.HTTPStatusError):
@@ -337,8 +470,7 @@ async def _afetch_tools_from_server(function: McpFunctionModel) -> list[Tool]:
     Raises:
         RuntimeError: If connection to MCP server fails after all retries.
     """
-    connection_config = _build_connection_config(function)
-    client = MultiServerMCPClient({"mcp_function": connection_config})
+    client = _build_mcp_client(function)
 
     try:
         async with client.session("mcp_function") as session:
@@ -594,14 +726,18 @@ async def acreate_mcp_tools(
             # Get context for OBO support
             context: Context | None = runtime.context if runtime else None
 
-            invocation_client: MultiServerMCPClient = MultiServerMCPClient(
-                {"mcp_function": _build_connection_config(function, context)}
+            invocation_client: MultiServerMCPClient = _build_mcp_client(
+                function, context
             )
 
             try:
                 async with invocation_client.session("mcp_function") as session:
-                    result: CallToolResult = await session.call_tool(
-                        mcp_tool.name, kwargs, meta=_resolve_meta(function.meta)
+                    result: CallToolResult = await _call_tool_with_capabilities(
+                        function,
+                        session,
+                        mcp_tool.name,
+                        kwargs,
+                        _resolve_meta(function.meta),
                     )
 
                     text_result: str = _extract_text_content(result)
@@ -724,14 +860,18 @@ def create_mcp_tools(
             context: Context | None = runtime.context if runtime else None
 
             # Create a fresh client/session for each invocation with OBO support
-            invocation_client: MultiServerMCPClient = MultiServerMCPClient(
-                {"mcp_function": _build_connection_config(function, context)}
+            invocation_client: MultiServerMCPClient = _build_mcp_client(
+                function, context
             )
 
             try:
                 async with invocation_client.session("mcp_function") as session:
-                    result: CallToolResult = await session.call_tool(
-                        mcp_tool.name, kwargs, meta=_resolve_meta(function.meta)
+                    result: CallToolResult = await _call_tool_with_capabilities(
+                        function,
+                        session,
+                        mcp_tool.name,
+                        kwargs,
+                        _resolve_meta(function.meta),
                     )
 
                     # Extract text content, avoiding extra fields

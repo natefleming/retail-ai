@@ -5364,6 +5364,88 @@ class TransportType(str, Enum):
     STDIO = "stdio"
 
 
+class McpSamplingCapabilityModel(BaseModel):
+    """Configuration for handling server-initiated sampling/createMessage requests.
+
+    When present on an McpFunctionModel, dao-ai routes sampling requests to the
+    referenced inference endpoint via AI Gateway. Requires the raw ClientSession
+    code path since langchain-mcp-adapters does not surface sampling callbacks.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+    endpoint: "InferenceEndpointModel" = Field(
+        ...,
+        description="LLM endpoint used to satisfy sampling requests. AI Gateway required.",
+    )
+    max_iterations: int = Field(
+        default=3,
+        description="Cap on nested sampling calls per outer tool invocation. Prevents runaway server-driven recursion.",
+    )
+    allow_tool_use: bool = Field(
+        default=False,
+        description="Whether a sampling call may itself request tool use. Default false prevents cross-agent recursion.",
+    )
+
+
+class McpRootModel(BaseModel):
+    """A single URI root advertised to the MCP server via roots/list.
+
+    Roots let the server scope filesystem / storage operations to a bounded set
+    of URIs the client blesses.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+    uri: str = Field(
+        ...,
+        description="Root URI, e.g. 'file:///workspace' or 'databricks:///Volumes/catalog/schema/vol'.",
+    )
+    name: Optional[str] = Field(
+        default=None,
+        description="Human-readable label for the root.",
+    )
+
+
+class McpCapabilitiesModel(BaseModel):
+    """Advanced MCP capabilities for an MCP client (McpFunctionModel).
+
+    When None (the default on McpFunctionModel), the classic
+    MultiServerMCPClient path runs with no callbacks or interceptors —
+    guaranteeing byte-for-byte behavior parity with the pre-capabilities
+    version.
+
+    When set, dao-ai wires langchain-mcp-adapters ``Callbacks`` and
+    ``ToolCallInterceptor`` middleware around the client. If ``sampling`` or
+    ``roots`` is populated, dao-ai drops to a raw ``mcp.client.session.ClientSession``
+    path since those callbacks are not surfaced by the adapter.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+    progress: bool = Field(
+        default=False,
+        description="Consume progress notifications from the MCP server; forward as MLflow span events on the enclosing tool span.",
+    )
+    logging: Optional[Literal["debug", "info", "warning", "error"]] = Field(
+        default=None,
+        description="Subscribe to server logging/message notifications at this minimum level; forward as MLflow span events. None disables the capability.",
+    )
+    elicitation: Optional[Literal["hitl", "reject"]] = Field(
+        default=None,
+        description="Handle server-initiated elicitation/create. 'hitl' raises a LangGraph interrupt whose resume value becomes the ElicitResult; 'reject' returns action='cancel' without prompting.",
+    )
+    structured_output: bool = Field(
+        default=True,
+        description="Prefer CallToolResult.structuredContent and expand resource_link items into MLflow span attributes via a ToolCallInterceptor. Additive only; falls back to text extraction when structuredContent is absent.",
+    )
+    sampling: Optional[McpSamplingCapabilityModel] = Field(
+        default=None,
+        description="Handle server-initiated sampling/createMessage. Requires the raw ClientSession path (adapter does not surface sampling callback).",
+    )
+    roots: list[McpRootModel] = Field(
+        default_factory=list,
+        description="URI roots advertised to the server via roots/list. Requires the raw ClientSession path (adapter does not surface list_roots callback). Empty list disables the capability.",
+    )
+
+
 class McpFunctionModel(BaseFunctionModel, IsDatabricksResource):
     """
     MCP Function Model with authentication inherited from IsDatabricksResource.
@@ -5455,6 +5537,15 @@ class McpFunctionModel(BaseFunctionModel, IsDatabricksResource):
             "warehouse_id (DBSQL); num_results, filters, query_type, columns, "
             "score_threshold, include_score, columns_to_rerank (Vector Search). "
             "Values support AnyVariable (env vars, secrets, defaults)."
+        ),
+    )
+    capabilities: Optional[McpCapabilitiesModel] = Field(
+        default=None,
+        description=(
+            "Advanced MCP capabilities (progress, logging, elicitation, structured "
+            "output, sampling, roots). When None the classic MultiServerMCPClient "
+            "path is used with no callbacks or interceptors — zero regression from "
+            "the pre-capabilities behavior. See McpCapabilitiesModel."
         ),
     )
 

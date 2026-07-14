@@ -1111,7 +1111,7 @@ requires-dist = [
     { name = "grandalf", specifier = ">=0.8" },
     { name = "langchain", specifier = ">=1.2.12" },
     { name = "langchain-community", specifier = ">=0.4.1" },
-    { name = "langchain-mcp-adapters", specifier = ">=0.2.2" },
+    { name = "langchain-mcp-adapters", specifier = ">=0.3.0" },
     { name = "langchain-tavily", specifier = ">=0.2.15" },
     { name = "langgraph", specifier = ">=1.1.10" },
     { name = "langgraph-checkpoint-postgres", specifier = "==3.0.5" },
