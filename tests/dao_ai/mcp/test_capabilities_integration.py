@@ -128,25 +128,53 @@ class _RecordingProgress:
         )
 
 
-class _RecordingLogging:
-    """Drop-in for DaoAiLoggingCallback that also records level-filtered events."""
+class _RecordingNotification:
+    """Drop-in for DaoAiNotificationCallback that records level-filtered log events.
+
+    The signature matches ``MessageHandlerFnT`` — session-scoped, no per-call
+    context. Non-log notifications are recorded with ``level=None``.
+    """
 
     events: list[tuple] = []
 
-    def __init__(self, min_level: str) -> None:
+    def __init__(self, min_level: str | None = None, server_name: str = "mcp_function") -> None:
         self.min_level = min_level
-        self._min_severity = {
-            "debug": 10, "info": 20, "warning": 30, "error": 40,
-        }[min_level]
+        self._min_severity = (
+            {
+                "debug": 10, "info": 20, "warning": 30, "error": 40,
+            }[min_level]
+            if min_level is not None
+            else 0
+        )
 
-    async def __call__(self, params, context) -> None:
-        level = str(params.level).lower()
-        severity = {
-            "debug": 10, "info": 20, "notice": 20, "warning": 30, "error": 40,
-        }.get(level, 20)
-        if severity < self._min_severity:
+    async def __call__(self, message) -> None:
+        # Ignore exceptions and request-responders — same shape as the real handler.
+        from mcp.types import (
+            LoggingMessageNotification,
+            ProgressNotification,
+            ServerNotification,
+        )
+
+        if isinstance(message, Exception):
             return
-        _RecordingLogging.events.append((level, str(params.data), context.tool_name))
+        if not isinstance(message, ServerNotification):
+            return
+        root = message.root
+        if isinstance(root, ProgressNotification):
+            return
+        if isinstance(root, LoggingMessageNotification):
+            level = str(root.params.level).lower()
+            severity = {
+                "debug": 10, "info": 20, "notice": 20, "warning": 30, "error": 40,
+            }.get(level, 20)
+            if severity < self._min_severity:
+                return
+            _RecordingNotification.events.append(
+                (level, str(root.params.data), None)
+            )
+            return
+        # Non-log notification.
+        _RecordingNotification.events.append((None, str(root), None))
 
 
 class _RecordingStructured:
@@ -253,19 +281,19 @@ class TestProgressCapability:
         assert all(e[3] == "long_task" for e in _RecordingProgress.events)
 
 
-class TestLoggingCapability:
+class TestNotificationCapability:
     def test_logging_at_warning_filters_debug_and_info(
         self, probe_url: str, monkeypatch
     ) -> None:
-        _RecordingLogging.events = []
+        _RecordingNotification.events = []
         monkeypatch.setattr(
-            "dao_ai.tools.mcp_callbacks.DaoAiLoggingCallback",
-            _RecordingLogging,
+            "dao_ai.tools.mcp_callbacks.DaoAiNotificationCallback",
+            _RecordingNotification,
         )
-        # _build_mcp_client imports DaoAiLoggingCallback lazily from the
+        # _build_mcp_client imports DaoAiNotificationCallback lazily from the
         # mcp_callbacks module — patching there covers the fresh binding.
 
-        caps = McpCapabilitiesModel(logging="warning", structured_output=False)
+        caps = McpCapabilitiesModel(logging=True, structured_output=False)
 
         async def run() -> None:
             tools = await acreate_mcp_tools(_fn(probe_url, caps))
@@ -273,11 +301,14 @@ class TestLoggingCapability:
             await noisy.ainvoke({})
 
         asyncio.run(run())
-        levels = [e[0] for e in _RecordingLogging.events]
+        log_events = [e for e in _RecordingNotification.events if e[0] is not None]
+        levels = [e[0] for e in log_events]
+        # Generic handler no longer filters by level — every log emitted by
+        # the probe should be forwarded.
+        assert "debug" in levels
+        assert "info" in levels
         assert "warning" in levels
         assert "error" in levels
-        assert "debug" not in levels
-        assert "info" not in levels
 
 
 class TestStructuredOutputCapability:

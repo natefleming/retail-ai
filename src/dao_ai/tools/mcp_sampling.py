@@ -39,7 +39,6 @@ from mcp.types import (
     CreateMessageResult,
     ErrorData,
     ListRootsResult,
-    LoggingMessageNotificationParams,
     Root,
     SamplingMessage,
     TextContent,
@@ -53,7 +52,7 @@ from dao_ai.config import (
 )
 from dao_ai.state import Context as DaoAiContext
 from dao_ai.tools.mcp_callbacks import (
-    _LOG_LEVEL_ORDER,
+    DaoAiNotificationCallback,
     _emit,
     capture_runnable_config,
 )
@@ -107,35 +106,13 @@ class _RawProgressAdapter:
         await _emit("mcp.progress", envelope, self._config)
 
 
-class _RawLoggingAdapter:
-    """MCP ``LoggingFnT`` adapter that mirrors ``DaoAiLoggingCallback``.
-
-    Config capture semantics match ``_RawProgressAdapter``.
-    """
-
-    def __init__(
-        self,
-        server_name: str,
-        min_level: str,
-    ) -> None:
-        self._server_name = server_name
-        self._min_severity = _LOG_LEVEL_ORDER[min_level]
-        self._config = capture_runnable_config()
-
-    async def __call__(self, params: LoggingMessageNotificationParams) -> None:
-        level = str(params.level).lower()
-        severity = _LOG_LEVEL_ORDER.get(level, 20)
-        if severity < self._min_severity:
-            return
-        envelope: dict[str, Any] = {
-            "channel": "mcp.log",
-            "server_name": self._server_name,
-            "tool_name": "",
-            "level": level,
-            "logger": params.logger or "",
-            "data": str(params.data)[:2000],
-        }
-        await _emit(f"mcp.log.{level}", envelope, self._config)
+# ---------------------------------------------------------------------------
+# Notification handling on the raw ClientSession path
+#
+# The raw path uses ``mcp.ClientSession(message_handler=...)`` directly, and
+# ``DaoAiNotificationCallback`` (from ``mcp_callbacks``) is a MessageHandlerFnT
+# out of the box — no local adapter needed.
+# ---------------------------------------------------------------------------
 
 
 # ---------------------------------------------------------------------------
@@ -502,16 +479,13 @@ async def _open_session(
     caps = function.capabilities
     sampling_cb: DaoAiSamplingCallback | None = None
     roots_cb: DaoAiListRootsCallback | None = None
-    logging_cb: _RawLoggingAdapter | None = None
+    message_handler: DaoAiNotificationCallback | None = None
     if caps and caps.sampling:
         sampling_cb = DaoAiSamplingCallback(function)
     if caps and caps.roots:
         roots_cb = DaoAiListRootsCallback(function)
     if caps and caps.logging:
-        logging_cb = _RawLoggingAdapter(
-            server_name="mcp_function",
-            min_level=caps.logging,
-        )
+        message_handler = DaoAiNotificationCallback(server_name="mcp_function")
 
     async with AsyncExitStack() as stack:
         read_stream, write_stream, _ = await stack.enter_async_context(
@@ -523,7 +497,7 @@ async def _open_session(
                 write_stream,
                 sampling_callback=sampling_cb,
                 list_roots_callback=roots_cb,
-                logging_callback=logging_cb,
+                message_handler=message_handler,
             )
         )
         await session.initialize()

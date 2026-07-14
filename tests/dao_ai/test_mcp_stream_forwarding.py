@@ -24,7 +24,7 @@ from mlflow.types.responses_helpers import Message
 
 from dao_ai.models import LanggraphResponsesAgent
 from dao_ai.tools.mcp_callbacks import (
-    DaoAiLoggingCallback,
+    DaoAiNotificationCallback,
     DaoAiProgressCallback,
 )
 
@@ -220,11 +220,16 @@ def test_progress_callback_dispatches_via_callback_manager():
     span.assert_called_once_with("mcp.progress", envelope)
 
 
-def test_logging_callback_respects_min_level():
-    """Below-threshold records are dropped entirely — no dispatch, no span."""
+def test_notification_callback_dispatches_via_callback_manager():
+    """Every incoming ServerNotification (except progress) is forwarded on
+    both channels: the MLflow span event and the outer runnable's callback
+    manager. Envelope contains the raw params under ``params``."""
 
-    from langchain_mcp_adapters.callbacks import CallbackContext
-    from mcp.types import LoggingMessageNotificationParams
+    from mcp.types import (
+        LoggingMessageNotification,
+        LoggingMessageNotificationParams,
+        ServerNotification,
+    )
 
     fake_config = {"callbacks": [MagicMock()]}
     with (
@@ -237,23 +242,28 @@ def test_logging_callback_respects_min_level():
         ) as dispatch,
         patch("dao_ai.tools.mcp_callbacks._add_span_event") as span,
     ):
-        cb = DaoAiLoggingCallback("warning")
-        ctx = CallbackContext(server_name="s", tool_name="t")
-        below = LoggingMessageNotificationParams(
-            level="info", logger="l", data="drop me"
+        cb = DaoAiNotificationCallback(server_name="s")
+        info = ServerNotification(
+            LoggingMessageNotification(
+                method="notifications/message",
+                params=LoggingMessageNotificationParams(
+                    level="info", logger="l", data="show me"
+                ),
+            )
         )
-        at = LoggingMessageNotificationParams(
-            level="warning", logger="l", data="show me"
-        )
-        _run_async(cb(below, ctx))
-        _run_async(cb(at, ctx))
+        _run_async(cb(info))
 
     assert dispatch.call_count == 1
     assert span.call_count == 1
     envelope = dispatch.call_args.args[1]
     assert envelope["channel"] == "mcp.log"
-    assert envelope["level"] == "warning"
+    assert envelope["method"] == "notifications/message"
+    assert envelope["server_name"] == "s"
+    # Log-specific top-level fields.
+    assert envelope["level"] == "info"
     assert envelope["data"] == "show me"
+    # Raw params carried through too.
+    assert envelope["params"]["level"] == "info"
 
 
 def test_callback_dispatch_safe_outside_runnable_context():

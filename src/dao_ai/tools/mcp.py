@@ -313,8 +313,11 @@ def _build_mcp_client(
     pre-0.3.0 ``ToolException`` semantics that dao-ai's agent loop relies on.
 
     When ``function.capabilities`` is set, additionally attaches:
-    - ``Callbacks(on_progress=..., on_logging_message=..., on_elicitation=...)``
-      for the enabled server-→-client notifications.
+    - ``Callbacks(on_progress=..., on_elicitation=...)`` for per-call
+      progress notifications and server-initiated elicitation.
+    - A session-scoped ``message_handler`` (via ``session_kwargs`` on the
+      connection config) that forwards every server notification. Enabled
+      by ``caps.logging``.
     - ``tool_interceptors=[DaoAiTraceInterceptor, ...]`` for MLflow correlation
       and (optionally) structured-output observation.
 
@@ -322,18 +325,20 @@ def _build_mcp_client(
     when at least one capability is enabled, keeping the classic import graph
     unchanged.
     """
-    connections = {"mcp_function": _build_connection_config(function, context)}
+    connection = _build_connection_config(function, context)
 
     caps = function.capabilities
     if caps is None:
-        return MultiServerMCPClient(connections, handle_tool_errors=False)
+        return MultiServerMCPClient(
+            {"mcp_function": connection}, handle_tool_errors=False
+        )
 
     from langchain_mcp_adapters.callbacks import Callbacks
     from langchain_mcp_adapters.interceptors import ToolCallInterceptor
 
     from dao_ai.tools.mcp_callbacks import (
         DaoAiElicitationCallback,
-        DaoAiLoggingCallback,
+        DaoAiNotificationCallback,
         DaoAiProgressCallback,
     )
     from dao_ai.tools.mcp_interceptors import (
@@ -342,23 +347,31 @@ def _build_mcp_client(
     )
 
     on_progress = DaoAiProgressCallback() if caps.progress else None
-    on_logging = DaoAiLoggingCallback(caps.logging) if caps.logging else None
     on_elicit = DaoAiElicitationCallback(caps.elicitation) if caps.elicitation else None
 
     callbacks: Callbacks | None = None
-    if any([on_progress, on_logging, on_elicit]):
+    if any([on_progress, on_elicit]):
         callbacks = Callbacks(
-            on_logging_message=on_logging,
             on_progress=on_progress,
             on_elicitation=on_elicit,
         )
+
+    if caps.logging:
+        # langchain-mcp-adapters' ``Callbacks`` has no slot for a general
+        # message_handler; inject it via session_kwargs, which sessions.py
+        # forwards to ``ClientSession(read, write, **session_kwargs)``.
+        session_kwargs = dict(connection.get("session_kwargs") or {})
+        session_kwargs["message_handler"] = DaoAiNotificationCallback(
+            server_name="mcp_function"
+        )
+        connection["session_kwargs"] = session_kwargs
 
     interceptors: list[ToolCallInterceptor] = [DaoAiTraceInterceptor()]
     if caps.structured_output:
         interceptors.append(DaoAiStructuredOutputInterceptor())
 
     return MultiServerMCPClient(
-        connections,
+        {"mcp_function": connection},
         callbacks=callbacks,
         tool_interceptors=interceptors,
         handle_tool_errors=False,
