@@ -14,13 +14,15 @@ to duplicate ~75 lines of decision logic each; they now share
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Optional
+from typing import Any, Optional, Sequence
 
 from langchain_community.adapters.openai import convert_openai_messages
-from langchain_core.messages import BaseMessage
+from langchain_core.messages import AIMessage, BaseMessage
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.types import Command
 from loguru import logger
+
+from dao_ai.config import AuditModel, BaseFunctionModel, ToolModel
 
 
 @dataclass
@@ -68,6 +70,7 @@ async def decide_graph_turn(
     custom_inputs: Optional[dict[str, Any]],
     runtime_config: dict[str, Any],
     session_input: Optional[dict[str, Any]] = None,
+    tool_models: Optional[Sequence[ToolModel]] = None,
 ) -> GraphTurn:
     """Decide how to drive the next graph turn for a single request.
 
@@ -111,6 +114,8 @@ async def decide_graph_turn(
 
     session_input = session_input or {}
 
+    audited_hitl_tools: dict[str, AuditModel] = _audited_hitl_tools_from(tool_models)
+
     # 1. Explicit structured decisions.
     if custom_inputs and "decisions" in custom_inputs:
         decisions = custom_inputs["decisions"]
@@ -118,6 +123,13 @@ async def decide_graph_turn(
             "HITL: explicit decisions in custom_inputs",
             decisions_count=len(decisions) if hasattr(decisions, "__len__") else None,
         )
+        if audited_hitl_tools:
+            await _record_hitl_rejections(
+                graph=graph,
+                decisions=decisions,
+                runtime_config=runtime_config,
+                audited_hitl_tools=audited_hitl_tools,
+            )
         return GraphTurn(resume_command=Command(resume={"decisions": decisions}))
 
     # 2. Snapshot-based resume from an interrupted graph.
@@ -144,6 +156,14 @@ async def decide_graph_turn(
                 "HITL: LLM parsed decisions from free-text resume",
                 decisions_count=len(decisions),
             )
+            if audited_hitl_tools:
+                await _record_hitl_rejections(
+                    graph=graph,
+                    decisions=decisions,
+                    runtime_config=runtime_config,
+                    audited_hitl_tools=audited_hitl_tools,
+                    snapshot=snapshot,
+                )
             return GraphTurn(resume_command=Command(resume={"decisions": decisions}))
 
     # 3. Fresh invocation.
@@ -156,3 +176,208 @@ async def decide_graph_turn(
         has_genie_session=("genie_conversation_ids" in session_input),
     )
     return GraphTurn(graph_input=graph_input)
+
+
+# ----------------------------------------------------------------------
+# Audit-rejection tap
+# ----------------------------------------------------------------------
+
+
+def _audited_hitl_tools_from(
+    tool_models: Optional[Sequence[ToolModel]],
+) -> dict[str, AuditModel]:
+    """Return ``{tool_name: audit_config}`` for tools with both HITL and audit set."""
+    if not tool_models:
+        return {}
+    audited: dict[str, AuditModel] = {}
+    for tool_model in tool_models:
+        function = tool_model.function
+        if not isinstance(function, BaseFunctionModel):
+            continue
+        audit_config: Optional[AuditModel] = function.audit
+        hitl_config = function.human_in_the_loop
+        if audit_config is None or hitl_config is None:
+            continue
+        for func_tool in function.as_tools():
+            tool_name: Optional[str] = getattr(func_tool, "name", None)
+            if isinstance(tool_name, str) and tool_name:
+                audited[tool_name] = audit_config
+    return audited
+
+
+async def _record_hitl_rejections(
+    *,
+    graph: CompiledStateGraph,
+    decisions: Any,
+    runtime_config: dict[str, Any],
+    audited_hitl_tools: dict[str, AuditModel],
+    snapshot: Any = None,
+) -> None:
+    """
+    Write ``rejection`` receipts for every ``type='reject'`` decision that
+    targets an audited HITL tool. Best-effort — sink I/O failures are
+    logged but do not block the resume.
+
+    ``AuditReceiptMiddleware`` handles executed and args-mismatch receipts;
+    this tap is the only site where a purely-rejected tool call surfaces
+    (the tool never runs, so ``awrap_tool_call`` never fires).
+    """
+    try:
+        from dao_ai.audit import (
+            AuditReceipt,
+            AuditSinkManager,
+            ExecutionStatus,
+            LakebaseAuditSink,
+            ReceiptKind,
+        )
+        from dao_ai.audit.base import canonical_jcs
+        from dao_ai.middleware.audit_receipt import AuditStash
+        from dao_ai.models import _extract_interrupt_value
+    except ImportError as exc:  # pragma: no cover — audit is bundled
+        logger.warning("Audit imports unavailable — skipping rejection tap", error=repr(exc))
+        return
+
+    from langchain.agents.middleware.human_in_the_loop import (
+        ActionRequest,
+        HITLRequest,
+    )
+
+    if not isinstance(decisions, list) or not decisions:
+        return
+
+    if snapshot is None:
+        snapshot = await graph.aget_state(config=runtime_config)
+    if not getattr(snapshot, "interrupts", ()):  # noqa: SIM108
+        return
+
+    interrupt_data: list[HITLRequest] = [
+        _extract_interrupt_value(interrupt) for interrupt in snapshot.interrupts
+    ]
+    all_actions: list[ActionRequest] = []
+    for hitl_request in interrupt_data:
+        all_actions.extend(hitl_request.get("action_requests", []))
+    if not all_actions:
+        return
+
+    thread_id: str = _thread_id_from_config(runtime_config)
+    tool_call_ids_by_index: dict[int, Optional[str]] = _tool_call_ids_from_snapshot(
+        snapshot=snapshot, actions=all_actions
+    )
+    import uuid
+
+    for idx, decision in enumerate(decisions):
+        if idx >= len(all_actions):
+            break
+        if not isinstance(decision, dict):
+            continue
+        if decision.get("type") != "reject":
+            continue
+        action: ActionRequest = all_actions[idx]
+        tool_name: str = action.get("name", "")
+        audit_config: Optional[AuditModel] = audited_hitl_tools.get(tool_name)
+        if audit_config is None:
+            continue
+
+        sink: LakebaseAuditSink = AuditSinkManager.for_config(audit_config)
+        tool_call_id: Optional[str] = tool_call_ids_by_index.get(idx)
+        stash_entry = None
+        if tool_call_id is not None:
+            stash_entry = AuditStash.take(thread_id, tool_call_id)
+
+        args_dict: dict[str, Any] = action.get("args") or {}
+        args_jcs: str = canonical_jcs(args_dict)
+        from dao_ai.audit.base import sha256_hex
+
+        args_hash: str = sha256_hex(args_jcs)
+
+        receipt = AuditReceipt(
+            receipt_id=uuid.uuid4().hex,
+            receipt_kind=ReceiptKind.REJECTION,
+            thread_id=thread_id,
+            tool_call_id=tool_call_id,
+            tool_name=tool_name,
+            args_jcs=args_jcs,
+            args_hash=args_hash,
+            args_hash_at_interrupt=(
+                stash_entry.args_hash_at_interrupt if stash_entry is not None else None
+            ),
+            displayed_summary=(
+                stash_entry.displayed_summary if stash_entry is not None else None
+            ),
+            decision="reject",
+            decision_detail=(
+                {"message": decision.get("message")}
+                if decision.get("message") is not None
+                else None
+            ),
+            nonce=stash_entry.nonce if stash_entry is not None else None,
+            nonce_exp=stash_entry.nonce_exp if stash_entry is not None else None,
+            execution_status=ExecutionStatus.NOT_EXECUTED_REJECTED,
+        )
+        try:
+            await sink.record(receipt)
+            logger.info(
+                "HITL rejection receipt recorded",
+                tool_name=tool_name,
+                tool_call_id=tool_call_id,
+                receipt_id=receipt.receipt_id,
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "Failed to write HITL rejection receipt",
+                tool_name=tool_name,
+                tool_call_id=tool_call_id,
+                error=repr(exc),
+            )
+
+
+def _thread_id_from_config(runtime_config: dict[str, Any]) -> str:
+    configurable: Any = runtime_config.get("configurable")
+    if isinstance(configurable, dict):
+        candidate: Any = configurable.get("thread_id")
+        if isinstance(candidate, str) and candidate:
+            return candidate
+    return "unknown-thread"
+
+
+def _tool_call_ids_from_snapshot(
+    *,
+    snapshot: Any,
+    actions: list[Any],
+) -> dict[int, Optional[str]]:
+    """
+    Correlate each interrupt-side ActionRequest to a tool_call_id by
+    walking the last AIMessage on the snapshot and matching by (name, args).
+    Returns ``{action_index: tool_call_id | None}``.
+    """
+    values: Any = getattr(snapshot, "values", None)
+    if not isinstance(values, dict):
+        return {i: None for i in range(len(actions))}
+    messages_any: Any = values.get("messages", [])
+    if not isinstance(messages_any, list):
+        return {i: None for i in range(len(actions))}
+    last_ai: Optional[AIMessage] = next(
+        (m for m in reversed(messages_any) if isinstance(m, AIMessage)),
+        None,
+    )
+    if last_ai is None or not last_ai.tool_calls:
+        return {i: None for i in range(len(actions))}
+    tool_calls: list[dict[str, Any]] = [
+        {"name": tc.get("name"), "args": tc.get("args"), "id": tc.get("id")}
+        for tc in last_ai.tool_calls
+    ]
+    result: dict[int, Optional[str]] = {}
+    consumed: set[int] = set()
+    for idx, action in enumerate(actions):
+        target_name: Any = action.get("name")
+        target_args: Any = action.get("args")
+        matched: Optional[str] = None
+        for tc_idx, tc in enumerate(tool_calls):
+            if tc_idx in consumed:
+                continue
+            if tc["name"] == target_name and tc["args"] == target_args:
+                matched = tc.get("id")
+                consumed.add(tc_idx)
+                break
+        result[idx] = matched
+    return result

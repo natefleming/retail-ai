@@ -7323,7 +7323,11 @@ class AgentModel(BaseModel):
 
         graph: CompiledStateGraph = self.as_runnable()
         prompt_versions = get_cached_prompt_versions()
-        return create_responses_agent(graph, prompt_versions=prompt_versions)
+        return create_responses_agent(
+            graph,
+            prompt_versions=prompt_versions,
+            tool_models=self.tools,
+        )
 
 
 class SupervisorModel(BaseModel):
@@ -10602,8 +10606,15 @@ class AppConfig(BaseModel):
 
         graph: CompiledStateGraph = self.as_graph()
         prompt_versions = get_cached_prompt_versions()
+        tool_models: list[ToolModel] = [
+            tool
+            for agent in self.agents.values()
+            for tool in agent.tools
+        ]
         app: ResponsesAgent = create_responses_agent(
-            graph, prompt_versions=prompt_versions
+            graph,
+            prompt_versions=prompt_versions,
+            tool_models=tool_models,
         )
 
         background = self.app.background if self.app else None

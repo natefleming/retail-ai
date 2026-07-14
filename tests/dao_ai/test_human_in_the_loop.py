@@ -154,6 +154,7 @@ class TestHitlMiddlewareFromToolModels:
         """Test that empty list is returned when no tools have HITL configured."""
         # Use a mock function model without HITL
         mock_function = MagicMock()
+        mock_function.audit = None
         mock_function.human_in_the_loop = None
 
         tool_models = [
@@ -173,6 +174,7 @@ class TestHitlMiddlewareFromToolModels:
         # Create a mock function with HITL configured
         # Use spec=BaseFunctionModel so isinstance check passes
         mock_function = MagicMock(spec=BaseFunctionModel)
+        mock_function.audit = None
         mock_function.human_in_the_loop = HumanInTheLoopModel(
             review_prompt="Review this email",
         )
@@ -195,6 +197,7 @@ class TestHitlMiddlewareFromToolModels:
         mock_email_tool.name = "send_email"
 
         mock_function_with_hitl = MagicMock(spec=BaseFunctionModel)
+        mock_function_with_hitl.audit = None
         mock_function_with_hitl.human_in_the_loop = HumanInTheLoopModel(
             review_prompt="Review this email",
         )
@@ -205,6 +208,7 @@ class TestHitlMiddlewareFromToolModels:
         mock_search_tool.name = "search"
 
         mock_function_without_hitl = MagicMock(spec=BaseFunctionModel)
+        mock_function_without_hitl.audit = None
         mock_function_without_hitl.human_in_the_loop = None
 
         tool_models = [
@@ -230,6 +234,7 @@ class TestHitlMiddlewareFromToolModels:
         mock_tool.name = "delete_record"
 
         mock_function = MagicMock(spec=BaseFunctionModel)
+        mock_function.audit = None
         mock_function.human_in_the_loop = HumanInTheLoopModel(
             review_prompt="Confirm deletion",
         )
@@ -254,6 +259,7 @@ class TestHitlMiddlewareFromToolModels:
         mock_tool.name = "send_email"
 
         mock_function = MagicMock()
+        mock_function.audit = None
         mock_function.human_in_the_loop = HumanInTheLoopModel(
             review_prompt="Review email",
         )
