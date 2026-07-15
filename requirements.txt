@@ -201,6 +201,7 @@ referencing==0.37.0
 regex==2026.5.9
 requests==2.34.2
 requests-toolbelt==1.0.0
+rfc8785==0.1.4
 rich==15.0.0
 rpds-py==2026.5.1
 ruamel-yaml==0.18.17

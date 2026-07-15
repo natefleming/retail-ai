@@ -4,14 +4,15 @@ import os
 import re
 import sys
 from abc import ABC, abstractmethod
+from contextlib import asynccontextmanager, contextmanager
 from enum import Enum
-from contextlib import contextmanager
 from os import PathLike
 from pathlib import Path
 from typing import (
     TYPE_CHECKING,
     Annotated,
     Any,
+    AsyncIterator,
     Callable,
     Final,
     Iterable,
@@ -3966,6 +3967,135 @@ class DatabaseModel(IsDatabricksResource):
             except Exception:
                 conn.rollback()
                 raise
+
+    async def aget_pool(self) -> Any:
+        """Return the shared async :class:`psycopg_pool.AsyncConnectionPool` for this database.
+
+        Thin async accessor over
+        :class:`dao_ai.memory.postgres.AsyncPostgresPoolManager` — every
+        async caller in dao-ai (audit receipts, checkpointer, memory
+        store, background queue, A2A task store) should route pool
+        acquisition through this method so ``DatabaseModel`` remains the
+        single entry point for database access.
+
+        Prefer :meth:`aexecute_query` / :meth:`aexecute_update` /
+        :meth:`aexecute_many` / :meth:`aconnect` for typical work;
+        reach for the raw pool only when you need psycopg-specific
+        control (e.g. streaming reads, ``COPY``, or composing
+        ``sql.Composed`` inside a shared cursor).
+        """
+        from dao_ai.memory.postgres import AsyncPostgresPoolManager
+
+        return await AsyncPostgresPoolManager.get_pool(self)
+
+    async def aexecute_update(
+        self,
+        statements: str | Sequence[str],
+        parameters: Sequence[Any] | None = None,
+    ) -> None:
+        """Async twin of :meth:`execute_update`.
+
+        Runs one or more write SQL statements against the shared async
+        pool (:class:`dao_ai.memory.postgres.AsyncPostgresPoolManager`).
+        Async Lakebase pools run with ``autocommit=True``, so each
+        statement commits individually; on error the exception
+        propagates.
+
+        Args:
+            statements: A single SQL string OR a sequence of SQL
+                strings. When passing a sequence, ``parameters`` must
+                be ``None``.
+            parameters: Optional positional parameters passed to
+                ``cursor.execute()``. Only valid when ``statements`` is
+                a single string.
+        """
+        if isinstance(statements, str):
+            stmts: list[str] = [statements]
+        else:
+            stmts = list(statements)
+            if parameters is not None:
+                raise ValueError(
+                    "`parameters` is only supported when `statements` is a "
+                    "single string; got a sequence."
+                )
+        if not stmts:
+            return
+
+        pool = await self.aget_pool()
+        async with pool.connection() as conn:
+            async with conn.cursor() as cur:
+                for stmt in stmts:
+                    if parameters is not None:
+                        await cur.execute(stmt, parameters)
+                    else:
+                        await cur.execute(stmt)
+
+    async def aexecute_query(
+        self,
+        query: Any,
+        parameters: Sequence[Any] | None = None,
+    ) -> list[dict[str, Any]]:
+        """Async twin of :meth:`execute_query`.
+
+        Runs a single read query and returns rows as ``list[dict]``
+        keyed by column name (async pools use
+        ``row_factory=dict_row``). Returns an empty list when the
+        query yields no rows.
+
+        Args:
+            query: The SQL query — either a plain ``str`` or a
+                ``psycopg.sql.Composable`` (``sql.SQL`` / ``sql.Composed``)
+                for identifier-safe composition.
+            parameters: Optional positional parameters passed to
+                ``cursor.execute()``.
+        """
+        from psycopg.rows import dict_row
+
+        pool = await self.aget_pool()
+        async with pool.connection() as conn:
+            async with conn.cursor(row_factory=dict_row) as cur:
+                if parameters is not None:
+                    await cur.execute(query, parameters)
+                else:
+                    await cur.execute(query)
+                if cur.description is None:
+                    return []
+                return list(await cur.fetchall())
+
+    async def aexecute_many(
+        self,
+        query: str,
+        param_seq: Iterable[Sequence[Any]],
+    ) -> None:
+        """Async twin of :meth:`execute_many`.
+
+        Wraps psycopg's ``cursor.executemany()`` on the shared async
+        pool. Async Lakebase pools run with ``autocommit=True``.
+        """
+        pool = await self.aget_pool()
+        async with pool.connection() as conn:
+            async with conn.cursor() as cur:
+                await cur.executemany(query, param_seq)
+
+    @asynccontextmanager
+    async def aconnect(self) -> AsyncIterator[Any]:
+        """Async twin of :meth:`connect`.
+
+        Yields a psycopg async cursor scoped to a single connection
+        acquired from the shared async pool. Async Lakebase pools run
+        with ``autocommit=True``, so the caller gets each statement
+        auto-committed.
+
+        .. code-block:: python
+
+            async with database.aconnect() as cur:
+                await cur.execute("SELECT ... WHERE embedding IS NULL")
+                rows = await cur.fetchall()
+        """
+        pool = await self.aget_pool()
+        async with pool.connection() as conn:
+            async with conn.cursor() as cur:
+                yield cur
 
 
 class GenieLRUCacheParametersModel(BaseModel):
