@@ -391,7 +391,7 @@ class AsyncPostgresStoreManager(StoreManagerBase):
 
         from langgraph.store.postgres.aio import AsyncPostgresStore
 
-        self.pool = await AsyncPostgresPoolManager.get_pool(self.store_model.database)
+        self.pool = await self.store_model.database.aget_pool()
         self._store = AsyncPostgresStore(conn=self.pool)
         await self._store.setup()
 
@@ -442,9 +442,7 @@ class AsyncPostgresCheckpointerManager(CheckpointManagerBase):
 
         from langgraph.checkpoint.postgres.aio import AsyncShallowPostgresSaver
 
-        self.pool = await AsyncPostgresPoolManager.get_pool(
-            self.checkpointer_model.database
-        )
+        self.pool = await self.checkpointer_model.database.aget_pool()
         self._checkpointer = AsyncShallowPostgresSaver(conn=self.pool)
         await self._checkpointer.setup()
 
