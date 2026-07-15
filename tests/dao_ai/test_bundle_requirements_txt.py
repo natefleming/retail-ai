@@ -29,10 +29,13 @@ from dao_ai.apps.bundle import (
 
 
 class TestMakeRequirementsTxt:
-    def test_published_pins_dao_ai_version(self) -> None:
+    def test_published_installs_dao_ai_unbounded(self) -> None:
+        """The published pin is intentionally unbounded — the locally-installed
+        version may be an unreleased pre-publish build, so floor-pinning to
+        it would cause Apps to fail with ``Could not find a version``."""
         content: str = _make_requirements_txt(development=False)
-        assert content.startswith("dao-ai>="), (
-            f"Published requirements.txt must pin via version range; got: {content!r}"
+        assert content.strip() == "dao-ai", (
+            f"Published requirements.txt must install unbounded dao-ai; got: {content!r}"
         )
 
     def test_published_does_not_reference_local_wheel(self) -> None:

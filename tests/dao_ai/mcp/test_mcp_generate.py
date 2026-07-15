@@ -25,31 +25,46 @@ def test_write_mcp_bundle_emits_expected_files(tmp_path: Path) -> None:
         "databricks.yml",
         "app.yaml",
         "pyproject.toml",
+        "requirements.txt",
         "README.md",
     }
     produced = {p.name for p in out.iterdir() if p.is_file()}
     assert expected.issubset(produced)
-    assert "requirements.txt" not in produced, (
-        "MCP bundle must not ship requirements.txt — its presence would "
-        "force Apps onto the legacy pip-install path and skip native uv."
-    )
     assert "uv.lock" not in produced, (
-        "MCP bundle must not ship uv.lock — lock is user-owned and "
-        "produced by `uv sync` after generate-mcp."
+        "MCP bundle must not ship uv.lock — Apps' build phase installs "
+        "directly from requirements.txt; a shipped lock would force the "
+        "legacy uv-sync path and re-introduce pypi-proxy URL pain."
     )
 
     pyproject = (out / "pyproject.toml").read_text()
     assert "dao-ai[mcp]" in pyproject
-    assert 'dao-ai-mcp-server = "dao_ai.mcp.server:main"' in pyproject
+    assert "[project.scripts]" not in pyproject, (
+        "Generated pyproject must not declare the dao-ai-mcp-server console "
+        "script — app.yaml invokes the module via `python -m` and doesn't "
+        "need the script wired into .venv/bin/."
+    )
+
+    requirements = (out / "requirements.txt").read_text()
+    # The version pin must be unbounded: the locally-installed dao-ai
+    # (`_get_dao_ai_version()`) may be an unreleased pre-publish build,
+    # so floor-pinning would cause Apps to fail with ``Could not find a
+    # version that satisfies …`` at build time.
+    assert requirements.strip() == "dao-ai[mcp]", (
+        f"requirements.txt must install unbounded dao-ai[mcp]; got:\n{requirements}"
+    )
 
     databricks = (out / "databricks.yml").read_text()
     assert "engine: direct" in databricks
     assert "apps:" in databricks
 
     app_yaml = (out / "app.yaml").read_text()
-    # Bare console-script command — no `uv run` wrapper. Apps' native uv
-    # BUILD installs the console script into .venv/bin/ for the runtime.
-    assert "dao-ai-mcp-server" in app_yaml
+    # PATH-independent invocation: `python -m dao_ai.mcp.server` resolves
+    # via the venv Python regardless of whether .venv/bin/ is on PATH in
+    # the Apps runtime container. Mirrors dao_ai.apps.bundle._build_app_block.
+    assert "python" in app_yaml and "dao_ai.mcp.server" in app_yaml
+    assert "dao-ai-mcp-server" not in app_yaml, (
+        f"app.yaml must not depend on the bare console script; got:\n{app_yaml}"
+    )
     assert "uv" not in app_yaml, (
         f"app.yaml must not reference `uv` in the runtime command; got:\n{app_yaml}"
     )
