@@ -338,9 +338,26 @@ def _convert_to_bundle_resources(
 def _build_app_block(
     config: AppConfig,
     config_filename: str,
+    *,
+    app_command: list[str] | None = None,
+    include_chat_ui: bool = True,
 ) -> tuple[str, dict[str, Any], dict[str, Any]]:
     """Build the App + experiment dicts shared by `databricks.yaml` and
     `resources/app.yml`.
+
+    Args:
+        config: The dao-ai config to derive resources from.
+        config_filename: Basename of the config file dropped alongside the
+            bundle — surfaced to the runtime via ``DAO_AI_CONFIG_PATH``.
+        app_command: Optional override for the App's runtime command. When
+            unset, defaults to ``python -m dao_ai.apps.{start_app,server}``
+            based on ``config.app.enable_chat_proxy``. Alternate hosts
+            (e.g. ``dao-ai generate-mcp``) pass their own command here so
+            everything else — env vars, resources, experiment binding —
+            can be reused verbatim.
+        include_chat_ui: When False, skip the chat-proxy UI env vars
+            (``dao_ai.apps.chat_ui.chat_ui_env_vars``). Alternate hosts
+            without a bundled chat UI (e.g. the MCP server) opt out here.
 
     Returns:
         (app_name, experiments_block, apps_block)
@@ -385,7 +402,7 @@ def _build_app_block(
             }
         )
 
-    if enable_chat_proxy:
+    if enable_chat_proxy and include_chat_ui:
         from dao_ai.apps.chat_ui import chat_ui_env_vars
 
         env_vars.extend(chat_ui_env_vars())
@@ -467,11 +484,12 @@ def _build_app_block(
     # Bare `python -m` — no `uv run` wrapper. Apps' native uv support runs
     # `uv sync --locked --no-dev` at BUILD phase and puts .venv/bin on PATH,
     # so the runtime `python` is already venv-python with dao-ai installed.
-    app_command: list[str] = (
-        ["python", "-m", "dao_ai.apps.start_app"]
-        if enable_chat_proxy
-        else ["python", "-m", "dao_ai.apps.server"]
-    )
+    if app_command is None:
+        app_command = (
+            ["python", "-m", "dao_ai.apps.start_app"]
+            if enable_chat_proxy
+            else ["python", "-m", "dao_ai.apps.server"]
+        )
 
     app_def: dict[str, Any] = {
         "name": app_name,
@@ -517,6 +535,10 @@ def generate_databricks_yaml(
     config: AppConfig,
     development: bool = False,
     config_filename: str = "dao_ai.yaml",
+    *,
+    app_command: list[str] | None = None,
+    include_chat_ui: bool = True,
+    include_artifacts: bool = True,
 ) -> str:
     """Generate the trimmed root `databricks.yaml` for a dao-ai bundle.
 
@@ -552,7 +574,10 @@ def generate_databricks_yaml(
         not the bundle layout.
     """
     app_name, _experiments_block, _apps_block = _build_app_block(
-        config, config_filename
+        config,
+        config_filename,
+        app_command=app_command,
+        include_chat_ui=include_chat_ui,
     )
 
     bundle: dict[str, Any] = {
@@ -576,7 +601,7 @@ def generate_databricks_yaml(
         bundle["sync"] = {
             "include": ["dist/*.whl"],
         }
-    else:
+    elif include_artifacts:
         bundle["artifacts"] = {
             "default": {
                 "type": "whl",
@@ -591,14 +616,26 @@ def generate_databricks_yaml(
 def generate_resources_app_yaml(
     config: AppConfig,
     config_filename: str = "dao_ai.yaml",
+    *,
+    app_command: list[str] | None = None,
+    include_chat_ui: bool = True,
 ) -> str:
     """Generate ``resources/app.yml`` — the App + experiment block.
 
     This file is owned by ``generate-bundle``; sibling ``resources/*.yml``
     files (e.g. ``resources/jobs.yml``, ``resources/pipelines.yml``) are
     written by users and are never touched by the generator.
+
+    See :func:`_build_app_block` for ``app_command`` / ``include_chat_ui``
+    semantics — alternate hosts (e.g. ``dao-ai generate-mcp``) forward
+    both here to reuse the App resource shape verbatim.
     """
-    _app_name, experiments_block, apps_block = _build_app_block(config, config_filename)
+    _app_name, experiments_block, apps_block = _build_app_block(
+        config,
+        config_filename,
+        app_command=app_command,
+        include_chat_ui=include_chat_ui,
+    )
 
     resources_doc: dict[str, Any] = {
         "resources": {

@@ -1,22 +1,28 @@
 """Emit a deployable Databricks Apps bundle that runs the dao-ai MCP server.
 
-Invoked by ``dao-ai generate-mcp`` (see :mod:`dao_ai.cli`). Mirrors the
-shape of :func:`dao_ai.apps.bundle.write_bundle` but produces a bundle
-whose runtime is the FastMCP server in :mod:`dao_ai.mcp.server`. The
-emitted server exposes exactly one MCP tool: the full dao-ai agent graph
-(named after ``config.app.name``, described by ``config.app.description``).
+Invoked by ``dao-ai generate-mcp`` (see :mod:`dao_ai.cli`). Delegates the
+App + experiment + resources DAB shape to
+:func:`dao_ai.apps.bundle.generate_databricks_yaml` /
+:func:`dao_ai.apps.bundle.generate_resources_app_yaml`, passing an
+MCP-flavored runtime command and disabling the chat-proxy UI env vars.
+The result is byte-for-byte the same App-resource pattern that
+``generate-bundle`` emits, so the deployed MCP server inherits the same
+service-principal credentials, resource grants, experiment binding, and
+trace-location wiring.
 
 Files produced:
 
-* ``databricks.yml`` — DAB with ``bundle.engine: direct`` and the App
-  resource bindings derived from :func:`generate_app_resources`.
-* ``app.yaml`` — ``command: ["python", "-m", "dao_ai.mcp.server"]`` plus env vars.
+* ``databricks.yaml`` — bundle metadata, ``include: [resources/*.yml]``,
+  targets, and (in ``--development`` mode) ``sync: [dist/*.whl]``.
+* ``resources/app.yml`` — the App + experiment block (embedded
+  ``config.command`` / ``config.env``, no standalone ``app.yaml``).
 * ``pyproject.toml`` — build metadata; runtime deps live in requirements.txt.
-* ``requirements.txt`` — ``dao-ai[mcp]>=<current-version>`` (prod) or the
-  bundled wheel with ``[mcp]`` extras (dev). Apps' build phase installs
-  from this directly — no ``uv sync`` or URL-rewrite step required.
+* ``requirements.txt`` — unbounded ``dao-ai[mcp]`` (prod) or the bundled
+  wheel with ``[mcp]`` extras (dev). Apps' build phase installs from
+  this directly.
 * ``dao_ai.yaml`` — the rendered (param-substituted) config, stripped of
   its top-level ``parameters:`` block.
+* ``.gitignore`` / ``.python-version`` — bundle-parity scaffolding.
 * ``README.md`` — deploy snippet + the single tool name to point clients at.
 """
 
@@ -27,25 +33,26 @@ import subprocess
 from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as _pkg_version
 from pathlib import Path
-from typing import Any
 
 from loguru import logger
-from ruamel.yaml import YAML
 
-from dao_ai.apps.bundle import _convert_to_bundle_resources, _strip_parameters_block
-from dao_ai.apps.resources import (
-    _extract_raw_trace_location_resources,
-    generate_app_resources,
+from dao_ai.apps.bundle import (
+    _GITIGNORE_CONTENT,
+    _GITIGNORE_DEV_CONTENT,
+    _strip_parameters_block,
+    generate_databricks_yaml,
+    generate_resources_app_yaml,
 )
-from dao_ai.config import AppConfig, value_of
+from dao_ai.config import AppConfig
 from dao_ai.mcp.agent_tool import _slugify
 
 DEFAULT_CONFIG_FILENAME = "dao_ai.yaml"
-# Invoke the MCP server via ``python -m`` so we don't depend on ``.venv/bin``
-# being on PATH inside the Apps runtime container. Parallel to how
-# ``generate-bundle`` invokes ``python -m dao_ai.apps.server`` — see
-# ``dao_ai/apps/bundle.py::_build_app_block``.
-APP_COMMAND: list[str] = ["python", "-m", "dao_ai.mcp.server"]
+
+# MCP-flavored runtime command. Forwarded to the shared
+# :func:`_build_app_block` via ``app_command=`` so everything else — env
+# vars, resource bindings, experiment binding, trace_location wiring —
+# is reused verbatim from ``generate-bundle``.
+_MCP_APP_COMMAND: list[str] = ["python", "-m", "dao_ai.mcp.server"]
 
 
 def write_mcp_bundle(
@@ -62,7 +69,7 @@ def write_mcp_bundle(
     (surfaced as the tool description to MCP clients).
 
     When ``development=True``, builds the local dao-ai wheel and bundles it
-    into ``output_dir/dist/``; the generated pyproject.toml then installs
+    into ``output_dir/dist/``; the generated requirements.txt then installs
     from that wheel instead of pulling ``dao-ai[mcp]`` from PyPI.
     """
     if config.app is None or not config.app.name:
@@ -92,20 +99,39 @@ def write_mcp_bundle(
 
     def _write(path: Path, content: str) -> None:
         if path.exists() and not force:
-            skipped.append(path.name)
+            skipped.append(str(path.relative_to(output_dir)))
             return
+        path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(content)
-        written.append(path.name)
+        written.append(str(path.relative_to(output_dir)))
 
+    # Reuse the shared bundle helpers so the App + experiment + resource
+    # bindings match ``generate-bundle`` byte-for-byte. MCP disables the
+    # chat-proxy UI env vars (no chat UI in the MCP server) and skips the
+    # ``artifacts:`` block (MCP doesn't build a user wheel — it installs
+    # ``dao-ai[mcp]`` from PyPI via requirements.txt).
     _write(
-        output_dir / "databricks.yml",
-        _render_databricks_yml(
-            config, app_name=app_name, config_filename=config_filename
+        output_dir / "databricks.yaml",
+        generate_databricks_yaml(
+            config,
+            development=development,
+            config_filename=config_filename,
+            app_command=_MCP_APP_COMMAND,
+            include_chat_ui=False,
+            include_artifacts=False,
         ),
     )
+
+    resources_dir = output_dir / "resources"
+    resources_dir.mkdir(parents=True, exist_ok=True)
     _write(
-        output_dir / "app.yaml",
-        _render_app_yaml(config, config_filename=config_filename),
+        resources_dir / "app.yml",
+        generate_resources_app_yaml(
+            config,
+            config_filename=config_filename,
+            app_command=_MCP_APP_COMMAND,
+            include_chat_ui=False,
+        ),
     )
 
     wheel_filename: str | None = None
@@ -120,6 +146,11 @@ def write_mcp_bundle(
         output_dir / "requirements.txt",
         _make_requirements_txt(development=development, wheel_filename=wheel_filename),
     )
+    _write(
+        output_dir / ".gitignore",
+        _GITIGNORE_DEV_CONTENT if development else _GITIGNORE_CONTENT,
+    )
+    _write(output_dir / ".python-version", "3.11\n")
 
     rendered: str | None = getattr(config, "_rendered_yaml", None)
     if rendered is not None:
@@ -136,15 +167,9 @@ def write_mcp_bundle(
 
     print(f"\nMCP bundle generated in {output_dir}/\n")
     for name in written:
-        print(f"  {name:<20s} (created)")
+        print(f"  {name:<32s} (created)")
     for name in skipped:
-        print(f"  {name:<20s} (skipped — re-run with --force to overwrite)")
-
-    # `databricks bundle run` addresses resources by their DAB key, which
-    # ``_render_databricks_yml`` derives as ``app_name.replace("-", "_")``.
-    # Keep this in sync with that mapping so the printed command is
-    # copy-pasteable when ``app.name`` contains hyphens (e.g. ``mcp-foo``).
-    bundle_key = app_name.replace("-", "_")
+        print(f"  {name:<32s} (skipped — re-run with --force to overwrite)")
 
     print(f"\nMCP tool exposed: {tool_name}")
     print("\nNext steps:")
@@ -158,7 +183,7 @@ def write_mcp_bundle(
             f"  dao-ai link-trace-destination -c {config_filename}"
             f"   # links UC trace destination for {app_name}"
         )
-    print(f"  databricks bundle run {bundle_key} --target dev")
+    print(f"  databricks bundle run {app_name} --target dev")
     print()
     print("  # Apps' build phase installs deps directly from requirements.txt;")
     print("  # no uv sync or URL rewrite required.")
@@ -166,151 +191,9 @@ def write_mcp_bundle(
 
 
 def _derive_app_name(config: AppConfig) -> str:
-    """Return the Databricks App name — parity with ``generate-bundle``.
-
-    The ``mcp-`` prefix is a discovery signal for Databricks Multi-Agent
-    Supervisor (MAS), which pattern-matches it when enumerating
-    MCP-hosted Apps across an account. Callers who don't want that
-    prefix can set ``config.app.name`` to any value they like.
-    """
+    """Return the Databricks App name — parity with ``generate-bundle``."""
     assert config.app is not None and config.app.name  # enforced by caller
     return str(config.app.name).lower().replace("_", "-")
-
-
-def _render_databricks_yml(
-    config: AppConfig, *, app_name: str, config_filename: str
-) -> str:
-    """Emit a direct-engine DAB with the App + its bound resources.
-
-    Mirrors :func:`dao_ai.apps.bundle.generate_resources_app_yaml`'s
-    experiment + trace-location wiring so the MCP server can materialize
-    its own OTEL trace tables at boot. See
-    ``src/dao_ai/apps/bundle.py:355-513`` for the reference implementation.
-    """
-    assert config.app is not None and config.app.name  # enforced by caller
-    app_resources = generate_app_resources(config)
-    bundle_resources = _convert_to_bundle_resources(app_resources)
-
-    # When trace_location is configured, attach the trace warehouse as an
-    # App resource so the platform grants the App SP CAN_USE on it (needed
-    # for MLflow to materialize OTEL Delta tables at first-trace-write).
-    # OTEL table uc_securable resources are NOT emitted because the tables
-    # don't exist yet at deploy time — operators must GRANT USE_SCHEMA +
-    # CREATE_TABLE + MODIFY + SELECT on the trace schema to the App SP
-    # manually (same limitation as generate-bundle).
-    if config.app.trace_location:
-        existing_wh_ids: set[str] = set()
-        if config.resources:
-            for _wh in config.resources.warehouses.values():
-                try:
-                    existing_wh_ids.add(value_of(_wh.warehouse_id))
-                except Exception:
-                    pass
-        bundle_resources.extend(
-            _extract_raw_trace_location_resources(
-                config.app.trace_location,
-                existing_warehouse_ids=existing_wh_ids,
-            )
-        )
-
-    # Always bind an MLflow experiment as an App resource so the runtime
-    # SP can read/write traces via auto-auth. Two variants (mirroring
-    # bundle.py:443-463):
-    #   * config.app.experiment set → bind by literal id (admin-owned;
-    #     ``manage_permissions=false`` downgrades to CAN_READ).
-    #   * otherwise → declare in top-level ``experiments:`` block and
-    #     bind via ${resources.experiments.<key>.id} so DABs materializes
-    #     + grants CAN_EDIT to the App SP.
-    experiment_key = f"{app_name}-experiment"
-    experiments_block: dict[str, Any] = {}
-    external_experiment_id: str | None = None
-    if config.app.experiment is not None:
-        # Reuse dao-ai's existing resolution — same call generate-bundle uses.
-        config.app.experiment.create()
-        external_experiment_id = config.app.experiment.resolved_id
-
-    if external_experiment_id:
-        experiment_app_resource: dict[str, Any] = {
-            "name": "experiment",
-            "experiment": {
-                "experiment_id": external_experiment_id,
-                "permission": (
-                    "CAN_EDIT" if config.app.manage_permissions else "CAN_READ"
-                ),
-            },
-        }
-    else:
-        experiments_block[experiment_key] = {
-            "name": f"/Users/${{workspace.current_user.userName}}/{app_name}",
-        }
-        experiment_app_resource = {
-            "name": "experiment",
-            "experiment": {
-                "experiment_id": f"${{resources.experiments.{experiment_key}.id}}",
-                "permission": "CAN_EDIT",
-            },
-        }
-    # Insert the experiment first so it's the visually-obvious binding.
-    bundle_resources.insert(0, experiment_app_resource)
-
-    resources_section: dict[str, Any] = {}
-    if experiments_block:
-        resources_section["experiments"] = experiments_block
-    resources_section["apps"] = {
-        app_name.replace("-", "_"): {
-            "name": app_name,
-            "description": _app_description(config, app_name),
-            "source_code_path": "${workspace.file_path}",
-            "resources": bundle_resources,
-        }
-    }
-
-    bundle: dict[str, Any] = {
-        "bundle": {"name": app_name, "engine": "direct"},
-        "resources": resources_section,
-        "targets": {
-            "dev": {"mode": "development", "default": True},
-            "prod": {"mode": "production"},
-        },
-    }
-
-    return _dump_yaml(
-        bundle, header=_DATABRICKS_YML_HEADER.format(filename=config_filename)
-    )
-
-
-def _render_app_yaml(config: AppConfig, *, config_filename: str) -> str:
-    """Emit app.yaml — command + env vars.
-
-    Injects ``MLFLOW_EXPERIMENT_ID`` via ``value_from: experiment`` so DABs
-    binds it to the resolved experiment id at deploy time, plus
-    ``MLFLOW_TRACING_SQL_WAREHOUSE_ID`` when ``config.app.trace_location``
-    is set (required by MLflow's OTEL exporter to materialize / query
-    the UC Delta trace tables).
-    """
-    # NOTE: keys are camelCase (``valueFrom``) — this file is consumed
-    # directly by the Databricks Apps runtime, not by DABs. DABs
-    # ``resources.apps.*.config`` uses snake_case (``value_from``) and DABs
-    # rewrites to camelCase before the Apps platform sees it.
-    env: list[dict[str, Any]] = [
-        {"name": "DAO_AI_MCP_CONFIG_PATH", "value": config_filename},
-        {"name": "MLFLOW_TRACKING_URI", "value": "databricks"},
-        {"name": "MLFLOW_REGISTRY_URI", "value": "databricks-uc"},
-        {"name": "MLFLOW_EXPERIMENT_ID", "valueFrom": "experiment"},
-        {"name": "UV_SYSTEM_PYTHON", "value": "1"},
-    ]
-    if config.app and config.app.trace_location:
-        env.append(
-            {
-                "name": "MLFLOW_TRACING_SQL_WAREHOUSE_ID",
-                "value": value_of(config.app.trace_location.warehouse_id),
-            }
-        )
-
-    return _dump_yaml(
-        {"command": APP_COMMAND, "env": env},
-        header=_APP_YAML_HEADER,
-    )
 
 
 def _render_pyproject(*, app_name: str, wheel_filename: str | None = None) -> str:
@@ -333,18 +216,10 @@ def _make_requirements_txt(
 ) -> str:
     """Build the requirements.txt content for an MCP app bundle.
 
-    The published pin is left *unbounded* (``dao-ai[mcp]``) rather than
-    floor-pinned to the locally-installed version. ``_get_dao_ai_version()``
-    reflects whatever is checked out in the developer's tree, which may
-    be an unreleased pre-publish build (e.g. ``0.1.112`` before it lands
-    on PyPI). Baking that floor into requirements.txt would cause Apps
-    to fail with ``Could not find a version that satisfies …``. Users
-    who need reproducibility can tighten the pin by hand.
-
-    We install the ``[mcp]`` extra so the server module's dependencies
-    (fastmcp, uvicorn, etc.) resolve. Development mode installs the
-    bundled wheel with that extra so transitive MCP deps still resolve
-    from public PyPI.
+    The published pin is intentionally *unbounded* (``dao-ai[mcp]``) — see
+    ``dao_ai.apps.bundle._make_requirements_txt`` for the reasoning. We
+    install the ``[mcp]`` extra so the server module's dependencies
+    (fastmcp, uvicorn, etc.) resolve.
     """
     if development:
         if not wheel_filename:
@@ -400,7 +275,11 @@ def _render_readme(config: AppConfig, *, app_name: str, tool_name: str) -> str:
     required_vars = [name for name, decl in parameters if decl.default is None]
     optional_vars = [name for name, decl in parameters if decl.default is not None]
 
-    description = _app_description(config, app_name)
+    description = (
+        str(config.app.description)
+        if config.app is not None and config.app.description
+        else f"dao-ai MCP agent server: {app_name}"
+    )
 
     lines: list[str] = [f"# {app_name}", ""]
     lines.append(
@@ -447,47 +326,12 @@ def _render_readme(config: AppConfig, *, app_name: str, tool_name: str) -> str:
     return "\n".join(lines)
 
 
-def _app_description(config: AppConfig, app_name: str) -> str:
-    if config.app is not None and config.app.description:
-        return str(config.app.description)
-    return f"dao-ai MCP agent server: {app_name}"
-
-
-def _dump_yaml(data: dict[str, Any], *, header: str | None = None) -> str:
-    """ruamel-quality dump that preserves key order without anchor mangling."""
-    rt = YAML(typ="rt")
-    rt.preserve_quotes = True
-    rt.width = 4096
-    rt.indent(mapping=2, sequence=4, offset=2)
-
-    import io
-
-    buf = io.StringIO()
-    if header:
-        buf.write(header)
-        if not header.endswith("\n"):
-            buf.write("\n")
-    rt.dump(data, buf)
-    return buf.getvalue()
-
-
 def _get_dao_ai_version() -> str:
     try:
         return _pkg_version("dao-ai")
     except PackageNotFoundError:
         return "0.1.0"
 
-
-_DATABRICKS_YML_HEADER = """\
-# Generated by `dao-ai generate-mcp`.
-# Source config: {filename}
-# Edit by re-running generate-mcp against an updated config.
-"""
-
-_APP_YAML_HEADER = """\
-# Generated by `dao-ai generate-mcp`.
-# Databricks Apps reads this file to launch the MCP server.
-"""
 
 _PYPROJECT_TEMPLATE = """\
 [project]
