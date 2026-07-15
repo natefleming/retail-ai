@@ -43,7 +43,11 @@ from dao_ai.mcp.server_capabilities import (
 DEFAULT_CONFIG_PATH = "dao_ai.yaml"
 DEFAULT_PORT = 8000
 
-CONFIG_PATH_ENV = "DAO_AI_MCP_CONFIG_PATH"
+# Aligned with ``dao_ai.apps.handlers`` and ``dao_ai.apps.server`` so a
+# single env var drives config discovery whether the runtime is the chat
+# proxy, the responses server, or this MCP server. ``generate-mcp`` also
+# emits this name via the shared ``_build_app_block`` path.
+CONFIG_PATH_ENV = "DAO_AI_CONFIG_PATH"
 
 
 def _configure_mlflow(config: AppConfig) -> None:
