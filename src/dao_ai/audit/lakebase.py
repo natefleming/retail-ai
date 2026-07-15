@@ -19,7 +19,6 @@ from typing import TYPE_CHECKING, Optional
 
 from loguru import logger
 from psycopg import sql
-from psycopg.rows import dict_row
 from psycopg_pool import AsyncConnectionPool
 
 from dao_ai.audit.base import AuditReceipt
@@ -102,11 +101,6 @@ class LakebaseAuditSink:
 
     # ---- Schema lifecycle -----------------------------------------------
 
-    async def _pool(self) -> AsyncConnectionPool:
-        from dao_ai.memory.postgres import AsyncPostgresPoolManager
-
-        return await AsyncPostgresPoolManager.get_pool(self._config.database)
-
     async def ensure_schema(self) -> None:
         if self._schema_ready:
             return
@@ -144,7 +138,7 @@ class LakebaseAuditSink:
                     f"{self._nonces_table}_thread_call_idx"
                 ),
             )
-            pool: AsyncConnectionPool = await self._pool()
+            pool: AsyncConnectionPool = await self._config.database.aget_pool()
             async with pool.connection() as conn:
                 async with conn.cursor() as cur:
                     await cur.execute(ddl_composed)
@@ -166,7 +160,7 @@ class LakebaseAuditSink:
         """
         await self.ensure_schema()
         sealed: AuditReceipt = await self.chain.link_and_seal(receipt)
-        pool: AsyncConnectionPool = await self._pool()
+        pool: AsyncConnectionPool = await self._config.database.aget_pool()
         async with pool.connection() as conn:
             async with conn.cursor() as cur:
                 await cur.execute(self._insert_sql(), self._insert_params(sealed))
@@ -227,19 +221,17 @@ class LakebaseAuditSink:
     async def head_hash(self, thread_id: str) -> Optional[str]:
         """Return the ``this_hash`` of the most recent receipt for ``thread_id``."""
         await self.ensure_schema()
-        pool: AsyncConnectionPool = await self._pool()
         query: sql.Composed = sql.SQL(
             "SELECT this_hash FROM {table} "
             "WHERE thread_id = %s "
             "ORDER BY recorded_at DESC LIMIT 1"
         ).format(table=sql.Identifier(self._receipts_table))
-        async with pool.connection() as conn:
-            async with conn.cursor(row_factory=dict_row) as cur:
-                await cur.execute(query, (thread_id,))
-                row: Optional[dict[str, str]] = await cur.fetchone()
-        if row is None:
+        rows: list[dict[str, str]] = await self._config.database.aexecute_query(
+            query, (thread_id,)
+        )
+        if not rows:
             return None
-        return row["this_hash"]
+        return rows[0]["this_hash"]
 
     # ---- Nonces (called by NonceIssuer) --------------------------------
     #
@@ -265,16 +257,13 @@ class LakebaseAuditSink:
         Dormant in v1 — see module-level "v1.5 note" above.
         """
         await self.ensure_schema()
-        pool: AsyncConnectionPool = await self._pool()
         query: sql.Composed = sql.SQL(
             "INSERT INTO {table} (nonce, thread_id, tool_call_id, expires_at) "
             "VALUES (%s, %s, %s, %s)"
         ).format(table=sql.Identifier(self._nonces_table))
-        async with pool.connection() as conn:
-            async with conn.cursor() as cur:
-                await cur.execute(
-                    query, (nonce, thread_id, tool_call_id, expires_at)
-                )
+        await self._config.database.aexecute_update(
+            query, (nonce, thread_id, tool_call_id, expires_at)
+        )
 
     async def consume_nonce(
         self,
@@ -293,7 +282,6 @@ class LakebaseAuditSink:
         Dormant in v1 — see module-level "v1.5 note" above.
         """
         await self.ensure_schema()
-        pool: AsyncConnectionPool = await self._pool()
         query: sql.Composed = sql.SQL(
             "UPDATE {table} "
             "SET used_at = NOW() "
@@ -304,8 +292,7 @@ class LakebaseAuditSink:
             "  AND expires_at > NOW() "
             "RETURNING nonce"
         ).format(table=sql.Identifier(self._nonces_table))
-        async with pool.connection() as conn:
-            async with conn.cursor(row_factory=dict_row) as cur:
-                await cur.execute(query, (nonce, thread_id, tool_call_id))
-                row: Optional[dict[str, str]] = await cur.fetchone()
-        return row is not None
+        rows: list[dict[str, str]] = await self._config.database.aexecute_query(
+            query, (nonce, thread_id, tool_call_id)
+        )
+        return bool(rows)

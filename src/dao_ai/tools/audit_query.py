@@ -306,11 +306,9 @@ def create_query_audit_receipts_tool(audit: AuditConfigInput) -> BaseTool:
 
         sink: LakebaseAuditSink = _sink_for(audit_model)
         await sink.ensure_schema()
-        pool: AsyncConnectionPool = await sink._pool()
-        async with pool.connection() as conn:
-            async with conn.cursor(row_factory=dict_row) as cur:
-                await cur.execute(query, tuple(params))
-                rows: list[dict[str, Any]] = list(await cur.fetchall())
+        rows: list[dict[str, Any]] = await audit_model.database.aexecute_query(
+            query, tuple(params)
+        )
         logger.info(
             "query_audit_receipts",
             filters={
@@ -362,14 +360,12 @@ def create_get_audit_receipt_by_id_tool(audit: AuditConfigInput) -> BaseTool:
         )
         sink: LakebaseAuditSink = _sink_for(audit_model)
         await sink.ensure_schema()
-        pool: AsyncConnectionPool = await sink._pool()
-        async with pool.connection() as conn:
-            async with conn.cursor(row_factory=dict_row) as cur:
-                await cur.execute(query, (receipt_id,))
-                row: Optional[dict[str, Any]] = await cur.fetchone()
-        if row is None:
+        rows: list[dict[str, Any]] = await audit_model.database.aexecute_query(
+            query, (receipt_id,)
+        )
+        if not rows:
             return None
-        return _row_to_receipt(row)
+        return _row_to_receipt(rows[0])
 
     return get_audit_receipt_by_id
 
@@ -414,11 +410,9 @@ def create_verify_audit_hash_chain_tool(audit: AuditConfigInput) -> BaseTool:
         ).format(table=sql.Identifier(receipts_table))
         sink: LakebaseAuditSink = _sink_for(audit_model)
         await sink.ensure_schema()
-        pool: AsyncConnectionPool = await sink._pool()
-        async with pool.connection() as conn:
-            async with conn.cursor(row_factory=dict_row) as cur:
-                await cur.execute(query, (thread_id,))
-                rows: list[dict[str, Any]] = list(await cur.fetchall())
+        rows: list[dict[str, Any]] = await audit_model.database.aexecute_query(
+            query, (thread_id,)
+        )
 
         breaks: list[dict[str, Any]] = []
         expected_prev: Optional[str] = None
@@ -548,7 +542,7 @@ def create_summarize_audit_activity_tool(audit: AuditConfigInput) -> BaseTool:
 
         sink: LakebaseAuditSink = _sink_for(audit_model)
         await sink.ensure_schema()
-        pool: AsyncConnectionPool = await sink._pool()
+        pool: AsyncConnectionPool = await audit_model.database.aget_pool()
         async with pool.connection() as conn:
             async with conn.cursor(row_factory=dict_row) as cur:
                 await cur.execute(
@@ -728,11 +722,9 @@ def create_find_security_incidents_tool(audit: AuditConfigInput) -> BaseTool:
 
         sink: LakebaseAuditSink = _sink_for(audit_model)
         await sink.ensure_schema()
-        pool: AsyncConnectionPool = await sink._pool()
-        async with pool.connection() as conn:
-            async with conn.cursor(row_factory=dict_row) as cur:
-                await cur.execute(query, tuple(params))
-                rows: list[dict[str, Any]] = list(await cur.fetchall())
+        rows: list[dict[str, Any]] = await audit_model.database.aexecute_query(
+            query, tuple(params)
+        )
 
         def _incident_type(row: dict[str, Any]) -> str:
             status: Any = row.get("execution_status")
@@ -813,11 +805,9 @@ def create_get_thread_timeline_tool(audit: AuditConfigInput) -> BaseTool:
 
         sink: LakebaseAuditSink = _sink_for(audit_model)
         await sink.ensure_schema()
-        pool: AsyncConnectionPool = await sink._pool()
-        async with pool.connection() as conn:
-            async with conn.cursor(row_factory=dict_row) as cur:
-                await cur.execute(query, (thread_id,))
-                rows: list[dict[str, Any]] = list(await cur.fetchall())
+        rows: list[dict[str, Any]] = await audit_model.database.aexecute_query(
+            query, (thread_id,)
+        )
 
         timeline: list[dict[str, Any]] = []
         expected_prev: Optional[str] = None
@@ -913,7 +903,7 @@ def create_get_approver_activity_tool(audit: AuditConfigInput) -> BaseTool:
 
         sink: LakebaseAuditSink = _sink_for(audit_model)
         await sink.ensure_schema()
-        pool: AsyncConnectionPool = await sink._pool()
+        pool: AsyncConnectionPool = await audit_model.database.aget_pool()
         async with pool.connection() as conn:
             async with conn.cursor(row_factory=dict_row) as cur:
                 await cur.execute(
