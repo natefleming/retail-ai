@@ -28,6 +28,7 @@ deferred imports to avoid pulling ``databricks_ai_bridge`` at module-load time.
 """
 
 import asyncio
+import threading
 from typing import Any, AsyncIterator, Iterable, Literal, Sequence
 
 from databricks_langchain import DatabricksEmbeddings
@@ -107,23 +108,37 @@ async def _create_async_lakebase_pool(database: DatabaseModel, **extra: Any):
 
 
 class _LazyLakebaseCheckpointer(BaseCheckpointSaver):
-    """Lazily opens the wrapped ``AsyncCheckpointSaver`` on first await call."""
+    """Lazily opens the wrapped ``AsyncCheckpointSaver`` on first await call.
+
+    Cache is keyed by ``id(asyncio.get_running_loop())`` so processes that hop
+    loops — most commonly a Databricks App handling both a sync
+    ``/invocations`` and a background ``/v1/responses`` — get one saver per
+    loop instead of trying to reuse a Lock/pool bound to a different loop.
+    The persisted checkpoint state lives in Lakebase, so per-loop savers
+    still observe the same durable state.
+    """
 
     def __init__(self, saver_kwargs: dict[str, Any], log_extra: dict[str, Any]):
         super().__init__()
         self._saver_kwargs = saver_kwargs
         self._log_extra = log_extra
-        self._saver: BaseCheckpointSaver | None = None
-        self._init_lock: asyncio.Lock | None = None
+        self._savers: dict[int, BaseCheckpointSaver] = {}
+        self._init_locks: dict[int, asyncio.Lock] = {}
+        self._dict_lock: threading.Lock = threading.Lock()
 
     async def _ensure(self) -> BaseCheckpointSaver:
-        if self._saver is not None:
-            return self._saver
-        # Bind the lock to the active loop on first use.
-        if self._init_lock is None:
-            self._init_lock = asyncio.Lock()
-        async with self._init_lock:
-            if self._saver is None:
+        loop_id: int = id(asyncio.get_running_loop())
+        saver = self._savers.get(loop_id)
+        if saver is not None:
+            return saver
+        with self._dict_lock:
+            init_lock = self._init_locks.get(loop_id)
+            if init_lock is None:
+                init_lock = asyncio.Lock()
+                self._init_locks[loop_id] = init_lock
+        async with init_lock:
+            saver = self._savers.get(loop_id)
+            if saver is None:
                 from databricks_langchain import AsyncCheckpointSaver
 
                 saver = AsyncCheckpointSaver(**self._saver_kwargs)
@@ -131,10 +146,11 @@ class _LazyLakebaseCheckpointer(BaseCheckpointSaver):
                 await saver.setup()
                 logger.success(
                     "Lakebase checkpointer initialized (lazy)",
+                    loop_id=loop_id,
                     **self._log_extra,
                 )
-                self._saver = saver
-        return self._saver
+                self._savers[loop_id] = saver
+        return saver
 
     async def aget(self, config: RunnableConfig) -> Checkpoint | None:
         return await (await self._ensure()).aget(config)
@@ -196,23 +212,33 @@ class _LazyLakebaseCheckpointer(BaseCheckpointSaver):
 
 
 class _LazyLakebaseStore(BaseStore):
-    """Lazily opens the wrapped ``AsyncDatabricksStore`` on first await call."""
+    """Lazily opens the wrapped ``AsyncDatabricksStore`` on first await call.
+
+    Per-loop cache — see :class:`_LazyLakebaseCheckpointer` for rationale.
+    """
 
     def __init__(self, store_kwargs: dict[str, Any], log_extra: dict[str, Any]):
         # Don't call super().__init__() because BaseStore is abstract on
         # ``batch`` / ``abatch`` — we satisfy those via overrides below.
         self._store_kwargs = store_kwargs
         self._log_extra = log_extra
-        self._store: BaseStore | None = None
-        self._init_lock: asyncio.Lock | None = None
+        self._stores: dict[int, BaseStore] = {}
+        self._init_locks: dict[int, asyncio.Lock] = {}
+        self._dict_lock: threading.Lock = threading.Lock()
 
     async def _ensure(self) -> BaseStore:
-        if self._store is not None:
-            return self._store
-        if self._init_lock is None:
-            self._init_lock = asyncio.Lock()
-        async with self._init_lock:
-            if self._store is None:
+        loop_id: int = id(asyncio.get_running_loop())
+        store = self._stores.get(loop_id)
+        if store is not None:
+            return store
+        with self._dict_lock:
+            init_lock = self._init_locks.get(loop_id)
+            if init_lock is None:
+                init_lock = asyncio.Lock()
+                self._init_locks[loop_id] = init_lock
+        async with init_lock:
+            store = self._stores.get(loop_id)
+            if store is None:
                 from databricks_langchain import AsyncDatabricksStore
 
                 store = AsyncDatabricksStore(**self._store_kwargs)
@@ -220,10 +246,11 @@ class _LazyLakebaseStore(BaseStore):
                 await store.setup()
                 logger.success(
                     "Lakebase store initialized (lazy)",
+                    loop_id=loop_id,
                     **self._log_extra,
                 )
-                self._store = store
-        return self._store
+                self._stores[loop_id] = store
+        return store
 
     async def abatch(self, ops: Iterable[Op]) -> list[Result]:
         return await (await self._ensure()).abatch(ops)
