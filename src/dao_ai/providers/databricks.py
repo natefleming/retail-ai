@@ -1572,7 +1572,10 @@ class DatabricksProvider(ServiceProvider):
             # ``app.background:``, but the cached venv was a pre-rename
             # dao-ai that rejected the new field as ``extra_forbidden`` and
             # crashed the app at startup.
-            from dao_ai.apps.bundle import _PYPROJECT_TEMPLATE
+            from dao_ai.apps.bundle import (
+                _PYPROJECT_TEMPLATE,
+                _make_requirements_txt,
+            )
 
             app_name_normalized = raw_name.lower().replace("_", "-")
             package_name = app_name_normalized.replace("-", "_")
@@ -1588,7 +1591,10 @@ class DatabricksProvider(ServiceProvider):
                 overwrite=True,
             )
 
-            requirements_content = f"dao-ai>={dao_ai_version()}\n"
+            # Route through the shared helper so this path picks up the
+            # ``--index-url https://pypi.org/simple/`` override + unbounded
+            # dao-ai pin. See ``_make_requirements_txt`` for the reasoning.
+            requirements_content = _make_requirements_txt(development=False)
             self.w.workspace.upload(
                 path=f"{source_path}/requirements.txt",
                 content=io.BytesIO(requirements_content.encode("utf-8")),

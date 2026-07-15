@@ -10,9 +10,11 @@ Files produced:
 
 * ``databricks.yml`` — DAB with ``bundle.engine: direct`` and the App
   resource bindings derived from :func:`generate_app_resources`.
-* ``app.yaml`` — ``command: ["dao-ai-mcp-server"]`` plus env vars.
-* ``pyproject.toml`` — single dep ``dao-ai[mcp]>=<current-version>``;
-  declares ``dao-ai-mcp-server`` as a re-exported script.
+* ``app.yaml`` — ``command: ["python", "-m", "dao_ai.mcp.server"]`` plus env vars.
+* ``pyproject.toml`` — build metadata; runtime deps live in requirements.txt.
+* ``requirements.txt`` — ``dao-ai[mcp]>=<current-version>`` (prod) or the
+  bundled wheel with ``[mcp]`` extras (dev). Apps' build phase installs
+  from this directly — no ``uv sync`` or URL-rewrite step required.
 * ``dao_ai.yaml`` — the rendered (param-substituted) config, stripped of
   its top-level ``parameters:`` block.
 * ``README.md`` — deploy snippet + the single tool name to point clients at.
@@ -39,10 +41,11 @@ from dao_ai.config import AppConfig, value_of
 from dao_ai.mcp.agent_tool import _slugify
 
 DEFAULT_CONFIG_FILENAME = "dao_ai.yaml"
-# Bare console-script entry. Apps' native uv support runs `uv sync --locked
-# --no-dev` at BUILD phase, which installs `dao-ai-mcp-server` into
-# .venv/bin/ and puts that on PATH for the runtime.
-APP_COMMAND: list[str] = ["dao-ai-mcp-server"]
+# Invoke the MCP server via ``python -m`` so we don't depend on ``.venv/bin``
+# being on PATH inside the Apps runtime container. Parallel to how
+# ``generate-bundle`` invokes ``python -m dao_ai.apps.server`` — see
+# ``dao_ai/apps/bundle.py::_build_app_block``.
+APP_COMMAND: list[str] = ["python", "-m", "dao_ai.mcp.server"]
 
 
 def write_mcp_bundle(
@@ -113,6 +116,10 @@ def write_mcp_bundle(
         output_dir / "pyproject.toml",
         _render_pyproject(app_name=app_name, wheel_filename=wheel_filename),
     )
+    _write(
+        output_dir / "requirements.txt",
+        _make_requirements_txt(development=development, wheel_filename=wheel_filename),
+    )
 
     rendered: str | None = getattr(config, "_rendered_yaml", None)
     if rendered is not None:
@@ -133,14 +140,28 @@ def write_mcp_bundle(
     for name in skipped:
         print(f"  {name:<20s} (skipped — re-run with --force to overwrite)")
 
+    # `databricks bundle run` addresses resources by their DAB key, which
+    # ``_render_databricks_yml`` derives as ``app_name.replace("-", "_")``.
+    # Keep this in sync with that mapping so the printed command is
+    # copy-pasteable when ``app.name`` contains hyphens (e.g. ``mcp-foo``).
+    bundle_key = app_name.replace("-", "_")
+
     print(f"\nMCP tool exposed: {tool_name}")
     print("\nNext steps:")
     print(f"  cd {output_dir}")
-    print("  uv sync                              # generate uv.lock against your env")
-    print("  # Databricks-internal users only: rewrite internal-proxy URLs in the lock")
-    print("  # so Apps containers can fetch from public PyPI (see README).")
-    print("  databricks bundle validate -t dev -p <profile>")
-    print("  databricks bundle deploy -t dev -p <profile>")
+    print("  databricks bundle deploy --target dev")
+    if config.app.trace_location:
+        # Idempotent — safe on every deploy — but load-bearing on
+        # re-deploys and after trace_location changes. See
+        # `dao-ai link-trace-destination --help` for the full story.
+        print(
+            f"  dao-ai link-trace-destination -c {config_filename}"
+            f"   # links UC trace destination for {app_name}"
+        )
+    print(f"  databricks bundle run {bundle_key} --target dev")
+    print()
+    print("  # Apps' build phase installs deps directly from requirements.txt;")
+    print("  # no uv sync or URL rewrite required.")
     print()
 
 
@@ -305,6 +326,35 @@ def _render_pyproject(*, app_name: str, wheel_filename: str | None = None) -> st
     )
 
 
+def _make_requirements_txt(
+    *,
+    development: bool,
+    wheel_filename: str | None = None,
+) -> str:
+    """Build the requirements.txt content for an MCP app bundle.
+
+    The published pin is left *unbounded* (``dao-ai[mcp]``) rather than
+    floor-pinned to the locally-installed version. ``_get_dao_ai_version()``
+    reflects whatever is checked out in the developer's tree, which may
+    be an unreleased pre-publish build (e.g. ``0.1.112`` before it lands
+    on PyPI). Baking that floor into requirements.txt would cause Apps
+    to fail with ``Could not find a version that satisfies …``. Users
+    who need reproducibility can tighten the pin by hand.
+
+    We install the ``[mcp]`` extra so the server module's dependencies
+    (fastmcp, uvicorn, etc.) resolve. Development mode installs the
+    bundled wheel with that extra so transitive MCP deps still resolve
+    from public PyPI.
+    """
+    if development:
+        if not wheel_filename:
+            raise ValueError(
+                "_make_requirements_txt: wheel_filename is required in development mode."
+            )
+        return f"./dist/{wheel_filename}[mcp]\n"
+    return "dao-ai[mcp]\n"
+
+
 def _bundle_local_wheel(output_dir: Path, *, written: list[str]) -> str:
     """Build (or reuse) a local dao-ai wheel and copy it under ``output_dir/dist/``."""
     project_root = Path(__file__).parents[3]
@@ -445,12 +495,11 @@ name = "{name}"
 version = "0.1.0"
 description = "Databricks Apps MCP server generated from a dao-ai config."
 requires-python = ">=3.11,<3.12"
+# Runtime deps live in requirements.txt (installed by Apps' build phase).
+# Kept declared here too so local `uv sync` works for iterative dev.
 dependencies = [
     "dao-ai[mcp]>={dao_ai_version}",
 ]
-
-[project.scripts]
-dao-ai-mcp-server = "dao_ai.mcp.server:main"
 
 [build-system]
 requires = ["hatchling"]
@@ -466,12 +515,11 @@ name = "{name}"
 version = "0.1.0"
 description = "Databricks Apps MCP server (development build with bundled wheel)."
 requires-python = ">=3.11,<3.12"
+# Runtime deps live in requirements.txt (installed by Apps' build phase).
+# Kept declared here too so local `uv sync` works for iterative dev.
 dependencies = [
     "dao-ai[mcp]",
 ]
-
-[project.scripts]
-dao-ai-mcp-server = "dao_ai.mcp.server:main"
 
 [build-system]
 requires = ["hatchling"]

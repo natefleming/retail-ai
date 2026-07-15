@@ -2437,12 +2437,17 @@ def test_deploy_apps_agent_uploads_pyproject_with_dao_ai_version_pin(tmp_path):
     requirements_text = (
         requirements_uploads[0].kwargs["content"].getvalue().decode("utf-8")
     )
-    assert f"dao-ai>={dao_ai_version()}" in requirements_text, (
-        f"requirements.txt must pin dao-ai>={dao_ai_version()}; got: {requirements_text!r}"
+    # The published pin is intentionally unbounded — the locally-installed
+    # version may be an unreleased pre-publish build, so floor-pinning
+    # would cause Apps to fail with ``Could not find a version``.
+    assert requirements_text.strip() == "dao-ai", (
+        f"requirements.txt must install unbounded dao-ai; got: {requirements_text!r}"
     )
 
-    # pyproject.toml is also uploaded with the same pin (for uv-native
-    # builds + IDE awareness) but isn't the file Apps' build phase keys on.
+    # pyproject.toml is also uploaded with the local version pin (for
+    # uv-native builds + IDE awareness) but isn't the file Apps' build
+    # phase keys on. The floor pin is fine here since it only affects
+    # local dev environments where the version is definitionally present.
     pyproject_uploads = [
         c
         for c in provider.w.workspace.upload.call_args_list

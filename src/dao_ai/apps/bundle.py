@@ -136,13 +136,13 @@ def _make_requirements_txt(
 ) -> str:
     """Build the requirements.txt content for an app bundle.
 
-    Apps' build phase recognizes ``requirements.txt`` directly and runs
-    ``pip install -r requirements.txt`` against public PyPI. This avoids
-    the pypi-proxy lock-in problem that arose when shipping ``uv.lock``
-    files generated from Databricks-internal environments.
-
-    Published mode: pin dao-ai by version range so Apps builds always
-    pick up the version the bundle was generated against.
+    The published pin is left *unbounded* (``dao-ai``) rather than
+    floor-pinned to the locally-installed version. ``_get_dao_ai_version()``
+    reflects whatever is checked out in the developer's tree, which may
+    be an unreleased pre-publish build. Baking that floor into
+    requirements.txt would cause Apps to fail with ``Could not find a
+    version that satisfies …``. Users who need reproducibility can
+    tighten the pin by hand.
 
     Development mode: reference the bundled wheel via a relative path
     (``./dist/<wheel>``). Pip installs the wheel and resolves transitive
@@ -154,7 +154,7 @@ def _make_requirements_txt(
                 "_make_requirements_txt: wheel_filename is required in development mode."
             )
         return f"./dist/{wheel_filename}\n"
-    return f"dao-ai>={_get_dao_ai_version()}\n"
+    return "dao-ai\n"
 
 
 def _get_dao_ai_version() -> str:
