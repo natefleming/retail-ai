@@ -5573,8 +5573,8 @@ class McpServerCapabilitiesModel(BaseModel):
     server itself publishes and how it reports progress/logging to callers.
 
     When None on ``AppModel`` (the default), dao-ai's MCP server publishes
-    only the single agent-as-tool it always has — byte-for-byte compatible
-    with pre-PR-2 behavior.
+    only the single agent-as-tool surface — no static resources or prompts,
+    no progress/logging notifications.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -8940,8 +8940,7 @@ class AppModel(BaseModel):
             "MCP server (``dao-ai generate-mcp``). Declares static resources, "
             "prompt templates, and whether progress + logging notifications are "
             "emitted from the agent tool. When None the server publishes only "
-            "the classic single-tool agent surface — zero regression from the "
-            "pre-PR-2 default."
+            "the single agent-as-tool surface with no notifications."
         ),
     )
     experiment: Optional[ExperimentModel] = Field(

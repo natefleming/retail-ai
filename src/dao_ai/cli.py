@@ -415,7 +415,92 @@ Notes:
         metavar="ID",
         help="Explicit experiment id (skips resolution from config/bundle name).",
     )
+    link_trace_parser.add_argument(
+        "--app-sp",
+        type=str,
+        metavar="CLIENT_ID",
+        help=(
+            "Service principal client_id (UUID) of the Databricks App runtime "
+            "identity to grant experiment CAN_EDIT and UC OTEL table SELECT+MODIFY. "
+            "When omitted, auto-resolved via ``apps.get(config.app.name)`` — pass "
+            "explicitly to override or to grant a non-default principal. "
+            "Set ``app.manage_permissions: false`` in the config to skip grants "
+            "entirely (admin-provisioned scenarios)."
+        ),
+    )
     _add_var_argument(link_trace_parser)
+
+    # Grant trace permissions command
+    grant_trace_parser: ArgumentParser = subparsers.add_parser(
+        "grant-trace-permissions",
+        help="Grant an App SP the experiment + UC OTEL table permissions MLflow tracing needs.",
+        description="""
+Grant the experiment ``CAN_EDIT`` ACL and the UC OTEL trace-table
+``USE_CATALOG``/``USE_SCHEMA``/``SELECT``/``MODIFY`` privileges that
+MLflow tracing needs at runtime to persist traces into a UC-backed
+experiment's OTEL Delta tables.
+
+Standalone counterpart to the grant step that ``dao-ai deploy`` / ``dao-ai
+pipeline`` runs automatically inside ``deploy_app_agent`` /
+``deploy_model_serving_agent``. Useful for the ``generate-bundle`` + ``bundle
+deploy`` + ``link-trace-destination`` flow (where no full deploy fires),
+or for retroactively fixing grants when an app was deployed by an
+identity that lacked GRANT rights.
+
+Idempotent — repeated calls with the same principal + privileges no-op
+on the workspace side.
+
+Experiment resolution order matches ``link-trace-destination``:
+  1. ``--experiment-id`` flag
+  2. ``config.app.experiment.resolved_id`` if ``experiment:`` is set
+  3. Bundle-declared name lookup (``/Users/<current-user>/<app-name>``)
+
+App SP resolution:
+  1. ``--app-sp`` flag (explicit)
+  2. ``apps.get(config.app.name).service_principal_client_id``
+
+No-op when ``config.app.trace_location`` is not set.
+        """,
+        epilog="""
+Examples:
+  # Retroactively grant an already-deployed App its trace-write permissions
+  dao-ai grant-trace-permissions -c config.yaml -p fevm
+
+  # Grant a specific SP explicitly (e.g. shared workload identity)
+  dao-ai grant-trace-permissions -c config.yaml --app-sp <uuid> -p fevm
+        """,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    grant_trace_parser.add_argument(
+        "-c",
+        "--config",
+        type=str,
+        required=True,
+        metavar="FILE",
+        help="Path to the model configuration file (must set app.trace_location).",
+    )
+    grant_trace_parser.add_argument(
+        "-p",
+        "--profile",
+        type=str,
+        help="Databricks profile to use for authentication.",
+    )
+    grant_trace_parser.add_argument(
+        "--experiment-id",
+        type=str,
+        metavar="ID",
+        help="Explicit experiment id (skips resolution from config/bundle name).",
+    )
+    grant_trace_parser.add_argument(
+        "--app-sp",
+        type=str,
+        metavar="CLIENT_ID",
+        help=(
+            "Service principal client_id (UUID) to grant. When omitted, "
+            "auto-resolved via ``apps.get(config.app.name)``."
+        ),
+    )
+    _add_var_argument(grant_trace_parser)
 
     # Graph command
     graph_parser: ArgumentParser = subparsers.add_parser(
@@ -1260,6 +1345,15 @@ def handle_link_trace_destination_command(options: Namespace) -> None:
     traces" — this call runs from the operator's machine with their own
     credentials, so the tag-based idempotency check (or the API call
     itself, on a truly-first link) can succeed cleanly.
+
+    After linking, unless ``--no-grants`` is passed, also grants the App's
+    runtime SP the experiment CAN_EDIT ACL and the UC OTEL trace-table
+    SELECT+MODIFY privileges MLflow tracing needs — matching the grant
+    step that ``dao-ai deploy_app_agent`` / ``deploy_model_serving_agent``
+    perform automatically on their own deploy paths. Without this the
+    bundle-based flow (``generate-bundle`` + ``bundle deploy`` +
+    ``link-trace-destination``) leaves the App SP without table-write
+    permissions and traces are silently dropped at runtime.
     """
     _apply_profile_context(options.profile)
 
@@ -1305,6 +1399,129 @@ def handle_link_trace_destination_command(options: Namespace) -> None:
             if config.app.trace_location.resolved_table_prefix
             else ""
         )
+    )
+
+    _grant_trace_writes_to_app_sp(config, experiment_id, sp_override=options.app_sp)
+
+
+def handle_grant_trace_permissions_command(options: Namespace) -> None:
+    """Grant an App SP the experiment + UC OTEL table permissions.
+
+    Standalone verb equivalent to the grant step that ``deploy_app_agent`` /
+    ``deploy_model_serving_agent`` runs. Useful for the bundle-based flow
+    (which skips those deploy paths) or for retroactively fixing grants.
+    """
+    _apply_profile_context(options.profile)
+
+    try:
+        config: AppConfig = AppConfig.from_file(
+            options.config, params=_parse_var_args(options.var)
+        )
+    except ConfigVariableError as e:
+        _print_config_variable_error(e)
+        sys.exit(1)
+
+    if not (config.app and config.app.trace_location):
+        print(
+            "No app.trace_location configured — nothing to grant.",
+            file=sys.stderr,
+        )
+        return
+
+    experiment_id: Optional[str] = _resolve_experiment_id_for_link(
+        config, options.experiment_id
+    )
+    if experiment_id is None:
+        sys.exit(1)
+
+    _grant_trace_writes_to_app_sp(
+        config, experiment_id, sp_override=options.app_sp
+    )
+
+
+def _grant_trace_writes_to_app_sp(
+    config: AppConfig,
+    experiment_id: str,
+    sp_override: Optional[str],
+) -> None:
+    """Resolve the App SP and grant it the trace-write privileges.
+
+    Shared implementation for ``link-trace-destination`` (post-link grant)
+    and ``grant-trace-permissions`` (standalone). Respects
+    ``config.app.manage_permissions`` — when False, skips silently on the
+    assumption that an admin has pre-provisioned grants.
+
+    Resolution order for the App SP:
+      1. ``sp_override`` (``--app-sp`` flag).
+      2. ``apps.get(config.app.name).service_principal_client_id``.
+
+    Both grant calls WARN-and-continue on failure inside the provider
+    helpers, so a deployer without GRANT rights sees diagnostics but the
+    command still exits 0 — the App will surface the missing grants
+    itself at trace-write time.
+    """
+    if not config.app.manage_permissions:
+        print(
+            "app.manage_permissions=false — skipping SP grants. "
+            "Ensure an admin has pre-provisioned experiment CAN_EDIT and "
+            "UC OTEL SELECT+MODIFY on the trace tables.",
+            file=sys.stderr,
+        )
+        return
+
+    sp_id: Optional[str] = sp_override
+    if not sp_id:
+        try:
+            from databricks.sdk import WorkspaceClient
+
+            w = WorkspaceClient()
+            app = w.apps.get(name=config.app.name)
+            sp_id = app.service_principal_client_id or app.service_principal_id
+        except Exception as e:  # noqa: BLE001
+            print(
+                f"Could not resolve App SP via apps.get({config.app.name!r}): "
+                f"{type(e).__name__}: {e}. "
+                "Deploy the app first (``databricks bundle deploy``) or pass "
+                "``--app-sp <CLIENT_ID>`` explicitly.",
+                file=sys.stderr,
+            )
+            return
+
+    if not sp_id:
+        print(
+            f"App {config.app.name!r} has no service_principal_client_id — "
+            "pass ``--app-sp <CLIENT_ID>`` explicitly.",
+            file=sys.stderr,
+        )
+        return
+
+    from dao_ai.providers.databricks import (
+        _grant_experiment_permissions_to_principal,
+        _grant_uc_trace_table_permissions_to_principal,
+        _resolve_trace_table_prefix,
+    )
+
+    _grant_experiment_permissions_to_principal(
+        principal=sp_id, experiment_id=experiment_id
+    )
+
+    table_prefix: str = _resolve_trace_table_prefix(
+        config,
+        None
+        if config.app.trace_location.resolved_table_prefix
+        else experiment_id,
+    )
+    _grant_uc_trace_table_permissions_to_principal(
+        principal=sp_id,
+        catalog_name=config.app.trace_location.catalog_name,
+        schema_name=config.app.trace_location.schema_name,
+        table_prefix=table_prefix,
+    )
+    print(
+        f"Granted trace-write privileges to App SP {sp_id} on "
+        f"{config.app.trace_location.catalog_name}."
+        f"{config.app.trace_location.schema_name} "
+        f"(table_prefix={table_prefix})"
     )
 
 
@@ -2280,6 +2497,8 @@ def main() -> None:
             handle_create_experiment_command(options)
         case "link-trace-destination":
             handle_link_trace_destination_command(options)
+        case "grant-trace-permissions":
+            handle_grant_trace_permissions_command(options)
         case "validate":
             handle_validate_command(options)
         case "graph":
