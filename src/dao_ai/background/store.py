@@ -24,7 +24,6 @@ from psycopg.rows import dict_row
 from psycopg.types.json import Json
 
 from dao_ai.config import DatabaseModel
-from dao_ai.memory.postgres import AsyncPostgresPoolManager
 
 
 class ResponseStatus(str, Enum):
@@ -86,9 +85,6 @@ class BackgroundStore:
         self.messages_table = _valid_identifier(messages_table_name)
         self._schema_ready = False
 
-    async def _pool(self):
-        return await AsyncPostgresPoolManager.get_pool(self.database)
-
     @mlflow.trace(name="background.store.ensure_schema", span_type="INTERNAL")
     async def ensure_schema(self) -> None:
         """Create the two tables + index if they don't exist."""
@@ -127,13 +123,7 @@ class BackgroundStore:
         )
         """
 
-        pool = await self._pool()
-        async with pool.connection() as conn:
-            async with conn.cursor() as cur:
-                await cur.execute(ddl_responses)
-                await cur.execute(ddl_index)
-                await cur.execute(ddl_messages)
-            await conn.commit()
+        await self.database.aexecute_update([ddl_responses, ddl_index, ddl_messages])
 
         self._schema_ready = True
         logger.info(
@@ -157,19 +147,15 @@ class BackgroundStore:
             (response_id, thread_id, status, request_json)
         VALUES (%s, %s, %s, %s)
         """
-        pool = await self._pool()
-        async with pool.connection() as conn:
-            async with conn.cursor() as cur:
-                await cur.execute(
-                    sql,
-                    (
-                        response_id,
-                        thread_id,
-                        status.value,
-                        Json(request) if request is not None else None,
-                    ),
-                )
-            await conn.commit()
+        await self.database.aexecute_update(
+            sql,
+            (
+                response_id,
+                thread_id,
+                status.value,
+                Json(request) if request is not None else None,
+            ),
+        )
         logger.info(
             "Background response created",
             response_id=response_id,
@@ -182,11 +168,7 @@ class BackgroundStore:
             f"UPDATE {self.responses_table} SET agent_task_id = %s, updated_at = NOW() "
             f"WHERE response_id = %s"
         )
-        pool = await self._pool()
-        async with pool.connection() as conn:
-            async with conn.cursor() as cur:
-                await cur.execute(sql, (task_id, response_id))
-            await conn.commit()
+        await self.database.aexecute_update(sql, (task_id, response_id))
 
     @mlflow.trace(name="background.store.set_status", span_type="INTERNAL")
     async def set_status(
@@ -202,18 +184,14 @@ class BackgroundStore:
             f"SET status = %s, error_json = %s, updated_at = NOW(){completed_clause} "
             f"WHERE response_id = %s"
         )
-        pool = await self._pool()
-        async with pool.connection() as conn:
-            async with conn.cursor() as cur:
-                await cur.execute(
-                    sql,
-                    (
-                        status.value,
-                        Json(error) if error is not None else None,
-                        response_id,
-                    ),
-                )
-            await conn.commit()
+        await self.database.aexecute_update(
+            sql,
+            (
+                status.value,
+                Json(error) if error is not None else None,
+                response_id,
+            ),
+        )
         logger.info(
             "Background response status updated",
             response_id=response_id,
@@ -231,13 +209,10 @@ class BackgroundStore:
             f"request_json, error_json, created_at, updated_at, completed_at "
             f"FROM {self.responses_table} WHERE response_id = %s"
         )
-        pool = await self._pool()
-        async with pool.connection() as conn:
-            async with conn.cursor(row_factory=dict_row) as cur:
-                await cur.execute(sql, (response_id,))
-                row = await cur.fetchone()
-        if row is None:
+        rows = await self.database.aexecute_query(sql, (response_id,))
+        if not rows:
             return None
+        row = rows[0]
         return ResponseRecord(
             response_id=row["response_id"],
             thread_id=row["thread_id"],
@@ -270,22 +245,19 @@ class BackgroundStore:
         )
         RETURNING sequence_number
         """
-        pool = await self._pool()
-        async with pool.connection() as conn:
-            # The pool is configured with dict_row, so fetchone() returns a
-            # dict; access by column name rather than positional index.
-            async with conn.cursor() as cur:
-                await cur.execute(sql, (response_id, response_id, Json(event)))
-                row = await cur.fetchone()
-                assert row is not None
-                seq = int(row["sequence_number"])
-            # bump updated_at so pollers notice activity
-            await conn.execute(
+        # INSERT-RETURNING + follow-up UPDATE. Held on one connection so the
+        # pair round-trips together; autocommit means no explicit txn needed.
+        # Pool defaults to dict_row so fetchone() returns a dict.
+        async with self.database.aconnect() as cur:
+            await cur.execute(sql, (response_id, response_id, Json(event)))
+            row = await cur.fetchone()
+            assert row is not None
+            seq = int(row["sequence_number"])
+            await cur.execute(
                 f"UPDATE {self.responses_table} SET updated_at = NOW() "
                 f"WHERE response_id = %s",
                 (response_id,),
             )
-            await conn.commit()
         return seq
 
     async def append_output(
@@ -294,6 +266,8 @@ class BackgroundStore:
         items: list[dict[str, Any]],
     ) -> None:
         """Append the final list of output items (non-streaming result)."""
+        if not items:
+            return
         sql = f"""
         INSERT INTO {self.messages_table}
             (response_id, sequence_number, item)
@@ -307,12 +281,11 @@ class BackgroundStore:
             %s
         )
         """
-        pool = await self._pool()
-        async with pool.connection() as conn:
-            async with conn.cursor() as cur:
-                for item in items:
-                    await cur.execute(sql, (response_id, response_id, Json(item)))
-            await conn.commit()
+        # Kept in one connection so the correlated MAX(sequence_number)+1
+        # subquery observes prior INSERTs within this batch.
+        async with self.database.aconnect() as cur:
+            for item in items:
+                await cur.execute(sql, (response_id, response_id, Json(item)))
 
     async def iter_events(
         self,
@@ -320,14 +293,18 @@ class BackgroundStore:
         *,
         cursor: int = 0,
     ) -> AsyncIterator[tuple[int, dict[str, Any]]]:
-        """Yield ``(sequence_number, stream_event)`` tuples after ``cursor``."""
+        """Yield ``(sequence_number, stream_event)`` tuples after ``cursor``.
+
+        Uses the raw pool because the cursor must stay open across the
+        `async for row in cur` yields — `aexecute_query` materializes rows.
+        """
         sql = (
             f"SELECT sequence_number, stream_event FROM {self.messages_table} "
             f"WHERE response_id = %s AND sequence_number > %s "
             f"AND stream_event IS NOT NULL "
             f"ORDER BY sequence_number ASC"
         )
-        pool = await self._pool()
+        pool = await self.database.aget_pool()
         async with pool.connection() as conn:
             async with conn.cursor(row_factory=dict_row) as cur:
                 await cur.execute(sql, (response_id, cursor))
@@ -341,11 +318,7 @@ class BackgroundStore:
             f"WHERE response_id = %s AND item IS NOT NULL "
             f"ORDER BY sequence_number ASC"
         )
-        pool = await self._pool()
-        async with pool.connection() as conn:
-            async with conn.cursor(row_factory=dict_row) as cur:
-                await cur.execute(sql, (response_id,))
-                rows = await cur.fetchall()
+        rows = await self.database.aexecute_query(sql, (response_id,))
         return [_coerce_json(r["item"]) for r in rows]
 
 

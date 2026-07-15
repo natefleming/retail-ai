@@ -24,11 +24,9 @@ import mlflow
 from a2a.server.tasks import InMemoryTaskStore, TaskStore
 from a2a.types import Task
 from loguru import logger
-from psycopg.rows import dict_row
 from psycopg.types.json import Json
 
 from dao_ai.background.store import _valid_identifier  # reuse the validator
-from dao_ai.memory.postgres import AsyncPostgresPoolManager
 
 if TYPE_CHECKING:
     from a2a.server.context import ServerCallContext
@@ -58,9 +56,6 @@ class LakebaseTaskStore(TaskStore):
         self.table_name = _valid_identifier(table_name)
         self._schema_ready = False
 
-    async def _pool(self):
-        return await AsyncPostgresPoolManager.get_pool(self.database)
-
     @mlflow.trace(name="a2a.task_store.ensure_schema", span_type="INTERNAL")
     async def ensure_schema(self) -> None:
         """Create the tasks table + indexes if they don't exist.
@@ -80,54 +75,39 @@ class LakebaseTaskStore(TaskStore):
             )
             return
 
-        pool = await self._pool()
-        async with pool.connection() as conn:
-            async with conn.cursor() as cur:
-                # Cheap existence probe; uses to_regclass which returns
-                # NULL when the table doesn't exist instead of raising.
-                await cur.execute(
-                    "SELECT to_regclass(%s) AS reg",
-                    (f"public.{self.table_name}",),
-                )
-                row = await cur.fetchone()
-                if row is None:
-                    # No rows shouldn't happen, but stay safe.
-                    table_present = False
-                elif isinstance(row, dict):
-                    table_present = row.get("reg") is not None
-                else:
-                    table_present = row[0] is not None
+        probe_rows = await self.database.aexecute_query(
+            "SELECT to_regclass(%s) AS reg",
+            (f"public.{self.table_name}",),
+        )
+        table_present = bool(probe_rows) and probe_rows[0].get("reg") is not None
 
-                if not table_present:
-                    ddl_tasks = f"""
-                    CREATE TABLE IF NOT EXISTS {self.table_name} (
-                        task_id    TEXT PRIMARY KEY,
-                        context_id TEXT NOT NULL,
-                        state      TEXT NOT NULL,
-                        task_json  JSONB NOT NULL,
-                        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-                    )
-                    """
-                    ddl_idx_ctx = (
-                        f"CREATE INDEX IF NOT EXISTS "
-                        f"idx_{self.table_name}_context_id "
-                        f"ON {self.table_name} (context_id)"
-                    )
-                    ddl_idx_upd = (
-                        f"CREATE INDEX IF NOT EXISTS "
-                        f"idx_{self.table_name}_updated_at "
-                        f"ON {self.table_name} (updated_at)"
-                    )
-                    await cur.execute(ddl_tasks)
-                    await cur.execute(ddl_idx_ctx)
-                    await cur.execute(ddl_idx_upd)
-                    logger.info(
-                        "A2A task store DDL applied",
-                        table=self.table_name,
-                        database=self.database.name,
-                    )
-            await conn.commit()
+        if not table_present:
+            ddl_tasks = f"""
+            CREATE TABLE IF NOT EXISTS {self.table_name} (
+                task_id    TEXT PRIMARY KEY,
+                context_id TEXT NOT NULL,
+                state      TEXT NOT NULL,
+                task_json  JSONB NOT NULL,
+                created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            )
+            """
+            ddl_idx_ctx = (
+                f"CREATE INDEX IF NOT EXISTS "
+                f"idx_{self.table_name}_context_id "
+                f"ON {self.table_name} (context_id)"
+            )
+            ddl_idx_upd = (
+                f"CREATE INDEX IF NOT EXISTS "
+                f"idx_{self.table_name}_updated_at "
+                f"ON {self.table_name} (updated_at)"
+            )
+            await self.database.aexecute_update([ddl_tasks, ddl_idx_ctx, ddl_idx_upd])
+            logger.info(
+                "A2A task store DDL applied",
+                table=self.table_name,
+                database=self.database.name,
+            )
 
         self._schema_ready = True
         logger.success(
@@ -154,19 +134,15 @@ class LakebaseTaskStore(TaskStore):
                 task_json  = EXCLUDED.task_json,
                 updated_at = NOW()
         """
-        pool = await self._pool()
-        async with pool.connection() as conn:
-            async with conn.cursor() as cur:
-                await cur.execute(
-                    sql,
-                    (
-                        task.id,
-                        task.context_id,
-                        task.status.state.value,
-                        Json(task.model_dump(mode="json")),
-                    ),
-                )
-            await conn.commit()
+        await self.database.aexecute_update(
+            sql,
+            (
+                task.id,
+                task.context_id,
+                task.status.state.value,
+                Json(task.model_dump(mode="json")),
+            ),
+        )
         logger.debug(
             "A2A task persisted",
             table=self.table_name,
@@ -183,19 +159,15 @@ class LakebaseTaskStore(TaskStore):
     ) -> Task | None:
         await self.ensure_schema()
         sql = f"SELECT task_json FROM {self.table_name} WHERE task_id = %s"
-        pool = await self._pool()
-        async with pool.connection() as conn:
-            async with conn.cursor(row_factory=dict_row) as cur:
-                await cur.execute(sql, (task_id,))
-                row = await cur.fetchone()
-        if row is None:
+        rows = await self.database.aexecute_query(sql, (task_id,))
+        if not rows:
             logger.trace(
                 "A2A task store miss",
                 table=self.table_name,
                 task_id=task_id,
             )
             return None
-        task = Task.model_validate(row["task_json"])
+        task = Task.model_validate(rows[0]["task_json"])
         logger.trace(
             "A2A task store hit",
             table=self.table_name,
@@ -212,17 +184,11 @@ class LakebaseTaskStore(TaskStore):
     ) -> None:
         await self.ensure_schema()
         sql = f"DELETE FROM {self.table_name} WHERE task_id = %s"
-        pool = await self._pool()
-        async with pool.connection() as conn:
-            async with conn.cursor() as cur:
-                await cur.execute(sql, (task_id,))
-                rowcount = cur.rowcount
-            await conn.commit()
+        await self.database.aexecute_update(sql, (task_id,))
         logger.debug(
             "A2A task deleted",
             table=self.table_name,
             task_id=task_id,
-            rowcount=rowcount,
         )
 
 
