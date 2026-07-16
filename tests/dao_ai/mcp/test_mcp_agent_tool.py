@@ -115,58 +115,40 @@ def _meta(**extras: Any) -> RequestParams.Meta:
 
 
 @pytest.mark.unit
-def test_resolve_conversation_id_precedence_arg_over_meta_over_header() -> None:
-    """conversation_id arg > thread_id arg > _meta.conversation_id > header."""
-    # 1. conversation_id arg wins over everything.
-    got, src = _resolve_conversation_id(
-        conversation_id_arg="a",
-        thread_id_arg="b",
-        meta=_meta(conversation_id="c"),
-        headers={"x-databricks-conversation-id": "d"},
-    )
-    assert (got, src) == ("a", "arg")
+def test_resolve_conversation_id_precedence_meta_over_header() -> None:
+    """_meta.conversation_id > X-Databricks-Conversation-Id header > None.
 
-    # 2. thread_id arg wins when conversation_id arg is absent.
+    The tool-argument channel is intentionally NOT part of the resolver —
+    exposing a session key on the tool's inputSchema would make it
+    model-controlled and prompt-injection-attackable. Identity belongs on
+    the transport, so only _meta (MCP-native) and the HTTP header are
+    accepted.
+    """
+    # 1. _meta.conversation_id wins over header when both present.
     got, src = _resolve_conversation_id(
-        conversation_id_arg=None,
-        thread_id_arg="b",
-        meta=_meta(conversation_id="c"),
-        headers={"x-databricks-conversation-id": "d"},
-    )
-    assert (got, src) == ("b", "arg")
-
-    # 3. _meta.conversation_id wins when no tool args.
-    got, src = _resolve_conversation_id(
-        conversation_id_arg=None,
-        thread_id_arg=None,
         meta=_meta(conversation_id="c"),
         headers={"x-databricks-conversation-id": "d"},
     )
     assert (got, src) == ("c", "meta")
 
-    # 4. Header is the last-resort channel.
+    # 2. Header is the fallback channel.
     got, src = _resolve_conversation_id(
-        conversation_id_arg=None,
-        thread_id_arg=None,
         meta=None,
         headers={"x-databricks-conversation-id": "d"},
     )
     assert (got, src) == ("d", "header")
 
-    # 5. Nothing supplied → agent will generate.
+    # 3. Nothing supplied → agent will generate downstream.
     got, src = _resolve_conversation_id(
-        conversation_id_arg=None,
-        thread_id_arg=None,
         meta=None,
         headers={},
     )
     assert (got, src) == (None, None)
 
-    # 6. meta carrying only progressToken (no conversation_id) skips
-    # cleanly to the header channel.
+    # 4. meta carrying only progressToken (no conversation_id) skips
+    # cleanly to the header channel — protects against spurious meta wins
+    # when the client only meant to send a progress token.
     got, src = _resolve_conversation_id(
-        conversation_id_arg=None,
-        thread_id_arg=None,
         meta=_meta(progressToken="tok-1"),
         headers={"x-databricks-conversation-id": "hdr"},
     )
@@ -459,65 +441,15 @@ def test_invoke_agent_returns_structured_content_with_trace_id() -> None:
 
 
 @pytest.mark.unit
-def test_invoke_agent_conversation_id_arg_flows_into_custom_inputs_and_echo() -> None:
-    """`conversation_id` tool arg → custom_inputs.configurable.conversation_id
-    → echoed on structuredContent + _meta."""
+def test_invoke_agent_header_flows_into_custom_inputs_and_echoes() -> None:
+    """Header → custom_inputs.configurable.conversation_id → structuredContent + _meta.
+
+    `X-Databricks-Conversation-Id` on the HTTP transport is the primary
+    transport-level channel for supplying a conversation id (the tool-arg
+    channel has been removed for prompt-injection reasons).
+    """
     mcp = FastMCP("test-server", stateless_http=True)
     agent = _StubAgentWithSession(reply_text="hi")
-    config = _StubConfig(agent=agent)
-    register_agent_as_tool(mcp, config)  # type: ignore[arg-type]
-
-    with patch("dao_ai.mcp.agent_tool.current_request_headers", return_value={}), patch(
-        "dao_ai.mcp.agent_tool.current_request_id", return_value="req-c1"
-    ):
-        result = _call_tool(
-            mcp,
-            "mcp_dao_ai_test",
-            {"input": "hi", "conversation_id": "conv-abc"},
-        )
-
-    assert agent.last_request is not None
-    assert agent.last_request.custom_inputs == {
-        "configurable": {"conversation_id": "conv-abc"}
-    }
-    assert result.isError is False
-    assert result.structuredContent["conversation_id"] == "conv-abc"
-    assert result.structuredContent["thread_id"] == "conv-abc"
-    assert result.meta is not None
-    assert result.meta["conversation_id"] == "conv-abc"
-
-
-@pytest.mark.unit
-def test_invoke_agent_thread_id_arg_is_accepted_as_alias() -> None:
-    """`thread_id` tool arg is treated as an alias of `conversation_id`."""
-    mcp = FastMCP("test-server", stateless_http=True)
-    agent = _StubAgentWithSession()
-    config = _StubConfig(agent=agent)
-    register_agent_as_tool(mcp, config)  # type: ignore[arg-type]
-
-    with patch("dao_ai.mcp.agent_tool.current_request_headers", return_value={}), patch(
-        "dao_ai.mcp.agent_tool.current_request_id", return_value="req-c2"
-    ):
-        result = _call_tool(
-            mcp,
-            "mcp_dao_ai_test",
-            {"input": "hi", "thread_id": "thr-xyz"},
-        )
-
-    assert agent.last_request is not None
-    # thread_id arg is normalized to the Databricks-native field name
-    # before the request leaves the MCP layer.
-    assert agent.last_request.custom_inputs == {
-        "configurable": {"conversation_id": "thr-xyz"}
-    }
-    assert result.structuredContent["conversation_id"] == "thr-xyz"
-
-
-@pytest.mark.unit
-def test_invoke_agent_conversation_id_header_is_read_when_no_arg() -> None:
-    """`X-Databricks-Conversation-Id` header falls through when no tool arg."""
-    mcp = FastMCP("test-server", stateless_http=True)
-    agent = _StubAgentWithSession()
     config = _StubConfig(agent=agent)
     register_agent_as_tool(mcp, config)  # type: ignore[arg-type]
 
@@ -532,28 +464,38 @@ def test_invoke_agent_conversation_id_header_is_read_when_no_arg() -> None:
     assert configurable["conversation_id"] == "hdr-999"
     # Headers still forwarded for OBO propagation.
     assert configurable["headers"] == {"x-databricks-conversation-id": "hdr-999"}
+    assert result.isError is False
     assert result.structuredContent["conversation_id"] == "hdr-999"
+    assert result.structuredContent["thread_id"] == "hdr-999"
+    assert result.meta is not None
+    assert result.meta["conversation_id"] == "hdr-999"
 
 
 @pytest.mark.unit
-def test_invoke_agent_arg_takes_precedence_over_header() -> None:
-    """Explicit tool arg wins over the X-Databricks-Conversation-Id header."""
+def test_invoke_agent_input_schema_does_not_expose_conversation_id() -> None:
+    """Regression guard: the MCP tool's advertised inputSchema must not carry
+    ``conversation_id`` or ``thread_id`` as parameters.
+
+    Placing session identity on the tool's inputSchema would make it
+    model-controlled per MCP semantics (the LLM would populate it on each
+    call), creating a prompt-injection surface. This test locks the
+    contract so a future re-introduction fails CI.
+    """
     mcp = FastMCP("test-server", stateless_http=True)
-    agent = _StubAgentWithSession()
-    config = _StubConfig(agent=agent)
-    register_agent_as_tool(mcp, config)  # type: ignore[arg-type]
-
-    with patch(
-        "dao_ai.mcp.agent_tool.current_request_headers",
-        return_value={"x-databricks-conversation-id": "hdr-lose"},
-    ), patch("dao_ai.mcp.agent_tool.current_request_id", return_value="req-c4"):
-        result = _call_tool(
-            mcp,
-            "mcp_dao_ai_test",
-            {"input": "hi", "conversation_id": "arg-win"},
-        )
-
-    assert result.structuredContent["conversation_id"] == "arg-win"
+    register_agent_as_tool(mcp, _StubConfig())  # type: ignore[arg-type]
+    (tool,) = _list_tools(mcp)
+    schema = tool.inputSchema
+    props: set[str] = set((schema or {}).get("properties", {}).keys())
+    assert "conversation_id" not in props, (
+        f"conversation_id must not appear on the tool inputSchema; got {props}"
+    )
+    assert "thread_id" not in props, (
+        f"thread_id must not appear on the tool inputSchema; got {props}"
+    )
+    # Positive assertion: `input` is still the sole caller-facing property.
+    assert props == {"input"}, (
+        f"expected exactly {{'input'}} on inputSchema.properties; got {props}"
+    )
 
 
 @pytest.mark.unit
