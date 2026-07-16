@@ -30,6 +30,13 @@ MLflow AgentServer HTTP entrypoint. OBO tokens from the caller flow
 through the graph unchanged: downstream Genie / Vector Search / UC
 function calls run as the caller, not as the App's service principal.
 
+> **Migrating from an older release?** The MCP server was rewritten to
+> an agent-as-tool model in PR #154 (one MCP tool per app instead of
+> per-tool fan-out). See the "agent-as-tool refactor" entry in
+> [`CHANGELOG.md`](../CHANGELOG.md) for the full set of removed modules
+> (`dao_ai.mcp.service`, `dao_ai.mcp.adapters/`, `AppModel.mcp_only`)
+> and the requirement that `config.app.name` is now mandatory.
+
 ---
 
 ## Quickstart
@@ -102,8 +109,15 @@ MCP-hosted Apps across an account.
 
 The single MCP tool accepts either a plain string (wrapped into a single
 user turn internally) or a Responses-style input array. It returns the
-final assistant message text — non-streaming; MCP progress events aren't
-emitted.
+final assistant message text via the MCP `tools/call` response.
+
+When the server is configured with `app.mcp_server:` (see
+[Server-side capabilities](#server-side-capabilities)) it can additionally
+emit `notifications/progress` and `notifications/message` frames during
+a call. Clients that opt in via `McpFunctionModel.capabilities` (see
+[Consuming this MCP server from another dao-ai agent](#consuming-this-mcp-server-from-another-dao-ai-agent))
+receive those envelopes and forward them to their outer response stream.
+See [`docs/mcp-callbacks.md`](./mcp-callbacks.md) for the wire format.
 
 ### Response shape
 
@@ -163,6 +177,50 @@ signature verification — diagnostic only). Compare across calls:
   App's SP `client_id`.
 
 The raw token itself is never logged.
+
+### Server-side capabilities
+
+When `config.app.mcp_server:` is set, dao-ai's MCP server advertises
+extra capabilities beyond the single agent-as-tool.
+
+```yaml
+app:
+  name: mcp-dao-ai-retail
+  description: Retail assistant exposed as an MCP tool.
+  mcp_server:
+    progress: true                        # notifications/progress from LangGraph astream_events
+    logging: true                         # forward Python logger records as notifications/message
+    resources:                            # static resources listed on resources/list
+      - uri: dao-ai://prompts/system
+        name: system-prompt
+        description: Curated system prompt shipped with the server.
+        mime_type: text/plain
+        content: |
+          You are a retail-aware assistant. Answer concisely.
+    prompts:                              # prompt templates listed on prompts/list
+      - name: greet_customer
+        description: Greeting for a returning customer.
+        template: "Welcome back, {customer_name}!"
+        arguments:
+          - name: customer_name
+            description: The customer's first name.
+            required: true
+```
+
+| Field | Meaning |
+|---|---|
+| `progress` | Emit `notifications/progress` from `LangGraph.astream_events` during the agent call. Requires the caller to supply a `progressToken` via `_meta` on `tools/call`. Default `true`. |
+| `logging` | Route Python `logger` records into `notifications/message` on the active FastMCP session. Silent no-op when no session context is bound. Default `true`. |
+| `resources` | Static resources published via `resources/list`. Empty list means no resources are advertised. |
+| `prompts` | Prompt templates published via `prompts/list`. Clients call `prompts/get` with argument values; the server returns the rendered template as a single user-role message. Placeholders use Python format-string syntax (`{name}`). |
+
+Enabling `progress` or `logging` opts the FastMCP transport into
+stateful streamable-HTTP (`stateless_http=False`) so notifications can
+be correlated to the caller's session.
+
+When `mcp_server:` is unset (the default), the server publishes only the
+single agent-as-tool surface — no resources, no prompts, no
+notifications.
 
 ---
 
@@ -271,25 +329,95 @@ every tool call (dao-ai's existing graph / span emissions).
 
 ---
 
-## Consuming the deployed MCP server from another dao-ai agent
+## Consuming this MCP server from another dao-ai agent
 
-Use dao-ai's first-class `type: app` MCP tool in a consumer config to
-call this deployed server:
+Use dao-ai's first-class `type: mcp` tool to call the deployed server
+from a consumer config. `type: app` is *not* the right shape — the
+`AppToolModel` validator explicitly rejects apps whose name starts with
+`mcp-` (which every dao-ai MCP server does, since the default deployed
+name is `mcp-dao-ai-<...>` for MAS discovery) and directs you here.
+
+```yaml
+resources:
+  apps:
+    retail_mcp: &retail_mcp
+      name: mcp-dao-ai-retail          # the deployed MCP app's name
+      on_behalf_of_user: true          # forwards the caller's user token
+
+tools:
+  retail_agent:                        # your binding name (free choice)
+    type: mcp
+    app: *retail_mcp                   # points at the mcp- app above
+```
+
+Alternate URL-direct form (useful when the target is outside your
+workspace or you want explicit SP auth):
 
 ```yaml
 tools:
   retail_agent:
-    type: app
-    args:
-      app: <deployed-mcp-app-name>
-      tool: <slugified-app-name>
+    type: mcp
+    url: https://mcp-dao-ai-retail.<workspace>.azuredatabricksapps.com/mcp/
+    client_id: *client_id
+    client_secret: *client_secret
+    workspace_host: *workspace_host
 ```
 
-The consumer's OBO flow automatically forwards
-`x-forwarded-access-token` to the deployed MCP server, which then
-propagates it to the nested agent's downstream calls. Traces from both
-tiers land in the consumer's MLflow experiment (set
-`app.trace_location` on both sides for a unified UC OTEL table).
+Neither form takes a `tool:` argument — the MCP server exposes its tool
+set on the MCP protocol and the client discovers it. dao-ai's MCP server
+registers a single agent-as-tool named from the slugified server-side
+`app.name`.
+
+The consumer's OBO flow automatically forwards `x-forwarded-access-token`
+to the deployed MCP server, which then propagates it to the nested
+agent's downstream calls. Traces from both tiers land in the consumer's
+MLflow experiment (set `app.trace_location` on both sides for a unified
+UC OTEL table).
+
+### Client capabilities
+
+Opt into advanced MCP behaviors by setting `capabilities:` on the
+consumer-side `McpFunctionModel`. Every field is opt-in; leaving
+`capabilities:` unset preserves the classic `MultiServerMCPClient`
+path with no callbacks or interceptors (byte-for-byte compatible with
+pre-capabilities dao-ai).
+
+```yaml
+tools:
+  retail_agent:
+    type: mcp
+    app: *retail_mcp
+    capabilities:
+      progress: true                    # consume notifications/progress
+      logging: true                     # consume notifications/message
+      structured_output: true           # prefer CallToolResult.structuredContent (default true)
+      elicitation: hitl                 # server elicit → LangGraph interrupt
+      sampling:                         # server sampling/createMessage
+        endpoint: *reasoning_endpoint   # LLM used to satisfy the request
+        max_iterations: 3
+        allow_tool_use: false
+      roots:                            # URI roots advertised on roots/list
+        - uri: databricks:///Volumes/prod/main/retail
+          name: retail-volume
+```
+
+| Field | Meaning |
+|---|---|
+| `progress` | Consume `notifications/progress`, forward as MLflow span events and (during streaming) as `response.output_item.added` envelopes on the outer stream. Default `false`. |
+| `logging` | Consume `notifications/message` (and any custom `notifications/<method>`). Same dual-emission as `progress`. Default `false`. |
+| `structured_output` | Prefer `CallToolResult.structuredContent` and expand `resource_link` items into MLflow span attributes via a `ToolCallInterceptor`. Additive — falls back to text extraction when structured content is absent. Default `true`. |
+| `elicitation` | Handle server-initiated `elicitation/create`. `hitl` raises a LangGraph interrupt (surfaces via the standard HITL flow, resumes via `custom_inputs.decisions`); `reject` returns `action="cancel"` without prompting. Default `None`. |
+| `sampling` | Handle server-initiated `sampling/createMessage` by routing to the referenced inference endpoint through AI Gateway. `max_iterations` caps nested sampling calls; `allow_tool_use` (default `false`) gates whether a sampling call may itself request tool use. |
+| `roots` | URI roots advertised to the server on `roots/list`. Empty list disables the capability. |
+
+Setting `sampling` or a non-empty `roots` drops the client to a raw
+`mcp.client.session.ClientSession` transport since those callbacks are
+not surfaced by langchain-mcp-adapters. `progress`, `logging`,
+`elicitation`, and `structured_output` all work under the classic
+adapter path.
+
+For the wire format of progress and logging envelopes on the outer
+response stream, see [`docs/mcp-callbacks.md`](./mcp-callbacks.md).
 
 ---
 
