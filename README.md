@@ -80,14 +80,92 @@ Before you begin, you'll need:
 
 ### Installation
 
+**Requires Python 3.11 or newer.**
+
 **Option 1: Install from PyPI (Recommended)**
 
-The simplest way to get started:
+Follow these five steps in order. Copy each command exactly.
+
+**Step 1 — Check your Python version.** Open a terminal (Mac: Terminal.app; Windows: PowerShell; Linux: your terminal) and run:
 
 ```bash
-# Install directly from PyPI
-pip install dao-ai
+python3 --version
 ```
+
+- You should see `Python 3.11.x` or newer.
+- If you see `Python 3.10.x` or older, or you get an error, install a newer Python from https://www.python.org/downloads/ before continuing.
+- Python 3.13 and 3.14 are supported *only* when using `uv` (Step 2). Standard `pip` may fail on 3.13+ with a "resolution exceeded maximum depth" error because dao-ai's dependency graph is deep.
+
+**Step 2 — Install `uv` (a fast Python package installer).** `uv` is required because it can resolve dao-ai's dependencies on any recent Python version.
+
+```bash
+# Mac / Linux:
+curl -LsSf https://astral.sh/uv/install.sh | sh
+
+# Windows (PowerShell):
+powershell -c "irm https://astral.sh/uv/install.ps1 | iex"
+```
+
+Close and reopen your terminal so `uv` is on your `PATH`, then verify:
+
+```bash
+uv --version
+```
+
+You should see something like `uv 0.11.x` or newer.
+
+**Step 3 — Create a project folder and virtual environment.** A virtual environment isolates dao-ai from other Python projects on your machine.
+
+```bash
+mkdir dao-ai-project
+cd dao-ai-project
+uv venv
+```
+
+`uv venv` prints a line like `Using CPython 3.12.3` — `uv` picks a Python for you from whatever is available on your machine. Any 3.11 or newer is fine; it may differ from the version you saw in Step 1.
+
+Then activate it:
+
+```bash
+# Mac / Linux:
+source .venv/bin/activate
+
+# Windows (PowerShell):
+.venv\Scripts\Activate.ps1
+```
+
+You should see `(dao-ai-project)` or `(.venv)` at the start of your terminal prompt.
+
+**Step 4 — Install dao-ai.**
+
+```bash
+uv pip install dao-ai
+```
+
+This downloads and installs dao-ai plus its dependencies (~230 packages). It typically finishes in under a minute.
+
+**Step 5 — Verify the install.**
+
+```bash
+dao-ai version
+```
+
+You should see output that starts with a version line, e.g.:
+
+```
+dao-ai 0.1.104
+  Published: True
+  Python:    3.11.x   (or 3.12.x — whichever `uv venv` picked in Step 3)
+  Platform:  ...
+  Dependencies:
+    mlflow: ...
+    langchain-core: ...
+    langgraph: ...
+    langchain: ...
+    databricks-sdk: ...
+```
+
+If you see a version number and a dependency list, dao-ai is installed correctly. Continue to "Your First Agent" below.
 
 **Option 2: For developers familiar with Git**
 
