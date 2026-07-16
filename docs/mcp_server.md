@@ -194,17 +194,18 @@ with **no code changes** in the agent config beyond the usual
 
 ```
 output/
-├── databricks.yml     # DAB with bundle.engine: direct; App + bound resources
-├── app.yaml           # command: ["dao-ai-mcp-server"]
-├── pyproject.toml     # dao-ai[mcp]>=<version>
+├── databricks.yaml    # DAB with bundle.engine: direct; App + bound resources
+├── resources/app.yml  # command: ["python", "-m", "dao_ai.mcp.server"]
+├── pyproject.toml     # dao-ai[mcp]
+├── requirements.txt   # dao-ai[mcp]  (Apps build phase installs from this)
 ├── <your-config>.yaml # rendered with parameters: stripped
 └── README.md          # generated deploy snippet + exposed tool name
 ```
 
-After `generate-mcp`, run `uv sync` in the output directory to produce
-`uv.lock`. Databricks Apps' native uv support then activates at deploy:
-BUILD runs `uv sync --locked --no-dev`, and the runtime command
-`["dao-ai-mcp-server"]` invokes the console script from `.venv/bin/`.
+The Apps build phase runs `pip install -r requirements.txt`, which
+installs `dao-ai[mcp]` (dao-ai plus the fastapi + uvicorn extras) from
+public PyPI. The runtime command `["python", "-m", "dao_ai.mcp.server"]`
+launches the server via module invocation — no console script required.
 
 ### CLI flags
 
