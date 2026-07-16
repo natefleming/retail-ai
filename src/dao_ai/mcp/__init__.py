@@ -8,8 +8,9 @@ description is ``config.app.description``. See
 
 Public entrypoints:
 
-* :func:`dao_ai.mcp.server.main` — uvicorn-launched script (see
-  ``dao-ai-mcp-server`` console entry in ``pyproject.toml``).
+* :func:`dao_ai.mcp.server.main` — uvicorn-launched entrypoint. Generated
+  Apps bundles invoke it as ``python -m dao_ai.mcp.server`` (see
+  ``dao_ai.mcp.generate._MCP_APP_COMMAND``).
 * :func:`dao_ai.mcp.server.build_app` — in-process ASGI app construction for
   tests.
 
