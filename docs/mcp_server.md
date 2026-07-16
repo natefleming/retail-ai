@@ -525,6 +525,133 @@ adapter path.
 For the wire format of progress and logging envelopes on the outer
 response stream, see [`docs/mcp-callbacks.md`](./mcp-callbacks.md).
 
+## Consuming this MCP server from raw Python or LangChain
+
+Non-dao-ai callers can invoke the deployed server directly. Both
+examples below demonstrate a two-turn conversation reusing the same
+`conversation_id` on turn 2.
+
+### Raw Python (`mcp` SDK, Streamable HTTP)
+
+```python
+import asyncio, os, uuid
+from mcp.client.session import ClientSession
+from mcp.client.streamable_http import streamablehttp_client
+
+APP_URL = os.environ["MCP_APP_URL"].rstrip("/")   # https://<app>.<workspace>.databricksapps.com
+TOKEN   = os.environ["MCP_APP_TOKEN"]              # OBO user token or SP token
+TOOL    = "mcp_dao_ai_retail"                      # slugified server-side app.name
+
+async def run():
+    headers = {
+        "Authorization": f"Bearer {TOKEN}",
+        # Apps proxy forwards this to the server as x-forwarded-access-token
+        # for OBO downstream calls.
+        "X-Forwarded-Access-Token": TOKEN,
+    }
+    conv_id = f"conv-{uuid.uuid4().hex[:8]}"
+
+    async with streamablehttp_client(f"{APP_URL}/mcp", headers=headers) as (r, w, _):
+        async with ClientSession(r, w) as sess:
+            await sess.initialize()
+
+            # Turn 1 — pass conversation_id as a tool arg.
+            r1 = await sess.call_tool(
+                TOOL,
+                {"input": "My favorite color is chartreuse.", "conversation_id": conv_id},
+            )
+            print("turn1:", r1.structuredContent["final_message"])
+
+            # Alternative: pass it via _meta on the tools/call request.
+            # Same server-side behavior; tool arg wins if both are set.
+            r2 = await sess.call_tool(
+                TOOL,
+                {"input": "What did I just tell you my favorite color was?"},
+                meta={"conversation_id": conv_id},
+            )
+            print("turn2:", r2.structuredContent["final_message"])
+            # → "Chartreuse."
+
+asyncio.run(run())
+```
+
+Every response echoes `structuredContent.conversation_id`,
+`structuredContent.thread_id`, and `_meta.conversation_id` — capture
+one of these on turn 1 if you let the server generate the id, then
+replay it on subsequent turns.
+
+### LangChain / LangGraph (`langchain-mcp-adapters`)
+
+`MultiServerMCPClient` wraps each MCP tool as a LangChain `BaseTool`
+whose input schema mirrors the MCP tool's advertised `inputSchema`.
+Since `invoke_agent` now advertises `conversation_id` and `thread_id`
+as optional args, LangChain agents can supply them directly on tool
+calls:
+
+```python
+import asyncio, os, uuid
+from langchain_mcp_adapters.client import MultiServerMCPClient
+
+APP_URL = os.environ["MCP_APP_URL"].rstrip("/")
+TOKEN   = os.environ["MCP_APP_TOKEN"]
+
+async def run():
+    client = MultiServerMCPClient(
+        {
+            "retail": {
+                "transport": "streamable_http",
+                "url": f"{APP_URL}/mcp",
+                "headers": {
+                    "Authorization": f"Bearer {TOKEN}",
+                    "X-Forwarded-Access-Token": TOKEN,
+                },
+            }
+        }
+    )
+    tools = await client.get_tools()
+    invoke_agent = next(t for t in tools if t.name == "mcp_dao_ai_retail")
+
+    conv_id = f"conv-{uuid.uuid4().hex[:8]}"
+
+    # Turn 1 — pass conversation_id via the tool-arg channel; adapters
+    # forwards it to the MCP server unchanged.
+    turn1 = await invoke_agent.ainvoke({
+        "input": "My favorite color is chartreuse.",
+        "conversation_id": conv_id,
+    })
+    print("turn1:", turn1)
+
+    turn2 = await invoke_agent.ainvoke({
+        "input": "What did I just tell you my favorite color was?",
+        "conversation_id": conv_id,
+    })
+    print("turn2:", turn2)
+
+asyncio.run(run())
+```
+
+Notes:
+
+- **Tool-arg channel is the canonical LangChain path.** The `_meta`
+  and header channels aren't exposed by `MultiServerMCPClient`'s
+  per-invocation surface, so most LangChain callers should stick to
+  the `conversation_id` (or `thread_id`) tool arg.
+- **Header-scoping across the whole client** *is* possible — set
+  `X-Databricks-Conversation-Id` in the `headers` dict passed to
+  `MultiServerMCPClient`. All tool calls made through that client
+  will inherit the header, which is only useful if a single client
+  instance is scoped to one conversation.
+- **Reading the resolved id.** `langchain-mcp-adapters` returns the
+  tool's plain-text `content[0]` by default; if the agent needs
+  programmatic access to the echoed `conversation_id`, drop to the
+  raw `mcp.client.session.ClientSession` (see the previous section)
+  which exposes `structuredContent` and `_meta`.
+
+For agents built with LangGraph that already track a `thread_id` in
+their own state, pass that same value as the MCP tool's
+`conversation_id` on every call to keep parent-graph and MCP-side
+conversation lineage aligned.
+
 ---
 
 ## Troubleshooting
