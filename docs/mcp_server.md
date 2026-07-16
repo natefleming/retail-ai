@@ -126,8 +126,9 @@ Every `tools/call` response is a `CallToolResult` with:
 | Field | Purpose |
 |---|---|
 | `content[0].text` | Plain-text final assistant message — for legacy MCP clients that ignore `structuredContent`. |
-| `structuredContent` | `AgentInvocationResult` (schema advertised on `outputSchema`): `final_message`, `trace_id` (fully-qualified UC location — e.g. `trace:/catalog.schema.prefix/<hex>`), `confidence` (reserved). |
+| `structuredContent` | `AgentInvocationResult` (schema advertised on `outputSchema`): `final_message`, `trace_id` (fully-qualified UC location — e.g. `trace:/catalog.schema.prefix/<hex>`), `conversation_id` (resolved conversation key — see [Stateful conversations](#stateful-conversations)), `thread_id` (alias of `conversation_id` for LangGraph-native callers), `confidence` (reserved). |
 | `_meta.databricks.trace_id` | Same UC-qualified trace id as `structuredContent.trace_id`. Copy so schema-unaware callers can still jump to the MLflow trace. |
+| `_meta.conversation_id` | Same resolved conversation key as `structuredContent.conversation_id`. Emitted unnamespaced (not under `databricks.`) to stay symmetric with the inbound `_meta.conversation_id` channel — it is a cross-cutting concept, not a Databricks-specific field. |
 | `_meta.databricks.experiment_id` | Bound experiment id from the runtime `MLFLOW_EXPERIMENT_ID` env. |
 | `_meta.databricks.model` | Primary agent's `model.name` from the config. |
 | `_meta.databricks.latency_ms` | Wall-clock around `agent.apredict()`. |
@@ -221,6 +222,111 @@ be correlated to the caller's session.
 When `mcp_server:` is unset (the default), the server publishes only the
 single agent-as-tool surface — no resources, no prompts, no
 notifications.
+
+### Stateful conversations
+
+By default the MCP surface is **stateless**: each `tools/call` on
+`invoke_agent` is treated as an isolated turn and the LangGraph
+checkpointer sees a fresh UUID every time. To maintain conversation
+history across turns, supply a stable **conversation key** on every call
+via one of four channels (highest-precedence wins):
+
+1. **Tool argument** — `conversation_id` (or the `thread_id` alias)
+   on `invoke_agent`. This is the discoverable, schema-advertised
+   channel. Most MCP hosts and orchestrator clients should use this.
+   ```python
+   # mcp Python client
+   result = await session.call_tool(
+       "invoke_agent",
+       arguments={"input": "what did I say earlier?", "conversation_id": "abc-123"},
+   )
+   ```
+
+2. **`_meta` on the `tools/call` request** — MCP-native side channel.
+   `RequestParams.Meta` allows arbitrary extra fields and is surfaced
+   to FastMCP tool handlers via `ctx.request_context.meta`. Preferred
+   over the HTTP header for MCP-native callers because it travels in
+   the JSON-RPC message rather than transport headers.
+   ```json
+   {
+     "jsonrpc": "2.0",
+     "method": "tools/call",
+     "params": {
+       "name": "invoke_agent",
+       "arguments": {"input": "what did I say earlier?"},
+       "_meta": {"conversation_id": "abc-123"}
+     }
+   }
+   ```
+
+3. **`X-Databricks-Conversation-Id` HTTP header** — useful for reverse
+   proxies or gateways that want to inject the key without touching
+   the JSON-RPC payload. **Note**: this is a dao-ai convention, not a
+   Databricks-wide standard. It matches the existing `x-databricks-*`
+   header family for consistency.
+   ```bash
+   curl -H "X-Databricks-Conversation-Id: abc-123" \
+        -H "Content-Type: application/json" \
+        <mcp-url>/mcp
+   ```
+
+4. **Nothing supplied** — the agent generates a UUID downstream. The
+   resolved id is still echoed on the response so the caller can
+   capture it and pin subsequent turns to the same conversation.
+
+The resolved conversation key is always echoed on the response, so a
+caller that lets the server generate the id can persist the returned
+value and reuse it next turn:
+
+- `structuredContent.conversation_id` (Databricks-native name)
+- `structuredContent.thread_id` (alias — same value)
+- `_meta.conversation_id` (unnamespaced, symmetric with inbound `_meta.conversation_id`; other `_meta.databricks.*` fields stay namespaced because those are Databricks-specific observability data)
+
+The `mcp.agent_tool.invoke.headers` server log records
+`conversation_id_source ∈ {"arg", "meta", "header", null}` and the
+resolved id so operators can distinguish stateless vs stateful calls
+without decoding trace state.
+
+#### Observability: querying MLflow traces by conversation
+
+The resolved conversation key is written to the trace's
+``mlflow.trace.session`` metadata by the ResponsesAgent — a standard
+MLflow field, so downstream trace-search tools (MLflow UI, the REST
+``mlflow/traces`` endpoint, ``search_traces`` filters) can group turns
+by conversation with no additional wiring. For example, all turns from
+a single conversation share the same ``mlflow.trace.session`` value
+even though each turn produces its own trace with a distinct
+``trace_id``. Verified against a deployed fevm App: a two-turn HEADER
+flight and a two-turn META flight each produced two traces sharing the
+same session, while a control flight with no supplied id produced two
+traces with distinct auto-generated sessions.
+
+#### What server-side state actually requires
+
+`conversation_id` is a **key**, not the storage. Persisting per-turn
+state requires the deployed dao-ai instance to have a Lakebase-backed
+checkpointer configured on the AppConfig `memory` block. Without it,
+supplying a `conversation_id` is a no-op beyond consistent trace
+correlation (multiple turns will share the same trace `thread_id`
+attribute but no LangGraph state is loaded).
+
+#### Trust model
+
+A bare `conversation_id` is bearer-equivalent: any caller with access
+to this endpoint can read or write any conversation whose id they know.
+This matches how `conversation_id` on Databricks Apps `/invocations`
+already works. Keep the MCP endpoint behind OBO / SP auth and treat
+generated ids as secrets in client code.
+
+#### What is NOT used, and why
+
+- **`Mcp-Session-Id`** (the Streamable HTTP transport header) is
+  **not** used for conversation continuity. It is per-HTTP-connection,
+  in-memory only by default, and the server issues a new one on client
+  reconnect unless the client explicitly re-sends the previous value
+  *and* the server still remembers it. Tying conversation state to it
+  would silently reset user memory on every reconnect. Use one of the
+  four channels above instead.
 
 ---
 
