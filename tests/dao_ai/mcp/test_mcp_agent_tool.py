@@ -15,11 +15,14 @@ from unittest.mock import patch
 
 import pytest
 from mcp.server.fastmcp import FastMCP
+from mcp.types import RequestParams
 from mlflow.types.responses import ResponsesAgentRequest, ResponsesAgentResponse
 
 from dao_ai.mcp.agent_tool import (
+    _extract_conversation_id,
     _extract_final_assistant_text,
     _normalize_input,
+    _resolve_conversation_id,
     _slugify,
     register_agent_as_tool,
 )
@@ -99,6 +102,100 @@ def test_normalize_input_string_becomes_user_turn() -> None:
 def test_normalize_input_array_passes_through() -> None:
     payload = [{"role": "user", "content": "hi"}]
     assert _normalize_input(payload) is payload
+
+
+def _meta(**extras: Any) -> RequestParams.Meta:
+    """Build a real ``RequestParams.Meta`` with the given extra fields.
+
+    ``Meta.model_config = ConfigDict(extra="allow")`` accepts arbitrary
+    keys, so passing ``conversation_id="..."`` mirrors what a real client
+    sends over the wire on a ``tools/call`` request's ``_meta`` block.
+    """
+    return RequestParams.Meta.model_validate(extras)
+
+
+@pytest.mark.unit
+def test_resolve_conversation_id_precedence_arg_over_meta_over_header() -> None:
+    """conversation_id arg > thread_id arg > _meta.conversation_id > header."""
+    # 1. conversation_id arg wins over everything.
+    got, src = _resolve_conversation_id(
+        conversation_id_arg="a",
+        thread_id_arg="b",
+        meta=_meta(conversation_id="c"),
+        headers={"x-databricks-conversation-id": "d"},
+    )
+    assert (got, src) == ("a", "arg")
+
+    # 2. thread_id arg wins when conversation_id arg is absent.
+    got, src = _resolve_conversation_id(
+        conversation_id_arg=None,
+        thread_id_arg="b",
+        meta=_meta(conversation_id="c"),
+        headers={"x-databricks-conversation-id": "d"},
+    )
+    assert (got, src) == ("b", "arg")
+
+    # 3. _meta.conversation_id wins when no tool args.
+    got, src = _resolve_conversation_id(
+        conversation_id_arg=None,
+        thread_id_arg=None,
+        meta=_meta(conversation_id="c"),
+        headers={"x-databricks-conversation-id": "d"},
+    )
+    assert (got, src) == ("c", "meta")
+
+    # 4. Header is the last-resort channel.
+    got, src = _resolve_conversation_id(
+        conversation_id_arg=None,
+        thread_id_arg=None,
+        meta=None,
+        headers={"x-databricks-conversation-id": "d"},
+    )
+    assert (got, src) == ("d", "header")
+
+    # 5. Nothing supplied → agent will generate.
+    got, src = _resolve_conversation_id(
+        conversation_id_arg=None,
+        thread_id_arg=None,
+        meta=None,
+        headers={},
+    )
+    assert (got, src) == (None, None)
+
+    # 6. meta carrying only progressToken (no conversation_id) skips
+    # cleanly to the header channel.
+    got, src = _resolve_conversation_id(
+        conversation_id_arg=None,
+        thread_id_arg=None,
+        meta=_meta(progressToken="tok-1"),
+        headers={"x-databricks-conversation-id": "hdr"},
+    )
+    assert (got, src) == ("hdr", "header")
+
+
+@pytest.mark.unit
+def test_extract_conversation_id_prefers_session_over_configurable() -> None:
+    """Response echo path reads session.conversation_id first, thread_id as fallback."""
+    both = ResponsesAgentResponse(
+        output=[],
+        custom_outputs={
+            "session": {"conversation_id": "from-session"},
+            "configurable": {"thread_id": "from-configurable"},
+        },
+    )
+    assert _extract_conversation_id(both) == "from-session"
+
+    only_thread = ResponsesAgentResponse(
+        output=[],
+        custom_outputs={"configurable": {"thread_id": "just-thread"}},
+    )
+    assert _extract_conversation_id(only_thread) == "just-thread"
+
+    neither = ResponsesAgentResponse(output=[], custom_outputs={"trace_id": "t"})
+    assert _extract_conversation_id(neither) is None
+
+    no_outputs = ResponsesAgentResponse(output=[])
+    assert _extract_conversation_id(no_outputs) is None
 
 
 @pytest.mark.unit
@@ -275,6 +372,57 @@ class _StubAgentWithTrace(_StubAgent):
         )
 
 
+class _StubAgentWithSession(_StubAgent):
+    """Stub that populates ``custom_outputs.session.conversation_id``.
+
+    Mirrors how :meth:`LanggraphResponsesAgent._build_custom_outputs_async`
+    surfaces the resolved conversation key on the real agent response.
+    Echoes back whatever the caller supplied on
+    ``custom_inputs.configurable.conversation_id`` (or generates a stable
+    stub value when nothing was supplied) so tests can verify the MCP
+    tool's response-side echo without wiring a live Lakebase checkpoint.
+    """
+
+    def __init__(
+        self, reply_text: str = "hello world", generated_id: str = "srv-generated"
+    ) -> None:
+        super().__init__(reply_text)
+        self.generated_id: str = generated_id
+
+    async def apredict(self, request: ResponsesAgentRequest) -> ResponsesAgentResponse:
+        self.last_request = request
+        supplied_id: str | None = None
+        custom_inputs = request.custom_inputs or {}
+        if isinstance(custom_inputs, dict):
+            configurable = custom_inputs.get("configurable") or {}
+            if isinstance(configurable, dict):
+                candidate = configurable.get("conversation_id")
+                if isinstance(candidate, str):
+                    supplied_id = candidate
+        resolved_id: str = supplied_id or self.generated_id
+        return ResponsesAgentResponse(
+            output=[
+                {
+                    "id": "msg_test",
+                    "type": "message",
+                    "role": "assistant",
+                    "content": [
+                        {
+                            "type": "output_text",
+                            "text": self.reply_text,
+                            "annotations": [],
+                        }
+                    ],
+                }
+            ],
+            custom_outputs={
+                "trace_id": "trace:/cat.schema.prefix/deadbeef",
+                "configurable": {"thread_id": resolved_id},
+                "session": {"conversation_id": resolved_id},
+            },
+        )
+
+
 @pytest.mark.unit
 def test_invoke_agent_returns_structured_content_with_trace_id() -> None:
     """Phase 2 Change 2: response must include structuredContent + _meta.trace_id."""
@@ -289,10 +437,14 @@ def test_invoke_agent_returns_structured_content_with_trace_id() -> None:
         result = _call_tool(mcp, "mcp_dao_ai_test", {"input": "hi"})
 
     assert result.isError is False
-    # Structured content matches AgentInvocationResult schema.
+    # Structured content matches AgentInvocationResult schema. conversation_id
+    # / thread_id are None because this stub does not populate
+    # custom_outputs.session — kept explicit so schema drift is caught.
     assert result.structuredContent == {
         "final_message": "answer",
         "trace_id": "trace:/cat.schema.prefix/deadbeef",
+        "conversation_id": None,
+        "thread_id": None,
         "confidence": None,
     }
     # Plain-text fallback for legacy clients.
@@ -302,6 +454,128 @@ def test_invoke_agent_returns_structured_content_with_trace_id() -> None:
     assert result.meta["databricks.trace_id"] == "trace:/cat.schema.prefix/deadbeef"
     assert "databricks.latency_ms" in result.meta
     assert result.meta["databricks.request_id"] == "req-1"
+    # No conversation_id supplied AND stub didn't surface one → key absent.
+    assert "conversation_id" not in result.meta
+
+
+@pytest.mark.unit
+def test_invoke_agent_conversation_id_arg_flows_into_custom_inputs_and_echo() -> None:
+    """`conversation_id` tool arg → custom_inputs.configurable.conversation_id
+    → echoed on structuredContent + _meta."""
+    mcp = FastMCP("test-server", stateless_http=True)
+    agent = _StubAgentWithSession(reply_text="hi")
+    config = _StubConfig(agent=agent)
+    register_agent_as_tool(mcp, config)  # type: ignore[arg-type]
+
+    with patch("dao_ai.mcp.agent_tool.current_request_headers", return_value={}), patch(
+        "dao_ai.mcp.agent_tool.current_request_id", return_value="req-c1"
+    ):
+        result = _call_tool(
+            mcp,
+            "mcp_dao_ai_test",
+            {"input": "hi", "conversation_id": "conv-abc"},
+        )
+
+    assert agent.last_request is not None
+    assert agent.last_request.custom_inputs == {
+        "configurable": {"conversation_id": "conv-abc"}
+    }
+    assert result.isError is False
+    assert result.structuredContent["conversation_id"] == "conv-abc"
+    assert result.structuredContent["thread_id"] == "conv-abc"
+    assert result.meta is not None
+    assert result.meta["conversation_id"] == "conv-abc"
+
+
+@pytest.mark.unit
+def test_invoke_agent_thread_id_arg_is_accepted_as_alias() -> None:
+    """`thread_id` tool arg is treated as an alias of `conversation_id`."""
+    mcp = FastMCP("test-server", stateless_http=True)
+    agent = _StubAgentWithSession()
+    config = _StubConfig(agent=agent)
+    register_agent_as_tool(mcp, config)  # type: ignore[arg-type]
+
+    with patch("dao_ai.mcp.agent_tool.current_request_headers", return_value={}), patch(
+        "dao_ai.mcp.agent_tool.current_request_id", return_value="req-c2"
+    ):
+        result = _call_tool(
+            mcp,
+            "mcp_dao_ai_test",
+            {"input": "hi", "thread_id": "thr-xyz"},
+        )
+
+    assert agent.last_request is not None
+    # thread_id arg is normalized to the Databricks-native field name
+    # before the request leaves the MCP layer.
+    assert agent.last_request.custom_inputs == {
+        "configurable": {"conversation_id": "thr-xyz"}
+    }
+    assert result.structuredContent["conversation_id"] == "thr-xyz"
+
+
+@pytest.mark.unit
+def test_invoke_agent_conversation_id_header_is_read_when_no_arg() -> None:
+    """`X-Databricks-Conversation-Id` header falls through when no tool arg."""
+    mcp = FastMCP("test-server", stateless_http=True)
+    agent = _StubAgentWithSession()
+    config = _StubConfig(agent=agent)
+    register_agent_as_tool(mcp, config)  # type: ignore[arg-type]
+
+    with patch(
+        "dao_ai.mcp.agent_tool.current_request_headers",
+        return_value={"x-databricks-conversation-id": "hdr-999"},
+    ), patch("dao_ai.mcp.agent_tool.current_request_id", return_value="req-c3"):
+        result = _call_tool(mcp, "mcp_dao_ai_test", {"input": "hi"})
+
+    assert agent.last_request is not None
+    configurable = agent.last_request.custom_inputs["configurable"]
+    assert configurable["conversation_id"] == "hdr-999"
+    # Headers still forwarded for OBO propagation.
+    assert configurable["headers"] == {"x-databricks-conversation-id": "hdr-999"}
+    assert result.structuredContent["conversation_id"] == "hdr-999"
+
+
+@pytest.mark.unit
+def test_invoke_agent_arg_takes_precedence_over_header() -> None:
+    """Explicit tool arg wins over the X-Databricks-Conversation-Id header."""
+    mcp = FastMCP("test-server", stateless_http=True)
+    agent = _StubAgentWithSession()
+    config = _StubConfig(agent=agent)
+    register_agent_as_tool(mcp, config)  # type: ignore[arg-type]
+
+    with patch(
+        "dao_ai.mcp.agent_tool.current_request_headers",
+        return_value={"x-databricks-conversation-id": "hdr-lose"},
+    ), patch("dao_ai.mcp.agent_tool.current_request_id", return_value="req-c4"):
+        result = _call_tool(
+            mcp,
+            "mcp_dao_ai_test",
+            {"input": "hi", "conversation_id": "arg-win"},
+        )
+
+    assert result.structuredContent["conversation_id"] == "arg-win"
+
+
+@pytest.mark.unit
+def test_invoke_agent_echoes_server_generated_id_when_none_supplied() -> None:
+    """Nothing supplied → agent generates → MCP tool echoes for the caller."""
+    mcp = FastMCP("test-server", stateless_http=True)
+    agent = _StubAgentWithSession(generated_id="srv-uuid-1")
+    config = _StubConfig(agent=agent)
+    register_agent_as_tool(mcp, config)  # type: ignore[arg-type]
+
+    with patch("dao_ai.mcp.agent_tool.current_request_headers", return_value={}), patch(
+        "dao_ai.mcp.agent_tool.current_request_id", return_value="req-c5"
+    ):
+        result = _call_tool(mcp, "mcp_dao_ai_test", {"input": "hi"})
+
+    # No id on request → the MCP layer does not fabricate one; the agent
+    # generates it and it comes back on custom_outputs.
+    assert agent.last_request is not None
+    assert agent.last_request.custom_inputs is None
+    assert result.structuredContent["conversation_id"] == "srv-uuid-1"
+    assert result.meta is not None
+    assert result.meta["conversation_id"] == "srv-uuid-1"
 
 
 class _FailingAgent(_StubAgent):
