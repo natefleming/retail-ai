@@ -1,13 +1,10 @@
 """Tests for the server-side capabilities module (PR 2).
 
-Covers three concerns:
+Covers two concerns:
 
 1. `register_resources` and `register_prompts` bind resources/prompts on the
    FastMCP instance and return the URIs/names for `/healthz` advertisement.
-2. `MCPSessionLoggingHandler.emit` is a silent no-op when no FastMCP session
-   is bound — logs from module-level imports or background tasks must not
-   crash the server.
-3. `_heartbeat_progress` emits `ctx.report_progress` at fixed intervals with
+2. `_heartbeat_progress` emits `ctx.report_progress` at fixed intervals with
    monotonically increasing values, halts on cancel, and never overshoots
    the 95 ceiling reserved for the terminal `agent_complete` step.
 
@@ -17,7 +14,6 @@ No Databricks credentials required — everything is in-process.
 from __future__ import annotations
 
 import asyncio
-import logging
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -31,11 +27,8 @@ from dao_ai.config import (
 )
 from dao_ai.mcp.agent_tool import _heartbeat_progress
 from dao_ai.mcp.server_capabilities import (
-    MCPSessionLoggingHandler,
-    _current_fastmcp_session,
     register_prompts,
     register_resources,
-    wire_log_forwarding,
 )
 
 
@@ -93,48 +86,6 @@ class TestRegisterPrompts:
         mcp = _mcp()
         names = register_prompts(mcp, [])
         assert names == []
-
-
-class TestMCPSessionLoggingHandler:
-    def test_silent_when_no_session(self) -> None:
-        """No bound FastMCP session ⇒ emit must not raise."""
-        mcp = _mcp()
-        handler = MCPSessionLoggingHandler(mcp)
-        record = logging.LogRecord(
-            name="test.logger",
-            level=logging.INFO,
-            pathname="test.py",
-            lineno=1,
-            msg="silent",
-            args=None,
-            exc_info=None,
-        )
-        # Just calling emit — no session, no crash.
-        handler.emit(record)
-
-    def test_current_session_returns_none_without_context(self) -> None:
-        mcp = _mcp()
-        assert _current_fastmcp_session(mcp) is None
-
-    def test_wire_is_idempotent(self) -> None:
-        """Calling wire_log_forwarding twice must not stack handlers."""
-        mcp = _mcp()
-        root = logging.getLogger()
-        # Snapshot the count of MCPSessionLoggingHandler before + after.
-        wire_log_forwarding(mcp)
-        first_count = sum(
-            1 for h in root.handlers if isinstance(h, MCPSessionLoggingHandler)
-        )
-        wire_log_forwarding(mcp)
-        second_count = sum(
-            1 for h in root.handlers if isinstance(h, MCPSessionLoggingHandler)
-        )
-        assert first_count == 1
-        assert second_count == 1
-        # Clean up so we don't leak the handler into other tests.
-        for h in list(root.handlers):
-            if isinstance(h, MCPSessionLoggingHandler):
-                root.removeHandler(h)
 
 
 class TestHeartbeatProgress:

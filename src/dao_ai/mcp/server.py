@@ -37,7 +37,6 @@ from dao_ai.mcp.config import (
 from dao_ai.mcp.server_capabilities import (
     register_prompts,
     register_resources,
-    wire_log_forwarding,
 )
 
 DEFAULT_CONFIG_PATH = "dao_ai.yaml"
@@ -105,15 +104,15 @@ def build_app(config: AppConfig) -> FastAPI:
     """Build the FastAPI app with the MCP transport mounted at root."""
     server_name = server_name_for(config)
 
-    # Progress and logging notifications require a stateful HTTP session so
-    # the notifications channel stays open during the tool call. When those
-    # capabilities are on, opt into the stateful transport; otherwise keep
-    # the stateless default (needed for horizontal scaling on Databricks
-    # Apps without sticky sessions).
+    # Progress notifications require a stateful HTTP session so the
+    # notifications channel stays open during the tool call. When progress
+    # is on, opt into the stateful transport; otherwise keep the stateless
+    # default (needed for horizontal scaling on Databricks Apps without
+    # sticky sessions).
     caps = (
         getattr(config.app, "mcp_server", None) if config.app is not None else None
     )
-    needs_stateful: bool = caps is not None and (caps.progress or caps.logging)
+    needs_stateful: bool = caps is not None and caps.progress
 
     # Keep FastMCP's default ``streamable_http_path="/mcp"`` and mount the
     # inner app at the parent's root. This makes the external endpoint
@@ -131,7 +130,6 @@ def build_app(config: AppConfig) -> FastAPI:
         stateless_http=not needs_stateful,
         json_response=not needs_stateful,
         progress=bool(caps and caps.progress),
-        logging=bool(caps and caps.logging),
     )
     registered_tool = register_agent_as_tool(mcp, config)
 
@@ -142,8 +140,6 @@ def build_app(config: AppConfig) -> FastAPI:
     if caps is not None:
         registered_resources = register_resources(mcp, caps.resources)
         registered_prompts = register_prompts(mcp, caps.prompts)
-        if caps.logging:
-            wire_log_forwarding(mcp)
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI) -> AsyncIterator[None]:

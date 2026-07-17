@@ -113,8 +113,8 @@ final assistant message text via the MCP `tools/call` response.
 
 When the server is configured with `app.mcp_server:` (see
 [Server-side capabilities](#server-side-capabilities)) it can additionally
-emit `notifications/progress` and `notifications/message` frames during
-a call. Clients that opt in via `McpFunctionModel.capabilities` (see
+emit `notifications/progress` frames during a call. Clients that opt in via
+`McpFunctionModel.capabilities` (see
 [Consuming this MCP server from another dao-ai agent](#consuming-this-mcp-server-from-another-dao-ai-agent))
 receive those envelopes and forward them to their outer response stream.
 See [`docs/mcp-callbacks.md`](./mcp-callbacks.md) for the wire format.
@@ -190,7 +190,6 @@ app:
   description: Retail assistant exposed as an MCP tool.
   mcp_server:
     progress: true                        # notifications/progress from LangGraph astream_events
-    logging: true                         # forward Python logger records as notifications/message
     resources:                            # static resources listed on resources/list
       - uri: dao-ai://prompts/system
         name: system-prompt
@@ -211,13 +210,19 @@ app:
 | Field | Meaning |
 |---|---|
 | `progress` | Emit `notifications/progress` from `LangGraph.astream_events` during the agent call. Requires the caller to supply a `progressToken` via `_meta` on `tools/call`. Default `true`. |
-| `logging` | Route Python `logger` records into `notifications/message` on the active FastMCP session. Silent no-op when no session context is bound. Default `true`. |
 | `resources` | Static resources published via `resources/list`. Empty list means no resources are advertised. |
 | `prompts` | Prompt templates published via `prompts/list`. Clients call `prompts/get` with argument values; the server returns the rendered template as a single user-role message. Placeholders use Python format-string syntax (`{name}`). |
 
-Enabling `progress` or `logging` opts the FastMCP transport into
-stateful streamable-HTTP (`stateless_http=False`) so notifications can
-be correlated to the caller's session.
+> The server-side `logging` capability (`notifications/message`) was removed
+> — the MCP `logging` feature is deprecated under
+> [SEP-2577](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2577);
+> use MLflow/OTEL tracing for observability. The server also extracts inbound
+> W3C trace context from `_meta` (`traceparent`/`baggage`) so it continues the
+> caller's distributed trace.
+
+Enabling `progress` opts the FastMCP transport into stateful
+streamable-HTTP (`stateless_http=False`) so notifications can be
+correlated to the caller's session.
 
 When `mcp_server:` is unset (the default), the server publishes only the
 single agent-as-tool surface — no resources, no prompts, no
@@ -563,35 +568,36 @@ tools:
     app: *retail_mcp
     capabilities:
       progress: true                    # consume notifications/progress
-      logging: true                     # consume notifications/message
       structured_output: true           # prefer CallToolResult.structuredContent (default true)
       elicitation: hitl                 # server elicit → LangGraph interrupt
-      sampling:                         # server sampling/createMessage
-        endpoint: *reasoning_endpoint   # LLM used to satisfy the request
-        max_iterations: 3
-        allow_tool_use: false
-      roots:                            # URI roots advertised on roots/list
-        - uri: databricks:///Volumes/prod/main/retail
-          name: retail-volume
 ```
 
 | Field | Meaning |
 |---|---|
 | `progress` | Consume `notifications/progress`, forward as MLflow span events and (during streaming) as `response.output_item.added` envelopes on the outer stream. Default `false`. |
-| `logging` | Consume `notifications/message` (and any custom `notifications/<method>`). Same dual-emission as `progress`. Default `false`. |
 | `structured_output` | Prefer `CallToolResult.structuredContent` and expand `resource_link` items into MLflow span attributes via a `ToolCallInterceptor`. Additive — falls back to text extraction when structured content is absent. Default `true`. |
 | `elicitation` | Handle server-initiated `elicitation/create`. `hitl` raises a LangGraph interrupt (surfaces via the standard HITL flow, resumes via `custom_inputs.decisions`); `reject` returns `action="cancel"` without prompting. Default `None`. |
-| `sampling` | Handle server-initiated `sampling/createMessage` by routing to the referenced inference endpoint through AI Gateway. `max_iterations` caps nested sampling calls; `allow_tool_use` (default `false`) gates whether a sampling call may itself request tool use. |
-| `roots` | URI roots advertised to the server on `roots/list`. Empty list disables the capability. |
 
-Setting `sampling` or a non-empty `roots` drops the client to a raw
-`mcp.client.session.ClientSession` transport since those callbacks are
-not surfaced by langchain-mcp-adapters. `progress`, `logging`,
-`elicitation`, and `structured_output` all work under the classic
-adapter path.
+> **Deprecated capabilities removed.** `logging`, `sampling`, and `roots`
+> were deprecated together under
+> [SEP-2577](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2577)
+> and are no longer supported. `capabilities:` uses `extra="forbid"`, so a
+> config that still sets any of them fails validation. Migration: use
+> MLflow/OTEL tracing instead of `logging` (dao-ai now propagates W3C trace
+> context via `_meta` — see below); integrate directly with an LLM endpoint
+> instead of `sampling`; pass directories/URIs via tool parameters instead of
+> `roots`.
 
-For the wire format of progress and logging envelopes on the outer
-response stream, see [`docs/mcp-callbacks.md`](./mcp-callbacks.md).
+All surviving capabilities (`progress`, `structured_output`, `elicitation`)
+run under the classic langchain-mcp-adapters `MultiServerMCPClient` path.
+
+W3C trace context (`traceparent`/`baggage`) is injected into `_meta` on every
+`tools/call` (SEP-414) so a downstream MCP server continues the caller's
+distributed trace — see [`docs/mcp-callbacks.md`](./mcp-callbacks.md) and
+`dao_ai.tools.mcp_trace_context`.
+
+For the wire format of progress envelopes on the outer response stream, see
+[`docs/mcp-callbacks.md`](./mcp-callbacks.md).
 
 ## Consuming this MCP server from raw Python or LangChain
 

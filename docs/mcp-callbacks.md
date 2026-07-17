@@ -1,10 +1,20 @@
 # Surfacing MCP callbacks to the caller
 
-MCP servers can send `notifications/progress` and `notifications/message`
-while a tool call is running. dao-ai's client-side callbacks translate them
-into MLflow span events for post-hoc tracing **and** — when the tool is
-running under a streaming ResponsesAgent — forward normalized envelopes to
-the outer response stream so callers see in-flight status.
+MCP servers can send `notifications/progress` while a tool call is running.
+dao-ai's client-side callback translates them into MLflow span events for
+post-hoc tracing **and** — when the tool is running under a streaming
+ResponsesAgent — forwards normalized envelopes to the outer response stream
+so callers see in-flight status.
+
+> **Deprecated capabilities removed.** The MCP `logging`, `sampling`, and
+> `roots` capabilities were deprecated together under
+> [SEP-2577](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2577)
+> and are no longer supported by dao-ai. The `logging` migration path is
+> OpenTelemetry — dao-ai already emits MLflow/OTEL traces, and W3C trace
+> context now propagates client→server via `_meta` (see
+> [MLflow tracing](mlflow-tracing.md) and `mcp_server.md`). Configs that set
+> `capabilities.logging` / `capabilities.sampling` / `capabilities.roots`
+> will fail validation (`extra="forbid"`).
 
 ## Configuration
 
@@ -14,18 +24,18 @@ tools:
     type: mcp
     mcp_url: https://<workspace>/api/2.0/mcp/genie/<space>
     capabilities:
-      progress: true      # opt into progress notifications
-      logging: info       # opt into log notifications ≥ info level
+      progress: true            # opt into progress notifications
+      structured_output: true   # observe structuredContent / resource_link (default)
+      elicitation: hitl         # optional: handle server-initiated elicitation
 ```
 
-When either flag is set, dao-ai wires the corresponding MCP callback and
-begins dual-emitting envelopes to both MLflow spans and the outer stream.
-No separate stream-toggle: opting in via `progress`/`logging` opts in to
-both surfaces.
+When `progress` is set, dao-ai wires the MCP progress callback and begins
+dual-emitting envelopes to both MLflow spans and the outer stream. No
+separate stream-toggle: opting in via `progress` opts in to both surfaces.
 
 ## Wire format on the response stream
 
-Every progress or log notification the server emits becomes one
+Every progress notification the server emits becomes one
 `ResponsesAgentStreamEvent` on the SSE stream:
 
 ```json
@@ -48,9 +58,9 @@ Every progress or log notification the server emits becomes one
 }
 ```
 
-Log envelopes use `"channel": "mcp.log"` plus `level`, `logger`, and
-`data` fields. The stable `id` shape (`mcp_<server>_<msg_id>_<seq>`) lets
-a UI overwrite same-line status updates idempotently.
+The stable `id` shape (`mcp_<server>_<msg_id>_<seq>`) lets a UI overwrite
+same-line status updates idempotently. Audit receipts flow on the same
+stream under the `dao_ai.audit.*` channel.
 
 The event type (`response.output_item.added` with `status="in_progress"`)
 is the OpenAI Responses SSE convention. Any client that already renders
@@ -102,11 +112,23 @@ stream plumbing.
 | MCP notification              | Wired? | Channel        |
 |-------------------------------|--------|----------------|
 | `notifications/progress`      | Yes    | `mcp.progress` |
-| `notifications/message`       | Yes    | `mcp.log`      |
 | `elicitation/create`          | Yes    | HITL interrupt |
-| `sampling/createMessage`      | Yes    | AI Gateway     |
-| `roots/list`                  | Yes    | static config  |
+| `notifications/message`       | Removed — MCP `logging` deprecated (SEP-2577); use OTEL tracing |
+| `sampling/createMessage`      | Removed — MCP `sampling` deprecated (SEP-2577) |
+| `roots/list`                  | Removed — MCP `roots` deprecated (SEP-2577) |
 | `notifications/resources/*`   | Not wired — extensible via new callback class + channel |
 | `notifications/tools/*`       | Not wired |
 | `notifications/prompts/*`     | Not wired |
 | `notifications/cancelled`     | Not wired |
+
+## W3C trace-context propagation (`_meta`)
+
+dao-ai injects W3C trace context (`traceparent`, `baggage`) into the
+`_meta` block of every `tools/call` on the capabilities path
+([SEP-414](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/414)),
+so a downstream MCP server can continue the caller's distributed trace. The
+`traceparent` is minted from the active MLflow span's `trace_id`/`span_id`
+(the OTel-native hex that also lands in the UC `_otel_spans` table); the
+MLflow trace id rides in `baggage` for dao-ai-native correlation. This
+replaces the former custom `x-dao-ai-trace-id` header. See
+`dao_ai.tools.mcp_trace_context`.

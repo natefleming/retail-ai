@@ -1,9 +1,13 @@
-"""MCP tool-call interceptors that shape requests + responses in the
+"""MCP tool-call interceptors that observe tool-call responses in the
 langchain-mcp-adapters onion pipeline.
 
 Wired into ``MultiServerMCPClient(tool_interceptors=[...])`` when an
 ``McpFunctionModel`` declares an ``McpCapabilitiesModel``. Named classes
 (not closures) so their execution shows up in MLflow trace spans.
+
+W3C trace-context propagation (``traceparent``/``tracestate``/``baggage``)
+is handled separately via ``_meta`` on ``session.call_tool`` — see
+``dao_ai.tools.mcp_trace_context``.
 """
 
 from __future__ import annotations
@@ -39,30 +43,6 @@ def _active_span_add_event(name: str, attributes: dict[str, Any]) -> None:
         span.add_event(name, attributes=attributes)
     except Exception as exc:
         logger.debug(f"mcp interceptor: failed to add event {name!r}: {exc}")
-
-
-class DaoAiTraceInterceptor:
-    """Injects the current MLflow trace id into request headers as
-    ``x-dao-ai-trace-id`` so downstream MCP servers can correlate their
-    own traces with the caller."""
-
-    async def __call__(
-        self,
-        request: MCPToolCallRequest,
-        handler: _HandlerT,
-    ) -> MCPToolCallResult:
-        trace_id: str | None = None
-        span = mlflow.get_current_active_span()
-        if span is not None:
-            try:
-                trace_id = span.request_id or span.trace_id
-            except Exception:
-                trace_id = None
-        if trace_id:
-            headers = dict(request.headers or {})
-            headers.setdefault("x-dao-ai-trace-id", str(trace_id))
-            request = request.override(headers=headers)
-        return await handler(request)
 
 
 class DaoAiStructuredOutputInterceptor:

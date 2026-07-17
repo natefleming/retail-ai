@@ -2,9 +2,7 @@
 
 Companion to the client-side callbacks/interceptors in
 ``src/dao_ai/tools/mcp_{callbacks,interceptors}.py``. This module registers
-static resources + prompt templates on the FastMCP instance and wires a
-``logging.Handler`` that forwards Python log records into
-``notifications/message`` on the active FastMCP session.
+static resources + prompt templates on the FastMCP instance.
 
 Progress emission from LangGraph ``astream_events`` lives in
 ``src/dao_ai/mcp/agent_tool.py`` because it's threaded through the
@@ -13,11 +11,10 @@ per-request ``Context`` inside the agent-as-tool wrapper.
 
 from __future__ import annotations
 
-import logging
 from typing import Any, Sequence
 
 from loguru import logger
-from mcp.server.fastmcp import Context, FastMCP
+from mcp.server.fastmcp import FastMCP
 from mcp.server.fastmcp.prompts.base import Prompt, PromptArgument
 from mcp.types import PromptMessage, TextContent
 
@@ -145,81 +142,3 @@ class _DefaultingDict(dict):
 
     def __missing__(self, key: str) -> str:
         return ""
-
-
-# ---------------------------------------------------------------------------
-# Log forwarding: Python logger → MCP notifications/message
-# ---------------------------------------------------------------------------
-
-
-_LEVEL_MAP: dict[int, str] = {
-    logging.DEBUG: "debug",
-    logging.INFO: "info",
-    logging.WARNING: "warning",
-    logging.ERROR: "error",
-    logging.CRITICAL: "critical",
-}
-
-
-class MCPSessionLoggingHandler(logging.Handler):
-    """Forwards Python log records to the active FastMCP session as
-    ``notifications/message``.
-
-    Guarded for absence of session context — when there's no active FastMCP
-    session (module-level logs, background threads without a request in
-    flight), ``emit`` is a silent no-op.
-    """
-
-    def __init__(self, mcp: FastMCP) -> None:
-        super().__init__()
-        self._mcp = mcp
-
-    def emit(self, record: logging.LogRecord) -> None:
-        session = _current_fastmcp_session(self._mcp)
-        if session is None:
-            return
-        try:
-            level = _LEVEL_MAP.get(record.levelno, "info")
-            message = self.format(record)
-            import anyio
-
-            anyio.from_thread.run_sync(
-                session.send_log_message,
-                level,
-                message,
-                record.name,
-            )
-        except Exception:
-            # Never let logging break the process — silence and move on.
-            return
-
-
-def _current_fastmcp_session(mcp: FastMCP) -> Any | None:
-    """Return the active FastMCP session, if one is bound.
-
-    FastMCP stashes the per-request session behind ``mcp.get_context().session``.
-    Both the ``get_context()`` call AND the ``.session`` property can raise
-    when there's no bound request — treat either as 'no session'.
-    """
-    try:
-        ctx: Context = mcp.get_context()
-        return ctx.session
-    except Exception:
-        return None
-
-
-def wire_log_forwarding(mcp: FastMCP) -> None:
-    """Attach an ``MCPSessionLoggingHandler`` to the root logger.
-
-    Idempotent — a second call replaces the handler rather than stacking.
-    """
-    handler = MCPSessionLoggingHandler(mcp)
-    handler.setLevel(logging.INFO)
-    handler.setFormatter(logging.Formatter("%(message)s"))
-    root = logging.getLogger()
-    # Drop any existing dao-ai MCP handler before attaching (idempotent).
-    for existing in list(root.handlers):
-        if isinstance(existing, MCPSessionLoggingHandler):
-            root.removeHandler(existing)
-    root.addHandler(handler)
-    logger.info("mcp.server.log_forwarding.wired")
