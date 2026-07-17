@@ -15,10 +15,16 @@
 # to the end user through the agent's response. A model node streams
 # AIMessageChunks (`stream_mode="messages"`).
 #
-# Multi-turn: the Genie server owns conversation history keyed by
-# conversation_id. GenieAgentChatModel stamps the id on the returned
-# AIMessage's response_metadata and recovers it from the message history on
-# the next turn — no graph state or session cache required.
+# Multi-turn: the Genie server owns conversation history keyed by a
+# Genie-issued conversation_id (independent of the LangGraph thread_id).
+# GenieAgentMiddleware caches it in session.genie.spaces[agent_id] — the same
+# channel the `type: genie` tool uses — reading the prior id before each turn
+# and persisting the newly-issued one after, via the merge_session reducer.
+#
+# Registration: a GenieAgentModel is a plain wrapper, not a deploy resource.
+# Its `genie_room` MUST be registered under `resources.genie_rooms` (shared by
+# anchor below) so the bundle emits the genie-space grant; config-load fails
+# otherwise.
 #
 # Preview status: the Genie Agent Mode API is in Beta. A workspace admin must
 # enable "Genie Agents Agent Mode API" from the Previews menu.

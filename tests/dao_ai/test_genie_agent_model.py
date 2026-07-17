@@ -323,6 +323,37 @@ class TestConfigModel:
         )
         assert isinstance(agent.model, InferenceEndpointModel)
 
+    def test_bare_room_dict_autowrapped(self) -> None:
+        # A bare room dict (agent_id) assigned to model is wrapped.
+        agent = AgentModel.model_validate(
+            {"name": "g", "model": {"agent_id": AGENT_ID}, "tools": []}
+        )
+        assert isinstance(agent.model, GenieAgentModel)
+        assert agent.model.name == AGENT_ID
+
+    def test_bare_room_instance_autowrapped(self) -> None:
+        agent = AgentModel.model_validate(
+            {"name": "g", "model": GenieRoomModel(space_id=AGENT_ID), "tools": []}
+        )
+        assert isinstance(agent.model, GenieAgentModel)
+
+    def test_bare_room_uses_default_timeout(self) -> None:
+        agent = AgentModel.model_validate(
+            {"name": "g", "model": {"space_id": AGENT_ID}, "tools": []}
+        )
+        assert agent.model.timeout_seconds == 300
+
+    def test_explicit_wrapper_keeps_custom_timeout(self) -> None:
+        agent = AgentModel.model_validate(
+            {
+                "name": "g",
+                "model": {"genie_room": {"agent_id": AGENT_ID}, "timeout_seconds": 600},
+                "tools": [],
+            }
+        )
+        assert isinstance(agent.model, GenieAgentModel)
+        assert agent.model.timeout_seconds == 600
+
     def test_unresolvable_agent_id_raises(self, monkeypatch: pytest.MonkeyPatch) -> None:
         # A name-only room (no space_id) with no env fallback cannot resolve
         # an agent_id without a live lookup.

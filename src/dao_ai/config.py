@@ -7514,6 +7514,37 @@ class AgentModel(BaseModel):
         ),
     )
 
+    @field_validator("model", mode="before")
+    @classmethod
+    def _wrap_bare_genie_room(cls, value: Any) -> Any:
+        """Auto-wrap a bare Genie room assigned to ``model`` into a ``GenieAgentModel``.
+
+        Ergonomic sugar so a registered room anchor can be assigned directly::
+
+            model: *retail_genie_room          # bare room  → GenieAgentModel
+            model: {genie_room: *room, timeout_seconds: 600}  # explicit wrapper
+            model: {name: databricks-claude-sonnet-4}         # LLM (untouched)
+
+        Coercion is by shape, not by smart-union guessing:
+
+        * a :class:`GenieRoomModel` instance, or
+        * a dict carrying ``agent_id`` / ``space_id`` but not already the
+          wrapper key ``genie_room`` (and not a serving-endpoint ``name``-only
+          shape),
+
+        is rewritten to ``{"genie_room": value}``. Everything else (notably a
+        ``{"name": ...}`` serving-endpoint config, which has no
+        ``agent_id``/``space_id``) is left untouched for the normal union to
+        resolve. The bare form uses the default ``timeout_seconds``; use the
+        explicit ``{genie_room: ...}`` wrapper to set invocation knobs.
+        """
+        if isinstance(value, GenieRoomModel):
+            return {"genie_room": value}
+        if isinstance(value, dict) and "genie_room" not in value:
+            if "agent_id" in value or "space_id" in value:
+                return {"genie_room": value}
+        return value
+
     @model_validator(mode="after")
     def validate_requires_no_self_reference(self) -> Self:
         """Reject ``requires`` entries that reference the agent itself."""
