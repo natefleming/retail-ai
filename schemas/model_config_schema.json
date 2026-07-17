@@ -5737,6 +5737,12 @@
           "title": "Truncate Results",
           "type": "boolean"
         },
+        "verbatim": {
+          "default": false,
+          "description": "When true, instruct the calling LLM to pass the user's question to Genie exactly as asked \u2014 no rephrasing, decomposition, or added qualifiers. Shapes the tool description and the question-argument annotation. Default false preserves the existing 'ask simple, clear questions' behavior.",
+          "title": "Verbatim",
+          "type": "boolean"
+        },
         "lru_cache": {
           "anyOf": [
             {
