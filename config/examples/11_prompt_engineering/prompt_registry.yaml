@@ -18,22 +18,15 @@ parameters:
 # This configuration file demonstrates the complete setup for a multi-agent system
 # including schemas, resources, tools, agents, and orchestration patterns.
 #
-# NEW FEATURE: MLflow Prompt Registry Integration
+# FEATURE: Reusable Prompts
 # ================================================
-# This example showcases how to use MLflow Prompt Registry for centralized
-# prompt management. Key benefits:
+# This example showcases how to define reusable prompts as first-class config
+# objects. Key benefits:
 #
-# 1. Version Control: Track prompt changes over time with versioning
-# 2. Centralized Management: Store prompts in MLflow instead of config files
-# 3. External Updates: Prompt engineers can update prompts without code changes
-# 4. Environment Management: Use aliases (production, staging) for different environments
-# 5. A/B Testing: Easily switch between prompt versions for testing
-#
-# Prompts can be:
-# - Loaded from MLflow Prompt Registry (preferred)
-# - Fall back to default_template if registry unavailable
-# - Pinned to specific versions for stability
-# - Referenced using aliases for flexibility
+# 1. Define Once, Reuse Everywhere: Declare a prompt as a YAML anchor and
+#    reference it from any number of agents.
+# 2. Centralized Management: Keep prompt text in one place in the config.
+# 3. Readability: Keep long prompt bodies out of the agent definitions.
 #
 # See the "PROMPTS CONFIGURATION" section below for detailed examples.
 # =============================================================================
@@ -250,19 +243,14 @@ tools:
 # ==============================================================================
 # PROMPTS CONFIGURATION
 # ==============================================================================
-# Define reusable prompts that can be stored in MLflow Prompt Registry
-# 
-# Prompts support:
-# - default_template: Fallback template when registry is unavailable
-# - description: Used as commit message when syncing to registry
-# - alias: Reference specific versions (e.g., "production", "staging")
-# - version: Pin to specific version number
-# - tags: Metadata and organization
-# - auto_register: Whether to auto-register/sync to prompt registry (default: true)
-#   * If true: Auto-registers and syncs default_template with registry
-#   * If false: Never registers, only loads from registry (or uses default_template locally)
+# Define reusable prompts as first-class config objects.
 #
-# Priority: Registry > default_template (registry is source of truth)
+# Prompts support:
+# - name: Identifier used as a label in logs and traces
+# - template: The prompt template text, with optional {variable} placeholders
+# - description: Human-readable description of the prompt
+# - schema: Optional Unity Catalog schema qualifying the prompt name
+# - tags: Metadata and organization
 # ==============================================================================
 
 prompts:
@@ -273,7 +261,7 @@ prompts:
     schema: *retail_schema
     name: general_prompt
     description: "General retail store assistant prompt for home improvement and hardware store inquiries"
-    default_template: |
+    template: |
       ### User Information
       - **User Id**: {user_id}
       - **Store Number**: {store_num}
@@ -283,10 +271,6 @@ prompts:
     tags:
       environment: production
       agent_type: general
-    # auto_register: true  # Default behavior - auto-syncs to registry
-    # Example: To prevent automatic registration (e.g., for testing or controlled deployment):
-    # auto_register: false  # Will only load from registry, never auto-register
-    #                       # If not in registry, uses default_template locally
 
   # ---------------------------------------------------------------------------
   # Agent Prompts
@@ -296,7 +280,7 @@ prompts:
     schema: *retail_schema
     name: orders_prompt
     description: "Order management specialist prompt for tracking orders, delivery status, and order inquiries"
-    default_template: |
+    template: |
       ### User Information
       - **User Id**: {user_id}
       - **Store Number**: {store_num}
@@ -348,7 +332,7 @@ prompts:
     schema: *retail_schema
     name: diy_prompt
     description: "DIY and home improvement expert prompt providing how-to advice, project guidance, and safety recommendations"
-    default_template: |
+    template: |
       ### User Information
       - **User Id**: {user_id}
       - **Store Number**: {store_num}
@@ -402,7 +386,7 @@ prompts:
     schema: *retail_schema
     name: product_prompt
     description: "Product specialist prompt for providing detailed product information, specifications, and usage guidance"
-    default_template: |
+    template: |
       ### User Information
       - **User Id**: {user_id}
       - **Store Number**: {store_num}
@@ -466,7 +450,7 @@ prompts:
     schema: *retail_schema
     name: inventory_prompt
     description: "Comprehensive inventory specialist prompt with real-time stock checking, restock tracking, and availability management"
-    default_template: |
+    template: |
       ### User Information
       - **User Id**: {user_id}
       - **Store Number**: {store_num}
@@ -528,7 +512,7 @@ prompts:
     schema: *retail_schema
     name: comparison_prompt
     description: "Product comparison specialist prompt for analyzing multiple products side-by-side and highlighting key differences"
-    default_template: |
+    template: |
       ### User Information
       - **User Id**: {user_id}
       - **Store Number**: {store_num}
@@ -600,7 +584,7 @@ prompts:
     schema: *retail_schema
     name: recommendation_prompt
     description: "Product recommendation specialist prompt for suggesting products based on customer needs, preferences, and budget"
-    default_template: |
+    template: |
       ### User Information
       - **User Id**: {user_id}
       - **Store Number**: {store_num}
@@ -695,9 +679,8 @@ prompts:
 #
 # Benefits of using prompt references:
 # - Centralized prompt management
-# - Version control through MLflow Prompt Registry
-# - Easy A/B testing with different prompt versions
-# - External team can update prompts without code changes
+# - Define a prompt once and reuse it across multiple agents
+# - Keep long prompt bodies out of the agent definitions
 # ==============================================================================
 
 agents:

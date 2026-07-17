@@ -15,10 +15,7 @@
 # A supervisor routes each turn to the most appropriate specialist.
 #
 # Prompts are defined as PromptModel objects so they can be centrally managed
-# and optionally promoted to the MLflow Prompt Registry later. They are kept
-# local-only here (auto_register defaults to False) — if a registry entry
-# later appears under the same name, it transparently takes precedence over
-# the default_template below.
+# and reused across agents. The template text is carried inline.
 # ==============================================================================
 
 variables:
@@ -86,7 +83,7 @@ prompts:
   retail_analytics_prompt: &retail_analytics_prompt
     name: vertex_agent_engine_retail_analytics_prompt
     description: Retail analytics specialist prompt covering customer/sales/product analytics and logistics.
-    default_template: |
+    template: |
       You are a retail analytics specialist with access to two Databricks
       Genie rooms. Pick the right tool based on the question's intent:
 
@@ -120,7 +117,7 @@ prompts:
   customer_service_prompt: &customer_service_prompt
     name: vertex_agent_engine_customer_service_prompt
     description: Customer service coordinator prompt backed by a Vertex AI Agent Engine ADK agent.
-    default_template: |
+    template: |
       You are a customer service coordinator. For any customer-facing
       question — account inquiries, returns, product support, general
       assistance — delegate to the customer_service tool, which calls a
@@ -133,7 +130,7 @@ prompts:
   supervisor_prompt: &supervisor_prompt
     name: vertex_agent_engine_supervisor_prompt
     description: Supervisor routing prompt for the Vertex AI Agent Engine + Genie retail example.
-    default_template: |
+    template: |
       You coordinate two specialist agents for a retail organization:
 
       - retail_analytics_agent: Answers analytics questions using two

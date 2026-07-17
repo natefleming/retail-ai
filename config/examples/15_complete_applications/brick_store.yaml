@@ -664,14 +664,14 @@ tools:
         - "Where is the Marina Market store?"
 
 # =============================================================================
-# PROMPTS (MLflow Prompt Registry)
+# PROMPTS (reusable inline prompts)
 # =============================================================================
 prompts:
   general_prompt: &general_prompt
     schema: *brickstore_schema
     name: brickstore_general_prompt
     description: "General-purpose store associate prompt for the brick_store companion"
-    default_template: |
+    template: |
       ### User Information
       - **User Id**: {user_id}
       - **Store Number**: {store_num}
@@ -704,13 +704,12 @@ prompts:
       environment: production
       agent_name: general
       domain: store_ops
-    auto_register: true
 
   orders_prompt: &orders_prompt
     schema: *brickstore_schema
     name: brickstore_orders_prompt
     description: "BOPIS / order management prompt for the brick_store companion"
-    default_template: |
+    template: |
       ### User Information
       - **User Id**: {user_id}
       - **Store Number**: {store_num}
@@ -748,13 +747,12 @@ prompts:
       environment: production
       agent_name: orders
       domain: store_ops
-    auto_register: true
 
   product_prompt: &product_prompt
     schema: *brickstore_schema
     name: brickstore_product_prompt
     description: "Product specialist prompt for the brick_store companion (absorbs comparison + recommendation)"
-    default_template: |
+    template: |
       ### User Information
       - **User Id**: {user_id}
       - **Store Number**: {store_num}
@@ -795,13 +793,12 @@ prompts:
       environment: production
       agent_name: product
       domain: store_ops
-    auto_register: true
 
   inventory_prompt: &inventory_prompt
     schema: *brickstore_schema
     name: brickstore_inventory_prompt
     description: "Inventory specialist prompt for the brick_store companion"
-    default_template: |
+    template: |
       ### User Information
       - **User Id**: {user_id}
       - **Store Number**: {store_num}
@@ -842,13 +839,12 @@ prompts:
       environment: production
       agent_name: inventory
       domain: store_ops
-    auto_register: true
 
   customer_prompt: &customer_prompt
     schema: *brickstore_schema
     name: brickstore_customer_prompt
     description: "Customer service / pre-visit prep prompt for the brick_store companion"
-    default_template: |
+    template: |
       ### User Information
       - **User Id**: {user_id}
       - **Store Number**: {store_num}
@@ -891,13 +887,12 @@ prompts:
       environment: production
       agent_name: customer
       domain: store_ops
-    auto_register: true
 
   stylist_prompt: &stylist_prompt
     schema: *brickstore_schema
     name: brickstore_stylist_prompt
     description: "Personal stylist prompt for the brick_store companion"
-    default_template: |
+    template: |
       ### User Information
       - **User Id**: {user_id}
       - **Store Number**: {store_num}
@@ -935,13 +930,12 @@ prompts:
       environment: production
       agent_name: stylist
       domain: store_ops
-    auto_register: true
 
   employee_prompt: &employee_prompt
     schema: *brickstore_schema
     name: brickstore_employee_prompt
     description: "Employee / manager-on-duty prompt for the brick_store companion"
-    default_template: |
+    template: |
       ### User Information
       - **User Id**: {user_id}
       - **Store Number**: {store_num}
@@ -975,7 +969,6 @@ prompts:
       environment: production
       agent_name: employee
       domain: store_ops
-    auto_register: true
 
 # =============================================================================
 # MEMORY (Lakebase)

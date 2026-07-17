@@ -34,7 +34,7 @@ parameters:
 # - Configurable retry limits
 # - Content blocking for sensitive keywords
 # - Safety evaluation for harmful content
-# - Can use prompts from MLflow Prompt Registry for consistency
+# - Can reference shared prompt objects for consistency
 # =============================================================================
 
 schemas:
@@ -68,7 +68,7 @@ resources:
 # PROMPTS FOR GUARDRAILS
 # =============================================================================
 # Guardrail prompts define the evaluation criteria for LLM judges.
-# These can be stored in MLflow Prompt Registry for version control.
+# They are defined inline as reusable prompt objects.
 
 prompts:
   # Professional tone guardrail prompt
@@ -76,7 +76,7 @@ prompts:
     schema: *retail_schema
     name: professional_tone_guardrail
     description: "Evaluates if agent responses maintain a professional, helpful tone"
-    default_template: |
+    template: |
       Evaluate if the following response is professional, helpful, and appropriate 
       for customer service.
 
@@ -101,7 +101,7 @@ prompts:
     schema: *retail_schema
     name: completeness_guardrail
     description: "Evaluates if responses fully address the user's question"
-    default_template: |
+    template: |
       Evaluate if the response fully addresses the user's question.
 
       User Request: {{ inputs }}
@@ -127,7 +127,7 @@ prompts:
     schema: *retail_schema
     name: veracity_guardrail
     description: "Evaluates if responses are grounded in retrieved tool context"
-    default_template: |
+    template: |
       Evaluate whether the response is grounded in and faithful to the provided context.
 
       User query and retrieved context: {{ inputs }}
@@ -355,12 +355,10 @@ app:
 #    - current_time_tool: Get current date/time
 #
 # 4. PROMPT TEMPLATES
-#    - Guardrail prompts are stored in MLflow Prompt Registry
+#    - Guardrail prompts are defined inline as reusable prompt objects
 #    - All prompts use {{ inputs }} and {{ outputs }} Jinja2 template variables
 #    - {{ inputs }} contains the user query AND tool context (for veracity checks)
 #    - {{ outputs }} contains the agent's response
-#    - Prompts can be versioned and updated without config changes
-#    - Use default_template as fallback if registry unavailable
 #
 # 5. BEST PRACTICES
 #    - Monitor guardrail trigger rates (how often they request retries)

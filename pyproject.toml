@@ -58,7 +58,6 @@ dependencies = [
     "ddgs>=9.10.0",
     "dspy>=2.6.27",
     "flashrank>=0.2.10",
-    "gepa>=0.0.22",
     "grandalf>=0.8",
     "langchain>=1.2.12",
     "langchain-community>=0.4.1",

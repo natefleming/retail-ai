@@ -248,14 +248,13 @@ agents:
     response_format: *response_format_ref | string | null
     recursion_limit: int | null # Max LangGraph supersteps per invocation (default 25)
 
-# Prompt definitions (MLflow registry)
+# Prompt definitions (reusable inline prompts)
 prompts:
   prompt_name: &prompt_name:
-    schema: *my_schema
+    schema: *my_schema          # Optional UC schema (label only)
     name: string
-    alias: string | null        # e.g., "production"
-    version: int | null
-    default_template: string
+    template: string            # Prompt text with optional {variable} placeholders
+    description: string | null
     tags: {}
 
 # Guardrails (MLflow judge-based or Scorer-based evaluation)
@@ -471,7 +470,7 @@ evaluation:
     - name: string
       guidelines: [string]
 
-# Prompt + cache-threshold optimization
+# Cache-threshold optimization + training/evaluation datasets
 optimizations:
   training_datasets:
     dataset_name: &eval_dataset
@@ -483,15 +482,6 @@ optimizations:
           expectations:
             expected_response: string | null
             expected_facts: [string] | null      # Mutually exclusive with expected_response
-
-  prompt_optimizations:
-    optimize_name:
-      name: string
-      prompt: *prompt_name | null                # Falls back to agent.prompt if omitted
-      agent: *agent_name
-      dataset: *eval_dataset
-      reflection_model: *model_name | string | null  # LLM used for reflective mutation
-      num_candidates: int                         # default: 50
 
   cache_threshold_optimizations:
     optimize_cache:

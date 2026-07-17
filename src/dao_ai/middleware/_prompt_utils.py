@@ -8,8 +8,8 @@ from dao_ai.config import PromptModel
 def resolve_prompt(prompt: str | PromptModel, *, jinja: bool = False) -> str:
     """Resolve a prompt that may be a plain string or a :class:`PromptModel`.
 
-    When a ``PromptModel`` is provided, its template is fetched from the
-    prompt registry.  The *jinja* flag controls the template format:
+    When a ``PromptModel`` is provided, its inline template is returned.
+    The *jinja* flag controls the template format:
 
     * ``jinja=False`` (default) – single-brace format (``{variable}``),
       suitable for ``str.format()`` and plain system prompts.

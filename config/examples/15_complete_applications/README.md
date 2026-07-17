@@ -274,7 +274,7 @@ flowchart LR
 - **Instructed Retrieval** -- Vector search with query decomposition into up to 3 sub-queries, Reciprocal Rank Fusion (RRF, k=60) for merging, normalized filter case (uppercase), and LLM-based reranking with domain-specific instructions.
 - **Genie Caching** -- Dual-layer caching on both Genie rooms: LRU cache (100 capacity, 1h TTL) plus context-aware semantic cache via Lakebase (0.85 similarity threshold, 24h TTL). Persistent conversation history enabled.
 - **Monitoring** -- Built-in scorers (`safety`, `completeness`, `relevance_to_query`, `tool_call_efficiency`) at 100% sample rate, plus custom guideline scorers at 50% (`merchandising_accuracy`, `tool_usage_quality`, `response_professionalism`).
-- **MLflow Prompt Registry** -- 7 auto-registered prompts with `environment` and `domain` tags. Each agent prompt is versioned and managed through MLflow Prompt Registry.
+- **Reusable Prompts** -- 7 prompts defined as first-class config objects with `environment` and `domain` tags, referenced by the agents via YAML anchors.
 - **Middleware** -- Store number field validation (`store_num`) ensures inventory and sales lookups are scoped to the correct location.
 - **Evaluation** -- 25 auto-generated eval questions with merchandising-specific guidelines covering all 7 agent specializations and multiple user personas (merchandiser, buyer, pricing analyst, store manager, demand planner).
 - **Service Principal** -- Dedicated `retail_consumer_goods_sp` service principal with secrets managed via Unity Catalog scopes.

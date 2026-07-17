@@ -70,7 +70,6 @@ from mlflow.genai.datasets import (
     delete_dataset,
     get_dataset,
 )
-from mlflow.genai.prompts import PromptVersion, load_prompt
 from mlflow.models import ModelConfig
 from mlflow.models.resources import (
     DatabricksApp,
@@ -6797,7 +6796,12 @@ class ToolModel(BaseModel):
 
 
 class PromptModel(BaseModel, HasFullName):
-    """A prompt backed by the MLflow Prompt Registry with versioning and alias support."""
+    """A named, reusable prompt defined inline in configuration.
+
+    Prompts are first-class config objects so they can be declared once and
+    referenced as YAML anchors/aliases by agents, guardrails, and supervisors.
+    The template text is carried inline; there is no registry round-trip.
+    """
 
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
     schema_model: Optional[SchemaModel] = Field(
@@ -6806,66 +6810,36 @@ class PromptModel(BaseModel, HasFullName):
         description="Unity Catalog schema qualifying the prompt name (catalog.schema.name).",
     )
     name: str = Field(
-        description="Prompt name in the MLflow Prompt Registry.",
+        description="Identifier for the prompt, used as a label in logs and traces.",
     )
     description: Optional[str] = Field(
         default=None,
-        description="Human-readable description stored with the prompt in the registry.",
+        description="Human-readable description of the prompt.",
     )
-    default_template: Optional[str] = Field(
-        default=None,
-        description="Inline template text registered when auto_register is true and no registry entry exists.",
-    )
-    alias: Optional[str] = Field(
-        default=None,
-        description="Prompt alias to load (e.g., 'latest', 'champion'). Mutually exclusive with version.",
-    )
-    version: Optional[int] = Field(
-        default=None,
-        description="Specific prompt version number to load. Mutually exclusive with alias.",
+    template: str = Field(
+        description="The prompt template text, with optional {variable} placeholders.",
     )
     tags: Optional[dict[str, Any]] = Field(
         default_factory=dict,
-        description="Key-value tags attached to the prompt version in the registry.",
+        description="Key-value tags attached to the prompt for documentation.",
     )
-    auto_register: bool = Field(
-        default=False,
-        description="Whether to automatically register the default_template to the prompt registry. "
-        "If False, the prompt will only be loaded from the registry (never created/updated). "
-        "Defaults to True for backward compatibility.",
-    )
-
-    @property
-    def template(self) -> str:
-        from dao_ai.providers.databricks import DatabricksProvider
-
-        provider: DatabricksProvider = DatabricksProvider()
-        prompt_version = provider.get_prompt(self)
-        return prompt_version.to_single_brace_format()
 
     @property
     def jinja_template(self) -> str:
         """Return the template in Jinja2 format (with {{ }} variables).
 
-        Unlike ``template`` which converts to single-brace Python format,
-        this property ensures the template uses Jinja2 double-brace
-        variables (e.g. ``{{ inputs }}``, ``{{ outputs }}``) required by
-        MLflow judges.
-
-        If the registry stores the older single-brace format
-        (``{inputs}``), the known MLflow judge variables are automatically
-        converted to double-brace Jinja2 syntax.
+        Unlike ``template`` which uses single-brace Python format, this
+        property ensures the known MLflow judge variables (e.g.
+        ``{{ inputs }}``, ``{{ outputs }}``) required by MLflow judges use
+        double-brace Jinja2 syntax. Templates already written in single-brace
+        format for those variables are converted automatically.
         """
         import re
 
-        from dao_ai.providers.databricks import DatabricksProvider
-
-        provider: DatabricksProvider = DatabricksProvider()
-        prompt_version = provider.get_prompt(self)
-        raw_template: str = prompt_version.template
+        raw_template: str = self.template
 
         # Convert single-brace MLflow judge variables to Jinja2 double-brace
-        # format when the template was stored in legacy format.
+        # format when the template was written in single-brace format.
         _JUDGE_VARS = ("inputs", "outputs", "trace", "expectations", "conversation")
         for var in _JUDGE_VARS:
             # Match {var} but NOT {{var}} (already Jinja2)
@@ -6883,29 +6857,6 @@ class PromptModel(BaseModel, HasFullName):
         if self.schema_model:
             prompt_name = f"{self.schema_model.full_name}.{prompt_name}"
         return prompt_name
-
-    @property
-    def uri(self) -> str:
-        prompt_uri: str = f"prompts:/{self.full_name}"
-
-        if self.alias:
-            prompt_uri = f"prompts:/{self.full_name}@{self.alias}"
-        elif self.version:
-            prompt_uri = f"prompts:/{self.full_name}/{self.version}"
-        else:
-            prompt_uri = f"prompts:/{self.full_name}@latest"
-
-        return prompt_uri
-
-    def as_prompt(self) -> PromptVersion:
-        prompt_version: PromptVersion = load_prompt(self.uri)
-        return prompt_version
-
-    @model_validator(mode="after")
-    def validate_mutually_exclusive(self) -> Self:
-        if self.alias and self.version:
-            raise ValueError("Cannot specify both alias and version")
-        return self
 
 
 class GuardrailModel(BaseModel):
@@ -7546,13 +7497,10 @@ class AgentModel(BaseModel):
 
     def as_responses_agent(self) -> ResponsesAgent:
         from dao_ai.models import create_responses_agent
-        from dao_ai.prompts import get_cached_prompt_versions
 
         graph: CompiledStateGraph = self.as_runnable()
-        prompt_versions = get_cached_prompt_versions()
         return create_responses_agent(
             graph,
-            prompt_versions=prompt_versions,
             tool_models=self.tools,
         )
 
@@ -8108,7 +8056,7 @@ class DeepAgentModel(BaseModel):
         default=None,
         description=(
             "System prompt prepended to deepagents' base prompt. "
-            "Inline string or MLflow ``PromptModel`` (resolved via ``make_prompt``)."
+            "Inline string or ``PromptModel`` (resolved via ``make_prompt``)."
         ),
     )
     middleware: list[MiddlewareModel] = Field(
@@ -9653,110 +9601,14 @@ class EvaluationDatasetModel(BaseModel, HasFullName):
         return self.name
 
 
-class PromptOptimizationModel(BaseModel):
-    """Configuration for prompt optimization using GEPA.
-
-    GEPA (Generative Evolution of Prompts and Agents) is an evolutionary
-    optimizer that uses reflective mutation to improve prompts based on
-    evaluation feedback.
-
-    Example:
-        prompt_optimization:
-          name: optimize_my_prompt
-          prompt: *my_prompt
-          agent: *my_agent
-          dataset: *my_training_dataset
-          reflection_model: databricks-gpt-5-4-mini
-          num_candidates: 50
-    """
-
-    model_config = ConfigDict(use_enum_values=True, extra="forbid")
-    name: str = Field(
-        description="Unique name for this optimization run.",
-    )
-    prompt: Optional[PromptModel] = Field(
-        default=None,
-        description="Prompt to optimize. If omitted, uses the agent's prompt.",
-    )
-    agent: AgentModel = Field(
-        description="Agent whose prompt is being optimized.",
-    )
-    dataset: EvaluationDatasetModel = Field(
-        description="Training dataset with input/expectation pairs for fitness evaluation.",
-    )
-    reflection_model: Optional[InferenceEndpointModel | str] = Field(
-        default=None,
-        description="LLM used for reflective mutation during GEPA optimization.",
-    )
-    num_candidates: Optional[int] = Field(
-        default=50,
-        description="Number of candidate prompts to evaluate per optimization run.",
-    )
-
-    def optimize(self, w: WorkspaceClient | None = None) -> PromptModel:
-        """
-        Optimize the prompt using GEPA.
-
-        Args:
-            w: Optional WorkspaceClient (not used, kept for API compatibility)
-
-        Returns:
-            PromptModel: The optimized prompt model
-        """
-        from dao_ai.optimization import OptimizationResult, optimize_prompt
-
-        # Get reflection model name
-        reflection_model_name: str | None = None
-        if self.reflection_model:
-            if isinstance(self.reflection_model, str):
-                reflection_model_name = self.reflection_model
-            else:
-                reflection_model_name = self.reflection_model.uri
-
-        # Ensure prompt is set
-        prompt = self.prompt
-        if prompt is None:
-            raise ValueError(
-                f"Prompt optimization '{self.name}' requires a prompt to be set"
-            )
-
-        result: OptimizationResult = optimize_prompt(
-            prompt=prompt,
-            agent=self.agent,
-            dataset=self.dataset,
-            reflection_model=reflection_model_name,
-            num_candidates=self.num_candidates or 50,
-            register_if_improved=True,
-        )
-
-        return result.optimized_prompt
-
-    @model_validator(mode="after")
-    def set_defaults(self) -> Self:
-        # If no prompt is specified, try to use the agent's prompt
-        if self.prompt is None:
-            if isinstance(self.agent.prompt, PromptModel):
-                self.prompt = self.agent.prompt
-            else:
-                raise ValueError(
-                    f"Prompt optimization '{self.name}' requires either an explicit prompt "
-                    f"or an agent with a prompt configured"
-                )
-
-        return self
-
-
 class OptimizationsModel(BaseModel):
-    """Container for prompt and cache threshold optimization configurations."""
+    """Container for cache threshold optimization configurations and the
+    training datasets used by optimization and offline-evaluation runs."""
 
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
     training_datasets: dict[str, EvaluationDatasetModel] = Field(
         default_factory=dict,
-        description="Named training datasets used by optimization runs.",
-    )
-    prompt_optimizations: dict[str, PromptOptimizationModel] = Field(
-        default_factory=dict,
-        description="Named prompt optimization configurations using GEPA.",
+        description="Named training datasets used by optimization and evaluation runs.",
     )
     cache_threshold_optimizations: dict[str, "ContextAwareCacheOptimizationModel"] = (
         Field(
@@ -9767,19 +9619,18 @@ class OptimizationsModel(BaseModel):
 
     def optimize(self, w: WorkspaceClient | None = None) -> dict[str, Any]:
         """
-        Optimize all prompts and cache thresholds in this configuration.
+        Optimize all cache thresholds in this configuration.
 
         This method:
         1. Ensures all training datasets are created/registered in MLflow
-        2. Runs each prompt optimization
-        3. Runs each cache threshold optimization
+        2. Runs each cache threshold optimization
 
         Args:
             w: Optional WorkspaceClient for Databricks operations
 
         Returns:
-            dict[str, Any]: Dictionary with 'prompts' and 'cache_thresholds' keys
-                containing the respective optimization results
+            dict[str, Any]: Dictionary with a 'cache_thresholds' key containing
+                the respective optimization results
         """
         # First, ensure all training datasets are created/registered in MLflow
         logger.info(f"Ensuring {len(self.training_datasets)} training datasets exist")
@@ -9787,17 +9638,12 @@ class OptimizationsModel(BaseModel):
             logger.debug(f"Creating/updating dataset: {dataset_name}")
             dataset_model.as_dataset()
 
-        # Run prompt optimizations
-        prompt_results: dict[str, PromptModel] = {}
-        for name, optimization in self.prompt_optimizations.items():
-            prompt_results[name] = optimization.optimize(w)
-
         # Run cache threshold optimizations
         cache_results: dict[str, Any] = {}
         for name, optimization in self.cache_threshold_optimizations.items():
             cache_results[name] = optimization.optimize(w)
 
-        return {"prompts": prompt_results, "cache_thresholds": cache_results}
+        return {"cache_thresholds": cache_results}
 
 
 class ContextAwareCacheEvalEntryModel(BaseModel):
@@ -10384,7 +10230,7 @@ class AppConfig(BaseModel):
     )
     prompts: dict[str, PromptModel] = Field(
         default_factory=dict,
-        description="Named prompt definitions backed by the MLflow Prompt Registry.",
+        description="Named, reusable prompt definitions referenced by agents via YAML anchors.",
     )
     agents: dict[str, AgentModel] = Field(
         default_factory=dict,
@@ -10892,10 +10738,8 @@ class AppConfig(BaseModel):
 
     def as_responses_agent(self) -> ResponsesAgent:
         from dao_ai.models import create_responses_agent
-        from dao_ai.prompts import get_cached_prompt_versions
 
         graph: CompiledStateGraph = self.as_graph()
-        prompt_versions = get_cached_prompt_versions()
         tool_models: list[ToolModel] = [
             tool
             for agent in self.agents.values()
@@ -10903,7 +10747,6 @@ class AppConfig(BaseModel):
         ]
         app: ResponsesAgent = create_responses_agent(
             graph,
-            prompt_versions=prompt_versions,
             tool_models=tool_models,
         )
 

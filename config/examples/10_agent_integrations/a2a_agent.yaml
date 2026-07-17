@@ -63,7 +63,7 @@ prompts:
   a2a_delegate_prompt: &a2a_delegate_prompt
     name: a2a_agent_delegate_prompt
     description: Prompt for the DAO AI agent that delegates to a remote A2A agent.
-    default_template: |
+    template: |
       You delegate user requests to a specialist agent exposed over the
       Google A2A (Agent-to-Agent) protocol. For each user message, call
       the ``remote_a2a_agent`` tool with the user's prompt passed through

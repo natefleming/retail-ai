@@ -134,7 +134,7 @@ prompts:
     schema: *demo_schema
     name: retail_assistant_prompt
     description: "Retail assistant with OBO"
-    default_template: |
+    template: |
       You are a helpful retail assistant with access to product and inventory data.
 
       You have two types of tools available:

@@ -11,7 +11,6 @@ dao-ai/
 │   ├── graph.py           # LangGraph workflow builder
 │   ├── nodes.py           # Agent node factories
 │   ├── state.py           # State management
-│   ├── optimization.py    # GEPA-based prompt optimization
 │   ├── tools/             # Tool implementations
 │   │   ├── genie.py       # Genie tool with caching
 │   │   ├── mcp.py         # MCP integrations

@@ -44,7 +44,7 @@ prompts:
     schema: *retail_schema
     name: mcp_agent_prompt
     description: "GitHub MCP agent prompt"
-    default_template: |
+    template: |
       You are a GitHub integration agent that can interact with GitHub repositories, issues, 
       pull requests, and other GitHub resources via the Model Context Protocol (MCP).
 

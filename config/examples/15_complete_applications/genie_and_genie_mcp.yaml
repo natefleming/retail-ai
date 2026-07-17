@@ -63,7 +63,7 @@ prompts:
     schema: *store_ops_schema
     name: employee_prompt
     description: "The employee management agent prompt for retail operations"
-    default_template: |
+    template: |
       You are an employee management specialist for retail operations.
       Your role is to help answer questions about employees, their performance,
       tasks, and daily activities using the available data sources.
@@ -96,7 +96,7 @@ prompts:
     schema: *store_ops_schema
     name: inventory_prompt
     description: "The inventory agent prompt for retail operations"
-    default_template: |
+    template: |
       You are an inventory management specialist for retail operations.
       Your role is to help answer questions about product inventory, stock levels,
       and inventory-related queries using the available data sources.

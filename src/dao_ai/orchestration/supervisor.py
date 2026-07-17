@@ -139,12 +139,7 @@ def _create_supervisor_agent(
 
     model: LanguageModelLike = supervisor.model.as_chat_model()
 
-    # Capture the original PromptModel reference before any string conversion
-    # so it can be forwarded for MLflow trace linking.
     effective_prompt: str | PromptModel | None = supervisor.prompt
-    prompt_model_ref: PromptModel | None = (
-        effective_prompt if isinstance(effective_prompt, PromptModel) else None
-    )
 
     # Append memory tool instructions to the prompt when memory tools are present
     if has_memory_tools and effective_prompt is not None:
@@ -157,9 +152,7 @@ def _create_supervisor_agent(
         logger.debug("Memory tool instructions appended to supervisor prompt")
 
     # Get the prompt as middleware (always returns AgentMiddleware or None)
-    prompt_middleware: LangchainAgentMiddleware | None = make_prompt(
-        effective_prompt, prompt_model=prompt_model_ref
-    )
+    prompt_middleware: LangchainAgentMiddleware | None = make_prompt(effective_prompt)
 
     # Add prompt middleware at the beginning for priority
     if prompt_middleware is not None:

@@ -993,8 +993,6 @@ dependencies = [
     { name = "dspy", version = "2.6.27", source = { registry = "https://pypi-proxy.dev.databricks.com/simple/" }, marker = "python_full_version != '3.12.*'" },
     { name = "dspy", version = "3.2.1", source = { registry = "https://pypi-proxy.dev.databricks.com/simple/" }, marker = "python_full_version == '3.12.*'" },
     { name = "flashrank" },
-    { name = "gepa", version = "0.0.27", source = { registry = "https://pypi-proxy.dev.databricks.com/simple/" }, marker = "python_full_version == '3.12.*'" },
-    { name = "gepa", version = "0.1.1", source = { registry = "https://pypi-proxy.dev.databricks.com/simple/" }, marker = "python_full_version != '3.12.*'" },
     { name = "grandalf" },
     { name = "langchain" },
     { name = "langchain-community" },
@@ -1108,7 +1106,6 @@ requires-dist = [
     { name = "dspy", specifier = ">=2.6.27" },
     { name = "fastapi", marker = "extra == 'mcp'", specifier = ">=0.115.0" },
     { name = "flashrank", specifier = ">=0.2.10" },
-    { name = "gepa", specifier = ">=0.0.22" },
     { name = "grandalf", specifier = ">=0.8" },
     { name = "langchain", specifier = ">=1.2.12" },
     { name = "langchain-community", specifier = ">=0.4.1" },
@@ -1604,7 +1601,7 @@ dependencies = [
     { name = "cachetools" },
     { name = "cloudpickle" },
     { name = "diskcache" },
-    { name = "gepa", version = "0.0.27", source = { registry = "https://pypi-proxy.dev.databricks.com/simple/" } },
+    { name = "gepa" },
     { name = "json-repair" },
     { name = "litellm" },
     { name = "numpy", version = "2.4.6", source = { registry = "https://pypi-proxy.dev.databricks.com/simple/" } },
@@ -1975,26 +1972,9 @@ http = [
 name = "gepa"
 version = "0.0.27"
 source = { registry = "https://pypi-proxy.dev.databricks.com/simple/" }
-resolution-markers = [
-    "python_full_version == '3.12.*'",
-]
 sdist = { url = "https://pypi-proxy.dev.databricks.com/packages/4e/99/6840f84498f2dcbfd27e8a15eeb4e637e84e9dbbd6331977b71f6ffad9c7/gepa-0.0.27.tar.gz", hash = "sha256:02ecb19e4aa6a1f5bb2994cd54b2057f25cd5e8cd662fee514303b2a8ba0a738", upload-time = "2026-01-28T00:33:51.72Z" }
 wheels = [
     { url = "https://pypi-proxy.dev.databricks.com/packages/a3/bd/f9e83519099a9fd5d090520ab0c51a6278e473b914a9b32d1e812662dd3b/gepa-0.0.27-py3-none-any.whl", hash = "sha256:592beb084fd638d525edae84ca75ad8e9e9c3758e5498b933c17153addf5dd2d", upload-time = "2026-01-28T00:33:50.262Z" },
-]
-
-[[package]]
-name = "gepa"
-version = "0.1.1"
-source = { registry = "https://pypi-proxy.dev.databricks.com/simple/" }
-resolution-markers = [
-    "python_full_version >= '3.15'",
-    "python_full_version >= '3.13' and python_full_version < '3.15'",
-    "python_full_version < '3.12'",
-]
-sdist = { url = "https://pypi-proxy.dev.databricks.com/packages/e4/62/10f5a8f24c075e3b64f952be73ba8e15f0055584bbcdf9ce48d754a36679/gepa-0.1.1.tar.gz", hash = "sha256:643fda01c23de4c9f01306e01305dd69facc29bcb34ad59e4cd07e6621d34aa1", upload-time = "2026-03-16T10:17:53.131Z" }
-wheels = [
-    { url = "https://pypi-proxy.dev.databricks.com/packages/dc/b7/8c72dedbb950d88a6f64588fcbc590d2a21e2b9f19b36aa6c5016c54ec75/gepa-0.1.1-py3-none-any.whl", hash = "sha256:71ead7c591eafcc727b83509cdc4182f20264800a6ddf8520d61419daeb47466", upload-time = "2026-03-16T10:17:51.922Z" },
 ]
 
 [[package]]

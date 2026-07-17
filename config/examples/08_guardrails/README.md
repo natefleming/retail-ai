@@ -107,7 +107,7 @@ prompts:
   professional_tone_prompt: &professional_tone_prompt
     schema: *retail_schema
     name: professional_tone_guardrail
-    default_template: |
+    template: |
       Evaluate if the response is professional and appropriate.
       
       User Request: {{ inputs }}
@@ -124,7 +124,7 @@ prompts:
   veracity_guardrail_prompt: &veracity_guardrail_prompt
     schema: *retail_schema
     name: veracity_guardrail
-    default_template: |
+    template: |
       Evaluate whether the response is grounded in the retrieved context.
 
       User query and retrieved context: {{ inputs }}
@@ -379,7 +379,7 @@ dao-ai chat -c config/examples/08_guardrails/guardrails_basic.yaml --log-level D
 
 ## Next Steps
 
-- **11_prompt_engineering/** - Optimize guardrail prompts
+- **11_prompt_engineering/** - Reuse guardrail prompts across agents
 - **12_middleware/** - Combine with other middleware
 - **15_complete_applications/** - See guardrails in production
 

@@ -104,31 +104,14 @@ def _resolve_system_prompt(spec: str | PromptModel | None) -> str | None:
     """Resolve a system_prompt spec to the string deepagents expects.
 
     For inline strings: pass through.
-    For ``PromptModel``: pull the registered prompt version (best-effort cache for
-    MLflow trace linking, mirroring ``make_prompt``) and return ``template`` as a
-    plain string. Users who need template-variable substitution should keep using
-    inline strings and add a ``dynamic_prompt`` middleware to ``middleware``.
+    For ``PromptModel``: return ``template`` as a plain string. Users who need
+    template-variable substitution should keep using inline strings and add a
+    ``dynamic_prompt`` middleware to ``middleware``.
     """
     if spec is None:
         return None
     if isinstance(spec, str):
         return spec
-
-    # PromptModel — cache the resolved version for post-inference trace linking,
-    # then return the template body. Mirrors the cache step inside make_prompt
-    # (prompts/__init__.py:86) but skips the dynamic_prompt middleware wrapping
-    # that would conflict with deepagents' own system_prompt parameter.
-    try:
-        from dao_ai.prompts import _cached_prompt_versions
-        from dao_ai.providers.databricks import DatabricksProvider
-
-        resolved = DatabricksProvider().get_prompt(spec)
-        _cached_prompt_versions.append(resolved)
-    except Exception:
-        logger.trace(
-            "Could not resolve prompt version for deep_agent system_prompt; using template directly",
-            prompt_name=spec.full_name,
-        )
 
     return spec.template
 

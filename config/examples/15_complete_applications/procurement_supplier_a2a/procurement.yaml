@@ -68,7 +68,7 @@ prompts:
       System prompt for the procurement officer agent that delegates
       supplier-specific questions to the Acme Industrial Supply A2A
       agent.
-    default_template: |
+    template: |
       You are a **procurement officer** for a mid-size manufacturing
       company. You shepherd material requests from internal
       stakeholders through the supplier-quote process.
