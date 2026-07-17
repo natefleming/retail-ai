@@ -225,16 +225,14 @@ tools:
 # ==============================================================================
 # PROMPTS CONFIGURATION
 # ==============================================================================
-# Define reusable prompts that can be stored in MLflow Prompt Registry
-# 
-# Prompts support:
-# - default_template: Fallback template when registry is unavailable
-# - description: Used as commit message when syncing to registry
-# - alias: Reference specific versions (e.g., "production", "staging")
-# - version: Pin to specific version number
-# - tags: Metadata and organization
+# Define reusable prompts as first-class config objects.
 #
-# Priority: Registry > default_template (registry is source of truth)
+# Prompts support:
+# - name: Identifier used as a label in logs and traces
+# - template: The prompt template text, with optional {variable} placeholders
+# - description: Human-readable description of the prompt
+# - schema: Optional Unity Catalog schema qualifying the prompt name
+# - tags: Metadata and organization
 # ==============================================================================
 
 prompts:
@@ -245,7 +243,7 @@ prompts:
     schema: *qsr_schema
     name: barista_prompt
     description: "Expert coffee shop barista prompt for menu recommendations, ordering, and order history"
-    default_template: |
+    template: |
       ### User Information
       - **User Id**: {user_id}
       - **Session ID**: {thread_id}

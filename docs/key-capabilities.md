@@ -810,64 +810,28 @@ memory:
 
 The `manage_memory` and `search_memory` tools are automatically added when a `store` is configured. The `search_user_profile` tool is added when the `user_profile` schema is included in the extraction config.
 
-## 9. MLflow Prompt Registry Integration
+## 9. Reusable Prompts
 
-**The problem:** Prompts (instructions you give to AI models) need constant refinement. Hardcoding them in YAML means every change requires redeployment.
+**The problem:** The same system prompt is often shared by several agents, or a long prompt clutters an agent definition and is hard to reuse.
 
-**The solution:** Store prompts in MLflow's Prompt Registry. Now prompt engineers can:
-- Update prompts without touching code
-- Version prompts (v1, v2, v3...)
-- A/B test different prompts
-- Roll back to previous versions if needed
-
-**Real-world example:**  
-Your marketing team wants to make the agent's tone more friendly. With the prompt registry, they update it in MLflow, and the agent uses the new prompt immediately — no code deployment required.
-
-Store and version prompts externally, enabling prompt engineers to iterate without code changes:
+**The solution:** Define prompts once as first-class config objects under a top-level `prompts:` block, then reference them from agents (and guardrails, supervisors) via YAML anchors/aliases. The template text lives inline in your config.
 
 ```yaml
 prompts:
-  product_expert_prompt:
+  product_expert_prompt: &product_expert_prompt
     schema: *retail_schema
     name: product_expert_prompt
-    alias: production  # or version: 3
-    default_template: |
+    template: |
       You are a product expert...
     tags:
       team: retail
-      environment: production
 
 agents:
   product_expert:
-    prompt: *product_expert_prompt  # Loaded from MLflow registry
+    prompt: *product_expert_prompt  # Reuse the shared prompt
 ```
 
-## 10. Automated Prompt Optimization
-
-**What is this?** Instead of manually tweaking prompts through trial and error, DAO can automatically test variations and find the best one.
-
-**How it works:** Using GEPA (Generative Evolution of Prompts and Agents):
-1. You provide a training dataset with example questions
-2. DAO generates multiple prompt variations
-3. Each variation is tested against your examples
-4. The best-performing prompt is selected
-
-**Think of it like:** A/B testing for AI prompts, but automated.
-
-Use GEPA (Generative Evolution of Prompts and Agents) to automatically improve prompts:
-
-```yaml
-optimizations:
-  prompt_optimizations:
-    optimize_diy_prompt:
-      prompt: *diy_prompt
-      agent: *diy_agent
-      dataset: *training_dataset
-      reflection_model: "openai:/gpt-4"
-      num_candidates: 5
-```
-
-## 11. Guardrails & Response Quality Middleware
+## 10. Guardrails & Response Quality Middleware
 
 **What are guardrails?** Safety and quality controls that validate agent responses before they reach users. Think of them as quality assurance checkpoints.
 
@@ -914,7 +878,7 @@ agents:
       # Professional tone check
       - name: professional_tone
         model: *judge_llm
-        prompt: *professional_tone_prompt  # From MLflow Prompt Registry
+        prompt: *professional_tone_prompt  # Reusable prompt reference
         num_retries: 3
       
       # Completeness validation
@@ -1171,7 +1135,7 @@ agents:
         prompt: *professional_tone_prompt
 ```
 
-## 12. Conversation Summarization
+## 11. Conversation Summarization
 
 **The problem:** AI models have a maximum amount of text they can process (the "context window"). Long conversations eventually exceed this limit.
 
@@ -1198,7 +1162,7 @@ The `LoggingSummarizationMiddleware` provides detailed observability:
 INFO | Summarization: BEFORE 25 messages (~12500 tokens) → AFTER 3 messages (~2100 tokens) | Reduced by ~10400 tokens
 ```
 
-## 13. Structured Output (Response Format)
+## 12. Structured Output (Response Format)
 
 **What is this?** A way to force your agent to return data in a specific JSON structure, making responses machine-readable and predictable.
 
@@ -1250,7 +1214,7 @@ See `config/examples/09_structured_output/structured_output.yaml` for a complete
 
 ---
 
-## 14. Custom Input & Custom Output Support
+## 13. Custom Input & Custom Output Support
 
 **What is this?** A flexible system for passing custom configuration values to your agents and receiving enriched output with runtime state.
 
@@ -1356,7 +1320,7 @@ When invoked with the `custom_inputs` above, the prompt automatically populates:
 - `session` state is automatically maintained and returned in `custom_outputs`
 - Backward compatible with legacy flat custom_inputs format
 
-## 15. Middleware (Input Validation, Logging, Monitoring)
+## 14. Middleware (Input Validation, Logging, Monitoring)
 
 **What is middleware?** Middleware are functions that wrap around agent execution to add cross-cutting concerns like validation, logging, authentication, and monitoring. They run before and after the agent processes requests.
 
@@ -1576,7 +1540,7 @@ agents:
 
 ---
 
-## 16. Hook System
+## 15. Hook System
 
 **What are hooks?** Hooks let you run custom code at specific moments in your agent's lifecycle — like "before starting" or "when shutting down".
 
@@ -1611,7 +1575,7 @@ agents:
 
 ---
 
-## 17. Deep Agents (Task Planning, Filesystem, Subagents, Skills)
+## 16. Deep Agents (Task Planning, Filesystem, Subagents, Skills)
 
 **What is this?** DAO AI integrates with the [Deep Agents](https://pypi.org/project/deepagents/) library to provide a suite of advanced agent capabilities through middleware factories. These give your agents the ability to plan tasks, read and write files, spawn subagents, discover skills, load memory context, and perform enhanced conversation summarization.
 
@@ -1962,7 +1926,7 @@ once. See [`config/examples/13_orchestration/deep_agent_*.yaml`](../config/examp
 
 ---
 
-## 18. Visualization (Vega-Lite)
+## 17. Visualization (Vega-Lite)
 
 Generate portable Vega-Lite chart specifications from structured data. The
 visualization tool is a factory tool that returns specs via tool output;
@@ -2024,7 +1988,7 @@ the spec using [vega-embed](https://github.com/vega/vega-embed).
 
 ---
 
-## 19. Background Agents
+## 18. Background Agents
 
 **What is this?** Agent runs that exceed Databricks' synchronous-request limits
 — Model Serving kills worker threads at ~5 min, Databricks Apps' DPAPI proxy
@@ -2093,7 +2057,7 @@ end-to-end demo notebook.
 
 ---
 
-## 20. Google A2A (Agent2Agent) Protocol Support
+## 19. Google A2A (Agent2Agent) Protocol Support
 
 **What is this?** Every dao-ai agent deployed to **Databricks Apps**
 automatically exposes a fully [A2A v0.3-compliant](https://a2a-protocol.org)

@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Removed
+
+- **BREAKING — Removed MLflow Prompt Registry load/store and GEPA prompt optimization.** The Databricks/MLflow prompt registry remained in Beta and is not reaching GA, so dao-ai no longer loads prompts from or registers prompts to it. `PromptModel` stays a first-class config object so prompts remain reusable YAML anchors/aliases, but it now carries its template **inline** — there is no registry round-trip.
+  - `PromptModel`: renamed `default_template` → `template` (now required); removed the `alias`, `version`, and `auto_register` fields, the `uri` property, the `as_prompt()` method, and the alias/version mutual-exclusion validator. `.template` returns the inline text directly; `.jinja_template` still normalizes MLflow judge variables to double-brace form.
+  - Removed `DatabricksProvider.get_prompt` and `DatabricksProvider._register_default_template` (the only callers of `mlflow.genai.load_prompt` / `register_prompt` / `set_prompt_alias`). The UC **model** registry and Model Serving deployment path are unchanged.
+  - Removed the prompt-version trace-linking plumbing: `make_prompt(prompt_model=...)` param, `_cached_prompt_versions` / `get_cached_prompt_versions`, `create_responses_agent(prompt_versions=...)`, and `LanggraphResponsesAgent._prompt_versions`.
+  - Removed GEPA prompt optimization entirely: `dao_ai.optimization`, `PromptOptimizationModel`, `OptimizationsModel.prompt_optimizations`, `notebooks/10_optimize_prompts.py`, `config/examples/11_prompt_engineering/prompt_optimization.yaml`, and the `gepa` dependency. `OptimizationsModel.training_datasets` (offline eval) and `cache_threshold_optimizations` (Genie cache tuning) are retained.
+
 ### Changed
 
 - **`InferenceEndpointModel.temperature` and `InferenceEndpointModel.max_tokens` now default to `None` instead of `0.1` and `8192`.** When a user does not set these fields in YAML, dao-ai omits them from the outbound request payload entirely, so each serving endpoint uses its own default. This unblocks reasoning-mode endpoints (e.g. Anthropic Claude Sonnet 5 via `databricks-claude-sonnet-5`) which reject any request that carries a `temperature` parameter regardless of value. The change is fully model-agnostic — no model names, families, or capability flags are hardcoded. `databricks_langchain.ChatDatabricks._prepare_inputs` already gates both fields on `is not None`, so `None` values are dropped before hitting the wire. Users who explicitly set `temperature: X` or `max_tokens: N` see no change in behavior; only the *absence-of-config* case shifts from "send dao-ai's default" to "let the endpoint decide."

@@ -237,7 +237,7 @@ Call another agent as a tool using the first-class `type: app`, `type: serving_e
 - **Parallel Consultation**: Consult multiple agents simultaneously for multi-perspective analysis
 
 **Prerequisites:** Target Databricks App or Model Serving endpoint deployed (or an Agent Bricks / Kasal endpoint configured)  
-**Next:** Optimize prompts in `11_prompt_engineering/`
+**Next:** Reuse prompts across agents in `11_prompt_engineering/`
 
 > 📖 See [configuration-reference.md → First-Class Agent Tools](configuration-reference.md#first-class-agent-tools) for the full field reference, discovery rules, and offline-safety guarantees.
 
@@ -245,14 +245,13 @@ Call another agent as a tool using the first-class `type: app`, `type: serving_e
 
 ### 11. Prompt Engineering [📖 README](../config/examples/11_prompt_engineering/README.md)
 
-Prompt versioning, management, and automated optimization.
+Define reusable prompts as first-class config objects and share them across agents.
 
 | Example | Description |
 |---------|-------------|
-| `prompt_registry.yaml` | MLflow prompt registry integration |
-| `prompt_optimization.yaml` | Automated prompt tuning with GEPA |
+| `prompt_registry.yaml` | Reusable inline prompts referenced via YAML anchors |
 
-**Prerequisites:** MLflow prompt registry, training dataset for optimization  
+**Prerequisites:** None  
 **Next:** Add validation and monitoring in `12_middleware/`
 
 **Common Patterns:**

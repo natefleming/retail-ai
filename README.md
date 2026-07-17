@@ -400,8 +400,7 @@ DAO provides powerful capabilities for building production-ready AI agents:
 | **Human-in-the-Loop** | Approval workflows for sensitive operations |
 | **Auditable Tool Invocations** | Tamper-evident approval receipts to Lakebase — args-hash bound, fail-closed on drift, hash-chained per thread. See [docs/audit.md](docs/audit.md) |
 | **Memory & Persistence** | Long-term memory with structured schemas, background extraction, auto-injection; PostgreSQL, Lakebase, or in-memory backends |
-| **Prompt Registry** | Version and manage prompts in MLflow |
-| **Prompt Optimization** | Automated tuning with GEPA (Generative Evolution of Prompts and Agents) |
+| **Reusable Prompts** | Define prompts once as first-class config objects and reference them across agents via YAML anchors |
 | **Guardrails** | Content filters, safety checks, validation |
 | **Middleware** | Input validation, logging, performance monitoring, audit trails |
 | **Conversation Summarization** | Handle long conversations automatically |

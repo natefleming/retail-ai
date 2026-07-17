@@ -3610,7 +3610,7 @@
             }
           ],
           "default": null,
-          "description": "System prompt prepended to deepagents' base prompt. Inline string or MLflow ``PromptModel`` (resolved via ``make_prompt``).",
+          "description": "System prompt prepended to deepagents' base prompt. Inline string or ``PromptModel`` (resolved via ``make_prompt``).",
           "title": "System Prompt"
         },
         "middleware": {
@@ -8123,22 +8123,14 @@
     },
     "OptimizationsModel": {
       "additionalProperties": false,
-      "description": "Container for prompt and cache threshold optimization configurations.",
+      "description": "Container for cache threshold optimization configurations and the\ntraining datasets used by optimization and offline-evaluation runs.",
       "properties": {
         "training_datasets": {
           "additionalProperties": {
             "$ref": "#/$defs/EvaluationDatasetModel"
           },
-          "description": "Named training datasets used by optimization runs.",
+          "description": "Named training datasets used by optimization and evaluation runs.",
           "title": "Training Datasets",
-          "type": "object"
-        },
-        "prompt_optimizations": {
-          "additionalProperties": {
-            "$ref": "#/$defs/PromptOptimizationModel"
-          },
-          "description": "Named prompt optimization configurations using GEPA.",
-          "title": "Prompt Optimizations",
           "type": "object"
         },
         "cache_threshold_optimizations": {
@@ -8384,7 +8376,7 @@
     },
     "PromptModel": {
       "additionalProperties": false,
-      "description": "A prompt backed by the MLflow Prompt Registry with versioning and alias support.",
+      "description": "A named, reusable prompt defined inline in configuration.\n\nPrompts are first-class config objects so they can be declared once and\nreferenced as YAML anchors/aliases by agents, guardrails, and supervisors.\nThe template text is carried inline; there is no registry round-trip.",
       "properties": {
         "schema": {
           "anyOf": [
@@ -8399,7 +8391,7 @@
           "description": "Unity Catalog schema qualifying the prompt name (catalog.schema.name)."
         },
         "name": {
-          "description": "Prompt name in the MLflow Prompt Registry.",
+          "description": "Identifier for the prompt, used as a label in logs and traces.",
           "title": "Name",
           "type": "string"
         },
@@ -8413,47 +8405,13 @@
             }
           ],
           "default": null,
-          "description": "Human-readable description stored with the prompt in the registry.",
+          "description": "Human-readable description of the prompt.",
           "title": "Description"
         },
-        "default_template": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "description": "Inline template text registered when auto_register is true and no registry entry exists.",
-          "title": "Default Template"
-        },
-        "alias": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "description": "Prompt alias to load (e.g., 'latest', 'champion'). Mutually exclusive with version.",
-          "title": "Alias"
-        },
-        "version": {
-          "anyOf": [
-            {
-              "type": "integer"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "description": "Specific prompt version number to load. Mutually exclusive with alias.",
-          "title": "Version"
+        "template": {
+          "description": "The prompt template text, with optional {variable} placeholders.",
+          "title": "Template",
+          "type": "string"
         },
         "tags": {
           "anyOf": [
@@ -8465,87 +8423,15 @@
               "type": "null"
             }
           ],
-          "description": "Key-value tags attached to the prompt version in the registry.",
+          "description": "Key-value tags attached to the prompt for documentation.",
           "title": "Tags"
-        },
-        "auto_register": {
-          "default": false,
-          "description": "Whether to automatically register the default_template to the prompt registry. If False, the prompt will only be loaded from the registry (never created/updated). Defaults to True for backward compatibility.",
-          "title": "Auto Register",
-          "type": "boolean"
-        }
-      },
-      "required": [
-        "name"
-      ],
-      "title": "PromptModel",
-      "type": "object"
-    },
-    "PromptOptimizationModel": {
-      "additionalProperties": false,
-      "description": "Configuration for prompt optimization using GEPA.\n\nGEPA (Generative Evolution of Prompts and Agents) is an evolutionary\noptimizer that uses reflective mutation to improve prompts based on\nevaluation feedback.\n\nExample:\n    prompt_optimization:\n      name: optimize_my_prompt\n      prompt: *my_prompt\n      agent: *my_agent\n      dataset: *my_training_dataset\n      reflection_model: databricks-gpt-5-4-mini\n      num_candidates: 50",
-      "properties": {
-        "name": {
-          "description": "Unique name for this optimization run.",
-          "title": "Name",
-          "type": "string"
-        },
-        "prompt": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/PromptModel"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "description": "Prompt to optimize. If omitted, uses the agent's prompt."
-        },
-        "agent": {
-          "$ref": "#/$defs/AgentModel",
-          "description": "Agent whose prompt is being optimized."
-        },
-        "dataset": {
-          "$ref": "#/$defs/EvaluationDatasetModel",
-          "description": "Training dataset with input/expectation pairs for fitness evaluation."
-        },
-        "reflection_model": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "$ref": "#/$defs/InferenceEndpointModel"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "description": "LLM used for reflective mutation during GEPA optimization.",
-          "title": "Reflection Model"
-        },
-        "num_candidates": {
-          "anyOf": [
-            {
-              "type": "integer"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": 50,
-          "description": "Number of candidate prompts to evaluate per optimization run.",
-          "title": "Num Candidates"
         }
       },
       "required": [
         "name",
-        "agent",
-        "dataset"
+        "template"
       ],
-      "title": "PromptOptimizationModel",
+      "title": "PromptModel",
       "type": "object"
     },
     "ProviderModel": {

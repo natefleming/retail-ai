@@ -65,7 +65,6 @@ flatbuffers==25.12.19
 fonttools==4.63.0
 frozenlist==1.8.0
 fsspec==2026.4.0
-gepa==0.1.1
 gitdb==4.0.12
 gitpython==3.1.50
 google-api-core==2.31.0

@@ -524,14 +524,14 @@ tools:
 
 
 # =============================================================================
-# PROMPTS (MLflow Prompt Registry)
+# PROMPTS (reusable inline prompts)
 # =============================================================================
 prompts:
   assortment_planning_prompt: &assortment_planning_prompt
     schema: *sporting_goods_schema
     name: assortment_planning_prompt
     description: "Assortment planning agent prompt for merchandiser 360 sporting goods store"
-    default_template: |
+    template: |
       ### User Information
       - **User Id**: {user_id}
       - **Store Number**: {store_num}
@@ -569,13 +569,12 @@ prompts:
       environment: production
       agent_name: assortment_planning
       domain: merchandising
-    auto_register: true
 
   forecasting_prompt: &forecasting_prompt
     schema: *sporting_goods_schema
     name: forecasting_prompt
     description: "Demand forecasting agent prompt for merchandiser 360 sporting goods store"
-    default_template: |
+    template: |
       ### User Information
       - **User Id**: {user_id}
       - **Store Number**: {store_num}
@@ -614,13 +613,12 @@ prompts:
       environment: production
       agent_name: forecasting
       domain: merchandising
-    auto_register: true
 
   purchase_order_prompt: &purchase_order_prompt
     schema: *sporting_goods_schema
     name: purchase_order_prompt
     description: "Purchase order management agent prompt for merchandiser 360 sporting goods store"
-    default_template: |
+    template: |
       ### User Information
       - **User Id**: {user_id}
       - **Store Number**: {store_num}
@@ -664,13 +662,12 @@ prompts:
       environment: production
       agent_name: purchase_order
       domain: merchandising
-    auto_register: true
 
   pricing_prompt: &pricing_prompt
     schema: *sporting_goods_schema
     name: pricing_prompt
     description: "Pricing strategy agent prompt for merchandiser 360 sporting goods store"
-    default_template: |
+    template: |
       ### User Information
       - **User Id**: {user_id}
       - **Store Number**: {store_num}
@@ -715,13 +712,12 @@ prompts:
       environment: production
       agent_name: pricing
       domain: merchandising
-    auto_register: true
 
   sales_prompt: &sales_prompt
     schema: *sporting_goods_schema
     name: sales_prompt
     description: "Sales analytics agent prompt for merchandiser 360 sporting goods store"
-    default_template: |
+    template: |
       ### User Information
       - **User Id**: {user_id}
       - **Store Number**: {store_num}
@@ -774,13 +770,12 @@ prompts:
       environment: production
       agent_name: sales
       domain: merchandising
-    auto_register: true
 
   inventory_prompt: &inventory_prompt
     schema: *sporting_goods_schema
     name: inventory_prompt
     description: "Inventory management agent prompt for merchandiser 360 sporting goods store"
-    default_template: |
+    template: |
       ### User Information
       - **User Id**: {user_id}
       - **Store Number**: {store_num}
@@ -826,13 +821,12 @@ prompts:
       environment: production
       agent_name: inventory
       domain: merchandising
-    auto_register: true
 
   general_prompt: &general_prompt
     schema: *sporting_goods_schema
     name: general_prompt
     description: "General merchandising assistant prompt for sporting goods store"
-    default_template: |
+    template: |
       ### User Information
       - **User Id**: {user_id}
       - **Store Number**: {store_num}
@@ -869,7 +863,6 @@ prompts:
       environment: production
       agent_name: general
       domain: merchandising
-    auto_register: true
 
 # =============================================================================
 # MEMORY (Lakebase)

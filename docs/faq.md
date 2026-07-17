@@ -28,7 +28,7 @@
 - [How do I add human-in-the-loop approval to my tool calls?](#how-do-i-add-human-in-the-loop-approval-to-my-tool-calls)
 - [How do I use Genie with dao-ai?](#how-do-i-use-genie-with-dao-ai)
 - [How do I use Unity AI Gateway?](#how-do-i-use-unity-ai-gateway)
-- [How do I use the MLflow Prompt Registry?](#how-do-i-use-the-mlflow-prompt-registry)
+- [How do I define reusable prompts?](#how-do-i-define-reusable-prompts)
 - [How do I give my agent persistent memory / chat history?](#how-do-i-give-my-agent-persistent-memory-chat-history)
 - [How do I orchestrate multiple agents?](#how-do-i-orchestrate-multiple-agents)
 - [How do I orchestrate a parallel fan-out pattern?](#how-do-i-orchestrate-a-parallel-fan-out-pattern)
@@ -386,9 +386,9 @@ Canonical example: [`config/examples/01_getting_started/ai_gateway.yaml`](../con
 
 **Learn more:** [`docs/key-capabilities.md`](key-capabilities.md) · [`config/examples/15_complete_applications/commerce_supervisor/commerce_supervisor.yaml`](../config/examples/15_complete_applications/commerce_supervisor/commerce_supervisor.yaml)
 
-### How do I use the MLflow Prompt Registry?
+### How do I define reusable prompts?
 
-Declare a top-level `prompts:` block containing `PromptModel` entries — each pins a prompt in the MLflow Prompt Registry by `schema.name`, optionally with `alias` (e.g. `champion`) or `version` (numeric). Reference the entry from an `agents:` or `guardrails:` block via a YAML anchor.
+Declare a top-level `prompts:` block containing `PromptModel` entries — each carries its template text inline. Reference the entry from an `agents:` or `guardrails:` block via a YAML anchor so the same prompt can be shared across agents.
 
 ```yaml
 schemas:
@@ -398,25 +398,22 @@ schemas:
 
 prompts:
   support_prompt: &support_prompt
-    schema: *workshop_schema
+    schema: *workshop_schema           # optional — label only
     name: support_prompt
     description: Main system prompt for the SaaS support agent.
-    alias: champion                    # or: version: 3
-    default_template: |                # inline text used only when auto_register=true
+    template: |
       You are a tier-1 SaaS support assistant. Be accurate and concise.
-    auto_register: true                # register default_template if not in the registry
 
 agents:
   saas_support:
     model: *default_llm
-    prompt: *support_prompt            # resolves to prompts:/main.dao_ai.support_prompt@champion
+    prompt: *support_prompt            # reuse the shared prompt
 ```
 
-- `alias` and `version` are mutually exclusive. If both are omitted, dao-ai loads `@latest`.
-- `auto_register: true` writes `default_template` to the registry on first deploy; set `false` (default) if a prompt owner manages versions out-of-band.
+- `template` holds the prompt text, with optional `{variable}` placeholders filled from the request `Context`.
 - The same `PromptModel` also plugs into `guardrails.<name>.prompt` for LLM-judge guardrails.
 
-See [Lab 8 — Production Prompts and Guardrails](https://github.com/natefleming/dao-ai-workshop/tree/main/L200-real-agents/lab-08-prompts-guardrails). The lab walks from an inline-string prompt (`01_inline_support.yaml`) → a Prompt-Registry-backed prompt (`02_support_with_managed_prompts.yaml`) → the same setup with an added judge guardrail (`03_support_with_guardrails.yaml`).
+See [Lab 8 — Production Prompts and Guardrails](https://github.com/natefleming/dao-ai-workshop/tree/main/L200-real-agents/lab-08-prompts-guardrails). The lab walks from an inline-string prompt (`01_inline_support.yaml`) → a reusable `PromptModel` (`02_support_with_managed_prompts.yaml`) → the same setup with an added judge guardrail (`03_support_with_guardrails.yaml`).
 
 **Learn more:** [`docs/key-capabilities.md`](key-capabilities.md) · [`config/examples/11_prompt_engineering/`](../config/examples/11_prompt_engineering/)
 
@@ -558,7 +555,7 @@ for a complete deployable example.
 
 Declare a top-level `guardrails:` block. Two modes:
 
-1. **LLM-judge guardrail** — supply a judge `model` and a `prompt` (inline or from the Prompt Registry). dao-ai builds a `JudgeScorer` via `mlflow.genai.judges.make_judge`.
+1. **LLM-judge guardrail** — supply a judge `model` and a `prompt` (an inline string or a reusable `PromptModel` reference). dao-ai builds a `JudgeScorer` via `mlflow.genai.judges.make_judge`.
 2. **Scorer-based guardrail** — supply a `scorer` class (any `mlflow.genai.scorers.base.Scorer` — built-in `ToxicLanguage`, `DetectPII`, `RelevanceToQuery`, etc.).
 
 ```yaml

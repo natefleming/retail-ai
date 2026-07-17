@@ -144,12 +144,12 @@ Or jump directly to the category that matches your current need.
 ---
 
 ### [11. Prompt Engineering](11_prompt_engineering/)
-**Prompt management and optimization**
-- MLflow prompt registry
-- GEPA automated optimization
-- Version control and A/B testing
+**Reusable prompt management**
+- Define prompts once as first-class config objects
+- Reference them across agents via YAML anchors
+- Keep long prompt bodies out of agent definitions
 
-👉 Improve prompt quality and maintainability
+👉 Improve prompt reuse and maintainability
 
 ---
 
@@ -281,7 +281,7 @@ dao-ai pipeline --deploy --run -c config/examples/07_human_in_the_loop/human_in_
 **...add safety and compliance guardrails**  
 → Check [`08_guardrails/`](08_guardrails/)
 
-**...manage and optimize prompts**  
+**...define and reuse prompts across agents**  
 → Learn from [`11_prompt_engineering/`](11_prompt_engineering/)
 
 **...add validation, logging, or monitoring**  
