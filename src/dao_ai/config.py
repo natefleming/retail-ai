@@ -10485,6 +10485,65 @@ class AppConfig(BaseModel):
 
         return self
 
+    @model_validator(mode="after")
+    def _validate_genie_agent_rooms_registered(self) -> Self:
+        """Require every ``GenieAgentModel`` agent's room to be registered
+        under ``resources.genie_rooms``.
+
+        A ``GenieAgentModel`` is a plain wrapper — it is not an
+        ``IsDatabricksResource`` and is never collected for deploy grants.
+        The Genie deploy resource (``genie-space`` + ``dashboards.genie``
+        scope) is emitted only from ``resources.genie_rooms``. If an agent's
+        Genie room is inlined solely under ``agent.model.genie_room`` and not
+        registered, the bundle deploys with NO Genie grant and the agent 403s
+        at runtime — a silent failure. Catch it at config-load instead.
+
+        Matching is by resolved ``agent_id``/``space_id`` (not object
+        identity), so it holds whether the room is shared via a YAML anchor or
+        written inline with the same id. Rooms whose id cannot be resolved
+        statically (name-only, resolved by a live lookup) are skipped — they
+        cannot be checked without an API call.
+        """
+        registered_ids: set[str] = set()
+        if self.resources and self.resources.genie_rooms:
+            for room in self.resources.genie_rooms.values():
+                raw_id: Any = room.space_id
+                resolved: Any = value_of(raw_id) if raw_id is not None else None
+                if resolved:
+                    registered_ids.add(str(resolved))
+
+        seen: set[int] = set()
+
+        def _check_one(agent: AgentModel) -> None:
+            if id(agent) in seen:
+                return
+            seen.add(id(agent))
+            model = agent.model
+            if not isinstance(model, GenieAgentModel):
+                return
+            raw_id = model.genie_room.space_id
+            resolved = value_of(raw_id) if raw_id is not None else None
+            if not resolved:
+                # Name-only room; can't verify without a live lookup.
+                return
+            if str(resolved) not in registered_ids:
+                raise ValueError(
+                    f"Agent '{agent.name}' uses a GenieAgentModel whose Genie "
+                    f"room (agent_id/space_id '{resolved}') is not registered "
+                    f"under resources.genie_rooms. Register it there (e.g. via "
+                    f"a YAML anchor shared with agent.model.genie_room) so the "
+                    f"deploy emits the genie-space grant; otherwise the agent "
+                    f"will fail with PERMISSION_DENIED at runtime."
+                )
+
+        for agent in (self.agents or {}).values():
+            _check_one(agent)
+        if self.app and self.app.agents:
+            for agent in self.app.agents:
+                _check_one(agent)
+
+        return self
+
     @classmethod
     def from_file(
         cls,

@@ -330,3 +330,44 @@ class TestConfigModel:
         m = GenieAgentModel(genie_room=GenieRoomModel(name="Some Room"))
         with pytest.raises(ValueError, match="unable to resolve agent_id"):
             _ = m.name
+
+
+# ---------------------------------------------------------------------------
+# AppConfig-level: GenieAgentModel room must be registered under genie_rooms
+# ---------------------------------------------------------------------------
+
+
+class TestGenieRoomRegistrationValidator:
+    def test_unregistered_room_rejected(self) -> None:
+        from dao_ai.config import AppConfig
+
+        cfg = {
+            "agents": {
+                "g": {"name": "g", "model": {"genie_room": {"agent_id": AGENT_ID}}, "tools": []}
+            }
+        }
+        with pytest.raises(ValueError, match="not registered under resources.genie_rooms"):
+            AppConfig(**cfg)
+
+    def test_registered_room_passes(self) -> None:
+        from dao_ai.config import AppConfig
+
+        cfg = {
+            "resources": {"genie_rooms": {"retail": {"agent_id": AGENT_ID}}},
+            "agents": {
+                "g": {"name": "g", "model": {"genie_room": {"agent_id": AGENT_ID}}, "tools": []}
+            },
+        }
+        # Should not raise.
+        AppConfig(**cfg)
+
+    def test_serving_endpoint_agent_unaffected(self) -> None:
+        from dao_ai.config import AppConfig
+
+        cfg = {
+            "agents": {
+                "x": {"name": "x", "model": {"name": "databricks-claude-sonnet-4"}, "tools": []}
+            }
+        }
+        # A non-Genie model is never subject to the genie_rooms check.
+        AppConfig(**cfg)
