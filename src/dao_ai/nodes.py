@@ -381,8 +381,24 @@ def create_agent_node(
                     auto_inject_limit=extraction.auto_inject_limit,
                 )
 
-    # Add OBO model middleware when LLM uses on-behalf-of-user authentication
-    if agent.model.on_behalf_of_user:
+    # Model middleware. A GenieAgentModel needs a per-request model rebuild for
+    # BOTH OBO and Genie conversation continuity, so it always gets the
+    # dedicated GenieAgentMiddleware (which also does OBO) instead of the
+    # generic OBOModelMiddleware. A regular serving-endpoint model only needs
+    # OBO, and only when on_behalf_of_user is set.
+    from dao_ai.config import GenieAgentModel
+
+    if isinstance(agent.model, GenieAgentModel):
+        from dao_ai.middleware.genie_agent import GenieAgentMiddleware
+
+        middleware_list.append(GenieAgentMiddleware(genie_model=agent.model))
+        logger.info(
+            "Genie agent middleware enabled",
+            agent=agent.name,
+            model=agent.model.name,
+            on_behalf_of_user=agent.model.on_behalf_of_user,
+        )
+    elif agent.model.on_behalf_of_user:
         from dao_ai.middleware.obo import OBOModelMiddleware
 
         middleware_list.append(OBOModelMiddleware(llm_model=agent.model))

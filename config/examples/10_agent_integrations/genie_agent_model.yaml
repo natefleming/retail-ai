@@ -1,0 +1,65 @@
+# yaml-language-server: $schema=../../../schemas/model_config_schema.json
+
+# ==============================================================================
+# Genie Agent as a streaming model resource
+# ==============================================================================
+# Models the Databricks Genie **Agent Mode** API
+# (POST /api/2.0/genie/agents/{agent_id}/responses) as an agent's *reasoning
+# model* rather than a tool. Assigning a `GenieAgentModel` to an agent with
+# `tools: []` produces a "Genie specialist" sub-agent that streams Genie's
+# output (SQL + result table + narrative) natively to the outer response
+# stream and is routable by a supervisor like any other agent.
+#
+# Why a model, not a tool: a LangGraph tool node is atomic (returns one
+# ToolMessage after the whole stream completes), so Genie output can't stream
+# to the end user through the agent's response. A model node streams
+# AIMessageChunks (`stream_mode="messages"`).
+#
+# Multi-turn: the Genie server owns conversation history keyed by
+# conversation_id. GenieAgentChatModel stamps the id on the returned
+# AIMessage's response_metadata and recovers it from the message history on
+# the next turn — no graph state or session cache required.
+#
+# Preview status: the Genie Agent Mode API is in Beta. A workspace admin must
+# enable "Genie Agents Agent Mode API" from the Previews menu.
+# ==============================================================================
+
+parameters:
+  catalog:
+    description: Unity Catalog name
+    default: retail_consumer_goods
+  schema:
+    description: Schema within the catalog
+    default: store_ops
+
+resources:
+  genie_rooms:
+    # `agent_id` is an alias of `space_id` (Genie Spaces were renamed to Genie
+    # Agents; same 32-char hex). OBO lives HERE — the single source of truth.
+    retail_genie_room: &retail_genie_room
+      name: "Retail AI Genie Room"
+      description: "Retail store-ops Genie space"
+      agent_id: 01f05dd06c421ad6b522bf7a517cf6d2
+      # on_behalf_of_user: true   # forward the calling user's token to Genie
+
+agents:
+  genie_specialist: &genie_specialist
+    name: genie_specialist
+    description: >-
+      Answers factual questions about retail stores, products, inventory, and
+      employee activity by querying the data warehouse with Databricks Genie.
+    # The Genie Agent IS this agent's brain (a GenieAgentModel, defined inline).
+    # No `tools:` — Genie decides and runs SQL itself, and its streamed output
+    # is the agent's response. A GenieAgentModel is not a serving endpoint, so
+    # it is not placed under `resources.models` (that map is
+    # `dict[str, InferenceEndpointModel]`); define it inline or as a top-level
+    # YAML anchor referenced here.
+    model:
+      genie_room: *retail_genie_room
+      # httpx client timeout (server-side response cap is 90 minutes).
+      timeout_seconds: 300
+    tools: []
+    prompt: |
+      You are a retail data specialist backed by Databricks Genie. Relay
+      Genie's answer clearly and concisely, preserving any SQL, result
+      tables, and citations Genie includes.

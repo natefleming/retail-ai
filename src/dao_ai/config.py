@@ -1707,9 +1707,14 @@ class GenieRoomModel(IsDatabricksResource, ManagedResource):
     )
     space_id: Optional[AnyVariable] = Field(
         default=None,
+        validation_alias=AliasChoices("space_id", "agent_id"),
         description=(
             "Databricks-assigned Genie space identifier. The only field "
             "guaranteed unique by the platform; titles are not enforced unique. "
+            "Also accepted under the alias ``agent_id`` — Databricks renamed "
+            "Genie Spaces to Genie Agents, and the Agent Mode API refers to "
+            "the same 32-char hex value as ``agent_id``. Both YAML keys "
+            "resolve to this attribute. "
             "Lifecycle: "
             "(a) Reference mode — set by the user in YAML; readable immediately. "
             "(b) Spec mode — left None, populated by .create() once the space "
@@ -2730,6 +2735,104 @@ class GenieRoomModel(IsDatabricksResource, ManagedResource):
 
         provider: ServiceProvider = DatabricksProvider(w=w)
         provider.create_genie_space(self)
+
+
+class GenieAgentModel(BaseModel):
+    """A Genie Agent used as an agent's reasoning model (streaming brain).
+
+    Wraps a :class:`GenieRoomModel` and exposes the same duck-typed surface
+    ``AgentModel``/``OBOModelMiddleware`` expect from a model resource, so a
+    plain agent with no tools becomes a natively-streaming "Genie specialist"
+    that a supervisor can route to like any other sub-agent.
+
+    Unlike :class:`InferenceEndpointModel`, a Genie Agent is not a serving
+    endpoint: :meth:`as_chat_model` returns a
+    :class:`dao_ai.genie.agent_chat_model.GenieAgentChatModel` that streams the
+    Genie Agent Mode API (``POST /api/2.0/genie/agents/{agent_id}/responses``)
+    rather than a ``ChatDatabricks`` pointed at ``/serving-endpoints``. This is
+    a wrapper (composition), not a subclass of ``InferenceEndpointModel`` — a
+    Genie Agent has no ``temperature``/``max_tokens``/``ai_gateway`` semantics
+    and must never be substitutable into embedding/judge/rerank slots.
+
+    Authentication and OBO are delegated wholesale to the wrapped
+    ``genie_room`` (an :class:`IsDatabricksResource`), so there is exactly one
+    OBO flag (``genie_room.on_behalf_of_user``) and no chance of a second flag
+    drifting out of sync.
+    """
+
+    model_config = ConfigDict(use_enum_values=True, extra="forbid")
+    genie_room: GenieRoomModel = Field(
+        description=(
+            "Genie space/agent to invoke. Accepts either ``space_id`` or "
+            "``agent_id`` (aliases) for the 32-char hex identifier, and carries "
+            "the warehouse and OBO (``on_behalf_of_user``) configuration."
+        ),
+    )
+    timeout_seconds: int = Field(
+        default=300,
+        description=(
+            "httpx client timeout in seconds for the streaming call. The "
+            "Databricks server-side response timeout is 90 minutes."
+        ),
+    )
+
+    @property
+    def _agent_id(self) -> str:
+        """Resolve the wrapped room's agent/space id, or raise if unset."""
+        space_id: AnyVariable = self.genie_room.space_id or os.environ.get(
+            "DATABRICKS_GENIE_SPACE_ID"
+        )
+        if isinstance(space_id, dict):
+            space_id = CompositeVariableModel(**space_id)
+        resolved: Any = value_of(space_id)
+        if not resolved:
+            raise ValueError(
+                "GenieAgentModel: unable to resolve agent_id. Set "
+                "genie_room.space_id (or its alias agent_id), or the "
+                "DATABRICKS_GENIE_SPACE_ID env var."
+            )
+        return str(resolved)
+
+    @property
+    def name(self) -> str:
+        """Model name for logging / trace ``ResourceInfo`` (the agent_id)."""
+        return self._agent_id
+
+    @property
+    def on_behalf_of_user(self) -> bool:
+        """Delegate OBO to the wrapped room (the single source of truth)."""
+        return bool(self.genie_room.on_behalf_of_user)
+
+    def workspace_client_from(
+        self, context: "Context | None", *, strict: bool = False
+    ) -> WorkspaceClient:
+        """Delegate to the wrapped room so OBO resolves identically to tools."""
+        return self.genie_room.workspace_client_from(context, strict=strict)
+
+    def chat_model_for_workspace_client(
+        self,
+        workspace_client: WorkspaceClient,
+        *,
+        conversation_id: "str | None" = None,
+    ) -> LanguageModelLike:
+        """Build a chat model bound to a specific (e.g. OBO) workspace client.
+
+        Consumed by :class:`dao_ai.middleware.genie_agent.GenieAgentMiddleware`
+        to swap in a user-scoped client (OBO) and the prior Genie
+        ``conversation_id`` per request, in one step.
+        """
+        from dao_ai.genie.agent_chat_model import GenieAgentChatModel
+
+        return GenieAgentChatModel(
+            agent_id=self._agent_id,
+            workspace_client=workspace_client,
+            conversation_id=conversation_id,
+            timeout_seconds=self.timeout_seconds,
+        )
+
+    def as_chat_model(self) -> LanguageModelLike:
+        """Build the streaming Genie chat model using the ambient/room client."""
+        return self.chat_model_for_workspace_client(self.genie_room.workspace_client)
 
 
 def _unwrap_text(value: Any) -> str | None:
@@ -7325,8 +7428,13 @@ class AgentModel(BaseModel):
         default=None,
         description="Human-readable description shown when the LLM selects handoff targets.",
     )
-    model: InferenceEndpointModel = Field(
-        description="LLM model configuration (serving endpoint name, temperature, etc.).",
+    model: InferenceEndpointModel | GenieAgentModel = Field(
+        description=(
+            "Reasoning model for this agent. Either an ``InferenceEndpointModel`` "
+            "(a Model Serving chat endpoint) or a ``GenieAgentModel`` (a Genie "
+            "Agent used as a streaming brain — typically with ``tools: []`` to "
+            "make this a Genie specialist sub-agent)."
+        ),
     )
     tools: list[ToolModel] = Field(
         default_factory=list,
@@ -10484,7 +10592,12 @@ class AppConfig(BaseModel):
             )
             for room_key, room in config.resources.genie_rooms.items():
                 raw_room: dict[str, Any] = raw_rooms.get(room_key) or {}
-                room._raw_space_id = raw_room.get("space_id")
+                # ``agent_id`` is an alias of ``space_id`` on GenieRoomModel
+                # (the Genie Agent Mode API renamed the concept); accept
+                # either key when snapshotting the pre-substitution value.
+                room._raw_space_id = raw_room.get("space_id") or raw_room.get(
+                    "agent_id"
+                )
 
         if initialize:
             config.initialize()
