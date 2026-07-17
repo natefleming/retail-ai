@@ -122,7 +122,12 @@ resources:
   genie_rooms:
     genie: &genie
       space_id: string             # or omit and provide name instead
+      agent_id: string             # alias of space_id (Genie Spaces → Genie Agents)
       name: string                 # resolves space_id by title if space_id is omitted
+      on_behalf_of_user: bool      # forward the caller's token to Genie (OBO)
+      # A room referenced by a GenieAgentModel (see "Genie Agent as a model")
+      # MUST be registered here so the deploy emits the genie-space grant and,
+      # when on_behalf_of_user is set, the dashboards.genie user_api_scope.
 
   # Unity Catalog references (used to wire deployment resources and grants)
   tables:
@@ -223,7 +228,10 @@ agents:
   agent_name: &agent_name
     name: string
     description: string
-    model: *model_name
+    model: *model_name          # InferenceEndpointModel (serving endpoint) OR a
+                                # GenieAgentModel (Genie Agent as a streaming brain —
+                                # see "Genie Agent as a model" below). A bare Genie
+                                # room anchor is auto-wrapped into a GenieAgentModel.
     tools: [*tool_name]
     guardrails: [*guardrail_ref]
     prompt: string | *prompt_ref
@@ -1007,6 +1015,75 @@ See [`config/examples/15_complete_applications/procurement_supplier_a2a/README.m
 - [`config/examples/10_agent_integrations/serving_endpoint_first_class.yaml`](../config/examples/10_agent_integrations/serving_endpoint_first_class.yaml)
 - [`config/examples/10_agent_integrations/README.md`](../config/examples/10_agent_integrations/README.md) — routing matrix and migration notes
 - [`config/examples/15_complete_applications/procurement_supplier_a2a/`](../config/examples/15_complete_applications/procurement_supplier_a2a/) — end-to-end A2A example
+
+---
+
+## Genie Agent as a model
+
+The Databricks **Genie Agent Mode API** (`POST /api/2.0/genie/agents/{agent_id}/responses`,
+Beta) can back an agent's **reasoning model** instead of being wrapped as a tool.
+A `GenieAgentModel` streams Genie's output (SQL + result table + narrative) as
+`AIMessageChunk`s to the outer response stream, so an agent with `tools: []`
+becomes a "Genie specialist" a supervisor can route to like any other sub-agent.
+
+**Tool vs. model.** `type: genie` (the tool) is atomic — a LangGraph tool node
+returns one `ToolMessage` after the whole stream completes, so Genie output can't
+stream to the end user through the agent's response. A `GenieAgentModel` streams
+natively (`stream_mode="messages"`). Both point at the same Genie space (the
+32-char `agent_id` is the renamed `space_id`); keep both while the Agent Mode API
+is Beta.
+
+```yaml
+resources:
+  genie_rooms:
+    retail_genie: &retail_genie          # register the room HERE (required)
+      agent_id: 01f0...                  # alias of space_id
+      on_behalf_of_user: true            # optional: run Genie as the caller (OBO)
+
+agents:
+  genie_specialist:
+    name: genie_specialist
+    description: Answers factual questions from the warehouse via Genie.
+    model: *retail_genie                 # terse: bare room → GenieAgentModel (timeout 300s)
+    # model:                             # explicit wrapper form (custom knobs):
+    #   genie_room: *retail_genie
+    #   timeout_seconds: 600
+    tools: []                            # Genie IS the brain; no tools
+    prompt: |
+      Relay Genie's answer, preserving SQL, tables, and citations.
+```
+
+**Assignment forms.** `model:` accepts either a bare Genie room (a
+`genie_rooms` anchor or a dict with `agent_id`/`space_id` — auto-wrapped into a
+`GenieAgentModel` with default `timeout_seconds`) or the explicit
+`{genie_room: <room>, timeout_seconds: <int>}` wrapper. A `{name: <endpoint>}`
+config has no `agent_id`/`space_id` and stays an `InferenceEndpointModel`, so
+there is no ambiguity. A `GenieAgentModel` is **not** a serving endpoint — do
+not place it under `resources.models`.
+
+**Room registration (required).** A `GenieAgentModel` is a wrapper, not a
+deploy resource. Its `genie_room` **must** be registered under
+`resources.genie_rooms` so the bundle emits the `genie-space` grant and, when
+`on_behalf_of_user: true`, the `dashboards.genie` `user_api_scope`. Config-load
+fails with a clear error if an agent's Genie room isn't registered.
+
+**Multi-turn.** The Genie server owns conversation history keyed by a
+Genie-issued `conversation_id` (independent of the LangGraph `thread_id`).
+`GenieAgentMiddleware` caches it in `session.genie.spaces[agent_id]` — the same
+channel `type: genie` uses — reading the prior id before each turn and
+persisting the newly-issued one after (via the `merge_session` reducer).
+
+**OBO.** Set `on_behalf_of_user: true` on the **room** (single source of truth).
+`GenieAgentMiddleware` builds the per-request client via
+`workspace_client_from(context)` — the forwarded `x-forwarded-access-token` on
+Databricks Apps, or `ModelServingUserCredentials` on Model Serving. When OBO is
+set, also set the room's `workspace_host` unless `DATABRICKS_HOST` is in the
+environment (it is on Apps/MS deploys).
+
+### See Also
+
+- [`config/examples/10_agent_integrations/genie_agent_model.yaml`](../config/examples/10_agent_integrations/genie_agent_model.yaml)
+- [`config/examples/10_agent_integrations/genie_agent_model_obo.yaml`](../config/examples/10_agent_integrations/genie_agent_model_obo.yaml) — OBO + deployable App
 
 ---
 

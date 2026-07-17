@@ -26,7 +26,7 @@ from langchain.agents.middleware.types import ModelRequest, ModelResponse
 from langchain_core.language_models import LanguageModelLike
 from loguru import logger
 
-from dao_ai.config import InferenceEndpointModel
+from dao_ai.config import GenieAgentModel, InferenceEndpointModel
 from dao_ai.middleware.base import AgentMiddleware
 from dao_ai.state import AgentState, Context
 from dao_ai.tools.tracing import ResourceInfo, set_resource_attributes
@@ -43,7 +43,9 @@ class OBOModelMiddleware(AgentMiddleware[AgentState, Context]):
     4. Swaps the model via ``request.override(model=...)``
     """
 
-    def __init__(self, llm_model: InferenceEndpointModel) -> None:
+    def __init__(
+        self, llm_model: InferenceEndpointModel | GenieAgentModel
+    ) -> None:
         self.llm_model = llm_model
 
     def _create_obo_model(self, context: Context | None) -> LanguageModelLike:

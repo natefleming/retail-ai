@@ -65,6 +65,26 @@ Three first-class shapes cover the vast majority of agent-composition cases. **P
 | [`kasal.yaml`](./kasal.yaml) | Delegate to Kasal specialist agents using `type: serving_endpoint` |
 | [`vertex_agent_engine.yaml`](./vertex_agent_engine.yaml) | Call a Google Cloud ADK agent on Vertex AI Agent Engine |
 | [`a2a_agent.yaml`](./a2a_agent.yaml) | Comprehensive `type: a2a` walkthrough — bearer / GCP / none auth, AppResource mode, card-path overrides |
+| [`genie_agent_model.yaml`](./genie_agent_model.yaml) | **Genie Agent as a model** — a `GenieAgentModel` (Genie Agent Mode API) as an agent's streaming reasoning model, not a tool; `tools: []` Genie specialist |
+| [`genie_agent_model_obo.yaml`](./genie_agent_model_obo.yaml) | Same, with `on_behalf_of_user` + `app:` block — deployable App exercising forwarded-token OBO |
+
+## Genie Agent as a model (not a tool)
+
+The `genie_agent_model*.yaml` examples use the Databricks **Genie Agent Mode
+API** as an agent's **reasoning model** rather than wrapping it as a tool. A
+`GenieAgentModel` streams Genie's output (SQL + table + narrative) as
+`AIMessageChunk`s, so an agent with `tools: []` is a streaming "Genie
+specialist" a supervisor can route to. Contrast `type: genie` (the tool), which
+is atomic and returns one `ToolMessage`. Key points:
+
+- **Assignment** — `model: *genie_room_anchor` (bare room auto-wraps) or the
+  explicit `model: {genie_room: *anchor, timeout_seconds: N}` wrapper.
+- **Registration** — the room MUST be under `resources.genie_rooms` (deploy
+  grant + OBO scope); config-load fails otherwise.
+- **Multi-turn / OBO** — `GenieAgentMiddleware` caches the Genie
+  `conversation_id` in `session.genie.spaces[agent_id]` and builds the
+  per-request client (forwarded token on Apps, `ModelServingUserCredentials`
+  on Model Serving). See [configuration-reference → Genie Agent as a model](../../../docs/configuration-reference.md#genie-agent-as-a-model).
 
 ## Vertex AI Agent Engine (Google ADK)
 

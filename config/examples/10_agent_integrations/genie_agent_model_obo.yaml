@@ -1,0 +1,51 @@
+# yaml-language-server: $schema=../../../schemas/model_config_schema.json
+
+# ==============================================================================
+# Genie Agent model with OBO — deployable App (forwarded-token OBO test)
+# ==============================================================================
+# A single Genie-specialist agent whose reasoning model is a GenieAgentModel
+# with on_behalf_of_user=true. Deployed as a Databricks App: the App proxy
+# forwards the caller's x-forwarded-access-token, GenieAgentMiddleware builds
+# the per-request WorkspaceClient from it, and Genie runs queries as the
+# calling user (not the App service principal).
+#
+# The room is registered under resources.genie_rooms so the bundle emits both
+# the genie-space grant AND the dashboards.genie user_api_scope for OBO.
+#
+# Target space: "Bakehouse Supplier Insights" (samples.bakehouse.*), readable
+# by any workspace user — so forwarded-user identity works without extra grants.
+# ==============================================================================
+
+resources:
+  genie_rooms:
+    bakehouse_genie: &bakehouse_genie
+      name: "Bakehouse Supplier Insights"
+      agent_id: 01f1764266cd1f9aaedf0b35cd177835
+      on_behalf_of_user: true   # Genie runs as the forwarded user
+
+agents:
+  genie_specialist: &genie_specialist
+    name: genie_specialist
+    description: >-
+      Answers questions about bakehouse suppliers, sales, and franchises by
+      querying the data warehouse with Databricks Genie.
+    # Terse form: a bare registered room anchor auto-wraps to a GenieAgentModel.
+    model: *bakehouse_genie
+    tools: []
+    prompt: |
+      You are a bakehouse data specialist backed by Databricks Genie. Relay
+      Genie's answer clearly, preserving any SQL, result tables, and citations.
+
+app:
+  name: genie-agent-obo-dao
+  description: >
+    Genie Agent model with forwarded-token OBO, deployed as a Databricks App.
+  log_level: INFO
+  deployment_target: apps
+  agents:
+  - *genie_specialist
+
+  input_example:
+    messages:
+    - role: user
+      content: "How many suppliers are there?"

@@ -643,8 +643,16 @@
           "title": "Description"
         },
         "model": {
-          "$ref": "#/$defs/InferenceEndpointModel",
-          "description": "LLM model configuration (serving endpoint name, temperature, etc.)."
+          "anyOf": [
+            {
+              "$ref": "#/$defs/InferenceEndpointModel"
+            },
+            {
+              "$ref": "#/$defs/GenieAgentModel"
+            }
+          ],
+          "description": "Reasoning model for this agent. Either an ``InferenceEndpointModel`` (a Model Serving chat endpoint) or a ``GenieAgentModel`` (a Genie Agent used as a streaming brain \u2014 typically with ``tools: []`` to make this a Genie specialist sub-agent).",
+          "title": "Model"
         },
         "tools": {
           "description": "Tools available to this agent during reasoning.",
@@ -1672,7 +1680,7 @@
             }
           ],
           "default": null,
-          "description": "Server-side MCP capabilities exposed when dao-ai is deployed as an MCP server (``dao-ai generate-mcp``). Declares static resources, prompt templates, and whether progress + logging notifications are emitted from the agent tool. When None the server publishes only the classic single-tool agent surface \u2014 zero regression from the pre-PR-2 default."
+          "description": "Server-side MCP capabilities exposed when dao-ai is deployed as an MCP server (``dao-ai generate-mcp``). Declares static resources, prompt templates, and whether progress + logging notifications are emitted from the agent tool. When None the server publishes only the single agent-as-tool surface with no notifications."
         },
         "experiment": {
           "anyOf": [
@@ -4373,6 +4381,27 @@
       "title": "FunctionModel",
       "type": "object"
     },
+    "GenieAgentModel": {
+      "additionalProperties": false,
+      "description": "A Genie Agent used as an agent's reasoning model (streaming brain).\n\nWraps a :class:`GenieRoomModel` and exposes the same duck-typed surface\n``AgentModel``/``OBOModelMiddleware`` expect from a model resource, so a\nplain agent with no tools becomes a natively-streaming \"Genie specialist\"\nthat a supervisor can route to like any other sub-agent.\n\nUnlike :class:`InferenceEndpointModel`, a Genie Agent is not a serving\nendpoint: :meth:`as_chat_model` returns a\n:class:`dao_ai.genie.agent_chat_model.GenieAgentChatModel` that streams the\nGenie Agent Mode API (``POST /api/2.0/genie/agents/{agent_id}/responses``)\nrather than a ``ChatDatabricks`` pointed at ``/serving-endpoints``. This is\na wrapper (composition), not a subclass of ``InferenceEndpointModel`` \u2014 a\nGenie Agent has no ``temperature``/``max_tokens``/``ai_gateway`` semantics\nand must never be substitutable into embedding/judge/rerank slots.\n\nAuthentication and OBO are delegated wholesale to the wrapped\n``genie_room`` (an :class:`IsDatabricksResource`), so there is exactly one\nOBO flag (``genie_room.on_behalf_of_user``) and no chance of a second flag\ndrifting out of sync.",
+      "properties": {
+        "genie_room": {
+          "$ref": "#/$defs/GenieRoomModel",
+          "description": "Genie space/agent to invoke. Accepts either ``space_id`` or ``agent_id`` (aliases) for the 32-char hex identifier, and carries the warehouse and OBO (``on_behalf_of_user``) configuration."
+        },
+        "timeout_seconds": {
+          "default": 300,
+          "description": "httpx client timeout in seconds for the streaming call. The Databricks server-side response timeout is 90 minutes.",
+          "title": "Timeout Seconds",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "genie_room"
+      ],
+      "title": "GenieAgentModel",
+      "type": "object"
+    },
     "GenieBenchmarkQuestion": {
       "additionalProperties": true,
       "description": "A benchmark question + expected SQL pair stored on the Genie space.\n\nMirrors ``benchmarks.questions[]`` in the serialized space and lets\nteams ship offline evaluation data alongside the space configuration.",
@@ -5236,7 +5265,7 @@
             }
           ],
           "default": null,
-          "description": "Databricks-assigned Genie space identifier. The only field guaranteed unique by the platform; titles are not enforced unique. Lifecycle: (a) Reference mode \u2014 set by the user in YAML; readable immediately. (b) Spec mode \u2014 left None, populated by .create() once the space is provisioned. Downstream consumers reading *room_anchor.space_id must wait until .create() has run. Required when on_behalf_of_user is true (name-based lookup cannot authenticate at Model Serving startup).",
+          "description": "Databricks-assigned Genie space identifier. The only field guaranteed unique by the platform; titles are not enforced unique. Also accepted under the alias ``agent_id`` \u2014 Databricks renamed Genie Spaces to Genie Agents, and the Agent Mode API refers to the same 32-char hex value as ``agent_id``. Both YAML keys resolve to this attribute. Lifecycle: (a) Reference mode \u2014 set by the user in YAML; readable immediately. (b) Spec mode \u2014 left None, populated by .create() once the space is provisioned. Downstream consumers reading *room_anchor.space_id must wait until .create() has run. Required when on_behalf_of_user is true (name-based lookup cannot authenticate at Model Serving startup).",
           "title": "Space Id"
         },
         "parent_path": {
@@ -7747,7 +7776,7 @@
     },
     "McpServerCapabilitiesModel": {
       "additionalProperties": false,
-      "description": "Advanced capabilities emitted BY dao-ai when deployed as an MCP server.\n\nClient-side capabilities are on ``McpFunctionModel.capabilities``. This\nmodel is the server-side complement \u2014 declaring what the dao-ai MCP\nserver itself publishes and how it reports progress/logging to callers.\n\nWhen None on ``AppModel`` (the default), dao-ai's MCP server publishes\nonly the single agent-as-tool it always has \u2014 byte-for-byte compatible\nwith pre-PR-2 behavior.",
+      "description": "Advanced capabilities emitted BY dao-ai when deployed as an MCP server.\n\nClient-side capabilities are on ``McpFunctionModel.capabilities``. This\nmodel is the server-side complement \u2014 declaring what the dao-ai MCP\nserver itself publishes and how it reports progress/logging to callers.\n\nWhen None on ``AppModel`` (the default), dao-ai's MCP server publishes\nonly the single agent-as-tool surface \u2014 no static resources or prompts,\nno progress/logging notifications.",
       "properties": {
         "progress": {
           "default": true,
