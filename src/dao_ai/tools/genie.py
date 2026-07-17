@@ -233,6 +233,47 @@ question (str): The question to ask to ask Genie about your data. Ask simple, cl
 Returns:
 GenieResponse: A response object containing the conversation ID and result from Genie."""
 
+# Question-argument annotations. The default nudges the model to shape the
+# question; the verbatim variant instructs it to preserve every qualifier and
+# scope statement that belongs to the portion routed to THIS tool — while still
+# allowing a genuinely multi-tool request to be split across tools.
+_QUESTION_ARG_DEFAULT: str = "The question to ask Genie about your data"
+_QUESTION_ARG_VERBATIM: str = (
+    "The user's question for this tool, kept COMPLETE and word-for-word. "
+    "Preserve every qualifier, scope statement, constraint, and clarification "
+    "the user attached to it (e.g. 'include the entire team organization, not "
+    "just direct reports') — do NOT drop, rephrase, or summarize that refining "
+    "context. If the overall request spans multiple tools, you may route each "
+    "part to its tool, but the part sent here must stay verbatim and complete."
+)
+
+# Appended to the tool description when ``verbatim=True`` so the preserve-exact
+# instruction is present on both surfaces the LLM reads at tool-call time.
+_VERBATIM_TOOL_CLAUSE: str = (
+    "IMPORTANT — question handling: send this tool the user's COMPLETE question "
+    "for its topic, preserving every qualifier, scope statement, constraint, and "
+    "clarification exactly as written (e.g. a trailing 'this should include the "
+    "entire team organization, not just direct reports' must be kept, not "
+    "dropped). Do NOT summarize, truncate, or strip refining context. You MAY "
+    "split a request that genuinely spans multiple tools and route each part to "
+    "the appropriate tool — but the portion you pass here must remain verbatim "
+    "and complete, never reduced to a shorter paraphrase."
+)
+
+
+def _build_tool_description(description: str | None, verbatim: bool) -> str:
+    """Assemble the ``@tool`` description string.
+
+    Starts from the caller-supplied ``description`` (or ``_DEFAULT_DESCRIPTION``),
+    appends the verbatim clause when ``verbatim`` is set — even for a
+    user-supplied description, so the flag always takes effect — then the
+    function-args docs. Shared by both tool-builder impls.
+    """
+    base: str = description if description is not None else _DEFAULT_DESCRIPTION
+    if verbatim:
+        base = base + "\n" + _VERBATIM_TOOL_CLAUSE
+    return base + _FUNCTION_DOCS
+
 
 def _resolve_genie_room(
     genie_room: GenieRoomModel | dict[str, Any],
@@ -261,6 +302,7 @@ def create_genie_tool(
     description: str | None = None,
     persist_conversation: bool = True,
     truncate_results: bool = False,
+    verbatim: bool = False,
     lru_cache_parameters: GenieLRUCacheParametersModel | dict[str, Any] | None = None,
     context_aware_cache_parameters: (
         GenieContextAwareCacheParametersModel | dict[str, Any] | None
@@ -299,6 +341,11 @@ def create_genie_tool(
         description: Custom tool description. Defaults to a generic prompt.
         persist_conversation: Persist conversation IDs across calls for multi-turn.
         truncate_results: Truncate large query results.
+        verbatim: When ``True``, instruct the calling LLM (via the tool
+            description and the ``question`` argument annotation) to pass the
+            user's question through exactly as asked — no rephrasing,
+            decomposition, or added qualifiers. Default ``False`` preserves the
+            existing behavior.
         lru_cache_parameters: LRU cache config for fast exact-match SQL caching.
         context_aware_cache_parameters: PostgreSQL/Lakebase context-aware cache config.
         in_memory_context_aware_cache_parameters: In-memory context-aware cache config.
@@ -329,6 +376,7 @@ def create_genie_tool(
             description=description,
             persist_conversation=persist_conversation,
             truncate_results=truncate_results,
+            verbatim=verbatim,
         )
 
     return _create_genie_toolkit_impl(
@@ -337,6 +385,7 @@ def create_genie_tool(
         description=description,
         persist_conversation=persist_conversation,
         truncate_results=truncate_results,
+        verbatim=verbatim,
         lru_cache_parameters=lru_cache_parameters,
         context_aware_cache_parameters=context_aware_cache_parameters,
         in_memory_context_aware_cache_parameters=in_memory_context_aware_cache_parameters,
@@ -350,6 +399,7 @@ def create_genie_toolkit(
     description: str | None = None,
     persist_conversation: bool = True,
     truncate_results: bool = False,
+    verbatim: bool = False,
     lru_cache_parameters: GenieLRUCacheParametersModel | dict[str, Any] | None = None,
     context_aware_cache_parameters: (
         GenieContextAwareCacheParametersModel | dict[str, Any] | None
@@ -371,6 +421,7 @@ def create_genie_toolkit(
         description=description,
         persist_conversation=persist_conversation,
         truncate_results=truncate_results,
+        verbatim=verbatim,
         lru_cache_parameters=lru_cache_parameters,
         context_aware_cache_parameters=context_aware_cache_parameters,
         in_memory_context_aware_cache_parameters=in_memory_context_aware_cache_parameters,
@@ -392,6 +443,7 @@ def _create_simple_genie_tool(
     description: str | None,
     persist_conversation: bool,
     truncate_results: bool,
+    verbatim: bool = False,
 ) -> Callable[..., Command]:
     """Build the uncached single-tool variant (no cache, no feedback tool)."""
     logger.debug(
@@ -399,14 +451,16 @@ def _create_simple_genie_tool(
         genie_room_type=type(genie_room).__name__,
         persist_conversation=persist_conversation,
         name=name,
+        verbatim=verbatim,
     )
 
     genie_room_model, space_id_str = _resolve_genie_room(genie_room)
 
     tool_name: str = name if name is not None else "genie_tool"
-    tool_description: str = (
-        description if description is not None else _DEFAULT_DESCRIPTION
-    ) + _FUNCTION_DOCS
+    tool_description: str = _build_tool_description(description, verbatim)
+    question_desc: str = (
+        _QUESTION_ARG_VERBATIM if verbatim else _QUESTION_ARG_DEFAULT
+    )
 
     _cached_genie_service: GenieServiceBase | None = None
 
@@ -433,7 +487,7 @@ def _create_simple_genie_tool(
 
     @tool(name_or_callable=tool_name, description=tool_description)
     def genie_tool(
-        question: Annotated[str, "The question to ask Genie about your data"],
+        question: Annotated[str, question_desc],
         runtime: ToolRuntime[Context, AgentState],
     ) -> Command:
         """Process a natural language question through Databricks Genie."""
@@ -497,6 +551,7 @@ def _create_genie_toolkit_impl(
         GenieInMemoryContextAwareCacheParametersModel | dict[str, Any] | None
     ),
     max_consecutive_cache_hits: int | None,
+    verbatim: bool = False,
 ) -> GenieToolkit:
     """Build the cached toolkit variant (query + feedback, optional cache layers)."""
     logger.debug(
@@ -505,6 +560,7 @@ def _create_genie_toolkit_impl(
         persist_conversation=persist_conversation,
         truncate_results=truncate_results,
         name=name,
+        verbatim=verbatim,
         has_lru_cache=lru_cache_parameters is not None,
         has_context_aware_cache=context_aware_cache_parameters is not None,
         has_in_memory_context_aware_cache=in_memory_context_aware_cache_parameters
@@ -528,9 +584,10 @@ def _create_genie_toolkit_impl(
         )
 
     tool_name: str = name if name is not None else "genie_tool"
-    tool_description: str = (
-        description if description is not None else _DEFAULT_DESCRIPTION
-    ) + _FUNCTION_DOCS
+    tool_description: str = _build_tool_description(description, verbatim)
+    question_desc: str = (
+        _QUESTION_ARG_VERBATIM if verbatim else _QUESTION_ARG_DEFAULT
+    )
 
     # ---- Shared service stack (one LRU, one closure) ----
 
@@ -611,7 +668,7 @@ def _create_genie_toolkit_impl(
 
     @tool(name_or_callable=tool_name, description=tool_description)
     def genie_tool(
-        question: Annotated[str, "The question to ask Genie about your data"],
+        question: Annotated[str, question_desc],
         runtime: ToolRuntime[Context, AgentState],
     ) -> Command:
         """Process a natural language question through Databricks Genie."""

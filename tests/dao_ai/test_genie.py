@@ -236,6 +236,94 @@ def test_create_genie_tool_parameters() -> None:
     assert "GenieResponse" in tool_custom.description
 
 
+def _question_arg_description(tool: StructuredTool) -> str:
+    """Read the description of the tool's ``question`` argument."""
+    field = tool.args_schema.model_fields["question"]
+    return getattr(field, "description", "") or ""
+
+
+def test_create_genie_tool_verbatim_default_off() -> None:
+    """Default (verbatim=False) must not add any verbatim wording — the
+    tool description and question-arg annotation stay byte-for-byte as before."""
+    from dao_ai.tools.genie import _QUESTION_ARG_VERBATIM, _VERBATIM_TOOL_CLAUSE
+
+    room = GenieRoomModel(name="Room", space_id="0" * 32)
+
+    tool = create_genie_tool(genie_room=room, name="ask_genie")
+    assert isinstance(tool, StructuredTool)
+    assert _VERBATIM_TOOL_CLAUSE not in tool.description
+    assert _QUESTION_ARG_VERBATIM not in _question_arg_description(tool)
+    # The default question-arg wording is preserved.
+    assert "The question to ask Genie about your data" == _question_arg_description(
+        tool
+    )
+
+
+def test_create_genie_tool_verbatim_on_simple_path() -> None:
+    """verbatim=True stamps the preserve-exact instruction onto BOTH the tool
+    description and the question-arg annotation (uncached simple-tool path)."""
+    from dao_ai.tools.genie import _QUESTION_ARG_VERBATIM, _VERBATIM_TOOL_CLAUSE
+
+    room = GenieRoomModel(name="Room", space_id="0" * 32)
+
+    tool = create_genie_tool(genie_room=room, name="ask_genie", verbatim=True)
+    assert isinstance(tool, StructuredTool)
+    assert _VERBATIM_TOOL_CLAUSE in tool.description
+    assert _QUESTION_ARG_VERBATIM == _question_arg_description(tool)
+    # Multi-tool routing is still explicitly permitted (not a hard "never split").
+    assert "multiple tools" in tool.description or "spans multiple tools" in (
+        tool.description
+    )
+
+
+def test_create_genie_tool_verbatim_on_toolkit_path() -> None:
+    """verbatim=True flows through the toolkit path too (enable_feedback forces
+    toolkit mode). The query tool carries the verbatim wording."""
+    from dao_ai.tools.genie import (
+        _QUESTION_ARG_VERBATIM,
+        _VERBATIM_TOOL_CLAUSE,
+        GenieToolkit,
+    )
+
+    room = GenieRoomModel(name="Room", space_id="0" * 32)
+
+    result = create_genie_tool(
+        genie_room=room, name="ask_genie", verbatim=True, enable_feedback=True
+    )
+    assert isinstance(result, GenieToolkit)
+    query_tool = result.get_tools()[0]
+    assert _VERBATIM_TOOL_CLAUSE in query_tool.description
+    assert _QUESTION_ARG_VERBATIM == _question_arg_description(query_tool)
+
+
+def test_create_genie_tool_verbatim_appends_to_custom_description() -> None:
+    """A user-supplied description still gets the verbatim clause appended, so
+    the flag always takes effect regardless of custom wording."""
+    from dao_ai.tools.genie import _VERBATIM_TOOL_CLAUSE
+
+    room = GenieRoomModel(name="Room", space_id="0" * 32)
+    custom = "Answers questions about GSS indirect procurement spend."
+
+    tool = create_genie_tool(
+        genie_room=room, name="ask_genie", description=custom, verbatim=True
+    )
+    assert custom in tool.description
+    assert _VERBATIM_TOOL_CLAUSE in tool.description
+
+
+def test_genie_tool_model_verbatim_field() -> None:
+    """GenieToolModel exposes verbatim (default False) and passes it through."""
+    from dao_ai.config import GenieToolModel
+
+    m = GenieToolModel(genie_room=GenieRoomModel(name="Room", space_id="0" * 32))
+    assert m.verbatim is False
+
+    m_on = GenieToolModel(
+        genie_room=GenieRoomModel(name="Room", space_id="0" * 32), verbatim=True
+    )
+    assert m_on.verbatim is True
+
+
 @pytest.mark.integration
 @pytest.mark.skipif(not has_retail_ai_env(), reason="Retail AI env vars not set")
 def test_genie_tool_error_handling() -> None:

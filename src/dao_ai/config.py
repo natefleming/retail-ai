@@ -6291,6 +6291,16 @@ class GenieToolModel(BaseFunctionModel):
         default=False,
         description="Truncate large query results returned by Genie.",
     )
+    verbatim: bool = Field(
+        default=False,
+        description=(
+            "When true, instruct the calling LLM to pass the user's question to "
+            "Genie exactly as asked — no rephrasing, decomposition, or added "
+            "qualifiers. Shapes the tool description and the question-argument "
+            "annotation. Default false preserves the existing 'ask simple, clear "
+            "questions' behavior."
+        ),
+    )
     lru_cache: Optional[GenieLRUCacheParametersModel] = Field(
         default=None,
         description="LRU cache configuration for fast exact-match SQL caching.",
@@ -6330,6 +6340,7 @@ class GenieToolModel(BaseFunctionModel):
             description=self.description,
             persist_conversation=self.persist_conversation,
             truncate_results=self.truncate_results,
+            verbatim=self.verbatim,
             lru_cache_parameters=self.lru_cache,
             context_aware_cache_parameters=self.context_aware_cache,
             in_memory_context_aware_cache_parameters=self.in_memory_context_aware_cache,
