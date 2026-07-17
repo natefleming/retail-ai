@@ -19,8 +19,9 @@ from unittest.mock import MagicMock, patch
 
 from dao_ai.tools.mcp_trace_context import (
     build_trace_context_meta,
-    extract_trace_context_meta,
     merge_trace_context_meta,
+    stamp_trace_context,
+    trace_context_tags,
 )
 
 _TRACE_HEX = "41a20ee334efb76f29492d9f4d4a03a5"  # 32 hex
@@ -118,47 +119,46 @@ class TestMergeTraceContextMeta:
         assert merged["baggage"] == f"mlflow.trace_id=tr-{_TRACE_HEX}"
 
 
-class TestExtractTraceContextMeta:
-    def test_stamps_inbound_context_on_span(self) -> None:
-        span = MagicMock()
+class TestTraceContextTags:
+    def test_extracts_present_keys(self) -> None:
         meta = SimpleNamespace(
             traceparent=f"00-{_TRACE_HEX}-{_SPAN_HEX}-01",
             tracestate=None,
             baggage="mlflow.trace_id=tr-x",
         )
-        with patch(
-            "dao_ai.tools.mcp_trace_context.mlflow.get_current_active_span",
-            return_value=span,
-        ):
-            extract_trace_context_meta(meta)
+        tags = trace_context_tags(meta)
+        assert tags == {
+            "mcp.trace_context.traceparent": f"00-{_TRACE_HEX}-{_SPAN_HEX}-01",
+            "mcp.trace_context.baggage": "mlflow.trace_id=tr-x",
+        }
+
+    def test_dict_meta_supported(self) -> None:
+        assert trace_context_tags({"traceparent": "00-x-y-01"}) == {
+            "mcp.trace_context.traceparent": "00-x-y-01"
+        }
+
+    def test_empty_when_meta_none(self) -> None:
+        assert trace_context_tags(None) == {}
+
+    def test_empty_when_no_trace_keys(self) -> None:
+        assert trace_context_tags({"unrelated": "x"}) == {}
+
+
+class TestStampTraceContext:
+    def test_stamps_attributes_on_span(self) -> None:
+        span = MagicMock()
+        stamp_trace_context(span, {"traceparent": "00-x-y-01", "baggage": "b"})
         keys = {c.args[0] for c in span.set_attribute.call_args_list}
         assert "mcp.trace_context.traceparent" in keys
         assert "mcp.trace_context.baggage" in keys
-        # tracestate was None → not stamped.
-        assert "mcp.trace_context.tracestate" not in keys
 
-    def test_dict_meta_supported(self) -> None:
+    def test_noop_when_no_context(self) -> None:
         span = MagicMock()
-        with patch(
-            "dao_ai.tools.mcp_trace_context.mlflow.get_current_active_span",
-            return_value=span,
-        ):
-            extract_trace_context_meta({"traceparent": "00-x-y-01"})
-        span.set_attribute.assert_called_once()
-
-    def test_noop_when_meta_none(self) -> None:
-        span = MagicMock()
-        with patch(
-            "dao_ai.tools.mcp_trace_context.mlflow.get_current_active_span",
-            return_value=span,
-        ):
-            extract_trace_context_meta(None)
+        stamp_trace_context(span, None)
         span.set_attribute.assert_not_called()
 
-    def test_noop_when_no_active_span(self) -> None:
-        with patch(
-            "dao_ai.tools.mcp_trace_context.mlflow.get_current_active_span",
-            return_value=None,
-        ):
-            # Must not raise.
-            extract_trace_context_meta({"traceparent": "00-x-y-01"})
+    def test_never_raises_on_span_error(self) -> None:
+        span = MagicMock()
+        span.set_attribute.side_effect = RuntimeError("boom")
+        # Must not raise.
+        stamp_trace_context(span, {"traceparent": "00-x-y-01"})

@@ -111,33 +111,43 @@ def merge_trace_context_meta(meta: dict[str, Any] | None) -> dict[str, Any] | No
     return merged
 
 
-def extract_trace_context_meta(meta: Any) -> None:
-    """Stamp inbound W3C trace-context onto the active MLflow span.
+def trace_context_tags(meta: Any) -> dict[str, str]:
+    """Extract inbound W3C trace-context keys from a request ``_meta``.
 
     ``meta`` is the request ``_meta`` (an ``mcp.types.RequestParams.Meta`` or a
-    plain mapping) surfaced by FastMCP on the server. Reads ``traceparent`` /
-    ``tracestate`` / ``baggage`` and records them as span attributes so the
-    server-side trace row correlates with the caller's trace. Additive and
-    never raises — degrades to a no-op when meta is absent or malformed.
+    plain mapping) surfaced by FastMCP on the server. Returns a dict of
+    ``mcp.trace_context.<key>`` → value for each of ``traceparent`` /
+    ``tracestate`` / ``baggage`` present, or ``{}`` when none are. Never raises.
     """
     if meta is None:
-        return
-    try:
-        span = mlflow.get_current_active_span()
-    except Exception:  # pragma: no cover - defensive
-        span = None
-    if span is None:
-        return
+        return {}
 
     def _get(key: str) -> Any:
         if isinstance(meta, dict):
             return meta.get(key)
         return getattr(meta, key, None)
 
+    tags: dict[str, str] = {}
+    for key in ("traceparent", "tracestate", "baggage"):
+        value = _get(key)
+        if value:
+            tags[f"mcp.trace_context.{key}"] = str(value)
+    return tags
+
+
+def stamp_trace_context(span: Any, meta: Any) -> None:
+    """Record inbound W3C trace-context as attributes on ``span``.
+
+    Called from inside the MCP server's boundary span so the attributes export
+    atomically with the trace — this correlates the server-side trace with the
+    caller's distributed trace. Additive and never raises; a no-op when meta
+    carries no trace context.
+    """
+    tags = trace_context_tags(meta)
+    if not tags:
+        return
     try:
-        for key in ("traceparent", "tracestate", "baggage"):
-            value = _get(key)
-            if value:
-                span.set_attribute(f"mcp.trace_context.{key}", str(value))
+        for key, value in tags.items():
+            span.set_attribute(key, value)
     except Exception as exc:
         logger.debug(f"mcp trace context: failed to stamp inbound context: {exc}")

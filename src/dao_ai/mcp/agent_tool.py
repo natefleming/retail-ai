@@ -54,13 +54,14 @@ from loguru import logger
 from mcp.server.fastmcp import Context, FastMCP
 from mcp.shared.context import RequestContext
 from mcp.types import CallToolResult, RequestParams, TextContent
+import mlflow
 from mlflow.types.responses import ResponsesAgentRequest, ResponsesAgentResponse
 from pydantic import BaseModel, Field
 
 from dao_ai.config import AppConfig
 from dao_ai.mcp._request_context import current_request_headers, current_request_id
 from dao_ai.models import LanggraphResponsesAgent
-from dao_ai.tools.mcp_trace_context import extract_trace_context_meta
+from dao_ai.tools.mcp_trace_context import stamp_trace_context, trace_context_tags
 
 _SLUG_RE = re.compile(r"[^a-z0-9_]+")
 
@@ -467,11 +468,6 @@ def register_agent_as_tool(mcp: FastMCP, config: AppConfig) -> str:
         if request_context is not None:
             request_meta = request_context.meta
 
-        # SEP-414: continue the caller's distributed trace by stamping inbound
-        # W3C trace context (traceparent/tracestate/baggage) onto the active
-        # MLflow span. Additive; no-op when the client sent none.
-        extract_trace_context_meta(request_meta)
-
         effective_conversation_id, conversation_id_source = _resolve_conversation_id(
             meta=request_meta,
             headers=headers,
@@ -540,8 +536,20 @@ def register_agent_as_tool(mcp: FastMCP, config: AppConfig) -> str:
             heartbeat_task = asyncio.create_task(
                 _heartbeat_progress(ctx, tool_name)
             )
+        # SEP-414: when the caller supplied W3C trace context on the inbound
+        # _meta, wrap apredict in an explicit MCP-boundary span and stamp the
+        # context onto it. The span (and its attributes) export atomically with
+        # the trace, correlating this server-side trace with the caller's
+        # distributed trace. When no context is present the wrapper is skipped
+        # entirely so the trace shape is unchanged (dao_ai_apredict stays root).
+        tc_tags = trace_context_tags(request_meta)
         try:
-            response: ResponsesAgentResponse = await agent.apredict(request)
+            if tc_tags:
+                with mlflow.start_span(name="mcp.server.invoke") as _boundary_span:
+                    stamp_trace_context(_boundary_span, request_meta)
+                    response: ResponsesAgentResponse = await agent.apredict(request)
+            else:
+                response = await agent.apredict(request)
             text = _extract_final_assistant_text(response)
             trace_id = _extract_trace_id(response)
             resolved_conversation_id = (
