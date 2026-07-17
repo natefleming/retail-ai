@@ -2,7 +2,7 @@
 callback manager.
 
 Covers the wire contract:
-- MCP progress + log notifications from a tool call reach an
+- MCP progress notifications and audit receipts from a tool call reach an
   ``AsyncCallbackHandler`` registered on the outer ``RunnableConfig``.
 - ``apredict_stream`` attaches its own collector handler and translates
   captured envelopes into ``response.output_item.added(status="in_progress")``
@@ -24,7 +24,6 @@ from mlflow.types.responses_helpers import Message
 
 from dao_ai.models import LanggraphResponsesAgent
 from dao_ai.tools.mcp_callbacks import (
-    DaoAiNotificationCallback,
     DaoAiProgressCallback,
 )
 
@@ -59,9 +58,12 @@ def _make_request() -> ResponsesAgentRequest:
 
 
 def test_apredict_stream_forwards_mcp_envelopes_via_collector():
-    """MCP envelopes pushed onto the collector's queue during astream are
+    """Envelopes pushed onto the collector's queue during astream are
     drained between chunks and yielded as
-    ``response.output_item.added(status="in_progress")`` events."""
+    ``response.output_item.added(status="in_progress")`` events.
+
+    Exercises both surviving producers on the shared forwarding path: MCP
+    progress (``mcp.*``) and audit receipts (``dao_ai.audit.*``)."""
 
     progress_envelope: dict[str, Any] = {
         "channel": "mcp.progress",
@@ -71,13 +73,10 @@ def test_apredict_stream_forwards_mcp_envelopes_via_collector():
         "total": 1.0,
         "message": "Fetched 3/10 docs",
     }
-    log_envelope: dict[str, Any] = {
-        "channel": "mcp.log",
-        "server_name": "genie",
-        "tool_name": "run_genie_query",
-        "level": "info",
-        "logger": "genie.executor",
-        "data": "generating SQL",
+    audit_envelope: dict[str, Any] = {
+        "channel": "dao_ai.audit.receipt",
+        "action": "genie.query",
+        "status": "completed",
     }
 
     captured_collector: dict[str, Any] = {}
@@ -99,7 +98,9 @@ def test_apredict_stream_forwards_mcp_envelopes_via_collector():
         await collector.on_custom_event(
             "mcp.progress", progress_envelope, run_id=uuid4()
         )
-        await collector.on_custom_event("mcp.log", log_envelope, run_id=uuid4())
+        await collector.on_custom_event(
+            "dao_ai.audit.receipt", audit_envelope, run_id=uuid4()
+        )
         yield (
             ("agent",),
             "messages",
@@ -127,14 +128,13 @@ def test_apredict_stream_forwards_mcp_envelopes_via_collector():
     assert all(e.item["status"] == "in_progress" for e in added)
     assert added[0].item["name"] == "mcp.progress"
     assert added[0].item["input"] == progress_envelope
-    assert added[1].item["name"] == "mcp.log"
-    assert added[1].item["input"] == log_envelope
-    assert added[0].item["id"].startswith("mcp_genie_")
+    assert added[1].item["name"] == "dao_ai.audit.receipt"
+    assert added[1].item["input"] == audit_envelope
     assert added[0].item["id"] != added[1].item["id"]
 
     done = [e for e in events if e.type == "response.output_item.done"]
     assert len(done) == 1
-    assert done[0].custom_outputs["mcp_events"] == [progress_envelope, log_envelope]
+    assert done[0].custom_outputs["mcp_events"] == [progress_envelope, audit_envelope]
 
 
 def test_apredict_stream_collector_ignores_non_mcp_events():
@@ -218,52 +218,6 @@ def test_progress_callback_dispatches_via_callback_manager():
     assert envelope["message"] == "half done"
     assert kwargs["config"] is fake_config
     span.assert_called_once_with("mcp.progress", envelope)
-
-
-def test_notification_callback_dispatches_via_callback_manager():
-    """Every incoming ServerNotification (except progress) is forwarded on
-    both channels: the MLflow span event and the outer runnable's callback
-    manager. Envelope contains the raw params under ``params``."""
-
-    from mcp.types import (
-        LoggingMessageNotification,
-        LoggingMessageNotificationParams,
-        ServerNotification,
-    )
-
-    fake_config = {"callbacks": [MagicMock()]}
-    with (
-        patch(
-            "dao_ai.tools.mcp_callbacks.ensure_config", return_value=fake_config
-        ),
-        patch(
-            "dao_ai.tools.mcp_callbacks.adispatch_custom_event",
-            new_callable=AsyncMock,
-        ) as dispatch,
-        patch("dao_ai.tools.mcp_callbacks._add_span_event") as span,
-    ):
-        cb = DaoAiNotificationCallback(server_name="s")
-        info = ServerNotification(
-            LoggingMessageNotification(
-                method="notifications/message",
-                params=LoggingMessageNotificationParams(
-                    level="info", logger="l", data="show me"
-                ),
-            )
-        )
-        _run_async(cb(info))
-
-    assert dispatch.call_count == 1
-    assert span.call_count == 1
-    envelope = dispatch.call_args.args[1]
-    assert envelope["channel"] == "mcp.log"
-    assert envelope["method"] == "notifications/message"
-    assert envelope["server_name"] == "s"
-    # Log-specific top-level fields.
-    assert envelope["level"] == "info"
-    assert envelope["data"] == "show me"
-    # Raw params carried through too.
-    assert envelope["params"]["level"] == "info"
 
 
 def test_callback_dispatch_safe_outside_runnable_context():

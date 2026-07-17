@@ -315,11 +315,9 @@ def _build_mcp_client(
     When ``function.capabilities`` is set, additionally attaches:
     - ``Callbacks(on_progress=..., on_elicitation=...)`` for per-call
       progress notifications and server-initiated elicitation.
-    - A session-scoped ``message_handler`` (via ``session_kwargs`` on the
-      connection config) that forwards every server notification. Enabled
-      by ``caps.logging``.
-    - ``tool_interceptors=[DaoAiTraceInterceptor, ...]`` for MLflow correlation
-      and (optionally) structured-output observation.
+    - ``tool_interceptors=[...]`` for (optionally) structured-output
+      observation. W3C trace context is propagated separately via ``_meta``
+      on ``session.call_tool`` (see ``_call_tool_with_capabilities``).
 
     Callback/interceptor construction is lazy: the classes are imported only
     when at least one capability is enabled, keeping the classic import graph
@@ -338,12 +336,10 @@ def _build_mcp_client(
 
     from dao_ai.tools.mcp_callbacks import (
         DaoAiElicitationCallback,
-        DaoAiNotificationCallback,
         DaoAiProgressCallback,
     )
     from dao_ai.tools.mcp_interceptors import (
         DaoAiStructuredOutputInterceptor,
-        DaoAiTraceInterceptor,
     )
 
     on_progress = DaoAiProgressCallback() if caps.progress else None
@@ -356,17 +352,7 @@ def _build_mcp_client(
             on_elicitation=on_elicit,
         )
 
-    if caps.logging:
-        # langchain-mcp-adapters' ``Callbacks`` has no slot for a general
-        # message_handler; inject it via session_kwargs, which sessions.py
-        # forwards to ``ClientSession(read, write, **session_kwargs)``.
-        session_kwargs = dict(connection.get("session_kwargs") or {})
-        session_kwargs["message_handler"] = DaoAiNotificationCallback(
-            server_name="mcp_function"
-        )
-        connection["session_kwargs"] = session_kwargs
-
-    interceptors: list[ToolCallInterceptor] = [DaoAiTraceInterceptor()]
+    interceptors: list[ToolCallInterceptor] = []
     if caps.structured_output:
         interceptors.append(DaoAiStructuredOutputInterceptor())
 
@@ -391,8 +377,10 @@ async def _call_tool_with_capabilities(
     ``tool_interceptors`` inside its own ``load_mcp_tools()`` path. dao-ai's
     custom tool wrapper uses the raw ``session.call_tool``, so we thread the
     per-call progress callback and compose the interceptor onion manually
-    here. When ``function.capabilities`` is None, this is a straight
-    passthrough to ``session.call_tool`` — no behavior change.
+    here. W3C trace context is merged into ``_meta`` (SEP-414) so downstream
+    MCP servers can continue the caller's distributed trace. When
+    ``function.capabilities`` is None, this is a straight passthrough to
+    ``session.call_tool`` — no behavior change.
     """
     caps = function.capabilities
     if caps is None:
@@ -407,10 +395,12 @@ async def _call_tool_with_capabilities(
     from dao_ai.tools.mcp_callbacks import DaoAiProgressCallback
     from dao_ai.tools.mcp_interceptors import (
         DaoAiStructuredOutputInterceptor,
-        DaoAiTraceInterceptor,
     )
+    from dao_ai.tools.mcp_trace_context import merge_trace_context_meta
 
-    call_kwargs: dict[str, Any] = {"meta": meta}
+    # Merge W3C trace context (traceparent/baggage) into _meta without
+    # clobbering caller-supplied keys (conversation_id, progressToken, ...).
+    call_kwargs: dict[str, Any] = {"meta": merge_trace_context_meta(meta)}
     if caps.progress:
         progress_cb = DaoAiProgressCallback()
         cb_ctx = CallbackContext(server_name="mcp_function", tool_name=tool_name)
@@ -422,7 +412,7 @@ async def _call_tool_with_capabilities(
 
         call_kwargs["progress_callback"] = _bound_progress
 
-    interceptors: list[ToolCallInterceptor] = [DaoAiTraceInterceptor()]
+    interceptors: list[ToolCallInterceptor] = []
     if caps.structured_output:
         interceptors.append(DaoAiStructuredOutputInterceptor())
 
@@ -664,25 +654,6 @@ async def acreate_mcp_tools(
     Raises:
         RuntimeError: If connection to MCP server fails.
     """
-    # PR 3 — sampling / roots need a raw ClientSession (langchain-mcp-adapters
-    # 0.3.0 doesn't surface those two callbacks). Delegate to the
-    # SamplingRootsMCPClient path only when at least one of them is declared.
-    # All other capabilities (progress / logging / elicitation / structured
-    # output) still flow through the MultiServerMCPClient path below.
-    from dao_ai.tools.mcp_sampling import (
-        acreate_mcp_tools_with_sampling,
-        sampling_or_roots_active,
-    )
-
-    if sampling_or_roots_active(function):
-        logger.info(
-            "mcp.route.sampling_or_roots",
-            url=function.mcp_url,
-            sampling=function.capabilities.sampling is not None,  # type: ignore[union-attr]
-            roots_count=len(function.capabilities.roots),  # type: ignore[union-attr]
-        )
-        return await acreate_mcp_tools_with_sampling(function)
-
     mcp_url = function.mcp_url
     logger.debug("Creating MCP tools (async)", mcp_url=mcp_url)
 
@@ -803,9 +774,6 @@ def create_mcp_tools(
 
     For async contexts, use acreate_mcp_tools() directly.
 
-    Sampling / roots path is async-only — routes through ``asyncio.run``
-    just like the classic path.
-
     Args:
         function: The MCP function model configuration.
 
@@ -815,13 +783,6 @@ def create_mcp_tools(
     Raises:
         RuntimeError: If connection to MCP server fails.
     """
-    from dao_ai.tools.mcp_sampling import sampling_or_roots_active
-
-    if sampling_or_roots_active(function):
-        # Sampling / roots require an async raw ClientSession — delegate to
-        # the async path via asyncio.run so sync callers still work.
-        return asyncio.run(acreate_mcp_tools(function))
-
     mcp_url = function.mcp_url
     logger.debug("Creating MCP tools", mcp_url=mcp_url)
 

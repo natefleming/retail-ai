@@ -2,7 +2,7 @@
 
 Spins up a real ``FastMCP`` server in a background thread on an ephemeral
 port and drives ``create_mcp_tools()`` at it. Verifies that our
-callback + interceptor wiring receives progress / logging / structured-content
+callback + interceptor wiring receives progress / structured-content
 notifications from a real MCP transport, and that the default
 (``capabilities=None``) path stays silent.
 
@@ -53,12 +53,6 @@ def _build_probe_server(name: str) -> FastMCP:
                 message=f"step {i}/{steps}",
             )
         return f"completed {steps} steps"
-
-    @mcp.tool()
-    async def noisy_task(ctx: Context) -> str:
-        for level in ("debug", "info", "warning", "error"):
-            await ctx.log(level=level, message=f"probe {level}")
-        return "logged 4 levels"
 
     @mcp.tool()
     async def structured_result(query: str, ctx: Context) -> _StructuredAnswer:
@@ -128,55 +122,6 @@ class _RecordingProgress:
         )
 
 
-class _RecordingNotification:
-    """Drop-in for DaoAiNotificationCallback that records level-filtered log events.
-
-    The signature matches ``MessageHandlerFnT`` — session-scoped, no per-call
-    context. Non-log notifications are recorded with ``level=None``.
-    """
-
-    events: list[tuple] = []
-
-    def __init__(self, min_level: str | None = None, server_name: str = "mcp_function") -> None:
-        self.min_level = min_level
-        self._min_severity = (
-            {
-                "debug": 10, "info": 20, "warning": 30, "error": 40,
-            }[min_level]
-            if min_level is not None
-            else 0
-        )
-
-    async def __call__(self, message) -> None:
-        # Ignore exceptions and request-responders — same shape as the real handler.
-        from mcp.types import (
-            LoggingMessageNotification,
-            ProgressNotification,
-            ServerNotification,
-        )
-
-        if isinstance(message, Exception):
-            return
-        if not isinstance(message, ServerNotification):
-            return
-        root = message.root
-        if isinstance(root, ProgressNotification):
-            return
-        if isinstance(root, LoggingMessageNotification):
-            level = str(root.params.level).lower()
-            severity = {
-                "debug": 10, "info": 20, "notice": 20, "warning": 30, "error": 40,
-            }.get(level, 20)
-            if severity < self._min_severity:
-                return
-            _RecordingNotification.events.append(
-                (level, str(root.params.data), None)
-            )
-            return
-        # Non-log notification.
-        _RecordingNotification.events.append((None, str(root), None))
-
-
 class _RecordingStructured:
     """Interceptor spy that records the CallToolResult it sees."""
 
@@ -202,33 +147,12 @@ class _RecordingStructured:
         return result
 
 
-class _RecordingTrace:
-    """Interceptor spy that records the request headers it sees + emits after."""
-
-    seen: list[dict] = []
-
-    def __init__(self) -> None:
-        pass
-
-    async def __call__(self, request, handler):
-        # Only record header state; do not mutate.
-        _RecordingTrace.seen.append(
-            {
-                "before_headers": dict(request.headers or {}),
-                "server_name": request.server_name,
-                "tool_name": request.name,
-            }
-        )
-        return await handler(request)
-
-
 class TestClassicPathParity:
     def test_tools_discovered(self, probe_url: str) -> None:
         async def run() -> None:
             tools = await acreate_mcp_tools(_fn(probe_url, None))
             names = {t.name for t in tools}
             assert "long_task" in names
-            assert "noisy_task" in names
             assert "structured_result" in names
 
         asyncio.run(run())
@@ -281,36 +205,6 @@ class TestProgressCapability:
         assert all(e[3] == "long_task" for e in _RecordingProgress.events)
 
 
-class TestNotificationCapability:
-    def test_logging_at_warning_filters_debug_and_info(
-        self, probe_url: str, monkeypatch
-    ) -> None:
-        _RecordingNotification.events = []
-        monkeypatch.setattr(
-            "dao_ai.tools.mcp_callbacks.DaoAiNotificationCallback",
-            _RecordingNotification,
-        )
-        # _build_mcp_client imports DaoAiNotificationCallback lazily from the
-        # mcp_callbacks module — patching there covers the fresh binding.
-
-        caps = McpCapabilitiesModel(logging=True, structured_output=False)
-
-        async def run() -> None:
-            tools = await acreate_mcp_tools(_fn(probe_url, caps))
-            noisy = next(t for t in tools if t.name == "noisy_task")
-            await noisy.ainvoke({})
-
-        asyncio.run(run())
-        log_events = [e for e in _RecordingNotification.events if e[0] is not None]
-        levels = [e[0] for e in log_events]
-        # Generic handler no longer filters by level — every log emitted by
-        # the probe should be forwarded.
-        assert "debug" in levels
-        assert "info" in levels
-        assert "warning" in levels
-        assert "error" in levels
-
-
 class TestStructuredOutputCapability:
     def test_structured_content_returned(self, probe_url: str, monkeypatch) -> None:
         _RecordingStructured.seen = []
@@ -334,16 +228,24 @@ class TestStructuredOutputCapability:
         assert record["structured"] is not None
 
 
-class TestTraceInterceptor:
-    def test_trace_interceptor_runs_on_each_call(
+class TestTraceContextMeta:
+    def test_meta_trace_context_merged_on_each_call(
         self, probe_url: str, monkeypatch
     ) -> None:
-        """When capabilities is set, the trace interceptor must run for every
-        tool call — proves the onion chain composes."""
-        _RecordingTrace.seen = []
+        """When capabilities is set, W3C trace context is merged into _meta
+        for every tool call — proves the SEP-414 inject site fires end-to-end
+        over a real transport."""
+        calls: list[dict | None] = []
+
+        def _fake_merge(meta):
+            merged = dict(meta or {})
+            merged.setdefault("traceparent", "00-" + "a" * 32 + "-" + "b" * 16 + "-01")
+            calls.append(merged)
+            return merged
+
         monkeypatch.setattr(
-            "dao_ai.tools.mcp_interceptors.DaoAiTraceInterceptor",
-            _RecordingTrace,
+            "dao_ai.tools.mcp_trace_context.merge_trace_context_meta",
+            _fake_merge,
         )
 
         caps = McpCapabilitiesModel(structured_output=True)
@@ -354,10 +256,8 @@ class TestTraceInterceptor:
             await sr.ainvoke({"query": "hi"})
 
         asyncio.run(run())
-        assert _RecordingTrace.seen, "trace interceptor never ran"
-        record = _RecordingTrace.seen[-1]
-        assert record["tool_name"] == "structured_result"
-        assert record["server_name"] == "mcp_function"
+        assert calls, "trace-context merge never ran on the capabilities path"
+        assert calls[-1]["traceparent"].startswith("00-")
 
 
 class TestErrorHandling:

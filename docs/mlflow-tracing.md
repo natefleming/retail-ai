@@ -95,6 +95,27 @@ When traces are landing correctly you'll see the full agent flow — root `predi
 5. **App SP grants** — the app service principal needs `USE_CATALOG` + `USE_SCHEMA` + `CREATE_TABLE` + `MODIFY` + `SELECT` on the trace-location schema (one-time per app SP). `generate-bundle`'s "Next steps" prints the grant commands.
 6. **Async flush** — MLflow batches OTEL exports. Allow 60–120 s between the inference call and querying the tables. Async logging can be disabled per-app with `MLFLOW_ENABLE_ASYNC_TRACE_LOGGING=false` in the app env.
 
+## Distributed tracing across MCP (`_meta` propagation)
+
+When a dao-ai agent calls a downstream MCP server (via an `mcp` tool with
+`capabilities:` set), it injects W3C trace context into the `_meta` block of
+each `tools/call`
+([SEP-414](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/414)):
+
+- `traceparent` — `00-<32-hex trace id>-<16-hex span id>-01`, minted from the
+  active MLflow span. The hex is the OTel-native id that also lands in the UC
+  `_otel_spans.trace_id` column, so the propagated context resolves to the same
+  trace row.
+- `baggage` — carries `mlflow.trace_id=<id>` for dao-ai-native correlation.
+
+A dao-ai MCP **server** extracts these keys from the inbound `_meta` and stamps
+them onto its own trace (`mcp.trace_context.*` span attributes), so a client's
+trace and the server's trace correlate. This replaces the former custom
+`x-dao-ai-trace-id` HTTP header. Implementation:
+`dao_ai.tools.mcp_trace_context`. Note trace context is independent of OBO —
+the OBO token continues to ride the `x-forwarded-access-token` HTTP header
+untouched.
+
 ## Testing all six combinations
 
 Success criteria for a dao-ai release: MLflow traces work consistently across the six configurations below. `apply_runtime_trace_destination` handles the client-side ContextVar so all Apps + MCP-server paths route consistently; Model Serving uses env-driven routing exclusively.

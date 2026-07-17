@@ -1,20 +1,12 @@
 """MCP client-side callbacks that bridge server-initiated notifications
 into dao-ai's observability + client-stream surfaces.
 
-Three callables live here:
+Two callables live here:
 
 * :class:`DaoAiProgressCallback` — call-scoped MCP ``progress_callback``
   matching ``ProgressCallback`` from ``langchain-mcp-adapters`` 0.3.0.
   Progress notifications are correlated to a specific tool call via
   ``progressToken``, so the SDK's per-call callback is the right hook.
-* :class:`DaoAiNotificationCallback` — session-scoped MCP
-  ``MessageHandlerFnT`` (``mcp.client.session.MessageHandlerFnT``).
-  Receives *every* incoming server message and forwards notifications
-  (except progress, which is handled by the callback above to avoid
-  duplicate emission). Replaces the earlier ``DaoAiLoggingCallback`` —
-  ``notifications/message`` is a strict subset of the notification stream,
-  and a generic handler captures any custom notification a server chooses
-  to emit.
 * :class:`DaoAiElicitationCallback` — server→client
   ``elicitation/create`` handler.
 
@@ -54,13 +46,9 @@ from langchain_mcp_adapters.callbacks import CallbackContext
 from langgraph.types import interrupt as langgraph_interrupt
 from loguru import logger
 from mcp.shared.context import RequestContext as MCPRequestContext
-from mcp.shared.session import RequestResponder
 from mcp.types import (
     ElicitRequestParams,
     ElicitResult,
-    LoggingMessageNotification,
-    ProgressNotification,
-    ServerNotification,
 )
 
 
@@ -173,104 +161,6 @@ class DaoAiProgressCallback:
             "message": message or "",
         }
         await _emit("mcp.progress", envelope, self._config)
-
-
-class DaoAiNotificationCallback:
-    """Session-scoped MCP ``MessageHandlerFnT`` — forwards every server
-    notification to the active MLflow span and (when a callback handler is
-    registered on the outer runnable) to that handler as an
-    ``on_custom_event(channel, envelope, ...)``.
-
-    Fully generic. The channel is the MCP method name mapped from
-    ``notifications/<x>/<y>`` to ``mcp.<x>.<y>``, and the envelope carries the
-    raw params dict — no notification-type-specific extraction. Custom
-    server-defined notifications are forwarded on the same path as spec
-    notifications.
-
-    ``notifications/progress`` is intentionally skipped here — progress is
-    correlated to a specific tool call via ``progressToken`` and handled by
-    :class:`DaoAiProgressCallback` (per-call, from the langchain-mcp-adapters
-    ``on_progress`` slot) to preserve tool-call correlation and avoid
-    duplicate emission.
-
-    The handler ignores request-responder frames (elicitation/sampling are
-    routed by the SDK to their own callbacks) and logs exceptions at debug.
-
-    Config capture semantics match :class:`DaoAiProgressCallback`.
-    """
-
-    def __init__(self, server_name: str = "mcp_function") -> None:
-        self._server_name = server_name
-        self._config = capture_runnable_config()
-
-    async def __call__(
-        self,
-        message: RequestResponder[Any, Any] | ServerNotification | Exception,
-    ) -> None:
-        if isinstance(message, Exception):
-            logger.debug(f"mcp notification handler: transport error {message!r}")
-            return
-        if not isinstance(message, ServerNotification):
-            # Request-responder frames (e.g. elicitation/create,
-            # sampling/createMessage) are handled by the SDK's dedicated
-            # request handlers — nothing to forward here.
-            return
-
-        root = message.root
-        method: str = getattr(root, "method", "") or ""
-
-        # Progress goes through DaoAiProgressCallback (per-call,
-        # progressToken-scoped) to preserve tool-call correlation.
-        if isinstance(root, ProgressNotification):
-            return
-
-        params_obj = getattr(root, "params", None)
-        if params_obj is None:
-            params_dict: dict[str, Any] = {}
-        elif hasattr(params_obj, "model_dump"):
-            params_dict = params_obj.model_dump(exclude_none=True)
-        else:
-            params_dict = dict(params_obj) if isinstance(params_obj, dict) else {}
-
-        channel = _method_to_channel(method)
-        envelope: dict[str, Any] = {
-            "channel": channel,
-            "method": method,
-            "server_name": self._server_name,
-            "params": params_dict,
-        }
-        # For notifications/message, MCP guarantees `level` and `data` on
-        # params (spec) with optional `logger`. Lift them to top-level so
-        # consumers can route on level without inspecting params. No
-        # server-side filter is applied — every level flows through.
-        if isinstance(root, LoggingMessageNotification):
-            envelope["level"] = str(root.params.level).lower()
-            envelope["logger"] = root.params.logger or ""
-            envelope["data"] = str(root.params.data)[:2000]
-
-        await _emit(channel, envelope, self._config)
-
-
-def _method_to_channel(method: str) -> str:
-    """Map an MCP notification method to a channel name.
-
-    * ``notifications/message`` → ``mcp.log`` (the MCP ``logging`` capability
-      — the method is called ``message`` but the semantic is a log record).
-    * ``notifications/<x>/<y>`` → ``mcp.<x>.<y>`` for every other spec or
-      custom notification.
-
-    Distinct channels let downstream consumers route logs to a log stream
-    and other notifications to a general notification stream without
-    inspecting envelope contents.
-    """
-    if not method:
-        return "mcp.unknown"
-    if method == "notifications/message":
-        return "mcp.log"
-    if method.startswith("notifications/"):
-        suffix = method[len("notifications/") :].replace("/", ".")
-        return f"mcp.{suffix}"
-    return f"mcp.{method}"
 
 
 class DaoAiElicitationCallback:

@@ -30,27 +30,21 @@ from mcp.types import (
     CallToolResult,
     ElicitRequestFormParams,
     ElicitResult,
-    LoggingMessageNotification,
-    LoggingMessageNotificationParams,
     ResourceLink,
-    ServerNotification,
     TextContent,
 )
 
 from dao_ai.config import (
     McpCapabilitiesModel,
     McpFunctionModel,
-    McpRootModel,
 )
 from dao_ai.tools.mcp_callbacks import (
     DaoAiElicitationCallback,
-    DaoAiNotificationCallback,
     DaoAiProgressCallback,
     _resume_value_to_elicit_result,
 )
 from dao_ai.tools.mcp_interceptors import (
     DaoAiStructuredOutputInterceptor,
-    DaoAiTraceInterceptor,
 )
 
 
@@ -58,37 +52,36 @@ class TestCapabilityModels:
     def test_defaults(self) -> None:
         caps = McpCapabilitiesModel()
         assert caps.progress is False
-        assert caps.logging is False
         assert caps.elicitation is None
         assert caps.structured_output is True
-        assert caps.sampling is None
-        assert caps.roots == []
 
     def test_full_shape(self) -> None:
         caps = McpCapabilitiesModel(
             progress=True,
-            logging=True,
             elicitation="hitl",
             structured_output=True,
-            roots=[McpRootModel(uri="file:///workspace", name="workspace")],
         )
         assert caps.progress is True
-        assert caps.logging is True
         assert caps.elicitation == "hitl"
-        assert caps.roots[0].uri == "file:///workspace"
 
     def test_invalid_elicitation_mode_rejected(self) -> None:
         with pytest.raises(ValueError):
             McpCapabilitiesModel(elicitation="prompt")  # type: ignore[arg-type]
 
+    def test_deprecated_fields_rejected(self) -> None:
+        # logging/sampling/roots were removed under MCP SEP-2577; extra="forbid"
+        # makes any stale config fail loudly.
+        for field in ("logging", "sampling", "roots"):
+            with pytest.raises(ValueError):
+                McpCapabilitiesModel(**{field: True})  # type: ignore[arg-type]
+
     def test_mcpfunctionmodel_accepts_capabilities(self) -> None:
         model = McpFunctionModel(
             url="http://example.com/mcp",
-            capabilities=McpCapabilitiesModel(progress=True, logging=True),
+            capabilities=McpCapabilitiesModel(progress=True),
         )
         assert model.capabilities is not None
         assert model.capabilities.progress is True
-        assert model.capabilities.logging is True
 
 
 class TestBuildMcpClient:
@@ -114,7 +107,6 @@ class TestBuildMcpClient:
 
         caps = McpCapabilitiesModel(
             progress=True,
-            logging=True,
             elicitation="reject",
             structured_output=True,
         )
@@ -127,17 +119,12 @@ class TestBuildMcpClient:
             assert kwargs["callbacks"] is not None
             assert kwargs["handle_tool_errors"] is False
             interceptors = kwargs["tool_interceptors"]
-            assert len(interceptors) == 2
-            assert isinstance(interceptors[0], DaoAiTraceInterceptor)
-            assert isinstance(interceptors[1], DaoAiStructuredOutputInterceptor)
-            # logging=True → message_handler injected via session_kwargs
-            from dao_ai.tools.mcp_callbacks import DaoAiNotificationCallback
-
+            assert len(interceptors) == 1
+            assert isinstance(interceptors[0], DaoAiStructuredOutputInterceptor)
+            # No message_handler is injected — logging notifications are removed.
             connections = args[0]
             session_kwargs = connections["mcp_function"].get("session_kwargs") or {}
-            assert isinstance(
-                session_kwargs.get("message_handler"), DaoAiNotificationCallback
-            )
+            assert "message_handler" not in session_kwargs
 
     def test_capabilities_path_skips_structured_interceptor_when_disabled(self) -> None:
         from dao_ai.tools import mcp as mcp_mod
@@ -149,8 +136,7 @@ class TestBuildMcpClient:
             mcp_mod._build_mcp_client(self._make_fn(capabilities=caps))
             _, kwargs = mock_cls.call_args
             interceptors = kwargs["tool_interceptors"]
-            assert len(interceptors) == 1
-            assert isinstance(interceptors[0], DaoAiTraceInterceptor)
+            assert len(interceptors) == 0
 
     def test_capabilities_path_omits_callbacks_when_all_disabled(self) -> None:
         from dao_ai.tools import mcp as mcp_mod
@@ -263,9 +249,6 @@ class TestProtocolConformance:
     def test_elicitation_callback_is_protocol(self) -> None:
         assert isinstance(DaoAiElicitationCallback("reject"), ElicitationCallback)
 
-    def test_trace_interceptor_is_protocol(self) -> None:
-        assert isinstance(DaoAiTraceInterceptor(), ToolCallInterceptor)
-
     def test_structured_output_interceptor_is_protocol(self) -> None:
         assert isinstance(DaoAiStructuredOutputInterceptor(), ToolCallInterceptor)
 
@@ -312,75 +295,6 @@ class TestProgressCallback:
                     context=CallbackContext(server_name="x"),
                 )
             )
-
-
-class TestNotificationCallback:
-    @staticmethod
-    def _log_notification(level: str) -> ServerNotification:
-        return ServerNotification(
-            LoggingMessageNotification(
-                method="notifications/message",
-                params=LoggingMessageNotificationParams(
-                    level=level, data="boom", logger="genie"
-                ),
-            )
-        )
-
-    def test_forwards_log_notification_generically(self) -> None:
-        span = MagicMock()
-        with patch(
-            "dao_ai.tools.mcp_callbacks.mlflow.get_current_active_span",
-            return_value=span,
-        ):
-            cb = DaoAiNotificationCallback(server_name="genie")
-            asyncio.run(cb(self._log_notification("error")))
-        span.add_event.assert_called_once()
-        span_event = span.add_event.call_args[0][0]
-        # Span-event name equals the channel. For notifications/message
-        # frames MCP guarantees level+data on params; those are also lifted
-        # to top-level of the envelope for consumer convenience.
-        assert span_event.name == "mcp.log"
-        attrs = span_event.attributes
-        assert attrs["channel"] == "mcp.log"
-        assert attrs["method"] == "notifications/message"
-        assert attrs["server_name"] == "genie"
-        assert attrs["level"] == "error"
-        assert attrs["logger"] == "genie"
-        assert attrs["data"] == "boom"
-        # Raw params also carried through for consumers that want the
-        # original shape.
-        assert attrs["params"]["level"] == "error"
-
-    def test_ignores_exceptions_and_requests(self) -> None:
-        span = MagicMock()
-        with patch(
-            "dao_ai.tools.mcp_callbacks.mlflow.get_current_active_span",
-            return_value=span,
-        ):
-            cb = DaoAiNotificationCallback()
-            asyncio.run(cb(RuntimeError("transport blew up")))
-            asyncio.run(cb(SimpleNamespace(this_is_a="request-responder")))
-        span.add_event.assert_not_called()
-
-    def test_skips_progress_notification(self) -> None:
-        from mcp.types import ProgressNotification, ProgressNotificationParams
-
-        span = MagicMock()
-        with patch(
-            "dao_ai.tools.mcp_callbacks.mlflow.get_current_active_span",
-            return_value=span,
-        ):
-            cb = DaoAiNotificationCallback()
-            note = ServerNotification(
-                ProgressNotification(
-                    method="notifications/progress",
-                    params=ProgressNotificationParams(
-                        progressToken="t1", progress=0.5, total=1.0
-                    ),
-                )
-            )
-            asyncio.run(cb(note))
-        span.add_event.assert_not_called()
 
 
 class TestElicitationCallback:
@@ -503,42 +417,3 @@ class TestStructuredOutputInterceptor:
         assert not any(
             c[0][0] == "mcp.resource_link" for c in span.add_event.call_args_list
         )
-
-
-class TestTraceInterceptor:
-    def test_injects_trace_id_header(self) -> None:
-        span = MagicMock()
-        span.request_id = "req-abc"
-        span.trace_id = None
-        request = MCPToolCallRequest(name="t", args={}, server_name="s")
-        captured: dict = {}
-
-        async def handler(req: MCPToolCallRequest) -> CallToolResult:
-            captured["headers"] = req.headers
-            return CallToolResult(content=[TextContent(type="text", text="x")])
-
-        with patch(
-            "dao_ai.tools.mcp_interceptors.mlflow.get_current_active_span",
-            return_value=span,
-        ):
-            interceptor = DaoAiTraceInterceptor()
-            asyncio.run(interceptor(request, handler))
-        assert captured["headers"] == {"x-dao-ai-trace-id": "req-abc"}
-
-    def test_no_span_no_header(self) -> None:
-        request = MCPToolCallRequest(
-            name="t", args={}, server_name="s", headers={"a": "b"}
-        )
-        captured: dict = {}
-
-        async def handler(req: MCPToolCallRequest) -> CallToolResult:
-            captured["headers"] = req.headers
-            return CallToolResult(content=[TextContent(type="text", text="x")])
-
-        with patch(
-            "dao_ai.tools.mcp_interceptors.mlflow.get_current_active_span",
-            return_value=None,
-        ):
-            interceptor = DaoAiTraceInterceptor()
-            asyncio.run(interceptor(request, handler))
-        assert captured["headers"] == {"a": "b"}

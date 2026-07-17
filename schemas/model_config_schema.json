@@ -7068,18 +7068,12 @@
     },
     "McpCapabilitiesModel": {
       "additionalProperties": false,
-      "description": "Advanced MCP capabilities for an MCP client (McpFunctionModel).\n\nWhen None (the default on McpFunctionModel), the classic\nMultiServerMCPClient path runs with no callbacks or interceptors \u2014\nguaranteeing byte-for-byte behavior parity with the pre-capabilities\nversion.\n\nWhen set, dao-ai wires langchain-mcp-adapters ``Callbacks`` and\n``ToolCallInterceptor`` middleware around the client. If ``sampling`` or\n``roots`` is populated, dao-ai drops to a raw ``mcp.client.session.ClientSession``\npath since those callbacks are not surfaced by the adapter.",
+      "description": "Advanced MCP capabilities for an MCP client (McpFunctionModel).\n\nWhen None (the default on McpFunctionModel), the classic\nMultiServerMCPClient path runs with no callbacks or interceptors \u2014\nguaranteeing byte-for-byte behavior parity with the pre-capabilities\nversion.\n\nWhen set, dao-ai wires langchain-mcp-adapters ``Callbacks`` and\n``ToolCallInterceptor`` middleware around the client.",
       "properties": {
         "progress": {
           "default": false,
           "description": "Consume progress notifications from the MCP server; forward as MLflow span events on the enclosing tool span.",
           "title": "Progress",
-          "type": "boolean"
-        },
-        "logging": {
-          "default": false,
-          "description": "Consume server-\u2192-client notifications via a session-scoped message_handler and advertise MCP's 'logging' capability so the server emits notifications/message frames. Forwards every notification (notifications/message and any custom notifications/<method>) as a channel-tagged envelope; notifications/progress is routed through the progress callback and skipped here to avoid duplicate emission.",
-          "title": "Logging",
           "type": "boolean"
         },
         "elicitation": {
@@ -7104,26 +7098,6 @@
           "description": "Prefer CallToolResult.structuredContent and expand resource_link items into MLflow span attributes via a ToolCallInterceptor. Additive only; falls back to text extraction when structuredContent is absent.",
           "title": "Structured Output",
           "type": "boolean"
-        },
-        "sampling": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/McpSamplingCapabilityModel"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "description": "Handle server-initiated sampling/createMessage. Requires the raw ClientSession path (adapter does not surface sampling callback)."
-        },
-        "roots": {
-          "description": "URI roots advertised to the server via roots/list. Requires the raw ClientSession path (adapter does not surface list_roots callback). Empty list disables the capability.",
-          "items": {
-            "$ref": "#/$defs/McpRootModel"
-          },
-          "title": "Roots",
-          "type": "array"
         }
       },
       "title": "McpCapabilitiesModel",
@@ -7718,76 +7692,14 @@
       "title": "McpResourceModel",
       "type": "object"
     },
-    "McpRootModel": {
-      "additionalProperties": false,
-      "description": "A single URI root advertised to the MCP server via roots/list.\n\nRoots let the server scope filesystem / storage operations to a bounded set\nof URIs the client blesses.",
-      "properties": {
-        "uri": {
-          "description": "Root URI, e.g. 'file:///workspace' or 'databricks:///Volumes/catalog/schema/vol'.",
-          "title": "Uri",
-          "type": "string"
-        },
-        "name": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "description": "Human-readable label for the root.",
-          "title": "Name"
-        }
-      },
-      "required": [
-        "uri"
-      ],
-      "title": "McpRootModel",
-      "type": "object"
-    },
-    "McpSamplingCapabilityModel": {
-      "additionalProperties": false,
-      "description": "Configuration for handling server-initiated sampling/createMessage requests.\n\nWhen present on an McpFunctionModel, dao-ai routes sampling requests to the\nreferenced inference endpoint via AI Gateway. Requires the raw ClientSession\ncode path since langchain-mcp-adapters does not surface sampling callbacks.",
-      "properties": {
-        "endpoint": {
-          "$ref": "#/$defs/InferenceEndpointModel",
-          "description": "LLM endpoint used to satisfy sampling requests. AI Gateway required."
-        },
-        "max_iterations": {
-          "default": 3,
-          "description": "Cap on nested sampling calls per outer tool invocation. Prevents runaway server-driven recursion.",
-          "title": "Max Iterations",
-          "type": "integer"
-        },
-        "allow_tool_use": {
-          "default": false,
-          "description": "Whether a sampling call may itself request tool use. Default false prevents cross-agent recursion.",
-          "title": "Allow Tool Use",
-          "type": "boolean"
-        }
-      },
-      "required": [
-        "endpoint"
-      ],
-      "title": "McpSamplingCapabilityModel",
-      "type": "object"
-    },
     "McpServerCapabilitiesModel": {
       "additionalProperties": false,
-      "description": "Advanced capabilities emitted BY dao-ai when deployed as an MCP server.\n\nClient-side capabilities are on ``McpFunctionModel.capabilities``. This\nmodel is the server-side complement \u2014 declaring what the dao-ai MCP\nserver itself publishes and how it reports progress/logging to callers.\n\nWhen None on ``AppModel`` (the default), dao-ai's MCP server publishes\nonly the single agent-as-tool surface \u2014 no static resources or prompts,\nno progress/logging notifications.",
+      "description": "Advanced capabilities emitted BY dao-ai when deployed as an MCP server.\n\nClient-side capabilities are on ``McpFunctionModel.capabilities``. This\nmodel is the server-side complement \u2014 declaring what the dao-ai MCP\nserver itself publishes and how it reports progress/logging to callers.\n\nWhen None on ``AppModel`` (the default), dao-ai's MCP server publishes\nonly the single agent-as-tool surface \u2014 no static resources or prompts,\nno progress notifications.",
       "properties": {
         "progress": {
           "default": true,
           "description": "Emit progress notifications from LangGraph astream_events during agent execution. Requires the caller to supply a progressToken via _meta on tools/call.",
           "title": "Progress",
-          "type": "boolean"
-        },
-        "logging": {
-          "default": true,
-          "description": "Route Python logger records into notifications/message on the active FastMCP session. Silent no-op when no session context is bound.",
-          "title": "Logging",
           "type": "boolean"
         },
         "resources": {

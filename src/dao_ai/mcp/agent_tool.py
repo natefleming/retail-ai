@@ -60,6 +60,7 @@ from pydantic import BaseModel, Field
 from dao_ai.config import AppConfig
 from dao_ai.mcp._request_context import current_request_headers, current_request_id
 from dao_ai.models import LanggraphResponsesAgent
+from dao_ai.tools.mcp_trace_context import extract_trace_context_meta
 
 _SLUG_RE = re.compile(r"[^a-z0-9_]+")
 
@@ -465,6 +466,11 @@ def register_agent_as_tool(mcp: FastMCP, config: AppConfig) -> str:
             request_context = None
         if request_context is not None:
             request_meta = request_context.meta
+
+        # SEP-414: continue the caller's distributed trace by stamping inbound
+        # W3C trace context (traceparent/tracestate/baggage) onto the active
+        # MLflow span. Additive; no-op when the client sent none.
+        extract_trace_context_meta(request_meta)
 
         effective_conversation_id, conversation_id_source = _resolve_conversation_id(
             meta=request_meta,

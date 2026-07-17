@@ -5680,47 +5680,6 @@ class TransportType(str, Enum):
     STDIO = "stdio"
 
 
-class McpSamplingCapabilityModel(BaseModel):
-    """Configuration for handling server-initiated sampling/createMessage requests.
-
-    When present on an McpFunctionModel, dao-ai routes sampling requests to the
-    referenced inference endpoint via AI Gateway. Requires the raw ClientSession
-    code path since langchain-mcp-adapters does not surface sampling callbacks.
-    """
-
-    model_config = ConfigDict(extra="forbid")
-    endpoint: "InferenceEndpointModel" = Field(
-        ...,
-        description="LLM endpoint used to satisfy sampling requests. AI Gateway required.",
-    )
-    max_iterations: int = Field(
-        default=3,
-        description="Cap on nested sampling calls per outer tool invocation. Prevents runaway server-driven recursion.",
-    )
-    allow_tool_use: bool = Field(
-        default=False,
-        description="Whether a sampling call may itself request tool use. Default false prevents cross-agent recursion.",
-    )
-
-
-class McpRootModel(BaseModel):
-    """A single URI root advertised to the MCP server via roots/list.
-
-    Roots let the server scope filesystem / storage operations to a bounded set
-    of URIs the client blesses.
-    """
-
-    model_config = ConfigDict(extra="forbid")
-    uri: str = Field(
-        ...,
-        description="Root URI, e.g. 'file:///workspace' or 'databricks:///Volumes/catalog/schema/vol'.",
-    )
-    name: Optional[str] = Field(
-        default=None,
-        description="Human-readable label for the root.",
-    )
-
-
 class McpResourceModel(BaseModel):
     """A static resource exposed by dao-ai's own MCP server via ``resources/list``.
 
@@ -5807,17 +5766,13 @@ class McpServerCapabilitiesModel(BaseModel):
 
     When None on ``AppModel`` (the default), dao-ai's MCP server publishes
     only the single agent-as-tool surface — no static resources or prompts,
-    no progress/logging notifications.
+    no progress notifications.
     """
 
     model_config = ConfigDict(extra="forbid")
     progress: bool = Field(
         default=True,
         description="Emit progress notifications from LangGraph astream_events during agent execution. Requires the caller to supply a progressToken via _meta on tools/call.",
-    )
-    logging: bool = Field(
-        default=True,
-        description="Route Python logger records into notifications/message on the active FastMCP session. Silent no-op when no session context is bound.",
     )
     resources: list[McpResourceModel] = Field(
         default_factory=list,
@@ -5838,19 +5793,13 @@ class McpCapabilitiesModel(BaseModel):
     version.
 
     When set, dao-ai wires langchain-mcp-adapters ``Callbacks`` and
-    ``ToolCallInterceptor`` middleware around the client. If ``sampling`` or
-    ``roots`` is populated, dao-ai drops to a raw ``mcp.client.session.ClientSession``
-    path since those callbacks are not surfaced by the adapter.
+    ``ToolCallInterceptor`` middleware around the client.
     """
 
     model_config = ConfigDict(extra="forbid")
     progress: bool = Field(
         default=False,
         description="Consume progress notifications from the MCP server; forward as MLflow span events on the enclosing tool span.",
-    )
-    logging: bool = Field(
-        default=False,
-        description="Consume server-→-client notifications via a session-scoped message_handler and advertise MCP's 'logging' capability so the server emits notifications/message frames. Forwards every notification (notifications/message and any custom notifications/<method>) as a channel-tagged envelope; notifications/progress is routed through the progress callback and skipped here to avoid duplicate emission.",
     )
     elicitation: Optional[Literal["hitl", "reject"]] = Field(
         default=None,
@@ -5859,14 +5808,6 @@ class McpCapabilitiesModel(BaseModel):
     structured_output: bool = Field(
         default=True,
         description="Prefer CallToolResult.structuredContent and expand resource_link items into MLflow span attributes via a ToolCallInterceptor. Additive only; falls back to text extraction when structuredContent is absent.",
-    )
-    sampling: Optional[McpSamplingCapabilityModel] = Field(
-        default=None,
-        description="Handle server-initiated sampling/createMessage. Requires the raw ClientSession path (adapter does not surface sampling callback).",
-    )
-    roots: list[McpRootModel] = Field(
-        default_factory=list,
-        description="URI roots advertised to the server via roots/list. Requires the raw ClientSession path (adapter does not surface list_roots callback). Empty list disables the capability.",
     )
 
 
