@@ -299,6 +299,22 @@
           "default": null,
           "description": "Optional tamper-evident audit trail for this tool. Presence of this block enables audit-receipt logging on every invocation; absence leaves the runtime path unchanged. Typically declared once as a YAML anchor and referenced from every tool that should be audited. Composes with human_in_the_loop to produce approval receipts with args-hash binding and fail-closed execution."
         },
+        "call_limit": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "$ref": "#/$defs/ToolCallLimitModel"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Shortcut to cap how many times this tool may be called. A bare integer sets run_limit (per-invocation) with exit_behavior='continue'; an object gives full control over run_limit/thread_limit/exit_behavior. Applied automatically to every agent that uses this tool, in addition to any explicit tool-call-limit middleware configured on the agent.",
+          "title": "Call Limit"
+        },
         "endpoint": {
           "anyOf": [
             {
@@ -930,6 +946,22 @@
           ],
           "default": null,
           "description": "Optional tamper-evident audit trail for this tool. Presence of this block enables audit-receipt logging on every invocation; absence leaves the runtime path unchanged. Typically declared once as a YAML anchor and referenced from every tool that should be audited. Composes with human_in_the_loop to produce approval receipts with args-hash binding and fail-closed execution."
+        },
+        "call_limit": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "$ref": "#/$defs/ToolCallLimitModel"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Shortcut to cap how many times this tool may be called. A bare integer sets run_limit (per-invocation) with exit_behavior='continue'; an object gives full control over run_limit/thread_limit/exit_behavior. Applied automatically to every agent that uses this tool, in addition to any explicit tool-call-limit middleware configured on the agent.",
+          "title": "Call Limit"
         },
         "retriever": {
           "anyOf": [
@@ -1803,6 +1835,22 @@
           ],
           "default": null,
           "description": "Optional tamper-evident audit trail for this tool. Presence of this block enables audit-receipt logging on every invocation; absence leaves the runtime path unchanged. Typically declared once as a YAML anchor and referenced from every tool that should be audited. Composes with human_in_the_loop to produce approval receipts with args-hash binding and fail-closed execution."
+        },
+        "call_limit": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "$ref": "#/$defs/ToolCallLimitModel"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Shortcut to cap how many times this tool may be called. A bare integer sets run_limit (per-invocation) with exit_behavior='continue'; an object gives full control over run_limit/thread_limit/exit_behavior. Applied automatically to every agent that uses this tool, in addition to any explicit tool-call-limit middleware configured on the agent.",
+          "title": "Call Limit"
         },
         "app": {
           "$ref": "#/$defs/DatabricksAppModel",
@@ -4113,6 +4161,22 @@
           "default": null,
           "description": "Optional tamper-evident audit trail for this tool. Presence of this block enables audit-receipt logging on every invocation; absence leaves the runtime path unchanged. Typically declared once as a YAML anchor and referenced from every tool that should be audited. Composes with human_in_the_loop to produce approval receipts with args-hash binding and fail-closed execution."
         },
+        "call_limit": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "$ref": "#/$defs/ToolCallLimitModel"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Shortcut to cap how many times this tool may be called. A bare integer sets run_limit (per-invocation) with exit_behavior='continue'; an object gives full control over run_limit/thread_limit/exit_behavior. Applied automatically to every agent that uses this tool, in addition to any explicit tool-call-limit middleware configured on the agent.",
+          "title": "Call Limit"
+        },
         "name": {
           "description": "Fully qualified factory function name that returns a tool or list of tools.",
           "title": "Name",
@@ -5695,6 +5759,22 @@
           "default": null,
           "description": "Optional tamper-evident audit trail for this tool. Presence of this block enables audit-receipt logging on every invocation; absence leaves the runtime path unchanged. Typically declared once as a YAML anchor and referenced from every tool that should be audited. Composes with human_in_the_loop to produce approval receipts with args-hash binding and fail-closed execution."
         },
+        "call_limit": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "$ref": "#/$defs/ToolCallLimitModel"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Shortcut to cap how many times this tool may be called. A bare integer sets run_limit (per-invocation) with exit_behavior='continue'; an object gives full control over run_limit/thread_limit/exit_behavior. Applied automatically to every agent that uses this tool, in addition to any explicit tool-call-limit middleware configured on the agent.",
+          "title": "Call Limit"
+        },
         "genie_room": {
           "$ref": "#/$defs/GenieRoomModel",
           "description": "Genie space configuration."
@@ -6639,6 +6719,22 @@
           "default": null,
           "description": "Optional tamper-evident audit trail for this tool. Presence of this block enables audit-receipt logging on every invocation; absence leaves the runtime path unchanged. Typically declared once as a YAML anchor and referenced from every tool that should be audited. Composes with human_in_the_loop to produce approval receipts with args-hash binding and fail-closed execution."
         },
+        "call_limit": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "$ref": "#/$defs/ToolCallLimitModel"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Shortcut to cap how many times this tool may be called. A bare integer sets run_limit (per-invocation) with exit_behavior='continue'; an object gives full control over run_limit/thread_limit/exit_behavior. Applied automatically to every agent that uses this tool, in addition to any explicit tool-call-limit middleware configured on the agent.",
+          "title": "Call Limit"
+        },
         "code": {
           "description": "Python code defining a tool function decorated with @tool",
           "title": "Code",
@@ -6890,6 +6986,22 @@
           ],
           "default": null,
           "description": "Optional tamper-evident audit trail for this tool. Presence of this block enables audit-receipt logging on every invocation; absence leaves the runtime path unchanged. Typically declared once as a YAML anchor and referenced from every tool that should be audited. Composes with human_in_the_loop to produce approval receipts with args-hash binding and fail-closed execution."
+        },
+        "call_limit": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "$ref": "#/$defs/ToolCallLimitModel"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Shortcut to cap how many times this tool may be called. A bare integer sets run_limit (per-invocation) with exit_behavior='continue'; an object gives full control over run_limit/thread_limit/exit_behavior. Applied automatically to every agent that uses this tool, in addition to any explicit tool-call-limit middleware configured on the agent.",
+          "title": "Call Limit"
         },
         "retriever": {
           "anyOf": [
@@ -7304,6 +7416,22 @@
           ],
           "default": null,
           "description": "Optional tamper-evident audit trail for this tool. Presence of this block enables audit-receipt logging on every invocation; absence leaves the runtime path unchanged. Typically declared once as a YAML anchor and referenced from every tool that should be audited. Composes with human_in_the_loop to produce approval receipts with args-hash binding and fail-closed execution."
+        },
+        "call_limit": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "$ref": "#/$defs/ToolCallLimitModel"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Shortcut to cap how many times this tool may be called. A bare integer sets run_limit (per-invocation) with exit_behavior='continue'; an object gives full control over run_limit/thread_limit/exit_behavior. Applied automatically to every agent that uses this tool, in addition to any explicit tool-call-limit middleware configured on the agent.",
+          "title": "Call Limit"
         },
         "transport": {
           "$ref": "#/$defs/TransportType",
@@ -8491,6 +8619,22 @@
           "default": null,
           "description": "Optional tamper-evident audit trail for this tool. Presence of this block enables audit-receipt logging on every invocation; absence leaves the runtime path unchanged. Typically declared once as a YAML anchor and referenced from every tool that should be audited. Composes with human_in_the_loop to produce approval receipts with args-hash binding and fail-closed execution."
         },
+        "call_limit": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "$ref": "#/$defs/ToolCallLimitModel"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Shortcut to cap how many times this tool may be called. A bare integer sets run_limit (per-invocation) with exit_behavior='continue'; an object gives full control over run_limit/thread_limit/exit_behavior. Applied automatically to every agent that uses this tool, in addition to any explicit tool-call-limit middleware configured on the agent.",
+          "title": "Call Limit"
+        },
         "name": {
           "description": "Fully qualified Python function name (e.g., 'my_package.tools.my_tool').",
           "title": "Name",
@@ -8934,6 +9078,22 @@
           ],
           "default": null,
           "description": "Optional tamper-evident audit trail for this tool. Presence of this block enables audit-receipt logging on every invocation; absence leaves the runtime path unchanged. Typically declared once as a YAML anchor and referenced from every tool that should be audited. Composes with human_in_the_loop to produce approval receipts with args-hash binding and fail-closed execution."
+        },
+        "call_limit": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "$ref": "#/$defs/ToolCallLimitModel"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Shortcut to cap how many times this tool may be called. A bare integer sets run_limit (per-invocation) with exit_behavior='continue'; an object gives full control over run_limit/thread_limit/exit_behavior. Applied automatically to every agent that uses this tool, in addition to any explicit tool-call-limit middleware configured on the agent.",
+          "title": "Call Limit"
         }
       },
       "title": "SearchToolModel",
@@ -9096,6 +9256,22 @@
           ],
           "default": null,
           "description": "Optional tamper-evident audit trail for this tool. Presence of this block enables audit-receipt logging on every invocation; absence leaves the runtime path unchanged. Typically declared once as a YAML anchor and referenced from every tool that should be audited. Composes with human_in_the_loop to produce approval receipts with args-hash binding and fail-closed execution."
+        },
+        "call_limit": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "$ref": "#/$defs/ToolCallLimitModel"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Shortcut to cap how many times this tool may be called. A bare integer sets run_limit (per-invocation) with exit_behavior='continue'; an object gives full control over run_limit/thread_limit/exit_behavior. Applied automatically to every agent that uses this tool, in addition to any explicit tool-call-limit middleware configured on the agent.",
+          "title": "Call Limit"
         },
         "endpoint": {
           "anyOf": [
@@ -9744,6 +9920,53 @@
       "title": "TableModel",
       "type": "object"
     },
+    "ToolCallLimitModel": {
+      "additionalProperties": false,
+      "description": "Configuration for capping how many times a tool may be called.\n\nPresence of this block on a tool's ``function`` registers a\n``ToolCallLimitMiddleware`` for that tool on every agent that uses it, so\nthe limit follows the tool rather than being re-declared on each agent's\n``middleware`` list. Typically declared once as a YAML anchor\n(``call_limit: &tool_limit { ... }``) and referenced from every tool that\nshould share the same cap.\n\nA bare integer is accepted as shorthand for ``run_limit`` with\n``exit_behavior='continue'`` (see ``BaseFunctionModel.call_limit``); the\nobject form below gives full control. At least one of ``run_limit`` or\n``thread_limit`` must be set. This maps to LangChain's\n``ToolCallLimitMiddleware`` via ``create_tool_call_limit_middleware``.",
+      "properties": {
+        "run_limit": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Maximum number of times this tool may be called within a single agent invocation (one user message). Resets each run and requires no checkpointer.",
+          "title": "Run Limit"
+        },
+        "thread_limit": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Maximum number of times this tool may be called across an entire conversation (thread). Requires a checkpointer, which DAO AI agents have via memory.",
+          "title": "Thread Limit"
+        },
+        "exit_behavior": {
+          "default": "continue",
+          "description": "Behavior when a limit is reached: 'continue' blocks the call and returns an error message so the agent can try another approach (recommended); 'error' raises immediately; 'end' stops execution gracefully (single-tool scenarios only).",
+          "enum": [
+            "continue",
+            "error",
+            "end"
+          ],
+          "title": "Exit Behavior",
+          "type": "string"
+        }
+      },
+      "title": "ToolCallLimitModel",
+      "type": "object"
+    },
     "ToolModel": {
       "additionalProperties": false,
       "description": "A named tool binding an identifier to a function implementation.",
@@ -9932,6 +10155,22 @@
           ],
           "default": null,
           "description": "Optional tamper-evident audit trail for this tool. Presence of this block enables audit-receipt logging on every invocation; absence leaves the runtime path unchanged. Typically declared once as a YAML anchor and referenced from every tool that should be audited. Composes with human_in_the_loop to produce approval receipts with args-hash binding and fail-closed execution."
+        },
+        "call_limit": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "$ref": "#/$defs/ToolCallLimitModel"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Shortcut to cap how many times this tool may be called. A bare integer sets run_limit (per-invocation) with exit_behavior='continue'; an object gives full control over run_limit/thread_limit/exit_behavior. Applied automatically to every agent that uses this tool, in addition to any explicit tool-call-limit middleware configured on the agent.",
+          "title": "Call Limit"
         },
         "resource": {
           "$ref": "#/$defs/FunctionModel",
@@ -10691,7 +10930,7 @@
       "additionalProperties": {
         "$ref": "#/$defs/PromptModel"
       },
-      "description": "Named prompt definitions backed by the MLflow Prompt Registry.",
+      "description": "Named, reusable prompt definitions referenced by agents via YAML anchors.",
       "title": "Prompts",
       "type": "object"
     },

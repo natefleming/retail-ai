@@ -5,8 +5,16 @@ Tests for tool call limit middleware factory.
 import pytest
 from langchain.agents.middleware import ToolCallLimitMiddleware
 
-from dao_ai.config import PythonFunctionModel, ToolModel
-from dao_ai.middleware import create_tool_call_limit_middleware
+from dao_ai.config import (
+    PythonFunctionModel,
+    SearchToolModel,
+    ToolCallLimitModel,
+    ToolModel,
+)
+from dao_ai.middleware import (
+    create_tool_call_limit_middleware,
+    create_tool_call_limit_middlewares_from_tool_models,
+)
 
 
 class TestCreateToolCallLimitMiddleware:
@@ -226,3 +234,103 @@ class TestCreateToolCallLimitMiddleware:
         # Should be composable into list manually
         all_middlewares = [global_limits, tool_limits]
         assert len(all_middlewares) == 2
+
+
+class TestCreateToolCallLimitMiddlewaresFromToolModels:
+    """Tests for the create_tool_call_limit_middlewares_from_tool_models scan."""
+
+    def test_no_tools_returns_empty(self):
+        """No tool models at all -> empty list."""
+        assert create_tool_call_limit_middlewares_from_tool_models([]) == []
+
+    def test_no_call_limit_returns_empty(self):
+        """Tools without a call_limit produce no middleware."""
+        tool_models = [
+            ToolModel(
+                name="time",
+                function=PythonFunctionModel(name="dao_ai.tools.current_time_tool"),
+            ),
+            ToolModel(name="search", function=SearchToolModel()),
+        ]
+
+        assert create_tool_call_limit_middlewares_from_tool_models(tool_models) == []
+
+    def test_bare_int_call_limit(self):
+        """A bare-int call_limit (normalized on the model) yields run_limit."""
+        tool_models = [
+            ToolModel(
+                name="search",
+                function=SearchToolModel(call_limit=3),
+            ),
+        ]
+
+        middlewares = create_tool_call_limit_middlewares_from_tool_models(tool_models)
+
+        assert len(middlewares) == 1
+        mw = middlewares[0]
+        assert isinstance(mw, ToolCallLimitMiddleware)
+        # SearchToolModel resolves to the duckduckgo_search runtime tool name.
+        assert mw.tool_name == "duckduckgo_search"
+        assert mw.run_limit == 3
+        assert mw.thread_limit is None
+        assert mw.exit_behavior == "continue"
+
+    def test_object_call_limit(self):
+        """An object call_limit passes through all fields."""
+        tool_models = [
+            ToolModel(
+                name="t",
+                function=PythonFunctionModel(
+                    name="dao_ai.tools.current_time_tool",
+                    call_limit=ToolCallLimitModel(
+                        run_limit=2,
+                        thread_limit=10,
+                        exit_behavior="error",
+                    ),
+                ),
+            ),
+        ]
+
+        middlewares = create_tool_call_limit_middlewares_from_tool_models(tool_models)
+
+        assert len(middlewares) == 1
+        mw = middlewares[0]
+        assert mw.tool_name == "current_time_tool"
+        assert mw.run_limit == 2
+        assert mw.thread_limit == 10
+        assert mw.exit_behavior == "error"
+
+    def test_only_limited_tools_produce_middleware(self):
+        """Mixed list: only tools with call_limit are limited."""
+        tool_models = [
+            ToolModel(name="search", function=SearchToolModel(call_limit=5)),
+            ToolModel(
+                name="time",
+                function=PythonFunctionModel(name="dao_ai.tools.current_time_tool"),
+            ),
+        ]
+
+        middlewares = create_tool_call_limit_middlewares_from_tool_models(tool_models)
+
+        assert len(middlewares) == 1
+        assert middlewares[0].tool_name == "duckduckgo_search"
+
+    def test_multiple_limited_tools(self):
+        """Multiple tools each with a call_limit produce one middleware each."""
+        tool_models = [
+            ToolModel(name="search", function=SearchToolModel(call_limit=5)),
+            ToolModel(
+                name="t",
+                function=PythonFunctionModel(
+                    name="dao_ai.tools.current_time_tool",
+                    call_limit=2,
+                ),
+            ),
+        ]
+
+        middlewares = create_tool_call_limit_middlewares_from_tool_models(tool_models)
+
+        assert len(middlewares) == 2
+        by_name = {mw.tool_name: mw for mw in middlewares}
+        assert by_name["duckduckgo_search"].run_limit == 5
+        assert by_name["current_time_tool"].run_limit == 2

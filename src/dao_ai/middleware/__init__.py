@@ -110,7 +110,10 @@ from dao_ai.middleware.tool_call_id_sanitizer import (
     ToolCallIdSanitizerMiddleware,
     create_tool_call_id_sanitizer_middleware,
 )
-from dao_ai.middleware.tool_call_limit import create_tool_call_limit_middleware
+from dao_ai.middleware.tool_call_limit import (
+    create_tool_call_limit_middleware,
+    create_tool_call_limit_middlewares_from_tool_models,
+)
 from dao_ai.middleware.tool_call_observability import (
     ToolCallObservabilityMiddleware,
     create_tool_call_observability_middleware,
@@ -201,6 +204,7 @@ __all__ = [
     "create_refine_middleware",
     # Limit and retry middleware factory functions
     "create_tool_call_limit_middleware",
+    "create_tool_call_limit_middlewares_from_tool_models",
     "create_model_call_limit_middleware",
     "create_tool_retry_middleware",
     "create_model_retry_middleware",

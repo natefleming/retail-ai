@@ -1200,10 +1200,7 @@ class AiSearchEndpoint(BaseModel):
     @model_validator(mode="after")
     def validate_target_qps_only_on_standard(self) -> Self:
         """Reject target_qps on non-STANDARD endpoints (SDK constraint)."""
-        if (
-            self.target_qps is not None
-            and self.type != AiSearchEndpointType.STANDARD
-        ):
+        if self.target_qps is not None and self.type != AiSearchEndpointType.STANDARD:
             raise ValueError(
                 f"target_qps is only supported on STANDARD endpoints, not {self.type!r}"
             )
@@ -5198,9 +5195,7 @@ class LakebaseVectorStoreModel(BaseModel):
         rebuild from scratch, drop the table manually first.
         """
         if dimension <= 0:
-            raise ValueError(
-                f"dimension must be a positive int; got {dimension!r}"
-            )
+            raise ValueError(f"dimension must be a positive int; got {dimension!r}")
         meta_types = metadata_column_types or {}
         qualified = f"{self.schema_name}.{self.table}"
 
@@ -5302,9 +5297,7 @@ def _retriever_discriminator(v: Any) -> str:
         if raw is None:
             return RetrieverType.AI_SEARCH.value
         return raw.value if isinstance(raw, RetrieverType) else str(raw)
-    raise ValueError(
-        f"cannot infer retriever discriminator from {type(v).__name__}"
-    )
+    raise ValueError(f"cannot infer retriever discriminator from {type(v).__name__}")
 
 
 # Discriminated union — Pydantic dispatches to the concrete class using the
@@ -5337,9 +5330,7 @@ def _vector_store_discriminator(v: Any) -> str:
         if raw is None:
             return "ai_search"
         return raw.value if hasattr(raw, "value") else str(raw)
-    raise ValueError(
-        f"cannot infer vector_store discriminator from {type(v).__name__}"
-    )
+    raise ValueError(f"cannot infer vector_store discriminator from {type(v).__name__}")
 
 
 # Discriminated union — Pydantic dispatches to the concrete class using
@@ -5495,6 +5486,64 @@ class AuditModel(BaseModel):
         return AuditSinkManager.for_config(self)
 
 
+class ToolCallLimitModel(BaseModel):
+    """
+    Configuration for capping how many times a tool may be called.
+
+    Presence of this block on a tool's ``function`` registers a
+    ``ToolCallLimitMiddleware`` for that tool on every agent that uses it, so
+    the limit follows the tool rather than being re-declared on each agent's
+    ``middleware`` list. Typically declared once as a YAML anchor
+    (``call_limit: &tool_limit { ... }``) and referenced from every tool that
+    should share the same cap.
+
+    A bare integer is accepted as shorthand for ``run_limit`` with
+    ``exit_behavior='continue'`` (see ``BaseFunctionModel.call_limit``); the
+    object form below gives full control. At least one of ``run_limit`` or
+    ``thread_limit`` must be set. This maps to LangChain's
+    ``ToolCallLimitMiddleware`` via ``create_tool_call_limit_middleware``.
+    """
+
+    model_config = ConfigDict(use_enum_values=True, extra="forbid")
+
+    run_limit: Optional[int] = Field(
+        default=None,
+        gt=0,
+        description=(
+            "Maximum number of times this tool may be called within a single "
+            "agent invocation (one user message). Resets each run and requires "
+            "no checkpointer."
+        ),
+    )
+    thread_limit: Optional[int] = Field(
+        default=None,
+        gt=0,
+        description=(
+            "Maximum number of times this tool may be called across an entire "
+            "conversation (thread). Requires a checkpointer, which DAO AI "
+            "agents have via memory."
+        ),
+    )
+    exit_behavior: Literal["continue", "error", "end"] = Field(
+        default="continue",
+        description=(
+            "Behavior when a limit is reached: 'continue' blocks the call and "
+            "returns an error message so the agent can try another approach "
+            "(recommended); 'error' raises immediately; 'end' stops execution "
+            "gracefully (single-tool scenarios only)."
+        ),
+    )
+
+    @model_validator(mode="after")
+    def validate_at_least_one_limit(self) -> Self:
+        """Require at least one of run_limit or thread_limit to be set."""
+        if self.run_limit is None and self.thread_limit is None:
+            raise ValueError(
+                "At least one of run_limit or thread_limit must be specified."
+            )
+        return self
+
+
 class BaseFunctionModel(ABC, BaseModel):
     """Base class for all function/tool implementations (Python, factory, inline, MCP, UC)."""
 
@@ -5521,6 +5570,35 @@ class BaseFunctionModel(ABC, BaseModel):
             "execution."
         ),
     )
+    call_limit: Optional[int | ToolCallLimitModel] = Field(
+        default=None,
+        description=(
+            "Shortcut to cap how many times this tool may be called. A bare "
+            "integer sets run_limit (per-invocation) with "
+            "exit_behavior='continue'; an object gives full control over "
+            "run_limit/thread_limit/exit_behavior. Applied automatically to "
+            "every agent that uses this tool, in addition to any explicit "
+            "tool-call-limit middleware configured on the agent."
+        ),
+    )
+
+    @field_validator("call_limit", mode="before")
+    @classmethod
+    def _normalize_call_limit(cls, value: Any) -> Any:
+        """Normalize a bare integer shortcut into a ToolCallLimitModel dict.
+
+        Runs before union validation so a bare int becomes ``run_limit``.
+        ``bool`` is a subclass of ``int`` but is never a valid limit, so
+        reject it explicitly rather than silently coercing ``True`` to
+        ``run_limit=1``.
+        """
+        if isinstance(value, bool):
+            raise ValueError(
+                "call_limit must be a positive integer or an object, not a bool."
+            )
+        if isinstance(value, int):
+            return {"run_limit": value}
+        return value
 
     @abstractmethod
     def as_tools(self, **kwargs: Any) -> Sequence[RunnableLike]: ...
@@ -7777,9 +7855,7 @@ class SwarmModel(BaseModel):
                 if not isinstance(entry, HandoffRouteModel) or entry.agents is None:
                     continue
                 # Cohort entry.
-                sibling_names: list[str] = [
-                    self._target_name(a) for a in entry.agents
-                ]
+                sibling_names: list[str] = [self._target_name(a) for a in entry.agents]
                 join_name: str = self._target_name(entry.join)
                 if source in sibling_names:
                     raise ValueError(
@@ -10741,9 +10817,7 @@ class AppConfig(BaseModel):
 
         graph: CompiledStateGraph = self.as_graph()
         tool_models: list[ToolModel] = [
-            tool
-            for agent in self.agents.values()
-            for tool in agent.tools
+            tool for agent in self.agents.values() for tool in agent.tools
         ]
         app: ResponsesAgent = create_responses_agent(
             graph,

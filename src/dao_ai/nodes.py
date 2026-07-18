@@ -38,6 +38,9 @@ from dao_ai.middleware.human_in_the_loop import (
 from dao_ai.middleware.summarization import (
     create_summarization_middleware,
 )
+from dao_ai.middleware.tool_call_limit import (
+    create_tool_call_limit_middlewares_from_tool_models,
+)
 from dao_ai.prompts import make_prompt
 from dao_ai.state import AgentState, Context
 from dao_ai.tools import create_tools
@@ -189,6 +192,22 @@ def _create_middleware_list(
             audited_tools=list(audit_middleware.audited_tools),
         )
         middleware_list.append(audit_middleware)
+
+    # Add tool-call-limit middleware for tools with `call_limit` configured.
+    # The limit follows the tool, so every agent using it inherits the cap
+    # without re-declaring middleware. Coexists with any explicit per-agent
+    # tool-call-limit middleware — each instance has a unique
+    # ToolCallLimitMiddleware[<tool>] name. Absent call_limit → empty list.
+    call_limit_middlewares = create_tool_call_limit_middlewares_from_tool_models(
+        tool_models
+    )
+    if call_limit_middlewares:
+        logger.info(
+            "Tool call limit configuration",
+            agent=agent.name,
+            limited_tools=[mw.tool_name for mw in call_limit_middlewares],
+        )
+        middleware_list.extend(call_limit_middlewares)
 
     logger.info(
         "Middleware summary",
