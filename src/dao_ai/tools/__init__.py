@@ -11,9 +11,10 @@ from dao_ai.tools.agent import create_agent_endpoint_tool
 from dao_ai.tools.app_agent_dispatcher import create_app_dispatcher
 from dao_ai.tools.app_info import create_app_info_tool
 from dao_ai.tools.chat_completions_agent import create_chat_completions_agent_tool
-from dao_ai.tools.core import create_tools, say_hello_tool
+from dao_ai.tools.core import create_tools, resolve_tool_names, say_hello_tool
 from dao_ai.tools.email import create_send_email_tool
 from dao_ai.tools.genie import GenieToolkit, create_genie_tool, create_genie_toolkit
+from dao_ai.tools.lakebase_search import create_lakebase_search_tool
 from dao_ai.tools.mcp import MCPToolInfo, create_mcp_tools, list_mcp_tools
 from dao_ai.tools.memory import (
     create_manage_memory_tool,
@@ -38,7 +39,6 @@ from dao_ai.tools.time import (
     time_until_tool,
 )
 from dao_ai.tools.unity_catalog import create_uc_tools
-from dao_ai.tools.lakebase_search import create_lakebase_search_tool
 from dao_ai.tools.vector_search import (
     create_ai_search_tool,
     create_vector_search_tool,
@@ -79,6 +79,7 @@ __all__ = [
     "create_send_slack_message_tool",
     "create_send_teams_message_tool",
     "create_tools",
+    "resolve_tool_names",
     "create_uc_tools",
     "create_ai_search_tool",
     "create_lakebase_search_tool",

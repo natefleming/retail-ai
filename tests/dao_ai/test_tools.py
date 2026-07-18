@@ -1,9 +1,17 @@
 from typing import Sequence
+from unittest.mock import patch
 
 import pytest
 
-from dao_ai.config import AppConfig, FunctionType, ToolModel
-from dao_ai.tools import create_tools
+from dao_ai.config import (
+    AppConfig,
+    FunctionType,
+    PythonFunctionModel,
+    SearchToolModel,
+    ToolModel,
+)
+from dao_ai.tools import create_tools, resolve_tool_names
+from dao_ai.tools.core import tool_registry
 
 excluded_tools: Sequence[str] = [
     "vector_search",
@@ -33,3 +41,61 @@ def test_create_tools_empty_list() -> None:
     tools = create_tools([])
     assert tools is not None
     assert len(tools) == 0
+
+
+class TestResolveToolNames:
+    """Tests for the shared resolve_tool_names helper (registry reuse)."""
+
+    @pytest.fixture(autouse=True)
+    def _clear_registry(self):
+        """Isolate each test from registry state left by other tests."""
+        tool_registry.clear()
+        yield
+        tool_registry.clear()
+
+    @pytest.mark.unit
+    def test_registry_miss_falls_back_to_as_tools(self) -> None:
+        """With an empty registry, names come from function.as_tools()."""
+        tm = ToolModel(name="search", function=SearchToolModel())
+        assert resolve_tool_names(tm) == ["duckduckgo_search"]
+
+    @pytest.mark.unit
+    def test_registry_hit_reuses_without_calling_as_tools(self) -> None:
+        """After create_tools populates the registry, no second as_tools()."""
+        tm = ToolModel(name="search", function=SearchToolModel())
+        create_tools([tm])  # populates tool_registry["search"]
+
+        with patch.object(
+            type(tm.function), "as_tools", wraps=tm.function.as_tools
+        ) as spy:
+            names = resolve_tool_names(tm)
+
+        assert names == ["duckduckgo_search"]
+        assert spy.call_count == 0, "should reuse registry, not rebuild tools"
+
+    @pytest.mark.unit
+    def test_string_function_falls_back_to_tool_model_name(self) -> None:
+        """A bare string function reference resolves to the ToolModel name."""
+        tm = ToolModel(name="some_reference", function="some_reference")
+        assert resolve_tool_names(tm) == ["some_reference"]
+
+    @pytest.mark.unit
+    def test_as_tools_exception_falls_back_to_tool_model_name(self) -> None:
+        """If as_tools() raises, resolution falls back to the ToolModel name."""
+        tm = ToolModel(
+            name="boom",
+            function=PythonFunctionModel(name="dao_ai.tools.current_time_tool"),
+        )
+        with patch.object(
+            type(tm.function), "as_tools", side_effect=RuntimeError("no server")
+        ):
+            assert resolve_tool_names(tm) == ["boom"]
+
+    @pytest.mark.unit
+    def test_python_tool_resolves_runtime_name(self) -> None:
+        """A python function resolves to the underlying tool's runtime name."""
+        tm = ToolModel(
+            name="clock",
+            function=PythonFunctionModel(name="dao_ai.tools.current_time_tool"),
+        )
+        assert resolve_tool_names(tm) == ["current_time_tool"]

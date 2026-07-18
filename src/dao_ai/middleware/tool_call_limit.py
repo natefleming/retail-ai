@@ -26,7 +26,6 @@ from __future__ import annotations
 from typing import Any, Literal, Sequence
 
 from langchain.agents.middleware import ToolCallLimitMiddleware
-from langchain_core.tools import BaseTool
 from loguru import logger
 
 from dao_ai.config import BaseFunctionModel, ToolModel
@@ -80,46 +79,15 @@ def _extract_tool_names(tool_model: ToolModel) -> list[str]:
     """
     Extract actual tool names from a ToolModel.
 
-    A single ToolModel can produce multiple tools (e.g., UC functions).
-    Falls back to ToolModel.name if extraction fails.
+    A single ToolModel can produce multiple tools (e.g., UC functions, MCP
+    servers). Delegates to the shared ``resolve_tool_names`` so tool-name
+    resolution reuses already-built tools from the agent-build registry
+    (avoiding a second connect-and-enumerate for toolkit functions) and stays
+    consistent with the HITL/audit scans. Falls back to ``ToolModel.name``.
     """
-    function = tool_model.function
+    from dao_ai.tools import resolve_tool_names
 
-    # String function references can't be introspected
-    if not isinstance(function, BaseFunctionModel):
-        logger.debug(
-            "Cannot extract names from string function, using ToolModel.name",
-            tool_model_name=tool_model.name,
-        )
-        return [tool_model.name]
-
-    # Try to extract names from created tools
-    try:
-        tool_names = [
-            tool.name
-            for tool in function.as_tools()
-            if isinstance(tool, BaseTool) and tool.name
-        ]
-        if tool_names:
-            logger.trace(
-                "Extracted tool names",
-                tool_model_name=tool_model.name,
-                tool_names=tool_names,
-            )
-            return tool_names
-    except Exception as e:
-        logger.warning(
-            "Error extracting tool names from ToolModel",
-            tool_model_name=tool_model.name,
-            error=str(e),
-        )
-
-    # Fallback to ToolModel.name
-    logger.debug(
-        "Falling back to ToolModel.name",
-        tool_model_name=tool_model.name,
-    )
-    return [tool_model.name]
+    return resolve_tool_names(tool_model)
 
 
 def create_tool_call_limit_middleware(

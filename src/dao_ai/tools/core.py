@@ -15,10 +15,12 @@ from typing import Sequence
 
 from langchain.tools import ToolRuntime, tool
 from langchain_core.runnables.base import RunnableLike
+from langchain_core.tools import BaseTool
 from loguru import logger
 
 from dao_ai.config import (
     AnyTool,
+    BaseFunctionModel,
     ToolModel,
 )
 from dao_ai.hooks.core import create_hooks
@@ -26,6 +28,71 @@ from dao_ai.state import Context
 
 # Module-level tool registry for caching created tools
 tool_registry: dict[str, Sequence[RunnableLike]] = {}
+
+
+def _tool_names(tools: Sequence[RunnableLike]) -> list[str]:
+    """Extract the ``.name`` of every BaseTool in a sequence."""
+    return [tool.name for tool in tools if isinstance(tool, BaseTool) and tool.name]
+
+
+def resolve_tool_names(tool_model: ToolModel) -> list[str]:
+    """
+    Resolve a ToolModel to the runtime tool names it produces.
+
+    Per-tool middleware (call limits, HITL, audit) must key on the actual tool
+    names the LLM calls, which a single ToolModel can expand to several of
+    (e.g. an MCP server or a wildcard Unity Catalog function). This is the one
+    resolution path those scans should share.
+
+    Resolution order, cheapest and most authoritative first:
+
+    1. ``tool_registry`` — if ``create_tools`` already built this tool during
+       the same agent build, reuse those exact objects. This avoids a second
+       connect-and-enumerate round-trip for toolkit functions and guarantees
+       the names match the tools the agent will actually run.
+    2. ``function.as_tools()`` — build the tools to read their names. Used when
+       the registry has no entry (e.g. resolution outside the agent-build path).
+    3. ``tool_model.name`` — last-resort fallback when the function is a bare
+       string reference or ``as_tools()`` yields nothing / raises.
+
+    Args:
+        tool_model: The tool configuration to resolve.
+
+    Returns:
+        A list of runtime tool-name strings (never empty; falls back to the
+        ToolModel's own name).
+    """
+    # 1. Reuse already-built tools from this agent build when available.
+    cached = tool_registry.get(tool_model.name)
+    if cached is not None:
+        names = _tool_names(cached)
+        if names:
+            return names
+
+    function = tool_model.function
+
+    # String function references can't be introspected.
+    if not isinstance(function, BaseFunctionModel):
+        return [tool_model.name]
+
+    # 2. Build the tools to read their names.
+    try:
+        names = _tool_names(function.as_tools())
+        if names:
+            return names
+    except Exception as e:
+        logger.warning(
+            "Error resolving tool names from ToolModel",
+            tool_model_name=tool_model.name,
+            error=str(e),
+        )
+
+    # 3. Fall back to the ToolModel's configured name.
+    logger.debug(
+        "Falling back to ToolModel.name for tool-name resolution",
+        tool_model_name=tool_model.name,
+    )
+    return [tool_model.name]
 
 
 def create_tools(tool_models: Sequence[ToolModel]) -> Sequence[RunnableLike]:
