@@ -238,6 +238,40 @@ middleware:
           return response.capitalize()
 ```
 
+## Tool Call Limits
+
+Cap how many times a tool may be called. Two approaches:
+
+- **Per-agent middleware** ([`limit_middleware.yaml`](./limit_middleware.yaml)) — declare a `create_tool_call_limit_middleware` entry and attach it to each agent's `middleware:` list. Use when the limit is agent-specific.
+- **Per-tool `call_limit` shortcut** ([`tool_call_limit_field.yaml`](./tool_call_limit_field.yaml)) — set `call_limit` directly on a tool's `function`. The limit follows the tool, so **every agent that uses the tool inherits it automatically** — no per-agent wiring.
+
+`call_limit` accepts a bare integer (shorthand for `run_limit`, `exit_behavior: continue`) or an object for full control:
+
+```yaml
+tools:
+  search_tool:
+    name: search_web
+    function:
+      type: search
+      call_limit: 3                # max 3 calls per message (bare-int shorthand)
+
+  genie_tool:
+    name: genie
+    function:
+      type: genie
+      name: retail_genie_tool
+      genie_room: *retail_genie
+      call_limit:                  # object form — full control
+        run_limit: 2               # max 2 calls per message
+        thread_limit: 8            # max 8 calls per conversation
+        exit_behavior: error       # continue | error | end
+```
+
+Notes:
+- A tool that expands to multiple runtime tools (an MCP server, a wildcard Unity Catalog function) applies the limit to **each discovered tool**.
+- `call_limit` composes with explicit per-agent limit middleware — each `ToolCallLimitMiddleware` gets a unique `ToolCallLimitMiddleware[<tool>]` name, so both register.
+- `thread_limit` requires a checkpointer, which DAO AI agents have via memory.
+
 ## Quick Start
 
 ```bash
