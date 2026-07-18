@@ -211,6 +211,7 @@ def create_hitl_middleware_from_tool_models(
         middleware = create_hitl_middleware_from_tool_models(tool_models)
     """
     from dao_ai.config import BaseFunctionModel
+    from dao_ai.tools import resolve_tool_names
 
     interrupt_on: dict[str, HumanInTheLoopModel] = {}
     hitl_configs_by_tool: dict[str, HumanInTheLoopModel] = {}
@@ -228,9 +229,9 @@ def create_hitl_middleware_from_tool_models(
 
         audit_config: AuditModel | None = function.audit
 
-        # Get tool names created by this function
-        for func_tool in function.as_tools():
-            tool_name: str | None = getattr(func_tool, "name", None)
+        # Get tool names created by this function (reuses the agent-build tool
+        # registry when available; see dao_ai.tools.resolve_tool_names).
+        for tool_name in resolve_tool_names(tool_model):
             if not tool_name:
                 continue
             interrupt_on[tool_name] = hitl_config
