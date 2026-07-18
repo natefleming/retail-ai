@@ -23,7 +23,7 @@ Example:
 
 from __future__ import annotations
 
-from typing import Any, Literal
+from typing import Any, Literal, Sequence
 
 from langchain.agents.middleware import ToolCallLimitMiddleware
 from langchain_core.tools import BaseTool
@@ -34,6 +34,7 @@ from dao_ai.config import BaseFunctionModel, ToolModel
 __all__ = [
     "ToolCallLimitMiddleware",
     "create_tool_call_limit_middleware",
+    "create_tool_call_limit_middlewares_from_tool_models",
 ]
 
 
@@ -208,3 +209,73 @@ def create_tool_call_limit_middleware(
         run_limit=run_limit,
         exit_behavior=exit_behavior,
     )
+
+
+def create_tool_call_limit_middlewares_from_tool_models(
+    tool_models: Sequence[ToolModel],
+) -> list[ToolCallLimitMiddleware]:
+    """
+    Create ToolCallLimitMiddleware instances from ToolModel configurations.
+
+    Scans tool_models for functions that declare a ``call_limit`` and creates
+    one ToolCallLimitMiddleware per resolved runtime tool name. This is the
+    primary entry point used by agent node creation — it lets a limit follow a
+    tool (declared once on the tool's ``function``) rather than being repeated
+    on every agent's ``middleware`` list.
+
+    Unlike passing a ToolModel straight to ``create_tool_call_limit_middleware``
+    (which limits only the first resolved tool name), this scan resolves every
+    name a function expands to via ``function.as_tools()`` and limits each one.
+
+    Args:
+        tool_models: List of ToolModel configurations from agent config
+
+    Returns:
+        A list of ToolCallLimitMiddleware, one per resolved tool name that has
+        a call_limit configured. Empty if no tool declares a call_limit.
+
+    Example:
+        from dao_ai.config import ToolModel, PythonFunctionModel, ToolCallLimitModel
+
+        tool_models = [
+            ToolModel(
+                name="search",
+                function=SearchToolModel(call_limit=ToolCallLimitModel(run_limit=3)),
+            ),
+        ]
+
+        middlewares = create_tool_call_limit_middlewares_from_tool_models(tool_models)
+    """
+    middlewares: list[ToolCallLimitMiddleware] = []
+
+    for tool_model in tool_models:
+        function = tool_model.function
+
+        if not isinstance(function, BaseFunctionModel):
+            continue
+
+        call_limit = function.call_limit
+        if call_limit is None:
+            continue
+
+        # Resolve every runtime tool name this function expands to and limit
+        # each one independently (each gets a unique
+        # ToolCallLimitMiddleware[<tool>] name in LangChain).
+        for tool_name in _extract_tool_names(tool_model):
+            middleware = create_tool_call_limit_middleware(
+                tool=tool_name,
+                thread_limit=call_limit.thread_limit,
+                run_limit=call_limit.run_limit,
+                exit_behavior=call_limit.exit_behavior,
+            )
+            middlewares.append(middleware)
+            logger.trace(
+                "Registered tool call limit from tool model",
+                tool_model_name=tool_model.name,
+                tool_name=tool_name,
+                run_limit=call_limit.run_limit,
+                thread_limit=call_limit.thread_limit,
+                exit_behavior=call_limit.exit_behavior,
+            )
+
+    return middlewares

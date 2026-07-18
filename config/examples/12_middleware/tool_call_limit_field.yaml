@@ -1,0 +1,178 @@
+# yaml-language-server: $schema=../../../schemas/model_config_schema.json
+
+# =============================================================================
+# PARAMETERS
+# =============================================================================
+parameters:
+  catalog:
+    description: Unity Catalog catalog name
+    default: retail_consumer_goods
+  schema:
+    description: Schema within the catalog
+    default: quick_serve_restaurant
+
+#
+# Example: `call_limit` tool field (tool-scoped call limits)
+#
+# This example demonstrates the `call_limit` shortcut on a tool's `function`.
+# Unlike the explicit `create_tool_call_limit_middleware` MiddlewareModel path
+# (see limit_middleware.yaml), which is declared on each agent's `middleware`
+# list, `call_limit` lives on the tool itself — so EVERY agent that uses the
+# tool inherits the cap automatically, with no per-agent wiring.
+#
+# Two forms are accepted:
+#   - Bare integer:  `call_limit: 3`  -> run_limit=3, exit_behavior=continue
+#   - Object:        `call_limit: { run_limit, thread_limit, exit_behavior }`
+#
+# Use cases:
+# - Budget control for expensive tools (Genie / DB queries, web search)
+# - Preventing runaway loops without touching every agent definition
+# - Sharing one cap across many agents via a single YAML anchor
+#
+# =============================================================================
+# DATABRICKS SCHEMAS
+# =============================================================================
+schemas:
+  retail_schema: &retail_schema
+    catalog_name: ${var.catalog}
+    schema_name: ${var.schema}
+
+# =============================================================================
+# RESOURCES
+# =============================================================================
+resources:
+  models:
+    default_llm: &default_llm
+      name: databricks-claude-sonnet-4
+      temperature: 0.1
+      max_tokens: 4096
+
+  genie_rooms:
+    retail_genie: &retail_genie
+      name: "Retail Genie Room"
+      space_id:
+        env: RETAIL_AI_GENIE_SPACE_ID
+        default_value: 01f01c91f1f414d59daaefd2b7ec82ea
+
+# =============================================================================
+# TOOLS CONFIGURATION
+# =============================================================================
+# The `call_limit` field is declared directly on each tool's `function`.
+# When these tools are shared across agents (via YAML anchors), the limit
+# travels with the tool.
+
+tools:
+  # Expensive Genie query — object form for full control.
+  # Capped at 2 calls per message AND 8 per conversation; hard error when hit.
+  genie_tool: &genie_tool
+    name: genie
+    function:
+      type: genie
+      name: retail_genie_tool
+      description: Query retail data using natural language
+      genie_room: *retail_genie
+      call_limit:
+        run_limit: 2              # Max 2 Genie queries per message
+        thread_limit: 8           # Max 8 Genie queries per conversation
+        exit_behavior: error      # Raise immediately when exceeded
+
+  # Web search — bare-int shorthand: run_limit=3, exit_behavior=continue.
+  search_tool: &search_tool
+    name: search_web
+    function:
+      type: search
+      call_limit: 3               # Shorthand: max 3 searches per message
+
+  # Lightweight time tool — no limit needed.
+  time_tool: &time_tool
+    name: current_time
+    function:
+      type: python
+      name: dao_ai.tools.current_time_tool
+
+# =============================================================================
+# AGENTS CONFIGURATION
+# =============================================================================
+# Neither agent declares any tool-call-limit middleware. The limits are
+# inherited purely from the tools' `call_limit` fields — demonstrating that
+# every agent using genie_tool/search_tool gets the same caps automatically.
+
+agents:
+  # ---------------------------------------------------------------------------
+  # Research Agent — uses all three tools
+  # ---------------------------------------------------------------------------
+  research_agent: &research_agent
+    name: research_agent
+    description: "Research agent; tool limits inherited from tool call_limit"
+    model: *default_llm
+    tools:
+    - *genie_tool
+    - *search_tool
+    - *time_tool
+    prompt: |
+      You are a research assistant that can query retail data (genie),
+      search the web, and check the current time.
+
+      Be efficient with your tool usage. If you hit a limit, try a different
+      approach or answer with the information you already have.
+    handoff_prompt: |
+      Questions requiring research, data queries, or web searches.
+
+  # ---------------------------------------------------------------------------
+  # Support Agent — reuses genie_tool; inherits the SAME Genie cap
+  # ---------------------------------------------------------------------------
+  support_agent: &support_agent
+    name: support_agent
+    description: "Support agent; inherits genie_tool's call_limit automatically"
+    model: *default_llm
+    tools:
+    - *genie_tool
+    - *time_tool
+    prompt: |
+      You are a support assistant. Use the genie tool to look up order and
+      product data. The same query budget applies here as everywhere the
+      genie tool is used.
+    handoff_prompt: |
+      Support questions that may require a data lookup.
+
+# =============================================================================
+# APPLICATION CONFIGURATION
+# =============================================================================
+app:
+  name: tool_call_limit_field_example
+  description: "Example demonstrating the call_limit tool field"
+  log_level: DEBUG
+  registered_model:
+    schema: *retail_schema
+    name: tool_call_limit_field_dao
+  endpoint_name: tool_call_limit_field_demo_dao
+  agents:
+  - *research_agent
+  - *support_agent
+  orchestration:
+    supervisor:
+      model: *default_llm
+  input_example:
+    messages:
+    - role: user
+      content: What products are low on stock?
+    custom_inputs:
+      configurable:
+        thread_id: "call-limit-field-123"
+        user_id: "test_user"
+      session: {}
+
+# =============================================================================
+# NOTES
+# =============================================================================
+#
+# - `call_limit` composes with explicit tool-call-limit MiddlewareModel entries
+#   on an agent: each ToolCallLimitMiddleware gets a unique
+#   ToolCallLimitMiddleware[<tool>] name, so both register.
+# - A single tool config that expands to multiple runtime tool names (e.g. a
+#   Unity Catalog function) gets the limit applied to EACH resolved name.
+# - exit_behavior: "continue" (block + error message, agent continues),
+#   "error" (raise immediately), or "end" (graceful stop, single-tool only).
+# - thread_limit requires a checkpointer, which DAO AI agents have via memory.
+#
+# =============================================================================
