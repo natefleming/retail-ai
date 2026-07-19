@@ -1,6 +1,6 @@
 USE IDENTIFIER(:database);
 
-CREATE OR REPLACE TABLE dim_stores (
+CREATE TABLE IF NOT EXISTS dim_stores (
     store_id INT COMMENT 'Unique identifier for each store location (e.g., 1, 2)',
     store_name STRING COMMENT 'Display name of the store location (e.g., Downtown, Uptown)',
     store_address STRING COMMENT 'Street address of the store location',
