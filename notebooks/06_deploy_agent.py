@@ -32,6 +32,11 @@ dbutils.widgets.dropdown(
     choices=["", "model_serving", "apps", "both"],
     defaultValue="",
 )
+dbutils.widgets.dropdown(
+    name="development",
+    choices=["auto", "true", "false"],
+    defaultValue="auto",
+)
 
 config_files: Sequence[str] = find_yaml_files_os_walk("../config")
 dbutils.widgets.dropdown(name="config-paths", choices=config_files, defaultValue=next(iter(config_files), ""))
@@ -106,8 +111,22 @@ from dao_ai.config import AppConfig, DeploymentTarget
 config_path: str = dbutils.widgets.get("config-path") or dbutils.widgets.get("config-paths")
 deployment_target_str: str | None = dbutils.widgets.get("deployment-target") or None
 
+# Source selection tri-state forwarded by `dao-ai pipeline` via the
+# `development` bundle var: "true" ships local dao-ai source/wheel, "false"
+# pins the published PyPI package, "auto"/"" auto-detects from the install
+# type (None -> create_agent/deploy_agent resolve via is_published()).
+development_str: str = (dbutils.widgets.get("development") or "auto").lower()
+development: bool | None
+if development_str == "true":
+    development = True
+elif development_str == "false":
+    development = False
+else:
+    development = None
+
 print(f"Config path: {config_path}")
 print(f"Deployment target: {deployment_target_str or '(using config default)'}")
+print(f"Development source: {development_str}")
 
 # Pull any resolved parameter values that upstream provisioning tasks
 # (e.g. provision-genie) forwarded via job taskValues. AppConfig.from_file
@@ -140,12 +159,12 @@ config.display_graph()
 # Only log/register the MLflow model for Model Serving deployments.
 # Apps deploy directly from the config + PyPI package.
 if deployment_target != DeploymentTarget.APPS:
-    config.create_agent()
+    config.create_agent(development=development)
 
 # COMMAND ----------
 
 if deployment_target == DeploymentTarget.BOTH:
-    config.deploy_agent(target=DeploymentTarget.MODEL_SERVING)
-    config.deploy_agent(target=DeploymentTarget.APPS)
+    config.deploy_agent(target=DeploymentTarget.MODEL_SERVING, development=development)
+    config.deploy_agent(target=DeploymentTarget.APPS, development=development)
 else:
-    config.deploy_agent(target=deployment_target)
+    config.deploy_agent(target=deployment_target, development=development)

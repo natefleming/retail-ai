@@ -76,10 +76,10 @@ from dao_ai.utils import (
     find_dev_wheel,
     get_installed_packages,
     is_lib_provided,
-    is_published,
     is_source_layout,
     normalize_host,
     normalize_name,
+    resolve_use_local_source,
 )
 from dao_ai.vector_search import endpoint_exists, index_exists
 
@@ -267,16 +267,11 @@ def build_auth_policy(config: AppConfig) -> AuthPolicy:
 def _use_local_source(development: bool | None) -> bool:
     """Decide whether a deploy should ship local dao-ai source/wheel vs PyPI.
 
-    - ``development=True``  → force local source/wheel (test unreleased code).
-    - ``development=False`` → force the published PyPI package.
-    - ``development=None``  → auto: local when dao-ai is a local/editable install
-      (``not is_published()``), PyPI otherwise. This preserves the historical
-      default while letting the CLI ``--development/--no-development`` flag
-      override it explicitly.
+    Thin wrapper over ``resolve_use_local_source`` (the shared tri-state resolver
+    in ``dao_ai.utils``) so the provider, CLI handlers, and deploy notebook all
+    agree on the ``--development`` semantics.
     """
-    if development is not None:
-        return development
-    return not is_published()
+    return resolve_use_local_source(development)
 
 
 def _warn_if_stale_dev_wheel(dev_wheel: Path | None) -> None:

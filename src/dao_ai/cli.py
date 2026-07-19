@@ -667,6 +667,23 @@ Examples:
         "If not specified, uses app.deployment_target from config file, "
         "or defaults to 'model_serving'. Passed to the deploy notebook.",
     )
+    pipeline_parser.add_argument(
+        "--development",
+        dest="development",
+        default=None,
+        action="store_true",
+        help="Ship local dao-ai source/wheel instead of the published PyPI "
+        "package. Rebuild the wheel first with 'uv build --wheel'. "
+        "Defaults to auto-detect from the install type. Passed to the deploy "
+        "notebook.",
+    )
+    pipeline_parser.add_argument(
+        "--no-development",
+        dest="development",
+        action="store_false",
+        help="Force the published PyPI dao-ai package even from a local/editable "
+        "install. Passed to the deploy notebook.",
+    )
 
     # Generate bundle command
     generate_bundle_parser: ArgumentParser = subparsers.add_parser(
@@ -706,8 +723,19 @@ Examples:
     )
     generate_bundle_parser.add_argument(
         "--development",
+        dest="development",
+        default=None,
         action="store_true",
-        help="Include local dao-ai source code in the bundle for development testing",
+        help="Bundle local dao-ai source/wheel instead of pinning the published "
+        "PyPI package. Rebuild the wheel first with 'uv build --wheel'. "
+        "Defaults to auto-detect from the install type.",
+    )
+    generate_bundle_parser.add_argument(
+        "--no-development",
+        dest="development",
+        action="store_false",
+        help="Force the published PyPI dao-ai package even from a local/editable "
+        "install.",
     )
     generate_bundle_parser.add_argument(
         "-p",
@@ -756,8 +784,19 @@ Examples:
     )
     generate_mcp_parser.add_argument(
         "--development",
+        dest="development",
+        default=None,
         action="store_true",
-        help="Reserved for parity with generate-bundle (no effect today).",
+        help="Bundle local dao-ai source/wheel instead of pinning the published "
+        "PyPI package. Rebuild the wheel first with 'uv build --wheel'. "
+        "Defaults to auto-detect from the install type.",
+    )
+    generate_mcp_parser.add_argument(
+        "--no-development",
+        dest="development",
+        action="store_false",
+        help="Force the published PyPI dao-ai package even from a local/editable "
+        "install.",
     )
     generate_mcp_parser.add_argument(
         "-p",
@@ -2230,6 +2269,7 @@ def run_databricks_command(
     cloud: Optional[str] = None,
     dry_run: bool = False,
     deployment_target: Optional[str] = None,
+    development: bool | None = None,
     config_vars: Optional[dict[str, str]] = None,
 ) -> None:
     """Execute a databricks CLI command with optional profile, target, and cloud.
@@ -2243,6 +2283,11 @@ def run_databricks_command(
         dry_run: If True, print the command without executing
         deployment_target: Optional agent deployment target ('model_serving' or 'apps').
             Passed to the deploy notebook via bundle variable.
+        development: Optional tri-state source selection passed to the deploy
+            notebook via the ``development`` bundle variable — ``True`` ships
+            local dao-ai source/wheel, ``False`` the published PyPI package,
+            ``None`` (default) auto-detects from the install type. Emitted as
+            ``"true"``/``"false"``/``"auto"``.
         config_vars: Optional ``${param.NAME}`` overrides for the dao-ai config.
             Forwarded to ``AppConfig.from_file`` and to the underlying
             ``databricks bundle`` command as ``--var name=value`` so the
@@ -2343,6 +2388,15 @@ def run_databricks_command(
 
     cmd.append(f'--var="deployment_target={resolved_deployment_target}"')
 
+    # Forward the development tri-state to the deploy notebook via a bundle var.
+    # Always emit (mirrors deployment_target) so the notebook widget default
+    # never diverges from the CLI intent. None → "auto" (notebook resolves via
+    # is_published()), True → "true" (local source/wheel), False → "false" (PyPI).
+    resolved_development: str = (
+        "auto" if development is None else ("true" if development else "false")
+    )
+    cmd.append(f'--var="development={resolved_development}"')
+
     logger.debug(f"Executing command: {' '.join(cmd)}")
 
     if dry_run:
@@ -2392,6 +2446,7 @@ def handle_pipeline_command(options: Namespace) -> None:
     cloud: Optional[str] = options.cloud
     dry_run: bool = options.dry_run
     deployment_target: Optional[str] = options.deployment_target
+    development: bool | None = getattr(options, "development", None)
     config_vars: dict[str, str] = _parse_var_args(options.var)
 
     if options.deploy:
@@ -2404,6 +2459,7 @@ def handle_pipeline_command(options: Namespace) -> None:
             cloud=cloud,
             dry_run=dry_run,
             deployment_target=deployment_target,
+            development=development,
             config_vars=config_vars,
         )
     if options.run:
@@ -2416,6 +2472,7 @@ def handle_pipeline_command(options: Namespace) -> None:
             cloud=cloud,
             dry_run=dry_run,
             deployment_target=deployment_target,
+            development=development,
             config_vars=config_vars,
         )
     if options.destroy:
@@ -2428,6 +2485,7 @@ def handle_pipeline_command(options: Namespace) -> None:
             cloud=cloud,
             dry_run=dry_run,
             deployment_target=deployment_target,
+            development=development,
             config_vars=config_vars,
         )
     if not any([options.deploy, options.run, options.destroy]):
@@ -2439,7 +2497,12 @@ def handle_generate_bundle_command(options: Namespace) -> None:
     config_path: str = options.config
     output_dir: str = options.output_dir
     force: bool = options.force
-    development: bool = options.development
+    # Resolve the --development/--no-development tri-state to a concrete bool
+    # (None -> auto-detect via is_published()) so write_bundle's bool contract
+    # matches deploy's source-selection semantics.
+    from dao_ai.utils import resolve_use_local_source
+
+    development: bool = resolve_use_local_source(options.development)
     profile: str | None = options.profile
 
     _apply_profile_context(profile)
@@ -2475,7 +2538,12 @@ def handle_generate_mcp_command(options: Namespace) -> None:
     config_path: str = options.config
     output_dir: str = options.output_dir
     force: bool = options.force
-    development: bool = options.development
+    # Resolve the --development/--no-development tri-state to a concrete bool
+    # (None -> auto-detect via is_published()) so write_mcp_bundle's bool
+    # contract matches deploy's source-selection semantics.
+    from dao_ai.utils import resolve_use_local_source
+
+    development: bool = resolve_use_local_source(options.development)
     profile: str | None = options.profile
 
     _apply_profile_context(profile)

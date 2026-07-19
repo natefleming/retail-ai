@@ -67,6 +67,24 @@ def is_published() -> bool:
     return True
 
 
+def resolve_use_local_source(development: bool | None) -> bool:
+    """Decide whether a deploy should ship local dao-ai source/wheel vs PyPI.
+
+    Single source of truth for the ``--development`` tri-state shared by the
+    CLI handlers, the deploy notebook, and the Databricks provider so they all
+    agree:
+
+    - ``development=True``  → force local source/wheel (test unreleased code).
+    - ``development=False`` → force the published PyPI package.
+    - ``development=None``  → auto: local when dao-ai is a local/editable install
+      (``not is_published()``), PyPI otherwise. Preserves the historical default
+      while letting the ``--development/--no-development`` flag override it.
+    """
+    if development is not None:
+        return development
+    return not is_published()
+
+
 def _wheel_from_direct_url() -> Path | None:
     """Return the wheel file dao-ai was installed from, if any.
 
