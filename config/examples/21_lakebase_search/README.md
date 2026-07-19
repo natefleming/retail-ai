@@ -244,7 +244,7 @@ dao-ai validate -c config/examples/21_lakebase_search/hybrid_rrf.yaml
 
 # Deploy as a Databricks App bundle.
 dao-ai generate-bundle -c config/examples/21_lakebase_search/hybrid_rrf.yaml \
-  -o /tmp/lakebase-agent --force --development -p <profile>
+  -o /tmp/lakebase-agent --overwrite --development -p <profile>
 cd /tmp/lakebase-agent
 databricks bundle deploy --target dev -p <profile>
 databricks bundle run dao-ai-lakebase-hybrid-example --target dev -p <profile>

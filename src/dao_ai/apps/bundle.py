@@ -12,7 +12,7 @@ Usage:
     from dao_ai.config import AppConfig
 
     config = AppConfig.from_file("my_config.yaml")
-    write_bundle(config, Path("./my-bundle"), force=False)
+    write_bundle(config, Path("./my-bundle"), overwrite=False)
 """
 
 import io
@@ -646,11 +646,11 @@ def generate_resources_app_yaml(
     return yaml.dump(resources_doc, default_flow_style=False, sort_keys=False)
 
 
-def _write_file(path: Path, content: str, force: bool) -> bool:
-    """Write content to a file, respecting the force flag. Returns True if written."""
-    if path.exists() and not force:
+def _write_file(path: Path, content: str, overwrite: bool) -> bool:
+    """Write content to a file, respecting overwrite. Returns True if written."""
+    if path.exists() and not overwrite:
         print(
-            f"  WARNING: Skipping {path.name} (already exists, use --force to overwrite)"
+            f"  WARNING: Skipping {path.name} (already exists; use --overwrite)"
         )
         return False
     path.write_text(content)
@@ -661,7 +661,7 @@ def _write_file(path: Path, content: str, force: bool) -> bool:
 def write_bundle(
     config: AppConfig,
     output_dir: Path,
-    force: bool = False,
+    overwrite: bool = False,
     development: bool = False,
 ) -> None:
     """Write a complete, deployable Databricks Apps bundle directory.
@@ -716,7 +716,7 @@ def write_bundle(
         print(f"\n  ⚠  {_trace_location_warning}\n")
 
     def _track(path: Path, content: str) -> None:
-        if _write_file(path, content, force):
+        if _write_file(path, content, overwrite):
             written.append(path.name)
         else:
             skipped.append(path.name)
@@ -747,9 +747,9 @@ def write_bundle(
 
     if source_config:
         dest = output_dir / config_filename
-        if dest.exists() and not force:
+        if dest.exists() and not overwrite:
             print(
-                f"  WARNING: Skipping {config_filename} (already exists, use --force to overwrite)"
+                f"  WARNING: Skipping {config_filename} (exists; use --overwrite)"
             )
             skipped.append(config_filename)
         else:
@@ -792,9 +792,9 @@ def write_bundle(
             # via the rendered absolute path in the deployed config.
             rel = Path("skills") / src_dir.name
         dest = output_dir / rel
-        if dest.exists() and not force:
+        if dest.exists() and not overwrite:
             logger.info(
-                "Skipping skill directory copy (exists; use --force)",
+                "Skipping skill directory copy (exists; use --overwrite)",
                 skill=str(rel),
             )
             skipped.append(str(rel))
@@ -892,7 +892,7 @@ def write_bundle(
         # Create stub package for user's custom code additions
         stub_dir = output_dir / "src" / package_name
         stub_init = stub_dir / "__init__.py"
-        if not stub_init.exists() or force:
+        if not stub_init.exists() or overwrite:
             stub_dir.mkdir(parents=True, exist_ok=True)
             stub_init.write_text("")
             logger.info(f"Created stub package src/{package_name}/")
@@ -919,7 +919,7 @@ def write_bundle(
         # Create stub package so the wheel builds and users can add custom code
         stub_dir = output_dir / "src" / package_name
         stub_init = stub_dir / "__init__.py"
-        if not stub_init.exists() or force:
+        if not stub_init.exists() or overwrite:
             stub_dir.mkdir(parents=True, exist_ok=True)
             stub_init.write_text("")
             logger.info(f"Created stub package src/{package_name}/")
@@ -938,7 +938,7 @@ def write_bundle(
         print(f"  {name:<20s} (skipped, already exists)")
 
     if skipped:
-        print("\n  Re-run with --force to overwrite existing files.")
+        print("\n  Re-run with --overwrite to overwrite existing files.")
 
     print("\nNext steps:")
     print(f"  cd {output_dir}")

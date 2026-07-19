@@ -696,7 +696,7 @@ Creates databricks.yaml, app.yaml, pyproject.toml, and scaffolding files.
         epilog="""
 Examples:
   dao-ai generate-bundle -c config/retail.yaml -o ./my-bundle
-  dao-ai generate-bundle -c config/retail.yaml -o ./my-bundle --force
+  dao-ai generate-bundle -c config/retail.yaml -o ./my-bundle --overwrite
         """,
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
@@ -717,7 +717,7 @@ Examples:
         help="Directory to write the generated bundle files to (default: current directory)",
     )
     generate_bundle_parser.add_argument(
-        "--force",
+        "--overwrite",
         action="store_true",
         help="Overwrite existing files in the output directory",
     )
@@ -757,7 +757,7 @@ Streamable HTTP. Mirrors `generate-bundle` but emits the MCP-only artifact
         epilog="""
 Examples:
   dao-ai generate-mcp -c config/retail.yaml -o ./retail-mcp
-  dao-ai generate-mcp -c config/retail.yaml -o ./retail-mcp --force
+  dao-ai generate-mcp -c config/retail.yaml -o ./retail-mcp --overwrite
         """,
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
@@ -778,7 +778,7 @@ Examples:
         help="Directory to write the generated MCP bundle files to (default: current directory)",
     )
     generate_mcp_parser.add_argument(
-        "--force",
+        "--overwrite",
         action="store_true",
         help="Overwrite existing files in the output directory",
     )
@@ -2496,7 +2496,7 @@ def handle_generate_bundle_command(options: Namespace) -> None:
     logger.debug("Generating bundle...")
     config_path: str = options.config
     output_dir: str = options.output_dir
-    force: bool = options.force
+    overwrite: bool = options.overwrite
     # Resolve the --development/--no-development tri-state to a concrete bool
     # (None -> auto-detect via is_published()) so write_bundle's bool contract
     # matches deploy's source-selection semantics.
@@ -2523,7 +2523,9 @@ def handle_generate_bundle_command(options: Namespace) -> None:
 
     from dao_ai.apps.bundle import write_bundle
 
-    write_bundle(config, Path(output_dir), force=force, development=development)
+    write_bundle(
+        config, Path(output_dir), overwrite=overwrite, development=development
+    )
 
 
 def handle_generate_mcp_command(options: Namespace) -> None:
@@ -2537,7 +2539,7 @@ def handle_generate_mcp_command(options: Namespace) -> None:
     logger.debug("Generating MCP bundle...")
     config_path: str = options.config
     output_dir: str = options.output_dir
-    force: bool = options.force
+    overwrite: bool = options.overwrite
     # Resolve the --development/--no-development tri-state to a concrete bool
     # (None -> auto-detect via is_published()) so write_mcp_bundle's bool
     # contract matches deploy's source-selection semantics.
@@ -2561,7 +2563,9 @@ def handle_generate_mcp_command(options: Namespace) -> None:
 
     from dao_ai.mcp.generate import write_mcp_bundle
 
-    write_mcp_bundle(config, Path(output_dir), force=force, development=development)
+    write_mcp_bundle(
+        config, Path(output_dir), overwrite=overwrite, development=development
+    )
 
 
 def handle_vars_command(options: Namespace) -> None:

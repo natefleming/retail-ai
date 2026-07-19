@@ -203,7 +203,7 @@ databricks bundle deploy
 databricks bundle run <app-name>
 ```
 
-`generate-bundle` writes a complete, deployable Databricks Apps bundle directory (`databricks.yaml`, `app.yaml`, `pyproject.toml`, scaffolding). Useful when you want the bundle under version control, need to hand-tune anything the generator produced, or want to deploy from CI outside of Python. Add `--development` to bundle local dao-ai source instead of the pinned PyPI wheel; add `--force` to overwrite an existing output directory.
+`generate-bundle` writes a complete, deployable Databricks Apps bundle directory (`databricks.yaml`, `app.yaml`, `pyproject.toml`, scaffolding). Useful when you want the bundle under version control, need to hand-tune anything the generator produced, or want to deploy from CI outside of Python. Add `--development` to bundle local dao-ai source instead of the pinned PyPI wheel; add `--overwrite` to overwrite an existing output directory.
 
 **Learn more:** [`docs/cli-reference.md`](cli-reference.md) · [`docs/python-api.md`](python-api.md)
 

@@ -59,7 +59,7 @@ def write_mcp_bundle(
     config: AppConfig,
     output_dir: Path,
     *,
-    force: bool = False,
+    overwrite: bool = False,
     development: bool = False,
 ) -> None:
     """Write an MCP-server deploy bundle into ``output_dir``.
@@ -98,7 +98,7 @@ def write_mcp_bundle(
     skipped: list[str] = []
 
     def _write(path: Path, content: str) -> None:
-        if path.exists() and not force:
+        if path.exists() and not overwrite:
             skipped.append(str(path.relative_to(output_dir)))
             return
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -169,7 +169,7 @@ def write_mcp_bundle(
     for name in written:
         print(f"  {name:<32s} (created)")
     for name in skipped:
-        print(f"  {name:<32s} (skipped — re-run with --force to overwrite)")
+        print(f"  {name:<32s} (skipped — re-run with --overwrite to overwrite)")
 
     print(f"\nMCP tool exposed: {tool_name}")
     print("\nNext steps:")
