@@ -1,6 +1,7 @@
 import base64
 import re
 import time
+from datetime import timedelta
 from pathlib import Path
 from typing import Any, Callable, Final, Optional, Sequence
 
@@ -308,6 +309,150 @@ def _warn_if_stale_dev_wheel(dev_wheel: Path | None) -> None:
             logger.info("Shipping dev wheel", wheel=dev_wheel.name)
     except Exception as exc:  # noqa: BLE001 — diagnostics must never break deploy
         logger.debug("Dev-wheel staleness check skipped", error=str(exc))
+
+
+# Bounded wait for a Delta-Sync index to reach ONLINE, so a stale checkpoint
+# can't hang provisioning indefinitely (the failure mode was a ~2h stall).
+_VS_INDEX_READY_TIMEOUT_SECONDS: int = 1200  # 20 min
+
+
+def _describe_index_safe(index: VectorSearchIndex) -> dict[str, Any]:
+    """``index.describe()`` wrapped so callers never crash on transient errors."""
+    try:
+        details = index.describe()
+        return details if isinstance(details, dict) else {}
+    except Exception as exc:  # noqa: BLE001
+        logger.debug("Vector index describe failed", error=str(exc))
+        return {}
+
+
+def _source_table_delta_uuid(source_table_full_name: str) -> str | None:
+    """Return the source Delta table's stable GUID via ``DESCRIBE DETAIL``.
+
+    The GUID changes when the table is dropped/recreated (``CREATE OR REPLACE``,
+    overwrite reload, retried ingest) — the trigger that strands a Delta-Sync
+    index's streaming checkpoint. Returns None if Spark is unavailable or the
+    lookup fails (callers must treat None as "unknown", never as a mismatch).
+    """
+    try:
+        from pyspark.sql import SparkSession
+
+        spark = SparkSession.getActiveSession()
+        if spark is None:
+            return None
+        row = spark.sql(
+            f"DESCRIBE DETAIL {source_table_full_name}"
+        ).select("id").head()
+        return row["id"] if row is not None else None
+    except Exception as exc:  # noqa: BLE001
+        logger.debug(
+            "Could not read source table Delta UUID",
+            source_table=source_table_full_name,
+            error=str(exc),
+        )
+        return None
+
+
+def _index_is_delta_sync(details: dict[str, Any]) -> bool:
+    """True only for Delta-Sync indexes. Direct-Access indexes (no source
+    table, no streaming checkpoint) can never go stale this way, so the
+    self-heal must never touch them."""
+    return bool(details.get("delta_sync_index_spec"))
+
+
+def _index_is_stale(
+    index: VectorSearchIndex,
+    details: dict[str, Any],
+    source_table_full_name: str | None,
+) -> bool:
+    """Decide whether an existing Delta-Sync index's checkpoint is stale and the
+    index must be dropped + recreated rather than synced.
+
+    Two OR'd detectors, both defensive (any error → not-stale, fall through to a
+    normal sync so the heuristic can never block a healthy deploy):
+
+    1. **State**: ``status.detailed_state`` contains ``FAILED`` → the sync
+       pipeline is in the stuck-failing loop (the observed hang).
+    2. **UUID**: the live source table's Delta GUID differs from the GUID the
+       index recorded at creation (read back from the index's stored metadata).
+       Authoritative for the drop/recreate/overwrite trigger.
+    """
+    # Only Delta-Sync indexes have a checkpoint to go stale.
+    if not _index_is_delta_sync(details):
+        return False
+
+    # Detector 1 — failed sync state.
+    state = str((details.get("status") or {}).get("detailed_state", "")).upper()
+    if "FAILED" in state:
+        logger.warning(
+            "Vector index in a FAILED state — treating checkpoint as stale",
+            detailed_state=state,
+        )
+        return True
+
+    # Detector 2 — source table GUID drift vs. the GUID recorded at create time.
+    if source_table_full_name:
+        recorded = _read_index_source_uuid(details)
+        live = _source_table_delta_uuid(source_table_full_name)
+        if recorded and live and recorded != live:
+            logger.warning(
+                "Vector index source table GUID changed since index creation "
+                "— checkpoint is stale",
+                recorded_uuid=recorded,
+                live_uuid=live,
+                source_table=source_table_full_name,
+            )
+            return True
+
+    return False
+
+
+def _index_source_uuid_key() -> str:
+    """Custom-tag key under which we stamp the source table's Delta GUID."""
+    return "dao_ai_source_delta_uuid"
+
+
+def _read_index_source_uuid(details: dict[str, Any]) -> str | None:
+    """Read the source Delta GUID we stamped on the index at create time.
+
+    Stored under the Delta-Sync spec (``columns_to_sync`` sibling) is not
+    available, so we persist it in the index's custom tags. Returns None when
+    absent (e.g. an index created before this feature shipped) — detector 2
+    then no-ops and we rely on detector 1 + the bounded timeout.
+    """
+    spec = details.get("delta_sync_index_spec") or {}
+    # Prefer an explicit recorded value if the platform ever surfaces one.
+    for container in (details, spec):
+        tags = container.get("custom_tags") or container.get("tags") or {}
+        if isinstance(tags, dict) and tags.get(_index_source_uuid_key()):
+            return str(tags[_index_source_uuid_key()])
+        # tags can also be a list of {key, value} dicts.
+        if isinstance(tags, list):
+            for t in tags:
+                if isinstance(t, dict) and t.get("key") == _index_source_uuid_key():
+                    return str(t.get("value"))
+    return None
+
+
+def _wait_until_index_absent(
+    vsc: VectorSearchClient,
+    endpoint_name: str,
+    index_full_name: str,
+    timeout_seconds: int = 300,
+) -> None:
+    """Block until a just-deleted index no longer resolves, so a recreate can't
+    race the delete. Bounded; logs and returns on timeout rather than hanging."""
+    import time
+
+    deadline = time.monotonic() + timeout_seconds
+    while time.monotonic() < deadline:
+        if not index_exists(vsc, endpoint_name, index_full_name):
+            return
+        time.sleep(5)
+    logger.warning(
+        "Index still present after delete wait — proceeding anyway",
+        index_name=index_full_name,
+    )
 
 
 def link_experiment_trace_location(
@@ -2347,50 +2492,158 @@ class DatabricksProvider(ServiceProvider):
             "Vector search endpoint ready", endpoint_name=vector_store.endpoint.name
         )
 
-        if not index_exists(
-            self.vsc, vector_store.endpoint.name, vector_store.index.full_name
-        ):
+        endpoint_name: str = vector_store.endpoint.name
+        index_name: str = vector_store.index.full_name
+        source_table: str = vector_store.source_table.full_name
+
+        if not index_exists(self.vsc, endpoint_name, index_name):
             logger.info(
                 "Creating vector search index",
-                index_name=vector_store.index.full_name,
-                endpoint_name=vector_store.endpoint.name,
+                index_name=index_name,
+                endpoint_name=endpoint_name,
             )
-            self.vsc.create_delta_sync_index_and_wait(
-                endpoint_name=vector_store.endpoint.name,
-                index_name=vector_store.index.full_name,
-                source_table_name=vector_store.source_table.full_name,
-                pipeline_type="TRIGGERED",
-                primary_key=vector_store.primary_key,
-                embedding_source_column=vector_store.embedding_source_column,
-                embedding_model_endpoint_name=vector_store.embedding_model.name,
-                columns_to_sync=vector_store.columns,
-            )
-            index = self.vsc.get_index(
-                vector_store.endpoint.name, vector_store.index.full_name
-            )
+            index = self._create_delta_sync_index(vector_store)
         else:
-            logger.debug(
-                "Vector search index already exists, triggering sync",
-                index_name=vector_store.index.full_name,
+            index = self.vsc.get_index(endpoint_name, index_name)
+            details = _describe_index_safe(index)
+            current_state = str(
+                (details.get("status") or {}).get("detailed_state", "UNKNOWN")
             )
-            index = self.vsc.get_index(
-                vector_store.endpoint.name, vector_store.index.full_name
+            is_delta_sync = _index_is_delta_sync(details)
+            logger.info(
+                "Vector search index already exists — evaluating for stale checkpoint",
+                index_name=index_name,
+                detailed_state=current_state,
+                index_kind="delta_sync" if is_delta_sync else "direct_access",
             )
-            # Wait for the index to be queryable before issuing sync, so we
-            # don't race against a still-provisioning index.
-            index.wait_until_ready(verbose=True, wait_for_updates=False)
-            index.sync()
+            if _index_is_stale(index, details, source_table):
+                # Stale checkpoint: the source table was recreated / its history
+                # aged out, so the index's streaming checkpoint no longer
+                # resolves and a plain sync would fail-loop forever. Drop and
+                # recreate — the manual recovery, automated.
+                logger.warning(
+                    "Dropping + recreating vector search index to clear a stale "
+                    "Delta-Sync checkpoint (re-embeds the full source table)",
+                    index_name=index_name,
+                    source_table=source_table,
+                    detailed_state=current_state,
+                )
+                self.vsc.delete_index(endpoint_name, index_name)
+                _wait_until_index_absent(self.vsc, endpoint_name, index_name)
+                logger.info(
+                    "Stale index deleted — recreating from source",
+                    index_name=index_name,
+                    source_table=source_table,
+                )
+                index = self._create_delta_sync_index(vector_store)
+            else:
+                # Healthy (or a Direct-Access index, which has no checkpoint to
+                # go stale) — a normal incremental sync suffices.
+                logger.info(
+                    "Vector search index healthy — triggering incremental sync",
+                    index_name=index_name,
+                    detailed_state=current_state,
+                )
+                # Wait for the index to be queryable before issuing sync, so we
+                # don't race against a still-provisioning index.
+                index.wait_until_ready(verbose=True, wait_for_updates=False)
+                index.sync()
 
         # create_delta_sync_index_and_wait and index.sync() return before the
-        # underlying data sync completes. wait_for_updates=True blocks until
-        # the index is fully populated (ONLINE_NO_PENDING_UPDATE).
-        index.wait_until_ready(verbose=True, wait_for_updates=True)
+        # underlying data sync completes. wait_for_updates=True blocks until the
+        # index is fully populated (ONLINE_NO_PENDING_UPDATE). Bounded so a
+        # still-stale index fails fast with a diagnostic instead of hanging.
+        # The SDK raises a bare Exception on timeout OR on an OFFLINE/failed
+        # state — both mean the index never came online (a still-stale
+        # checkpoint or unrecoverable Delta history, e.g. VACUUM / retention
+        # exceeded). Re-raise as an actionable error instead of a 24h hang.
+        try:
+            index.wait_until_ready(
+                verbose=True,
+                wait_for_updates=True,
+                timeout=timedelta(seconds=_VS_INDEX_READY_TIMEOUT_SECONDS),
+            )
+        except Exception as exc:  # noqa: BLE001 — normalize SDK's bare Exception
+            final_state = str(
+                (_describe_index_safe(index).get("status") or {}).get(
+                    "detailed_state", "UNKNOWN"
+                )
+            )
+            logger.error(
+                "Vector search index failed to reach ONLINE",
+                index_name=index_name,
+                source_table=source_table,
+                final_state=final_state,
+                timeout_seconds=_VS_INDEX_READY_TIMEOUT_SECONDS,
+                error=str(exc),
+            )
+            raise RuntimeError(
+                f"Vector search index {index_name} did not reach ONLINE within "
+                f"{_VS_INDEX_READY_TIMEOUT_SECONDS}s (last state: {final_state}). "
+                f"The source table's Delta history may be unrecoverable from the "
+                f"index checkpoint (e.g. VACUUM / retention exceeded). Delete the "
+                f"index and re-run provisioning: "
+                f"databricks vector-search-indexes delete-index {index_name}"
+            ) from exc
 
         logger.success(
             "Vector search index ready",
-            index_name=vector_store.index.full_name,
-            source_table=vector_store.source_table.full_name,
+            index_name=index_name,
+            source_table=source_table,
         )
+
+    def _create_delta_sync_index(
+        self, vector_store: VectorStoreModel
+    ) -> VectorSearchIndex:
+        """Create the Delta-Sync index and stamp the source table's Delta GUID
+        onto it so a later run can detect a recreated source (stale checkpoint).
+
+        Shared by the initial-create and stale-recreate paths so their index
+        parameters can never drift apart.
+        """
+        endpoint_name: str = vector_store.endpoint.name
+        index_name: str = vector_store.index.full_name
+        source_table: str = vector_store.source_table.full_name
+
+        source_uuid: str | None = _source_table_delta_uuid(source_table)
+        create_kwargs: dict[str, Any] = dict(
+            endpoint_name=endpoint_name,
+            index_name=index_name,
+            source_table_name=source_table,
+            pipeline_type="TRIGGERED",
+            primary_key=vector_store.primary_key,
+            embedding_source_column=vector_store.embedding_source_column,
+            embedding_model_endpoint_name=vector_store.embedding_model.name,
+            columns_to_sync=vector_store.columns,
+        )
+        stamped_uuid = False
+        if source_uuid:
+            # Best-effort: only pass tags if the SDK accepts them, so a signature
+            # change can't break index creation.
+            try:
+                import inspect
+
+                if "custom_tags" in inspect.signature(
+                    self.vsc.create_delta_sync_index_and_wait
+                ).parameters:
+                    create_kwargs["custom_tags"] = {
+                        _index_source_uuid_key(): source_uuid
+                    }
+                    stamped_uuid = True
+            except Exception:  # noqa: BLE001
+                pass
+
+        logger.info(
+            "Creating Delta-Sync vector index",
+            index_name=index_name,
+            source_table=source_table,
+            embedding_model=vector_store.embedding_model.name,
+            embedding_source_column=vector_store.embedding_source_column,
+            source_delta_uuid=source_uuid or "unknown",
+            uuid_stamped=stamped_uuid,
+        )
+        self.vsc.create_delta_sync_index_and_wait(**create_kwargs)
+        return self.vsc.get_index(endpoint_name, index_name)
 
     def get_vector_index(self, vector_store: VectorStoreModel) -> None:
         index: VectorSearchIndex = self.vsc.get_index(
