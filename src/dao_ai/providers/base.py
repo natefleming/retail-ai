@@ -61,7 +61,9 @@ class ServiceProvider(ABC):
         ...
 
     @abstractmethod
-    def deploy_apps_agent(self, config: "AppConfig") -> Any:
+    def deploy_apps_agent(
+        self, config: "AppConfig", development: bool | None = None
+    ) -> Any:
         """Deploy agent as a Databricks App."""
         ...
 
@@ -70,6 +72,7 @@ class ServiceProvider(ABC):
         self,
         config: "AppConfig",
         target: DeploymentTarget = DeploymentTarget.MODEL_SERVING,
+        development: bool | None = None,
     ) -> Any:
         """
         Deploy agent to the specified target.

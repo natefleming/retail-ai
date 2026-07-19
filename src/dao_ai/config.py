@@ -5504,24 +5504,28 @@ class ToolCallLimitModel(BaseModel):
     ``ToolCallLimitMiddleware`` via ``create_tool_call_limit_middleware``.
     """
 
-    model_config = ConfigDict(use_enum_values=True, extra="forbid")
+    model_config = ConfigDict(
+        use_enum_values=True, extra="forbid", populate_by_name=True
+    )
 
     run_limit: Optional[int] = Field(
         default=None,
         gt=0,
+        validation_alias=AliasChoices("run_limit", "turn_limit"),
         description=(
             "Maximum number of times this tool may be called within a single "
             "agent invocation (one user message). Resets each run and requires "
-            "no checkpointer."
+            "no checkpointer. Alias: ``turn_limit``."
         ),
     )
     thread_limit: Optional[int] = Field(
         default=None,
         gt=0,
+        validation_alias=AliasChoices("thread_limit", "conversation_limit"),
         description=(
             "Maximum number of times this tool may be called across an entire "
             "conversation (thread). Requires a checkpointer, which DAO AI "
-            "agents have via memory."
+            "agents have via memory. Alias: ``conversation_limit``."
         ),
     )
     exit_behavior: Literal["continue", "error", "end"] = Field(
@@ -10667,6 +10671,7 @@ class AppConfig(BaseModel):
         client_id: str | None = None,
         client_secret: str | None = None,
         workspace_host: str | None = None,
+        development: bool | None = None,
     ) -> None:
         from dao_ai.providers.base import ServiceProvider
         from dao_ai.providers.databricks import DatabricksProvider
@@ -10679,7 +10684,7 @@ class AppConfig(BaseModel):
             client_secret=client_secret,
             workspace_host=workspace_host,
         )
-        provider.create_agent(self)
+        provider.create_agent(self, development=development)
 
     def deploy_agent(
         self,
@@ -10690,6 +10695,7 @@ class AppConfig(BaseModel):
         client_id: str | None = None,
         client_secret: str | None = None,
         workspace_host: str | None = None,
+        development: bool | None = None,
     ) -> None:
         """
         Deploy the agent to the specified target.
@@ -10708,6 +10714,8 @@ class AppConfig(BaseModel):
             client_id: Optional client ID for service principal authentication
             client_secret: Optional client secret for service principal authentication
             workspace_host: Optional workspace host URL
+            development: Ship local dao-ai source/wheel (True), the PyPI package
+                (False), or auto-detect from the install type (None).
         """
         from dao_ai.providers.base import ServiceProvider
         from dao_ai.providers.databricks import DatabricksProvider
@@ -10732,7 +10740,9 @@ class AppConfig(BaseModel):
             client_secret=client_secret,
             workspace_host=workspace_host,
         )
-        provider.deploy_agent(self, target=resolved_target)
+        provider.deploy_agent(
+            self, target=resolved_target, development=development
+        )
 
     def find_agents(
         self, predicate: Callable[[AgentModel], bool] | None = None
