@@ -1043,7 +1043,7 @@ def test_write_bundle_bakes_resolved_values_and_drops_parameters(
     out_dir = tmp_path / "bundle"
     out_dir.mkdir()
 
-    write_bundle(config, out_dir, force=True, development=False)
+    write_bundle(config, out_dir, overwrite=True, development=False)
 
     rendered_path = out_dir / "cfg.yaml"
     assert rendered_path.exists()
@@ -1081,7 +1081,7 @@ def test_write_bundle_ships_requirements_txt_no_uv_lock(
     out_dir = tmp_path / "bundle"
     out_dir.mkdir()
 
-    write_bundle(config, out_dir, force=True, development=False)
+    write_bundle(config, out_dir, overwrite=True, development=False)
 
     assert (out_dir / "requirements.txt").exists(), (
         "Generated bundle must ship requirements.txt — Apps build installs "
@@ -1150,7 +1150,7 @@ def test_write_bundle_attaches_trace_location_resources(
 
     out_dir = tmp_path / "bundle"
     out_dir.mkdir()
-    write_bundle(config, out_dir, force=True, development=False)
+    write_bundle(config, out_dir, overwrite=True, development=False)
 
     app_yaml = _yaml.safe_load((out_dir / "resources" / "app.yml").read_text())
     app_name = next(iter(app_yaml["resources"]["apps"]))
@@ -1196,7 +1196,7 @@ def test_write_bundle_preserves_user_resources_yml(
     """A user-authored resources/jobs.yml must survive a re-run of write_bundle.
 
     The whole point of the wildcard include is that users can drop sibling
-    resources/*.yml files into the bundle without `--force` clobbering them.
+    resources/*.yml files into the bundle without `--overwrite` clobbering them.
     """
     from dao_ai.apps.bundle import write_bundle
 
@@ -1208,7 +1208,7 @@ def test_write_bundle_preserves_user_resources_yml(
     out_dir = tmp_path / "bundle"
     out_dir.mkdir()
 
-    write_bundle(config, out_dir, force=True, development=False)
+    write_bundle(config, out_dir, overwrite=True, development=False)
 
     user_resource = out_dir / "resources" / "jobs.yml"
     user_payload = (
@@ -1216,7 +1216,7 @@ def test_write_bundle_preserves_user_resources_yml(
     )
     user_resource.write_text(user_payload)
 
-    write_bundle(config, out_dir, force=True, development=False)
+    write_bundle(config, out_dir, overwrite=True, development=False)
 
     assert user_resource.exists(), (
         "User-authored resources/jobs.yml must not be deleted by write_bundle"
@@ -1306,7 +1306,7 @@ def _emitted_config_text(
 
     config = AppConfig.from_file(config_path, params=params, initialize=False)
     out_dir.mkdir(exist_ok=True)
-    write_bundle(config, out_dir, force=True, development=False)
+    write_bundle(config, out_dir, overwrite=True, development=False)
     return (out_dir / config_path.name).read_text()
 
 

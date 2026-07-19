@@ -359,7 +359,7 @@ def test_create_agent_sets_experiment():
         patch.object(mlflow.pyfunc, "log_model") as mock_log_model,
         patch.object(mlflow, "register_model"),
         patch("dao_ai.providers.databricks.MlflowClient"),
-        patch("dao_ai.providers.databricks.is_published", return_value=True),
+        patch("dao_ai.utils.is_published", return_value=True),
         patch(
             "dao_ai.providers.databricks.is_lib_provided",
             return_value=True,
@@ -468,7 +468,7 @@ def test_create_agent_uses_configured_python_version():
         patch.object(mlflow.pyfunc, "log_model") as mock_log_model,
         patch.object(mlflow, "register_model"),
         patch("dao_ai.providers.databricks.MlflowClient"),
-        patch("dao_ai.providers.databricks.is_published", return_value=True),
+        patch("dao_ai.utils.is_published", return_value=True),
         patch(
             "dao_ai.providers.databricks.is_lib_provided",
             return_value=True,
@@ -496,6 +496,71 @@ def test_create_agent_uses_configured_python_version():
             d for d in conda_env["dependencies"] if isinstance(d, dict) and "pip" in d
         )
         assert "test-package==1.0.0" in pip_deps["pip"]
+
+
+@pytest.mark.unit
+def test_create_agent_local_source_no_wheel_no_source_raises():
+    """create_agent must fail loud when local-source is forced but nothing to ship.
+
+    ``--development`` (or auto-detect on a non-published install) forces
+    ``_use_local_source`` True, but if there is neither a pre-built wheel
+    (``find_dev_wheel() is None``) nor a source tree (``is_source_layout``
+    False — dao-ai is in site-packages), continuing would log a model with NO
+    dao-ai. This must raise instead of silently shipping a broken model, so it
+    matches the Apps + generate-bundle paths.
+    """
+    from unittest.mock import MagicMock, patch
+
+    import mlflow
+
+    from dao_ai.config import AppConfig
+    from dao_ai.providers.databricks import DatabricksProvider
+
+    mock_config = MagicMock(spec=AppConfig)
+    mock_app = MagicMock()
+    mock_app.name = "test_app"
+    mock_app.code_paths = []
+    mock_app.pip_requirements = []
+    mock_app.input_example = None
+    mock_app.trace_location = None
+    mock_config.app = mock_app
+
+    mock_resources = MagicMock()
+    for attr in (
+        "llms",
+        "vector_stores",
+        "warehouses",
+        "genie_rooms",
+        "tables",
+        "functions",
+        "connections",
+        "databases",
+        "volumes",
+    ):
+        setattr(mock_resources, attr, MagicMock(values=lambda: []))
+    mock_config.resources = mock_resources
+    mock_config.guardrails = {}
+    mock_config.agents = {}
+
+    mock_experiment = MagicMock()
+    mock_experiment.experiment_id = "exp123"
+    mock_experiment.name = "/Users/test_user/test_app"
+
+    with (
+        patch.object(
+            DatabricksProvider, "get_or_create_experiment", return_value=mock_experiment
+        ),
+        patch.object(mlflow, "set_experiment"),
+        patch.object(mlflow, "set_registry_uri"),
+        patch.object(mlflow, "set_tag"),
+        patch("dao_ai.providers.databricks.MlflowClient"),
+        # Local-source forced, but no wheel and dao-ai lives in site-packages.
+        patch("dao_ai.providers.databricks.find_dev_wheel", return_value=None),
+        patch("dao_ai.providers.databricks.is_source_layout", return_value=False),
+    ):
+        provider = DatabricksProvider()
+        with pytest.raises(RuntimeError, match="Build a wheel first"):
+            provider.create_agent(config=mock_config, development=True)
 
 
 @pytest.mark.unit
@@ -2404,7 +2469,7 @@ def test_deploy_apps_agent_uploads_pyproject_with_dao_ai_version_pin(tmp_path):
 
     with (
         patch.object(DatabricksProvider, "__init__", return_value=None),
-        patch("dao_ai.providers.databricks.is_published", return_value=True),
+        patch("dao_ai.utils.is_published", return_value=True),
     ):
         provider = DatabricksProvider()
         provider.w = MagicMock()
@@ -2527,7 +2592,7 @@ def test_deploy_apps_agent_dev_path_ships_requirements_txt(tmp_path):
 
     with (
         patch.object(DatabricksProvider, "__init__", return_value=None),
-        patch("dao_ai.providers.databricks.is_published", return_value=False),
+        patch("dao_ai.utils.is_published", return_value=False),
         patch("dao_ai.providers.databricks.find_dev_wheel", return_value=stub_wheel),
     ):
         provider = DatabricksProvider()

@@ -19,7 +19,7 @@ def test_write_mcp_bundle_emits_expected_files(tmp_path: Path) -> None:
     with mcp_config(tmp_path) as path:
         config = load_app_config(path, initialize=False)
     out = tmp_path / "out"
-    write_mcp_bundle(config, out, force=True)
+    write_mcp_bundle(config, out, overwrite=True)
 
     # Layout mirrors generate-bundle: databricks.yaml + resources/app.yml
     # (no standalone app.yaml — the App's runtime command/env is embedded
@@ -110,7 +110,7 @@ def test_write_mcp_bundle_readme_names_the_agent_tool(tmp_path: Path) -> None:
     with mcp_config(tmp_path) as path:
         config = load_app_config(path, initialize=False)
     out = tmp_path / "out"
-    write_mcp_bundle(config, out, force=True)
+    write_mcp_bundle(config, out, overwrite=True)
 
     readme = (out / "README.md").read_text()
     # `app.name: mcp-dao-ai-test` in the fixture → slugified tool name.
@@ -128,7 +128,7 @@ def test_write_mcp_bundle_requires_app_name(tmp_path: Path) -> None:
         parameters: dict = {}
 
     with pytest.raises(ValueError, match="config.app.name"):
-        write_mcp_bundle(_StubConfig(), tmp_path / "out", force=True)
+        write_mcp_bundle(_StubConfig(), tmp_path / "out", overwrite=True)
 
 
 @pytest.mark.unit
@@ -147,7 +147,7 @@ def test_write_mcp_bundle_wires_mlflow_experiment(tmp_path: Path) -> None:
     with mcp_config(tmp_path) as path:
         config = load_app_config(path, initialize=False)
     out = tmp_path / "out"
-    write_mcp_bundle(config, out, force=True)
+    write_mcp_bundle(config, out, overwrite=True)
 
     app_yml = (out / "resources" / "app.yml").read_text()
 

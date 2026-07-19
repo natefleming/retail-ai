@@ -70,7 +70,7 @@ class TestBundleShipsSkills:
             str(project_root_with_skills / "deep_agent_with_skills.yaml")
         )
         out = tmp_path / "bundle_out"
-        write_bundle(cfg, out, force=True)
+        write_bundle(cfg, out, overwrite=True)
 
         # Local skill files end up under <bundle>/skills/<vertical>/<skill>/.
         assert (
@@ -89,7 +89,7 @@ class TestBundleShipsSkills:
             str(project_root_with_skills / "deep_agent_with_skills.yaml")
         )
         out = tmp_path / "bundle_out"
-        write_bundle(cfg, out, force=True)
+        write_bundle(cfg, out, overwrite=True)
 
         # The volume-backed skill is under product_lookup/. We DO have a
         # local placeholder skills/sporting_goods_store/product_lookup/ but
@@ -121,7 +121,7 @@ class TestBundleEmitsVolumePermission:
             str(project_root_with_skills / "deep_agent_with_skills.yaml")
         )
         out = tmp_path / "bundle_out"
-        write_bundle(cfg, out, force=True)
+        write_bundle(cfg, out, overwrite=True)
 
         app_yml = (out / "resources" / "app.yml").read_text()
         # Volume must show up as a uc_securable with VOLUME type and READ_VOLUME perm.
@@ -180,7 +180,7 @@ class TestRuntimeResolutionMatchesBundleLayout:
             str(project_root_with_skills / "deep_agent_with_skills.yaml")
         )
         out = tmp_path / "bundle_out"
-        write_bundle(cfg, out, force=True)
+        write_bundle(cfg, out, overwrite=True)
 
         # Reload the rendered config from the bundle (this is what the deployed
         # app actually runs) and resolve skills against the bundle root.

@@ -450,7 +450,7 @@ launches the server via module invocation — no console script required.
 |---|---|
 | `-c / --config` | Path to your dao-ai config YAML. |
 | `-o / --output-dir` | Where to write the bundle. |
-| `--force` | Overwrite existing files in the output directory. |
+| `--overwrite` | Overwrite existing files in the output directory. |
 | `--development` | Build the local dao-ai wheel and bundle it under `output/dist/`; the generated pyproject installs from there. Use when dao-ai changes haven't shipped to PyPI yet. |
 | `-p / --profile` | Databricks CLI profile — drives `_resolve_all_resources` so generated bundle paths (e.g. Lakebase database IDs) come from the target workspace. Always pass this when your config references resources resolved at generate time. |
 | `--var KEY=VALUE` / `--param KEY=VALUE` | Override declared `${var.KEY}` substitutions. Repeatable. |

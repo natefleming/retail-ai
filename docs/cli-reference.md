@@ -211,10 +211,10 @@ dao-ai create-experiment --name /Shared/my-app/dao-ai-fresh -p <profile>
 
 ### Overwriting Existing Files
 
-If the output directory already contains generated files, they are skipped by default. Use `--force` to overwrite:
+If the output directory already contains generated files, they are skipped by default. Use `--overwrite` to overwrite:
 
 ```bash
-dao-ai generate-bundle -c config/retail.yaml -o ./my-bundle --force
+dao-ai generate-bundle -c config/retail.yaml -o ./my-bundle --overwrite
 ```
 
 ### Using a Databricks Profile
@@ -327,7 +327,7 @@ app:
 
 ```bash
 # 3. Deploy → link → run → restart.
-dao-ai generate-bundle -c my_config.yaml -o ./bundle --force
+dao-ai generate-bundle -c my_config.yaml -o ./bundle --overwrite
 cd ./bundle
 databricks bundle deploy --target dev -p <profile>
 dao-ai link-trace-destination -c ../my_config.yaml -p <profile>
@@ -550,7 +550,7 @@ dao-ai generate-bundle -c config/my_config.yaml -o ./my-bundle [OPTIONS]
 |--------|-------------|
 | `-c, --config FILE` | Path to the dao-ai configuration file (required) |
 | `-o, --output-dir DIR` | Output directory for generated files (default: `.`) |
-| `--force` | Overwrite existing files in the output directory |
+| `--overwrite` | Overwrite existing files in the output directory |
 | `--development` | Bundle a local dao-ai wheel instead of a PyPI dependency |
 | `-p, --profile NAME` | Databricks profile for config loading and resource resolution |
 

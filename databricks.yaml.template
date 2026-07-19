@@ -44,6 +44,9 @@ variables:
   deployment_target:
     description: Agent deployment target (model_serving or apps) - defaults to model_serving
     default: model_serving
+  development:
+    description: Source selection (auto, true, false) - true ships local dao-ai wheel, false pins PyPI, auto detects from install type
+    default: auto
 
 resources:
   jobs:
@@ -103,6 +106,7 @@ resources:
             base_parameters:
               config-path: ${var.config_path}
               deployment-target: ${var.deployment_target}
+              development: ${var.development}
           environment_key: dao-ai-env
         - task_key: generate-evaluation-data
           depends_on:
