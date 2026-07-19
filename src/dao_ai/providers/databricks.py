@@ -264,6 +264,57 @@ def build_auth_policy(config: AppConfig) -> AuthPolicy:
     )
 
 
+def _use_local_source(development: bool | None) -> bool:
+    """Decide whether a deploy should ship local dao-ai source/wheel vs PyPI.
+
+    - ``development=True``  → force local source/wheel (test unreleased code).
+    - ``development=False`` → force the published PyPI package.
+    - ``development=None``  → auto: local when dao-ai is a local/editable install
+      (``not is_published()``), PyPI otherwise. This preserves the historical
+      default while letting the CLI ``--development/--no-development`` flag
+      override it explicitly.
+    """
+    if development is not None:
+        return development
+    return not is_published()
+
+
+def _warn_if_stale_dev_wheel(dev_wheel: Path | None) -> None:
+    """Log which local wheel a deploy is about to ship, and warn if it looks
+    stale relative to the working-tree source.
+
+    ``dao-ai deploy`` in local-source mode ships ``find_dev_wheel()`` — a
+    pre-built wheel under ``dist/``. If that wheel predates recent source
+    edits, the deploy silently ships old code. Surface the wheel name + mtime,
+    and warn when any tracked ``.py`` under the package source is newer than
+    the wheel so the operator knows to rebuild (``uv build --wheel``).
+    """
+    if dev_wheel is None:
+        return
+    try:
+        import dao_ai
+
+        wheel_mtime: float = dev_wheel.stat().st_mtime
+        pkg_root: Path = Path(dao_ai.__file__).parent
+        newest_src: float = max(
+            (p.stat().st_mtime for p in pkg_root.rglob("*.py")),
+            default=0.0,
+        )
+        if newest_src > wheel_mtime:
+            logger.warning(
+                "Shipping a dev wheel that is OLDER than the working-tree "
+                "source — the deploy may ship stale code. Rebuild with "
+                "'uv build --wheel' before deploying.",
+                wheel=dev_wheel.name,
+                wheel_mtime=wheel_mtime,
+                newest_source_mtime=newest_src,
+            )
+        else:
+            logger.info("Shipping dev wheel", wheel=dev_wheel.name)
+    except Exception as exc:  # noqa: BLE001 — diagnostics must never break deploy
+        logger.debug("Dev-wheel staleness check skipped", error=str(exc))
+
+
 def link_experiment_trace_location(
     config: AppConfig, experiment_id: str
 ) -> None:
@@ -401,6 +452,19 @@ def apply_runtime_trace_destination(config: AppConfig) -> None:
             # UnityCatalog so the exporter picks the correct table (e.g.
             # ``<catalog>.<schema>.<prefix>_otel_spans``).
             destination = UnityCatalog(**uc_kwargs)
+            # ``UnityCatalog.full_otel_*_table_name`` returns the private
+            # ``_otel_*_table_name`` fields verbatim (unlike ``UCSchemaLocation``
+            # which auto-qualifies with catalog/schema). Constructing with only
+            # ``table_prefix`` leaves those fields ``None`` → the OTEL span
+            # exporter reads ``get_active_spans_table_name() == None`` and
+            # silently skips every write. Populate them with the FULLY-QUALIFIED
+            # three-level names — the trace-server rejects a bare table name with
+            # ``Invalid full table name`` (a failure otherwise hidden by the
+            # Databricks SDK round-trip logger crashing on the BytesIO span
+            # payload, ``object of type '_io.BytesIO' has no len()``).
+            fq_prefix = f"{loc.catalog_name}.{loc.schema_name}.{table_prefix}"
+            destination._otel_spans_table_name = f"{fq_prefix}_otel_spans"
+            destination._otel_logs_table_name = f"{fq_prefix}_otel_logs"
             _MLFLOW_TRACE_USER_DESTINATION.set(destination)
         else:
             # No-prefix case: constructing ``UnityCatalog(catalog, schema)``
@@ -886,6 +950,7 @@ class DatabricksProvider(ServiceProvider):
     def create_agent(
         self,
         config: AppConfig,
+        development: bool | None = None,
     ) -> ModelInfo:
         logger.info("Creating agent")
         mlflow.set_registry_uri("databricks-uc")
@@ -931,7 +996,7 @@ class DatabricksProvider(ServiceProvider):
 
         pip_requirements: Sequence[str] = config.app.pip_requirements
 
-        if is_published():
+        if not _use_local_source(development):
             if not is_lib_provided("dao-ai", pip_requirements):
                 pip_requirements += [
                     f"dao-ai=={dao_ai_version()}",
@@ -943,6 +1008,7 @@ class DatabricksProvider(ServiceProvider):
         else:
             dev_wheel: Path | None = find_dev_wheel()
             if dev_wheel:
+                _warn_if_stale_dev_wheel(dev_wheel)
                 code_paths.append(dev_wheel.as_posix())
                 pip_requirements += [f"code/{dev_wheel.name}"]
                 logger.info(
@@ -1394,7 +1460,9 @@ class DatabricksProvider(ServiceProvider):
                 scorer_count=len(registered_scorers),
             )
 
-    def deploy_apps_agent(self, config: AppConfig) -> None:
+    def deploy_apps_agent(
+        self, config: AppConfig, development: bool | None = None
+    ) -> None:
         """
         Deploy agent as a Databricks App.
 
@@ -1550,7 +1618,7 @@ class DatabricksProvider(ServiceProvider):
         entrypoint_module: str = (
             "dao_ai.apps.start_app" if enable_chat_proxy else "dao_ai.apps.server"
         )
-        if is_published():
+        if not _use_local_source(development):
             # Ship a ``requirements.txt`` (pinned) + ``pyproject.toml``
             # (pinned) so Databricks Apps' build phase installs the dao-ai
             # version the bundle declares. Apps' build step recognizes
@@ -1622,6 +1690,7 @@ class DatabricksProvider(ServiceProvider):
             )
         else:
             dev_wheel: Path | None = find_dev_wheel()
+            _warn_if_stale_dev_wheel(dev_wheel)
 
             if not dev_wheel:
                 # No pre-built wheel -- build from source
@@ -2017,6 +2086,7 @@ class DatabricksProvider(ServiceProvider):
         self,
         config: AppConfig,
         target: DeploymentTarget = DeploymentTarget.MODEL_SERVING,
+        development: bool | None = None,
     ) -> None:
         """
         Deploy agent to the specified target.
@@ -2027,14 +2097,17 @@ class DatabricksProvider(ServiceProvider):
         Args:
             config: The AppConfig containing deployment configuration
             target: The deployment target (MODEL_SERVING or APPS)
+            development: When True, ship local dao-ai source/wheel; when False,
+                the published PyPI package; when None, auto-detect from the
+                install type. Only the Apps path consumes this today.
         """
         if target == DeploymentTarget.BOTH:
             self.deploy_model_serving_agent(config)
-            self.deploy_apps_agent(config)
+            self.deploy_apps_agent(config, development=development)
         elif target == DeploymentTarget.MODEL_SERVING:
             self.deploy_model_serving_agent(config)
         elif target == DeploymentTarget.APPS:
-            self.deploy_apps_agent(config)
+            self.deploy_apps_agent(config, development=development)
         else:
             raise ValueError(f"Unknown deployment target: {target}")
 

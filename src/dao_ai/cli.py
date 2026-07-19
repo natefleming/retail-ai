@@ -48,6 +48,46 @@ def _apply_profile_context(profile: Optional[str]) -> None:
         os.environ.pop(var, None)
     os.environ["DATABRICKS_CONFIG_PROFILE"] = profile
 
+    # Materialize a static bearer token from the profile up-front, while the
+    # process is still single-threaded, and export it as DATABRICKS_HOST /
+    # DATABRICKS_TOKEN so every subsequent SDK call uses token auth instead of
+    # the profile's ``databricks-cli`` (OAuth U2M) auth.
+    #
+    # Why: OAuth U2M mints tokens by forking the ``databricks`` binary. During
+    # ``dao-ai deploy``, MLflow's ``log_model`` validation runs the full agent
+    # in-process (LLMs, tools, tracing) with live gRPC channels / threads, and
+    # any SDK token refresh then forks unsafely — producing
+    # ``forced token refresh: cache update: exit status 45`` and a ``401`` that
+    # non-deterministically aborts the deploy. Resolving the token once here,
+    # before any threads exist, removes every in-process fork. Best-effort:
+    # if resolution fails we leave the profile in place and let the SDK's
+    # normal auth chain handle it.
+    try:
+        from databricks.sdk import WorkspaceClient
+
+        w = WorkspaceClient(profile=profile)
+        headers: dict[str, str] = w.config.authenticate() or {}
+        authorization: str = headers.get("Authorization", "")
+        host: Optional[str] = w.config.host
+        if authorization.startswith("Bearer ") and host:
+            os.environ["DATABRICKS_HOST"] = host
+            os.environ["DATABRICKS_TOKEN"] = authorization[len("Bearer ") :]
+            # Token auth must win over the profile for the SDK's auth-type
+            # detection, so drop the profile pointer now that we have a token.
+            os.environ.pop("DATABRICKS_CONFIG_PROFILE", None)
+            logger.debug(
+                "Materialized static bearer token from profile for fork-safe auth",
+                profile=profile,
+                host=host,
+            )
+    except Exception as e:
+        logger.debug(
+            "Could not materialize token from profile; leaving profile-based "
+            "auth in place",
+            profile=profile,
+            error=str(e),
+        )
+
 
 def get_default_user_id() -> str:
     """
@@ -172,6 +212,21 @@ def _add_var_argument(parser: ArgumentParser) -> None:
             "file. Repeatable (e.g. --param catalog=main --param schema=dao_ai). "
             "Alias: --var."
         ),
+    )
+
+
+def _add_profile_argument(parser: ArgumentParser) -> None:
+    """Add the ``-p/--profile`` flag to a subparser.
+
+    Shared so every subcommand spells the Databricks profile flag identically.
+    Handlers must call ``_apply_profile_context(options.profile)`` before
+    constructing any WorkspaceClient so the profile is authoritative.
+    """
+    parser.add_argument(
+        "-p",
+        "--profile",
+        type=str,
+        help="The Databricks CLI profile to use for authentication.",
     )
 
 
@@ -732,7 +787,7 @@ Examples:
         type=str,
         required=True,
         metavar="FILE",
-        help="Path to the model configuration file to validate",
+        help="Path to the model configuration file to deploy.",
     )
     deploy_parser.add_argument(
         "-t",
@@ -743,6 +798,23 @@ Examples:
         help="Deployment target: 'model_serving', 'apps', or 'both'. "
         "If not specified, uses app.deployment_target from config file, "
         "or defaults to 'model_serving'.",
+    )
+    _add_profile_argument(deploy_parser)
+    deploy_parser.add_argument(
+        "--development",
+        dest="development",
+        default=None,
+        action="store_true",
+        help="Ship local dao-ai source/wheel instead of the published PyPI "
+        "package (Apps target). Rebuild the wheel first with 'uv build --wheel'. "
+        "Defaults to auto-detect from the install type.",
+    )
+    deploy_parser.add_argument(
+        "--no-development",
+        dest="development",
+        action="store_false",
+        help="Force the published PyPI dao-ai package even from a local/editable "
+        "install (Apps target).",
     )
 
     # List MCP tools command
@@ -928,6 +1000,20 @@ Examples:
     ):
         _add_var_argument(sub)
 
+    # Add -p/--profile to the subcommands that touch Databricks but don't
+    # already declare it inline (deploy/pipeline/generate-*/create-experiment/
+    # link-trace/grant-trace define their own). Without it a shell/.env
+    # DATABRICKS_* var silently wins — the hijack _apply_profile_context guards.
+    for sub in (
+        validation_parser,
+        graph_parser,
+        list_mcp_parser,
+        monitor_parser,
+        chat_parser,
+        vars_parser,
+    ):
+        _add_profile_argument(sub)
+
     options = parser.parse_args(args)
 
     # Generate a new thread_id UUID if not provided (only for chat command)
@@ -941,6 +1027,7 @@ Examples:
 
 def handle_chat_command(options: Namespace) -> None:
     """Interactive chat REPL with the DAO AI system with Human-in-the-Loop support."""
+    _apply_profile_context(options.profile)
     logger.debug("Starting chat session with DAO AI system...")
 
     # Set up signal handler for clean Ctrl+C handling
@@ -1605,6 +1692,7 @@ def _resolve_experiment_id_for_link(
 
 
 def handle_graph_command(options: Namespace) -> None:
+    _apply_profile_context(options.profile)
     logger.debug("Generating graph representation...")
     try:
         config: AppConfig = AppConfig.from_file(
@@ -1619,6 +1707,13 @@ def handle_graph_command(options: Namespace) -> None:
 
 def handle_deploy_command(options: Namespace) -> None:
     from dao_ai.config import DeploymentTarget
+
+    # Make --profile authoritative for this process before any WorkspaceClient
+    # is constructed. Both the provider's ``self.w`` and the bare
+    # ``WorkspaceClient()`` instances in the grant helpers read
+    # ``DATABRICKS_CONFIG_PROFILE``, so this routes the whole deploy — log,
+    # register, deploy, and the SP grants — at the selected profile.
+    _apply_profile_context(options.profile)
 
     logger.debug(f"Validating configuration from {options.config}...")
     try:
@@ -1646,9 +1741,10 @@ def handle_deploy_command(options: Namespace) -> None:
 
         # Only log/register the MLflow model for Model Serving deployments.
         # Apps deploy directly from the config + wheel/PyPI package.
+        development: bool | None = getattr(options, "development", None)
         if target != DeploymentTarget.APPS:
-            config.create_agent()
-        config.deploy_agent(target=target)
+            config.create_agent(development=development)
+        config.deploy_agent(target=target, development=development)
         sys.exit(0)
     except Exception as e:
         logger.error(f"Deployment failed: {e}")
@@ -1658,6 +1754,7 @@ def handle_deploy_command(options: Namespace) -> None:
 def handle_monitor_command(options: Namespace) -> None:
     from dao_ai.providers.databricks import DatabricksProvider
 
+    _apply_profile_context(options.profile)
     logger.debug(f"Loading configuration from {options.config}...")
     try:
         try:
@@ -1728,6 +1825,7 @@ def handle_monitor_command(options: Namespace) -> None:
 
 
 def handle_validate_command(options: Namespace) -> None:
+    _apply_profile_context(options.profile)
     logger.debug(f"Validating configuration from {options.config}...")
     try:
         config: AppConfig = AppConfig.from_file(
@@ -1822,6 +1920,7 @@ def handle_list_mcp_tools_command(options: Namespace) -> None:
     Shows all MCP servers and their available tools, indicating which
     are included/excluded based on filter configuration.
     """
+    _apply_profile_context(options.profile)
     logger.debug(f"Listing MCP tools from configuration: {options.config}")
 
     try:
@@ -2411,6 +2510,7 @@ def handle_vars_command(options: Namespace) -> None:
         substitute_workspace_refs,
     )
 
+    _apply_profile_context(options.profile)
     cli_vars: dict[str, str] = _parse_var_args(options.var)
 
     try:
