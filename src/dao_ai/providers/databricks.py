@@ -1025,9 +1025,18 @@ class DatabricksProvider(ServiceProvider):
                         directories=[d.name for d in directories],
                     )
                 else:
-                    logger.warning(
-                        "No dev wheel found and dao-ai is in site-packages. "
-                        "Build a wheel with 'uv build --wheel' for reliable deployment.",
+                    # Local-source mode was requested (explicit --development or
+                    # auto-detect said "not published"), but there is neither a
+                    # pre-built wheel nor a source tree to ship — dao-ai is
+                    # installed into site-packages. Continuing would log a model
+                    # with NO dao-ai (only its transitive deps), which fails to
+                    # import at serving load. Fail loud, matching the Apps and
+                    # generate-bundle paths, instead of shipping a broken model.
+                    raise RuntimeError(
+                        "No dao-ai wheel found and project source not available "
+                        "(dao-ai is installed from a package index). Build a "
+                        "wheel first with 'uv build --wheel', or pass "
+                        "--no-development to deploy the published PyPI package."
                     )
 
             pip_requirements += get_installed_packages()
