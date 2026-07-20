@@ -16,11 +16,14 @@ Usage:
 """
 
 import io
+import re
 import shutil
 import subprocess
+import time
+from contextlib import contextmanager
 from importlib.metadata import version as pkg_version
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Iterator, Optional
 
 import yaml
 from loguru import logger
@@ -163,6 +166,44 @@ def _get_dao_ai_version() -> str:
         return pkg_version("dao-ai")
     except Exception:
         return "0.1.0"
+
+
+@contextmanager
+def _dev_local_version(pyproject_path: Path) -> Iterator[None]:
+    """Temporarily stamp a unique PEP 440 local version segment on the build.
+
+    A development wheel is built at the *same* base version as the published
+    package (e.g. ``0.1.115``). An Apps container that already has that version
+    installed treats the bundled ``./dist/<wheel>`` as "already satisfied" and
+    silently keeps the stale published code, so local source edits never take
+    effect on redeploy. ``--force-reinstall`` can't fix this — it is not a valid
+    line in an Apps ``requirements.txt`` (the installer parses each line as a
+    requirement).
+
+    Stamping a unique local version (``0.1.115+dev<epoch>``) makes pip treat the
+    dev wheel as strictly newer than the published base version, so it always
+    reinstalls — while remaining a legal requirement (a version, not a flag) and
+    never masquerading as a real release. The original ``pyproject.toml`` is
+    restored on exit so the working tree is left unchanged.
+    """
+    original = pyproject_path.read_text()
+    match = re.search(r'^version\s*=\s*"([^"]+)"', original, flags=re.MULTILINE)
+    if not match:
+        # No static version line (e.g. dynamic version) — nothing to stamp.
+        yield
+        return
+    base = match.group(1)
+    # Skip if a local segment is already present (idempotent / user-managed).
+    local = base if "+" in base else f"{base}+dev{int(time.time())}"
+    stamped = original.replace(
+        match.group(0), f'version = "{local}"', 1
+    )
+    try:
+        pyproject_path.write_text(stamped)
+        logger.info("Stamped dev-build local version", version=local)
+        yield
+    finally:
+        pyproject_path.write_text(original)
 
 
 def _strip_parameters_block(rendered_yaml: str) -> str:
@@ -835,12 +876,17 @@ def write_bundle(
             for stale in (project_root / "dist").glob("dao_ai-*.whl"):
                 stale.unlink()
 
-            result = subprocess.run(
-                ["uv", "build", "--wheel"],
-                cwd=project_root,
-                capture_output=True,
-                text=True,
-            )
+            # Stamp a unique local version so the dev wheel always out-ranks the
+            # same-base-version published package in the Apps container (pip
+            # would otherwise skip a same-version reinstall — see
+            # ``_dev_local_version``).
+            with _dev_local_version(project_root / "pyproject.toml"):
+                result = subprocess.run(
+                    ["uv", "build", "--wheel"],
+                    cwd=project_root,
+                    capture_output=True,
+                    text=True,
+                )
             if result.returncode != 0:
                 raise RuntimeError(f"Wheel build failed: {result.stderr}")
 

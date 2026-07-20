@@ -5602,6 +5602,71 @@ class ToolCallLimitModel(BaseModel):
         return self
 
 
+class ModelCallLimitModel(BaseModel):
+    """
+    Configuration for capping how many LLM (model) calls an agent may make.
+
+    The model-call analogue of :class:`ToolCallLimitModel`. Presence of this
+    block on an agent's ``call_limit`` registers a ``ModelCallLimitMiddleware``
+    for that agent, bounding the ReAct loop directly — a more discoverable,
+    co-located alternative to hand-wiring
+    ``dao_ai.middleware.create_model_call_limit_middleware`` into the agent's
+    ``middleware`` list. Complements :attr:`AgentModel.recursion_limit` (the
+    graph-superstep backstop): ``run_limit`` is the graceful per-invocation cap.
+
+    A bare integer is accepted as shorthand for ``run_limit`` (see
+    ``AgentModel.call_limit``); the object form below gives full control. At
+    least one of ``run_limit`` or ``thread_limit`` must be set. This maps to
+    ``create_model_call_limit_middleware``.
+
+    Unlike the tool variant, ``exit_behavior`` only accepts ``'end'`` (default)
+    or ``'error'`` — a model-call limit has no per-tool ``'continue'`` semantics
+    (there is no alternative tool to fall back to).
+    """
+
+    model_config = ConfigDict(
+        use_enum_values=True, extra="forbid", populate_by_name=True
+    )
+
+    run_limit: Optional[int] = Field(
+        default=None,
+        gt=0,
+        validation_alias=AliasChoices("run_limit", "turn_limit"),
+        description=(
+            "Maximum number of model (LLM) calls this agent may make within a "
+            "single invocation (one user message). Resets each run and requires "
+            "no checkpointer. Alias: ``turn_limit``."
+        ),
+    )
+    thread_limit: Optional[int] = Field(
+        default=None,
+        gt=0,
+        validation_alias=AliasChoices("thread_limit", "conversation_limit"),
+        description=(
+            "Maximum number of model (LLM) calls this agent may make across an "
+            "entire conversation (thread). Requires a checkpointer, which DAO AI "
+            "agents have via memory. Alias: ``conversation_limit``."
+        ),
+    )
+    exit_behavior: Literal["error", "end"] = Field(
+        default="end",
+        description=(
+            "Behavior when a limit is reached: 'end' stops execution gracefully "
+            "(recommended); 'error' raises immediately. Unlike tool-call limits, "
+            "'continue' is not supported for model-call limits."
+        ),
+    )
+
+    @model_validator(mode="after")
+    def validate_at_least_one_limit(self) -> Self:
+        """Require at least one of run_limit or thread_limit to be set."""
+        if self.run_limit is None and self.thread_limit is None:
+            raise ValueError(
+                "At least one of run_limit or thread_limit must be specified."
+            )
+        return self
+
+
 class BaseFunctionModel(ABC, BaseModel):
     """Base class for all function/tool implementations (Python, factory, inline, MCP, UC)."""
 
@@ -7591,6 +7656,38 @@ class AgentModel(BaseModel):
             "agents. When None, uses LangGraph's default (25)."
         ),
     )
+    call_limit: Optional[int | ModelCallLimitModel] = Field(
+        default=None,
+        description=(
+            "Shortcut to cap how many model (LLM) calls this agent may make. A "
+            "bare integer sets run_limit (per-invocation) with "
+            "exit_behavior='end'; an object gives full control over "
+            "run_limit/thread_limit/exit_behavior. Registers a "
+            "ModelCallLimitMiddleware for this agent — the discoverable, "
+            "co-located equivalent of hand-wiring "
+            "``create_model_call_limit_middleware`` into ``middleware``. The "
+            "model-call analogue of a tool's ``call_limit``; complements "
+            "``recursion_limit`` (the graph-superstep backstop)."
+        ),
+    )
+
+    @field_validator("call_limit", mode="before")
+    @classmethod
+    def _normalize_call_limit(cls, value: Any) -> Any:
+        """Normalize a bare integer shortcut into a ModelCallLimitModel dict.
+
+        Runs before union validation so a bare int becomes ``run_limit``.
+        ``bool`` is a subclass of ``int`` but is never a valid limit, so reject
+        it explicitly rather than silently coercing ``True`` to ``run_limit=1``.
+        """
+        if isinstance(value, bool):
+            raise ValueError(
+                "call_limit must be a positive integer or an object, not a bool."
+            )
+        if isinstance(value, int):
+            return {"run_limit": value}
+        return value
+
     requires: list[str] = Field(
         default_factory=list,
         description=(

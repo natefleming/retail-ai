@@ -38,6 +38,9 @@ from dao_ai.middleware.human_in_the_loop import (
 from dao_ai.middleware.summarization import (
     create_summarization_middleware,
 )
+from dao_ai.middleware.model_call_limit import (
+    create_model_call_limit_middleware,
+)
 from dao_ai.middleware.tool_call_limit import (
     create_tool_call_limit_middlewares_from_tool_models,
 )
@@ -208,6 +211,25 @@ def _create_middleware_list(
             limited_tools=[mw.tool_name for mw in call_limit_middlewares],
         )
         middleware_list.extend(call_limit_middlewares)
+
+    # Add model-call-limit middleware when the agent declares `call_limit`.
+    # The first-class, discoverable equivalent of hand-wiring
+    # `create_model_call_limit_middleware` into the agent's `middleware` list;
+    # bounds the ReAct loop per agent. Absent call_limit → skipped.
+    if agent.call_limit is not None:
+        model_call_limit = create_model_call_limit_middleware(
+            run_limit=agent.call_limit.run_limit,
+            thread_limit=agent.call_limit.thread_limit,
+            exit_behavior=agent.call_limit.exit_behavior,
+        )
+        logger.info(
+            "Model call limit configuration",
+            agent=agent.name,
+            run_limit=agent.call_limit.run_limit,
+            thread_limit=agent.call_limit.thread_limit,
+            exit_behavior=agent.call_limit.exit_behavior,
+        )
+        middleware_list.append(model_call_limit)
 
     logger.info(
         "Middleware summary",

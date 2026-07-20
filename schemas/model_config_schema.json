@@ -767,6 +767,22 @@
           "description": "Maximum number of graph supersteps (LLM call + tool execution cycles) allowed per agent invocation. Prevents runaway iteration loops in tool-calling agents. When None, uses LangGraph's default (25).",
           "title": "Recursion Limit"
         },
+        "call_limit": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "$ref": "#/$defs/ModelCallLimitModel"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Shortcut to cap how many model (LLM) calls this agent may make. A bare integer sets run_limit (per-invocation) with exit_behavior='end'; an object gives full control over run_limit/thread_limit/exit_behavior. Registers a ModelCallLimitMiddleware for this agent \u2014 the discoverable, co-located equivalent of hand-wiring ``create_model_call_limit_middleware`` into ``middleware``. The model-call analogue of a tool's ``call_limit``; complements ``recursion_limit`` (the graph-superstep backstop).",
+          "title": "Call Limit"
+        },
         "requires": {
           "description": "Names of prerequisite agents that must have run (i.e. produced an AIMessage tagged with their name) before this agent can be reached via a swarm handoff. When unmet, the handoff tool returns a refusal ToolMessage and 'active_agent' stays unchanged so the LLM can self-correct on its next step. Semantics: any-order, all-of. Currently enforced in the swarm pattern only; the supervisor pattern ignores this field. Cross-agent validation (unknown name, self-reference, cycles in the requires DAG) runs at config-build time.",
           "items": {
@@ -8041,6 +8057,52 @@
         "name"
       ],
       "title": "MiddlewareModel",
+      "type": "object"
+    },
+    "ModelCallLimitModel": {
+      "additionalProperties": false,
+      "description": "Configuration for capping how many LLM (model) calls an agent may make.\n\nThe model-call analogue of :class:`ToolCallLimitModel`. Presence of this\nblock on an agent's ``call_limit`` registers a ``ModelCallLimitMiddleware``\nfor that agent, bounding the ReAct loop directly \u2014 a more discoverable,\nco-located alternative to hand-wiring\n``dao_ai.middleware.create_model_call_limit_middleware`` into the agent's\n``middleware`` list. Complements :attr:`AgentModel.recursion_limit` (the\ngraph-superstep backstop): ``run_limit`` is the graceful per-invocation cap.\n\nA bare integer is accepted as shorthand for ``run_limit`` (see\n``AgentModel.call_limit``); the object form below gives full control. At\nleast one of ``run_limit`` or ``thread_limit`` must be set. This maps to\n``create_model_call_limit_middleware``.\n\nUnlike the tool variant, ``exit_behavior`` only accepts ``'end'`` (default)\nor ``'error'`` \u2014 a model-call limit has no per-tool ``'continue'`` semantics\n(there is no alternative tool to fall back to).",
+      "properties": {
+        "run_limit": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Maximum number of model (LLM) calls this agent may make within a single invocation (one user message). Resets each run and requires no checkpointer. Alias: ``turn_limit``.",
+          "title": "Run Limit"
+        },
+        "thread_limit": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Maximum number of model (LLM) calls this agent may make across an entire conversation (thread). Requires a checkpointer, which DAO AI agents have via memory. Alias: ``conversation_limit``.",
+          "title": "Thread Limit"
+        },
+        "exit_behavior": {
+          "default": "end",
+          "description": "Behavior when a limit is reached: 'end' stops execution gracefully (recommended); 'error' raises immediately. Unlike tool-call limits, 'continue' is not supported for model-call limits.",
+          "enum": [
+            "error",
+            "end"
+          ],
+          "title": "Exit Behavior",
+          "type": "string"
+        }
+      },
+      "title": "ModelCallLimitModel",
       "type": "object"
     },
     "MonitoringModel": {

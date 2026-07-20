@@ -20,6 +20,7 @@ import pytest
 
 from dao_ai.apps.bundle import (
     _PYPROJECT_DEV_TEMPLATE,
+    _dev_local_version,
     _make_requirements_txt,
 )
 
@@ -72,9 +73,62 @@ class TestPyprojectDevTemplate:
         assert "dependencies = []" in rendered
 
 
+class TestDevLocalVersion:
+    """The dev build stamps a unique PEP 440 local version, then restores."""
+
+    def _write_pyproject(self, tmp_path, version: str) -> "object":
+        p = tmp_path / "pyproject.toml"
+        p.write_text(
+            f'[project]\nname = "dao-ai"\nversion = "{version}"\n'
+            'description = "x"\n'
+        )
+        return p
+
+    def test_stamps_local_segment_and_restores(self, tmp_path) -> None:
+        p = self._write_pyproject(tmp_path, "0.1.115")
+        original = p.read_text()
+        seen = {}
+        with _dev_local_version(p):
+            seen["during"] = p.read_text()
+        # Restored exactly on exit.
+        assert p.read_text() == original
+        # Inside the context, a +dev local segment was present.
+        import re
+
+        m = re.search(r'version = "([^"]+)"', seen["during"])
+        assert m is not None
+        assert m.group(1).startswith("0.1.115+dev")
+
+    def test_restores_even_on_exception(self, tmp_path) -> None:
+        p = self._write_pyproject(tmp_path, "0.1.115")
+        original = p.read_text()
+        with pytest.raises(RuntimeError):
+            with _dev_local_version(p):
+                raise RuntimeError("build failed")
+        assert p.read_text() == original
+
+    def test_noop_when_version_already_local(self, tmp_path) -> None:
+        """An existing local segment is left as-is (idempotent)."""
+        p = self._write_pyproject(tmp_path, "0.1.115+dev999")
+        with _dev_local_version(p):
+            import re
+
+            m = re.search(r'version = "([^"]+)"', p.read_text())
+            assert m.group(1) == "0.1.115+dev999"
+
+    def test_noop_when_no_static_version(self, tmp_path) -> None:
+        """A dynamic-version pyproject (no ``version =`` line) is untouched."""
+        p = tmp_path / "pyproject.toml"
+        p.write_text('[project]\nname = "dao-ai"\ndynamic = ["version"]\n')
+        original = p.read_text()
+        with _dev_local_version(p):
+            assert p.read_text() == original
+        assert p.read_text() == original
+
+
 # ---------------------------------------------------------------------------
 # write_bundle file emission — covered end-to-end by live `dao-ai
 # generate-bundle` validation on fevm. The unit tests above lock in the
-# building-block helpers (_make_requirements_txt, _PYPROJECT_DEV_TEMPLATE)
-# that those code paths use.
+# building-block helpers (_make_requirements_txt, _PYPROJECT_DEV_TEMPLATE,
+# _dev_local_version) that those code paths use.
 # ---------------------------------------------------------------------------
