@@ -193,7 +193,7 @@ tools:
   tool_name: &tool_name
     name: string
     function:
-      type: python | factory | unity_catalog | mcp | app | serving_endpoint | a2a
+      type: python | factory | unity_catalog | mcp | sql | app | serving_endpoint | a2a
       name: string              # Import path or UC function name
       args: {}                  # For factory tools
       schema: *my_schema        # For UC tools
@@ -919,6 +919,89 @@ variables:
 ```
 
 ---
+
+## SQL Tool (`type: sql`)
+
+Runs a **fixed** SQL statement — optionally with bound parameters — against a SQL
+warehouse or a Lakebase / Postgres database. The statement is set at config time;
+the LLM cannot author arbitrary SQL. Exactly one of `warehouse:` or `database:` is
+required.
+
+```yaml
+tools:
+  # Warehouse target — uses :name bind markers
+  store_lookup:
+    name: store_lookup
+    function:
+      type: sql
+      warehouse: *shared_warehouse
+      statement: |
+        SELECT store_id, name, city FROM retail.ops.stores WHERE store_id = :store_id
+      description: "Look up a store by id."
+      params:
+        - name: store_id
+          type: int                     # string | int | float | bool
+          description: "The store id."
+
+  # Lakebase / Postgres target — uses %(name)s bind markers, mixed param sources
+  category_inventory:
+    name: category_inventory
+    function:
+      type: sql
+      database: *retail_database
+      statement: |
+        SELECT product_name, on_hand FROM inventory
+        WHERE store_num = %(store_num)s AND category = %(category)s
+      description: "On-hand inventory for a category at the current store."
+      params:
+        - name: category                # LLM-supplied (source defaults to 'llm')
+          type: string
+          description: "Product category to filter by."
+        - name: store_num               # bound from runtime Context
+          source: context
+          type: int
+          # context_key: store_num      # defaults to the param name
+```
+
+**Backend fields (mutually exclusive, exactly one required)**
+
+| Field | Meaning |
+|---|---|
+| `warehouse:` | `WarehouseModel` — statement runs via the Statement Execution API. Bind markers: `:name`. |
+| `database:` | `DatabaseModel` — statement runs via psycopg on the shared Lakebase pool. Bind markers: `%(name)s`. |
+
+**`statement:`** — the SQL to run. Author bind markers in the target backend's
+native syntax (`:name` for warehouse, `%(name)s` for Lakebase). Values are bound
+natively — never interpolated into the SQL string — so both backends are
+injection-safe.
+
+**`params:`** — optional list of `StatementParam`:
+
+| Field | Type | Default | Meaning |
+|---|---|---|---|
+| `name` | string | — | Marker name as it appears in the statement. |
+| `type` | `string`\|`int`\|`float`\|`bool` | `string` | Declared type; shapes the LLM-facing schema. |
+| `source` | `llm`\|`context` | `llm` | `llm`: model supplies the value (appears in the tool schema). `context`: bound from runtime `Context`, hidden from the model. |
+| `required` | bool | `true` | A missing required value returns an `Error:` string. |
+| `default` | any | `null` | Fallback applied when the value is absent. |
+| `description` | string | `null` | Shown to the LLM for `source: llm` params. |
+| `context_key` | string | `null` | For `source: context`: the `Context` attribute to read (defaults to `name`). |
+
+With no `params` (or only `context` params) the tool exposes **no** LLM-facing
+arguments, matching the legacy zero-argument SQL tool.
+
+**Auth (OBO)** — the workspace client is obtained per request via
+`workspace_client_from(context)`, so warehouse OBO works on both Model Serving
+(user credentials) and Databricks Apps (forwarded user token), in addition to
+service principal, PAT, and ambient auth. For Lakebase, Model Serving OBO is
+honored today; Databricks Apps OBO for Lakebase is not yet wired through the
+shared connection pool.
+
+**Governance** — because `type: sql` inherits the base tool model, it composes with
+`human_in_the_loop:` and `audit:` (e.g. gate a mutating `UPDATE`/`DELETE` behind
+human approval with a signed audit receipt). See
+[`config/examples/15_complete_applications/hardware_store_lakebase.yaml`](../config/examples/15_complete_applications/hardware_store_lakebase.yaml)
+and [`config/examples/14_basic_tools/sql_tool_example.yaml`](../config/examples/14_basic_tools/sql_tool_example.yaml).
 
 ## First-Class Agent Tools
 

@@ -68,6 +68,7 @@ DAO supports several first-class tool types plus an escape hatch for arbitrary f
 | **Genie** | Natural-language SQL via a Genie space, with optional caching | `type: genie` + `genie_room: *room` |
 | **AI Search** | Semantic / hybrid search over a Databricks AI Search index (formerly Vector Search), with optional instructed retrieval | `type: ai_search` (or legacy `vector_search`) + `retriever: *retriever` |
 | **Lakebase Search** | ANN / BM25 / hybrid (RRF) retrieval over a Databricks Lakebase Postgres table using the `lakebase_vector` and `lakebase_text` extensions | `type: lakebase_search` + `vector_store: *store` (or `retriever: *retriever`) |
+| **SQL** | Run a fixed, optionally parameterized SQL statement against a SQL warehouse or a Lakebase / Postgres database | `type: sql` + `warehouse: *wh` (or `database: *db`) + `statement:` |
 | **Search** | Web search (DuckDuckGo) | `type: search` |
 | **Unity Catalog** | Governed SQL functions | `type: unity_catalog` + `resource: *fn` |
 | **MCP** | External services via Model Context Protocol | `type: mcp` + `connection: *mcp_conn` |
@@ -112,6 +113,26 @@ tools:
     function:
       type: unity_catalog
       resource: *find_product_by_sku
+
+  # SQL - fixed, parameterized statement against a warehouse or Lakebase DB.
+  # LLM-sourced params appear in the tool schema (:name for warehouse,
+  # %(name)s for Lakebase); context-sourced params bind from runtime Context.
+  category_inventory:
+    name: category_inventory
+    function:
+      type: sql
+      database: *retail_database          # or: warehouse: *shared_warehouse
+      statement: |
+        SELECT product_name, on_hand FROM inventory
+        WHERE store_num = %(store_num)s AND category = %(category)s
+      description: "On-hand inventory for a category at the current store."
+      params:
+        - name: category               # LLM supplies this (source defaults to llm)
+          type: string
+          description: "Product category to filter by."
+        - name: store_num              # bound from Context, hidden from the model
+          source: context
+          type: int
 
   # MCP - external service integration
   github_mcp:
@@ -169,6 +190,7 @@ The old `type: factory + name: dao_ai.tools.create_*` shape continues to work in
 | `type: factory`, `name: dao_ai.tools.create_genie_toolkit`, `args: { genie_room: ..., lru_cache_parameters: ..., context_aware_cache_parameters: ... }` | `type: genie`, `genie_room: ...`, `lru_cache: ...`, `context_aware_cache: ...` (any cache promotes to toolkit) |
 | `type: factory`, `name: dao_ai.tools.create_ai_search_tool`, `args: { retriever: ... }` | `type: ai_search`, `retriever: ...` |
 | `type: factory`, `name: dao_ai.tools.create_search_tool` | `type: search` |
+| `type: factory`, `name: dao_ai.tools.sql.create_execute_statement_tool`, `args: { warehouse: ..., statement: ... }` | `type: sql`, `warehouse: ...` (or `database: ...`), `statement: ...`, optional `params: ...` |
 | `type: factory`, `name: dao_ai.tools.create_agent_endpoint_tool`, `args: { llm: <endpoint>, ... }` | `type: serving_endpoint`, `endpoint: <name-or-model>` (FMAPI + UC ResponsesAgent endpoints; lazy `task` discovery) |
 | `type: factory`, `name: dao_ai.tools.create_responses_agent_tool` / `create_chat_completions_agent_tool`, `args: { app: ..., ... }` | `type: app`, `app: <app>` (lazy `/agent/info` discovery; set `api:` to skip) |
 | (no factory equivalent — A2A is first-class only, since v0.1.80) | `type: a2a`, `agent_card_url: ...` |

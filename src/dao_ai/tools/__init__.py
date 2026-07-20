@@ -28,7 +28,11 @@ from dao_ai.tools.rest_api import create_rest_api_tool
 from dao_ai.tools.search import create_search_tool
 from dao_ai.tools.serving_endpoint_dispatcher import create_serving_endpoint_dispatcher
 from dao_ai.tools.slack import create_send_slack_message_tool
-from dao_ai.tools.sql import create_execute_statement_tool
+from dao_ai.tools.sql import (
+    create_execute_statement_tool,
+    create_lakebase_statement_tool,
+    create_warehouse_statement_tool,
+)
 from dao_ai.tools.time import (
     add_time_tool,
     current_time_tool,
@@ -54,6 +58,8 @@ __all__ = [
     "create_app_info_tool",
     "create_chat_completions_agent_tool",
     "create_execute_statement_tool",
+    "create_lakebase_statement_tool",
+    "create_warehouse_statement_tool",
     "create_serving_endpoint_dispatcher",
     "discover_app_agent_api",
     "discover_serving_endpoint_api",

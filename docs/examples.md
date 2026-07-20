@@ -403,7 +403,7 @@ Simple tool integrations for SQL and data operations.
 
 | Example | Description |
 |---------|-------------|
-| `sql_tool_example.yaml` | Pre-configured SQL execution tools for inventory analysis |
+| `sql_tool_example.yaml` | First-class `type: sql` execution tools for inventory analysis, including a parameterized statement |
 
 **Prerequisites:** Databricks SQL warehouse  
 **Next:** See complete applications in `15_complete_applications/`

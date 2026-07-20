@@ -248,6 +248,65 @@ tools:
       type: unity_catalog
       resource: *find_inventory_by_upc
 
+  # ---------------------------------------------------------------------------
+  # SQL TOOLS (Lakebase / Postgres)
+  # ---------------------------------------------------------------------------
+  # First-class `type: sql` tools that run a fixed, parameterized statement
+  # against the Lakebase Postgres database defined above. Lakebase targets use
+  # psycopg `%(name)s` bind markers (warehouse targets use `:name`). Values are
+  # bound natively — never interpolated into the SQL string.
+
+  # Mixed parameter sources: the LLM supplies `category`, while `store_num` is
+  # bound server-side from the runtime Context (never exposed to the model).
+  category_inventory_tool: &category_inventory_tool
+    name: category_inventory
+    function:
+      type: sql
+      database: *retail_database
+      statement: |
+        SELECT product_name, on_hand
+        FROM inventory
+        WHERE store_num = %(store_num)s AND category = %(category)s
+        ORDER BY on_hand ASC
+      description: "List on-hand inventory for a product category at the current store."
+      params:
+        - name: category
+          type: string
+          description: "Product category to filter by (e.g. 'plumbing', 'paint')."
+        - name: store_num
+          source: context          # bound from Context.store_num, not the LLM
+          type: int
+          # context_key defaults to the param name ("store_num")
+
+  # Mutating statement guarded by human approval + a signed audit receipt.
+  # `human_in_the_loop` and `audit` are inherited from the base tool model, so
+  # they compose with `type: sql` exactly as with any other tool. Presence of
+  # each block enables it (there is no `enabled` flag).
+  deactivate_product_tool: &deactivate_product_tool
+    name: deactivate_product
+    function:
+      type: sql
+      database: *retail_database
+      statement: |
+        UPDATE products SET active = false
+        WHERE product_id = %(product_id)s
+      description: "Mark a product as inactive. Requires human approval."
+      params:
+        - name: product_id
+          type: int
+          description: "The product id to deactivate."
+      human_in_the_loop:
+        review_prompt: |
+          Please review this product deactivation. Approving produces a signed
+          audit receipt tied to your identity, the exact arguments, and the
+          MLflow trace_id for this turn.
+        allowed_decisions:
+          - approve
+          - reject
+      audit:
+        database: *retail_database
+        table: audit_receipts
+
 
 
 # =============================================================================
@@ -306,6 +365,8 @@ agents:
                                                    # Reference to LLM configuration
     tools:                                          # Tools available to this agent
     - *find_product_details_by_description_tool
+    - *category_inventory_tool                      # Parameterized Lakebase SQL (LLM + context)
+    - *deactivate_product_tool                      # Mutating Lakebase SQL (HITL + audit)
     guardrails: []
     prompt: |                                       # System prompt defining agent behavior
       ### User Information

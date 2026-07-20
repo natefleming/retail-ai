@@ -35,40 +35,46 @@ resources:
 
 # Define SQL execution tools
 tools:
-  # Tool to count total products
+  # Tool to count total products.
+  # First-class `type: sql` form — a typed wrapper over
+  # dao_ai.tools.sql.create_execute_statement_tool (see the two `type: factory`
+  # tools below for the equivalent escape-hatch form).
   get_product_count: &get_product_count
     name: get_product_count
     function:
-      type: factory
-      name: dao_ai.tools.sql.create_execute_statement_tool
-      args:
-        warehouse: *analytics_warehouse
-        statement: |
-          SELECT COUNT(*) as product_count
-          FROM retail_consumer_goods.hardware_store.products
-        description: "Get the total number of products in the catalog"
+      type: sql
+      warehouse: *analytics_warehouse
+      statement: |
+        SELECT COUNT(*) as product_count
+        FROM retail_consumer_goods.hardware_store.products
+      description: "Get the total number of products in the catalog"
 
-  # Tool to get products by department
+  # Parameterized `type: sql` tool. The LLM supplies `department`; the value is
+  # bound natively via a `:department` marker (never string-interpolated).
   get_products_by_department: &get_products_by_department
     name: get_products_by_department
     function:
-      type: factory
-      name: dao_ai.tools.sql.create_execute_statement_tool
-      args:
-        warehouse: *analytics_warehouse
-        statement: |
-          SELECT 
-            i.department,
-            COUNT(DISTINCT p.product_id) as product_count,
-            SUM(i.store_quantity + i.warehouse_quantity) as total_quantity,
-            ROUND(AVG(i.retail_amount), 2) as avg_price
-          FROM retail_consumer_goods.hardware_store.products p
-          INNER JOIN retail_consumer_goods.hardware_store.inventory i ON p.product_id = i.product_id
-          GROUP BY i.department
-          ORDER BY product_count DESC
-        description: "Get product counts and inventory statistics grouped by department"
+      type: sql
+      warehouse: *analytics_warehouse
+      statement: |
+        SELECT
+          i.department,
+          COUNT(DISTINCT p.product_id) as product_count,
+          SUM(i.store_quantity + i.warehouse_quantity) as total_quantity,
+          ROUND(AVG(i.retail_amount), 2) as avg_price
+        FROM retail_consumer_goods.hardware_store.products p
+        INNER JOIN retail_consumer_goods.hardware_store.inventory i ON p.product_id = i.product_id
+        WHERE i.department = :department
+        GROUP BY i.department
+      description: "Get product counts and inventory statistics for a given department"
+      params:
+        - name: department
+          type: string
+          description: "Department to report on (e.g. 'plumbing', 'paint', 'electrical')."
 
-  # Tool to check low inventory items
+  # Tool to check low inventory items.
+  # `type: factory` form (equivalent to `type: sql` above) — kept here to show
+  # the escape-hatch style still works and how it maps to the first-class type.
   check_low_inventory: &check_low_inventory
     name: check_low_inventory
     function:
