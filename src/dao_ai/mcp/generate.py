@@ -246,13 +246,19 @@ def _bundle_local_wheel(output_dir: Path, *, written: list[str]) -> str:
         stale.unlink()
 
     logger.info("mcp.generate.dev.build_wheel", project_root=str(project_root))
-    result = subprocess.run(
-        ["uv", "build", "--wheel"],
-        cwd=project_root,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
+    # Stamp a unique local version so the dev wheel always out-ranks the
+    # same-base-version published package in the Apps container. See
+    # ``dev_local_version``.
+    from dao_ai.utils import dev_local_version
+
+    with dev_local_version(project_root / "pyproject.toml"):
+        result = subprocess.run(
+            ["uv", "build", "--wheel"],
+            cwd=project_root,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
     if result.returncode != 0:
         raise RuntimeError(f"uv build --wheel failed: {result.stderr}")
 

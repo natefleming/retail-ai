@@ -4,9 +4,11 @@ import json
 import os
 import re
 import site
+import time
+from contextlib import contextmanager
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
-from typing import Any, Callable, Sequence, TypeVar
+from typing import Any, Callable, Iterator, Sequence, TypeVar
 
 from langchain_core.language_models import BaseChatModel
 from langchain_core.tools import BaseTool
@@ -113,6 +115,46 @@ def _wheel_from_direct_url() -> Path | None:
     except Exception as e:
         logger.debug(f"Could not resolve wheel from direct_url.json: {e}")
     return None
+
+
+@contextmanager
+def dev_local_version(pyproject_path: Path) -> Iterator[None]:
+    """Temporarily stamp a unique PEP 440 local version segment on the build.
+
+    A development wheel is built at the *same* base version as the published
+    package (e.g. ``0.1.115``). An Apps container that already has that version
+    installed treats the bundled ``./dist/<wheel>`` as "already satisfied" and
+    silently keeps the stale published code, so local source edits never take
+    effect on redeploy. ``--force-reinstall`` can't fix this — it is not a valid
+    line in an Apps ``requirements.txt`` (the installer parses each line as a
+    requirement).
+
+    Stamping a unique local version (``0.1.115+dev<epoch>``) makes pip treat the
+    dev wheel as strictly newer than the published base version, so it always
+    reinstalls — while remaining a legal requirement (a version, not a flag) and
+    never masquerading as a real release. The original ``pyproject.toml`` is
+    restored on exit so the working tree is left unchanged.
+
+    Wrap every ``uv build --wheel`` call that produces a dev wheel with this
+    (generate-bundle, deploy, generate-mcp) so ``--development`` behaves
+    uniformly across all deploy paths.
+    """
+    original = pyproject_path.read_text()
+    match = re.search(r'^version\s*=\s*"([^"]+)"', original, flags=re.MULTILINE)
+    if not match:
+        # No static version line (e.g. dynamic version) — nothing to stamp.
+        yield
+        return
+    base = match.group(1)
+    # Skip if a local segment is already present (idempotent / user-managed).
+    local = base if "+" in base else f"{base}+dev{int(time.time())}"
+    stamped = original.replace(match.group(0), f'version = "{local}"', 1)
+    try:
+        pyproject_path.write_text(stamped)
+        logger.info("Stamped dev-build local version", version=local)
+        yield
+    finally:
+        pyproject_path.write_text(original)
 
 
 def find_dev_wheel() -> Path | None:

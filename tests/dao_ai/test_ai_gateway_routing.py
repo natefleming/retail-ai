@@ -131,6 +131,40 @@ def test_as_chat_model_forwards_explicit_temperature_and_max_tokens() -> None:
     assert kwargs["max_tokens"] == 1024
 
 
+def test_as_chat_model_omits_extra_params_when_unset() -> None:
+    """When extra_params is unset, dao-ai must not pass the kwarg at all so
+    the chat client keeps its own default (empty dict)."""
+    model = InferenceEndpointModel(name="databricks-gpt-oss-120b")
+    assert model.extra_params is None
+    with patch("dao_ai.config.ChatDatabricks") as mock_chat:
+        model.as_chat_model()
+    assert "extra_params" not in mock_chat.call_args.kwargs
+
+
+def test_as_chat_model_forwards_extra_params() -> None:
+    """extra_params (e.g. reasoning_effort on gpt-oss) must flow through to
+    the chat client verbatim."""
+    model = InferenceEndpointModel(
+        name="databricks-gpt-oss-120b",
+        extra_params={"reasoning_effort": "low"},
+    )
+    with patch("dao_ai.config.ChatDatabricks") as mock_chat:
+        model.as_chat_model()
+    assert mock_chat.call_args.kwargs["extra_params"] == {"reasoning_effort": "low"}
+
+
+def test_extra_params_forwarded_on_ai_gateway_path() -> None:
+    """The AI-Gateway path must also forward extra_params."""
+    model = InferenceEndpointModel(
+        name="databricks-gpt-oss-120b",
+        ai_gateway=True,
+        extra_params={"reasoning_effort": "low"},
+    )
+    with patch("dao_ai.config.ChatUnityAIGateway") as mock_chat:
+        model.as_chat_model()
+    assert mock_chat.call_args.kwargs["extra_params"] == {"reasoning_effort": "low"}
+
+
 # ---------------------------------------------------------------------------
 # as_chat_model routing
 # ---------------------------------------------------------------------------

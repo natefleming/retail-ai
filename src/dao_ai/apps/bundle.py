@@ -809,7 +809,7 @@ def write_bundle(
     package_name = app_name.replace("-", "_")
 
     if development:
-        from dao_ai.utils import find_dev_wheel
+        from dao_ai.utils import dev_local_version, find_dev_wheel
 
         # In development mode, always rebuild the wheel from local source
         # when source is available. Reusing an existing pre-built wheel is
@@ -835,12 +835,17 @@ def write_bundle(
             for stale in (project_root / "dist").glob("dao_ai-*.whl"):
                 stale.unlink()
 
-            result = subprocess.run(
-                ["uv", "build", "--wheel"],
-                cwd=project_root,
-                capture_output=True,
-                text=True,
-            )
+            # Stamp a unique local version so the dev wheel always out-ranks the
+            # same-base-version published package in the Apps container (pip
+            # would otherwise skip a same-version reinstall — see
+            # ``dev_local_version``).
+            with dev_local_version(project_root / "pyproject.toml"):
+                result = subprocess.run(
+                    ["uv", "build", "--wheel"],
+                    cwd=project_root,
+                    capture_output=True,
+                    text=True,
+                )
             if result.returncode != 0:
                 raise RuntimeError(f"Wheel build failed: {result.stderr}")
 
