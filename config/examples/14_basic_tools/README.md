@@ -58,7 +58,7 @@ flowchart TB
 
 | File | Description |
 |------|-------------|
-| [`sql_tool_example.yaml`](./sql_tool_example.yaml) | SQL warehouse query tools |
+| [`sql_tool_example.yaml`](./sql_tool_example.yaml) | First-class `type: sql` warehouse query tools, including a parameterized statement (`:name` bind marker) |
 | [`rest_api_tool.yaml`](./rest_api_tool.yaml) | Generic REST API tool (UC Connection or HTTP) |
 | [`slack_integration.yaml`](./slack_integration.yaml) | Slack messaging via factory tool + UC Connection |
 | [`teams_integration.yaml`](./teams_integration.yaml) | Microsoft Teams messaging via factory tool + UC Connection |

@@ -575,3 +575,158 @@ class TestA2AToolModel:
             }
         )
         assert m.function.human_in_the_loop is not None
+
+
+# ---------------------------------------------------------------------------
+# SqlToolModel — type: sql (warehouse + lakebase backends)
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def warehouse_dict() -> dict:
+    return {"name": "wh", "warehouse_id": "abc123"}
+
+
+@pytest.fixture
+def database_dict() -> dict:
+    return {"name": "retail", "project": "retail-consumer-goods"}
+
+
+class TestSqlToolModel:
+    def test_type_sql_dispatches(self, warehouse_dict: dict) -> None:
+        from dao_ai.config import SqlToolModel
+
+        m = ToolModel.model_validate(
+            {
+                "name": "lookup",
+                "function": {
+                    "type": "sql",
+                    "warehouse": warehouse_dict,
+                    "statement": "SELECT 1",
+                },
+            }
+        )
+        assert isinstance(m.function, SqlToolModel)
+        assert m.function.type == FunctionType.SQL.value
+
+    def test_warehouse_target_as_tools(self, warehouse_dict: dict) -> None:
+        m = ToolModel.model_validate(
+            {
+                "name": "lookup",
+                "function": {
+                    "type": "sql",
+                    "warehouse": warehouse_dict,
+                    "statement": "SELECT * FROM t WHERE id = :id",
+                    "params": [{"name": "id", "type": "int"}],
+                },
+            }
+        )
+        tools = m.function.as_tools()
+        assert len(tools) == 1
+        assert tools[0].name == "execute_sql_tool"
+        assert "id" in tools[0].args
+
+    def test_database_target_as_tools(self, database_dict: dict) -> None:
+        m = ToolModel.model_validate(
+            {
+                "name": "inventory",
+                "function": {
+                    "type": "sql",
+                    "database": database_dict,
+                    "statement": "SELECT 1 WHERE x = %(x)s",
+                    "params": [{"name": "x", "type": "int"}],
+                    "name": "inventory_tool",
+                },
+            }
+        )
+        tools = m.function.as_tools()
+        assert len(tools) == 1
+        assert tools[0].name == "inventory_tool"
+        assert tools[0].coroutine is not None  # lakebase path is async
+
+    def test_parity_with_factory(self, warehouse_dict: dict) -> None:
+        new = ToolModel.model_validate(
+            {
+                "name": "s",
+                "function": {
+                    "type": "sql",
+                    "warehouse": warehouse_dict,
+                    "statement": "SELECT 1",
+                    "name": "my_sql",
+                },
+            }
+        )
+        old = ToolModel.model_validate(
+            {
+                "name": "s",
+                "function": {
+                    "type": "factory",
+                    "name": "dao_ai.tools.sql.create_execute_statement_tool",
+                    "args": {
+                        "warehouse": warehouse_dict,
+                        "statement": "SELECT 1",
+                        "name": "my_sql",
+                    },
+                },
+            }
+        )
+        new_tools = new.function.as_tools()
+        old_tools = old.function.as_tools()
+        assert len(new_tools) == len(old_tools) == 1
+        assert [t.name for t in new_tools] == [t.name for t in old_tools]
+
+    def test_requires_exactly_one_target(
+        self, warehouse_dict: dict, database_dict: dict
+    ) -> None:
+        import pydantic
+
+        with pytest.raises(pydantic.ValidationError, match="exactly one"):
+            ToolModel.model_validate(
+                {
+                    "name": "s",
+                    "function": {"type": "sql", "statement": "SELECT 1"},
+                }
+            )
+        with pytest.raises(pydantic.ValidationError, match="exactly one"):
+            ToolModel.model_validate(
+                {
+                    "name": "s",
+                    "function": {
+                        "type": "sql",
+                        "warehouse": warehouse_dict,
+                        "database": database_dict,
+                        "statement": "SELECT 1",
+                    },
+                }
+            )
+
+    def test_missing_statement_rejected(self, warehouse_dict: dict) -> None:
+        import pydantic
+
+        with pytest.raises(pydantic.ValidationError):
+            ToolModel.model_validate(
+                {
+                    "name": "s",
+                    "function": {"type": "sql", "warehouse": warehouse_dict},
+                }
+            )
+
+    def test_inherits_human_in_the_loop_and_audit(
+        self, warehouse_dict: dict, database_dict: dict
+    ) -> None:
+        m = ToolModel.model_validate(
+            {
+                "name": "mutate",
+                "function": {
+                    "type": "sql",
+                    "database": database_dict,
+                    "statement": "UPDATE t SET active = false WHERE id = %(id)s",
+                    "params": [{"name": "id", "type": "int"}],
+                    "human_in_the_loop": {"review_prompt": "Approve this update?"},
+                    "audit": {"database": database_dict},
+                },
+            }
+        )
+        assert m.function.human_in_the_loop is not None
+        assert m.function.audit is not None
+        assert m.function.audit.table == "audit_receipts"

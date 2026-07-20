@@ -8344,6 +8344,15 @@
       "title": "OrchestrationModel",
       "type": "object"
     },
+    "ParamSource": {
+      "description": "Where a SQL statement parameter's value comes from at runtime.",
+      "enum": [
+        "llm",
+        "context"
+      ],
+      "title": "ParamSource",
+      "type": "string"
+    },
     "ParameterDeclarationModel": {
       "additionalProperties": false,
       "description": "Declared input parameter for a DAO AI config file.\n\nDeclared in the top-level ``parameters:`` block and referenced inline\nwith ``${param.NAME}`` or its alias ``${var.NAME}``. See\n:mod:`dao_ai.config_vars` for resolution rules.",
@@ -9411,6 +9420,211 @@
       "title": "SkillModel",
       "type": "object"
     },
+    "SqlToolModel": {
+      "additionalProperties": false,
+      "description": "First-class SQL tool that delegates to ``dao_ai.tools.sql.create_execute_statement_tool``.\n\nEquivalent to ``type: factory + name:\ndao_ai.tools.sql.create_execute_statement_tool``, but with typed fields. Runs\na fixed SQL statement (optionally with bound ``params``) against a SQL\nwarehouse or a Lakebase / Postgres database. Exactly one of ``warehouse`` or\n``database`` is required. Parameter values are bound natively (``:name`` for a\nwarehouse, ``%(name)s`` for Lakebase) \u2014 never interpolated into the SQL.",
+      "properties": {
+        "type": {
+          "const": "sql",
+          "default": "sql",
+          "description": "Function type discriminator. Must be 'sql'.",
+          "title": "Type",
+          "type": "string"
+        },
+        "human_in_the_loop": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/HumanInTheLoopModel"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Human-in-the-loop approval configuration for this tool."
+        },
+        "audit": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/AuditModel"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Optional tamper-evident audit trail for this tool. Presence of this block enables audit-receipt logging on every invocation; absence leaves the runtime path unchanged. Typically declared once as a YAML anchor and referenced from every tool that should be audited. Composes with human_in_the_loop to produce approval receipts with args-hash binding and fail-closed execution."
+        },
+        "call_limit": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "$ref": "#/$defs/ToolCallLimitModel"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Shortcut to cap how many times this tool may be called. A bare integer sets run_limit (per-invocation) with exit_behavior='continue'; an object gives full control over run_limit/thread_limit/exit_behavior. Applied automatically to every agent that uses this tool, in addition to any explicit tool-call-limit middleware configured on the agent.",
+          "title": "Call Limit"
+        },
+        "warehouse": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/WarehouseModel"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "SQL warehouse to run the statement against (use ':name' bind markers). Mutually exclusive with 'database'; exactly one is required."
+        },
+        "database": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/DatabaseModel"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Lakebase / Postgres database to run the statement against (use '%(name)s' bind markers). Mutually exclusive with 'warehouse'; exactly one is required."
+        },
+        "statement": {
+          "description": "SQL statement to execute.",
+          "title": "Statement",
+          "type": "string"
+        },
+        "params": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/StatementParam"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Optional bound parameters. 'llm'-sourced params appear in the tool schema; 'context'-sourced params bind from the runtime Context.",
+          "title": "Params"
+        },
+        "name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Tool name visible to the LLM. Defaults to 'execute_sql_tool'.",
+          "title": "Name"
+        },
+        "description": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Tool description shown to the LLM during function calling.",
+          "title": "Description"
+        }
+      },
+      "required": [
+        "statement"
+      ],
+      "title": "SqlToolModel",
+      "type": "object"
+    },
+    "StatementParam": {
+      "additionalProperties": false,
+      "description": "A single bound parameter for a SQL statement tool.\n\nValues are bound natively (warehouse: ``:name`` markers; Lakebase / Postgres:\n``%(name)s`` markers) \u2014 never interpolated into the SQL string. ``source``\ndecides where the value comes from: ``llm`` params are surfaced in the tool\nschema the model sees, while ``context`` params are resolved server-side from\nthe runtime ``Context`` and are never exposed to the model.",
+      "properties": {
+        "name": {
+          "description": "Parameter/marker name as it appears in the SQL statement.",
+          "title": "Name",
+          "type": "string"
+        },
+        "type": {
+          "default": "string",
+          "description": "Declared value type; shapes the LLM-facing tool schema.",
+          "enum": [
+            "string",
+            "int",
+            "float",
+            "bool"
+          ],
+          "title": "Type",
+          "type": "string"
+        },
+        "source": {
+          "$ref": "#/$defs/ParamSource",
+          "default": "llm",
+          "description": "Value source: 'llm' (model supplies it, appears in the tool schema) or 'context' (bound from runtime Context, hidden from the model)."
+        },
+        "required": {
+          "default": true,
+          "description": "Whether a value must be present; a missing required value errors.",
+          "title": "Required",
+          "type": "boolean"
+        },
+        "default": {
+          "anyOf": [
+            {},
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Fallback value applied when the parameter is not supplied.",
+          "title": "Default"
+        },
+        "description": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Human/LLM-facing description of the parameter.",
+          "title": "Description"
+        },
+        "context_key": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "For source='context': the Context attribute to read. Defaults to the parameter 'name' when omitted.",
+          "title": "Context Key"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "title": "StatementParam",
+      "type": "object"
+    },
     "StoreModel": {
       "additionalProperties": false,
       "description": "Long-term memory store for cross-thread memories (user profiles, preferences, episodes).",
@@ -9935,7 +10149,7 @@
             }
           ],
           "default": null,
-          "description": "Maximum number of times this tool may be called within a single agent invocation (one user message). Resets each run and requires no checkpointer.",
+          "description": "Maximum number of times this tool may be called within a single agent invocation (one user message). Resets each run and requires no checkpointer. Alias: ``turn_limit``.",
           "title": "Run Limit"
         },
         "thread_limit": {
@@ -9949,7 +10163,7 @@
             }
           ],
           "default": null,
-          "description": "Maximum number of times this tool may be called across an entire conversation (thread). Requires a checkpointer, which DAO AI agents have via memory.",
+          "description": "Maximum number of times this tool may be called across an entire conversation (thread). Requires a checkpointer, which DAO AI agents have via memory. Alias: ``conversation_limit``.",
           "title": "Thread Limit"
         },
         "exit_behavior": {
@@ -10001,6 +10215,9 @@
             },
             {
               "$ref": "#/$defs/LakebaseSearchToolModel"
+            },
+            {
+              "$ref": "#/$defs/SqlToolModel"
             },
             {
               "$ref": "#/$defs/SearchToolModel"

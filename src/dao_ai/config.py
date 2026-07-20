@@ -5363,6 +5363,60 @@ class FunctionType(str, Enum):
     APP = "app"
     SERVING_ENDPOINT = "serving_endpoint"
     A2A = "a2a"
+    SQL = "sql"
+
+
+class ParamSource(str, Enum):
+    """Where a SQL statement parameter's value comes from at runtime."""
+
+    LLM = "llm"
+    CONTEXT = "context"
+
+
+class StatementParam(BaseModel):
+    """A single bound parameter for a SQL statement tool.
+
+    Values are bound natively (warehouse: ``:name`` markers; Lakebase / Postgres:
+    ``%(name)s`` markers) — never interpolated into the SQL string. ``source``
+    decides where the value comes from: ``llm`` params are surfaced in the tool
+    schema the model sees, while ``context`` params are resolved server-side from
+    the runtime ``Context`` and are never exposed to the model.
+    """
+
+    model_config = ConfigDict(use_enum_values=True, extra="forbid")
+    name: str = Field(
+        description="Parameter/marker name as it appears in the SQL statement.",
+    )
+    type: Literal["string", "int", "float", "bool"] = Field(
+        default="string",
+        description="Declared value type; shapes the LLM-facing tool schema.",
+    )
+    source: ParamSource = Field(
+        default=ParamSource.LLM,
+        description=(
+            "Value source: 'llm' (model supplies it, appears in the tool schema) "
+            "or 'context' (bound from runtime Context, hidden from the model)."
+        ),
+    )
+    required: bool = Field(
+        default=True,
+        description="Whether a value must be present; a missing required value errors.",
+    )
+    default: Optional[Any] = Field(
+        default=None,
+        description="Fallback value applied when the parameter is not supplied.",
+    )
+    description: Optional[str] = Field(
+        default=None,
+        description="Human/LLM-facing description of the parameter.",
+    )
+    context_key: Optional[str] = Field(
+        default=None,
+        description=(
+            "For source='context': the Context attribute to read. Defaults to the "
+            "parameter 'name' when omitted."
+        ),
+    )
 
 
 class HumanInTheLoopModel(BaseModel):
@@ -6502,6 +6556,78 @@ class LakebaseSearchToolModel(BaseFunctionModel):
         ]
 
 
+class SqlToolModel(BaseFunctionModel):
+    """First-class SQL tool that delegates to ``dao_ai.tools.sql.create_execute_statement_tool``.
+
+    Equivalent to ``type: factory + name:
+    dao_ai.tools.sql.create_execute_statement_tool``, but with typed fields. Runs
+    a fixed SQL statement (optionally with bound ``params``) against a SQL
+    warehouse or a Lakebase / Postgres database. Exactly one of ``warehouse`` or
+    ``database`` is required. Parameter values are bound natively (``:name`` for a
+    warehouse, ``%(name)s`` for Lakebase) — never interpolated into the SQL.
+    """
+
+    model_config = ConfigDict(use_enum_values=True, extra="forbid")
+    type: Literal[FunctionType.SQL] = Field(
+        default=FunctionType.SQL,
+        description="Function type discriminator. Must be 'sql'.",
+    )
+    warehouse: Optional[WarehouseModel] = Field(
+        default=None,
+        description=(
+            "SQL warehouse to run the statement against (use ':name' bind "
+            "markers). Mutually exclusive with 'database'; exactly one is required."
+        ),
+    )
+    database: Optional[DatabaseModel] = Field(
+        default=None,
+        description=(
+            "Lakebase / Postgres database to run the statement against (use "
+            "'%(name)s' bind markers). Mutually exclusive with 'warehouse'; "
+            "exactly one is required."
+        ),
+    )
+    statement: str = Field(
+        description="SQL statement to execute.",
+    )
+    params: Optional[list[StatementParam]] = Field(
+        default=None,
+        description=(
+            "Optional bound parameters. 'llm'-sourced params appear in the tool "
+            "schema; 'context'-sourced params bind from the runtime Context."
+        ),
+    )
+    name: Optional[str] = Field(
+        default=None,
+        description="Tool name visible to the LLM. Defaults to 'execute_sql_tool'.",
+    )
+    description: Optional[str] = Field(
+        default=None,
+        description="Tool description shown to the LLM during function calling.",
+    )
+
+    @model_validator(mode="after")
+    def _require_exactly_one_target(self) -> Self:
+        if bool(self.warehouse) == bool(self.database):
+            raise ValueError(
+                "SqlToolModel requires exactly one of 'warehouse' or 'database'."
+            )
+        return self
+
+    def as_tools(self, **kwargs: Any) -> Sequence[RunnableLike]:
+        from dao_ai.tools.sql import create_execute_statement_tool
+
+        return [
+            create_execute_statement_tool(
+                target=self.warehouse or self.database,
+                statement=self.statement,
+                params=self.params,
+                name=self.name or "execute_sql_tool",
+                description=self.description,
+            )
+        ]
+
+
 class SearchToolModel(BaseFunctionModel):
     """First-class web search tool that delegates to ``dao_ai.tools.create_search_tool``.
 
@@ -6856,6 +6982,7 @@ AnyTool: TypeAlias = (
         GenieToolModel,
         AiSearchToolModel,
         LakebaseSearchToolModel,
+        SqlToolModel,
         SearchToolModel,
         AppToolModel,
         ServingEndpointToolModel,
@@ -10740,9 +10867,7 @@ class AppConfig(BaseModel):
             client_secret=client_secret,
             workspace_host=workspace_host,
         )
-        provider.deploy_agent(
-            self, target=resolved_target, development=development
-        )
+        provider.deploy_agent(self, target=resolved_target, development=development)
 
     def find_agents(
         self, predicate: Callable[[AgentModel], bool] | None = None
