@@ -20,9 +20,9 @@ import pytest
 
 from dao_ai.apps.bundle import (
     _PYPROJECT_DEV_TEMPLATE,
-    _dev_local_version,
     _make_requirements_txt,
 )
+from dao_ai.utils import dev_local_version
 
 # ---------------------------------------------------------------------------
 # _make_requirements_txt — content helpers
@@ -88,7 +88,7 @@ class TestDevLocalVersion:
         p = self._write_pyproject(tmp_path, "0.1.115")
         original = p.read_text()
         seen = {}
-        with _dev_local_version(p):
+        with dev_local_version(p):
             seen["during"] = p.read_text()
         # Restored exactly on exit.
         assert p.read_text() == original
@@ -103,14 +103,14 @@ class TestDevLocalVersion:
         p = self._write_pyproject(tmp_path, "0.1.115")
         original = p.read_text()
         with pytest.raises(RuntimeError):
-            with _dev_local_version(p):
+            with dev_local_version(p):
                 raise RuntimeError("build failed")
         assert p.read_text() == original
 
     def test_noop_when_version_already_local(self, tmp_path) -> None:
         """An existing local segment is left as-is (idempotent)."""
         p = self._write_pyproject(tmp_path, "0.1.115+dev999")
-        with _dev_local_version(p):
+        with dev_local_version(p):
             import re
 
             m = re.search(r'version = "([^"]+)"', p.read_text())
@@ -121,7 +121,7 @@ class TestDevLocalVersion:
         p = tmp_path / "pyproject.toml"
         p.write_text('[project]\nname = "dao-ai"\ndynamic = ["version"]\n')
         original = p.read_text()
-        with _dev_local_version(p):
+        with dev_local_version(p):
             assert p.read_text() == original
         assert p.read_text() == original
 
@@ -130,5 +130,5 @@ class TestDevLocalVersion:
 # write_bundle file emission — covered end-to-end by live `dao-ai
 # generate-bundle` validation on fevm. The unit tests above lock in the
 # building-block helpers (_make_requirements_txt, _PYPROJECT_DEV_TEMPLATE,
-# _dev_local_version) that those code paths use.
+# utils.dev_local_version) that those code paths use.
 # ---------------------------------------------------------------------------

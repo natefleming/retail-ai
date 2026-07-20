@@ -899,18 +899,26 @@ def _resolve_trace_table_prefix(
 
 
 def _build_wheel(project_root: Path) -> Path:
-    """Build a dao-ai wheel from source using uv."""
+    """Build a dao-ai wheel from source using uv.
+
+    Stamps a unique PEP 440 local version so the dev wheel always out-ranks the
+    same-base-version published package in an Apps container (pip skips a
+    same-version reinstall otherwise). See ``dev_local_version``.
+    """
     import subprocess
+
+    from dao_ai.utils import dev_local_version
 
     dist_dir = project_root / "dist"
     dist_dir.mkdir(exist_ok=True)
 
-    result = subprocess.run(
-        ["uv", "build", "--wheel"],
-        cwd=project_root,
-        capture_output=True,
-        text=True,
-    )
+    with dev_local_version(project_root / "pyproject.toml"):
+        result = subprocess.run(
+            ["uv", "build", "--wheel"],
+            cwd=project_root,
+            capture_output=True,
+            text=True,
+        )
     if result.returncode != 0:
         raise RuntimeError(f"Wheel build failed: {result.stderr.strip()}")
 
