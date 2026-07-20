@@ -9359,6 +9359,21 @@ class AppModel(BaseModel):
         default="Small",
         description="Model Serving workload size (Small, Medium, Large).",
     )
+    workers: Optional[int] = Field(
+        default=2,
+        gt=0,
+        description=(
+            "Number of uvicorn worker processes for the Databricks Apps backend "
+            "server. Each worker is a separate process, raising the app's "
+            "concurrent-request ceiling on multi-core Apps compute. Defaults to "
+            "2 (a modest bump over uvicorn's single-worker default that is safe "
+            "on the small default Apps compute); raise it to match larger compute "
+            "cores. Emitted to the app as the ``DAO_AI_APP_WORKERS`` env var and "
+            "forwarded to the backend as ``--workers``. Too many workers on a "
+            "small instance contends for CPU. Apps-target only (no effect on "
+            "Model Serving, which manages its own worker pool via workload_size)."
+        ),
+    )
     permissions: Optional[list[AppPermissionModel]] = Field(
         default_factory=list,
         description="Access control list for the serving endpoint.",

@@ -243,6 +243,11 @@ class ProcessManager:
                 "--port",
                 str(self.port),
             ]
+            # Forward the configured uvicorn worker count (AppModel.workers ->
+            # DAO_AI_APP_WORKERS env at deploy time). Unset -> server default (1).
+            workers = os.environ.get("DAO_AI_APP_WORKERS")
+            if workers:
+                backend_cmd.extend(["--workers", workers])
             if backend_args:
                 backend_cmd.extend(backend_args)
 

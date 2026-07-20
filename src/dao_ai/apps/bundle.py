@@ -402,6 +402,14 @@ def _build_app_block(
             }
         )
 
+    # Forward the uvicorn worker count to the backend server (start_app reads
+    # DAO_AI_APP_WORKERS and passes it as --workers). Raises the concurrent-
+    # request ceiling on multi-core Apps compute.
+    if config.app and config.app.workers:
+        env_vars.append(
+            {"name": "DAO_AI_APP_WORKERS", "value": str(config.app.workers)}
+        )
+
     if enable_chat_proxy and include_chat_ui:
         from dao_ai.apps.chat_ui import chat_ui_env_vars
 
