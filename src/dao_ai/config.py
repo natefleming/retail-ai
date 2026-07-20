@@ -985,6 +985,16 @@ class InferenceEndpointModel(IsDatabricksResource):
             "own limit)."
         ),
     )
+    extra_params: Optional[dict[str, Any]] = Field(
+        default=None,
+        description=(
+            "Extra request parameters forwarded verbatim to the serving "
+            "endpoint via the chat client's ``extra_params`` (e.g. "
+            "``{reasoning_effort: low}`` on gpt-oss reasoning models to cap the "
+            "reasoning preamble and cut latency, or other endpoint-specific "
+            "knobs). Passed on both the standard and AI-Gateway paths."
+        ),
+    )
     fallbacks: Optional[list[Union[str, "InferenceEndpointModel"]]] = Field(
         default_factory=list,
         description="Ordered list of fallback endpoint names or InferenceEndpointModel configs tried on primary failure.",
@@ -1074,6 +1084,7 @@ class InferenceEndpointModel(IsDatabricksResource):
             use_responses_api=self.use_responses_api,
             disable_streaming=effective_disable_streaming,
             workspace_client=workspace_client,
+            **({"extra_params": self.extra_params} if self.extra_params else {}),
         )
 
     def as_chat_model(self) -> LanguageModelLike:
@@ -1094,6 +1105,7 @@ class InferenceEndpointModel(IsDatabricksResource):
             max_tokens=self.max_tokens,
             use_responses_api=self.use_responses_api,
             disable_streaming=effective_disable_streaming,
+            **({"extra_params": self.extra_params} if self.extra_params else {}),
         )
 
         fallbacks: Sequence[LanguageModelLike] = []
@@ -1104,6 +1116,7 @@ class InferenceEndpointModel(IsDatabricksResource):
                     name=fallback,
                     temperature=self.temperature,
                     max_tokens=self.max_tokens,
+                    extra_params=self.extra_params,
                 )
             if fallback.name == self.name:
                 continue

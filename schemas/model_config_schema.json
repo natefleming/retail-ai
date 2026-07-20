@@ -6634,6 +6634,20 @@
           "description": "Maximum tokens in the model response. When unset, dao-ai omits `max_tokens` from the outbound payload so the serving endpoint uses its own default. Set explicitly to cap output length. Ignored by the Responses API (endpoint enforces its own limit).",
           "title": "Max Tokens"
         },
+        "extra_params": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Extra request parameters forwarded verbatim to the serving endpoint via the chat client's ``extra_params`` (e.g. ``{reasoning_effort: low}`` on gpt-oss reasoning models to cap the reasoning preamble and cut latency, or other endpoint-specific knobs). Passed on both the standard and AI-Gateway paths.",
+          "title": "Extra Params"
+        },
         "fallbacks": {
           "anyOf": [
             {
