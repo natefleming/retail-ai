@@ -420,7 +420,7 @@ a2a:
 
 ## End-to-end example
 
-See `examples/a2a/client.py` for a Python script that:
+See `examples/20_a2a_protocol/client/client.py` for a Python script that:
 
 1. Fetches the Agent Card.
 2. Calls `message/send` and prints the artifact.
@@ -428,7 +428,7 @@ See `examples/a2a/client.py` for a Python script that:
 4. Demonstrates a HITL flow: triggers an interrupt, then resumes with a
    `DataPart` decisions payload.
 
-And `config/examples/20_a2a_protocol/a2a_minimal.yaml` for the deploy-
+And `examples/20_a2a_protocol/a2a_minimal.yaml` for the deploy-
 ready agent config.
 
 ## Disabling A2A

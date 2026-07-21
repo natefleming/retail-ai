@@ -744,7 +744,7 @@ def write_bundle(
             "trace export targets a storage host that Apps containers cannot "
             "reach, so spans are silently dropped. To capture traces, set "
             "`app.trace_location` in your config (see "
-            "config/examples/01_getting_started/ai_gateway.yaml for the YAML "
+            "examples/01_getting_started/ai_gateway.yaml for the YAML "
             "shape). Local notebook/CLI runs and Model Serving deploys are "
             "not affected by this."
         )

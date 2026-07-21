@@ -38,10 +38,7 @@ def project_root_with_skills(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) ->
     (the deployment example we ship), not a stripped-down inline fixture.
     """
     real_example_dir = (
-        Path(__file__).resolve().parents[2]
-        / "config"
-        / "examples"
-        / "13_orchestration"
+        Path(__file__).resolve().parents[2] / "examples" / "13_orchestration"
     )
     real_example = real_example_dir / "deep_agent_with_skills.yaml"
     real_skills_dir = real_example_dir / "skills"

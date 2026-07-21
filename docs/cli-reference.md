@@ -223,7 +223,7 @@ databricks grants update schema <catalog>.<schema> -p <profile> \
 
 When `trace_location` is unset, `generate-agent` emits a `⚠` warning to alert you. Local notebook/CLI runs and Model Serving deploys are unaffected.
 
-See `config/examples/01_getting_started/ai_gateway.yaml` for a drop-in example.
+See `examples/01_getting_started/ai_gateway.yaml` for a drop-in example.
 
 #### Linking the UC trace destination — run `dao-ai link-trace-destination` between deploy and run
 

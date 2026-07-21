@@ -335,7 +335,7 @@ print(response["message"]["content"])
 **🎉 Congratulations!** You've built and deployed your first AI agent with DAO.
 
 **Next steps:**
-- Explore the [`config/examples/`](config/examples/) folder for more advanced configurations
+- Explore the [`examples/`](examples/) folder for more advanced configurations
 - Try the [DAO AI Builder](https://github.com/natefleming/dao-ai-builder) visual interface
 - Learn about [Key Capabilities](docs/key-capabilities.md) to add advanced features
 - Read the [Architecture](docs/architecture.md) documentation to understand how it works
@@ -422,7 +422,7 @@ DAO provides powerful capabilities for building production-ready AI agents:
 
 ## Example Configurations
 
-The `config/examples/` directory contains ready-to-use configurations organized in a **progressive learning path**:
+The `examples/` directory contains ready-to-use configurations organized in a **progressive learning path**:
 
 - `01_getting_started/minimal.yaml` - Simplest possible agent
 - `02_tools/vector_search_with_reranking.yaml` - RAG with improved accuracy
@@ -523,7 +523,7 @@ databricks grants update schema <catalog>.<schema> -p <profile> \
 
 **Run `dao-ai link-trace-destination` between `bundle deploy` and `bundle run`** so the UC linkage is established from your machine on a fresh (0-traces) experiment — the app's own runtime link attempt is rejected on re-deploys with `already contains traces`, which causes silent trace loss. `generate-agent` prints a one-line reminder in its "Next steps" when `trace_location` is set. See [`docs/cli-reference.md#link-trace-destination`](docs/cli-reference.md#link-trace-destination) for details, including the migration playbook (Databricks does not allow un-linking or changing a UC destination once set — moving traces to a different `catalog` / `schema` / `table_prefix` requires a fresh experiment).
 
-When `trace_location` is unset, `generate-agent` emits a loud warning. Local notebook/CLI runs and Model Serving deploys are unaffected and continue to use the default control-plane path. See `config/examples/01_getting_started/ai_gateway.yaml` for a commented example.
+When `trace_location` is unset, `generate-agent` emits a loud warning. Local notebook/CLI runs and Model Serving deploys are unaffected and continue to use the default control-plane path. See `examples/01_getting_started/ai_gateway.yaml` for a commented example.
 
 ### Multi-Cloud Deployment
 
@@ -552,7 +552,7 @@ The CLI automatically:
 ## Community & Support
 
 - **Documentation**: [docs/](docs/)
-- **Examples**: [config/examples/](config/examples/)
+- **Examples**: [examples/](examples/)
 - **Issues**: [GitHub Issues](https://github.com/your-org/dao-ai/issues)
 - **Discussions**: [GitHub Discussions](https://github.com/your-org/dao-ai/discussions)
 

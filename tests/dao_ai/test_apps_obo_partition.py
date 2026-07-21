@@ -294,7 +294,7 @@ class TestSportingGoodsSdkResourcesPartition:
     leak into SDK resources either.
     """
 
-    CONFIG_PATH = "config/examples/15_complete_applications/sporting_goods_store/sporting_goods_store.yaml"
+    CONFIG_PATH = "examples/15_complete_applications/sporting_goods_store/sporting_goods_store.yaml"
     OBO_RESOURCE_NAMES: frozenset[str] = frozenset(
         {"fast_llm", "supervisor_llm", "tool_calling_llm", "decomposition_llm"}
     )
@@ -341,7 +341,7 @@ class TestSportingGoodsConfigPartition:
     real config we actually deploy.
     """
 
-    CONFIG_PATH = "config/examples/15_complete_applications/sporting_goods_store/sporting_goods_store.yaml"
+    CONFIG_PATH = "examples/15_complete_applications/sporting_goods_store/sporting_goods_store.yaml"
 
     OBO_RESOURCE_NAMES: frozenset[str] = frozenset(
         {"fast_llm", "supervisor_llm", "tool_calling_llm", "decomposition_llm"}

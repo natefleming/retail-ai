@@ -238,7 +238,7 @@ pytest --cov=dao_ai --cov-report=html tests/
 2. Implement tool following LangChain patterns
 3. Add factory function if needed
 4. Add tests in `tests/dao_ai/tools/`
-5. Add example configuration in appropriate `config/examples/` category
+5. Add example configuration in appropriate `examples/` category
 6. Update documentation
 
 ### Adding New Middleware
@@ -270,7 +270,7 @@ pytest --cov=dao_ai --cov-report=html tests/
 
 ### Adding Examples
 
-1. Choose the appropriate category in `config/examples/` based on **primary feature** demonstrated:
+1. Choose the appropriate category in `examples/` based on **primary feature** demonstrated:
    - `01_getting_started/` - Foundation concepts for beginners
    - `02_tools/` - Tool integrations (Genie, AI Search, Slack, MCP, etc.)
    - `04_genie/` - Performance optimization strategies
@@ -294,8 +294,8 @@ pytest --cov=dao_ai --cov-report=html tests/
 
 5. Test the example thoroughly:
    ```bash
-   dao-ai validate -c config/examples/0X_category/your_example.yaml
-   dao-ai chat -c config/examples/0X_category/your_example.yaml
+   dao-ai validate -c examples/0X_category/your_example.yaml
+   dao-ai chat -c examples/0X_category/your_example.yaml
    ```
 
 6. Add inline comments explaining key concepts and design decisions

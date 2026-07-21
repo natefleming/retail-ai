@@ -1,0 +1,104 @@
+# yaml-language-server: $schema=../../../schemas/model_config_schema.json
+
+# =============================================================================
+# Minimal Genie-provisioning test config.
+#
+# Purpose:
+#   Validate that notebooks/05_provision_genie.py correctly handles the
+#   3-step cascade (from_space_id → from_name → room.create()) under a
+#   real bundle deploy, including the "reuse on second deploy" path.
+#
+# Usage:
+#   # First run (scenario 3 — fresh provisioning):
+#   uv run dao-ai generate-workflow \
+#     --config examples/16_test_scenarios/genie_provisioning_only.yaml \
+#     --profile fevm --deployment-target model_serving --deploy --run
+#
+#   # Second run (scenario 4 — reuse on re-deploy):
+#   <same command>
+#
+# Run #2 must reuse run #1's space_id with no duplicate created.
+# Cleanup via WorkspaceClient.genie.trash_space(space_id=...) after both
+# runs are validated.
+# =============================================================================
+
+parameters:
+  catalog:
+    description: Unity Catalog catalog name (existing on FEVM)
+    default: retail_consumer_goods
+  schema:
+    description: UC schema (existing on FEVM, reused from loyalty deploy)
+    default: loyalty_offers
+  warehouse_id:
+    description: SQL warehouse id for Genie space
+    default: d58e5fb998498840  # FEVM "Serverless Starter Warehouse"
+  genie_space_id:
+    description: Resolved by provision-genie task; empty on first deploy
+    default: ""
+  genie_parent_path:
+    description: Workspace folder for the Genie space
+    default: /Users/${workspace.current_user.userName}
+
+schemas:
+  loyalty_schema: &loyalty_schema
+    catalog_name: ${var.catalog}
+    schema_name: ${var.schema}
+
+resources:
+  # A minimum-viable LLM resource so deploy-agents has something to register.
+  models:
+    default_llm: &default_llm
+      name: databricks-claude-sonnet-4-5
+      ai_gateway: true
+
+  warehouses:
+    genie_warehouse: &genie_warehouse
+      name: "Serverless Starter Warehouse"
+      warehouse_id: ${var.warehouse_id}
+
+  # Provisioned Genie room — the artifact under test.
+  genie_rooms:
+    test_room: &test_room
+      name: "dao-ai genie provisioning test"
+      space_id: "${var.genie_space_id}"
+      description: "Created by dao-ai generate-workflow tests; safe to delete."
+      parent_path: "${var.genie_parent_path}"
+      warehouse: *genie_warehouse
+      on_behalf_of_user: false
+      table_sources:
+      - table:
+          schema: *loyalty_schema
+          name: customer_features
+        description: "Customer features table used as the lone Genie data source."
+      sample_questions:
+      - "What is the average lifetime spend?"
+
+tools:
+  genie_tool: &genie_tool
+    name: genie
+    function:
+      type: genie
+      name: query_loyalty_genie
+      description: "Query the test Genie space."
+      genie_room: *test_room
+
+agents:
+  test_agent: &test_agent
+    name: test_agent
+    description: "Minimal agent that only proves the Genie room is wired."
+    model: *default_llm
+    tools:
+    - *genie_tool
+    prompt: |
+      Use the genie tool to answer questions when needed.
+
+app:
+  name: dao_ai_genie_provisioning_test
+  log_level: INFO
+  deployment_target: model_serving
+  registered_model:
+    schema: *loyalty_schema
+    name: dao_ai_genie_provisioning_test
+  endpoint_name: dao_ai_genie_provisioning_test
+  agents:
+  - *test_agent

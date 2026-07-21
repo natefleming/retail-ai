@@ -2,7 +2,7 @@
 Integration tests for instructed retrieval with query decomposition, RRF merging,
 and instruction-aware reranking against live Databricks.
 
-Tests load config/examples/03_reranking/instruction_aware_reranking.yaml and
+Tests load examples/03_reranking/instruction_aware_reranking.yaml and
 validate the full instructed retrieval pipeline including the empty-result
 fallback fix.
 
@@ -25,7 +25,7 @@ from langchain_core.messages import ToolMessage
 from dao_ai.config import AppConfig
 from dao_ai.tools.vector_search import create_vector_search_tool
 
-CONFIG_PATH = "config/examples/03_reranking/instruction_aware_reranking.yaml"
+CONFIG_PATH = "examples/03_reranking/instruction_aware_reranking.yaml"
 
 HAS_DATABRICKS_CREDS = bool(
     os.getenv("DATABRICKS_HOST") and os.getenv("DATABRICKS_TOKEN")

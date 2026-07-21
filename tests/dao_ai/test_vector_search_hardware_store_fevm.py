@@ -57,7 +57,7 @@ SKIP_MSG = (
     "or DATABRICKS_HOST + DATABRICKS_TOKEN env vars."
 )
 
-# Columns declared in config/examples/15_complete_applications/hardware_store/hardware_store.yaml.
+# Columns declared in examples/15_complete_applications/hardware_store/hardware_store.yaml.
 # The live products_index has these exact columns.
 HARDWARE_STORE_COLUMNS = [
     "product_id",

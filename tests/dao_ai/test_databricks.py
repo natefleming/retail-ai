@@ -25,10 +25,10 @@ from dao_ai.providers.databricks import DatabricksProvider
 def test_dataset_resolve_asset_path_config_relative():
     """A relative ddl/data path resolves against the stamped config dir."""
     ds = DatasetModel(ddl="functions/find_x.sql", data=None)
-    ds._base_path = "/repo/config/examples/15_complete_applications/hardware_store"
+    ds._base_path = "/repo/examples/15_complete_applications/hardware_store"
     resolved = ds.resolve_asset_path(ds.ddl)
     assert resolved == Path(
-        "/repo/config/examples/15_complete_applications/hardware_store/functions/find_x.sql"
+        "/repo/examples/15_complete_applications/hardware_store/functions/find_x.sql"
     )
 
 

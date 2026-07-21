@@ -1,0 +1,165 @@
+# yaml-language-server: $schema=../../../schemas/model_config_schema.json
+
+# ==============================================================================
+# Google A2A (Agent-to-Agent) Protocol Integration
+# ==============================================================================
+# Single-agent system that delegates to a remote agent speaking Google's open
+# A2A protocol (https://a2a-protocol.org). A2A is framework-agnostic — the
+# remote agent can be built with Google ADK, LangGraph, Crew.ai, or a custom
+# implementation. This example focuses on the cleanest possible wiring so the
+# A2A integration surface is easy to copy into a larger config.
+#
+# Three auth modes are supported by the factory:
+#
+#   1. bearer              — API key / static OAuth bearer token
+#   2. gcp_service_account — refreshable OAuth from a GCP service-account key
+#                            (useful for Vertex-AI-hosted A2A agents)
+#   3. none                — unauthenticated (public agents, local dev)
+#
+# The commented-out variants below show each mode; pick whichever fits your
+# target agent and delete the others.
+#
+# Session continuity: the tool forwards DAO AI's ``context.thread_id`` as the
+# A2A ``Message.context_id`` so multi-turn state persists server-side.
+# ==============================================================================
+
+variables:
+  # Base URL of the A2A agent (no trailing path). The agent card is fetched
+  # from ``<endpoint>/.well-known/agent-card.json`` by default, with a
+  # fallback to the pre-1.0 spec's ``/.well-known/agent.json`` on 404.
+  a2a_endpoint: &a2a_endpoint
+    options:
+    - env: A2A_AGENT_ENDPOINT
+    - scope: a2a_demo
+      secret: A2A_AGENT_ENDPOINT
+    - value: "http://localhost:9999"
+
+  # Bearer token / API key for the A2A agent. Leave unset (and set auth_type
+  # to ``none``) for public agents.
+  a2a_auth: &a2a_auth
+    options:
+    - env: A2A_AGENT_TOKEN
+    - scope: a2a_demo
+      secret: A2A_AGENT_TOKEN
+
+  # Uncomment for GCP service-account auth (e.g. Vertex-AI-hosted A2A).
+  # Accepts a local file path, a Databricks Volume path (/Volumes/...), or
+  # an inline JSON body from a secret scope — the loader auto-detects.
+  #
+  # a2a_gcp_credentials: &a2a_gcp_credentials
+  #   options:
+  #     - env: GOOGLE_APPLICATION_CREDENTIALS
+  #     - scope: a2a_demo
+  #       secret: GOOGLE_APPLICATION_CREDENTIALS
+
+resources:
+  models:
+    default_llm: &default_llm
+      name: databricks-claude-sonnet-4
+      temperature: 0.1
+      max_tokens: 4096
+
+prompts:
+  a2a_delegate_prompt: &a2a_delegate_prompt
+    name: a2a_agent_delegate_prompt
+    description: Prompt for the DAO AI agent that delegates to a remote A2A agent.
+    template: |
+      You delegate user requests to a specialist agent exposed over the
+      Google A2A (Agent-to-Agent) protocol. For each user message, call
+      the ``remote_a2a_agent`` tool with the user's prompt passed through
+      as-is, then relay the response back clearly and concisely.
+
+      Do not paraphrase the remote agent's answer unless the user asks for
+      a summary. If the tool returns an error, explain what went wrong and
+      ask the user whether they want to retry.
+
+tools:
+  # Primary A2A tool — bearer-token auth variant. Uses the first-class
+  # `type: a2a` shape (dao-ai 0.1.97+). For the verbose `type: factory`
+  # form see git history before this commit; it remains fully supported.
+  remote_a2a_tool: &remote_a2a_tool
+    name: remote_a2a_agent
+    function:
+      type: a2a
+      name: remote_a2a_agent
+      description: |
+        Delegate a prompt to a remote agent over the Google A2A
+        (Agent-to-Agent) protocol and return the agent's reply as a
+        single string. Use this tool for any question that the remote
+        A2A specialist should answer.
+      endpoint: *a2a_endpoint
+      auth: *a2a_auth
+      auth_type: bearer
+      # Multi-turn continuity: runtime.context.thread_id is forwarded as
+      # the A2A ``Message.context_id`` automatically. runtime.context.user_id
+      # is forwarded as ``Message.metadata["dao_ai.user_id"]``.
+      streaming: true
+
+      # --- Alternate auth configurations -------------------------------
+      #
+      # For Vertex-AI-hosted A2A agents, swap bearer for gcp_service_account:
+      #   auth_type: gcp_service_account
+      #   auth: *a2a_gcp_credentials
+      #
+      # For public / unauthenticated A2A agents:
+      #   auth_type: none
+      #   (omit the ``auth`` arg)
+      #
+      # --- Calling another dao-ai Databricks App (AppResource mode) ----
+      #
+      # If the remote agent is itself a dao-ai app deployed on Databricks
+      # Apps, declare it under ``resources.apps`` and reference it via
+      # the ``app`` field instead of ``endpoint`` / ``auth`` / ``auth_type``.
+      # The factory resolves the URL from ``DatabricksAppModel.url`` and
+      # picks the auth mode from ``app.on_behalf_of_user``:
+      #
+      #     resources:
+      #       apps:
+      #         remote_dao_ai_app: &remote_dao_ai_app
+      #           name: dao-ai-some-other-app
+      #           on_behalf_of_user: true   # -> forwarded_user_token
+      #                                     # false / unset -> databricks_app_sp
+      #
+      #     tools:
+      #       remote_a2a_tool:
+      #         function:
+      #           type: a2a
+      #           app: *remote_dao_ai_app
+      #           # ``endpoint``, ``auth``, ``auth_type`` all auto-derived.
+      #
+      # See ``examples/15_complete_applications/procurement_supplier_a2a/``
+      # for a full procurement <-> supplier walkthrough.
+      #
+      # --- Card path overrides -----------------------------------------
+      #
+      # Some deployments expose the agent card at a non-standard path:
+      #
+      #   card_path: "/.well-known/agent-card.json"
+      #   card_fallback_path: "/.well-known/agent.json"
+
+agents:
+  a2a_delegate_agent: &a2a_delegate_agent
+    name: a2a_delegate_agent
+    description: >
+      DAO AI agent that delegates requests to a remote A2A (Agent-to-Agent)
+      specialist. Framework-agnostic — the remote agent can be built with
+      any A2A-compatible toolkit.
+    model: *default_llm
+    tools:
+    - *remote_a2a_tool
+    prompt: *a2a_delegate_prompt
+
+app:
+  name: a2a_agent_dao
+  description: >
+    Single-agent system that delegates to a remote agent via the Google
+    A2A (Agent-to-Agent) protocol.
+  log_level: INFO
+  deployment_target: apps
+  agents:
+  - *a2a_delegate_agent
+
+  input_example:
+    messages:
+    - role: user
+      content: "Ask the remote agent what it specializes in."
