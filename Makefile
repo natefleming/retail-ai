@@ -4,7 +4,7 @@ TEST_DIR := $(TOP_DIR)/tests
 DIST_DIR := $(TOP_DIR)/dist
 LIB_NAME := dao_ai
 # Pipeline requirements.txt now ships as package data under the pipeline
-# subpackage (materialized into the staging bundle by `dao-ai pipeline`).
+# subpackage (materialized into the staging bundle by `dao-ai generate-workflow`).
 REQUIREMENTS_FILE := $(SRC_DIR)/$(LIB_NAME)/pipeline/requirements.txt
 LIB_VERSION := $(shell grep -m 1 version pyproject.toml | tr -s ' ' | tr -d '"' | tr -d "'" | cut -d' ' -f3)
 LIB := $(LIB_NAME)-$(LIB_VERSION)-py3-none-any.whl

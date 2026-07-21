@@ -16,7 +16,7 @@ that exercises the full capability surface.
 
 ```bash
 # Deploy the minimal agent to your fevm (or any) workspace.
-dao-ai pipeline \
+dao-ai generate-workflow \
     -c config/examples/20_a2a_protocol/a2a_minimal.yaml \
     --deploy --run \
     --deployment-target apps \
