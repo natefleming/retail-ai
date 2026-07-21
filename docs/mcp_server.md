@@ -25,7 +25,7 @@ UC exposure; publishing them a second time from a dao-ai MCP server is
 duplicative.
 
 `dao-ai generate-mcp` bundles a Databricks App that runs the same graph
-`generate-bundle` deploys — but with an MCP entrypoint instead of an
+`generate-agent` deploys — but with an MCP entrypoint instead of an
 MLflow AgentServer HTTP entrypoint. OBO tokens from the caller flow
 through the graph unchanged: downstream Genie / Vector Search / UC
 function calls run as the caller, not as the App's service principal.
@@ -75,7 +75,7 @@ Your dao-ai config needs:
 - At least one agent (or an `orchestration.deep_agent` block) — the
   server calls `AppConfig.as_responses_agent()` at boot.
 - Any resources the agent needs (Genie rooms, Vector Search indexes,
-  Lakebase, warehouses, models) — same as `generate-bundle`.
+  Lakebase, warehouses, models) — same as `generate-agent`.
 
 The MCP server prefers `mcp-`-prefixed app names because Databricks
 Multi-Agent Supervisor pattern-matches that prefix when auto-discovering
@@ -139,7 +139,7 @@ Every `tools/call` response is a `CallToolResult` with:
 ### Experiment provisioning
 
 `generate-mcp` emits an MLflow experiment resource in the DAB — parity
-with `generate-bundle`. Behaviour:
+with `generate-agent`. Behaviour:
 
 - If `config.app.experiment` is set → binds by literal experiment id
   (and if `manage_permissions: false`, requests `CAN_READ` only).
@@ -462,7 +462,7 @@ launches the server via module invocation — no console script required.
 `dao_ai.apps.bundle._convert_to_bundle_resources`. The resulting
 `databricks.yml` declares whatever bindings the agent needs — genie
 space, sql warehouse, postgres, uc securable, serving endpoint, secret —
-identical to what `generate-bundle` emits.
+identical to what `generate-agent` emits.
 
 Lakebase `database_instances` are **not** auto-provisioned. The bundle
 assumes the Lakebase project already exists.
@@ -782,7 +782,7 @@ parent-graph and MCP-side conversation lineage stay aligned.
 - `dao_ai.mcp.agent_tool` — the single-tool registration surface.
 - `dao_ai.mcp.server` — FastAPI + FastMCP entrypoint.
 - `dao_ai.mcp.generate` — `write_mcp_bundle` bundle emission.
-- `dao_ai.apps.bundle.write_bundle` — the `dao-ai generate-bundle` entry
+- `dao_ai.apps.bundle.write_bundle` — the `dao-ai generate-agent` entry
   point for the standard AgentServer HTTP deployment. `write_mcp_bundle`
   mirrors its shape.
 - `dao_ai.apps.mcp` — **client** primitives for consuming external MCP

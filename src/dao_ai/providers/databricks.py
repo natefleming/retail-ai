@@ -1184,7 +1184,7 @@ class DatabricksProvider(ServiceProvider):
                     # installed into site-packages. Continuing would log a model
                     # with NO dao-ai (only its transitive deps), which fails to
                     # import at serving load. Fail loud, matching the Apps and
-                    # generate-bundle paths, instead of shipping a broken model.
+                    # generate-agent paths, instead of shipping a broken model.
                     raise RuntimeError(
                         "No dao-ai wheel found and project source not available "
                         "(dao-ai is installed from a package index). Build a "
@@ -1766,7 +1766,7 @@ class DatabricksProvider(ServiceProvider):
         # Determine install command based on dev vs published mode.
         # Respect config.app.enable_chat_proxy (default True) so the deployed
         # app spawns the chat UI alongside the agent backend, matching the
-        # behavior of `dao-ai generate-bundle`.
+        # behavior of `dao-ai generate-agent`.
         enable_chat_proxy: bool = (
             config.app.enable_chat_proxy
             if config.app and config.app.enable_chat_proxy is not None

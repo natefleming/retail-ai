@@ -7,7 +7,7 @@
 # Designed to deploy cleanly to a fresh fevm workspace with minimal pre-provisioned
 # resources. Uses OBO auth so the deploying user's credentials drive every MCP call.
 #
-# Required env vars (set before `dao-ai pipeline ... -d`):
+# Required env vars (set before `dao-ai generate-workflow ... -d`):
 #   DAO_AI_WAREHOUSE_ID   - a SQL warehouse ID in the target workspace (for DBSQL meta)
 #
 # Optional env vars:

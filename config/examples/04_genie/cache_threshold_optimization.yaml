@@ -146,7 +146,7 @@ optimizations:
 #    to create a dataset from existing cache entries.
 #
 # 2. RUN OPTIMIZATION:
-#    Use the notebook notebooks/11_optimize_context_aware_genie_cache.py,
+#    Use the notebook notebooks/12_optimize_context_aware_genie_cache.py,
 #    or run programmatically:
 #
 #    ```python

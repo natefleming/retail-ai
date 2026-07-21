@@ -532,7 +532,7 @@ def _resolve_lakebase_database_path(db: DatabaseModel, branch_path: str) -> str:
        ``{branch_path}/databases/{database_id}``. No SDK call. This is
        the recommended shape for custom-provisioned Lakebase databases
        whose resource id isn't the auto-provisioning default, or when
-       generate-bundle needs to run offline.
+       generate-agent needs to run offline.
     3. **SDK auto-detect** — call ``postgres.list_databases(branch_path)``.
        If it returns databases and one has ``status.postgres_database``
        matching ``db.database`` (pg-level name), return that database's
@@ -547,7 +547,7 @@ def _resolve_lakebase_database_path(db: DatabaseModel, branch_path: str) -> str:
        fall back to constructing the path with the module constant
        ``_LAKEBASE_DEFAULT_DATABASE_RESOURCE_ID`` (which matches
        Databricks' auto-provisioning convention, ``databricks-postgres``).
-       A WARNING at generate-bundle time tells the operator to set
+       A WARNING at generate-agent time tells the operator to set
        ``database_id`` explicitly or fix their profile. If the fallback
        path doesn't match their actual database, deploy will fail with
        a clear 404 naming the resource.
@@ -1408,7 +1408,7 @@ def _extract_raw_trace_location_resources(
     # level `resources.schemas.<key>.grants` block giving the App SP
     # USE_SCHEMA + CREATE_TABLE + MODIFY + SELECT, which the Apps platform
     # honors before any tables exist. dao-ai doesn't emit schema grants from
-    # generate-bundle yet — users must manually grant these privileges on the
+    # generate-agent yet — users must manually grant these privileges on the
     # trace schema to the App SP after deploy (see README "Trace persistence
     # on Apps"). The sql_warehouse resource above is still emitted because
     # it's an existing resource that the platform CAN validate at deploy.

@@ -6,7 +6,7 @@ App + experiment + resources DAB shape to
 :func:`dao_ai.apps.bundle.generate_resources_app_yaml`, passing an
 MCP-flavored runtime command and disabling the chat-proxy UI env vars.
 The result is byte-for-byte the same App-resource pattern that
-``generate-bundle`` emits, so the deployed MCP server inherits the same
+``generate-agent`` emits, so the deployed MCP server inherits the same
 service-principal credentials, resource grants, experiment binding, and
 trace-location wiring.
 
@@ -51,7 +51,7 @@ DEFAULT_CONFIG_FILENAME = "dao_ai.yaml"
 # MCP-flavored runtime command. Forwarded to the shared
 # :func:`_build_app_block` via ``app_command=`` so everything else — env
 # vars, resource bindings, experiment binding, trace_location wiring —
-# is reused verbatim from ``generate-bundle``.
+# is reused verbatim from ``generate-agent``.
 _MCP_APP_COMMAND: list[str] = ["python", "-m", "dao_ai.mcp.server"]
 
 
@@ -106,7 +106,7 @@ def write_mcp_bundle(
         written.append(str(path.relative_to(output_dir)))
 
     # Reuse the shared bundle helpers so the App + experiment + resource
-    # bindings match ``generate-bundle`` byte-for-byte. MCP disables the
+    # bindings match ``generate-agent`` byte-for-byte. MCP disables the
     # chat-proxy UI env vars (no chat UI in the MCP server) and skips the
     # ``artifacts:`` block (MCP doesn't build a user wheel — it installs
     # ``dao-ai[mcp]`` from PyPI via requirements.txt).
@@ -191,7 +191,7 @@ def write_mcp_bundle(
 
 
 def _derive_app_name(config: AppConfig) -> str:
-    """Return the Databricks App name — parity with ``generate-bundle``."""
+    """Return the Databricks App name — parity with ``generate-agent``."""
     assert config.app is not None and config.app.name  # enforced by caller
     return str(config.app.name).lower().replace("_", "-")
 

@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "dao-ai"
-version = "0.1.115"
+version = "0.2.0"
 description = "DAO AI: A modular, multi-agent orchestration framework for complex AI workflows. Supports agent handoff, tool integration, and dynamic configuration via YAML."
 readme = "README.md"
 license = { text = "MIT" }
@@ -161,18 +161,22 @@ all = [
 [tool.hatch.build.targets.wheel]
 packages = ["src/dao_ai"]
 sources = ["src"]
+# Excludes are root-anchored (leading "/") so they only drop the repo-root
+# demo/tooling dirs and NOT the packaged pipeline assets under
+# src/dao_ai/pipeline/ (notably src/dao_ai/pipeline/notebooks/, which an
+# unanchored "notebooks" pattern would wrongly strip from the wheel).
 exclude = [
-    "data",
-    "docs", 
-    "examples",
-    "functions",
-    "notebooks",
-    "schemas",
-    "config",
-    "databricks.yaml",
-    "tests",
-    "uv.lock",
-    "Makefile",
+    "/data",
+    "/docs",
+    "/examples",
+    "/functions",
+    "/notebooks",
+    "/schemas",
+    "/config",
+    "/databricks.yaml",
+    "/tests",
+    "/uv.lock",
+    "/Makefile",
 ]
 
 [tool.hatch.build.targets.sdist]

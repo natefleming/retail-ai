@@ -1,7 +1,7 @@
 USE IDENTIFIER(:database);
 
--- Eval payload table consumed by `notebooks/06_generate_evaluation_data.py`
--- and `notebooks/07_run_evaluation.py`. Each row is one prompt to send to the
+-- Eval payload table consumed by `07_generate_evaluation_data.py`
+-- and `08_run_evaluation.py`. Each row is one prompt to send to the
 -- agent under test, plus optional expected behaviors used by the
 -- MLflow GenAI Guidelines judge.
 CREATE TABLE IF NOT EXISTS evaluation (

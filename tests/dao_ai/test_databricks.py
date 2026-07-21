@@ -507,7 +507,7 @@ def test_create_agent_local_source_no_wheel_no_source_raises():
     (``find_dev_wheel() is None``) nor a source tree (``is_source_layout``
     False — dao-ai is in site-packages), continuing would log a model with NO
     dao-ai. This must raise instead of silently shipping a broken model, so it
-    matches the Apps + generate-bundle paths.
+    matches the Apps + generate-agent paths.
     """
     from unittest.mock import MagicMock, patch
 

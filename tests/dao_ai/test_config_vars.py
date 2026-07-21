@@ -1068,7 +1068,7 @@ def test_write_bundle_ships_requirements_txt_no_uv_lock(
 ) -> None:
     """The generated bundle MUST ship requirements.txt (Apps build installs
     deps from it; pyproject alone is insufficient) and MUST NOT ship a
-    uv.lock (lock is user-owned, produced by `uv sync` after generate-bundle).
+    uv.lock (lock is user-owned, produced by `uv sync` after generate-agent).
     Unified emit format per PR #117.
     """
     from dao_ai.apps.bundle import write_bundle
@@ -1089,7 +1089,7 @@ def test_write_bundle_ships_requirements_txt_no_uv_lock(
     )
     assert not (out_dir / "uv.lock").exists(), (
         "Generated bundle must not ship uv.lock — lock is user-owned and "
-        "should be produced by `uv sync` after generate-bundle."
+        "should be produced by `uv sync` after generate-agent."
     )
     assert (out_dir / "pyproject.toml").exists(), (
         "pyproject.toml must be present so `uv sync` has something to resolve from."
@@ -1645,9 +1645,11 @@ def test_cli_run_databricks_command_forwards_vars_to_databricks_cli(
 
     monkeypatch.setattr(cli, "_apply_profile_context", lambda profile: None)
     monkeypatch.setattr(cli, "detect_cloud_provider", lambda profile: "aws")
-    monkeypatch.setattr(
-        cli, "generate_bundle_from_template", lambda p, n: Path("databricks.yaml")
-    )
+    # Stub the staging-bundle write so the test exercises only the command
+    # assembly (the real write is covered by the pipeline bundle tests).
+    import dao_ai.pipeline.bundle as _pb
+
+    monkeypatch.setattr(_pb, "write_pipeline_bundle", lambda *a, **k: None)
 
     class _FakeStdout:
         def readline(self) -> str:
