@@ -118,17 +118,20 @@ orchestration:
 - Apps where you want a single API surface (one `CompiledStateGraph`) but
   still want delegation to specialists.
 
-**Skills layout** — by convention, skills live in a `skills/` directory at
-the project root, organized by vertical (mirrors `functions/`):
+**Skills layout** — skills are colocated with the config in a `skills/`
+directory next to the YAML (organized by vertical), and referenced with
+config-relative paths (bare `skills/...`):
 
 ```
-skills/
-└── sporting_goods_store/
-    ├── research/
-    │   ├── SKILL.md       # what the skill does
-    │   └── AGENTS.md      # persistent memory
-    └── product-lookup/
-        └── SKILL.md
+config/examples/13_orchestration/
+├── deep_agent_with_skills.yaml   # path: skills/sporting_goods_store/research
+└── skills/
+    └── sporting_goods_store/
+        ├── research/
+        │   ├── SKILL.md       # what the skill does
+        │   └── AGENTS.md      # persistent memory
+        └── product-lookup/
+            └── SKILL.md
 ```
 
 Local skills are bundled via `code_paths` (Model Serving) and the app source

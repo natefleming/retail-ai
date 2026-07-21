@@ -395,13 +395,13 @@ app:
 
 unity_catalog_functions:
 - function: *lookup_items_by_descriptions
-  ddl: ../functions/quick_serve_restaurant/lookup_items_by_descriptions.sql
+  ddl: functions/lookup_items_by_descriptions.sql
 - function: *match_historical_item_order_by_date
-  ddl: ../functions/quick_serve_restaurant/match_historical_item_order_by_date.sql
+  ddl: functions/match_historical_item_order_by_date.sql
 - function: *match_item_by_description_and_price
-  ddl: ../functions/quick_serve_restaurant/match_item_by_description_and_price.sql
+  ddl: functions/match_item_by_description_and_price.sql
 - function: *insert_coffee_order
-  ddl: ../functions/quick_serve_restaurant/insert_coffee_order.sql
+  ddl: functions/insert_coffee_order.sql
 
 # =============================================================================
 # EVALUATION CONFIGURATION
@@ -430,16 +430,16 @@ datasets:
 - table:
     schema: *qsr_schema
     name: orders_raw
-  ddl: ../data/quick_serve_restaurant/orders_raw.sql
-  data: ../data/quick_serve_restaurant/orders_raw.csv
+  ddl: data/orders_raw.sql
+  data: data/orders_raw.csv
   format: csv
   read_options:
     header: true
 - table:
     schema: *qsr_schema
     name: items_raw
-  ddl: ../data/quick_serve_restaurant/items_raw.sql
-  data: ../data/quick_serve_restaurant/items_raw.csv
+  ddl: data/items_raw.sql
+  data: data/items_raw.csv
   format: csv
   read_options:
     header: true
@@ -453,8 +453,8 @@ datasets:
 - table:
     schema: *qsr_schema
     name: items_description
-  ddl: ../data/quick_serve_restaurant/items_description.sql
-  data: ../data/quick_serve_restaurant/items_description.csv
+  ddl: data/items_description.sql
+  data: data/items_description.csv
   read_options:
     header: true
     escape: "\""
@@ -463,7 +463,7 @@ datasets:
 - table:
     schema: *qsr_schema
     name: fulfil_item_orders
-  ddl: ../data/quick_serve_restaurant/fulfil_item_orders.sql
+  ddl: data/fulfil_item_orders.sql
 
 
 

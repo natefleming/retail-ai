@@ -375,7 +375,7 @@ agents:
 ```
 
 **Real-World Example:**  
-The hardware store application uses store number validation to ensure users provide their store location for inventory lookups. See [`15_complete_applications/hardware_store.yaml`](../config/examples/15_complete_applications/hardware_store.yaml).
+The hardware store application uses store number validation to ensure users provide their store location for inventory lookups. See [`15_complete_applications/hardware_store/hardware_store.yaml`](../config/examples/15_complete_applications/hardware_store/hardware_store.yaml).
 
 **Prerequisites:** Basic understanding of agents and prompts  
 **Next:** Learn multi-agent coordination in `13_orchestration/`

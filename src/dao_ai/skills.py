@@ -42,10 +42,28 @@ if TYPE_CHECKING:
     from dao_ai.config import AppConfig, DeepAgentModel, SkillModel
 
 
-# Convention: dao-ai expects user skills under ``<project_root>/skills/`` —
-# sibling of ``functions/`` and per-vertical subdirectory layout. This is the
-# directory shipped via mlflow ``code_paths`` and copied into the Apps bundle.
+# Convention: dao-ai expects user skills colocated with the config under
+# ``<config-dir>/skills/`` — sibling of the config's ``functions/``/``data/``.
+# This is the directory shipped via mlflow ``code_paths`` and copied into the
+# Apps bundle.
 SKILLS_DIRNAME = "skills"
+
+
+def _skill_base_dir(config: "AppConfig") -> Path:
+    """Directory that relative skill paths resolve against at *bundle* time.
+
+    Skills are colocated with the config (``skills/<skill>`` next to the YAML),
+    so the anchor is the config file's own directory when the config was loaded
+    via ``AppConfig.from_file``. Falls back to :func:`_project_root` when the
+    config has no source path (e.g. a programmatically built config).
+
+    Used at bundle/log_model time, NOT at inference time. Use
+    :func:`_runtime_anchors` to resolve paths at inference time.
+    """
+    source_config: str | None = config._source_config_path
+    if source_config is not None:
+        return Path(source_config).resolve().parent
+    return _project_root()
 
 
 def _project_root() -> Path:
@@ -55,8 +73,8 @@ def _project_root() -> Path:
     walks upward from the current working directory looking for a ``pyproject.toml``
     or ``databricks.yaml`` marker. Falls back to CWD.
 
-    Used at bundle/log_model time, NOT at inference time. Use
-    :func:`_runtime_anchors` to resolve paths at inference time.
+    Fallback anchor for :func:`_skill_base_dir` when a config has no source
+    path. Use :func:`_runtime_anchors` to resolve paths at inference time.
     """
     env_root: str | None = os.environ.get("DAO_AI_PROJECT_ROOT")
     if env_root:
@@ -199,27 +217,27 @@ def _resolve_local_skill_dir(
             # Raw /Volumes/... strings are volume-backed, not local.
             if spec.startswith("/Volumes/"):
                 return None
-            return (_project_root() / spec).resolve()
+            return (_skill_base_dir(config) / spec).resolve()
 
     if spec.is_volume_backed:
         return None
 
     # Local SkillModel: path field is a plain string.
     assert isinstance(spec.path, str)
-    return (_project_root() / spec.path).resolve()
+    return (_skill_base_dir(config) / spec.path).resolve()
 
 
 def collect_skills_code_paths(config: "AppConfig") -> list[str]:
     """Return paths for ``mlflow.pyfunc.log_model(code_paths=...)``.
 
-    Returns the *project-root* ``skills/`` directory when any local skill is
-    referenced, so mlflow preserves the full ``skills/<vertical>/<skill>/``
+    Returns the config's colocated ``skills/`` directory when any local skill
+    is referenced, so mlflow preserves the full ``skills/<vertical>/<skill>/``
     layout under ``<model_dir>/code/skills/...``. Returning leaf skill dirs
     instead would flatten to ``<model_dir>/code/<skill>/``, breaking the
     relative-path lookup at inference.
 
     No-op (returns ``[]``) when the config does not use ``deep_agent``, every
-    skill is volume-backed, or the project has no ``skills/`` directory.
+    skill is volume-backed, or the config has no colocated ``skills/`` directory.
 
     Volume-backed skills are excluded — they're read directly from
     ``/Volumes/...`` at runtime and have their permissions wired through the
@@ -250,17 +268,17 @@ def collect_skills_code_paths(config: "AppConfig") -> list[str]:
     if not has_local:
         return []
 
-    skills_root: Path = (_project_root() / SKILLS_DIRNAME).resolve()
+    skills_root: Path = (_skill_base_dir(config) / SKILLS_DIRNAME).resolve()
     if not skills_root.is_dir():
         logger.warning(
-            "Local skills referenced but project ``skills/`` directory missing — "
+            "Local skills referenced but colocated ``skills/`` directory missing — "
             "Model Serving will not have skill content at inference time.",
             expected=str(skills_root),
         )
         return []
 
     logger.info(
-        "Including project skills/ directory in mlflow code_paths",
+        "Including colocated skills/ directory in mlflow code_paths",
         path=str(skills_root),
     )
     return [str(skills_root)]
@@ -299,7 +317,17 @@ def collect_local_skill_dirs(config: "AppConfig") -> list[str]:
     for source in _iter_agent_skill_sources(config):
         if source.startswith("/Volumes/"):
             continue
-        candidate = Path(source).resolve()
+        # ``sources`` may be absolute (as_middleware resolved it at runtime) or
+        # relative (fell back to the raw path when the leaf wasn't found under a
+        # runtime anchor — e.g. resolving at config-construction time before the
+        # source path is known). Resolve relative sources against the config's
+        # colocated skill base dir so they're found at bundle time.
+        src_path = Path(source)
+        candidate = (
+            src_path.resolve()
+            if src_path.is_absolute()
+            else (_skill_base_dir(config) / src_path).resolve()
+        )
         # If as_middleware() resolved to an absolute parent dir (e.g.
         # /project/skills), the parent IS the source. The bundle copy
         # wants every leaf skill subdir under it — but `collect_local_skill_dirs`

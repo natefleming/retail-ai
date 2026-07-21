@@ -514,11 +514,11 @@ Mixing product descriptions, FAQ answers, and policy bodies into a single index 
 ```bash
 # Validate first (catches schema, anchor, and graph-construction errors)
 DATABRICKS_CONFIG_PROFILE=fevm uv run dao-ai validate \
-  -c config/examples/15_complete_applications/commerce_swarm/commerce_swarm.yaml
+  -c config/examples/15_complete_applications/commerce/commerce_swarm.yaml
 
 # Deploy + provision everything in one shot
 uv run dao-ai generate-workflow --deploy --run \
-  -c config/examples/15_complete_applications/commerce_swarm/commerce_swarm.yaml \
+  -c config/examples/15_complete_applications/commerce/commerce_swarm.yaml \
   -p fevm \
   --deployment-target apps
 ```
@@ -547,7 +547,7 @@ databricks --profile fevm apps get commerce_swarm_dao
 
 ## Sample prompts
 
-The prompts below are **live-validated against the deployed FEVM Databricks App** (`agent-commerce-super-dao`) on 2026-07-06. For every row the app was invoked over `/invocations`, the response text captured, the MLflow trace pulled via `mlflow.get_trace(trace_id)`, and the spans walked to confirm (a) the specialist agent that handled it, (b) the tools it called, and (c) that the response body contains the expected signal. See [Reproduce this validation](#reproduce-this-validation) below for the exact `curl` + Python snippet.
+The prompts below are **live-validated against the deployed FEVM Databricks App** (`agent-commerce-swarm-dao`) on 2026-07-06. For every row the app was invoked over `/invocations`, the response text captured, the MLflow trace pulled via `mlflow.get_trace(trace_id)`, and the spans walked to confirm (a) the specialist agent that handled it, (b) the tools it called, and (c) that the response body contains the expected signal. See [Reproduce this validation](#reproduce-this-validation) below for the exact `curl` + Python snippet.
 
 ### Personas
 
@@ -576,7 +576,7 @@ Each entry declares: the prompt, the persona used, whether the demand is on **st
 
 | # | Prompt | Persona | Data path | Tools called | Route observed |
 |---|---|---|---|---|---|
-| 4 | *"I'm allergic to peanuts — please recommend a dessert under $30."* | B2C | Structured + Unstructured | `product_search` (respects allergen guardrail via injected memory) | supervisor → planner → **recommendation** → composer *(occasional cold-start flake: retry once if the first turn returns an empty response)* |
+| 4 | *"I'm allergic to peanuts — please recommend a dessert under $30."* | B2C | Structured + Unstructured | `product_search` (respects allergen guardrail via injected memory) | supervisor → planner → **recommendation** → composer |
 | 5 | *"Suggest something based on my past orders."* | B2C | Structured + Unstructured | `lookup_customer_by_user`, `get_order_history` | supervisor → planner → **recommendation** → composer |
 | 6 | *"Recommend a bulk pack for a weekend brunch service."* | B2B | Unstructured (VS) | `product_search` (prefers bulk / B2B SKUs) | supervisor → planner → **recommendation** → composer |
 
@@ -618,7 +618,7 @@ Each entry declares: the prompt, the persona used, whether the demand is on **st
 |---|---|---|---|---|---|
 | 19 | *"Add 5 cases of FRZ-CAKE-002 to my cart."* | B2B | Structured | `lookup_customer_by_user`, `find_product` | supervisor → planner → **ucp** → composer |
 | 20 | *"What's in my cart right now?"* | B2C | Structured | `get_cart` | supervisor → planner → **ucp** → composer |
-| 21 | *"Please place the order."* | B2B | Structured | `get_cart` | supervisor → planner → **ucp** → composer *(chain the two prompts above in the same session so the cart isn't empty)* |
+| 21 | *"Please place the order."* | B2B | Structured | `get_cart` | supervisor → planner → **ucp** → composer *(chain the two prompts above in the same session so the cart isn't empty; without cart context the router may fall through to `general`)* |
 
 #### `general` — greetings, brand Q&A, no tools
 
@@ -633,7 +633,7 @@ Each entry declares: the prompt, the persona used, whether the demand is on **st
 **Invoke the app.** The Databricks App exposes `/invocations` on the URL returned by `databricks apps get`:
 
 ```bash
-APP_URL=$(databricks apps get commerce_super_dao -p fevm --output json | jq -r .url)
+APP_URL=$(databricks apps get commerce_swarm_dao -p fevm --output json | jq -r .url)
 TOKEN=$(databricks auth token -p fevm | jq -r .access_token)
 
 curl -sS "$APP_URL/invocations" -X POST \
@@ -670,28 +670,28 @@ What to look for:
 ## File layout
 
 ```
-commerce_swarm/
-├── README.md                                    # this file
-└── commerce_swarm.yaml                          # dao-ai config
-
-../../data/commerce_swarm/                        # DDL + seed data (10 tables × 2 files)
-├── products.sql + products_data.sql
-├── customers.sql + customers_data.sql
-├── orders.sql + orders_data.sql
-├── order_items.sql + order_items_data.sql
-├── inventory.sql + inventory_data.sql
-├── credit_limits.sql + credit_limits_data.sql
-├── cart.sql + cart_data.sql
-├── faqs.sql + faqs_data.sql
-├── policies.sql + policies_data.sql
-└── idempotency_log.sql                          # DDL only — empty at deploy
-
-../../functions/commerce_swarm/                   # 5 UC SQL functions
-├── find_product.sql
-├── get_order_history.sql
-├── check_stock.sql
-├── get_credit_limit.sql
-└── get_cart.sql
+commerce/                                        # shared use-case dir
+├── commerce_swarm.README.md                     # this file
+├── commerce_supervisor.README.md                # supervisor variant
+├── commerce_swarm.yaml                           # dao-ai config (this variant)
+├── commerce_supervisor.yaml                      # dao-ai config (supervisor variant)
+├── data/                    # DDL + seed data (10 tables × 2 files) — shared
+│   ├── products.sql + products_data.sql
+│   ├── customers.sql + customers_data.sql
+│   ├── orders.sql + orders_data.sql
+│   ├── order_items.sql + order_items_data.sql
+│   ├── inventory.sql + inventory_data.sql
+│   ├── credit_limits.sql + credit_limits_data.sql
+│   ├── cart.sql + cart_data.sql
+│   ├── faqs.sql + faqs_data.sql
+│   ├── policies.sql + policies_data.sql
+│   └── idempotency_log.sql                       # DDL only — empty at deploy
+└── functions/               # 5 UC SQL functions — shared
+    ├── find_product.sql
+    ├── get_order_history.sql
+    ├── check_stock.sql
+    ├── get_credit_limit.sql
+    └── get_cart.sql
 ```
 
 ---

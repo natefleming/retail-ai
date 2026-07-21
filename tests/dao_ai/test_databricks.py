@@ -1,3 +1,4 @@
+from pathlib import Path
 from unittest.mock import MagicMock, Mock, patch
 
 import pytest
@@ -9,13 +10,79 @@ from mlflow.models.resources import DatabricksFunction, DatabricksTable
 from dao_ai.config import (
     AppConfig,
     DatabaseModel,
+    DatasetModel,
     FunctionModel,
     IndexModel,
     SchemaModel,
     TableModel,
+    UnityCatalogFunctionSqlModel,
     VectorStoreModel,
 )
 from dao_ai.providers.databricks import DatabricksProvider
+
+
+@pytest.mark.unit
+def test_dataset_resolve_asset_path_config_relative():
+    """A relative ddl/data path resolves against the stamped config dir."""
+    ds = DatasetModel(ddl="functions/find_x.sql", data=None)
+    ds._base_path = "/repo/config/examples/15_complete_applications/hardware_store"
+    resolved = ds.resolve_asset_path(ds.ddl)
+    assert resolved == Path(
+        "/repo/config/examples/15_complete_applications/hardware_store/functions/find_x.sql"
+    )
+
+
+@pytest.mark.unit
+def test_dataset_resolve_asset_path_absolute_passthrough():
+    """An absolute path is returned unchanged regardless of base_path."""
+    ds = DatasetModel(ddl="/abs/fn.sql", data=None)
+    ds._base_path = "/repo/config"
+    assert ds.resolve_asset_path(ds.ddl) == Path("/abs/fn.sql")
+
+
+@pytest.mark.unit
+def test_dataset_resolve_asset_path_cwd_fallback():
+    """With no base_path stamped, a relative path stays relative (CWD-based)."""
+    ds = DatasetModel(ddl="data/seed.sql", data=None)
+    assert ds.resolve_asset_path(ds.ddl) == Path("data/seed.sql")
+
+
+@pytest.mark.unit
+def test_from_file_stamps_base_path_on_models(tmp_path):
+    """AppConfig.from_file stamps each dataset/function with the config's dir."""
+    body = (
+        "resources:\n"
+        "  models:\n"
+        "    default_llm: &default_llm\n"
+        "      name: databricks-gpt-5-4-mini\n"
+        "agents:\n"
+        "  greeter: &greeter\n"
+        "    name: greeter\n"
+        "    description: A friendly assistant.\n"
+        "    model: *default_llm\n"
+        "    prompt: You are concise.\n"
+        "app:\n"
+        "  name: hw_app\n"
+        "  deployment_target: apps\n"
+        "  agents:\n"
+        "    - *greeter\n"
+        "datasets:\n"
+        "  - ddl: data/seed.sql\n"
+        "    data: null\n"
+        "unity_catalog_functions:\n"
+        "  - function:\n"
+        "      name: c.s.f\n"
+        "    ddl: functions/fn.sql\n"
+    )
+    cfg_path = tmp_path / "hw.yaml"
+    cfg_path.write_text(body)
+    config = AppConfig.from_file(cfg_path, initialize=False)
+
+    assert config.datasets[0]._base_path == str(tmp_path)
+    assert config.unity_catalog_functions[0]._base_path == str(tmp_path)
+    assert config.datasets[0].resolve_asset_path("data/seed.sql") == (
+        tmp_path / "data" / "seed.sql"
+    )
 
 
 @pytest.mark.unit

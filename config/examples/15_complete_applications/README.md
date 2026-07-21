@@ -62,11 +62,11 @@ flowchart TB
 
 | File | Pattern | Description |
 |------|---------|-------------|
-| [`hardware_store.yaml`](./hardware_store.yaml) | 👔 Supervisor | Multi-agent supervisor with full features |
-| [`hardware_store_swarm.yaml`](./hardware_store_swarm.yaml) | 🐝 Swarm | Swarm orchestration with handoffs |
-| [`hardware_store_lakebase.yaml`](./hardware_store_lakebase.yaml) | 👔 Supervisor + 🧠 Lakebase | Supervisor with PostgreSQL memory persistence |
-| [`hardware_store_instructed.yaml`](./hardware_store_instructed.yaml) | 🎯 Instructed | Hardware store with instructed retrieval |
-| [`sporting_goods_store.yaml`](./sporting_goods_store.yaml) | 👔 Supervisor + 🧠 Lakebase | Merchandiser 360 multi-agent system for sporting goods lifecycle management |
+| [`hardware_store.yaml`](./hardware_store/hardware_store.yaml) | 👔 Supervisor | Multi-agent supervisor with full features |
+| [`hardware_store_swarm.yaml`](./hardware_store/hardware_store_swarm.yaml) | 🐝 Swarm | Swarm orchestration with handoffs |
+| [`hardware_store_lakebase.yaml`](./hardware_store/hardware_store_lakebase.yaml) | 👔 Supervisor + 🧠 Lakebase | Supervisor with PostgreSQL memory persistence |
+| [`hardware_store_instructed.yaml`](./hardware_store/hardware_store_instructed.yaml) | 🎯 Instructed | Hardware store with instructed retrieval |
+| [`sporting_goods_store.yaml`](./sporting_goods_store/sporting_goods_store.yaml) | 👔 Supervisor + 🧠 Lakebase | Merchandiser 360 multi-agent system for sporting goods lifecycle management |
 | [`procurement_supplier_a2a/`](./procurement_supplier_a2a/) | 🔁 A2A pair | Procurement officer agent calls a wholesale-supplier agent over the Google A2A protocol — two coordinated Databricks Apps deployments |
 
 ## Hardware Store Supervisor Architecture
@@ -297,16 +297,16 @@ All tables live in `retail_consumer_goods.sporting_goods_store` within Unity Cat
 
 ```bash
 # Validate the sporting goods store configuration
-dao-ai validate -c config/examples/15_complete_applications/sporting_goods_store.yaml
+dao-ai validate -c config/examples/15_complete_applications/sporting_goods_store/sporting_goods_store.yaml
 
 # Run in chat mode
-dao-ai chat -c config/examples/15_complete_applications/sporting_goods_store.yaml
+dao-ai chat -c config/examples/15_complete_applications/sporting_goods_store/sporting_goods_store.yaml
 
 # Visualize the multi-agent architecture
-dao-ai graph -c config/examples/15_complete_applications/sporting_goods_store.yaml -o sporting_goods_architecture.png
+dao-ai graph -c config/examples/15_complete_applications/sporting_goods_store/sporting_goods_store.yaml -o sporting_goods_architecture.png
 
 # Deploy to Databricks
-dao-ai generate-workflow --deploy -c config/examples/15_complete_applications/sporting_goods_store.yaml
+dao-ai generate-workflow --deploy -c config/examples/15_complete_applications/sporting_goods_store/sporting_goods_store.yaml
 ```
 
 ### Sample Prompts
@@ -462,16 +462,16 @@ app:
 
 ```bash
 # Validate complete application
-dao-ai validate -c config/examples/15_complete_applications/hardware_store.yaml
+dao-ai validate -c config/examples/15_complete_applications/hardware_store/hardware_store.yaml
 
 # Run in chat mode
-dao-ai chat -c config/examples/15_complete_applications/hardware_store.yaml
+dao-ai chat -c config/examples/15_complete_applications/hardware_store/hardware_store.yaml
 
 # Visualize architecture
-dao-ai graph -c config/examples/15_complete_applications/hardware_store.yaml -o architecture.png
+dao-ai graph -c config/examples/15_complete_applications/hardware_store/hardware_store.yaml -o architecture.png
 
 # Deploy to Databricks
-dao-ai generate-workflow --deploy -c config/examples/15_complete_applications/hardware_store.yaml
+dao-ai generate-workflow --deploy -c config/examples/15_complete_applications/hardware_store/hardware_store.yaml
 ```
 
 ## Deployment Options

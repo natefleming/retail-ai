@@ -1088,33 +1088,33 @@ app:
 # =============================================================================
 unity_catalog_functions:
 - function: *find_product_by_sku
-  ddl: ../functions/sporting_goods_store/find_product_by_sku.sql
+  ddl: functions/find_product_by_sku.sql
   test:
     parameters:
       sku: ["NKE-RUN-001"]
 - function: *find_product_by_upc
-  ddl: ../functions/sporting_goods_store/find_product_by_upc.sql
+  ddl: functions/find_product_by_upc.sql
   test:
     parameters:
       upc: ["194501234567"]
 - function: *find_inventory_by_sku
-  ddl: ../functions/sporting_goods_store/find_inventory_by_sku.sql
+  ddl: functions/find_inventory_by_sku.sql
   test:
     parameters:
       sku: ["NKE-RUN-001"]
 - function: *find_inventory_by_upc
-  ddl: ../functions/sporting_goods_store/find_inventory_by_upc.sql
+  ddl: functions/find_inventory_by_upc.sql
   test:
     parameters:
       upc: ["194501234567"]
 - function: *find_store_inventory_by_sku
-  ddl: ../functions/sporting_goods_store/find_store_inventory_by_sku.sql
+  ddl: functions/find_store_inventory_by_sku.sql
   test:
     parameters:
       store: "DEN-FLAG"
       sku: ["NKE-RUN-001"]
 - function: *find_store_inventory_by_upc
-  ddl: ../functions/sporting_goods_store/find_store_inventory_by_upc.sql
+  ddl: functions/find_store_inventory_by_upc.sql
   test:
     parameters:
       store: "DEN-FLAG"
@@ -1189,41 +1189,41 @@ datasets:
 - table:
     schema: *sporting_goods_schema
     name: products
-  ddl: ../data/sporting_goods_store/products.sql
-  data: ../data/sporting_goods_store/product_data.sql
+  ddl: data/products.sql
+  data: data/product_data.sql
   format: sql
 
 - table:
     schema: *sporting_goods_schema
     name: inventory
-  ddl: ../data/sporting_goods_store/inventory.sql
-  data: ../data/sporting_goods_store/inventory_data.sql
+  ddl: data/inventory.sql
+  data: data/inventory_data.sql
   format: sql
 
 - table:
     schema: *sporting_goods_schema
     name: dim_stores
-  ddl: ../data/sporting_goods_store/dim_stores.sql
-  data: ../data/sporting_goods_store/dim_stores_data.sql
+  ddl: data/dim_stores.sql
+  data: data/dim_stores_data.sql
   format: sql
 
 - table:
     schema: *sporting_goods_schema
     name: sales_orders
-  ddl: ../data/sporting_goods_store/sales_orders.sql
-  data: ../data/sporting_goods_store/sales_orders_data.sql
+  ddl: data/sales_orders.sql
+  data: data/sales_orders_data.sql
   format: sql
 
 - table:
     schema: *sporting_goods_schema
     name: purchase_orders
-  ddl: ../data/sporting_goods_store/purchase_orders.sql
-  data: ../data/sporting_goods_store/purchase_orders_data.sql
+  ddl: data/purchase_orders.sql
+  data: data/purchase_orders_data.sql
   format: sql
 
 - table:
     schema: *sporting_goods_schema
     name: pricing_history
-  ddl: ../data/sporting_goods_store/pricing_history.sql
-  data: ../data/sporting_goods_store/pricing_history_data.sql
+  ddl: data/pricing_history.sql
+  data: data/pricing_history_data.sql
   format: sql

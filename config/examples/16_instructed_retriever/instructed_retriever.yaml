@@ -256,12 +256,12 @@ datasets:
 - table:
     schema: *retail_schema
     name: products
-  ddl: ../data/hardware_store/products.sql
-  data: ../data/hardware_store/products.snappy.parquet
+  ddl: data/products.sql
+  data: data/products.snappy.parquet
   format: parquet
 - table:
     schema: *retail_schema
     name: inventory
-  ddl: ../data/hardware_store/inventory.sql
-  data: ../data/hardware_store/inventory.snappy.parquet
+  ddl: data/inventory.sql
+  data: data/inventory.snappy.parquet
   format: parquet

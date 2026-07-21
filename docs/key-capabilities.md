@@ -1558,7 +1558,7 @@ agents:
 
 **Example configurations:**
 - See [`config/examples/12_middleware/`](../config/examples/12_middleware/) for complete examples
-- See [`config/examples/15_complete_applications/hardware_store.yaml`](../config/examples/15_complete_applications/hardware_store.yaml) for production usage
+- See [`config/examples/15_complete_applications/hardware_store/hardware_store.yaml`](../config/examples/15_complete_applications/hardware_store/hardware_store.yaml) for production usage
 
 ---
 

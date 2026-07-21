@@ -11,9 +11,6 @@ parameters:
   schema:
     description: Schema within the catalog
     default: hardware_store
-  warehouse_id:
-    description: SQL warehouse ID for the UC OTEL trace tables' initial DDL
-    default: d1be2f7fe7faacb1
 
 # =============================================================================
 # Multi-Agent AI Orchestration Framework Configuration
@@ -95,6 +92,7 @@ resources:
       - merchandise_class
       - class_cd
       - description
+      on_behalf_of_user: false
 
   # ---------------------------------------------------------------------------
   # FUNCTIONS
@@ -143,15 +141,9 @@ retrievers:
     - class_cd
     - description
     search_parameters:                              # Search configuration
-      num_results: 50                               # Maximum number of results to return
+      num_results: 10                               # Maximum number of results to return
       filters: {}                                   # Additional filters (empty in this case)
       query_type: ANN                               # Approximate Nearest Neighbor search
-    rerank:
-      top_n: 10
-      columns:
-      - merchandise_class
-      - product_name
-      - brand_name
 
 # =============================================================================
 # TOOLS CONFIGURATION
@@ -166,13 +158,13 @@ tools:
   # Tools created by factory functions - configured at runtime
   # Vector search tool for product similarity
   find_product_details_by_description_tool: &find_product_details_by_description_tool
-    name: vector_search
+    name: find_product_details_by_description
     function:
       type: vector_search
       retriever: *products_retriever
                                                   # Reference to retriever config
       name: product_vector_search_tool            # Tool instance name
-      description: "Search for products by description"  # Tool description
+      description: "Search for products using vector search"  # Tool description
 
   # ---------------------------------------------------------------------------
   # UNITY CATALOG TOOLS
@@ -205,58 +197,30 @@ tools:
       type: unity_catalog
       resource: *find_inventory_by_upc
 
+
       
 # =============================================================================
-# GUARDRAILS CONFIGURATION
+# MEMORY CONFIGURATION
 # =============================================================================
-# Define response quality and safety checks for agent outputs
+# Configure persistent storage for agent conversations and context
 
-guardrails:
-  # LLM-based response evaluation guardrail
-  llm_judge_guardrail:
-    name: llm_judge                                 # Guardrail identifier
-    model: *judge_llm
-                                                    # Reference to judge LLM defined above
-    prompt: |                                       # Evaluation prompt for the judge LLM
-      You are an expert judge evaluating AI responses. Your task is to critique the AI assistant's latest response in the conversation below.
+memory: &memory
+  # Conversation checkpointing for state persistence
+  checkpointer:
+    name: default_checkpointer                      # Checkpointer identifier (type inferred as memory - no database)
 
-      Evaluate the response based on these criteria:
-      1. Accuracy - Is the information correct and factual?
-      2. Completeness - Does it fully address the user's query?
-      3. Clarity - Is the explanation clear and well-structured?
-      4. Helpfulness - Does it provide actionable and useful information?
-      5. Safety - Does it avoid harmful or inappropriate content?
-
-      If the response meets ALL criteria satisfactorily, set pass to True.
-
-      If you find ANY issues with the response, do NOT set pass to True. Instead, provide specific and constructive feedback in the comment key and set pass to False.
-
-      Be detailed in your critique so the assistant can understand exactly how to improve.
-
-      ### Inputs:
-      {{ inputs }}
-
-      ### Response:
-      {{ outputs }}
+  # Long-term memory store for agent context
+  store:
+    name: default_store                             # Store identifier (type inferred as memory - no database)
+    embedding_model: *embedding_model
+                                                    # Model for semantic memory
+    # dims: 1536                                    # Auto-detected from embedding model if omitted
+    namespace: "{user_id}"
 
 # =============================================================================
 # MIDDLEWARE CONFIGURATION
 # =============================================================================
-# Define reusable middleware that can be applied to agents or the supervisor.
-# Middleware is defined here at the AppConfig level and can be referenced
-# using YAML anchors (&name) in agent or supervisor configurations.
-#
-# Usage:
-#   middleware:
-#     my_middleware: &my_middleware       # Define with anchor
-#       name: path.to.middleware_factory  # Factory function path
-#       args:                             # Arguments passed to factory
-#         key: value
-#
-#   agents:
-#     my_agent:
-#       middleware:
-#         - *my_middleware                # Reference the middleware
+# Define middleware components for input validation and processing
 
 middleware:
   # Input validation middleware - validates required fields in custom context
@@ -292,8 +256,7 @@ agents:
     description: "General retail store assistant for home improvement and hardware store inquiries"
     model: *tool_calling_llm
                                                    # Reference to LLM configuration
-    tools:                                          # Tools available to this agent
-    - *find_product_details_by_description_tool
+    tools: []                                      # Tools available to this agent
     guardrails: []
     prompt: |                                       # System prompt defining agent behavior
       ### User Information
@@ -699,7 +662,6 @@ agents:
       Questions asking for product suggestions, recommendations, or "best" products for specific needs
       Example: "What's the best drill for home use?" or "Recommend me a good beginner woodworking kit"
 
-
 # =============================================================================
 # APPLICATION CONFIGURATION
 # =============================================================================
@@ -707,46 +669,14 @@ agents:
 # and agent orchestration patterns for the multi-agent system
 
 app:
-  name: hardware_store_dao                      # Application name
+  name: hardware_store_swarm_dao                      # Application name  
   description: "Multi-agent system for retail customer service and product assistance"
-  log_level: DEBUG                                   # Logging level for the application
+  log_level: TRACE                                   # Logging level for the application
   registered_model:                                 # MLflow registered model configuration
     schema: *retail_schema
                                                     # Schema where model will be registered
-    name: hardware_store_dao
-  endpoint_name: hardware_store_dao                    # Model serving endpoint name
-
-  # Pin the runtime identity for MLflow tracing writes (auto-populates
-  # DATABRICKS_CLIENT_ID / DATABRICKS_CLIENT_SECRET on the deployed
-  # endpoint from the referenced secrets). Required for writing MS
-  # traces to UC — see docs.databricks.com/aws/en/mlflow3/genai/
-  # tracing/trace-unity-catalog#write-traces-from-a-model-serving-endpoint
-  service_principal:
-    client_id:
-      scope: retail_consumer_goods
-      secret: RETAIL_AI_DATABRICKS_CLIENT_ID
-    client_secret:
-      scope: retail_consumer_goods
-      secret: RETAIL_AI_DATABRICKS_CLIENT_SECRET
-
-  # Point at the existing MLflow experiment by id (admin-provisioned +
-  # UC-linked). dao-ai skips create in get_or_create_experiment and
-  # injects MLFLOW_EXPERIMENT_ID at config-load time via the validator.
-  experiment:
-    id: "1952423719449237"
-
-  # Optional: set to false when an admin has already granted the SP the
-  # required UC + experiment permissions, and the deployer lacks GRANT
-  # rights. Default true — dao-ai attempts both grants at deploy time.
-  # manage_permissions: false
-
-  # UC destination for MLflow trace persistence — materializes four OTEL
-  # Delta tables at <catalog>.<schema>.<experiment_id>_otel_{spans,logs,
-  # metrics,annotations} on first deploy.
-  trace_location:
-    schema: *retail_schema
-    warehouse: ${var.warehouse_id}
-
+    name: hardware_store_swarm_dao
+  endpoint_name: hardware_store_swarm_dao                    # Model serving endpoint name
   tags:                                             # Tags for resource organization
     business: rcg                                   # Business unit identifier
     streaming: true                                 # Indicates streaming capabilities
@@ -763,15 +693,8 @@ app:
   - *recommendation
   - *general
                                                     # General purpose agent
-  orchestration:                                    # Agent orchestration configuration
-    supervisor:                                     # Supervisor orchestration pattern
-      model: *tool_calling_llm
-                                                    # LLM for routing decisions
-      middleware:                                   # Reference middleware defined above
-      - *store_validation
-                                                    # Validates store_num is provided
   input_example:
-    input:
+    messages:
     - role: user
       content: Can you recommend a lamp to match my oak side tables?
     custom_inputs:
@@ -780,6 +703,65 @@ app:
         user_id: my_user_id
         store_num: 87887
       session: {}
+  orchestration:                                    # Agent orchestration configuration
+    memory: *memory
+                                        # Reference to memory configuration for state persistence
+    # SWARM ORCHESTRATION PATTERN
+    # ========================================================================
+    # Swarm orchestration enables agents to collaborate directly through 
+    # handoff tools, creating a more flexible agent-to-agent communication
+    # pattern compared to the supervisor model.
+    #
+    # Key Differences from Supervisor Pattern:
+    # - No central supervisor making routing decisions
+    # - Agents can directly hand off conversations to other agents
+    # - Each agent gets handoff tools based on the handoffs configuration
+    # - More autonomous agent behavior and peer-to-peer collaboration
+    #
+    # Implementation Details (see retail_ai/graph.py):
+    # - Uses LangGraph's create_swarm() function for orchestration
+    # - Each agent receives handoff tools via _handoffs_for_agent()
+    # - Handoff tools use each target agent's handoff_prompt as description
+    # - If no specific handoffs defined, agent can hand off to any agent
+    # ========================================================================
+    swarm:
+      # Starting agent for new conversations - acts as the entry point
+      # Users initially interact with this agent before potential handoffs
+      default_agent: *general
+      # Swarm-level middleware applied to ALL agents
+      # This ensures consistent validation across the entire swarm
+      middleware:
+      - *store_validation
+                                                      # Validate required custom fields for all agents
+      # Handoff configuration: defines which agents can transfer to which other agents
+      # Structure: {agent_name: [list_of_target_agents_or_null]}
+      # 
+      # Special Values:
+      # - ~ (null): Agent can hand off to ANY agent in the system
+      # - []: Empty list means agent has no specific handoff capabilities  
+      # - ["agent1", "agent2"]: Agent can only hand off to specified agents
+      #
+      # How Handoffs Work:
+      # 1. Each agent gets handoff tools created based on this configuration
+      # 2. Handoff tools use the target agent's handoff_prompt to describe when to transfer
+      # 3. Agents can invoke handoff tools to transfer conversations seamlessly
+      # 4. The receiving agent continues the conversation with full context
+      handoffs:
+        # General agent can hand off to any agent (~ means null/any)
+        # This makes general agent the universal router for initial triage
+        general:
+
+        # DIY agent can hand off to specific product and recommendation agents
+        # This creates a focused workflow: DIY -> Product Info -> Inventory -> Recommendations
+        diy:
+        - "product"        # String reference to product agent
+        - *inventory
+        - *recommendation
+                            # YAML anchor reference to recommendation agent
+        # Inventory agent has no outbound handoffs (empty list)
+        # This makes inventory a "terminal" agent that completes conversations
+        # Users would need to start new conversations or other agents hand off elsewhere
+        inventory: []
 
 # =============================================================================
 # UNITY CATALOG FUNCTIONS DEPLOYMENT
@@ -789,33 +771,33 @@ app:
 
 unity_catalog_functions:
 - function: *find_inventory_by_sku
-  ddl: ../functions/hardware_store/find_inventory_by_sku.sql
+  ddl: functions/find_inventory_by_sku.sql
   test:
     parameters:
       sku: ["00176279"]
 - function: *find_inventory_by_upc
-  ddl: ../functions/hardware_store/find_inventory_by_upc.sql
+  ddl: functions/find_inventory_by_upc.sql
   test:
     parameters:
       upc: ["0017627748017"]
 - function: *find_product_by_sku
-  ddl: ../functions/hardware_store/find_product_by_sku.sql
+  ddl: functions/find_product_by_sku.sql
   test:
     parameters:
       sku: ["00176279"]
 - function: *find_product_by_upc
-  ddl: ../functions/hardware_store/find_product_by_upc.sql
+  ddl: functions/find_product_by_upc.sql
   test:
     parameters:
       upc: ["0017627748017"]
 - function: *find_store_inventory_by_sku
-  ddl: ../functions/hardware_store/find_store_inventory_by_sku.sql
+  ddl: functions/find_store_inventory_by_sku.sql
   test:
     parameters:
       store: "35048"
       sku: ["00176279"]
 - function: *find_store_inventory_by_upc
-  ddl: ../functions/hardware_store/find_store_inventory_by_upc.sql
+  ddl: functions/find_store_inventory_by_upc.sql
   test:
     parameters:
       store: "35048"
@@ -848,12 +830,12 @@ datasets:
 - table:
     schema: *retail_schema
     name: products
-  ddl: ../data/hardware_store/products.sql
-  data: ../data/hardware_store/products.snappy.parquet
+  ddl: data/products.sql
+  data: data/products.snappy.parquet
   format: parquet
 - table:
     schema: *retail_schema
     name: inventory
-  ddl: ../data/hardware_store/inventory.sql
-  data: ../data/hardware_store/inventory.snappy.parquet
+  ddl: data/inventory.sql
+  data: data/inventory.snappy.parquet
   format: parquet

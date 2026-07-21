@@ -382,9 +382,9 @@ resources:
 - `ai_gateway: true` is incompatible with `use_responses_api: true` on the same resource (the AI Gateway path exposes chat-completions only). dao-ai raises a validation error if both are set.
 - OBO (`on_behalf_of_user: true`) + `ai_gateway: true` is permitted but relatively new — verify end-to-end trace propagation in your workspace before shipping.
 
-Canonical example: [`config/examples/01_getting_started/ai_gateway.yaml`](../config/examples/01_getting_started/ai_gateway.yaml). Also used across `config/examples/15_complete_applications/commerce_supervisor/`.
+Canonical example: [`config/examples/01_getting_started/ai_gateway.yaml`](../config/examples/01_getting_started/ai_gateway.yaml). Also used across `config/examples/15_complete_applications/commerce/`.
 
-**Learn more:** [`docs/key-capabilities.md`](key-capabilities.md) · [`config/examples/15_complete_applications/commerce_supervisor/commerce_supervisor.yaml`](../config/examples/15_complete_applications/commerce_supervisor/commerce_supervisor.yaml)
+**Learn more:** [`docs/key-capabilities.md`](key-capabilities.md) · [`config/examples/15_complete_applications/commerce/commerce_supervisor.yaml`](../config/examples/15_complete_applications/commerce/commerce_supervisor.yaml)
 
 ### How do I define reusable prompts?
 
@@ -478,7 +478,7 @@ orchestration:
 
 See [Lab 9 — Multi-agent Orchestration](https://github.com/natefleming/dao-ai-workshop/tree/main/L200-real-agents/lab-09-orchestration) for supervisor + swarm side by side, [Lab 17 — Deep Agent Orchestration](https://github.com/natefleming/dao-ai-workshop/tree/main/L300-advanced/lab-17-deep-agents) for the planning + Skills pattern, and [Lab 18 — Skills-only Deep Agent](https://github.com/natefleming/dao-ai-workshop/tree/main/L300-advanced/lab-18-skills-only-deep-agent) for the minimum-viable deep agent (zero sub-agents, one Skill).
 
-**Learn more:** [`docs/key-capabilities.md`](key-capabilities.md) · [`docs/architecture.md`](architecture.md) · [`config/examples/13_orchestration/`](../config/examples/13_orchestration/) (deep-agent patterns) · [`config/examples/15_complete_applications/commerce_supervisor/`](../config/examples/15_complete_applications/commerce_supervisor/) and [`commerce_swarm/`](../config/examples/15_complete_applications/commerce_swarm/)
+**Learn more:** [`docs/key-capabilities.md`](key-capabilities.md) · [`docs/architecture.md`](architecture.md) · [`config/examples/13_orchestration/`](../config/examples/13_orchestration/) (deep-agent patterns) · [`config/examples/15_complete_applications/commerce/`](../config/examples/15_complete_applications/commerce/) and [`commerce_swarm/`](../config/examples/15_complete_applications/commerce/)
 
 ### How do I orchestrate a parallel fan-out pattern?
 
@@ -774,7 +774,7 @@ The `link-trace-destination` step is idempotent — safe on every deploy — but
 
 See [Lab 24 — UC OTEL Trace Tables](https://github.com/natefleming/dao-ai-workshop/tree/main/L300-advanced/lab-24-uc-trace-location) for the walkthrough. **Note:** in-process notebook usage of the same config additionally needs `mlflow.langchain.autolog(run_tracer_inline=True)` + `dao_ai.logging.suppress_autolog_context_warnings()` — the deploy runtime does both automatically at boot, but the notebook flow must do them explicitly.
 
-**Learn more:** [`docs/configuration-reference.md`](configuration-reference.md) · [`config/examples/15_complete_applications/hardware_store.yaml`](../config/examples/15_complete_applications/hardware_store.yaml)
+**Learn more:** [`docs/configuration-reference.md`](configuration-reference.md) · [`config/examples/15_complete_applications/hardware_store/hardware_store.yaml`](../config/examples/15_complete_applications/hardware_store/hardware_store.yaml)
 
 ### What extra permissions does Model Serving need for `trace_location`?
 
@@ -814,7 +814,7 @@ app:
 
 Precedence: `id` wins if both are set. When the whole `experiment:` block is omitted, dao-ai auto-creates `/Users/<deployer_email>/<app.name>` — fine for solo development but not what you want if a team shares one experiment (or if the experiment is pre-provisioned by an admin with tighter ACLs).
 
-The canonical worked example is [`config/examples/15_complete_applications/hardware_store.yaml`](../config/examples/15_complete_applications/hardware_store.yaml).
+The canonical worked example is [`config/examples/15_complete_applications/hardware_store/hardware_store.yaml`](../config/examples/15_complete_applications/hardware_store/hardware_store.yaml).
 
 **Learn more:** [`docs/configuration-reference.md`](configuration-reference.md)
 

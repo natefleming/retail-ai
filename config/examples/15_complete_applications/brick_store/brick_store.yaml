@@ -1216,52 +1216,52 @@ app:
 unity_catalog_functions:
   # Product / inventory primitives (existing SQL files)
 - function: *find_product_by_sku
-  ddl: ../functions/brickstore/find_product_by_sku.sql
+  ddl: functions/find_product_by_sku.sql
   test:
     parameters:
       sku: ["STB-KCP-001"]
 
 - function: *find_product_by_upc
-  ddl: ../functions/brickstore/find_product_by_upc.sql
+  ddl: functions/find_product_by_upc.sql
   test:
     parameters:
       upc: ["012345678901"]
 
 - function: *find_inventory_by_sku
-  ddl: ../functions/brickstore/find_inventory_by_sku.sql
+  ddl: functions/find_inventory_by_sku.sql
   test:
     parameters:
       sku: ["PET-KCP-001"]
 
 - function: *find_inventory_by_upc
-  ddl: ../functions/brickstore/find_inventory_by_upc.sql
+  ddl: functions/find_inventory_by_upc.sql
   test:
     parameters:
       upc: ["123456789012"]
 
 - function: *find_store_inventory_by_sku
-  ddl: ../functions/brickstore/find_store_inventory_by_sku.sql
+  ddl: functions/find_store_inventory_by_sku.sql
   test:
     parameters:
       store_id: 101
       sku: ["DUN-KCP-001"]
 
 - function: *find_store_inventory_by_upc
-  ddl: ../functions/brickstore/find_store_inventory_by_upc.sql
+  ddl: functions/find_store_inventory_by_upc.sql
   test:
     parameters:
       store_id: 101
       upc: ["234567890123"]
 
 - function: *find_store_by_number
-  ddl: ../functions/brickstore/find_store_by_number.sql
+  ddl: functions/find_store_by_number.sql
   test:
     parameters:
       store_ids: [1, 2]
 
   # New brick_store SQL functions
 - function: *find_nearby_stores_inventory
-  ddl: ../functions/brickstore/find_nearby_stores_inventory.sql
+  ddl: functions/find_nearby_stores_inventory.sql
   test:
     parameters:
       reference_store_id: 101
@@ -1269,46 +1269,46 @@ unity_catalog_functions:
       max_results: 3
 
 - function: *find_top_employees_by_department
-  ddl: ../functions/brickstore/find_top_employees_by_department.sql
+  ddl: functions/find_top_employees_by_department.sql
   test:
     parameters:
       department_name: "Womens Fashion"
       limit_count: 5
 
 - function: *find_personal_shopping_associates
-  ddl: ../functions/brickstore/find_personal_shopping_associates.sql
+  ddl: functions/find_personal_shopping_associates.sql
   test:
     parameters:
       limit_count: 5
 
 - function: *find_employee_manager
-  ddl: ../functions/brickstore/find_employee_manager.sql
+  ddl: functions/find_employee_manager.sql
   test:
     parameters:
       employee_id: ["EMP-016"]
 
 - function: *find_task_assignments
-  ddl: ../functions/brickstore/find_task_assignments.sql
+  ddl: functions/find_task_assignments.sql
   test:
     parameters:
       store_id: []
       task_status_filter: ""
 
 - function: *find_upcoming_customer_appointments
-  ddl: ../functions/brickstore/find_upcoming_customer_appointments.sql
+  ddl: functions/find_upcoming_customer_appointments.sql
   test:
     parameters:
       store_id: []
       days_ahead: 30
 
 - function: *get_customer_details
-  ddl: ../functions/brickstore/get_customer_details.sql
+  ddl: functions/get_customer_details.sql
   test:
     parameters:
       customer_lookup: "CUST-005"
 
 - function: *get_customer_preparation_summary
-  ddl: ../functions/brickstore/get_customer_preparation_summary.sql
+  ddl: functions/get_customer_preparation_summary.sql
   test:
     parameters:
       customer_id: ["CUST-005"]
@@ -1386,72 +1386,72 @@ datasets:
 - table:
     schema: *brickstore_schema
     name: products
-  ddl: ../data/brickstore/products.sql
-  data: ../data/brickstore/product_data.sql
+  ddl: data/products.sql
+  data: data/product_data.sql
   format: sql
 
 - table:
     schema: *brickstore_schema
     name: inventory
-  ddl: ../data/brickstore/inventory.sql
-  data: ../data/brickstore/inventory_data.sql
+  ddl: data/inventory.sql
+  data: data/inventory_data.sql
   format: sql
 
 - table:
     schema: *brickstore_schema
     name: appointments
-  ddl: ../data/brickstore/appointments.sql
-  data: ../data/brickstore/appointments_data.sql
+  ddl: data/appointments.sql
+  data: data/appointments_data.sql
   format: sql
 
   # Store dimension
 - table:
     schema: *brickstore_schema
     name: dim_stores
-  ddl: ../data/brickstore/dim_stores.sql
-  data: ../data/brickstore/dim_stores_data.sql
+  ddl: data/dim_stores.sql
+  data: data/dim_stores_data.sql
   format: sql
 
   # Employee + tasks + managers (also creates the views the new UC fns wrap)
 - table:
     schema: *brickstore_schema
     name: employee_tasks
-  ddl: ../data/brickstore/employee_tasks.sql
-  data: ../data/brickstore/employee_tasks_data.sql
+  ddl: data/employee_tasks.sql
+  data: data/employee_tasks_data.sql
   format: sql
 
 - table:
     schema: *brickstore_schema
     name: employee_performance
-  ddl: ../data/brickstore/employee_performance.sql
-  data: ../data/brickstore/employee_performance_data.sql
+  ddl: data/employee_performance.sql
+  data: data/employee_performance_data.sql
   format: sql
 
 - table:
     schema: *brickstore_schema
     name: managers
-  ddl: ../data/brickstore/managers.sql
-  data: ../data/brickstore/managers_data.sql
+  ddl: data/managers.sql
+  data: data/managers_data.sql
   format: sql
 
 - table:
     schema: *brickstore_schema
     name: customers
-  ddl: ../data/brickstore/customers.sql
-  data: ../data/brickstore/customers_data.sql
+  ddl: data/customers.sql
+  data: data/customers_data.sql
   format: sql
 
   # Brand-rep demo tables (kept for Genie coverage)
 - table:
     schema: *brickstore_schema
     name: brand_rep_demo_tables
-  ddl: ../data/brickstore/brand_rep_demo_tables.sql
-  data: ../data/brickstore/brand_rep_demo_data.sql
+  ddl: data/brand_rep_demo_tables.sql
+  data: data/brand_rep_demo_data.sql
   format: sql
 
 - table:
     schema: *brickstore_schema
     name: brand_rep_demo_queries
-  ddl: ../data/brickstore/brand_rep_demo_queries.sql
-  data: ../data/brickstore/brand_rep_demo_queries.sql
+  ddl: data/brand_rep_demo_queries.sql
+  data: data/brand_rep_demo_queries.sql
   format: sql

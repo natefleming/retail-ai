@@ -866,67 +866,67 @@ datasets:
 - table:
     schema: *loyalty_schema
     name: loyalty_events
-  ddl: ../data/loyalty_offer_personalization/loyalty_events.sql
-  data: ../data/loyalty_offer_personalization/loyalty_events_data.sql
+  ddl: data/loyalty_events.sql
+  data: data/loyalty_events_data.sql
   format: sql
 
 - table:
     schema: *loyalty_schema
     name: offer_catalog
-  ddl: ../data/loyalty_offer_personalization/offer_catalog.sql
-  data: ../data/loyalty_offer_personalization/offer_catalog_data.sql
+  ddl: data/offer_catalog.sql
+  data: data/offer_catalog_data.sql
   format: sql
 
 - table:
     schema: *loyalty_schema
     name: receipts
-  ddl: ../data/loyalty_offer_personalization/receipts.sql
-  data: ../data/loyalty_offer_personalization/receipts_data.sql
+  ddl: data/receipts.sql
+  data: data/receipts_data.sql
   format: sql
 
 - table:
     schema: *loyalty_schema
     name: receipt_lines  # depends on receipts (join in INSERT)
-  ddl: ../data/loyalty_offer_personalization/receipt_lines.sql
-  data: ../data/loyalty_offer_personalization/receipt_lines_data.sql
+  ddl: data/receipt_lines.sql
+  data: data/receipt_lines_data.sql
   format: sql
 
 - table:
     schema: *loyalty_schema
     name: redemptions  # depends on offer_catalog (brand_offer_lookup CTE)
-  ddl: ../data/loyalty_offer_personalization/redemptions.sql
-  data: ../data/loyalty_offer_personalization/redemptions_data.sql
+  ddl: data/redemptions.sql
+  data: data/redemptions_data.sql
   format: sql
 
 # Gold / analytical tables (CTAS-style DDL)
 - table:
     schema: *loyalty_schema
     name: customer_features  # depends on loyalty_events, receipts, receipt_lines, redemptions
-  ddl: ../data/loyalty_offer_personalization/customer_features.sql
-  data: ../data/loyalty_offer_personalization/customer_features_data.sql
+  ddl: data/customer_features.sql
+  data: data/customer_features_data.sql
   format: sql
 
 - table:
     schema: *loyalty_schema
     name: customers_x_eligible_offers  # depends on customer_features, offer_catalog
-  ddl: ../data/loyalty_offer_personalization/customers_x_eligible_offers.sql
-  data: ../data/loyalty_offer_personalization/customers_x_eligible_offers_data.sql
+  ddl: data/customers_x_eligible_offers.sql
+  data: data/customers_x_eligible_offers_data.sql
   format: sql
 
 # Output table (empty DDL; populated by refresh_offer_rankings UC fn)
 - table:
     schema: *loyalty_schema
     name: offer_rankings
-  ddl: ../data/loyalty_offer_personalization/offer_rankings.sql
-  data: ../data/loyalty_offer_personalization/offer_rankings_data.sql
+  ddl: data/offer_rankings.sql
+  data: data/offer_rankings_data.sql
   format: sql
 
 # Eval payload table
 - table:
     schema: *loyalty_schema
     name: evaluation
-  ddl: ../data/loyalty_offer_personalization/evaluation.sql
-  data: ../data/loyalty_offer_personalization/evaluation_data.sql
+  ddl: data/evaluation.sql
+  data: data/evaluation_data.sql
   format: sql
 
 # =============================================================================
@@ -934,41 +934,41 @@ datasets:
 # =============================================================================
 unity_catalog_functions:
 - function: *get_customer_features
-  ddl: ../functions/loyalty_offer_personalization/get_customer_features.sql
+  ddl: functions/get_customer_features.sql
   test:
     parameters:
       customer_id: "C-00007"
 
 - function: *get_recent_receipts
-  ddl: ../functions/loyalty_offer_personalization/get_recent_receipts.sql
+  ddl: functions/get_recent_receipts.sql
   test:
     parameters:
       customer_id: "C-00007"
       days: 90
 
 - function: *check_offer_eligibility
-  ddl: ../functions/loyalty_offer_personalization/check_offer_eligibility.sql
+  ddl: functions/check_offer_eligibility.sql
   test:
     parameters:
       customer_id: "C-00007"
       offer_id: "O-0007"
 
 - function: *get_offer_ranking
-  ddl: ../functions/loyalty_offer_personalization/get_offer_ranking.sql
+  ddl: functions/get_offer_ranking.sql
   test:
     parameters:
       customer_id: "C-00007"
       prompt_version: "v1"
 
 - function: *top_offers_by_segment
-  ddl: ../functions/loyalty_offer_personalization/top_offers_by_segment.sql
+  ddl: functions/top_offers_by_segment.sql
   test:
     parameters:
       segment: "Silver"
       window_days: 90
 
 - function: *rank_offers_for_customer
-  ddl: ../functions/loyalty_offer_personalization/rank_offers_for_customer.sql
+  ddl: functions/rank_offers_for_customer.sql
   test:
     parameters:
       customer_id: "C-00007"
@@ -979,4 +979,4 @@ unity_catalog_functions:
     schema: *loyalty_schema
     name: refresh_offer_rankings
     on_behalf_of_user: false
-  ddl: ../functions/loyalty_offer_personalization/refresh_offer_rankings.sql
+  ddl: functions/refresh_offer_rankings.sql

@@ -847,33 +847,33 @@ app:
 
 unity_catalog_functions:
 - function: *find_inventory_by_sku
-  ddl: ../functions/hardware_store/find_inventory_by_sku.sql
+  ddl: functions/find_inventory_by_sku.sql
   test:
     parameters:
       sku: ["00176279"]
 - function: *find_inventory_by_upc
-  ddl: ../functions/hardware_store/find_inventory_by_upc.sql
+  ddl: functions/find_inventory_by_upc.sql
   test:
     parameters:
       upc: ["0017627748017"]
 - function: *find_product_by_sku
-  ddl: ../functions/hardware_store/find_product_by_sku.sql
+  ddl: functions/find_product_by_sku.sql
   test:
     parameters:
       sku: ["00176279"]
 - function: *find_product_by_upc
-  ddl: ../functions/hardware_store/find_product_by_upc.sql
+  ddl: functions/find_product_by_upc.sql
   test:
     parameters:
       upc: ["0017627748017"]
 - function: *find_store_inventory_by_sku
-  ddl: ../functions/hardware_store/find_store_inventory_by_sku.sql
+  ddl: functions/find_store_inventory_by_sku.sql
   test:
     parameters:
       store: "35048"
       sku: ["00176279"]
 - function: *find_store_inventory_by_upc
-  ddl: ../functions/hardware_store/find_store_inventory_by_upc.sql
+  ddl: functions/find_store_inventory_by_upc.sql
   test:
     parameters:
       store: "35048"
@@ -906,12 +906,12 @@ datasets:
 - table:
     schema: *retail_schema
     name: products
-  ddl: ../data/hardware_store/products.sql
-  data: ../data/hardware_store/products.snappy.parquet
+  ddl: data/products.sql
+  data: data/products.snappy.parquet
   format: parquet
 - table:
     schema: *retail_schema
     name: inventory
-  ddl: ../data/hardware_store/inventory.sql
-  data: ../data/hardware_store/inventory.snappy.parquet
+  ddl: data/inventory.sql
+  data: data/inventory.snappy.parquet
   format: parquet
