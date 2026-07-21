@@ -36,7 +36,7 @@ FIND := $(shell which find)
 RM := rm -rf
 CD := cd
 
-.PHONY: all clean distclean dist check check-lock lock format publish help test unit integration
+.PHONY: all clean distclean dist check check-lock lock lock-local format publish help test unit integration
 
 # The internal PyPI proxy host that must never appear in the committed uv.lock:
 # its absolute wheel URLs aren't reachable outside Databricks and break
@@ -45,6 +45,13 @@ CD := cd
 # guard trips. See the ADR on Apps dependency management.
 LOCK_FILE := $(TOP_DIR)/uv.lock
 FORBIDDEN_LOCK_HOST := pypi-proxy
+# The internal mirror is a transparent passthrough of the public CDN: identical
+# package paths, hashes, and upload-times — only the host differs. `make
+# lock-local` exploits this to re-lock ON the corp network (where only the
+# mirror, not the public index API, is reachable) and rewrite the recorded host
+# back to the public CDN, yielding a lock byte-identical to a clean-room re-lock.
+MIRROR_LOCK_HOST := pypi-proxy.dev.databricks.com
+PUBLIC_LOCK_HOST := files.pythonhosted.org
 
 all: dist
 
@@ -76,6 +83,18 @@ check-lock:
 # `make check-lock` to confirm the result is clean before committing.
 lock:
 	$(LOCK)
+	@$(MAKE) check-lock
+
+# On-corp-network alternative to `make lock` for when the public index API
+# (pypi.org) is blocked but the internal mirror is reachable. Re-resolves via
+# the ambient mirror, then rewrites the recorded mirror host back to the public
+# CDN (safe because the mirror is a transparent passthrough — see above), and
+# verifies the result. Only valid for public packages; a mirror-only dependency
+# would produce a URL that doesn't exist on the public CDN (caught by a later
+# `uv sync --frozen`). Prefer `make lock` where pypi.org is reachable.
+lock-local:
+	$(UV) lock
+	@sed -i.bak 's#https://$(MIRROR_LOCK_HOST)/#https://$(PUBLIC_LOCK_HOST)/#g' "$(LOCK_FILE)" && rm -f "$(LOCK_FILE).bak"
 	@$(MAKE) check-lock
 
 format: check depends
@@ -112,7 +131,7 @@ help:
 	$(info TEST_DIR: $(TEST_DIR))
 	$(info DIST_DIR: $(DIST_DIR))
 	$(info )
-	$(info $$> make [all|dist|install|clean|distclean|check|check-lock|lock|format|depends|publish|schema|test|unit|integration|help])
+	$(info $$> make [all|dist|install|clean|distclean|check|check-lock|lock|lock-local|format|depends|publish|schema|test|unit|integration|help])
 	$(info )
 	$(info       all          - build library: [$(LIB)]. This is the default)
 	$(info       dist         - build library: [$(LIB)])
@@ -123,6 +142,7 @@ help:
 	$(info       check        - lint source (runs check-lock first))
 	$(info       check-lock   - fail if uv.lock references the internal PyPI proxy)
 	$(info       lock         - re-resolve uv.lock against public PyPI (run where pypi.org is reachable))
+	$(info       lock-local   - re-lock on corp network via mirror, rewrite host to public CDN)
 	$(info       format       - format source code)
 	$(info       depends      - installs library dependencies)
 	$(info       publish      - publish library)
