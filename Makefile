@@ -25,7 +25,15 @@ FIND := $(shell which find)
 RM := rm -rf
 CD := cd
 
-.PHONY: all clean distclean dist check format publish help test unit integration 
+.PHONY: all clean distclean dist check check-lock format publish help test unit integration
+
+# The internal PyPI proxy host that must never appear in the committed uv.lock:
+# its absolute wheel URLs aren't reachable outside Databricks and break
+# `uv sync --frozen` / the Databricks Apps uv build path for customers. Re-lock
+# against public PyPI (`UV_INDEX_URL=https://pypi.org/simple uv lock`) if this
+# guard trips. See the ADR on Apps dependency management.
+LOCK_FILE := $(TOP_DIR)/uv.lock
+FORBIDDEN_LOCK_HOST := pypi-proxy
 
 all: dist
 
@@ -38,8 +46,17 @@ dist:
 depends:
 	@$(SYNC)
 
-check: 
-	$(RUFF_CHECK) $(SRC_DIR) $(TEST_DIR) 
+check: check-lock
+	$(RUFF_CHECK) $(SRC_DIR) $(TEST_DIR)
+
+check-lock:
+	@if grep -q "$(FORBIDDEN_LOCK_HOST)" "$(LOCK_FILE)"; then \
+		echo "ERROR: $(LOCK_FILE) references the internal PyPI proxy ($(FORBIDDEN_LOCK_HOST))."; \
+		echo "       These URLs are unreachable outside Databricks and break customer installs."; \
+		echo "       Re-lock against public PyPI: UV_INDEX_URL=https://pypi.org/simple uv lock"; \
+		exit 1; \
+	fi
+	@echo "uv.lock is clean (no $(FORBIDDEN_LOCK_HOST) references)."
 
 format: check depends
 	$(RUFF_FORMAT) $(SRC_DIR) $(TEST_DIR) 
@@ -75,7 +92,7 @@ help:
 	$(info TEST_DIR: $(TEST_DIR))
 	$(info DIST_DIR: $(DIST_DIR))
 	$(info )
-	$(info $$> make [all|dist|install|clean|distclean|format|depends|publish|schema|test|unit|integration|help])
+	$(info $$> make [all|dist|install|clean|distclean|check|check-lock|format|depends|publish|schema|test|unit|integration|help])
 	$(info )
 	$(info       all          - build library: [$(LIB)]. This is the default)
 	$(info       dist         - build library: [$(LIB)])
@@ -83,6 +100,8 @@ help:
 	$(info       uninstall    - uninstalls: [$(LIB)])
 	$(info       clean        - removes build artifacts)
 	$(info       distclean    - removes library)
+	$(info       check        - lint source (runs check-lock first))
+	$(info       check-lock   - fail if uv.lock references the internal PyPI proxy)
 	$(info       format       - format source code)
 	$(info       depends      - installs library dependencies)
 	$(info       publish      - publish library)
