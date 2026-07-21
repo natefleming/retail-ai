@@ -24,11 +24,18 @@ in the committed `uv.lock` without re-resolving. Keep it that way:
   URLs, which are unreachable outside Databricks — this breaks customer installs
   and the Databricks Apps `uv sync --frozen` build path, and (the repo is public)
   leaks the internal hostname.
-- **To change dependencies:** edit `pyproject.toml`, then run `make lock`. It
-  re-resolves against public PyPI (`UV_INDEX_URL=https://pypi.org/simple`) so the
-  lock stays portable, then runs `make check-lock` to verify. On a machine behind
-  the corp mirror, `pypi.org` is blocked, so run `make lock` on a Databricks
-  sandbox or in CI where the public index is reachable.
+- **To change dependencies:** edit `pyproject.toml`, then regenerate the lock:
+  - On the **corp network** (mirror reachable, `pypi.org` blocked): `make lock-local`
+    — re-resolves via the mirror, rewrites the recorded host to the public CDN
+    (safe: the mirror is a transparent passthrough), and runs `make check-lock`.
+    This is the everyday path; no off-network trip needed.
+  - Where **`pypi.org` is reachable** (Databricks sandbox / CI / release): `make lock`
+    — re-resolves directly against public PyPI. The authoritative path; use it when
+    you want zero mirror influence.
+  - Then `make install` to sync your env, and commit `pyproject.toml` + `uv.lock`
+    together. `lock-local` only works for public packages — a mirror-only dependency
+    would produce a public-CDN URL that doesn't exist, caught by a later
+    `uv sync --frozen`.
 - **`make check-lock`** fails if `uv.lock` references the mirror host; it runs as
   part of `make check` and in the publish CI workflow.
 - **`--development` builds are unaffected.** `dao-ai generate-agent/generate-mcp
