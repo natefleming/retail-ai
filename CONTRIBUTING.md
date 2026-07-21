@@ -13,6 +13,30 @@ Thank you for your interest in contributing to the Multi-Agent AI Orchestration 
    make install
    ```
 
+## Dependencies & the lock file
+
+`make install` runs `uv sync --frozen` — it installs the exact versions pinned
+in the committed `uv.lock` without re-resolving. Keep it that way:
+
+- **Do NOT run a bare `uv sync` or `uv lock`.** A bare command re-resolves against
+  whatever package index your environment is configured for. Behind Databricks'
+  internal PyPI mirror, that rewrites `uv.lock` with `pypi-proxy.dev.databricks.com`
+  URLs, which are unreachable outside Databricks — this breaks customer installs
+  and the Databricks Apps `uv sync --frozen` build path, and (the repo is public)
+  leaks the internal hostname.
+- **To change dependencies:** edit `pyproject.toml`, then run `make lock`. It
+  re-resolves against public PyPI (`UV_INDEX_URL=https://pypi.org/simple`) so the
+  lock stays portable, then runs `make check-lock` to verify. On a machine behind
+  the corp mirror, `pypi.org` is blocked, so run `make lock` on a Databricks
+  sandbox or in CI where the public index is reachable.
+- **`make check-lock`** fails if `uv.lock` references the mirror host; it runs as
+  part of `make check` and in the publish CI workflow.
+- **`--development` builds are unaffected.** `dao-ai generate-agent/generate-mcp
+  --development` build a local wheel via `uv build --wheel`, which doesn't read or
+  modify `uv.lock`. Frozen installs work even on a mirror-bound laptop because they
+  fetch pinned artifacts from the public CDN (`files.pythonhosted.org`) rather than
+  querying the index API.
+
 ## Branching Strategy
 
 - **`main`**: Production-ready code
