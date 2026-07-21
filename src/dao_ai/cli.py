@@ -265,6 +265,23 @@ def _add_bundle_action_arguments(parser: ArgumentParser) -> None:
     )
 
 
+def _validate_bundle_action_flags(options: Namespace) -> None:
+    """Reject contradictory ``--destroy`` + ``--deploy``/``--run`` combinations.
+
+    ``--destroy`` tears a bundle down; ``--deploy``/``--run`` stand it up.
+    Combining them is contradictory and the two code paths historically
+    diverged (the workflow handler deployed-then-destroyed; the App driver
+    destroyed-only). Fail uniformly with a clean message across all three
+    generate-* commands rather than silently picking one behavior.
+    """
+    destroy: bool = getattr(options, "destroy", False)
+    deploy: bool = getattr(options, "deploy", False)
+    run: bool = getattr(options, "run", False)
+    if destroy and (deploy or run):
+        logger.error("--destroy cannot be combined with --deploy or --run")
+        sys.exit(1)
+
+
 # Env var that overrides the base directory for generated bundles. The
 # per-app ``<kind>/<app>`` structure is always appended underneath, so
 # per-config isolation is preserved regardless of the base.
@@ -2792,6 +2809,8 @@ def handle_generate_workflow_command(options: Namespace) -> None:
     output_dir: str | None = getattr(options, "output_dir", None)
     overwrite: bool = getattr(options, "overwrite", False)
 
+    _validate_bundle_action_flags(options)
+
     if options.deploy:
         logger.info("Deploying DAO AI asset bundle...")
         run_databricks_command(
@@ -2915,6 +2934,8 @@ def _run_bundle_actions(
     ``--deploy``/``--run``/``--destroy`` is passed, drive the bundle via
     :func:`deploy_app_bundle`; otherwise the command stays generate-only.
     """
+    _validate_bundle_action_flags(options)
+
     deploy: bool = getattr(options, "deploy", False)
     run: bool = getattr(options, "run", False)
     destroy: bool = getattr(options, "destroy", False)

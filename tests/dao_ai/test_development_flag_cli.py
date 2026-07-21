@@ -188,6 +188,28 @@ class TestPipelineEmitsDevelopmentVar:
         exec_mock.assert_not_called()
 
 
+@pytest.mark.unit
+class TestValidateBundleActionFlags:
+    """``--destroy`` + ``--deploy``/``--run`` is contradictory and must be
+    rejected uniformly across all three generate-* commands (previously the
+    workflow handler deployed-then-destroyed while the App driver destroyed-only).
+    """
+
+    @pytest.mark.parametrize("cmd", ["generate-workflow", "generate-agent", "generate-mcp"])
+    @pytest.mark.parametrize("bad", [["--deploy", "--destroy"], ["--run", "--destroy"], ["--deploy", "--run", "--destroy"]])
+    def test_destroy_with_deploy_or_run_exits(self, cmd: str, bad: list[str]) -> None:
+        options = parse_args(_base(cmd) + bad)
+        with pytest.raises(SystemExit) as exc:
+            cli._validate_bundle_action_flags(options)
+        assert exc.value.code == 1
+
+    @pytest.mark.parametrize("cmd", ["generate-workflow", "generate-agent", "generate-mcp"])
+    @pytest.mark.parametrize("ok", [["--deploy"], ["--run"], ["--deploy", "--run"], ["--destroy"], []])
+    def test_valid_combinations_pass(self, cmd: str, ok: list[str]) -> None:
+        options = parse_args(_base(cmd) + ok)
+        cli._validate_bundle_action_flags(options)  # must not raise
+
+
 def _app_config(*, trace: bool) -> AppConfig:
     """Minimal AppConfig stub for deploy_app_bundle (needs app.name + trace_location)."""
 
