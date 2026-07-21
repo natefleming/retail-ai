@@ -27,7 +27,7 @@
 #   • Three Vector Search indexes (products, FAQs, policies)
 #   • Idempotency log for UCP transactional commands
 #
-# Deploy:  dao-ai pipeline --deploy --run \
+# Deploy:  dao-ai generate-workflow --deploy --run \
 #            -c config/examples/15_complete_applications/commerce_supervisor/commerce_supervisor.yaml \
 #            -p fevm
 # =============================================================================

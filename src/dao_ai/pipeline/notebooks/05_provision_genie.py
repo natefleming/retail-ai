@@ -10,10 +10,11 @@ import os
 
 
 def find_yaml_files_os_walk(base_path: str) -> Sequence[str]:
-    if not os.path.exists(base_path):
-        raise FileNotFoundError(f"Base path does not exist: {base_path}")
+    # Tolerate a missing/non-dir base path: when the pipeline runs from a
+    # wheel-only bundle an explicit `config-path` is always supplied, so the
+    # `../config` discovery dropdown is optional. Return [] instead of raising.
     if not os.path.isdir(base_path):
-        raise NotADirectoryError(f"Base path is not a directory: {base_path}")
+        return []
     yaml_files: list[str] = []
     for root, _, files in os.walk(base_path):
         for file in files:
@@ -51,12 +52,15 @@ _wheels: list[str] = sorted(
     key=os.path.getmtime,
     reverse=True,
 )
+# Install dao-ai from the bundled wheel (development bundle) if present,
+# otherwise from PyPI. No `../src` source-path fallback: the wheel is the
+# unit of code, whether bundled under ../dist or resolved from PyPI.
 if _wheels:
     subprocess.check_call(
         [sys.executable, "-m", "pip", "install", "--quiet", "--force-reinstall", _wheels[0]]
     )
-elif os.path.isdir("../src/dao_ai"):
-    sys.path.insert(0, "../src")
+else:
+    subprocess.check_call([sys.executable, "-m", "pip", "install", "--quiet", "dao-ai"])
 
 pip_requirements: Sequence[str] = (
     f"databricks-sdk=={version('databricks-sdk')}",

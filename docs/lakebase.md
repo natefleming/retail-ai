@@ -168,7 +168,7 @@ docs = tool.invoke({"query": "How do I reset my password?"})
 
 ## Deploy-path notes
 
-- **App bundle** (`dao-ai generate-bundle` + `databricks bundle deploy`) —
+- **App bundle** (`dao-ai generate-agent` + `databricks bundle deploy`) —
   Lakebase entries under `resources.vector_stores` emit no
   `vector-search-index` resource (the App SP authenticates via
   `database.client_id` / `client_secret` at runtime).

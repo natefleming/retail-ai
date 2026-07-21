@@ -4,12 +4,12 @@ After the refactor that drops ``uv.lock`` everywhere in favor of a
 ``requirements.txt`` that Apps' build phase recognizes directly, all
 four file-emit paths must produce a ``requirements.txt``:
 
-- ``dao-ai generate-bundle``   (published mode)
-- ``dao-ai generate-bundle --development``
+- ``dao-ai generate-agent``   (published mode)
+- ``dao-ai generate-agent --development``
 - ``dao-ai deploy --target apps`` (programmatic, published)
 - ``dao-ai deploy --target apps`` (programmatic, dev)
 
-Tests in this file cover the two ``generate-bundle`` paths via the
+Tests in this file cover the two ``generate-agent`` paths via the
 ``write_bundle`` API. The two ``deploy_apps_agent`` paths are covered in
 ``test_databricks.py``.
 """
@@ -128,7 +128,7 @@ class TestDevLocalVersion:
 
 # ---------------------------------------------------------------------------
 # write_bundle file emission — covered end-to-end by live `dao-ai
-# generate-bundle` validation on fevm. The unit tests above lock in the
+# generate-agent` validation on fevm. The unit tests above lock in the
 # building-block helpers (_make_requirements_txt, _PYPROJECT_DEV_TEMPLATE,
 # utils.dev_local_version) that those code paths use.
 # ---------------------------------------------------------------------------

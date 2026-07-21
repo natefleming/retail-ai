@@ -10,7 +10,7 @@
 #
 # Usage:
 #   # First run (scenario 3 — fresh provisioning):
-#   uv run dao-ai pipeline \
+#   uv run dao-ai generate-workflow \
 #     --config config/examples/16_test_scenarios/genie_provisioning_only.yaml \
 #     --profile fevm --deployment-target model_serving --deploy --run
 #
@@ -61,7 +61,7 @@ resources:
     test_room: &test_room
       name: "dao-ai genie provisioning test"
       space_id: "${var.genie_space_id}"
-      description: "Created by dao-ai pipeline tests; safe to delete."
+      description: "Created by dao-ai generate-workflow tests; safe to delete."
       parent_path: "${var.genie_parent_path}"
       warehouse: *genie_warehouse
       on_behalf_of_user: false

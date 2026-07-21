@@ -3,7 +3,7 @@
 # Minimal dao-ai agent that demonstrates the Google A2A (Agent2Agent) protocol
 # endpoints mounted automatically on every Databricks Apps deployment.
 #
-# When deployed (``dao-ai pipeline -c ... --deploy --deployment-target apps``),
+# When deployed (``dao-ai generate-workflow -c ... --deploy --deployment-target apps``),
 # the app exposes:
 #   - GET  /.well-known/agent-card.json   (A2A Agent Card)
 #   - POST /a2a                           (A2A JSON-RPC 2.0)

@@ -16,7 +16,7 @@
 # Memory:       Lakebase checkpointer + namespaced store + memory extraction
 #               on the existing retail-consumer-goods Lakebase project.
 # Deployment:   Same config deploys to Model Serving and Databricks Apps via
-#               `dao-ai pipeline ... --deployment-target both --deploy --run`.
+#               `dao-ai generate-workflow ... --deployment-target both --deploy --run`.
 # AI Gateway:   All chat-completion endpoints route through the gateway.
 
 # =============================================================================

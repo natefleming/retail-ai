@@ -191,7 +191,7 @@ app:
 # =============================================================================
 #
 # 1. Deploy to Databricks Apps (recommended for OBO capture):
-#      uv run dao-ai generate-bundle --overwrite --development \
+#      uv run dao-ai generate-agent --overwrite --development \
 #        -c config/examples/07_human_in_the_loop/human_in_the_loop_audited.yaml
 #      databricks bundle deploy -p <profile>
 #      uv run dao-ai link-trace-destination \

@@ -21,7 +21,7 @@ def test_write_mcp_bundle_emits_expected_files(tmp_path: Path) -> None:
     out = tmp_path / "out"
     write_mcp_bundle(config, out, overwrite=True)
 
-    # Layout mirrors generate-bundle: databricks.yaml + resources/app.yml
+    # Layout mirrors generate-agent: databricks.yaml + resources/app.yml
     # (no standalone app.yaml — the App's runtime command/env is embedded
     # in the DAB resource via generate_resources_app_yaml).
     expected = {
@@ -78,6 +78,14 @@ def test_write_mcp_bundle_emits_expected_files(tmp_path: Path) -> None:
         "MCP bundle must not declare an artifacts: block; there's no "
         "local wheel to build. Got:\n" + databricks
     )
+    # Explicit sync.include for the App's own source: DAB sync honors the
+    # surrounding .gitignore, so a bundle staged under a gitignored dir (the
+    # default .dao-ai/bundle/<kind>/<app>) would otherwise upload no source and
+    # the App would fail at run with "no files found".
+    assert "sync:" in databricks and "src/**" in databricks, (
+        "databricks.yaml must carry a sync.include with src/** so App source "
+        "syncs even from a gitignored staging dir. Got:\n" + databricks
+    )
 
     app_yml = (out / "resources" / "app.yml").read_text()
     # PATH-independent invocation: `python -m dao_ai.mcp.server` resolves
@@ -91,7 +99,7 @@ def test_write_mcp_bundle_emits_expected_files(tmp_path: Path) -> None:
     assert "value_from: experiment" in app_yml, (
         "MLFLOW_EXPERIMENT_ID must be sourced via DABs `value_from: "
         "experiment` so the platform substitutes the experiment id at "
-        "deploy time (mirrors generate-bundle). Got:\n" + app_yml
+        "deploy time (mirrors generate-agent). Got:\n" + app_yml
     )
     # Config env var is unified with bundle: DAO_AI_CONFIG_PATH (not
     # DAO_AI_MCP_CONFIG_PATH). mcp/server.py reads the same name.
@@ -133,7 +141,7 @@ def test_write_mcp_bundle_requires_app_name(tmp_path: Path) -> None:
 
 @pytest.mark.unit
 def test_write_mcp_bundle_wires_mlflow_experiment(tmp_path: Path) -> None:
-    """Experiment provisioning must mirror generate-bundle exactly.
+    """Experiment provisioning must mirror generate-agent exactly.
 
     After the shared-helper refactor, the App + experiment block lives in
     ``resources/app.yml`` (snake_case ``value_from``), not a standalone

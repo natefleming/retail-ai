@@ -161,8 +161,8 @@ additional tools are needed on your development machine.
 All three deploy flows converge on the same runtime behavior:
 
 - `config.deploy_agent(target=DeploymentTarget.APPS)` (programmatic)
-- `dao-ai pipeline --deploy --run --deployment-target apps` (CLI, runs a notebook that calls `deploy_agent`)
-- `dao-ai generate-bundle` + `databricks bundle deploy` (standalone bundle)
+- `dao-ai generate-workflow --deploy --run --deployment-target apps` (CLI, runs a notebook that calls `deploy_agent`)
+- `dao-ai generate-agent` + `databricks bundle deploy` (standalone bundle)
 
 Set `app.enable_chat_proxy: false` in your config to deploy without the chat
 UI (backend API only).
@@ -337,7 +337,7 @@ positive = traces[has_pos]
 ```
 
 For SQL-side analysis, see
-[`notebooks/15_feedback_demo.py`](../notebooks/15_feedback_demo.py) — it
+[`notebooks/16_feedback_demo.py`](../notebooks/16_feedback_demo.py) — it
 registers `mlflow.search_traces` results as a Spark temp view and
 demonstrates `LATERAL VIEW EXPLODE(assessments)` queries for daily
 up/down volume and feedback-by-trace.

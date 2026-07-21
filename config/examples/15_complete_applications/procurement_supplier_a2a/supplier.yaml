@@ -12,7 +12,7 @@
 # stock availability. The catalog is embedded directly in the system prompt so
 # the supplier app is self-contained — no Unity Catalog tables, no Genie rooms,
 # no Vector Search index required. This keeps the demo bootstrap to a single
-# ``dao-ai pipeline --deploy`` command per app.
+# ``dao-ai generate-workflow --deploy`` command per app.
 #
 # Pair with ``procurement.yaml`` (deployed separately). See ``README.md`` in
 # this directory for the end-to-end deployment workflow.

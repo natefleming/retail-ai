@@ -1,7 +1,7 @@
 """Chat UI constants and helpers for Databricks Apps deployments.
 
 Provides shared constants, the clone+build logic for the e2e-chatbot-app-next
-template, and the env-var definitions used by both the ``generate-bundle``
+template, and the env-var definitions used by both the ``generate-agent``
 and ``deploy-agent`` paths.
 
 The chat UI is cloned from GitHub and built at runtime on the Databricks Apps
@@ -185,7 +185,7 @@ def chat_ui_env_vars(
 ) -> list[dict[str, str]]:
     """Return env-var dicts needed by the AgentServer chat proxy.
 
-    Used by both ``generate_databricks_yaml`` (generate-bundle path) and
+    Used by both ``generate_databricks_yaml`` (generate-agent path) and
     ``generate_app_yaml`` (deploy-agent path) to keep them in sync.
     """
     return [

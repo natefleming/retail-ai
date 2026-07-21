@@ -782,7 +782,7 @@ Substitution does not recurse. If a substituted value happens to contain `${para
 
 ### Bundle behaviour
 
-When `dao-ai generate-bundle` writes the deployable Apps bundle, the emitted config YAML has every reference (both `${param.*}` and `${workspace.*}`) substituted to a literal value and the `parameters:` block dropped. The deployed app does not need the original `--param` flags or runtime workspace lookups.
+When `dao-ai generate-agent` writes the deployable Apps bundle, the emitted config YAML has every reference (both `${param.*}` and `${workspace.*}`) substituted to a literal value and the `parameters:` block dropped. The deployed app does not need the original `--param` flags or runtime workspace lookups.
 
 ---
 
@@ -899,7 +899,7 @@ At load time, `${var.secret_scope}` and `${var.client_id_secret_key}` are text-s
 Override at deploy time:
 
 ```bash
-dao-ai pipeline --deploy -c dao_ai.yaml --param secret_scope=prod_dao_ai --param client_id_secret_key=PROD_SP_CLIENT_ID
+dao-ai generate-workflow --deploy -c dao_ai.yaml --param secret_scope=prod_dao_ai --param client_id_secret_key=PROD_SP_CLIENT_ID
 ```
 
 **What this does NOT do:** You cannot substitute a parameter for an _entire_ typed mapping - only for string fields inside one. This works:

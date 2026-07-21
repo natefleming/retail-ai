@@ -16,7 +16,7 @@
 # can omit those entirely for an ANN-only deployment.
 #
 # Override any parameter at bundle-gen time:
-#   dao-ai generate-bundle -c ann_only.yaml --var lakebase_project=my-project
+#   dao-ai generate-agent -c ann_only.yaml --var lakebase_project=my-project
 
 parameters:
   lakebase_project:

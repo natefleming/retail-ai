@@ -287,7 +287,7 @@ config.deploy_agent()
 **Option B: Using the CLI** (one command)
 
 ```bash
-dao-ai pipeline --deploy --run -c config/my_agent.yaml
+dao-ai generate-workflow --deploy --run -c config/my_agent.yaml
 ```
 
 This single command:
@@ -300,10 +300,10 @@ This single command:
 
 ```bash
 # Deploy to AWS workspace
-dao-ai pipeline --deploy --run -c config/my_agent.yaml --profile aws-field-eng
+dao-ai generate-workflow --deploy --run -c config/my_agent.yaml --profile aws-field-eng
 
 # Deploy to Azure workspace
-dao-ai pipeline --deploy --run -c config/my_agent.yaml --profile azure-retail
+dao-ai generate-workflow --deploy --run -c config/my_agent.yaml --profile azure-retail
 ```
 
 **Step 5: Interact with your agent**
@@ -450,14 +450,14 @@ dao-ai schema > schemas/model_config_schema.json
 dao-ai graph -c config/my_config.yaml -o workflow.png
 
 # Deploy with Databricks Asset Bundles
-dao-ai pipeline --deploy --run -c config/my_config.yaml
+dao-ai generate-workflow --deploy --run -c config/my_config.yaml
 
 # Deploy to a specific workspace (multi-cloud support)
-dao-ai pipeline --deploy -c config/my_config.yaml --profile aws-field-eng
-dao-ai pipeline --deploy -c config/my_config.yaml --profile azure-retail
+dao-ai generate-workflow --deploy -c config/my_config.yaml --profile aws-field-eng
+dao-ai generate-workflow --deploy -c config/my_config.yaml --profile azure-retail
 
 # Generate a deployable Databricks Apps bundle
-dao-ai generate-bundle -c config/my_config.yaml -o ./my-bundle
+dao-ai generate-agent -c config/my_config.yaml -o ./my-bundle
 # Then `cd` in and run `uv sync` to produce uv.lock — see "Deploying to
 # Databricks Apps" below for the full two-step workflow.
 
@@ -470,12 +470,12 @@ dao-ai parameters list -c config/my_config.yaml --param catalog=nfleming
 
 ### Deploying to Databricks Apps
 
-`dao-ai generate-bundle` produces a bundle skeleton (`pyproject.toml` + app/resource YAML + your config), but it deliberately does **not** generate `uv.lock`. The lock encodes URLs and pins specific to your environment, so you own it.
+`dao-ai generate-agent` produces a bundle skeleton (`pyproject.toml` + app/resource YAML + your config), but it deliberately does **not** generate `uv.lock`. The lock encodes URLs and pins specific to your environment, so you own it.
 
 **External users** (default index = public PyPI):
 
 ```bash
-dao-ai generate-bundle -c config/my_config.yaml -o ./my-bundle
+dao-ai generate-agent -c config/my_config.yaml -o ./my-bundle
 cd ./my-bundle
 uv sync                                # produces uv.lock from public PyPI
 databricks bundle deploy -t dev -p <profile>
@@ -485,7 +485,7 @@ databricks bundle run <app-name> -t dev -p <profile>
 **Databricks-internal users** (local `uv` config defaults to the internal `pypi-proxy.dev.databricks.com` mirror): you need one extra step. The mirror is not reachable from Apps containers, so the lock URLs must be rewritten to public PyPI before deploy. The mirror is transparent, so hashes match — only the URLs need to change:
 
 ```bash
-dao-ai generate-bundle -c config/my_config.yaml -o ./my-bundle
+dao-ai generate-agent -c config/my_config.yaml -o ./my-bundle
 cd ./my-bundle
 uv sync                                # produces uv.lock with internal-proxy URLs
 sed -i '' \
@@ -511,7 +511,7 @@ app:
     warehouse: "your-warehouse-id"           # or a *warehouse anchor
 ```
 
-When `trace_location` is set, `generate-bundle` automatically attaches the SQL warehouse as an App resource (with `CAN_USE` for the App SP) and adds `MLFLOW_TRACING_SQL_WAREHOUSE_ID` to the App's env. The OTEL trace tables themselves are auto-created by MLflow at first trace write — dao-ai does not emit per-table grants because the tables don't exist at deploy time and the Apps platform would reject the bundle. After deploy, grant the App SP schema-level privileges so MLflow can create + write to the OTEL tables (one-time setup):
+When `trace_location` is set, `generate-agent` automatically attaches the SQL warehouse as an App resource (with `CAN_USE` for the App SP) and adds `MLFLOW_TRACING_SQL_WAREHOUSE_ID` to the App's env. The OTEL trace tables themselves are auto-created by MLflow at first trace write — dao-ai does not emit per-table grants because the tables don't exist at deploy time and the Apps platform would reject the bundle. After deploy, grant the App SP schema-level privileges so MLflow can create + write to the OTEL tables (one-time setup):
 
 ```bash
 SP=$(databricks apps get <app-name> -p <profile> --output json | jq -r .service_principal_client_id)
@@ -521,9 +521,9 @@ databricks grants update schema <catalog>.<schema> -p <profile> \
   --json "{\"changes\":[{\"principal\":\"$SP\",\"add\":[\"USE_SCHEMA\",\"CREATE_TABLE\",\"MODIFY\",\"SELECT\"]}]}"
 ```
 
-**Run `dao-ai link-trace-destination` between `bundle deploy` and `bundle run`** so the UC linkage is established from your machine on a fresh (0-traces) experiment — the app's own runtime link attempt is rejected on re-deploys with `already contains traces`, which causes silent trace loss. `generate-bundle` prints a one-line reminder in its "Next steps" when `trace_location` is set. See [`docs/cli-reference.md#link-trace-destination`](docs/cli-reference.md#link-trace-destination) for details, including the migration playbook (Databricks does not allow un-linking or changing a UC destination once set — moving traces to a different `catalog` / `schema` / `table_prefix` requires a fresh experiment).
+**Run `dao-ai link-trace-destination` between `bundle deploy` and `bundle run`** so the UC linkage is established from your machine on a fresh (0-traces) experiment — the app's own runtime link attempt is rejected on re-deploys with `already contains traces`, which causes silent trace loss. `generate-agent` prints a one-line reminder in its "Next steps" when `trace_location` is set. See [`docs/cli-reference.md#link-trace-destination`](docs/cli-reference.md#link-trace-destination) for details, including the migration playbook (Databricks does not allow un-linking or changing a UC destination once set — moving traces to a different `catalog` / `schema` / `table_prefix` requires a fresh experiment).
 
-When `trace_location` is unset, `generate-bundle` emits a loud warning. Local notebook/CLI runs and Model Serving deploys are unaffected and continue to use the default control-plane path. See `config/examples/01_getting_started/ai_gateway.yaml` for a commented example.
+When `trace_location` is unset, `generate-agent` emits a loud warning. Local notebook/CLI runs and Model Serving deploys are unaffected and continue to use the default control-plane path. See `config/examples/01_getting_started/ai_gateway.yaml` for a commented example.
 
 ### Multi-Cloud Deployment
 
@@ -531,13 +531,13 @@ DAO AI supports deploying to Azure, AWS, and GCP workspaces with automatic cloud
 
 ```bash
 # Deploy to AWS workspace
-dao-ai pipeline --deploy -c config/my_config.yaml --profile aws-prod
+dao-ai generate-workflow --deploy -c config/my_config.yaml --profile aws-prod
 
 # Deploy to Azure workspace
-dao-ai pipeline --deploy -c config/my_config.yaml --profile azure-prod
+dao-ai generate-workflow --deploy -c config/my_config.yaml --profile azure-prod
 
 # Deploy to GCP workspace
-dao-ai pipeline --deploy -c config/my_config.yaml --profile gcp-prod
+dao-ai generate-workflow --deploy -c config/my_config.yaml --profile gcp-prod
 ```
 
 The CLI automatically:

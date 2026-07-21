@@ -2,6 +2,7 @@ import argparse
 import getpass
 import json
 import os
+import shutil
 import signal
 import subprocess
 import sys
@@ -230,6 +231,90 @@ def _add_profile_argument(parser: ArgumentParser) -> None:
     )
 
 
+def _add_bundle_action_arguments(parser: ArgumentParser) -> None:
+    """Add the deploy/run/destroy/dry-run action flags to a generate-* subparser.
+
+    Shared by ``generate-agent`` and ``generate-mcp`` so the App bundles gain the
+    same lifecycle verbs as ``generate-workflow``. When none of these flags are
+    passed the command stays generate-only (writes the bundle and stops).
+    """
+    parser.add_argument(
+        "-d",
+        "--deploy",
+        action="store_true",
+        help="After generating, run `databricks bundle deploy` (and, when "
+        "app.trace_location is set, link the trace destination + grant the App "
+        "SP so spans persist).",
+    )
+    parser.add_argument(
+        "-r",
+        "--run",
+        action="store_true",
+        help="After generating (and deploying, if --deploy), run "
+        "`databricks bundle run <app>` to start the app.",
+    )
+    parser.add_argument(
+        "--destroy",
+        action="store_true",
+        help="Run `databricks bundle destroy` for the generated bundle.",
+    )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Print the databricks bundle commands without executing them.",
+    )
+
+
+# Env var that overrides the base directory for generated bundles. The
+# per-app ``<kind>/<app>`` structure is always appended underneath, so
+# per-config isolation is preserved regardless of the base.
+_BUNDLE_DIR_ENV_VAR = "DAO_AI_BUNDLE_DIR"
+_DEFAULT_BUNDLE_BASE = ".dao-ai/bundle"
+
+
+def _default_bundle_base() -> Path:
+    """Base dir for generated bundles: ``$DAO_AI_BUNDLE_DIR`` or ``.dao-ai/bundle``.
+
+    The built-in default is gitignored. If you point the env var at a path that
+    is NOT gitignored, deploys still work — each generated ``databricks.yaml``
+    carries an explicit ``sync.include`` for its own source, so App source syncs
+    regardless of whether the staging dir is git-ignored.
+    """
+    return Path(os.environ.get(_BUNDLE_DIR_ENV_VAR) or _DEFAULT_BUNDLE_BASE)
+
+
+def _default_bundle_dir(kind: str, app_name: str) -> Path:
+    """Default per-app bundle staging dir: ``<base>/<kind>/<app>``.
+
+    ``<base>`` is :func:`_default_bundle_base` (``$DAO_AI_BUNDLE_DIR`` or the
+    built-in ``.dao-ai/bundle``). Shared namespace for all three generators
+    (``kind`` in ``{"workflow", "agent", "mcp"}``) so their output is grouped
+    under one root and multiple configs never collide on a shared dir.
+    """
+    return _default_bundle_base() / kind / normalize_name(app_name)
+
+
+def _clean_default_staging_dir(bundle_dir: Path, *, is_default: bool) -> None:
+    """Clear a dao-ai-owned default staging dir before regenerating into it.
+
+    Only wipes when ``is_default`` (a path dao-ai chose under
+    :func:`_default_bundle_base`) — never a user-supplied ``-o`` dir, which may
+    hold hand-edits. Regenerating into a stale dir otherwise produces an
+    internally-inconsistent bundle (e.g. a ``--development`` run leaves ``dist/``
+    wheels + a dev ``pyproject.toml`` that a later ``--no-development`` run then
+    mixes with a published layout). Guarded to only ever remove a path under the
+    resolved default base.
+    """
+    if not is_default or not bundle_dir.exists():
+        return
+    base = _default_bundle_base().resolve()
+    resolved = bundle_dir.resolve()
+    # safety: only wipe paths strictly under the owned base dir
+    if base not in resolved.parents:
+        return
+    shutil.rmtree(bundle_dir)
+
+
 def _print_config_variable_error(err: ConfigVariableError) -> None:
     """Render a ConfigVariableError to stderr in a user-friendly form."""
     print(f"\nConfig parameter error in {err.path}:", file=sys.stderr)
@@ -267,7 +352,8 @@ Examples:
   dao-ai chat -c config/retail.yaml --custom-input store_num=87887  # Start interactive chat session
   dao-ai list-mcp-tools -c config/mcp_config.yaml --apply-filters  # List filtered MCP tools only
   dao-ai validate                                        # Validate with detailed logging
-  dao-ai pipeline --deploy                               # Deploy the DAO AI pipeline
+  dao-ai generate-workflow -c my_config.yaml --deploy    # Provision infra + deploy the agent (Workflow Job)
+  dao-ai generate-agent -c my_config.yaml --deploy --run # Generate + deploy + start the agent App
         """,
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
@@ -416,7 +502,7 @@ Experiment resolution order:
   1. ``--experiment-id`` flag (explicit override)
   2. ``config.app.experiment.resolved_id`` if ``experiment:`` is set
   3. Bundle-declared experiment name (``/Users/<current-user>/<app-name>``)
-     looked up via MlflowClient — matches what dao-ai generate-bundle
+     looked up via MlflowClient — matches what dao-ai generate-agent
      writes for the auto-declared experiment path.
 
 No-op when ``config.app.trace_location`` is not set.
@@ -497,7 +583,7 @@ experiment's OTEL Delta tables.
 
 Standalone counterpart to the grant step that ``dao-ai deploy`` / ``dao-ai
 pipeline`` runs automatically inside ``deploy_app_agent`` /
-``deploy_model_serving_agent``. Useful for the ``generate-bundle`` + ``bundle
+``deploy_model_serving_agent``. Useful for the ``generate-agent`` + ``bundle
 deploy`` + ``link-trace-destination`` flow (where no full deploy fires),
 or for retroactively fixing grants when an app was deployed by an
 identity that lacked GRANT rights.
@@ -594,29 +680,31 @@ Examples:
         help="Path to the model configuration file to visualize",
     )
 
-    pipeline_parser: ArgumentParser = subparsers.add_parser(
-        "pipeline",
-        help="Pipeline orchestration for deployment",
+    generate_workflow_parser: ArgumentParser = subparsers.add_parser(
+        "generate-workflow",
+        help="Generate + deploy/run the provisioning Workflow (multi-task Job)",
         description="""
-Deploy and run the DAO AI pipeline. This command wraps the underlying
-Databricks Asset Bundle workflow:
-- Deploys DAO AI as a Databricks asset bundle
-- Runs the DAO AI system with the current configuration
+Generate and deploy/run the DAO AI provisioning Workflow — a multi-task
+Databricks Job (Lakeflow Workflow) that provisions the backing infra (schemas,
+Vector Search, Lakebase, Genie, UC functions), deploys the agent, and runs
+evaluation. Emits a self-contained Databricks Asset Bundle and wraps
+`databricks bundle deploy/run/destroy`. (This is a Job/Workflow, not a Lakeflow
+Declarative Pipeline.) Sibling of `generate-agent` / `generate-mcp`.
 """,
         epilog="""
 Examples:
-    dao-ai pipeline --deploy
-    dao-ai pipeline --run
+    dao-ai generate-workflow -c config/retail.yaml --deploy
+    dao-ai generate-workflow -c config/retail.yaml --run
 """,
     )
 
-    pipeline_parser.add_argument(
+    generate_workflow_parser.add_argument(
         "-p",
         "--profile",
         type=str,
         help="The Databricks profile to use for deployment",
     )
-    pipeline_parser.add_argument(
+    generate_workflow_parser.add_argument(
         "-c",
         "--config",
         type=str,
@@ -624,41 +712,41 @@ Examples:
         metavar="FILE",
         help="Path to the model configuration file for the bundle",
     )
-    pipeline_parser.add_argument(
+    generate_workflow_parser.add_argument(
         "-d",
         "--deploy",
         action="store_true",
         help="Deploy the DAO AI asset bundle",
     )
-    pipeline_parser.add_argument(
+    generate_workflow_parser.add_argument(
         "--destroy",
         action="store_true",
         help="Destroy the DAO AI asset bundle",
     )
-    pipeline_parser.add_argument(
+    generate_workflow_parser.add_argument(
         "-r",
         "--run",
         action="store_true",
         help="Run the DAO AI system with the current configuration",
     )
-    pipeline_parser.add_argument(
+    generate_workflow_parser.add_argument(
         "-t",
         "--target",
         type=str,
         help="Bundle target name (default: auto-generated from app name and cloud)",
     )
-    pipeline_parser.add_argument(
+    generate_workflow_parser.add_argument(
         "--cloud",
         type=str,
         choices=["azure", "aws", "gcp"],
         help="Cloud provider (auto-detected from workspace URL if not specified)",
     )
-    pipeline_parser.add_argument(
+    generate_workflow_parser.add_argument(
         "--dry-run",
         action="store_true",
         help="Perform a dry run without executing the deployment or run commands",
     )
-    pipeline_parser.add_argument(
+    generate_workflow_parser.add_argument(
         "--deployment-target",
         type=str,
         choices=["model_serving", "apps", "both"],
@@ -667,7 +755,7 @@ Examples:
         "If not specified, uses app.deployment_target from config file, "
         "or defaults to 'model_serving'. Passed to the deploy notebook.",
     )
-    pipeline_parser.add_argument(
+    generate_workflow_parser.add_argument(
         "--development",
         dest="development",
         default=None,
@@ -677,30 +765,50 @@ Examples:
         "Defaults to auto-detect from the install type. Passed to the deploy "
         "notebook.",
     )
-    pipeline_parser.add_argument(
+    generate_workflow_parser.add_argument(
         "--no-development",
         dest="development",
         action="store_false",
         help="Force the published PyPI dao-ai package even from a local/editable "
         "install. Passed to the deploy notebook.",
     )
+    generate_workflow_parser.add_argument(
+        "-o",
+        "--output-dir",
+        type=str,
+        default=None,
+        metavar="DIR",
+        help="Directory to stage the workflow bundle into before deploying "
+        "(default: <base>/workflow/<app-name>, a per-app dir so deploying "
+        "multiple configs never collides; <base> is $DAO_AI_BUNDLE_DIR or "
+        "./.dao-ai/bundle). The bundle is self-contained — notebooks, "
+        "requirements.txt, and databricks.yaml are materialized from the "
+        "installed dao-ai wheel, so no source checkout is required.",
+    )
+    generate_workflow_parser.add_argument(
+        "--overwrite",
+        action="store_true",
+        help="Overwrite existing files in the staging output directory.",
+    )
 
-    # Generate bundle command
-    generate_bundle_parser: ArgumentParser = subparsers.add_parser(
-        "generate-bundle",
-        help="Generate Databricks App bundle files from a config",
+    # Generate agent-app bundle command.
+    generate_agent_parser: ArgumentParser = subparsers.add_parser(
+        "generate-agent",
+        help="Generate the agent's Databricks App bundle from a config",
         description="""
-Generate a complete, deployable Databricks Apps bundle directory from a dao-ai config file.
-Creates databricks.yaml, app.yaml, pyproject.toml, and scaffolding files.
+Generate a complete, deployable Databricks Apps bundle directory that serves the
+dao-ai agent, from a dao-ai config file. Creates databricks.yaml, app.yaml,
+pyproject.toml, and scaffolding files. Sibling of `generate-mcp` (which emits the
+MCP-server App bundle).
         """,
         epilog="""
 Examples:
-  dao-ai generate-bundle -c config/retail.yaml -o ./my-bundle
-  dao-ai generate-bundle -c config/retail.yaml -o ./my-bundle --overwrite
+  dao-ai generate-agent -c config/retail.yaml -o ./my-bundle
+  dao-ai generate-agent -c config/retail.yaml -o ./my-bundle --overwrite
         """,
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    generate_bundle_parser.add_argument(
+    generate_agent_parser.add_argument(
         "-c",
         "--config",
         type=str,
@@ -708,20 +816,22 @@ Examples:
         metavar="FILE",
         help="Path to the dao-ai configuration file",
     )
-    generate_bundle_parser.add_argument(
+    generate_agent_parser.add_argument(
         "-o",
         "--output-dir",
         type=str,
-        default=".",
+        default=None,
         metavar="DIR",
-        help="Directory to write the generated bundle files to (default: current directory)",
+        help="Directory to write the generated bundle files to "
+        "(default: <base>/agent/<app-name>; <base> is $DAO_AI_BUNDLE_DIR or "
+        "./.dao-ai/bundle).",
     )
-    generate_bundle_parser.add_argument(
+    generate_agent_parser.add_argument(
         "--overwrite",
         action="store_true",
         help="Overwrite existing files in the output directory",
     )
-    generate_bundle_parser.add_argument(
+    generate_agent_parser.add_argument(
         "--development",
         dest="development",
         default=None,
@@ -730,19 +840,20 @@ Examples:
         "PyPI package. Rebuild the wheel first with 'uv build --wheel'. "
         "Defaults to auto-detect from the install type.",
     )
-    generate_bundle_parser.add_argument(
+    generate_agent_parser.add_argument(
         "--no-development",
         dest="development",
         action="store_false",
         help="Force the published PyPI dao-ai package even from a local/editable "
         "install.",
     )
-    generate_bundle_parser.add_argument(
+    generate_agent_parser.add_argument(
         "-p",
         "--profile",
         type=str,
         help="The Databricks profile to use for config loading",
     )
+    _add_bundle_action_arguments(generate_agent_parser)
 
     # Generate MCP-server bundle command
     generate_mcp_parser: ArgumentParser = subparsers.add_parser(
@@ -751,7 +862,7 @@ Examples:
         description="""
 Generate a deploy-ready Databricks Apps bundle from a dao-ai config that exposes
 the configured Genie cache + Vector Search retriever tools as MCP tools over
-Streamable HTTP. Mirrors `generate-bundle` but emits the MCP-only artifact
+Streamable HTTP. Mirrors `generate-agent` but emits the MCP-only artifact
 (databricks.yml, app.yaml, pyproject.toml, requirements.txt, README.md).
         """,
         epilog="""
@@ -773,9 +884,11 @@ Examples:
         "-o",
         "--output-dir",
         type=str,
-        default=".",
+        default=None,
         metavar="DIR",
-        help="Directory to write the generated MCP bundle files to (default: current directory)",
+        help="Directory to write the generated MCP bundle files to "
+        "(default: <base>/mcp/<app-name>; <base> is $DAO_AI_BUNDLE_DIR or "
+        "./.dao-ai/bundle).",
     )
     generate_mcp_parser.add_argument(
         "--overwrite",
@@ -804,6 +917,7 @@ Examples:
         type=str,
         help="The Databricks profile to use for config loading",
     )
+    _add_bundle_action_arguments(generate_mcp_parser)
 
     # Deploy command
     deploy_parser: ArgumentParser = subparsers.add_parser(
@@ -1028,8 +1142,8 @@ Examples:
     for sub in (
         validation_parser,
         graph_parser,
-        pipeline_parser,
-        generate_bundle_parser,
+        generate_workflow_parser,
+        generate_agent_parser,
         generate_mcp_parser,
         deploy_parser,
         list_mcp_parser,
@@ -1477,7 +1591,7 @@ def handle_link_trace_destination_command(options: Namespace) -> None:
     SELECT+MODIFY privileges MLflow tracing needs — matching the grant
     step that ``dao-ai deploy_app_agent`` / ``deploy_model_serving_agent``
     perform automatically on their own deploy paths. Without this the
-    bundle-based flow (``generate-bundle`` + ``bundle deploy`` +
+    bundle-based flow (``generate-agent`` + ``bundle deploy`` +
     ``link-trace-destination``) leaves the App SP without table-write
     permissions and traces are silently dropped at runtime.
     """
@@ -1784,6 +1898,16 @@ def handle_deploy_command(options: Namespace) -> None:
         if target != DeploymentTarget.APPS:
             config.create_agent(development=development)
         config.deploy_agent(target=target, development=development)
+
+        # Surface a link to whatever was deployed (matches the generate-*
+        # commands). `both` prints both; model_serving is the default when no
+        # target resolved. Best-effort — never fails the deploy.
+        resolved = target or DeploymentTarget.MODEL_SERVING
+        if config.app is not None:
+            if resolved in (DeploymentTarget.MODEL_SERVING, DeploymentTarget.BOTH):
+                _print_endpoint_link(config.app.endpoint_name)
+            if resolved in (DeploymentTarget.APPS, DeploymentTarget.BOTH):
+                _print_app_link(config.app.name.lower().replace("_", "-"))
         sys.exit(0)
     except Exception as e:
         logger.error(f"Deployment failed: {e}")
@@ -2218,51 +2342,76 @@ def setup_logging(verbosity: int) -> None:
     configure_logging(level=level)
 
 
-def generate_bundle_from_template(config_path: Path, app_name: str) -> Path:
-    """
-    Generate an app-specific databricks.yaml from databricks.yaml.template.
+def _exec_bundle_command(
+    command: list[str],
+    *,
+    profile: Optional[str],
+    target: Optional[str],
+    cwd: Path,
+    extra_vars: Optional[list[str]] = None,
+    dry_run: bool = False,
+) -> None:
+    """Run ``databricks bundle <command>`` from ``cwd`` and stream its output.
 
-    This function:
-    1. Reads databricks.yaml.template (permanent template file)
-    2. Replaces __APP_NAME__ with the actual app name
-    3. Writes to databricks.yaml (overwrites if exists)
-    4. Returns the path to the generated file
-
-    The generated databricks.yaml is overwritten on each deployment and is not tracked in git.
-    The template contains cloud-specific targets (azure, aws, gcp) with appropriate node types.
+    Shared executor for every dao-ai DAB generator (``generate-agent``,
+    ``generate-mcp``, ``generate-workflow``). Assembles ``databricks [--profile P]
+    <command...> [--target T] [--var ...]``, runs it with ``cwd`` set to the
+    staged/generated bundle dir, streams stdout, and ``sys.exit(1)`` on failure.
 
     Args:
-        config_path: Path to the app config file
-        app_name: Normalized app name
-
-    Returns:
-        Path to the generated databricks.yaml file
+        command: bundle verb, e.g. ``["bundle", "deploy"]``.
+        profile: Databricks CLI profile (also strips ambient DATABRICKS_* env).
+        target: bundle target name appended as ``--target``.
+        cwd: directory to run the command from (the bundle root).
+        extra_vars: pre-formatted ``--var="k=v"`` args to append.
+        dry_run: print the command instead of executing.
     """
-    cwd = Path.cwd()
-    template_path = cwd / "databricks.yaml.template"
-    output_path = cwd / "databricks.yaml"
+    cmd: list[str] = ["databricks"]
+    if profile:
+        cmd.extend(["--profile", profile])
+    cmd.extend(command)
+    if target:
+        cmd.extend(["--target", target])
+    cmd.extend(extra_vars or [])
 
-    if not template_path.exists():
-        logger.error(f"Template file {template_path} does not exist.")
+    logger.debug(f"Executing command (cwd={cwd}): {' '.join(cmd)}")
+    if dry_run:
+        logger.info(f"[DRY RUN] Would execute (cwd={cwd}): {' '.join(cmd)}")
+        return
+
+    env = os.environ.copy()
+    if profile:
+        for var in DATABRICKS_AUTH_ENV_VARS:
+            env.pop(var, None)
+
+    try:
+        process = subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            bufsize=1,
+            universal_newlines=True,
+            env=env,
+            cwd=str(cwd),
+        )
+        for line in iter(process.stdout.readline, ""):
+            print(line.rstrip())
+        process.wait()
+        if process.returncode != 0:
+            logger.error(f"Command failed with exit code {process.returncode}")
+            sys.exit(1)
+        logger.info("Command executed successfully")
+    except FileNotFoundError:
+        logger.error("databricks CLI not found. Please install the Databricks CLI.")
         sys.exit(1)
-
-    # Read template
-    with open(template_path, "r") as f:
-        template_content = f.read()
-
-    # Replace template variables
-    bundle_content = template_content.replace("__APP_NAME__", app_name)
-
-    # Write generated databricks.yaml (overwrite if exists)
-    with open(output_path, "w") as f:
-        f.write(bundle_content)
-
-    logger.info(f"Generated bundle configuration at {output_path} from template")
-    return output_path
+    except Exception as e:  # noqa: BLE001
+        logger.error(f"Command execution failed: {e}")
+        sys.exit(1)
 
 
 def run_databricks_command(
-    command: list[str],
+    command: Optional[list[str]] = None,
     profile: Optional[str] = None,
     config: Optional[str] = None,
     target: Optional[str] = None,
@@ -2271,6 +2420,8 @@ def run_databricks_command(
     deployment_target: Optional[str] = None,
     development: bool | None = None,
     config_vars: Optional[dict[str, str]] = None,
+    output_dir: Optional[str] = None,
+    overwrite: bool = False,
 ) -> None:
     """Execute a databricks CLI command with optional profile, target, and cloud.
 
@@ -2293,6 +2444,12 @@ def run_databricks_command(
             ``databricks bundle`` command as ``--var name=value`` so the
             asset-bundle layer's own ``${var.NAME}`` substitution sees the same
             values when the names overlap.
+        output_dir: Directory to stage the bundle into. When ``None`` (default),
+            a per-app dir ``.dao-ai/bundle/workflow/<app>`` is used so
+            deploying multiple configs never collides on a shared staging dir.
+        overwrite: Overwrite copied-in *content* (config, data/functions assets)
+            in the staging dir. Derived artifacts (databricks.yaml,
+            requirements.txt, notebooks) are always regenerated regardless.
     """
     config_path = Path(config) if config else None
 
@@ -2325,9 +2482,44 @@ def run_databricks_command(
             logger.warning("Could not detect cloud provider. Defaulting to 'azure'.")
             cloud = "azure"
 
-    # Generate app-specific bundle from template (overwrites databricks.yaml temporarily)
+    # Stage a self-contained pipeline bundle from the installed dao-ai wheel's
+    # packaged assets (databricks.yaml, notebooks, requirements.txt) plus the
+    # resolved config — no source checkout required. `bundle deploy/run/destroy`
+    # then run with cwd == the staging dir.
+    #
+    # When --output-dir is omitted, derive a PER-APP default under the shared
+    # `.dao-ai/bundle/workflow/<app>` namespace rather than a single shared dir.
+    # The staging dir's contents (bundle name, targets, config) are app-specific,
+    # so a shared default would let a second config's deploy fail against the
+    # first config's stale databricks.yaml. A per-app default isolates each
+    # bundle's DABs state and makes deploying many configs "just work".
+    is_default_dir: bool = output_dir is None
+    if output_dir is not None:
+        staging_dir = Path(output_dir).resolve()
+    elif normalized_name:
+        staging_dir = _default_bundle_dir("workflow", app_config.app.name).resolve()
+    else:
+        staging_dir = (_default_bundle_base() / "workflow").resolve()
+
+    config_rel_to_notebooks: str | None = None
     if config_path and app_config:
-        generate_bundle_from_template(config_path, normalized_name)
+        from dao_ai.pipeline.bundle import write_pipeline_bundle
+        from dao_ai.utils import resolve_use_local_source
+
+        # Regenerate the owned default dir cleanly so stale dev artifacts
+        # (e.g. dist/ wheels) don't linger across dev/published switches.
+        _clean_default_staging_dir(staging_dir, is_default=is_default_dir)
+
+        write_pipeline_bundle(
+            app_config,
+            staging_dir,
+            overwrite=overwrite,
+            development=resolve_use_local_source(development),
+        )
+        # The config is staged at <staging>/config/<name>; notebooks run with
+        # CWD == <staging>/notebooks, so the config-path var is deterministic.
+        config_filename: str = Path(config_path).name
+        config_rel_to_notebooks = f"../config/{config_filename}"
 
     # Use app-specific cloud target: {app_name}-{cloud}
     # This ensures each app has unique deployment identity while supporting cloud-specific settings
@@ -2336,37 +2528,16 @@ def run_databricks_command(
         target = f"{normalized_name}-{cloud}"
         logger.info(f"Using app-specific cloud target: {target}")
 
-    # Build databricks command
-    # --profile is a global flag, --target is a subcommand flag for `databricks bundle`
-    cmd = ["databricks"]
-    if profile:
-        cmd.extend(["--profile", profile])
-
-    cmd.extend(command)
-
-    # --target must come after the bundle subcommand (it's a subcommand-specific flag)
-    if target:
-        cmd.extend(["--target", target])
-
-    # Add config_path variable for notebooks
-    if config_path and app_config:
-        # Calculate relative path from notebooks directory to config file
-        config_abs = config_path.resolve()
-        cwd = Path.cwd()
-        notebooks_dir = cwd / "notebooks"
-
-        try:
-            relative_config = config_abs.relative_to(notebooks_dir)
-        except ValueError:
-            relative_config = Path(os.path.relpath(config_abs, notebooks_dir))
-
-        cmd.append(f'--var="config_path={relative_config}"')
+    # Assemble the bundle --var overrides specific to the workflow job.
+    extra_vars: list[str] = []
+    if config_rel_to_notebooks:
+        extra_vars.append(f'--var="config_path={config_rel_to_notebooks}"')
 
     # Forward dao-ai parameter overrides to the asset-bundle layer too, so
     # ${var.NAME} references inside databricks.yaml resolve from the same
     # input values when the names overlap.
     for key, value in (config_vars or {}).items():
-        cmd.append(f'--var="{key}={value}"')
+        extra_vars.append(f'--var="{key}={value}"')
 
     # Add deployment_target variable for notebooks (hybrid resolution)
     # Priority: CLI arg > config file > default (model_serving)
@@ -2386,7 +2557,7 @@ def run_databricks_command(
     else:
         logger.debug("Using default deployment target: model_serving")
 
-    cmd.append(f'--var="deployment_target={resolved_deployment_target}"')
+    extra_vars.append(f'--var="deployment_target={resolved_deployment_target}"')
 
     # Forward the development tri-state to the deploy notebook via a bundle var.
     # Always emit (mirrors deployment_target) so the notebook widget default
@@ -2395,51 +2566,221 @@ def run_databricks_command(
     resolved_development: str = (
         "auto" if development is None else ("true" if development else "false")
     )
-    cmd.append(f'--var="development={resolved_development}"')
+    extra_vars.append(f'--var="development={resolved_development}"')
 
-    logger.debug(f"Executing command: {' '.join(cmd)}")
-
-    if dry_run:
-        logger.info(f"[DRY RUN] Would execute: {' '.join(cmd)}")
+    # command=None -> stage-only (generate the bundle, don't run a bundle verb).
+    # This is what `generate-workflow` with no --deploy/--run/--destroy does.
+    if command is None:
+        logger.info(f"Workflow bundle staged in {staging_dir}")
         return
 
-    env = os.environ.copy()
-    if profile:
-        for var in DATABRICKS_AUTH_ENV_VARS:
-            env.pop(var, None)
+    _exec_bundle_command(
+        command,
+        profile=profile,
+        target=target,
+        cwd=staging_dir,
+        extra_vars=extra_vars,
+        dry_run=dry_run,
+    )
 
-    try:
-        process = subprocess.Popen(
-            cmd,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-            bufsize=1,
-            universal_newlines=True,
-            env=env,
+    # `bundle run` already prints a Run URL; after a deploy (no run) surface the
+    # job's workspace URL so the user has a link either way.
+    if not dry_run and command[:2] == ["bundle", "deploy"]:
+        _print_job_link(
+            staging_dir, profile=profile, target=target, extra_vars=extra_vars
         )
 
-        for line in iter(process.stdout.readline, ""):
-            print(line.rstrip())
 
-        process.wait()
+def _print_job_link(
+    cwd: Path,
+    *,
+    profile: Optional[str],
+    target: Optional[str],
+    extra_vars: Optional[list[str]] = None,
+) -> None:
+    """Print the deployed workflow job's workspace URL via ``bundle summary``.
 
-        if process.returncode != 0:
-            logger.error(f"Command failed with exit code {process.returncode}")
-            sys.exit(1)
-        else:
-            logger.info("Command executed successfully")
+    Best-effort: `bundle summary --output json` exposes each resource's `url`.
+    Passes the same ``--var`` overrides deploy used — summary re-evaluates the
+    bundle and errors on unset required vars (e.g. ``config_path``) otherwise.
+    Never raises — a failure just skips the link.
+    """
+    import json as _json
 
-    except FileNotFoundError:
-        logger.error("databricks CLI not found. Please install the Databricks CLI.")
-        sys.exit(1)
-    except Exception as e:
-        logger.error(f"Command execution failed: {e}")
-        sys.exit(1)
+    cmd = ["databricks"]
+    if profile:
+        cmd.extend(["--profile", profile])
+    cmd.extend(["bundle", "summary", "--output", "json"])
+    if target:
+        cmd.extend(["--target", target])
+    cmd.extend(extra_vars or [])
+    try:
+        out = subprocess.run(
+            cmd, cwd=str(cwd), capture_output=True, text=True, timeout=60
+        )
+        if out.returncode != 0:
+            return
+        jobs = (_json.loads(out.stdout).get("resources") or {}).get("jobs") or {}
+        for _key, job in jobs.items():
+            if job.get("url"):
+                print(f"\n  Job URL: {job['url']}\n")
+                return
+    except Exception as e:  # noqa: BLE001
+        logger.debug(f"Could not resolve job URL: {e}")
 
 
-def handle_pipeline_command(options: Namespace) -> None:
-    logger.debug("Preparing pipeline configuration...")
+def _link_and_grant_trace(
+    config: AppConfig,
+    *,
+    dry_run: bool,
+) -> None:
+    """Link the experiment trace destination and grant the App SP, if configured.
+
+    No-op unless ``config.app.trace_location`` is set. Runs the same logic as
+    ``dao-ai link-trace-destination`` (which also grants) — it MUST run after
+    ``bundle deploy`` (the experiment + app exist) and before ``bundle run``
+    (the app's own runtime link is rejected on re-deploys with "already contains
+    traces", causing silent trace loss). Reuses the existing helpers so there is
+    a single implementation of the link + grant steps.
+    """
+    if not (config.app and config.app.trace_location):
+        return
+
+    if dry_run:
+        logger.info(
+            "[DRY RUN] Would link experiment trace destination and grant the "
+            "App SP trace-write privileges (app.trace_location is set)."
+        )
+        return
+
+    experiment_id: Optional[str] = _resolve_experiment_id_for_link(config, None)
+    if experiment_id is None:
+        # Diagnostic already printed; don't abort the deploy — the operator can
+        # run `dao-ai link-trace-destination` manually.
+        logger.warning(
+            "Could not resolve experiment id for trace linking; skipping. "
+            "Run `dao-ai link-trace-destination -c <config>` manually."
+        )
+        return
+
+    from dao_ai.providers.databricks import _link_experiment_trace_location
+
+    try:
+        _link_experiment_trace_location(config, experiment_id)
+        logger.info(
+            f"Linked experiment {experiment_id} to "
+            f"{config.app.trace_location.catalog_name}."
+            f"{config.app.trace_location.schema_name}"
+        )
+    except Exception as e:  # noqa: BLE001
+        logger.warning(
+            f"Trace-destination link failed ({type(e).__name__}: {e}); "
+            "run `dao-ai link-trace-destination` manually."
+        )
+        return
+
+    _grant_trace_writes_to_app_sp(config, experiment_id, sp_override=None)
+
+
+def deploy_app_bundle(
+    config: AppConfig,
+    *,
+    output_dir: Path,
+    deploy: bool,
+    run: bool,
+    destroy: bool,
+    profile: Optional[str],
+    dry_run: bool = False,
+) -> None:
+    """Deploy/run/destroy an already-generated App bundle (agent or MCP).
+
+    Shared driver for ``generate-agent`` / ``generate-mcp`` action flags. The
+    App bundle uses a single ``dev`` target and is run by its app-name resource
+    key (contrast the workflow job, run by ``deploy_job``). Order when
+    ``--deploy`` and ``--run`` are combined: deploy → auto trace-link+grant →
+    run, matching the sequence the docs prescribe.
+
+    Args:
+        config: loaded AppConfig (for trace_location + app name).
+        output_dir: the generated bundle dir (``bundle`` commands run here).
+        deploy / run / destroy: which action(s) to perform.
+        profile: Databricks CLI profile.
+        dry_run: print instead of executing.
+    """
+    if config.app is None:
+        raise ValueError("Config must have an 'app' section to deploy a bundle.")
+    app_name = config.app.name.lower().replace("_", "-")
+    target = "dev"
+
+    if destroy:
+        _exec_bundle_command(
+            ["bundle", "destroy", "--auto-approve"],
+            profile=profile,
+            target=target,
+            cwd=output_dir,
+            dry_run=dry_run,
+        )
+        return
+
+    if deploy:
+        _exec_bundle_command(
+            ["bundle", "deploy"],
+            profile=profile,
+            target=target,
+            cwd=output_dir,
+            dry_run=dry_run,
+        )
+        # Between deploy and run: link the trace destination + grant the App SP
+        # so spans actually persist (otherwise silently dropped on Apps).
+        _link_and_grant_trace(config, dry_run=dry_run)
+
+    if run:
+        _exec_bundle_command(
+            ["bundle", "run", app_name],
+            profile=profile,
+            target=target,
+            cwd=output_dir,
+            dry_run=dry_run,
+        )
+
+    if (deploy or run) and not dry_run:
+        _print_app_link(app_name)
+
+
+def _print_app_link(app_name: str) -> None:
+    """Print the deployed Databricks App's URL for quick access.
+
+    Best-effort: resolves the URL via the Apps API (``bundle summary`` does not
+    expose an app URL). Never raises — a lookup failure just skips the link.
+    """
+    try:
+        from databricks.sdk import WorkspaceClient
+
+        url = WorkspaceClient().apps.get(name=app_name).url
+        if url:
+            print(f"\n  App URL: {url}\n")
+    except Exception as e:  # noqa: BLE001
+        logger.debug(f"Could not resolve app URL for {app_name}: {e}")
+
+
+def _print_endpoint_link(endpoint_name: str) -> None:
+    """Print the deployed Model Serving endpoint's workspace URL.
+
+    Best-effort: builds ``<host>/ml/endpoints/<name>`` from the resolved
+    workspace host. Never raises — a lookup failure just skips the link.
+    """
+    try:
+        from databricks.sdk import WorkspaceClient
+
+        host = (WorkspaceClient().config.host or "").rstrip("/")
+        if host:
+            print(f"\n  Serving endpoint URL: {host}/ml/endpoints/{endpoint_name}\n")
+    except Exception as e:  # noqa: BLE001
+        logger.debug(f"Could not resolve endpoint URL for {endpoint_name}: {e}")
+
+
+def handle_generate_workflow_command(options: Namespace) -> None:
+    logger.debug("Preparing provisioning-workflow configuration...")
     profile: Optional[str] = options.profile
     config: Optional[str] = options.config
     target: Optional[str] = options.target
@@ -2448,6 +2789,8 @@ def handle_pipeline_command(options: Namespace) -> None:
     deployment_target: Optional[str] = options.deployment_target
     development: bool | None = getattr(options, "development", None)
     config_vars: dict[str, str] = _parse_var_args(options.var)
+    output_dir: str | None = getattr(options, "output_dir", None)
+    overwrite: bool = getattr(options, "overwrite", False)
 
     if options.deploy:
         logger.info("Deploying DAO AI asset bundle...")
@@ -2461,6 +2804,8 @@ def handle_pipeline_command(options: Namespace) -> None:
             deployment_target=deployment_target,
             development=development,
             config_vars=config_vars,
+            output_dir=output_dir,
+            overwrite=overwrite,
         )
     if options.run:
         logger.info("Running DAO AI system with current configuration...")
@@ -2474,6 +2819,8 @@ def handle_pipeline_command(options: Namespace) -> None:
             deployment_target=deployment_target,
             development=development,
             config_vars=config_vars,
+            output_dir=output_dir,
+            overwrite=overwrite,
         )
     if options.destroy:
         logger.info("Destroying DAO AI system with current configuration...")
@@ -2487,15 +2834,33 @@ def handle_pipeline_command(options: Namespace) -> None:
             deployment_target=deployment_target,
             development=development,
             config_vars=config_vars,
+            output_dir=output_dir,
+            overwrite=overwrite,
         )
     if not any([options.deploy, options.run, options.destroy]):
-        logger.warning("No action specified. Use --deploy, --run or --destroy flags.")
+        # Generate-only: stage the bundle so the user can inspect it or deploy
+        # manually (`cd <output-dir> && databricks bundle deploy ...`). This is
+        # the default for a `generate-*` command — deploy/run/destroy are opt-in.
+        logger.info("Staging DAO AI workflow bundle (no deploy/run requested)...")
+        run_databricks_command(
+            None,
+            profile=profile,
+            config=config,
+            target=target,
+            cloud=cloud,
+            dry_run=dry_run,
+            deployment_target=deployment_target,
+            development=development,
+            config_vars=config_vars,
+            output_dir=output_dir,
+            overwrite=overwrite,
+        )
 
 
-def handle_generate_bundle_command(options: Namespace) -> None:
+def handle_generate_agent_command(options: Namespace) -> None:
     logger.debug("Generating bundle...")
     config_path: str = options.config
-    output_dir: str = options.output_dir
+    output_dir: str | None = options.output_dir
     overwrite: bool = options.overwrite
     # Resolve the --development/--no-development tri-state to a concrete bool
     # (None -> auto-detect via is_published()) so write_bundle's bool contract
@@ -2521,10 +2886,51 @@ def handle_generate_bundle_command(options: Namespace) -> None:
     # Resolve resources so Genie room tables and warehouses can be discovered
     config._resolve_all_resources()
 
+    is_default_dir: bool = output_dir is None
+    bundle_dir: Path = (
+        Path(output_dir)
+        if output_dir is not None
+        else _default_bundle_dir("agent", config.app.name)
+    ).resolve()
+    # Regenerate the owned default dir from scratch so a prior --development run
+    # can't leave stale dist/ + dev pyproject that a published rebuild mixes in.
+    _clean_default_staging_dir(bundle_dir, is_default=is_default_dir)
+
     from dao_ai.apps.bundle import write_bundle
 
-    write_bundle(
-        config, Path(output_dir), overwrite=overwrite, development=development
+    write_bundle(config, bundle_dir, overwrite=overwrite, development=development)
+
+    _run_bundle_actions(options, config, bundle_dir, profile)
+
+
+def _run_bundle_actions(
+    options: Namespace,
+    config: AppConfig,
+    output_dir: Path,
+    profile: Optional[str],
+) -> None:
+    """Invoke deploy/run/destroy on a just-generated App bundle, if requested.
+
+    Shared tail for ``generate-agent`` / ``generate-mcp``: when any of
+    ``--deploy``/``--run``/``--destroy`` is passed, drive the bundle via
+    :func:`deploy_app_bundle`; otherwise the command stays generate-only.
+    """
+    deploy: bool = getattr(options, "deploy", False)
+    run: bool = getattr(options, "run", False)
+    destroy: bool = getattr(options, "destroy", False)
+    dry_run: bool = getattr(options, "dry_run", False)
+
+    if not any([deploy, run, destroy]):
+        return
+
+    deploy_app_bundle(
+        config,
+        output_dir=output_dir,
+        deploy=deploy,
+        run=run,
+        destroy=destroy,
+        profile=profile,
+        dry_run=dry_run,
     )
 
 
@@ -2538,7 +2944,7 @@ def handle_generate_mcp_command(options: Namespace) -> None:
     """
     logger.debug("Generating MCP bundle...")
     config_path: str = options.config
-    output_dir: str = options.output_dir
+    output_dir: str | None = options.output_dir
     overwrite: bool = options.overwrite
     # Resolve the --development/--no-development tri-state to a concrete bool
     # (None -> auto-detect via is_published()) so write_mcp_bundle's bool
@@ -2557,15 +2963,26 @@ def handle_generate_mcp_command(options: Namespace) -> None:
     except ConfigVariableError as e:
         _print_config_variable_error(e)
         sys.exit(1)
+    if config.app is None:
+        logger.error("Config must have an 'app' section to generate an MCP bundle")
+        sys.exit(1)
 
     # Resolve resources so any Genie / VS lookups can fully bind.
     config._resolve_all_resources()
 
+    is_default_dir: bool = output_dir is None
+    bundle_dir: Path = (
+        Path(output_dir)
+        if output_dir is not None
+        else _default_bundle_dir("mcp", config.app.name)
+    ).resolve()
+    _clean_default_staging_dir(bundle_dir, is_default=is_default_dir)
+
     from dao_ai.mcp.generate import write_mcp_bundle
 
-    write_mcp_bundle(
-        config, Path(output_dir), overwrite=overwrite, development=development
-    )
+    write_mcp_bundle(config, bundle_dir, overwrite=overwrite, development=development)
+
+    _run_bundle_actions(options, config, bundle_dir, profile)
 
 
 def handle_vars_command(options: Namespace) -> None:
@@ -2675,10 +3092,10 @@ def main() -> None:
             handle_validate_command(options)
         case "graph":
             handle_graph_command(options)
-        case "pipeline":
-            handle_pipeline_command(options)
-        case "generate-bundle":
-            handle_generate_bundle_command(options)
+        case "generate-workflow":
+            handle_generate_workflow_command(options)
+        case "generate-agent":
+            handle_generate_agent_command(options)
         case "generate-mcp":
             handle_generate_mcp_command(options)
         case "deploy":

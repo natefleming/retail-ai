@@ -33,6 +33,18 @@ from dao_ai.apps.resources import (
 )
 from dao_ai.config import AppConfig, value_of
 
+
+def dump_bundle_yaml(doc: dict[str, Any]) -> str:
+    """Serialize a Databricks Asset Bundle document to YAML.
+
+    Single serialization convention shared by every dao-ai DAB generator
+    (``generate-agent``, ``generate-mcp``, and ``dao-ai generate-workflow``): block
+    style, insertion order preserved (``sort_keys=False``) so the emitted
+    ``databricks.yaml`` reads top-down like the bundle spec.
+    """
+    return yaml.dump(doc, default_flow_style=False, sort_keys=False)
+
+
 _BUNDLE_RESOURCE_CONVERTERS: dict[str, str] = {
     "serving-endpoint": "serving_endpoint",
     "sql-warehouse": "sql_warehouse",
@@ -575,9 +587,9 @@ def generate_databricks_yaml(
                                bundle is needed; users who only want the
                                serving endpoint typically use
                                ``dao-ai deploy-agent`` instead of
-                               ``generate-bundle`` + ``databricks bundle deploy``.
+                               ``generate-agent`` + ``databricks bundle deploy``.
 
-        ``generate-bundle`` therefore intentionally ignores
+        ``generate-agent`` therefore intentionally ignores
         ``app.deployment_target``; the enum selects the runtime code path,
         not the bundle layout.
     """
@@ -587,6 +599,22 @@ def generate_databricks_yaml(
         app_command=app_command,
         include_chat_ui=include_chat_ui,
     )
+
+    # Explicit sync.include for the App's own source. Databricks bundle sync
+    # honors the surrounding repo's .gitignore, so when the bundle is staged
+    # under a gitignored dir (dao-ai's default `.dao-ai/bundle/agent/<app>`) a
+    # bare `.`-sync uploads nothing and the App fails at run with "no files
+    # found". Listing the source files here force-includes them regardless of
+    # git-ignore. Harmless when the bundle dir is not ignored.
+    sync_include: list[str] = [
+        "src/**",
+        "resources/**",
+        "*.yaml",
+        "*.yml",
+        "*.toml",
+        "requirements.txt",
+        ".python-version",
+    ]
 
     bundle: dict[str, Any] = {
         "bundle": {
@@ -606,9 +634,7 @@ def generate_databricks_yaml(
         # In dev mode the pre-built wheel lives in dist/ and must be
         # uploaded as a regular source file. The bundle CLI excludes
         # .whl files by default, so we add an explicit sync include.
-        bundle["sync"] = {
-            "include": ["dist/*.whl"],
-        }
+        sync_include.append("dist/*.whl")
     elif include_artifacts:
         bundle["artifacts"] = {
             "default": {
@@ -618,7 +644,9 @@ def generate_databricks_yaml(
             },
         }
 
-    return yaml.dump(bundle, default_flow_style=False, sort_keys=False)
+    bundle["sync"] = {"include": sync_include}
+
+    return dump_bundle_yaml(bundle)
 
 
 def generate_resources_app_yaml(
@@ -630,7 +658,7 @@ def generate_resources_app_yaml(
 ) -> str:
     """Generate ``resources/app.yml`` — the App + experiment block.
 
-    This file is owned by ``generate-bundle``; sibling ``resources/*.yml``
+    This file is owned by ``generate-agent``; sibling ``resources/*.yml``
     files (e.g. ``resources/jobs.yml``, ``resources/pipelines.yml``) are
     written by users and are never touched by the generator.
 
@@ -651,7 +679,7 @@ def generate_resources_app_yaml(
             "apps": apps_block,
         },
     }
-    return yaml.dump(resources_doc, default_flow_style=False, sort_keys=False)
+    return dump_bundle_yaml(resources_doc)
 
 
 def _write_file(path: Path, content: str, overwrite: bool) -> bool:
@@ -684,17 +712,17 @@ def write_bundle(
     Refuses to write into the dao-ai source repo root — the generator emits
     a ``pyproject.toml`` with ``name = "<app_name>"`` and would silently
     clobber the dao-ai project descriptor if the deployer accidentally ran
-    ``generate-bundle`` from inside a dao-ai checkout (the default
+    ``generate-agent`` from inside a dao-ai checkout (the default
     ``--output-dir`` is the CWD).
     """
     resolved_output = output_dir.resolve()
     if (resolved_output / "src" / "dao_ai" / "config.py").exists():
         raise ValueError(
             f"Refusing to write bundle into the dao-ai source repo "
-            f"({resolved_output}). ``generate-bundle`` would clobber the "
+            f"({resolved_output}). ``generate-agent`` would clobber the "
             "dao-ai project's ``pyproject.toml``. Pass ``-o <path>`` to "
             "target a fresh directory, e.g. "
-            "``dao-ai generate-bundle -c <config> -o ./bundle``."
+            "``dao-ai generate-agent -c <config> -o ./bundle``."
         )
 
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -708,7 +736,7 @@ def write_bundle(
     # silently fail to persist on Apps. Configuring `app.trace_location`
     # routes export through a SQL warehouse → UC OTEL tables (reachable
     # from Apps). Model Serving deploys aren't affected. The warning is
-    # informational — generate-bundle still emits a working bundle either way.
+    # informational — generate-agent still emits a working bundle either way.
     if config.app is None or config.app.trace_location is None:
         _trace_location_warning = (
             "app.trace_location is NOT set. MLflow trace SPANS will NOT "
