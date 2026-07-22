@@ -1,7 +1,29 @@
 # Databricks notebook source
-# MAGIC %pip install --quiet --upgrade -r ../requirements.txt
-# MAGIC %pip uninstall --quiet -y pyspark pyspark-connect
+# Dependency bootstrap. Install dao-ai (which pulls its own transitive deps) via
+# uv — the newest bundled ../dist wheel in development mode, else the published
+# PyPI package. In a deployed job the serverless environment has already
+# installed it; this reinstall is harmless. ``%restart_python`` makes the freshly
+# installed package importable in the cells below.
+import glob
+
+_dao_ai_dep = next(iter(sorted(glob.glob("../dist/dao_ai-*.whl"), reverse=True)), "dao-ai")
+
+# MAGIC %uv pip install --quiet {_dao_ai_dep}
 # MAGIC %restart_python
+
+# COMMAND ----------
+
+# Record the installed dao-ai version plus the key libraries resolved under
+# it, so each run's logs capture exactly what was installed. Alphabetical; the
+# list is short and hand-curated.
+from importlib.metadata import version
+
+print(f"dao-ai=={version('dao-ai')}")
+print(f"databricks-langchain=={version('databricks-langchain')}")
+print(f"databricks-sdk=={version('databricks-sdk')}")
+print(f"langchain=={version('langchain')}")
+print(f"langgraph=={version('langgraph')}")
+print(f"mlflow=={version('mlflow')}")
 
 # COMMAND ----------
 
@@ -37,34 +59,6 @@ project_path: str = dbutils.widgets.get("config-paths") or None
 config_path: str = config_path or project_path
 
 print(config_path)
-
-# COMMAND ----------
-
-import sys, os, glob, subprocess
-from typing import Sequence
-from importlib.metadata import version
-
-# Install dao-ai from local wheel (bundle artifact or manual build), or fall back to source path
-_wheels = sorted(
-    glob.glob("../dist/dao_ai-*.whl") or glob.glob("../../artifacts/.internal/dao_ai-*.whl"),
-    key=os.path.getmtime,
-    reverse=True,
-)
-# Install dao-ai from the bundled wheel (development bundle) if present,
-# otherwise from PyPI. No `../src` source-path fallback: the wheel is the
-# unit of code, whether bundled under ../dist or resolved from PyPI.
-if _wheels:
-    subprocess.check_call([sys.executable, "-m", "pip", "install", "--quiet", "--force-reinstall", _wheels[0]])
-else:
-    subprocess.check_call([sys.executable, "-m", "pip", "install", "--quiet", "dao-ai"])
-
-pip_requirements: Sequence[str] = (
-  f"databricks-sdk=={version('databricks-sdk')}",
-  f"python-dotenv=={version('python-dotenv')}",
-  f"mlflow=={version('mlflow')}",
-)
-
-print("\n".join(pip_requirements))
 
 # COMMAND ----------
 

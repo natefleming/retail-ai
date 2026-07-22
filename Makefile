@@ -3,9 +3,6 @@ SRC_DIR := $(TOP_DIR)/src
 TEST_DIR := $(TOP_DIR)/tests
 DIST_DIR := $(TOP_DIR)/dist
 LIB_NAME := dao_ai
-# Pipeline requirements.txt now ships as package data under the pipeline
-# subpackage (materialized into the staging bundle by `dao-ai generate-workflow`).
-REQUIREMENTS_FILE := $(SRC_DIR)/$(LIB_NAME)/pipeline/requirements.txt
 LIB_VERSION := $(shell grep -m 1 version pyproject.toml | tr -s ' ' | tr -d '"' | tr -d "'" | cut -d' ' -f3)
 LIB := $(LIB_NAME)-$(LIB_VERSION)-py3-none-any.whl
 TARGET := $(DIST_DIR)/$(LIB)
@@ -17,10 +14,9 @@ else
 endif
 
 UV := uv
-SYNC := $(UV) sync 
-BUILD := $(UV) build 
-PYTHON := $(UV) run python 
-EXPORT := $(UV) pip freeze --exclude-editable | grep -v -E "(pyspark|databricks-connect)"
+SYNC := $(UV) sync
+BUILD := $(UV) build
+PYTHON := $(UV) run python
 PUBLISH := $(UV) run twine upload
 PYTEST := $(UV) run pytest -v -s --timeout=120 --timeout-method=thread
 RUFF_CHECK := $(UV) run ruff check --fix --ignore E501 
@@ -39,9 +35,8 @@ install: depends
 dist:
 	$(BUILD)
 
-depends: 
-	@$(SYNC) 
-	@$(EXPORT) > $(REQUIREMENTS_FILE)
+depends:
+	@$(SYNC)
 
 check: 
 	$(RUFF_CHECK) $(SRC_DIR) $(TEST_DIR) 

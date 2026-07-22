@@ -50,7 +50,7 @@ dependencies = [
     "databricks-sdk[openai]>=0.108.0",
     # Pinned in main deps (not optional extra) because dao-ai source
     # imports databricks.vector_search.{client,index,reranker}
-    # unconditionally. Without this pin, requirements.txt omits the
+    # unconditionally. Without this pin, `pip install dao-ai` omits the
     # package, the serverless env's resolver may leave a stale
     # pre-installed version, and databricks_openai.vector_search_retriever_tool
     # fails to import VectorSearchIndex from databricks.vector_search.client.

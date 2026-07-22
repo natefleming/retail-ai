@@ -5,8 +5,9 @@ installed dao-ai wheel's packaged assets — no source checkout required. These
 tests cover:
 
 - the packaged assets are reachable via importlib.resources,
-- write_pipeline_bundle materializes databricks.yaml, requirements.txt, the 8
-  step notebooks, and the resolved config into the staging dir,
+- write_pipeline_bundle materializes databricks.yaml, the 8 step notebooks, and
+  the resolved config into the staging dir (dao-ai installs via the serverless
+  environment's dao_ai_dep dependency; no requirements.txt),
 - _referenced_asset_paths picks up relative ddl/data paths and ignores
   Volume-backed / absolute ones,
 - config-referenced data/functions files are copied into the bundle,
@@ -28,7 +29,6 @@ from dao_ai.config import (
 )
 from dao_ai.pipeline.bundle import (
     _materialize_notebooks,
-    _packaged_text,
     _referenced_asset_paths,
     generate_pipeline_databricks_yaml,
     write_pipeline_bundle,
@@ -69,12 +69,6 @@ class TestPackagedAssets:
         assert len(names) == 8, f"expected 8 step notebooks, got {names}"
         assert names[0].startswith("01_")
         assert names[-1].startswith("08_")
-
-    def test_requirements_are_packaged_without_dao_ai_pin(self) -> None:
-        requirements = _packaged_text("dao_ai.pipeline", "requirements.txt")
-        # The pinned lock intentionally does NOT pin dao-ai (installed by the
-        # notebooks from the bundled wheel or PyPI).
-        assert "dao-ai" not in requirements.splitlines()
 
     def test_notebooks_have_no_source_path_fallback(self) -> None:
         """The wheel-only refactor drops the `../src` sys.path fallback."""
@@ -138,6 +132,19 @@ class TestGeneratePipelineDatabricksYaml:
 
     def test_published_omits_wheel_from_sync(self) -> None:
         assert "dist/*.whl" not in self._doc(development=False)["sync"]["include"]
+
+    def test_no_requirements_txt_in_sync(self) -> None:
+        # requirements.txt is retired: dao-ai (with its transitive deps) is
+        # installed via the serverless environment's ``dao_ai_dep`` dependency.
+        assert "requirements.txt" not in self._doc(development=False)["sync"]["include"]
+
+    def test_env_spec_installs_dao_ai_via_bundle_var(self) -> None:
+        doc = self._doc(development=False)
+        # The dao_ai_dep variable exists (defaults to the PyPI spec).
+        assert doc["variables"]["dao_ai_dep"]["default"] == "dao-ai"
+        # The serverless environment installs exactly the dao_ai_dep dependency.
+        env = doc["resources"]["jobs"]["deploy_job"]["environments"][0]
+        assert env["spec"]["dependencies"] == ["${var.dao_ai_dep}"]
 
     def test_no_artifacts_block(self) -> None:
         # The dao-ai wheel is never built at bundle-deploy time.
@@ -227,7 +234,8 @@ class TestWritePipelineBundle:
         write_pipeline_bundle(config, out, source_root=tmp_path)
 
         assert (out / "databricks.yaml").exists()
-        assert (out / "requirements.txt").exists()
+        # requirements.txt is retired — deps install via the env-spec dao_ai_dep.
+        assert not (out / "requirements.txt").exists()
         assert (out / "config" / "my_config.yaml").exists()
         notebooks = sorted((out / "notebooks").glob("*.py"))
         assert len(notebooks) == 8
