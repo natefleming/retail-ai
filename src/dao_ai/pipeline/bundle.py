@@ -5,8 +5,8 @@ emits the multi-task *Job* (``deploy_job``) bundle that ``dao-ai generate-workfl
 submits. The whole point is to run from an installed ``dao-ai`` wheel with **no
 source checkout**: the ``databricks.yaml`` is built programmatically here
 (matching ``generate_databricks_yaml`` in :mod:`dao_ai.apps.bundle`), and the
-step notebooks + pinned ``requirements.txt`` ship as package data under
-``dao_ai/pipeline/`` and are materialized into a staging directory.
+step notebooks ship as package data under ``dao_ai/pipeline/`` and are
+materialized into a staging directory.
 
 The staging layout mirrors the historic repo layout so the relative paths baked
 into notebooks (``../config``, ``../dist``) and into configs (``../data/...``,
@@ -14,17 +14,16 @@ into notebooks (``../config``, ``../dist``) and into configs (``../data/...``,
 
     <output_dir>/
       databricks.yaml          # built programmatically (dict -> yaml.dump)
-      requirements.txt         # packaged pinned dependency lock (no dao-ai pin)
       notebooks/NN_*.py        # packaged step notebooks
       config/<name>.yaml       # the resolved dao-ai config
       dist/dao_ai-*.whl        # development mode only: the current build's wheel
       data/<vertical>/...      # copied referenced dataset ddl/data files
       functions/<vertical>/... # copied referenced UC-function ddl files
 
-The dao-ai package itself is NOT pinned in ``requirements.txt`` — the step
-notebooks install it separately: from the bundled ``dist/`` wheel in development
-mode, or from PyPI otherwise (see the notebook bootstrap in
-``dao_ai/pipeline/notebooks/``).
+dao-ai (with its own transitive deps) installs via the serverless job
+environment's ``dao_ai_dep`` dependency (see ``generate_pipeline_databricks_yaml``),
+mirroring the Apps deploy paths: the bundled ``dist/`` wheel in development mode,
+or the ``dao-ai`` PyPI package otherwise. There is no pinned ``requirements.txt``.
 """
 
 from __future__ import annotations
@@ -44,10 +43,8 @@ from dao_ai.apps.bundle import (
 from dao_ai.config import AppConfig
 from dao_ai.utils import normalize_name
 
-# Package locations of the assets shipped in the wheel.
-_PIPELINE_PKG = "dao_ai.pipeline"
+# Package location of the step notebooks shipped in the wheel.
 _NOTEBOOKS_PKG = "dao_ai.pipeline.notebooks"
-_REQUIREMENTS_NAME = "requirements.txt"
 
 # The clouds each get their own bundle target so one app has a distinct
 # deployment identity per cloud (``<app>-<cloud>``).
@@ -74,11 +71,6 @@ _PIPELINE_TASKS: tuple[tuple[str, str, tuple[str, ...], dict[str, str]], ...] = 
 )
 
 
-def _packaged_text(package: str, name: str) -> str:
-    """Read a text resource shipped inside the dao-ai wheel."""
-    return files(package).joinpath(name).read_text(encoding="utf-8")
-
-
 def generate_pipeline_databricks_yaml(config: AppConfig, development: bool) -> str:
     """Build the ``deploy_job`` bundle ``databricks.yaml`` (dict -> YAML).
 
@@ -98,7 +90,6 @@ def generate_pipeline_databricks_yaml(config: AppConfig, development: bool) -> s
     app_name = normalize_name(config.app.name)
 
     sync_include = [
-        "requirements.txt",
         "config/**",
         "data/**",
         "functions/**",
@@ -107,7 +98,8 @@ def generate_pipeline_databricks_yaml(config: AppConfig, development: bool) -> s
     ]
     if development:
         # The bundle CLI excludes .whl by default; include the staged wheel so
-        # it uploads as a source file the notebooks can pip-install.
+        # the serverless environment can install it (../dist/<wheel> via the
+        # ``dao_ai_dep`` variable).
         sync_include.append("dist/*.whl")
 
     tasks: list[dict[str, Any]] = []
@@ -143,6 +135,15 @@ def generate_pipeline_databricks_yaml(config: AppConfig, development: bool) -> s
                 ),
                 "default": "auto",
             },
+            "dao_ai_dep": {
+                "description": (
+                    "dao-ai dependency for the serverless environment - the "
+                    "bundled './dist/<wheel>' in development mode, or the "
+                    "'dao-ai' PyPI spec otherwise. Installed by the job's "
+                    "serverless environment before each task's notebook runs."
+                ),
+                "default": "dao-ai",
+            },
         },
         "resources": {
             "jobs": {
@@ -155,7 +156,7 @@ def generate_pipeline_databricks_yaml(config: AppConfig, development: bool) -> s
                             "spec": {
                                 "environment_version": "5",
                                 "dependencies": [
-                                    "-r ${workspace.file_path}/requirements.txt"
+                                    "${var.dao_ai_dep}"
                                 ],
                             },
                         }
@@ -285,9 +286,9 @@ def write_pipeline_bundle(
     """Stage a deployable ``deploy_job`` bundle for ``dao-ai generate-workflow``.
 
     Materializes the packaged pipeline assets (``databricks.yaml`` template,
-    step notebooks, pinned ``requirements.txt``) plus the resolved dao-ai config
-    into ``output_dir``, so ``databricks bundle deploy/run`` can be invoked from
-    there with no source checkout.
+    step notebooks) plus the resolved dao-ai config into ``output_dir``, so
+    ``databricks bundle deploy/run`` can be invoked from there with no source
+    checkout. dao-ai installs via the serverless env's ``dao_ai_dep`` dependency.
 
     Args:
         config: The loaded dao-ai config (via ``AppConfig.from_file``).
@@ -331,16 +332,9 @@ def write_pipeline_bundle(
     )
     written.append("databricks.yaml")
 
-    # 2. requirements.txt (pinned dependency lock; dao-ai is installed
-    #    separately by the notebooks, so this file is shipped verbatim).
-    _write_file(
-        output_dir / "requirements.txt",
-        _packaged_text(_PIPELINE_PKG, _REQUIREMENTS_NAME),
-        overwrite=True,
-    )
-    written.append("requirements.txt")
-
-    # 3. Step notebooks.
+    # 2. Step notebooks. (No requirements.txt: the serverless environment
+    #    installs dao-ai — which pulls its own transitive deps — via the
+    #    ``dao_ai_dep`` dependency, mirroring the Apps deploy paths.)
     written.extend(_materialize_notebooks(output_dir, overwrite=True))
 
     # 4. The resolved config, under config/<name>.yaml so the notebook's
@@ -367,12 +361,42 @@ def write_pipeline_bundle(
             )
         written.append(f"config/{config_filename}")
 
-    # 5. Development wheel: stage the current build so notebooks install THIS
-    #    code (../dist/dao_ai-*.whl) instead of PyPI.
+    # 5. Development wheel: build the current source into a uniquely-versioned
+    #    (``+dev<epoch>``) wheel and stage it under dist/, so the serverless
+    #    environment installs THIS code. The CLI points ``dao_ai_dep`` at the
+    #    staged wheel (``./dist/<name>``); in published mode ``dao_ai_dep``
+    #    stays ``dao-ai`` and no wheel is staged.
     if development:
-        from dao_ai.utils import find_dev_wheel
+        import subprocess
 
-        wheel_path = find_dev_wheel()
+        from dao_ai.utils import dev_local_version, find_dev_wheel
+
+        project_root: Path = Path(__file__).parents[3]
+        source_dir: Path = project_root / "src" / "dao_ai"
+        if source_dir.is_dir():
+            # Clear existing wheels so the freshly-built one is unambiguous.
+            for stale in (project_root / "dist").glob("dao_ai-*.whl"):
+                stale.unlink()
+            # Stamp a unique local version so the dev wheel out-ranks the
+            # same-base published version (see ``dev_local_version``).
+            with dev_local_version(project_root / "pyproject.toml"):
+                result = subprocess.run(
+                    ["uv", "build", "--wheel"],
+                    cwd=project_root,
+                    capture_output=True,
+                    text=True,
+                )
+            if result.returncode != 0:
+                raise RuntimeError(f"Wheel build failed: {result.stderr}")
+            built = sorted(
+                (project_root / "dist").glob("dao_ai-*.whl"),
+                key=lambda p: p.stat().st_mtime,
+            )
+            wheel_path: Path | None = built[-1] if built else None
+        else:
+            # No source tree (running from an installed package) — reuse an
+            # existing wheel.
+            wheel_path = find_dev_wheel()
         if not wheel_path:
             raise RuntimeError(
                 "No local dao-ai wheel found for a --development pipeline "
@@ -381,7 +405,6 @@ def write_pipeline_bundle(
         dist_dir = output_dir / "dist"
         dist_dir.mkdir(parents=True, exist_ok=True)
         dest_wheel = dist_dir / wheel_path.name
-        # Clear stale wheels so the notebook's glob is unambiguous.
         for stale in dist_dir.glob("dao_ai-*.whl"):
             if stale != dest_wheel:
                 stale.unlink()

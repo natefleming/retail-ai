@@ -2519,9 +2519,12 @@ def run_databricks_command(
         staging_dir = (_default_bundle_base() / "workflow").resolve()
 
     config_rel_to_notebooks: str | None = None
+    dao_ai_dep: str = "dao-ai"
     if config_path and app_config:
         from dao_ai.pipeline.bundle import write_pipeline_bundle
         from dao_ai.utils import resolve_use_local_source
+
+        use_local_source: bool = resolve_use_local_source(development)
 
         # Regenerate the owned default dir cleanly so stale dev artifacts
         # (e.g. dist/ wheels) don't linger across dev/published switches.
@@ -2531,12 +2534,26 @@ def run_databricks_command(
             app_config,
             staging_dir,
             overwrite=overwrite,
-            development=resolve_use_local_source(development),
+            development=use_local_source,
         )
         # The config is staged at <staging>/config/<name>; notebooks run with
         # CWD == <staging>/notebooks, so the config-path var is deterministic.
         config_filename: str = Path(config_path).name
         config_rel_to_notebooks = f"../config/{config_filename}"
+
+        # The serverless environment installs dao-ai via the ``dao_ai_dep``
+        # bundle variable: the staged local wheel in development mode (the
+        # notebooks run with CWD == <staging>/notebooks, so ``./dist`` resolves),
+        # else the unbounded ``dao-ai`` PyPI spec. write_pipeline_bundle staged
+        # exactly one wheel under <staging>/dist in development mode.
+        if use_local_source:
+            staged_wheels = sorted((staging_dir / "dist").glob("dao_ai-*.whl"))
+            if not staged_wheels:
+                raise RuntimeError(
+                    "Development pipeline bundle has no staged dao-ai wheel "
+                    f"under {staging_dir / 'dist'}."
+                )
+            dao_ai_dep = f"./dist/{staged_wheels[-1].name}"
 
     # Use app-specific cloud target: {app_name}-{cloud}
     # This ensures each app has unique deployment identity while supporting cloud-specific settings
@@ -2584,6 +2601,11 @@ def run_databricks_command(
         "auto" if development is None else ("true" if development else "false")
     )
     extra_vars.append(f'--var="development={resolved_development}"')
+
+    # The serverless environment's dao-ai dependency: staged local wheel
+    # (development) or the ``dao-ai`` PyPI spec (published). Installed before
+    # each task's notebook runs, so the notebooks carry no install of their own.
+    extra_vars.append(f'--var="dao_ai_dep={dao_ai_dep}"')
 
     # command=None -> stage-only (generate the bundle, don't run a bundle verb).
     # This is what `generate-workflow` with no --deploy/--run/--destroy does.

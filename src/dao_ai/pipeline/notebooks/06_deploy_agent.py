@@ -1,6 +1,14 @@
 # Databricks notebook source
-# MAGIC %pip install --quiet --upgrade -r ../requirements.txt
-# MAGIC %pip uninstall --quiet -y pyspark pyspark-connect
+# Dependency bootstrap. Install dao-ai (which pulls its own transitive deps) via
+# uv — the newest bundled ../dist wheel in development mode, else the published
+# PyPI package. In a deployed job the serverless environment has already
+# installed it; this reinstall is harmless. ``%restart_python`` makes the freshly
+# installed package importable in the cells below.
+import glob
+
+_dao_ai_dep = next(iter(sorted(glob.glob("../dist/dao_ai-*.whl"), reverse=True)), "dao-ai")
+
+# MAGIC %uv pip install --quiet {_dao_ai_dep}
 # MAGIC %restart_python
 
 # COMMAND ----------
@@ -52,28 +60,17 @@ print(f"Deployment target: {deployment_target_str or '(using config default)'}")
 
 # COMMAND ----------
 
-import sys, os, glob, subprocess
+# Record the installed dao-ai version plus the key libraries resolved under
+# it, so each run's logs capture exactly what was installed. Alphabetical; the
+# list is short and hand-curated.
+from importlib.metadata import version
 
-# Install dao-ai from the bundled wheel (development bundle) if present,
-# otherwise from PyPI. No `../src` source-path fallback and no runtime
-# `uv build`: the wheel is the unit of code. `dao-ai generate-workflow --development`
-# stages the current build's wheel under ../dist; otherwise the published
-# package is installed from PyPI.
-_wheels = sorted(glob.glob("../dist/dao_ai-*.whl") or glob.glob("../../artifacts/.internal/dao_ai-*.whl"))
-if _wheels:
-    subprocess.check_call([sys.executable, "-m", "pip", "install", "--quiet", "--force-reinstall", _wheels[-1]])
-    print(f"dao-ai source: local wheel ({os.path.basename(_wheels[-1])})")
-else:
-    subprocess.check_call([sys.executable, "-m", "pip", "install", "--quiet", "dao-ai"])
-    print("dao-ai source: PyPI")
-
-# COMMAND ----------
-
-try:
-    from importlib.metadata import version as _meta_version
-    print(f"dao-ai version: {_meta_version('dao-ai')}")
-except Exception:
-    print("dao-ai version: dev (source path)")
+print(f"dao-ai=={version('dao-ai')}")
+print(f"databricks-langchain=={version('databricks-langchain')}")
+print(f"databricks-sdk=={version('databricks-sdk')}")
+print(f"langchain=={version('langchain')}")
+print(f"langgraph=={version('langgraph')}")
+print(f"mlflow=={version('mlflow')}")
 
 # COMMAND ----------
 
