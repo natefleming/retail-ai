@@ -281,18 +281,6 @@ wheels = [
 ]
 
 [[package]]
-name = "asyncer"
-version = "0.0.8"
-source = { registry = "https://pypi-proxy.dev.databricks.com/simple/" }
-dependencies = [
-    { name = "anyio" },
-]
-sdist = { url = "https://pypi-proxy.dev.databricks.com/packages/ff/67/7ea59c3e69eaeee42e7fc91a5be67ca5849c8979acac2b920249760c6af2/asyncer-0.0.8.tar.gz", hash = "sha256:a589d980f57e20efb07ed91d0dbe67f1d2fd343e7142c66d3a099f05c620739c", upload-time = "2024-08-24T23:15:36.449Z" }
-wheels = [
-    { url = "https://pypi-proxy.dev.databricks.com/packages/8a/04/15b6ca6b7842eda2748bda0a0af73f2d054e9344320f8bba01f994294bcb/asyncer-0.0.8-py3-none-any.whl", hash = "sha256:5920d48fc99c8f8f0f1576e1882f5022885589c5fcbc46ce4224ec3e53776eeb", upload-time = "2024-08-24T23:15:35.317Z" },
-]
-
-[[package]]
 name = "attrs"
 version = "26.1.0"
 source = { registry = "https://pypi-proxy.dev.databricks.com/simple/" }
@@ -351,15 +339,6 @@ source = { registry = "https://pypi-proxy.dev.databricks.com/simple/" }
 sdist = { url = "https://pypi-proxy.dev.databricks.com/packages/7d/b2/51899539b6ceeeb420d40ed3cd4b7a40519404f9baf3d4ac99dc413a834b/babel-2.18.0.tar.gz", hash = "sha256:b80b99a14bd085fcacfa15c9165f651fbb3406e66cc603abf11c5750937c992d", upload-time = "2026-02-01T12:30:56.078Z" }
 wheels = [
     { url = "https://pypi-proxy.dev.databricks.com/packages/77/f5/21d2de20e8b8b0408f0681956ca2c69f1320a3848ac50e6e7f39c6159675/babel-2.18.0-py3-none-any.whl", hash = "sha256:e2b422b277c2b9a9630c1d7903c2a00d0830c409c59ac8cae9081c92f1aeba35", upload-time = "2026-02-01T12:30:53.445Z" },
-]
-
-[[package]]
-name = "backoff"
-version = "2.2.1"
-source = { registry = "https://pypi-proxy.dev.databricks.com/simple/" }
-sdist = { url = "https://pypi-proxy.dev.databricks.com/packages/47/d7/5bbeb12c44d7c4f2fb5b56abce497eb5ed9f34d85701de869acedd602619/backoff-2.2.1.tar.gz", hash = "sha256:03f829f5bb1923180821643f8753b0502c3b682293992485b0eef2807afa5cba", upload-time = "2022-10-05T19:19:32.061Z" }
-wheels = [
-    { url = "https://pypi-proxy.dev.databricks.com/packages/df/73/b6e24bd22e6720ca8ee9a85a0c4a2971af8497d8f3193fa05390cbd46e09/backoff-2.2.1-py3-none-any.whl", hash = "sha256:63579f9a0628e06278f7e47b7d7d5b6ce20dc65c5e96a6f3ca99a6adca0396e8", upload-time = "2022-10-05T19:19:30.546Z" },
 ]
 
 [[package]]
@@ -711,18 +690,6 @@ wheels = [
 ]
 
 [[package]]
-name = "colorlog"
-version = "6.10.1"
-source = { registry = "https://pypi-proxy.dev.databricks.com/simple/" }
-dependencies = [
-    { name = "colorama", marker = "sys_platform == 'win32'" },
-]
-sdist = { url = "https://pypi-proxy.dev.databricks.com/packages/a2/61/f083b5ac52e505dfc1c624eafbf8c7589a0d7f32daa398d2e7590efa5fda/colorlog-6.10.1.tar.gz", hash = "sha256:eb4ae5cb65fe7fec7773c2306061a8e63e02efc2c72eba9d27b0fa23c94f1321", upload-time = "2025-10-16T16:14:11.978Z" }
-wheels = [
-    { url = "https://pypi-proxy.dev.databricks.com/packages/6d/c1/e419ef3723a074172b68aaa89c9f3de486ed4c2399e2dbd8113a4fdcaf9e/colorlog-6.10.1-py3-none-any.whl", hash = "sha256:2d7e8348291948af66122cff006c9f8da6255d224e7cf8e37d8de2df3bad8c9c", upload-time = "2025-10-16T16:14:10.512Z" },
-]
-
-[[package]]
 name = "contourpy"
 version = "1.3.3"
 source = { registry = "https://pypi-proxy.dev.databricks.com/simple/" }
@@ -982,48 +949,49 @@ name = "dao-ai"
 version = "0.2.0"
 source = { editable = "." }
 dependencies = [
-    { name = "a2a-sdk" },
     { name = "databricks-agents" },
+    { name = "databricks-ai-search" },
     { name = "databricks-langchain", extra = ["memory"] },
     { name = "databricks-mcp" },
     { name = "databricks-sdk", extra = ["openai"] },
-    { name = "databricks-vectorsearch" },
-    { name = "ddgs" },
-    { name = "deepagents" },
-    { name = "dspy", version = "2.6.27", source = { registry = "https://pypi-proxy.dev.databricks.com/simple/" }, marker = "python_full_version != '3.12.*'" },
-    { name = "dspy", version = "3.2.1", source = { registry = "https://pypi-proxy.dev.databricks.com/simple/" }, marker = "python_full_version == '3.12.*'" },
-    { name = "flashrank" },
-    { name = "grandalf" },
     { name = "langchain" },
     { name = "langchain-community" },
     { name = "langchain-mcp-adapters" },
-    { name = "langchain-tavily" },
     { name = "langgraph" },
     { name = "langgraph-checkpoint-postgres" },
-    { name = "langmem" },
     { name = "loguru" },
     { name = "mcp" },
     { name = "mlflow", extra = ["databricks"] },
     { name = "nest-asyncio" },
-    { name = "openpyxl" },
     { name = "psycopg", extra = ["binary", "pool"] },
     { name = "pydantic" },
     { name = "python-dotenv" },
     { name = "pyyaml" },
     { name = "rfc8785" },
-    { name = "rich" },
     { name = "ruamel-yaml" },
-    { name = "scipy" },
     { name = "sqlparse" },
-    { name = "tomli" },
     { name = "unitycatalog-ai", extra = ["databricks"] },
 ]
 
 [package.optional-dependencies]
+a2a = [
+    { name = "a2a-sdk" },
+]
+all = [
+    { name = "a2a-sdk" },
+    { name = "ddgs" },
+    { name = "deepagents" },
+    { name = "flashrank" },
+    { name = "langmem" },
+    { name = "openpyxl" },
+]
 databricks = [
     { name = "databricks-connect", version = "16.1.7", source = { registry = "https://pypi-proxy.dev.databricks.com/simple/" }, marker = "python_full_version < '3.12'" },
     { name = "databricks-connect", version = "17.0.10", source = { registry = "https://pypi-proxy.dev.databricks.com/simple/" }, marker = "python_full_version >= '3.12'" },
     { name = "pyspark" },
+]
+deepagents = [
+    { name = "deepagents" },
 ]
 dev = [
     { name = "mypy" },
@@ -1036,9 +1004,21 @@ docs = [
     { name = "mkdocs-material" },
     { name = "mkdocstrings", extra = ["python"] },
 ]
+excel = [
+    { name = "openpyxl" },
+]
 mcp = [
     { name = "fastapi" },
     { name = "uvicorn", extra = ["standard"] },
+]
+memory = [
+    { name = "langmem" },
+]
+rerank = [
+    { name = "flashrank" },
+]
+search = [
+    { name = "ddgs" },
 ]
 test = [
     { name = "pytest" },
@@ -1049,6 +1029,9 @@ test = [
 ]
 
 [package.dev-dependencies]
+a2a = [
+    { name = "a2a-sdk" },
+]
 all = [
     { name = "mkdocs" },
     { name = "mkdocs-material" },
@@ -1068,6 +1051,9 @@ databricks = [
     { name = "databricks-connect", version = "17.0.10", source = { registry = "https://pypi-proxy.dev.databricks.com/simple/" }, marker = "python_full_version >= '3.12'" },
     { name = "pyspark" },
 ]
+deepagents = [
+    { name = "deepagents" },
+]
 dev = [
     { name = "mypy" },
     { name = "pre-commit" },
@@ -1080,9 +1066,21 @@ docs = [
     { name = "mkdocs-material" },
     { name = "mkdocstrings", extra = ["python"] },
 ]
+excel = [
+    { name = "openpyxl" },
+]
 mcp = [
     { name = "fastapi" },
     { name = "uvicorn", extra = ["standard"] },
+]
+memory = [
+    { name = "langmem" },
+]
+rerank = [
+    { name = "flashrank" },
+]
+search = [
+    { name = "ddgs" },
 ]
 test = [
     { name = "pytest" },
@@ -1094,26 +1092,24 @@ test = [
 
 [package.metadata]
 requires-dist = [
-    { name = "a2a-sdk", specifier = ">=0.3.0,<1.0.0" },
+    { name = "a2a-sdk", marker = "extra == 'a2a'", specifier = ">=0.3.0,<1.0.0" },
+    { name = "dao-ai", extras = ["a2a", "rerank", "deepagents", "memory", "search", "excel"], marker = "extra == 'all'" },
     { name = "databricks-agents", specifier = ">=1.11.0" },
+    { name = "databricks-ai-search", specifier = ">=0.75" },
     { name = "databricks-connect", marker = "extra == 'databricks'", specifier = ">=16.0.0" },
     { name = "databricks-langchain", extras = ["memory"], specifier = ">=0.20.0" },
     { name = "databricks-mcp", specifier = ">=0.9.0" },
     { name = "databricks-sdk", extras = ["openai"], specifier = ">=0.108.0" },
-    { name = "databricks-vectorsearch", specifier = ">=0.67" },
-    { name = "ddgs", specifier = ">=9.10.0" },
-    { name = "deepagents", specifier = ">=0.5.7" },
-    { name = "dspy", specifier = ">=2.6.27" },
+    { name = "ddgs", marker = "extra == 'search'", specifier = ">=9.10.0" },
+    { name = "deepagents", marker = "extra == 'deepagents'", specifier = ">=0.5.7" },
     { name = "fastapi", marker = "extra == 'mcp'", specifier = ">=0.115.0" },
-    { name = "flashrank", specifier = ">=0.2.10" },
-    { name = "grandalf", specifier = ">=0.8" },
+    { name = "flashrank", marker = "extra == 'rerank'", specifier = ">=0.2.10" },
     { name = "langchain", specifier = ">=1.2.12" },
     { name = "langchain-community", specifier = ">=0.4.1" },
     { name = "langchain-mcp-adapters", specifier = ">=0.3.0" },
-    { name = "langchain-tavily", specifier = ">=0.2.15" },
     { name = "langgraph", specifier = ">=1.1.10" },
     { name = "langgraph-checkpoint-postgres", specifier = "==3.0.5" },
-    { name = "langmem", specifier = ">=0.0.30" },
+    { name = "langmem", marker = "extra == 'memory'", specifier = ">=0.0.30" },
     { name = "loguru", specifier = ">=0.7.3" },
     { name = "mcp", specifier = ">=1.26.0" },
     { name = "mkdocs", marker = "extra == 'docs'", specifier = ">=1.6.1" },
@@ -1122,7 +1118,7 @@ requires-dist = [
     { name = "mlflow", extras = ["databricks"], specifier = ">=3.10.1" },
     { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.19.1" },
     { name = "nest-asyncio", specifier = ">=1.6.0" },
-    { name = "openpyxl", specifier = ">=3.1.5" },
+    { name = "openpyxl", marker = "extra == 'excel'", specifier = ">=3.1.5" },
     { name = "pre-commit", marker = "extra == 'dev'", specifier = ">=4.5.1" },
     { name = "psycopg", extras = ["binary", "pool"], specifier = ">=3.3.2" },
     { name = "pydantic", specifier = ">=2.12.5" },
@@ -1136,18 +1132,16 @@ requires-dist = [
     { name = "python-dotenv", specifier = ">=1.2.1" },
     { name = "pyyaml", specifier = ">=6.0.2" },
     { name = "rfc8785", specifier = ">=0.1.4" },
-    { name = "rich", specifier = ">=14.2.0" },
     { name = "ruamel-yaml", specifier = ">=0.18,<0.19" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.14.9" },
-    { name = "scipy", specifier = ">=1.14.0,<1.17" },
     { name = "sqlparse", specifier = ">=0.5.4" },
-    { name = "tomli", specifier = ">=2.3.0" },
     { name = "unitycatalog-ai", extras = ["databricks"], specifier = ">=0.3.2" },
     { name = "uvicorn", extras = ["standard"], marker = "extra == 'mcp'", specifier = ">=0.32.0" },
 ]
-provides-extras = ["dev", "docs", "test", "databricks", "mcp"]
+provides-extras = ["dev", "docs", "test", "databricks", "mcp", "a2a", "rerank", "deepagents", "memory", "search", "excel", "all"]
 
 [package.metadata.requires-dev]
+a2a = [{ name = "a2a-sdk", specifier = ">=0.3.0,<1.0.0" }]
 all = [
     { name = "mkdocs", specifier = ">=1.6.1" },
     { name = "mkdocs-material", specifier = ">=9.7.1" },
@@ -1166,6 +1160,7 @@ databricks = [
     { name = "databricks-connect", specifier = ">=16.0.0" },
     { name = "pyspark", specifier = ">=3.5.0" },
 ]
+deepagents = [{ name = "deepagents", specifier = ">=0.5.7" }]
 dev = [
     { name = "mypy", specifier = ">=1.19.1" },
     { name = "pre-commit", specifier = ">=4.5.1" },
@@ -1178,10 +1173,14 @@ docs = [
     { name = "mkdocs-material", specifier = ">=9.7.1" },
     { name = "mkdocstrings", extras = ["python"], specifier = ">=1.0.0" },
 ]
+excel = [{ name = "openpyxl", specifier = ">=3.1.5" }]
 mcp = [
     { name = "fastapi", specifier = ">=0.115.0" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.32.0" },
 ]
+memory = [{ name = "langmem", specifier = ">=0.0.30" }]
+rerank = [{ name = "flashrank", specifier = ">=0.2.10" }]
+search = [{ name = "ddgs", specifier = ">=9.10.0" }]
 test = [
     { name = "pytest", specifier = ">=9.0.2" },
     { name = "pytest-cov", specifier = ">=7.0.0" },
@@ -1391,22 +1390,6 @@ openai = [
 ]
 
 [[package]]
-name = "databricks-vectorsearch"
-version = "0.75"
-source = { registry = "https://pypi-proxy.dev.databricks.com/simple/" }
-dependencies = [
-    { name = "databricks-ai-search" },
-    { name = "deprecation" },
-    { name = "httpx" },
-    { name = "mlflow-skinny" },
-    { name = "protobuf" },
-    { name = "requests" },
-]
-wheels = [
-    { url = "https://pypi-proxy.dev.databricks.com/packages/3f/8b/735e83ad2df5df9655b37247671a6b7a4b5ccddb64e32c8555d8c19ec400/databricks_vectorsearch-0.75-py3-none-any.whl", hash = "sha256:a7f89f600f11a981feec6ab4ce221c97e7b89b4a820487f5b439f3390854708b", upload-time = "2026-06-10T20:22:15.216Z" },
-]
-
-[[package]]
 name = "dataclasses-json"
 version = "0.6.7"
 source = { registry = "https://pypi-proxy.dev.databricks.com/simple/" }
@@ -1417,32 +1400,6 @@ dependencies = [
 sdist = { url = "https://pypi-proxy.dev.databricks.com/packages/64/a4/f71d9cf3a5ac257c993b5ca3f93df5f7fb395c725e7f1e6479d2514173c3/dataclasses_json-0.6.7.tar.gz", hash = "sha256:b6b3e528266ea45b9535223bc53ca645f5208833c29229e847b3f26a1cc55fc0", upload-time = "2024-06-09T16:20:19.103Z" }
 wheels = [
     { url = "https://pypi-proxy.dev.databricks.com/packages/c3/be/d0d44e092656fe7a06b55e6103cbce807cdbdee17884a5367c68c9860853/dataclasses_json-0.6.7-py3-none-any.whl", hash = "sha256:0dbf33f26c8d5305befd61b39d2b3414e8a407bedc2834dea9b8d642666fb40a", upload-time = "2024-06-09T16:20:16.715Z" },
-]
-
-[[package]]
-name = "datasets"
-version = "5.0.0"
-source = { registry = "https://pypi-proxy.dev.databricks.com/simple/" }
-dependencies = [
-    { name = "dill" },
-    { name = "filelock" },
-    { name = "fsspec", extra = ["http"] },
-    { name = "httpx" },
-    { name = "huggingface-hub" },
-    { name = "multiprocess" },
-    { name = "numpy", version = "1.26.4", source = { registry = "https://pypi-proxy.dev.databricks.com/simple/" }, marker = "python_full_version < '3.13'" },
-    { name = "numpy", version = "2.4.6", source = { registry = "https://pypi-proxy.dev.databricks.com/simple/" }, marker = "python_full_version >= '3.13'" },
-    { name = "packaging" },
-    { name = "pandas" },
-    { name = "pyarrow" },
-    { name = "pyyaml" },
-    { name = "requests" },
-    { name = "tqdm" },
-    { name = "xxhash" },
-]
-sdist = { url = "https://pypi-proxy.dev.databricks.com/packages/d9/85/ce4f780c32f7e36d71257f1c27e8ba898ebe379cb54f211f5f2013f2c219/datasets-5.0.0.tar.gz", hash = "sha256:83dbbbdb07a33b82192b8c419deb18739b138ee2ce1a322d55ce6b100954ec1a", upload-time = "2026-06-05T13:18:26.124Z" }
-wheels = [
-    { url = "https://pypi-proxy.dev.databricks.com/packages/05/66/73034ad30b59f13439b75e620989dacba4c047256e358ba7c2e9ec98ea22/datasets-5.0.0-py3-none-any.whl", hash = "sha256:7dd34927a0fd7046e98aad5cb9430e699c373238a15befa7b9bf22b991a7fee6", upload-time = "2026-06-05T13:18:24.435Z" },
 ]
 
 [[package]]
@@ -1491,24 +1448,6 @@ wheels = [
 ]
 
 [[package]]
-name = "dill"
-version = "0.4.1"
-source = { registry = "https://pypi-proxy.dev.databricks.com/simple/" }
-sdist = { url = "https://pypi-proxy.dev.databricks.com/packages/81/e1/56027a71e31b02ddc53c7d65b01e68edf64dea2932122fe7746a516f75d5/dill-0.4.1.tar.gz", hash = "sha256:423092df4182177d4d8ba8290c8a5b640c66ab35ec7da59ccfa00f6fa3eea5fa", upload-time = "2026-01-19T02:36:56.85Z" }
-wheels = [
-    { url = "https://pypi-proxy.dev.databricks.com/packages/1e/77/dc8c558f7593132cf8fefec57c4f60c83b16941c574ac5f619abb3ae7933/dill-0.4.1-py3-none-any.whl", hash = "sha256:1e1ce33e978ae97fcfcff5638477032b801c46c7c65cf717f95fbc2248f79a9d", upload-time = "2026-01-19T02:36:55.663Z" },
-]
-
-[[package]]
-name = "diskcache"
-version = "5.6.3"
-source = { registry = "https://pypi-proxy.dev.databricks.com/simple/" }
-sdist = { url = "https://pypi-proxy.dev.databricks.com/packages/3f/21/1c1ffc1a039ddcc459db43cc108658f32c57d271d7289a2794e401d0fdb6/diskcache-5.6.3.tar.gz", hash = "sha256:2c3a3fa2743d8535d832ec61c2054a1641f41775aa7c556758a109941e33e4fc", upload-time = "2023-08-31T06:12:00.316Z" }
-wheels = [
-    { url = "https://pypi-proxy.dev.databricks.com/packages/3f/27/4570e78fc0bf5ea0ca45eb1de3818a23787af9b390c0b0a0033a1b8236f9/diskcache-5.6.3-py3-none-any.whl", hash = "sha256:5e31b2d5fbad117cc363ebaf6b689474db18a1f6438bc82358b024abd4c2ca19", upload-time = "2023-08-31T06:11:58.822Z" },
-]
-
-[[package]]
 name = "distlib"
 version = "0.4.3"
 source = { registry = "https://pypi-proxy.dev.databricks.com/simple/" }
@@ -1547,77 +1486,6 @@ source = { registry = "https://pypi-proxy.dev.databricks.com/simple/" }
 sdist = { url = "https://pypi-proxy.dev.databricks.com/packages/e0/4d/f332313098c1de1b2d2ff91cf2674415cc7cddab2ca1b01ae29774bd5fdf/docstring_parser-0.18.0.tar.gz", hash = "sha256:292510982205c12b1248696f44959db3cdd1740237a968ea1e2e7a900eeb2015", upload-time = "2026-04-14T04:09:19.867Z" }
 wheels = [
     { url = "https://pypi-proxy.dev.databricks.com/packages/a7/5f/ed01f9a3cdffbd5a008556fc7b2a08ddb1cc6ace7effa7340604b1d16699/docstring_parser-0.18.0-py3-none-any.whl", hash = "sha256:b3fcbed555c47d8479be0796ef7e19c2670d428d72e96da63f3a40122860374b", upload-time = "2026-04-14T04:09:18.638Z" },
-]
-
-[[package]]
-name = "dspy"
-version = "2.6.27"
-source = { registry = "https://pypi-proxy.dev.databricks.com/simple/" }
-resolution-markers = [
-    "python_full_version >= '3.15'",
-    "python_full_version >= '3.13' and python_full_version < '3.15'",
-    "python_full_version < '3.12'",
-]
-dependencies = [
-    { name = "anyio" },
-    { name = "asyncer" },
-    { name = "backoff" },
-    { name = "cachetools" },
-    { name = "cloudpickle" },
-    { name = "datasets" },
-    { name = "diskcache" },
-    { name = "joblib" },
-    { name = "json-repair" },
-    { name = "litellm" },
-    { name = "magicattr" },
-    { name = "numpy", version = "1.26.4", source = { registry = "https://pypi-proxy.dev.databricks.com/simple/" }, marker = "python_full_version < '3.13'" },
-    { name = "numpy", version = "2.4.6", source = { registry = "https://pypi-proxy.dev.databricks.com/simple/" }, marker = "python_full_version >= '3.13'" },
-    { name = "openai" },
-    { name = "optuna" },
-    { name = "pandas" },
-    { name = "pydantic" },
-    { name = "regex" },
-    { name = "requests" },
-    { name = "rich" },
-    { name = "tenacity" },
-    { name = "tqdm" },
-    { name = "ujson" },
-]
-sdist = { url = "https://pypi-proxy.dev.databricks.com/packages/38/8a/f7ff1a6d3b5294678f13d17ecfc596f49a59e494b190e4e30f7dea7df1dc/dspy-2.6.27.tar.gz", hash = "sha256:de1c4f6f6d127e0efed894e1915dac40f5d5623e7f1cf3d749c98d790066477a", upload-time = "2025-06-03T17:47:13.411Z" }
-wheels = [
-    { url = "https://pypi-proxy.dev.databricks.com/packages/5a/bb/8a75d44bc1b54dea0fa0428eb52b13e7ee533b85841d2c53a53dfc360646/dspy-2.6.27-py3-none-any.whl", hash = "sha256:54e55fd6999b6a46e09b0e49e8c4b71be7dd56a881e66f7a60b8d657650c1a74", upload-time = "2025-06-03T17:47:11.526Z" },
-]
-
-[[package]]
-name = "dspy"
-version = "3.2.1"
-source = { registry = "https://pypi-proxy.dev.databricks.com/simple/" }
-resolution-markers = [
-    "python_full_version == '3.12.*'",
-]
-dependencies = [
-    { name = "anyio" },
-    { name = "asyncer" },
-    { name = "cachetools" },
-    { name = "cloudpickle" },
-    { name = "diskcache" },
-    { name = "gepa" },
-    { name = "json-repair" },
-    { name = "litellm" },
-    { name = "numpy", version = "2.4.6", source = { registry = "https://pypi-proxy.dev.databricks.com/simple/" } },
-    { name = "openai" },
-    { name = "orjson" },
-    { name = "pydantic" },
-    { name = "regex" },
-    { name = "requests" },
-    { name = "tenacity" },
-    { name = "tqdm" },
-    { name = "typeguard" },
-    { name = "xxhash" },
-]
-sdist = { url = "https://pypi-proxy.dev.databricks.com/packages/44/6f/77a79122a16c60b7d5853c11943531bc60f32545369cd05cce4057403a1d/dspy-3.2.1.tar.gz", hash = "sha256:245d6531753cd3e844e7cc47835cfb283c8f57a36a977beabe5034457d9c7241", upload-time = "2026-05-05T19:35:07.471Z" }
-wheels = [
-    { url = "https://pypi-proxy.dev.databricks.com/packages/c5/a1/26ccff78d9e67b17e51fce8ac6d5f57d182ddb20915bf86daf09fc50191a/dspy-3.2.1-py3-none-any.whl", hash = "sha256:4f36c3c0f9d54cd66eeb2a7892df950119e4193deb1fbbc9d46c3438ee1f4df3", upload-time = "2026-05-05T19:35:05.816Z" },
 ]
 
 [[package]]
@@ -1673,58 +1541,6 @@ dependencies = [
 sdist = { url = "https://pypi-proxy.dev.databricks.com/packages/d5/b1/e5b92c59d2c37817e77c1a8c2fc1f79cdcc04c68253e5406b43e3204cba7/fastapi-0.137.1.tar.gz", hash = "sha256:822360704230d9533d8d9475399613525968aa2f0b5bd2a3ccc9f18c88fd541c", upload-time = "2026-06-15T11:28:20.79Z" }
 wheels = [
     { url = "https://pypi-proxy.dev.databricks.com/packages/da/35/380b9a5922f4340e51c309cde09e5bd32e62f02302971bee30dc15aa0624/fastapi-0.137.1-py3-none-any.whl", hash = "sha256:64f6983c59e45c4b9fdc44e57cb8035c2451ee91ea8e8ec042aca37de7cf6b69", upload-time = "2026-06-15T11:28:19.523Z" },
-]
-
-[[package]]
-name = "fastuuid"
-version = "0.14.0"
-source = { registry = "https://pypi-proxy.dev.databricks.com/simple/" }
-sdist = { url = "https://pypi-proxy.dev.databricks.com/packages/c3/7d/d9daedf0f2ebcacd20d599928f8913e9d2aea1d56d2d355a93bfa2b611d7/fastuuid-0.14.0.tar.gz", hash = "sha256:178947fc2f995b38497a74172adee64fdeb8b7ec18f2a5934d037641ba265d26", upload-time = "2025-10-19T22:19:22.402Z" }
-wheels = [
-    { url = "https://pypi-proxy.dev.databricks.com/packages/98/f3/12481bda4e5b6d3e698fbf525df4443cc7dce746f246b86b6fcb2fba1844/fastuuid-0.14.0-cp311-cp311-macosx_10_12_x86_64.macosx_11_0_arm64.macosx_10_12_universal2.whl", hash = "sha256:73946cb950c8caf65127d4e9a325e2b6be0442a224fd51ba3b6ac44e1912ce34", upload-time = "2025-10-19T22:42:40.176Z" },
-    { url = "https://pypi-proxy.dev.databricks.com/packages/59/19/2fc58a1446e4d72b655648eb0879b04e88ed6fa70d474efcf550f640f6ec/fastuuid-0.14.0-cp311-cp311-macosx_10_12_x86_64.whl", hash = "sha256:12ac85024637586a5b69645e7ed986f7535106ed3013640a393a03e461740cb7", upload-time = "2025-10-19T22:25:50.977Z" },
-    { url = "https://pypi-proxy.dev.databricks.com/packages/78/29/3c74756e5b02c40cfcc8b1d8b5bac4edbd532b55917a6bcc9113550e99d1/fastuuid-0.14.0-cp311-cp311-macosx_11_0_arm64.whl", hash = "sha256:05a8dde1f395e0c9b4be515b7a521403d1e8349443e7641761af07c7ad1624b1", upload-time = "2025-10-19T22:29:49.166Z" },
-    { url = "https://pypi-proxy.dev.databricks.com/packages/52/96/d761da3fccfa84f0f353ce6e3eb8b7f76b3aa21fd25e1b00a19f9c80a063/fastuuid-0.14.0-cp311-cp311-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:09378a05020e3e4883dfdab438926f31fea15fd17604908f3d39cbeb22a0b4dc", upload-time = "2025-10-19T22:35:41.306Z" },
-    { url = "https://pypi-proxy.dev.databricks.com/packages/fc/c2/f84c90167cc7765cb82b3ff7808057608b21c14a38531845d933a4637307/fastuuid-0.14.0-cp311-cp311-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:bbb0c4b15d66b435d2538f3827f05e44e2baafcc003dd7d8472dc67807ab8fd8", upload-time = "2025-10-19T22:25:36.997Z" },
-    { url = "https://pypi-proxy.dev.databricks.com/packages/af/7b/4bacd03897b88c12348e7bd77943bac32ccf80ff98100598fcff74f75f2e/fastuuid-0.14.0-cp311-cp311-manylinux_2_5_i686.manylinux1_i686.whl", hash = "sha256:cd5a7f648d4365b41dbf0e38fe8da4884e57bed4e77c83598e076ac0c93995e7", upload-time = "2025-10-19T22:29:46.578Z" },
-    { url = "https://pypi-proxy.dev.databricks.com/packages/c0/a2/584f2c29641df8bd810d00c1f21d408c12e9ad0c0dafdb8b7b29e5ddf787/fastuuid-0.14.0-cp311-cp311-musllinux_1_1_aarch64.whl", hash = "sha256:c0a94245afae4d7af8c43b3159d5e3934c53f47140be0be624b96acd672ceb73", upload-time = "2025-10-19T22:36:42.006Z" },
-    { url = "https://pypi-proxy.dev.databricks.com/packages/24/68/c6b77443bb7764c760e211002c8638c0c7cce11cb584927e723215ba1398/fastuuid-0.14.0-cp311-cp311-musllinux_1_1_i686.whl", hash = "sha256:2b29e23c97e77c3a9514d70ce343571e469098ac7f5a269320a0f0b3e193ab36", upload-time = "2025-10-19T22:28:18.975Z" },
-    { url = "https://pypi-proxy.dev.databricks.com/packages/5a/87/93f553111b33f9bb83145be12868c3c475bf8ea87c107063d01377cc0e8e/fastuuid-0.14.0-cp311-cp311-musllinux_1_1_x86_64.whl", hash = "sha256:1e690d48f923c253f28151b3a6b4e335f2b06bf669c68a02665bc150b7839e94", upload-time = "2025-10-19T22:25:32.75Z" },
-    { url = "https://pypi-proxy.dev.databricks.com/packages/9e/8c/a04d486ca55b5abb7eaa65b39df8d891b7b1635b22db2163734dc273579a/fastuuid-0.14.0-cp311-cp311-win32.whl", hash = "sha256:a6f46790d59ab38c6aa0e35c681c0484b50dc0acf9e2679c005d61e019313c24", upload-time = "2025-10-19T22:24:15.615Z" },
-    { url = "https://pypi-proxy.dev.databricks.com/packages/9c/b2/2d40bf00820de94b9280366a122cbaa60090c8cf59e89ac3938cf5d75895/fastuuid-0.14.0-cp311-cp311-win_amd64.whl", hash = "sha256:e150eab56c95dc9e3fefc234a0eedb342fac433dacc273cd4d150a5b0871e1fa", upload-time = "2025-10-19T22:24:31.646Z" },
-    { url = "https://pypi-proxy.dev.databricks.com/packages/02/a2/e78fcc5df65467f0d207661b7ef86c5b7ac62eea337c0c0fcedbeee6fb13/fastuuid-0.14.0-cp312-cp312-macosx_10_12_x86_64.macosx_11_0_arm64.macosx_10_12_universal2.whl", hash = "sha256:77e94728324b63660ebf8adb27055e92d2e4611645bf12ed9d88d30486471d0a", upload-time = "2025-10-19T22:31:45.635Z" },
-    { url = "https://pypi-proxy.dev.databricks.com/packages/2b/b3/c846f933f22f581f558ee63f81f29fa924acd971ce903dab1a9b6701816e/fastuuid-0.14.0-cp312-cp312-macosx_10_12_x86_64.whl", hash = "sha256:caa1f14d2102cb8d353096bc6ef6c13b2c81f347e6ab9d6fbd48b9dea41c153d", upload-time = "2025-10-19T22:38:38.53Z" },
-    { url = "https://pypi-proxy.dev.databricks.com/packages/54/ea/682551030f8c4fa9a769d9825570ad28c0c71e30cf34020b85c1f7ee7382/fastuuid-0.14.0-cp312-cp312-macosx_11_0_arm64.whl", hash = "sha256:d23ef06f9e67163be38cece704170486715b177f6baae338110983f99a72c070", upload-time = "2025-10-19T22:40:26.07Z" },
-    { url = "https://pypi-proxy.dev.databricks.com/packages/14/dd/5927f0a523d8e6a76b70968e6004966ee7df30322f5fc9b6cdfb0276646a/fastuuid-0.14.0-cp312-cp312-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:0c9ec605ace243b6dbe3bd27ebdd5d33b00d8d1d3f580b39fdd15cd96fd71796", upload-time = "2025-10-19T22:37:23.779Z" },
-    { url = "https://pypi-proxy.dev.databricks.com/packages/16/6e/c0fb547eef61293153348f12e0f75a06abb322664b34a1573a7760501336/fastuuid-0.14.0-cp312-cp312-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:808527f2407f58a76c916d6aa15d58692a4a019fdf8d4c32ac7ff303b7d7af09", upload-time = "2025-10-19T22:26:56.821Z" },
-    { url = "https://pypi-proxy.dev.databricks.com/packages/2d/b1/b9c75e03b768f61cf2e84ee193dc18601aeaf89a4684b20f2f0e9f52b62c/fastuuid-0.14.0-cp312-cp312-manylinux_2_5_i686.manylinux1_i686.whl", hash = "sha256:2fb3c0d7fef6674bbeacdd6dbd386924a7b60b26de849266d1ff6602937675c8", upload-time = "2025-10-19T22:30:31.604Z" },
-    { url = "https://pypi-proxy.dev.databricks.com/packages/fc/fa/f7395fdac07c7a54f18f801744573707321ca0cee082e638e36452355a9d/fastuuid-0.14.0-cp312-cp312-musllinux_1_1_aarch64.whl", hash = "sha256:ab3f5d36e4393e628a4df337c2c039069344db5f4b9d2a3c9cea48284f1dd741", upload-time = "2025-10-19T22:31:32.341Z" },
-    { url = "https://pypi-proxy.dev.databricks.com/packages/66/49/c9fd06a4a0b1f0f048aacb6599e7d96e5d6bc6fa680ed0d46bf111929d1b/fastuuid-0.14.0-cp312-cp312-musllinux_1_1_i686.whl", hash = "sha256:b9a0ca4f03b7e0b01425281ffd44e99d360e15c895f1907ca105854ed85e2057", upload-time = "2025-10-19T22:26:22.962Z" },
-    { url = "https://pypi-proxy.dev.databricks.com/packages/be/9c/909e8c95b494e8e140e8be6165d5fc3f61fdc46198c1554df7b3e1764471/fastuuid-0.14.0-cp312-cp312-musllinux_1_1_x86_64.whl", hash = "sha256:3acdf655684cc09e60fb7e4cf524e8f42ea760031945aa8086c7eae2eeeabeb8", upload-time = "2025-10-19T22:27:01.647Z" },
-    { url = "https://pypi-proxy.dev.databricks.com/packages/90/eb/d29d17521976e673c55ef7f210d4cdd72091a9ec6755d0fd4710d9b3c871/fastuuid-0.14.0-cp312-cp312-win32.whl", hash = "sha256:9579618be6280700ae36ac42c3efd157049fe4dd40ca49b021280481c78c3176", upload-time = "2025-10-19T22:29:19.879Z" },
-    { url = "https://pypi-proxy.dev.databricks.com/packages/cc/fc/f5c799a6ea6d877faec0472d0b27c079b47c86b1cdc577720a5386483b36/fastuuid-0.14.0-cp312-cp312-win_amd64.whl", hash = "sha256:d9e4332dc4ba054434a9594cbfaf7823b57993d7d8e7267831c3e059857cf397", upload-time = "2025-10-19T22:27:49.658Z" },
-    { url = "https://pypi-proxy.dev.databricks.com/packages/a5/83/ae12dd39b9a39b55d7f90abb8971f1a5f3c321fd72d5aa83f90dc67fe9ed/fastuuid-0.14.0-cp313-cp313-macosx_10_12_x86_64.macosx_11_0_arm64.macosx_10_12_universal2.whl", hash = "sha256:77a09cb7427e7af74c594e409f7731a0cf887221de2f698e1ca0ebf0f3139021", upload-time = "2025-10-19T22:42:34.633Z" },
-    { url = "https://pypi-proxy.dev.databricks.com/packages/53/b0/a4b03ff5d00f563cc7546b933c28cb3f2a07344b2aec5834e874f7d44143/fastuuid-0.14.0-cp313-cp313-macosx_10_12_x86_64.whl", hash = "sha256:9bd57289daf7b153bfa3e8013446aa144ce5e8c825e9e366d455155ede5ea2dc", upload-time = "2025-10-19T22:30:25.482Z" },
-    { url = "https://pypi-proxy.dev.databricks.com/packages/9c/6d/64aee0a0f6a58eeabadd582e55d0d7d70258ffdd01d093b30c53d668303b/fastuuid-0.14.0-cp313-cp313-macosx_11_0_arm64.whl", hash = "sha256:ac60fc860cdf3c3f327374db87ab8e064c86566ca8c49d2e30df15eda1b0c2d5", upload-time = "2025-10-19T22:36:14.096Z" },
-    { url = "https://pypi-proxy.dev.databricks.com/packages/60/f5/a7e9cda8369e4f7919d36552db9b2ae21db7915083bc6336f1b0082c8b2e/fastuuid-0.14.0-cp313-cp313-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:ab32f74bd56565b186f036e33129da77db8be09178cd2f5206a5d4035fb2a23f", upload-time = "2025-10-19T22:36:23.302Z" },
-    { url = "https://pypi-proxy.dev.databricks.com/packages/f0/d3/8ce11827c783affffd5bd4d6378b28eb6cc6d2ddf41474006b8d62e7448e/fastuuid-0.14.0-cp313-cp313-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:33e678459cf4addaedd9936bbb038e35b3f6b2061330fd8f2f6a1d80414c0f87", upload-time = "2025-10-19T22:29:43.809Z" },
-    { url = "https://pypi-proxy.dev.databricks.com/packages/a2/51/680fb6352d0bbade04036da46264a8001f74b7484e2fd1f4da9e3db1c666/fastuuid-0.14.0-cp313-cp313-manylinux_2_5_i686.manylinux1_i686.whl", hash = "sha256:1e3cc56742f76cd25ecb98e4b82a25f978ccffba02e4bdce8aba857b6d85d87b", upload-time = "2025-10-19T22:36:06.825Z" },
-    { url = "https://pypi-proxy.dev.databricks.com/packages/fa/7c/2014b5785bd8ebdab04ec857635ebd84d5ee4950186a577db9eff0fb8ff6/fastuuid-0.14.0-cp313-cp313-musllinux_1_1_aarch64.whl", hash = "sha256:cb9a030f609194b679e1660f7e32733b7a0f332d519c5d5a6a0a580991290022", upload-time = "2025-10-19T22:35:31.623Z" },
-    { url = "https://pypi-proxy.dev.databricks.com/packages/01/d2/524d4ceeba9160e7a9bc2ea3e8f4ccf1ad78f3bde34090ca0c51f09a5e91/fastuuid-0.14.0-cp313-cp313-musllinux_1_1_i686.whl", hash = "sha256:09098762aad4f8da3a888eb9ae01c84430c907a297b97166b8abc07b640f2995", upload-time = "2025-10-19T22:26:03.023Z" },
-    { url = "https://pypi-proxy.dev.databricks.com/packages/bc/17/354d04951ce114bf4afc78e27a18cfbd6ee319ab1829c2d5fb5e94063ac6/fastuuid-0.14.0-cp313-cp313-musllinux_1_1_x86_64.whl", hash = "sha256:1383fff584fa249b16329a059c68ad45d030d5a4b70fb7c73a08d98fd53bcdab", upload-time = "2025-10-19T22:31:02.151Z" },
-    { url = "https://pypi-proxy.dev.databricks.com/packages/fb/be/d7be8670151d16d88f15bb121c5b66cdb5ea6a0c2a362d0dcf30276ade53/fastuuid-0.14.0-cp313-cp313-win32.whl", hash = "sha256:a0809f8cc5731c066c909047f9a314d5f536c871a7a22e815cc4967c110ac9ad", upload-time = "2025-10-19T22:36:36.011Z" },
-    { url = "https://pypi-proxy.dev.databricks.com/packages/22/1d/5573ef3624ceb7abf4a46073d3554e37191c868abc3aecd5289a72f9810a/fastuuid-0.14.0-cp313-cp313-win_amd64.whl", hash = "sha256:0df14e92e7ad3276327631c9e7cec09e32572ce82089c55cb1bb8df71cf394ed", upload-time = "2025-10-19T22:33:35.898Z" },
-    { url = "https://pypi-proxy.dev.databricks.com/packages/16/c9/8c7660d1fe3862e3f8acabd9be7fc9ad71eb270f1c65cce9a2b7a31329ab/fastuuid-0.14.0-cp314-cp314-macosx_10_12_x86_64.macosx_11_0_arm64.macosx_10_12_universal2.whl", hash = "sha256:b852a870a61cfc26c884af205d502881a2e59cc07076b60ab4a951cc0c94d1ad", upload-time = "2025-10-19T22:43:44.17Z" },
-    { url = "https://pypi-proxy.dev.databricks.com/packages/4c/f4/a989c82f9a90d0ad995aa957b3e572ebef163c5299823b4027986f133dfb/fastuuid-0.14.0-cp314-cp314-macosx_10_12_x86_64.whl", hash = "sha256:c7502d6f54cd08024c3ea9b3514e2d6f190feb2f46e6dbcd3747882264bb5f7b", upload-time = "2025-10-19T22:43:38.38Z" },
-    { url = "https://pypi-proxy.dev.databricks.com/packages/da/6c/a1a24f73574ac995482b1326cf7ab41301af0fabaa3e37eeb6b3df00e6e2/fastuuid-0.14.0-cp314-cp314-macosx_11_0_arm64.whl", hash = "sha256:1ca61b592120cf314cfd66e662a5b54a578c5a15b26305e1b8b618a6f22df714", upload-time = "2025-10-19T22:32:22.537Z" },
-    { url = "https://pypi-proxy.dev.databricks.com/packages/1a/20/2a9b59185ba7a6c7b37808431477c2d739fcbdabbf63e00243e37bd6bf49/fastuuid-0.14.0-cp314-cp314-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:aa75b6657ec129d0abded3bec745e6f7ab642e6dba3a5272a68247e85f5f316f", upload-time = "2025-10-19T22:33:53.821Z" },
-    { url = "https://pypi-proxy.dev.databricks.com/packages/ef/33/4105ca574f6ded0af6a797d39add041bcfb468a1255fbbe82fcb6f592da2/fastuuid-0.14.0-cp314-cp314-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:a8a0dfea3972200f72d4c7df02c8ac70bad1bb4c58d7e0ec1e6f341679073a7f", upload-time = "2025-10-19T22:29:02.812Z" },
-    { url = "https://pypi-proxy.dev.databricks.com/packages/fe/8c/fca59f8e21c4deb013f574eae05723737ddb1d2937ce87cb2a5d20992dc3/fastuuid-0.14.0-cp314-cp314-manylinux_2_5_i686.manylinux1_i686.whl", hash = "sha256:1bf539a7a95f35b419f9ad105d5a8a35036df35fdafae48fb2fd2e5f318f0d75", upload-time = "2025-10-19T22:35:54.985Z" },
-    { url = "https://pypi-proxy.dev.databricks.com/packages/cb/e2/f78c271b909c034d429218f2798ca4e89eeda7983f4257d7865976ddbb6c/fastuuid-0.14.0-cp314-cp314-musllinux_1_1_aarch64.whl", hash = "sha256:9a133bf9cc78fdbd1179cb58a59ad0100aa32d8675508150f3658814aeefeaa4", upload-time = "2025-10-19T22:28:00.999Z" },
-    { url = "https://pypi-proxy.dev.databricks.com/packages/1e/f0/5ff209d865897667a2ff3e7a572267a9ced8f7313919f6d6043aed8b1caa/fastuuid-0.14.0-cp314-cp314-musllinux_1_1_i686.whl", hash = "sha256:f54d5b36c56a2d5e1a31e73b950b28a0d83eb0c37b91d10408875a5a29494bad", upload-time = "2025-10-19T22:36:21.764Z" },
-    { url = "https://pypi-proxy.dev.databricks.com/packages/e0/c8/2ce1c78f983a2c4987ea865d9516dbdfb141a120fd3abb977ae6f02ba7ca/fastuuid-0.14.0-cp314-cp314-musllinux_1_1_x86_64.whl", hash = "sha256:ec27778c6ca3393ef662e2762dba8af13f4ec1aaa32d08d77f71f2a70ae9feb8", upload-time = "2025-10-19T22:34:37.178Z" },
-    { url = "https://pypi-proxy.dev.databricks.com/packages/df/60/dad662ec9a33b4a5fe44f60699258da64172c39bd041da2994422cdc40fe/fastuuid-0.14.0-cp314-cp314-win32.whl", hash = "sha256:e23fc6a83f112de4be0cc1990e5b127c27663ae43f866353166f87df58e73d06", upload-time = "2025-10-19T22:35:18.217Z" },
-    { url = "https://pypi-proxy.dev.databricks.com/packages/1f/f6/da4db31001e854025ffd26bc9ba0740a9cbba2c3259695f7c5834908b336/fastuuid-0.14.0-cp314-cp314-win_amd64.whl", hash = "sha256:df61342889d0f5e7a32f7284e55ef95103f2110fee433c2ae7c2c0956d76ac8a", upload-time = "2025-10-19T22:33:44.579Z" },
 ]
 
 [[package]]
@@ -1963,20 +1779,6 @@ wheels = [
     { url = "https://pypi-proxy.dev.databricks.com/packages/d5/0c/043d5e551459da400957a1395e0febbf771446ff34291afcbe3d8be2a279/fsspec-2026.4.0-py3-none-any.whl", hash = "sha256:11ef7bb35dab8a394fde6e608221d5cf3e8499401c249bebaeaad760a1a8dec2", upload-time = "2026-04-29T20:42:36.842Z" },
 ]
 
-[package.optional-dependencies]
-http = [
-    { name = "aiohttp" },
-]
-
-[[package]]
-name = "gepa"
-version = "0.0.27"
-source = { registry = "https://pypi-proxy.dev.databricks.com/simple/" }
-sdist = { url = "https://pypi-proxy.dev.databricks.com/packages/4e/99/6840f84498f2dcbfd27e8a15eeb4e637e84e9dbbd6331977b71f6ffad9c7/gepa-0.0.27.tar.gz", hash = "sha256:02ecb19e4aa6a1f5bb2994cd54b2057f25cd5e8cd662fee514303b2a8ba0a738", upload-time = "2026-01-28T00:33:51.72Z" }
-wheels = [
-    { url = "https://pypi-proxy.dev.databricks.com/packages/a3/bd/f9e83519099a9fd5d090520ab0c51a6278e473b914a9b32d1e812662dd3b/gepa-0.0.27-py3-none-any.whl", hash = "sha256:592beb084fd638d525edae84ca75ad8e9e9c3758e5498b933c17153addf5dd2d", upload-time = "2026-01-28T00:33:50.262Z" },
-]
-
 [[package]]
 name = "ghp-import"
 version = "2.1.0"
@@ -2150,18 +1952,6 @@ dependencies = [
 sdist = { url = "https://pypi-proxy.dev.databricks.com/packages/b5/c8/f439cffde755cffa462bfbb156278fa6f9d09119719af9814b858fd4f81f/googleapis_common_protos-1.75.0.tar.gz", hash = "sha256:53a062ff3c32552fbd62c11fe23768b78e4ddf0494d5e5fd97d3f4689c75fbbd", upload-time = "2026-05-07T08:04:49.423Z" }
 wheels = [
     { url = "https://pypi-proxy.dev.databricks.com/packages/e7/c8/e2645aa8ed02fd4c7a2f59d68783b65b1f3cbdfe39a6308e156509d1fee8/googleapis_common_protos-1.75.0-py3-none-any.whl", hash = "sha256:961ed60399c457ceb0ee8f285a84c870aabc9c6a832b9d37bb281b5bebde43ed", upload-time = "2026-05-07T08:03:30.345Z" },
-]
-
-[[package]]
-name = "grandalf"
-version = "0.8"
-source = { registry = "https://pypi-proxy.dev.databricks.com/simple/" }
-dependencies = [
-    { name = "pyparsing" },
-]
-sdist = { url = "https://pypi-proxy.dev.databricks.com/packages/95/0e/4ac934b416857969f9135dec17ac80660634327e003a870835dd1f382659/grandalf-0.8.tar.gz", hash = "sha256:2813f7aab87f0d20f334a3162ccfbcbf085977134a17a5b516940a93a77ea974", upload-time = "2023-01-26T07:37:06.668Z" }
-wheels = [
-    { url = "https://pypi-proxy.dev.databricks.com/packages/61/30/44c7eb0a952478dbb5f2f67df806686d6a7e4b19f6204e091c4f49dc7c69/grandalf-0.8-py3-none-any.whl", hash = "sha256:793ca254442f4a79252ea9ff1ab998e852c1e071b863593e5383afee906b4185", upload-time = "2023-01-10T15:16:19.753Z" },
 ]
 
 [[package]]
@@ -2735,15 +2525,6 @@ wheels = [
 ]
 
 [[package]]
-name = "json-repair"
-version = "0.60.1"
-source = { registry = "https://pypi-proxy.dev.databricks.com/simple/" }
-sdist = { url = "https://pypi-proxy.dev.databricks.com/packages/5e/a6/d69888cb4ffde30e80db1e6c32caaadd2f984a80067d5ea72c2cb3f61c3f/json_repair-0.60.1.tar.gz", hash = "sha256:841661cdd2df507c9a4e189097f38ca6bc372e06d4b4e36d72e590f68176c290", upload-time = "2026-06-03T17:28:44.451Z" }
-wheels = [
-    { url = "https://pypi-proxy.dev.databricks.com/packages/32/1f/2a2b5eea8ef5762a86ad3f8fddddaaba2c0d76dd44e644b9158900868bec/json_repair-0.60.1-py3-none-any.whl", hash = "sha256:ba6ff974f2a8bef2f7768144a7f03f870a816443f03da27a49cdd0ec31a78049", upload-time = "2026-06-03T17:28:43.038Z" },
-]
-
-[[package]]
 name = "jsonpatch"
 version = "1.33"
 source = { registry = "https://pypi-proxy.dev.databricks.com/simple/" }
@@ -3042,21 +2823,6 @@ wheels = [
 ]
 
 [[package]]
-name = "langchain-tavily"
-version = "0.2.18"
-source = { registry = "https://pypi-proxy.dev.databricks.com/simple/" }
-dependencies = [
-    { name = "aiohttp" },
-    { name = "langchain" },
-    { name = "langchain-core" },
-    { name = "requests" },
-]
-sdist = { url = "https://pypi-proxy.dev.databricks.com/packages/d6/6c/b309ef3062b189a82463dc93553804566e71aa393f9ba8954750793c1a6f/langchain_tavily-0.2.18.tar.gz", hash = "sha256:cd7859ae1a6ce79236580ef67072ff5fc43c7ded94e7eac38ff04209ca85a320", upload-time = "2026-04-16T15:23:24.526Z" }
-wheels = [
-    { url = "https://pypi-proxy.dev.databricks.com/packages/71/9c/0c043e4434b1823f0ac194f66036cbb0569275a99dcb890e0891ecd34fb2/langchain_tavily-0.2.18-py3-none-any.whl", hash = "sha256:dccf3ad1c50e2cb2a89bec11727555805c9df8abd42c1f3ad42ccad86e28aa44", upload-time = "2026-04-16T15:23:23.424Z" },
-]
-
-[[package]]
 name = "langchain-text-splitters"
 version = "1.1.2"
 source = { registry = "https://pypi-proxy.dev.databricks.com/simple/" }
@@ -3256,29 +3022,6 @@ wheels = [
 ]
 
 [[package]]
-name = "litellm"
-version = "1.89.0"
-source = { registry = "https://pypi-proxy.dev.databricks.com/simple/" }
-dependencies = [
-    { name = "aiohttp" },
-    { name = "click" },
-    { name = "fastuuid" },
-    { name = "httpx" },
-    { name = "importlib-metadata" },
-    { name = "jinja2" },
-    { name = "jsonschema" },
-    { name = "openai" },
-    { name = "pydantic" },
-    { name = "python-dotenv" },
-    { name = "tiktoken" },
-    { name = "tokenizers" },
-]
-sdist = { url = "https://pypi-proxy.dev.databricks.com/packages/86/4b/15d4cb75f054933c1f19bcfd5683e139cdf792099b995ae55916b26094dc/litellm-1.89.0.tar.gz", hash = "sha256:eb1910a23497044b4375a0500c65f4c60d291a575d7b679c7566a5df9b9a5fcb", upload-time = "2026-06-13T23:45:53.723Z" }
-wheels = [
-    { url = "https://pypi-proxy.dev.databricks.com/packages/eb/86/49cf94af8c51cacc15fd9bff1e6f9de1fb07ab10b8bb09961675ab389af4/litellm-1.89.0-py3-none-any.whl", hash = "sha256:63b33e2de386ab2a83fed7ed852c755e59d461a21b16c79fc17993f1b8c3d154", upload-time = "2026-06-13T23:45:46.037Z" },
-]
-
-[[package]]
 name = "loguru"
 version = "0.7.3"
 source = { registry = "https://pypi-proxy.dev.databricks.com/simple/" }
@@ -3391,14 +3134,6 @@ wheels = [
     { url = "https://pypi-proxy.dev.databricks.com/packages/e6/fb/8ab3845fe046ba4cbf74536bcf6801a774b7caf4350de1c5d37f1f0a9e90/lxml-6.1.1-pp311-pypy311_pp73-manylinux_2_26_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:f6f0ce10945fab9c4c06ce14e22af9059d1a87493a9af4501a5b0b9187e21cf2", upload-time = "2026-05-18T19:20:47.385Z" },
     { url = "https://pypi-proxy.dev.databricks.com/packages/68/1b/7553ab136894374ffae8851ec06f98f511cd8e66246e41b6be059d0a7289/lxml-6.1.1-pp311-pypy311_pp73-manylinux_2_26_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:f8844cd288697c6425c9beba919302241e3278871dc6519515e72b04e987abcf", upload-time = "2026-05-18T19:20:50.489Z" },
     { url = "https://pypi-proxy.dev.databricks.com/packages/db/a4/441aee36c6f6b249823d20fd91f9be9ab89d7c5a8ae542a4a4ca6d342d56/lxml-6.1.1-pp311-pypy311_pp73-win_amd64.whl", hash = "sha256:ed21202aec73cda4d55d1ce57b389aadb90ffb044e6cd1080b8347efe1b1ec84", upload-time = "2026-05-18T19:18:38.158Z" },
-]
-
-[[package]]
-name = "magicattr"
-version = "0.1.6"
-source = { registry = "https://pypi-proxy.dev.databricks.com/simple/" }
-wheels = [
-    { url = "https://pypi-proxy.dev.databricks.com/packages/2a/7e/76b7e0c391bee7e9273725c29c8fe41c4df62a215ce58aa8e3518baee0bb/magicattr-0.1.6-py2.py3-none-any.whl", hash = "sha256:d96b18ee45b5ee83b09c17e15d3459a64de62d538808c2f71182777dd9dbbbdf", upload-time = "2022-01-25T16:56:47.074Z" },
 ]
 
 [[package]]
@@ -3956,26 +3691,6 @@ wheels = [
 ]
 
 [[package]]
-name = "multiprocess"
-version = "0.70.19"
-source = { registry = "https://pypi-proxy.dev.databricks.com/simple/" }
-dependencies = [
-    { name = "dill" },
-]
-sdist = { url = "https://pypi-proxy.dev.databricks.com/packages/a2/f2/e783ac7f2aeeed14e9e12801f22529cc7e6b7ab80928d6dcce4e9f00922d/multiprocess-0.70.19.tar.gz", hash = "sha256:952021e0e6c55a4a9fe4cd787895b86e239a40e76802a789d6305398d3975897", upload-time = "2026-01-19T06:47:39.744Z" }
-wheels = [
-    { url = "https://pypi-proxy.dev.databricks.com/packages/7e/aa/714635c727dbfc251139226fa4eaf1b07f00dc12d9cd2eb25f931adaf873/multiprocess-0.70.19-pp311-pypy311_pp73-macosx_10_15_x86_64.whl", hash = "sha256:1bbf1b69af1cf64cd05f65337d9215b88079ec819cd0ea7bac4dab84e162efe7", upload-time = "2026-01-19T06:47:24.562Z" },
-    { url = "https://pypi-proxy.dev.databricks.com/packages/0f/e1/155f6abf5e6b5d9cef29b6d0167c180846157a4aca9b9bee1a217f67c959/multiprocess-0.70.19-pp311-pypy311_pp73-macosx_11_0_arm64.whl", hash = "sha256:5be9ec7f0c1c49a4f4a6fd20d5dda4aeabc2d39a50f4ad53720f1cd02b3a7c2e", upload-time = "2026-01-19T06:47:26.636Z" },
-    { url = "https://pypi-proxy.dev.databricks.com/packages/af/cb/f421c2869d75750a4f32301cc20c4b63fab6376e9a75c8e5e655bdeb3d9b/multiprocess-0.70.19-pp311-pypy311_pp73-manylinux_2_28_x86_64.whl", hash = "sha256:1c3dce098845a0db43b32a0b76a228ca059a668071cfeaa0f40c36c0b1585d45", upload-time = "2026-01-19T06:47:27.985Z" },
-    { url = "https://pypi-proxy.dev.databricks.com/packages/e3/45/8004d1e6b9185c1a444d6b55ac5682acf9d98035e54386d967366035a03a/multiprocess-0.70.19-py310-none-any.whl", hash = "sha256:97404393419dcb2a8385910864eedf47a3cadf82c66345b44f036420eb0b5d87", upload-time = "2026-01-19T06:47:32.325Z" },
-    { url = "https://pypi-proxy.dev.databricks.com/packages/86/c2/dec9722dc3474c164a0b6bcd9a7ed7da542c98af8cabce05374abab35edd/multiprocess-0.70.19-py311-none-any.whl", hash = "sha256:928851ae7973aea4ce0eaf330bbdafb2e01398a91518d5c8818802845564f45c", upload-time = "2026-01-19T06:47:33.711Z" },
-    { url = "https://pypi-proxy.dev.databricks.com/packages/71/70/38998b950a97ea279e6bd657575d22d1a2047256caf707d9a10fbce4f065/multiprocess-0.70.19-py312-none-any.whl", hash = "sha256:3a56c0e85dd5025161bac5ce138dcac1e49174c7d8e74596537e729fd5c53c28", upload-time = "2026-01-19T06:47:35.037Z" },
-    { url = "https://pypi-proxy.dev.databricks.com/packages/7f/74/d2c27e03cb84251dfe7249b8e82923643c6d48fa4883b9476b025e7dc7eb/multiprocess-0.70.19-py313-none-any.whl", hash = "sha256:8d5eb4ec5017ba2fab4e34a747c6d2c2b6fecfe9e7236e77988db91580ada952", upload-time = "2026-01-19T06:47:35.915Z" },
-    { url = "https://pypi-proxy.dev.databricks.com/packages/a0/61/af9115673a5870fd885247e2f1b68c4f1197737da315b520a91c757a861a/multiprocess-0.70.19-py314-none-any.whl", hash = "sha256:e8cc7fbdff15c0613f0a1f1f8744bef961b0a164c0ca29bdff53e9d2d93c5e5f", upload-time = "2026-01-19T06:47:37.497Z" },
-    { url = "https://pypi-proxy.dev.databricks.com/packages/7e/82/69e539c4c2027f1e1697e09aaa2449243085a0edf81ae2c6341e84d769b6/multiprocess-0.70.19-py39-none-any.whl", hash = "sha256:0d4b4397ed669d371c81dcd1ef33fd384a44d6c3de1bd0ca7ac06d837720d3c5", upload-time = "2026-01-19T06:47:38.619Z" },
-]
-
-[[package]]
 name = "mypy"
 version = "2.1.0"
 source = { registry = "https://pypi-proxy.dev.databricks.com/simple/" }
@@ -4310,25 +4025,6 @@ dependencies = [
 sdist = { url = "https://pypi-proxy.dev.databricks.com/packages/93/99/4d7dd6df64795951413ce6e815f8cf1eb191daf7196ae86574589643d5f3/opentelemetry_semantic_conventions-0.63b1.tar.gz", hash = "sha256:3daf963611334b365e98a57438183eb012d3bfb40b2d931a9af613476b8701a9", upload-time = "2026-05-21T16:33:05.455Z" }
 wheels = [
     { url = "https://pypi-proxy.dev.databricks.com/packages/cb/7a/7fe66f5f3682b1dd47d88cc4e11f1c6c0966b737de2d16671146e23c39a5/opentelemetry_semantic_conventions-0.63b1-py3-none-any.whl", hash = "sha256:dfe5ef4dee82586b746f522b818ceb298d00b3d59f660042bd79404bff8d0682", upload-time = "2026-05-21T16:32:47.016Z" },
-]
-
-[[package]]
-name = "optuna"
-version = "4.9.0"
-source = { registry = "https://pypi-proxy.dev.databricks.com/simple/" }
-dependencies = [
-    { name = "alembic" },
-    { name = "colorlog" },
-    { name = "numpy", version = "1.26.4", source = { registry = "https://pypi-proxy.dev.databricks.com/simple/" }, marker = "python_full_version < '3.13'" },
-    { name = "numpy", version = "2.4.6", source = { registry = "https://pypi-proxy.dev.databricks.com/simple/" }, marker = "python_full_version >= '3.13'" },
-    { name = "packaging" },
-    { name = "pyyaml" },
-    { name = "sqlalchemy" },
-    { name = "tqdm" },
-]
-sdist = { url = "https://pypi-proxy.dev.databricks.com/packages/f4/aa/05f5e3f662cc96a4c478fc3446b8ed6359825a2b504ecb614a9ac84e4a4d/optuna-4.9.0.tar.gz", hash = "sha256:b322e5cbdf1655fb84c37646c4a7a1f391de1b47806bbe222e015825d0a82b87", upload-time = "2026-06-01T06:23:30.424Z" }
-wheels = [
-    { url = "https://pypi-proxy.dev.databricks.com/packages/ab/f3/e5fcd5d9b15771ed6dc10e3a7eeddc672e418f4f4c4653d216cc1d857e2d/optuna-4.9.0-py3-none-any.whl", hash = "sha256:f52f3be6148654850c92a5860d398fd88ec6b2c84ab68d9c3d07dcff02e7afee", upload-time = "2026-06-01T06:23:28.804Z" },
 ]
 
 [[package]]
@@ -6301,18 +5997,6 @@ wheels = [
 ]
 
 [[package]]
-name = "typeguard"
-version = "4.4.3"
-source = { registry = "https://pypi-proxy.dev.databricks.com/simple/" }
-dependencies = [
-    { name = "typing-extensions" },
-]
-sdist = { url = "https://pypi-proxy.dev.databricks.com/packages/34/53/f701077a29ddf65ed4556119961ef517d767c07f15f6cdf0717ad985426b/typeguard-4.4.3.tar.gz", hash = "sha256:be72b9c85f322c20459b29060c5c099cd733d5886c4ee14297795e62b0c0d59b", upload-time = "2025-06-04T21:47:07.733Z" }
-wheels = [
-    { url = "https://pypi-proxy.dev.databricks.com/packages/5c/18/662e2a14fcdbbc9e7842ad801a7f9292fcd6cf7df43af94e59ac9c0da9af/typeguard-4.4.3-py3-none-any.whl", hash = "sha256:7d8b4a3d280257fd1aa29023f22de64e29334bda0b172ff1040f05682223795e", upload-time = "2025-06-04T21:47:03.683Z" },
-]
-
-[[package]]
 name = "typer"
 version = "0.25.1"
 source = { registry = "https://pypi-proxy.dev.databricks.com/simple/" }
@@ -6380,93 +6064,6 @@ source = { registry = "https://pypi-proxy.dev.databricks.com/simple/" }
 sdist = { url = "https://pypi-proxy.dev.databricks.com/packages/ba/19/1b9b0e29f30c6d35cb345486df41110984ea67ae69dddbc0e8a100999493/tzdata-2026.2.tar.gz", hash = "sha256:9173fde7d80d9018e02a662e168e5a2d04f87c41ea174b139fbef642eda62d10", upload-time = "2026-04-24T15:22:08.651Z" }
 wheels = [
     { url = "https://pypi-proxy.dev.databricks.com/packages/ce/e4/dccd7f47c4b64213ac01ef921a1337ee6e30e8c6466046018326977efd95/tzdata-2026.2-py2.py3-none-any.whl", hash = "sha256:bbe9af844f658da81a5f95019480da3a89415801f6cc966806612cc7169bffe7", upload-time = "2026-04-24T15:22:05.876Z" },
-]
-
-[[package]]
-name = "ujson"
-version = "5.13.0"
-source = { registry = "https://pypi-proxy.dev.databricks.com/simple/" }
-sdist = { url = "https://pypi-proxy.dev.databricks.com/packages/89/7a/c8bb37c8f6f3623d60c33d15d18cd6d6655d0f9c3eb31a9969f76361b199/ujson-5.13.0.tar.gz", hash = "sha256:d62e3d7625384c08082abad81a077af587fdef2761bb14c3822f4234b8d07d75", upload-time = "2026-06-14T22:36:50.209Z" }
-wheels = [
-    { url = "https://pypi-proxy.dev.databricks.com/packages/58/dc/2fcf821896803248122835c800e74f4582de9d6092efb37152acd7f79bdc/ujson-5.13.0-cp311-cp311-macosx_10_9_x86_64.whl", hash = "sha256:4b7badefa73f96bad9e295ea22bd06967b851c8aad68c74196437e3584f25de5", upload-time = "2026-06-14T22:35:14.362Z" },
-    { url = "https://pypi-proxy.dev.databricks.com/packages/b5/c6/83db69f96dc12509c9510084c0389c4aff4dcf427f9b613d1a23abd446ce/ujson-5.13.0-cp311-cp311-macosx_11_0_arm64.whl", hash = "sha256:09effd42924a80df20a63b31a1ede905e66b0ce24aafe7a4cbedb05c783f8bb3", upload-time = "2026-06-14T22:35:15.522Z" },
-    { url = "https://pypi-proxy.dev.databricks.com/packages/f0/6c/6d87206988172015781b9ff842c0a7eca897c026b2e7a95e11d86d46ddf5/ujson-5.13.0-cp311-cp311-manylinux1_i686.manylinux2014_i686.manylinux_2_17_i686.manylinux_2_5_i686.whl", hash = "sha256:89d0bfc986d02b4ce76b00e0f560bc8d30dfe8c05a1bfd8529e085eb6c1a77d9", upload-time = "2026-06-14T22:35:16.636Z" },
-    { url = "https://pypi-proxy.dev.databricks.com/packages/ee/43/d28ca5e6c3d8c467a4c6296404067f4eee9d67dfeeebeb3c5fb0bd6cb958/ujson-5.13.0-cp311-cp311-manylinux2014_aarch64.manylinux_2_17_aarch64.whl", hash = "sha256:cdd9618e07b3b142a02f0ab8227fd52453688b8e8e60ac0511f13a25fa8009db", upload-time = "2026-06-14T22:35:17.664Z" },
-    { url = "https://pypi-proxy.dev.databricks.com/packages/a9/99/d6bb0e18188954326b38499ae61b04ce8ead6425b8844384e537a491267b/ujson-5.13.0-cp311-cp311-manylinux2014_x86_64.manylinux_2_17_x86_64.whl", hash = "sha256:0806683e8171ec06817e6af22f14ba0cd2f16def8a2ffb22a28a10615249355d", upload-time = "2026-06-14T22:35:18.693Z" },
-    { url = "https://pypi-proxy.dev.databricks.com/packages/c6/5f/8f1ce659a59ef9510fa47b95773442049a383c533a645b2da8beeeec90f1/ujson-5.13.0-cp311-cp311-manylinux_2_24_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:f1cf46c79498c81f088cad4165b1669a78bba7bfbeb778c7cc1aff316e062b0d", upload-time = "2026-06-14T22:35:19.775Z" },
-    { url = "https://pypi-proxy.dev.databricks.com/packages/ad/8e/9d11af9d1d19ea239b0d289cf62a611cb4f2da9ec0d46b826767f4ab1768/ujson-5.13.0-cp311-cp311-manylinux_2_24_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:e2282039eb26f08ed1a1381360395f8a310f39a45ef7314cb0f258a7d2917ea3", upload-time = "2026-06-14T22:35:20.896Z" },
-    { url = "https://pypi-proxy.dev.databricks.com/packages/25/e2/7891c4a1c954307ab6a575686897a4963aad36c284742216f52dc40cba4a/ujson-5.13.0-cp311-cp311-musllinux_1_2_aarch64.whl", hash = "sha256:2c75eb7fac0fe92925b959cf2fa18f88d9fb76b10781fd2a6ccb895d5fb89171", upload-time = "2026-06-14T22:35:21.964Z" },
-    { url = "https://pypi-proxy.dev.databricks.com/packages/89/4e/8a4ce87d3eaaee398f4238f74f128c6eb34269f041659995b2c09710ae7c/ujson-5.13.0-cp311-cp311-musllinux_1_2_i686.whl", hash = "sha256:12078e81def2790140583abefc1b979f3c77be15d53c524bf0e232f669822052", upload-time = "2026-06-14T22:35:23.183Z" },
-    { url = "https://pypi-proxy.dev.databricks.com/packages/ac/fb/a1d0a6a83a13adee3a13cad308dcd3251ac53c4bd781f737242ad2f10d19/ujson-5.13.0-cp311-cp311-musllinux_1_2_x86_64.whl", hash = "sha256:e12192a37c6c0e476554b62647acdf6139a47b6f13d8bad8dd2316763c4cee12", upload-time = "2026-06-14T22:35:24.421Z" },
-    { url = "https://pypi-proxy.dev.databricks.com/packages/2b/6c/4aed5dce0161d6b8c95c5da760477602a05e2a540a762424395acad9aec0/ujson-5.13.0-cp311-cp311-win32.whl", hash = "sha256:ae53b3f046529c193d533ca8111492330b204d6007611cdfa20e8b764c7c1389", upload-time = "2026-06-14T22:35:25.779Z" },
-    { url = "https://pypi-proxy.dev.databricks.com/packages/ff/c5/f9f3cf19f6ac29e07782eafed562fe0a7cb451b44bd1664c58fe8974235b/ujson-5.13.0-cp311-cp311-win_amd64.whl", hash = "sha256:2275bbaaea3eddd2e8ec0863e28a420f5f520b14a760fc3f1e49fd07a974448c", upload-time = "2026-06-14T22:35:26.774Z" },
-    { url = "https://pypi-proxy.dev.databricks.com/packages/15/ec/46058bbbbe45e054cdb9f1dc0bf416fbbd5fec06bf3b4987c2437e496350/ujson-5.13.0-cp311-cp311-win_arm64.whl", hash = "sha256:32a59e7151fe2fec8fdf9a565ee66fcf87918d48827e21cdab5e15ff9f274b78", upload-time = "2026-06-14T22:35:27.871Z" },
-    { url = "https://pypi-proxy.dev.databricks.com/packages/ee/ae/b66deca15da1f7faf6952d8eddf55978482bcbfd294ed2afe2c526ea325f/ujson-5.13.0-cp312-cp312-macosx_10_13_x86_64.whl", hash = "sha256:bf81570ac056cb058f9117b52ca5dd800bfe9381d0076d0bb30a08a54591d654", upload-time = "2026-06-14T22:35:28.863Z" },
-    { url = "https://pypi-proxy.dev.databricks.com/packages/88/4f/b03bcc9eaf4621ac9008dec90918d8fb4839d611666cb99eb255696c67fe/ujson-5.13.0-cp312-cp312-macosx_11_0_arm64.whl", hash = "sha256:7edf16359c52ed53406e216565d83e6b98c23c3cb9a0a01673f2493f8fb15edf", upload-time = "2026-06-14T22:35:29.857Z" },
-    { url = "https://pypi-proxy.dev.databricks.com/packages/77/79/f98c6c1a4ed9d92d39d5d2d133f2b6fce5da11ea50c341117aedde8011c4/ujson-5.13.0-cp312-cp312-manylinux1_i686.manylinux2014_i686.manylinux_2_17_i686.manylinux_2_5_i686.whl", hash = "sha256:24539618fb3243cfdf27dab9a850acab80798a01501e9586b61fb9ecd016a891", upload-time = "2026-06-14T22:35:30.857Z" },
-    { url = "https://pypi-proxy.dev.databricks.com/packages/bc/1d/f68e14cf476d149945211142f4c20782c1f232c489e8edcc4f4b58ce4997/ujson-5.13.0-cp312-cp312-manylinux2014_aarch64.manylinux_2_17_aarch64.whl", hash = "sha256:fdde6341d213b29f413b5fa9fad1392d5408074c75f0900ed949e97e546fa5df", upload-time = "2026-06-14T22:35:31.835Z" },
-    { url = "https://pypi-proxy.dev.databricks.com/packages/7d/1a/5718237cf4141e5be46ff371387e90b01f27774cb6f0f79ff4803a2430ca/ujson-5.13.0-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.whl", hash = "sha256:229faf041ef249ee3fd57bac1cedb123d2718ab63f6ccd50eca95ea902eb0dca", upload-time = "2026-06-14T22:35:32.897Z" },
-    { url = "https://pypi-proxy.dev.databricks.com/packages/f6/6f/7f55c1e9e0be87beebaed553fa186ad5f6d5d639cbaa9d49f78f2f91c3a9/ujson-5.13.0-cp312-cp312-manylinux_2_24_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:1d02f31c2f59cc6a1c2c3633b377701fc2d8e876cc01950735d7a01132ccc233", upload-time = "2026-06-14T22:35:34.055Z" },
-    { url = "https://pypi-proxy.dev.databricks.com/packages/bc/c4/9a34ade542426f56a0bc042f774073d1c247ae7575363c27587788cb2b2f/ujson-5.13.0-cp312-cp312-manylinux_2_24_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:ea7204e9fa7538bfbb1396e1ee8c2bbcd3818b3633ef5bb14d4fdea52994d14d", upload-time = "2026-06-14T22:35:35.05Z" },
-    { url = "https://pypi-proxy.dev.databricks.com/packages/36/06/407633f0709e168107f56368bd5a0fa8fe07acd7f1d3000710bc0bb07470/ujson-5.13.0-cp312-cp312-musllinux_1_2_aarch64.whl", hash = "sha256:7c5a2478a3a1fa4421f7e035b87194eea0cf44c7971a3f32ad1b42a0dfd63c03", upload-time = "2026-06-14T22:35:36.022Z" },
-    { url = "https://pypi-proxy.dev.databricks.com/packages/c3/df/eb5bd92dc1b23254fea5b2022007baff5491a7478bfcf7e9260d3a10f1ac/ujson-5.13.0-cp312-cp312-musllinux_1_2_i686.whl", hash = "sha256:b535e0970c96957e999cfe5ec89361f0e8d0bb987fb5d5144f6f495cb3ed9e19", upload-time = "2026-06-14T22:35:37.38Z" },
-    { url = "https://pypi-proxy.dev.databricks.com/packages/cb/1c/65f2ce1a0411ec9a87339db01f0d5d554a49c4248ec68ab52a1b7e14e9c4/ujson-5.13.0-cp312-cp312-musllinux_1_2_x86_64.whl", hash = "sha256:3d0ad1207694988498fca7e0bb28eba7564fa33261d2f9fdf66a3aaab376b803", upload-time = "2026-06-14T22:35:38.95Z" },
-    { url = "https://pypi-proxy.dev.databricks.com/packages/73/53/310aabff0704f9c7ef0d3f431ce8b8e3147c3cca25334a205615c511f65e/ujson-5.13.0-cp312-cp312-win32.whl", hash = "sha256:d6bc9fa43a49e403c68c7eb164eef0feee9dd29474a7c6e0d3b6267025371990", upload-time = "2026-06-14T22:35:40.44Z" },
-    { url = "https://pypi-proxy.dev.databricks.com/packages/b5/23/d3536d8945d1bb00248d998c8dcbe678a884681ad181072daecfafe4eea6/ujson-5.13.0-cp312-cp312-win_amd64.whl", hash = "sha256:6692d49ff970aaa5008f4a6fe06974bc91fd957bf13173f765e46d8ba44906ea", upload-time = "2026-06-14T22:35:41.39Z" },
-    { url = "https://pypi-proxy.dev.databricks.com/packages/72/a1/4b147c06ee5bb14bec6e26786358c8510c4d75e28b88146a6ac7620f1f71/ujson-5.13.0-cp312-cp312-win_arm64.whl", hash = "sha256:5737ffe0740a788b0e6255f0ffb281db49305fd6e6a587be44c73d9e92b554c4", upload-time = "2026-06-14T22:35:42.357Z" },
-    { url = "https://pypi-proxy.dev.databricks.com/packages/a7/f1/fe8a467d8ff5821e076b96f398d3acfe3cd568d900e6ccb41b215592b152/ujson-5.13.0-cp313-cp313-macosx_10_13_x86_64.whl", hash = "sha256:46998fc8d11aec34a20e2010905e7059732a3d192d9a3c3fe4f9ffd146c87ec8", upload-time = "2026-06-14T22:35:43.398Z" },
-    { url = "https://pypi-proxy.dev.databricks.com/packages/6a/c0/c7ab82d6471dfa7e4fd68ae6ff2c6a50d077c05d6ecdea0cec8af635b2c4/ujson-5.13.0-cp313-cp313-macosx_11_0_arm64.whl", hash = "sha256:ee03ce288ba25b05cf0de87203165642277a25caa4f00a437e13152e5214e310", upload-time = "2026-06-14T22:35:44.586Z" },
-    { url = "https://pypi-proxy.dev.databricks.com/packages/10/e6/4e9e998d991ff88bbc93b21daa63bba2baa61c6f952dbcec937cf7304ebe/ujson-5.13.0-cp313-cp313-manylinux1_i686.manylinux2014_i686.manylinux_2_17_i686.manylinux_2_5_i686.whl", hash = "sha256:cdf33b588a81b05d0b585c66f83050c49cb670623424d10e4d1ad37ba2f7eed9", upload-time = "2026-06-14T22:35:45.567Z" },
-    { url = "https://pypi-proxy.dev.databricks.com/packages/9c/11/876dff43f05417a01c6119f0fa10e01f1226631c5927ef08f56876b2bb67/ujson-5.13.0-cp313-cp313-manylinux2014_aarch64.manylinux_2_17_aarch64.whl", hash = "sha256:4cabd73c114ce93c21d7db2e2d8e16217fd8a5b2b3ec754629eebef5c262d47f", upload-time = "2026-06-14T22:35:46.623Z" },
-    { url = "https://pypi-proxy.dev.databricks.com/packages/09/02/f9dbf6c3e46d700eb1d9ed637567221a06eeb1ec289633be992ef54d7a34/ujson-5.13.0-cp313-cp313-manylinux2014_x86_64.manylinux_2_17_x86_64.whl", hash = "sha256:ffc61fc756a64f4d169a78cc638d769e3c324f45fc51997626abf4e5e5dd6460", upload-time = "2026-06-14T22:35:47.647Z" },
-    { url = "https://pypi-proxy.dev.databricks.com/packages/bc/3d/7e49a70265a1e5ed1b5e8edd5f54d57ae41e2134faeae9b16f6f5a0eae20/ujson-5.13.0-cp313-cp313-manylinux_2_24_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:2c00323c13a35822c9a67a26c0b2a0787510bf1ef490922b58009b362d1a3e21", upload-time = "2026-06-14T22:35:48.617Z" },
-    { url = "https://pypi-proxy.dev.databricks.com/packages/66/34/b64278f67e19052f09810576c7e50b3da8d4f5218b226046324d4d5c24b4/ujson-5.13.0-cp313-cp313-manylinux_2_24_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:496e662a6b46d5f936d77fb68259cece19213bb2301ddd520dbd75ac7c90c5f4", upload-time = "2026-06-14T22:35:49.674Z" },
-    { url = "https://pypi-proxy.dev.databricks.com/packages/a9/8c/51513357a5c75bf3e5bae46accfdb3e6e6f5caeb72ca8b253ec45ba853fb/ujson-5.13.0-cp313-cp313-musllinux_1_2_aarch64.whl", hash = "sha256:7fd41b86444df14f8b4b7afaaa9f27bacfbf8c18380872317aeab6cd125dcede", upload-time = "2026-06-14T22:35:50.699Z" },
-    { url = "https://pypi-proxy.dev.databricks.com/packages/54/5a/dc6afe071d6b977390d2dc41e15800a2716f317988dd03187cffe7b4d624/ujson-5.13.0-cp313-cp313-musllinux_1_2_i686.whl", hash = "sha256:bf3c2c4ea55d4187903fcdc689a9bf5b0fc72d8c0eaff39db18c1f337c8832c1", upload-time = "2026-06-14T22:35:52.052Z" },
-    { url = "https://pypi-proxy.dev.databricks.com/packages/50/23/b473d101412c68527cb502a8728f96ab307aa7bfa75d6ea2037e2c7f74e8/ujson-5.13.0-cp313-cp313-musllinux_1_2_x86_64.whl", hash = "sha256:b6eca7751d61045a9b1e7f9a8c97ac24b164f085b60bef1c4668654bb2338011", upload-time = "2026-06-14T22:35:53.589Z" },
-    { url = "https://pypi-proxy.dev.databricks.com/packages/fa/0a/8e583cce90f9f91ca1bedb3e628b6f5642aed91feb29b197431268d4c4be/ujson-5.13.0-cp313-cp313-win32.whl", hash = "sha256:b63d3820f978bc8e98cc3f1fe26a33b0d2ea237733a23fe5e9cb5d51f466bd97", upload-time = "2026-06-14T22:35:55.019Z" },
-    { url = "https://pypi-proxy.dev.databricks.com/packages/b4/b5/1fe203bc294e98fdd65606883692ad8dc0aaac73838b89c99c3513404424/ujson-5.13.0-cp313-cp313-win_amd64.whl", hash = "sha256:17a59d5cf23ef98f7c9314524976b4b288374d83200add01d953024fb06404f9", upload-time = "2026-06-14T22:35:55.966Z" },
-    { url = "https://pypi-proxy.dev.databricks.com/packages/50/5e/aceadce24fdb7cbc67f02286b1d4e91a575aaef5afb876c9908d6e6e5769/ujson-5.13.0-cp313-cp313-win_arm64.whl", hash = "sha256:b49516fbe803ff30d6caa9ccc3799ec7f968992747ce3099eae4758928577b53", upload-time = "2026-06-14T22:35:56.936Z" },
-    { url = "https://pypi-proxy.dev.databricks.com/packages/1c/9a/b5139d696f5328f3cab70b9ec046f15e3f49497a4de6280974640602f539/ujson-5.13.0-cp314-cp314-macosx_10_15_x86_64.whl", hash = "sha256:cc9dfd41fed397ab03bb9d9fe1cbd83301211c772a17536033ce7d68877ac82b", upload-time = "2026-06-14T22:35:57.974Z" },
-    { url = "https://pypi-proxy.dev.databricks.com/packages/53/55/477183aeddfdf0f88ae039ffee0ed866cfb993da0c0c9aa915807554aef8/ujson-5.13.0-cp314-cp314-macosx_11_0_arm64.whl", hash = "sha256:ca7ef2fa6c408a7c0f558e4d33d93b32ddc35ed6d3cfc505747931a64b7465d5", upload-time = "2026-06-14T22:35:58.932Z" },
-    { url = "https://pypi-proxy.dev.databricks.com/packages/ea/63/55e5f23e156b4c8bca095d828b4cd3180c0b42aa3501ef88836d79606fea/ujson-5.13.0-cp314-cp314-manylinux1_i686.manylinux2014_i686.manylinux_2_17_i686.manylinux_2_5_i686.whl", hash = "sha256:a554b2e5bee85030369514cef8b0b913cebe1a4c2c0c13541966d50bcba22b1a", upload-time = "2026-06-14T22:35:59.969Z" },
-    { url = "https://pypi-proxy.dev.databricks.com/packages/26/b6/08c6cf5548bd6f4bb557c9fa7e8edf87324bb04c17249d1966028d61dde0/ujson-5.13.0-cp314-cp314-manylinux2014_aarch64.manylinux_2_17_aarch64.whl", hash = "sha256:ea939ff629ab03ae970d03eca6d1febd8ed55ba38ca44aec64ce997537cd3fa0", upload-time = "2026-06-14T22:36:01.007Z" },
-    { url = "https://pypi-proxy.dev.databricks.com/packages/6e/b3/0ac9a03551467784067f505df1bb875c639ba32f1da79ce467ab15911ada/ujson-5.13.0-cp314-cp314-manylinux2014_x86_64.manylinux_2_17_x86_64.whl", hash = "sha256:b98bf2faa5e37ecfe752226ea08290031e375a0c43d425a0b955fb3e702a2a71", upload-time = "2026-06-14T22:36:02.297Z" },
-    { url = "https://pypi-proxy.dev.databricks.com/packages/ba/be/ec91029aec067174473d022fa0f6c3c1431a173f888d7599739f05c668eb/ujson-5.13.0-cp314-cp314-manylinux_2_24_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:9a4b92344b16e414aeb609e57f62c466500e53c94f1698f5b149dc0b7223ec3e", upload-time = "2026-06-14T22:36:03.321Z" },
-    { url = "https://pypi-proxy.dev.databricks.com/packages/29/33/a948f329252ece3f9c93d177243de6e677927ebc6ac44256742dbbef3c39/ujson-5.13.0-cp314-cp314-manylinux_2_24_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:7df805aad707507a1fa165fb716218ca3a89f142125dc4b23c9fcc08fa402d97", upload-time = "2026-06-14T22:36:04.385Z" },
-    { url = "https://pypi-proxy.dev.databricks.com/packages/f1/0c/c33655218b8e0a8adbf066de0b999cae5c324061f3eaa4dda17423145d9e/ujson-5.13.0-cp314-cp314-musllinux_1_2_aarch64.whl", hash = "sha256:7576bdbef327c3528f011002a2d74486f6fe4e33289bdb7a042b7f1a6e9d8285", upload-time = "2026-06-14T22:36:05.467Z" },
-    { url = "https://pypi-proxy.dev.databricks.com/packages/2c/bd/d286947525ea7ce3f2d8dc55c15b9ffbe425bc455c96af7b8f8a402599a9/ujson-5.13.0-cp314-cp314-musllinux_1_2_i686.whl", hash = "sha256:6eee5d7cce3f32a468905f9ff61807a60287a90258d849460f6fa826e810870d", upload-time = "2026-06-14T22:36:06.839Z" },
-    { url = "https://pypi-proxy.dev.databricks.com/packages/3c/3c/9eb916377050b0785f048a34588c1c390ddd41ae00b78db68ee1ad022356/ujson-5.13.0-cp314-cp314-musllinux_1_2_x86_64.whl", hash = "sha256:144e9d8a454cfa727e0f755e1863738ed68068583bda5463052cb446835bd56c", upload-time = "2026-06-14T22:36:08.329Z" },
-    { url = "https://pypi-proxy.dev.databricks.com/packages/dd/5f/242fd97a2628b842d4bfaa9b18e1f68187f934d67503291ebbaab1254637/ujson-5.13.0-cp314-cp314-win32.whl", hash = "sha256:576f35c35b918d67d41b933878062ec0a5c9f4d1e9e14e04aeef35384963feae", upload-time = "2026-06-14T22:36:09.644Z" },
-    { url = "https://pypi-proxy.dev.databricks.com/packages/23/f3/7f2bd9ca0c507142d0c22347b3d6f8803be1d8851c31707e57f5923fdbea/ujson-5.13.0-cp314-cp314-win_amd64.whl", hash = "sha256:d5e206e9f849ead27e51ef8da44e52b38da7c6dbd929a7340ab44533edcda8d7", upload-time = "2026-06-14T22:36:11.043Z" },
-    { url = "https://pypi-proxy.dev.databricks.com/packages/b0/29/3e9a8fba321c031315f6d263510969a5d01f41fc471b5be107e413c1b2f8/ujson-5.13.0-cp314-cp314-win_arm64.whl", hash = "sha256:dc470179775468f9a007d3a6a2734624248c94bf47c6645e808c7e50a5070d1a", upload-time = "2026-06-14T22:36:12.286Z" },
-    { url = "https://pypi-proxy.dev.databricks.com/packages/12/e9/1c543837c6a3c6672361882a0fa269bd02daf9cc4c0ca88a9dccd9df98d9/ujson-5.13.0-cp314-cp314t-macosx_10_15_x86_64.whl", hash = "sha256:69b4e36bb7d5f413ba8c00c8006b2ec627cc5ace97301462f6aadb66ec9d2979", upload-time = "2026-06-14T22:36:13.238Z" },
-    { url = "https://pypi-proxy.dev.databricks.com/packages/99/e4/39862f0f7174ff07cfd1e2d0c9065ded34aeebdb7db8daf2f0e5bf89b46f/ujson-5.13.0-cp314-cp314t-macosx_11_0_arm64.whl", hash = "sha256:8b644d50f66de5490c1823c7176618cead5e8e8a88cba9f40a6308ca52e79267", upload-time = "2026-06-14T22:36:14.432Z" },
-    { url = "https://pypi-proxy.dev.databricks.com/packages/02/66/f53d3b32c3f177f846ca6b624e832f29000d8a213a2d8768e254bd470ced/ujson-5.13.0-cp314-cp314t-manylinux1_i686.manylinux2014_i686.manylinux_2_17_i686.manylinux_2_5_i686.whl", hash = "sha256:15107aaa4f559d55201165ec32abb35c283a861be1fa67229578cb7d93fcd93a", upload-time = "2026-06-14T22:36:15.806Z" },
-    { url = "https://pypi-proxy.dev.databricks.com/packages/e6/d4/dddc4646d2633c85c938c2ded7d5a9711cdad5be1e13b31b7dad76f61c83/ujson-5.13.0-cp314-cp314t-manylinux2014_aarch64.manylinux_2_17_aarch64.whl", hash = "sha256:6e343c5f0c058523f1edbf6ae4eceb4e0d934205a53bbdd8d9a945c83324662a", upload-time = "2026-06-14T22:36:16.952Z" },
-    { url = "https://pypi-proxy.dev.databricks.com/packages/5f/c0/d8608c3f4d3f05e6441364b63fde1d279700135c1a6577a773662c07fbcc/ujson-5.13.0-cp314-cp314t-manylinux2014_x86_64.manylinux_2_17_x86_64.whl", hash = "sha256:02200035bc80e830f076ffc1b329a94c295aee6d9de8c9043647cb9a7bd4f76f", upload-time = "2026-06-14T22:36:17.975Z" },
-    { url = "https://pypi-proxy.dev.databricks.com/packages/22/8e/dd12b735aaba0806c3d70c18184d50e1f9712e0757c7c0a4f376450cfe28/ujson-5.13.0-cp314-cp314t-manylinux_2_24_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:d7f19b81b73ff28f5c5022ee794f94122bfcda07a76423078e349465d71223a1", upload-time = "2026-06-14T22:36:19.071Z" },
-    { url = "https://pypi-proxy.dev.databricks.com/packages/48/43/ad41e8752d5ec3a590a5e7b426a54e36b7aab911d9b5a4f7384dc62507ab/ujson-5.13.0-cp314-cp314t-manylinux_2_24_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:82e1393e6dbe3c95fdfc95c6c528890e191351a1f024ef51126cf1f22543af52", upload-time = "2026-06-14T22:36:20.171Z" },
-    { url = "https://pypi-proxy.dev.databricks.com/packages/e1/8e/b44a6afb77b94118655c029081b7932d64bb4c5b1c8ba2b7f5808b5d0bc2/ujson-5.13.0-cp314-cp314t-musllinux_1_2_aarch64.whl", hash = "sha256:38afcf994b28ed85ea2420e2a8d79a37d0a77348b3daf53850c16edda66f942d", upload-time = "2026-06-14T22:36:21.245Z" },
-    { url = "https://pypi-proxy.dev.databricks.com/packages/7e/93/fab1d786174c8780eb3e386c73f1925a435e97fbf77c957fea4fca83994d/ujson-5.13.0-cp314-cp314t-musllinux_1_2_i686.whl", hash = "sha256:1bdf2518971586f2b413156c49d9dd8b56cc990a8647081e1bd00af60564d469", upload-time = "2026-06-14T22:36:22.585Z" },
-    { url = "https://pypi-proxy.dev.databricks.com/packages/f3/bc/2f073bb708f9d128f5d1cb39063a5f6421b1ce94c61be8661c55a189f407/ujson-5.13.0-cp314-cp314t-musllinux_1_2_x86_64.whl", hash = "sha256:751ad01042472f1c7c02f5c597c7aee79834e82a6cc384ca302173bbc8e8deb8", upload-time = "2026-06-14T22:36:23.947Z" },
-    { url = "https://pypi-proxy.dev.databricks.com/packages/c4/67/cdaa50bba29d7dc9eb19212755b09bb96f56596e75957c3717c6b85454de/ujson-5.13.0-cp314-cp314t-win32.whl", hash = "sha256:74f3dd61aeb01b7b2a6754e400224e819279041b3867935a55ccf57fb86a43b2", upload-time = "2026-06-14T22:36:25.418Z" },
-    { url = "https://pypi-proxy.dev.databricks.com/packages/bd/66/a6e669e90083febdf6c0600d3807f6017fd4d3962d5bd6ddc605c73a06e5/ujson-5.13.0-cp314-cp314t-win_amd64.whl", hash = "sha256:5c31317d5e4504dae8f98795358b6082fc0ef96e7394806db0a76a4a8717f446", upload-time = "2026-06-14T22:36:26.614Z" },
-    { url = "https://pypi-proxy.dev.databricks.com/packages/3d/5f/fcc6c6a9d711fd8b020ca8ff65148212f0a712c809d173cd949e58de68c6/ujson-5.13.0-cp314-cp314t-win_arm64.whl", hash = "sha256:aefd3c9c95f9b62348956396ff7b31818476f8f54dc4a4e64cbd4f0491db6fca", upload-time = "2026-06-14T22:36:27.721Z" },
-    { url = "https://pypi-proxy.dev.databricks.com/packages/30/70/dbdd277d64bd3a149532567ceb082fe26f4ead58c39e0a97566ccbdf14a3/ujson-5.13.0-graalpy312-graalpy250_312_native-macosx_11_0_arm64.whl", hash = "sha256:3e074a1f7778d58aa3b3056bab7b6251aabb3f381808018ca2b7fb8dbdeef7ab", upload-time = "2026-06-14T22:36:28.702Z" },
-    { url = "https://pypi-proxy.dev.databricks.com/packages/71/48/592c70af94a67cafacd9c840ae2980f27d511dde2732a4c0dfac8f176ae8/ujson-5.13.0-graalpy312-graalpy250_312_native-manylinux2014_aarch64.manylinux_2_17_aarch64.whl", hash = "sha256:8bb53ef95d35875262b8d0aa28506ca612ddd07058bee2a90f609938e69dc801", upload-time = "2026-06-14T22:36:29.802Z" },
-    { url = "https://pypi-proxy.dev.databricks.com/packages/f2/9d/2bb91e1e25a8584cb3b63544b9bd26f621173535c77ac6cae13bad8e7904/ujson-5.13.0-graalpy312-graalpy250_312_native-manylinux2014_x86_64.manylinux_2_17_x86_64.whl", hash = "sha256:fb296a0aa480ab88d895ddaa90372604c08ccc72323f02590612c775426ab413", upload-time = "2026-06-14T22:36:30.806Z" },
-    { url = "https://pypi-proxy.dev.databricks.com/packages/76/ec/8e3802fc4a4e31e817b972bbb0e704a484d8c75ec349b3feb45fa9fb54c4/ujson-5.13.0-graalpy312-graalpy250_312_native-manylinux_2_24_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:2862f81af44b3a7e74c5d80caa118d736be1991ce6f1d5c723716fa403060cc6", upload-time = "2026-06-14T22:36:32.051Z" },
-    { url = "https://pypi-proxy.dev.databricks.com/packages/4a/48/d0e3e511039b86fd1ecfe2bf761c800552d273ef8f19e71de93bf38a909e/ujson-5.13.0-graalpy312-graalpy250_312_native-manylinux_2_24_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:c16e07581172f08585b409246f4535dab13ee85af0e3d3cfa8684b653ca44fa8", upload-time = "2026-06-14T22:36:33.349Z" },
-    { url = "https://pypi-proxy.dev.databricks.com/packages/81/b5/689613037fe691d18eae075cd141089f3a3156146be14512df92d8a9ae8f/ujson-5.13.0-graalpy312-graalpy250_312_native-win_amd64.whl", hash = "sha256:9bd0f2dd05937c3b089af316884de18c6f6182ddb8ffce597d2e7c7a9ba9f447", upload-time = "2026-06-14T22:36:34.523Z" },
-    { url = "https://pypi-proxy.dev.databricks.com/packages/c7/7f/276f830bef4d530d50ff4d8f8c568002e7ebed9f64c06747b1d1c4325f02/ujson-5.13.0-pp311-pypy311_pp73-macosx_10_15_x86_64.whl", hash = "sha256:96e7e019b097b4b25fccddadb369d13f412c13695fcf0680b6bf906376156151", upload-time = "2026-06-14T22:36:35.627Z" },
-    { url = "https://pypi-proxy.dev.databricks.com/packages/fc/50/99b05555ef42a2ab2e26aa369c46bde6a64f8aeeb687628102e98cc78bed/ujson-5.13.0-pp311-pypy311_pp73-macosx_11_0_arm64.whl", hash = "sha256:7892ea6dd85ede6d30fbbd22af1239b9d81dabdf9b7a8f10ca6d4464d4d9b8ab", upload-time = "2026-06-14T22:36:36.72Z" },
-    { url = "https://pypi-proxy.dev.databricks.com/packages/78/15/399766e8ba002bd8e5e2e45828e0e12a5dbeb4145d6a604ba3787db5eec2/ujson-5.13.0-pp311-pypy311_pp73-manylinux1_i686.manylinux2014_i686.manylinux_2_17_i686.manylinux_2_5_i686.whl", hash = "sha256:e1842e10adc8f0db0d3e8aa3a1f8b05ce0456b39e180c8553d7f36dd0bf24b6b", upload-time = "2026-06-14T22:36:37.833Z" },
-    { url = "https://pypi-proxy.dev.databricks.com/packages/61/a6/825d92bce42cd442b57d89b4c20afc1737246321d3433c6194e5c35c6a11/ujson-5.13.0-pp311-pypy311_pp73-manylinux2014_aarch64.manylinux_2_17_aarch64.whl", hash = "sha256:c8bbb1f5ab810954fb307b6c5e68af58210c31da8569f9e6498a3958c1859e72", upload-time = "2026-06-14T22:36:38.878Z" },
-    { url = "https://pypi-proxy.dev.databricks.com/packages/6c/d6/7ea7a32f35457560806375193dbc4f0d8ffd8c8adae42f86686392a76c41/ujson-5.13.0-pp311-pypy311_pp73-manylinux2014_x86_64.manylinux_2_17_x86_64.whl", hash = "sha256:3f6d55c68985654a84a9b47ac51f2655adac4fd264e4189f832960c2270dcf70", upload-time = "2026-06-14T22:36:40.022Z" },
-    { url = "https://pypi-proxy.dev.databricks.com/packages/af/b4/0bd6449ae35b6026d94f4d1a32dbc9f40c969ed1d6e36a7e26ccf56371be/ujson-5.13.0-pp311-pypy311_pp73-manylinux_2_24_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:4b266f182d4bce74a6a9e1f86988485e8cd422efdcc7c3f537e00cc956f52678", upload-time = "2026-06-14T22:36:41.129Z" },
-    { url = "https://pypi-proxy.dev.databricks.com/packages/e8/2d/39da479a8461d1d78d533940a8426a84e23708a6a7a426f2178e04443252/ujson-5.13.0-pp311-pypy311_pp73-manylinux_2_24_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:bfaa8302eb9bb7f5e231f256caf83040760585e32751d19155c0f0c0225f8de1", upload-time = "2026-06-14T22:36:42.266Z" },
-    { url = "https://pypi-proxy.dev.databricks.com/packages/12/cc/91ff81c50b85a158878f06d6e9153227bbc04209db291a152c286a0ee4a8/ujson-5.13.0-pp311-pypy311_pp73-win_amd64.whl", hash = "sha256:43dee3081b00fe447c5b9e2fe7ebfd57f7bcc5dd25b8a439c26c8c174dd581be", upload-time = "2026-06-14T22:36:43.455Z" },
 ]
 
 [[package]]

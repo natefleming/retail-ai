@@ -112,7 +112,7 @@ version = "0.1.0"
 description = "DAO AI Agent: {name}"
 requires-python = ">=3.11"
 dependencies = [
-    "dao-ai>={dao_ai_version}",
+    "dao-ai{extras}>={dao_ai_version}",
 ]
 
 [tool.hatch.build.targets.wheel]
@@ -145,6 +145,7 @@ def _make_requirements_txt(
     *,
     development: bool,
     wheel_filename: Optional[str] = None,
+    extras: str = "",
 ) -> str:
     """Build the requirements.txt content for an app bundle.
 
@@ -159,14 +160,21 @@ def _make_requirements_txt(
     Development mode: reference the bundled wheel via a relative path
     (``./dist/<wheel>``). Pip installs the wheel and resolves transitive
     deps from public PyPI from the wheel's declared dependency metadata.
+
+    Args:
+        development: Whether to reference a bundled dev wheel vs the PyPI pin.
+        wheel_filename: The dev wheel filename (required in development mode).
+        extras: Optional requirement-extras suffix (e.g. ``"[a2a,rerank]"``)
+            appended to the ``dao-ai`` spec / dev wheel so the config's
+            optional features install. Empty string installs the base package.
     """
     if development:
         if not wheel_filename:
             raise ValueError(
                 "_make_requirements_txt: wheel_filename is required in development mode."
             )
-        return f"./dist/{wheel_filename}\n"
-    return "dao-ai\n"
+        return f"./dist/{wheel_filename}{extras}\n"
+    return f"dao-ai{extras}\n"
 
 
 def _get_dao_ai_version() -> str:
@@ -730,6 +738,14 @@ def write_bundle(
     written: list[str] = []
     skipped: list[str] = []
 
+    # Resolve the optional-feature extras this config uses so the generated
+    # bundle installs exactly what its features need (e.g. dao-ai[a2a,rerank]).
+    from dao_ai._extras import format_extras_suffix, resolve_required_extras_or_all
+
+    extras_suffix: str = format_extras_suffix(
+        resolve_required_extras_or_all(config, target="apps")
+    )
+
     # Warn loudly when the bundle is being built without `trace_location`:
     # Databricks Apps containers cannot reach the artifact-storage host the
     # default MLflow control-plane trace exporter PUTs spans to, so spans
@@ -927,7 +943,11 @@ def write_bundle(
         # rewrite, no ambient-env coupling.
         _track(
             output_dir / "requirements.txt",
-            _make_requirements_txt(development=True, wheel_filename=wheel_path.name),
+            _make_requirements_txt(
+                development=True,
+                wheel_filename=wheel_path.name,
+                extras=extras_suffix,
+            ),
         )
 
         # Create stub package for user's custom code additions
@@ -945,6 +965,7 @@ def write_bundle(
                 name=app_name,
                 package_name=package_name,
                 dao_ai_version=_get_dao_ai_version(),
+                extras=extras_suffix,
             ),
         )
 
@@ -954,7 +975,7 @@ def write_bundle(
         # branch (kept in sync intentionally).
         _track(
             output_dir / "requirements.txt",
-            _make_requirements_txt(development=False),
+            _make_requirements_txt(development=False, extras=extras_suffix),
         )
 
         # Create stub package so the wheel builds and users can add custom code

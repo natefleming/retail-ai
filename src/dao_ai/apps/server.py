@@ -184,9 +184,11 @@ def _mount_a2a_routes() -> None:
     See :mod:`dao_ai.apps.a2a` for the executor, task store, and Agent Card
     machinery.
     """
-    from dao_ai.apps.a2a import mount_a2a_routes
-
     try:
+        # Imported inside the try so a missing 'a2a' extra degrades gracefully
+        # to the Responses-only contract instead of crashing the server at load.
+        from dao_ai.apps.a2a import mount_a2a_routes
+
         mount_a2a_routes(app, _config)
     except Exception as exc:  # pragma: no cover — defensive at startup
         from loguru import logger

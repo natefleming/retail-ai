@@ -289,16 +289,7 @@ def dao_ai_version() -> str:
         logger.trace(
             "dao-ai package not installed, attempting to read version from pyproject.toml"
         )
-        try:
-            import tomllib  # Python 3.11+
-        except ImportError:
-            try:
-                import tomli as tomllib  # Fallback for Python < 3.11
-            except ImportError:
-                logger.warning(
-                    "Cannot determine dao-ai version: package not installed and tomllib/tomli not available"
-                )
-                return "dev"
+        import tomllib  # stdlib on Python 3.11+ (our floor)
 
         try:
             # Find pyproject.toml relative to this file
@@ -328,41 +319,72 @@ def dao_ai_version() -> str:
             return "dev"
 
 
-def get_installed_packages() -> list[str]:
-    """Get all installed packages with versions.
+def get_installed_packages(extras: set[str] | None = None) -> list[str]:
+    """Get pinned pip requirement strings for packages used by dao-ai.
 
-    Returns a list of pip requirement strings for packages used by dao-ai.
-    This is used for MLflow model logging to ensure all dependencies are captured.
+    Used by the dev-mode Model Serving path: a bare ``code/<wheel>`` code-path
+    cannot carry a ``[extras]`` suffix, so the packages backing each active
+    extra must be pinned explicitly here or they will be absent in the serving
+    container and the model will crash at load.
+
+    Args:
+        extras: The set of extras the config exercises (already expanded — no
+            ``"all"`` sentinel). Optional-extra packages are pinned only when
+            their extra is present. ``None`` pins core packages only.
+
+    Returns:
+        A list of ``package==version`` requirement strings.
     """
+    extras = extras or set()
 
     packages: list[str] = [
         f"databricks-agents=={version('databricks-agents')}",
         f"databricks-langchain[memory]=={version('databricks-langchain')}",
         f"databricks-mcp=={version('databricks-mcp')}",
         f"databricks-sdk[openai]=={version('databricks-sdk')}",
-        f"ddgs=={version('ddgs')}",
-        f"deepagents=={version('deepagents')}",
-        f"flashrank=={version('flashrank')}",
         f"langchain=={version('langchain')}",
         f"langchain-mcp-adapters=={version('langchain-mcp-adapters')}",
         f"langchain-openai=={version('langchain-openai')}",
-        f"langchain-tavily=={version('langchain-tavily')}",
         f"langgraph=={version('langgraph')}",
         f"langgraph-checkpoint-postgres=={version('langgraph-checkpoint-postgres')}",
         f"langgraph-prebuilt=={version('langgraph-prebuilt')}",
-        f"langmem=={version('langmem')}",
         f"loguru=={version('loguru')}",
         f"mcp=={version('mcp')}",
         f"mlflow=={version('mlflow')}",
         f"nest-asyncio=={version('nest-asyncio')}",
-        f"openpyxl=={version('openpyxl')}",
         f"psycopg[binary,pool]=={version('psycopg')}",
         f"pydantic=={version('pydantic')}",
         f"pyyaml=={version('pyyaml')}",
-        f"tomli=={version('tomli')}",
         f"unitycatalog-ai[databricks]=={version('unitycatalog-ai')}",
         f"unitycatalog-langchain[databricks]=={version('unitycatalog-langchain')}",
     ]
+
+    # Optional-extra packages: pin only when the config uses the extra. The
+    # extra's package must already be importable in this (dev) environment;
+    # if it isn't, skip the pin rather than crash — the missing-extra error
+    # will surface at runtime with an actionable message.
+    optional_pins: dict[str, str] = {
+        "a2a": "a2a-sdk",
+        "rerank": "flashrank",
+        "deepagents": "deepagents",
+        "memory": "langmem",
+        "search": "ddgs",
+        "excel": "openpyxl",
+    }
+    for extra, dist_name in optional_pins.items():
+        if extra not in extras:
+            continue
+        try:
+            packages.append(f"{dist_name}=={version(dist_name)}")
+        except PackageNotFoundError:
+            logger.warning(
+                "Config uses an extra whose package is not installed; "
+                "skipping its version pin. The deployed model will fail to "
+                "import this feature unless the package is available.",
+                extra=extra,
+                package=dist_name,
+            )
+
     return packages
 
 
@@ -506,6 +528,46 @@ def is_in_model_serving() -> bool:
     # Check for model serving specific paths
     if os.path.exists("/opt/conda/envs/mlflow-env"):
         return True
+
+    return False
+
+
+def is_in_notebook() -> bool:
+    """Check if running inside an interactive Databricks notebook.
+
+    Used by the extras resolver: in a notebook the convenient default is to
+    install every optional feature (``dao-ai[all]``) rather than the precise,
+    size-minimal set used by CLI/bundle deploys. Model Serving is explicitly
+    excluded — it runs inside a Databricks runtime but is not interactive and
+    is size-sensitive.
+
+    Returns:
+        True if an interactive IPython/Databricks notebook kernel is detected.
+    """
+    # Model Serving is a Databricks runtime but not an interactive notebook.
+    if is_in_model_serving():
+        return False
+
+    # A live ``dbutils`` in the caller's builtins is the strongest signal of a
+    # Databricks notebook kernel.
+    try:
+        import builtins
+
+        if getattr(builtins, "dbutils", None) is not None:
+            return True
+    except Exception:
+        pass
+
+    # Fall back to an interactive IPython kernel (ZMQ shell = notebook, not a
+    # plain terminal REPL).
+    try:
+        from IPython import get_ipython
+
+        ipython = get_ipython()
+        if ipython is not None and type(ipython).__name__ == "ZMQInteractiveShell":
+            return True
+    except Exception:
+        pass
 
     return False
 

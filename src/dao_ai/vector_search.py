@@ -1,4 +1,4 @@
-from databricks.vector_search.client import VectorSearchClient
+from databricks.ai_search.client import VectorSearchClient
 
 
 def endpoint_exists(vsc: VectorSearchClient, vs_endpoint_name: str) -> bool:

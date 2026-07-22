@@ -31,12 +31,13 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from deepagents.middleware.memory import MemoryMiddleware
 from loguru import logger
 
 from dao_ai.middleware._backends import resolve_backend
 
 if TYPE_CHECKING:
+    from deepagents.middleware.memory import MemoryMiddleware
+
     from dao_ai.config import VolumePathModel
 
 __all__ = [
@@ -101,6 +102,11 @@ def create_agents_memory_middleware(
     """
     if not sources:
         raise ValueError("At least one source path is required for MemoryMiddleware.")
+
+    from dao_ai._extras import require_extra
+
+    require_extra("deepagents", feature="Agents memory middleware")
+    from deepagents.middleware.memory import MemoryMiddleware
 
     backend = resolve_backend(
         backend_type=backend_type,

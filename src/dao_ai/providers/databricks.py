@@ -32,8 +32,8 @@ from databricks.sdk.service.catalog import (
 from databricks.sdk.service.iam import User
 from databricks.sdk.service.serving import EndpointStateConfigUpdate
 from databricks.sdk.service.workspace import GetSecretResponse, ImportFormat
-from databricks.vector_search.client import VectorSearchClient
-from databricks.vector_search.index import VectorSearchIndex
+from databricks.ai_search.client import VectorSearchClient
+from databricks.ai_search.index import VectorSearchIndex
 from loguru import logger
 from mlflow import MlflowClient
 from mlflow.entities import Experiment
@@ -1144,14 +1144,31 @@ class DatabricksProvider(ServiceProvider):
 
         pip_requirements: Sequence[str] = config.app.pip_requirements
 
+        # Resolve which optional-feature extras this config exercises so the
+        # deployed model pins exactly the packages its features need — no more
+        # (keeps the image small), no less (missing one crashes at serving load).
+        from dao_ai._extras import (
+            expand_all,
+            format_extras_suffix,
+            resolve_required_extras_or_all,
+        )
+
+        # Model Serving does not mount A2A routes, so the always-on a2a routes
+        # must NOT bloat the serving image — only an explicit A2A tool pulls it.
+        required_extras: set[str] = resolve_required_extras_or_all(
+            config, target="model_serving"
+        )
+        extras_suffix: str = format_extras_suffix(required_extras)
+
         if not _use_local_source(development):
             if not is_lib_provided("dao-ai", pip_requirements):
                 pip_requirements += [
-                    f"dao-ai=={dao_ai_version()}",
+                    f"dao-ai{extras_suffix}=={dao_ai_version()}",
                 ]
             logger.info(
                 "dao-ai source: PyPI package",
                 version=dao_ai_version(),
+                extras=sorted(required_extras),
             )
         else:
             dev_wheel: Path | None = find_dev_wheel()
@@ -1192,7 +1209,7 @@ class DatabricksProvider(ServiceProvider):
                         "--no-development to deploy the published PyPI package."
                     )
 
-            pip_requirements += get_installed_packages()
+            pip_requirements += get_installed_packages(expand_all(required_extras))
 
         from dao_ai.skills import collect_skills_code_paths
 
@@ -1661,6 +1678,17 @@ class DatabricksProvider(ServiceProvider):
 
         logger.info("Deploying agent to Databricks Apps", app_name=app_name)
 
+        # Resolve optional-feature extras so the uploaded requirements install
+        # exactly what this config's features need (e.g. dao-ai[a2a,rerank]).
+        from dao_ai._extras import (
+            format_extras_suffix,
+            resolve_required_extras_or_all,
+        )
+
+        extras_suffix: str = format_extras_suffix(
+            resolve_required_extras_or_all(config, target="apps")
+        )
+
         # Use convention-based workspace path: /Workspace/Users/{user}/apps/{app_name}
         current_user: User = self.w.current_user.me()
         user_name: str = current_user.user_name or "default"
@@ -1805,6 +1833,7 @@ class DatabricksProvider(ServiceProvider):
                 name=app_name_normalized,
                 package_name=package_name,
                 dao_ai_version=dao_ai_version(),
+                extras=extras_suffix,
             )
             self.w.workspace.upload(
                 path=f"{source_path}/pyproject.toml",
@@ -1816,7 +1845,9 @@ class DatabricksProvider(ServiceProvider):
             # Route through the shared helper so this path picks up the
             # ``--index-url https://pypi.org/simple/`` override + unbounded
             # dao-ai pin. See ``_make_requirements_txt`` for the reasoning.
-            requirements_content = _make_requirements_txt(development=False)
+            requirements_content = _make_requirements_txt(
+                development=False, extras=extras_suffix
+            )
             self.w.workspace.upload(
                 path=f"{source_path}/requirements.txt",
                 content=io.BytesIO(requirements_content.encode("utf-8")),
@@ -1922,7 +1953,9 @@ class DatabricksProvider(ServiceProvider):
             # which baked Databricks-internal pypi-proxy URLs into the
             # lock and timed out on Apps containers.
             requirements_content: str = _make_requirements_txt(
-                development=True, wheel_filename=wheel_path.name
+                development=True,
+                wheel_filename=wheel_path.name,
+                extras=extras_suffix,
             )
             self.w.workspace.upload(
                 path=f"{source_path}/requirements.txt",

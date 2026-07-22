@@ -94,7 +94,7 @@ for _, vector_store in vector_stores.items():
 
 from typing import Dict, Any, List
 
-from databricks.vector_search.index import VectorSearchIndex
+from databricks.ai_search.index import VectorSearchIndex
 from dao_ai.config import AiSearchRetrieverModel
 
 

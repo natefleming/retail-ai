@@ -2328,22 +2328,21 @@ def process_messages(
 
 
 def display_graph(app: LanggraphChatModel | CompiledStateGraph) -> None:
-    from IPython.display import HTML, Image, display
+    from IPython.display import Image, display
 
     if isinstance(app, LanggraphChatModel):
         app = app.graph
 
+    # Render the Mermaid PNG (via LangGraph's mermaid.ink call). Graph display
+    # is a cosmetic convenience — in headless environments (e.g. the pipeline
+    # provisioning job) the render call may fail with no network; that must not
+    # break the notebook, so we log and move on rather than fall back to a
+    # heavyweight local ASCII layout dependency.
     try:
         content = Image(app.get_graph(xray=True).draw_mermaid_png())
     except Exception as e:
-        print(e)
-        ascii_graph: str = app.get_graph(xray=True).draw_ascii()
-        html_content = f"""
-    <pre style="font-family: monospace; line-height: 1.2; white-space: pre;">
-    {ascii_graph}
-    </pre>
-    """
-        content = HTML(html_content)
+        logger.warning(f"Skipping agent graph display (render unavailable): {e}")
+        return
 
     display(content)
 

@@ -22,7 +22,6 @@ from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Callable, Literal, Optional, TYPE_CHECKING
 
 import mlflow
-from flashrank import Ranker
 from langchain_core.documents import Document
 from loguru import logger
 from mlflow.entities import SpanType
@@ -56,6 +55,8 @@ from dao_ai.tools.tracing import (
 from dao_ai.tools.verifier import add_verification_metadata, verify_results
 
 if TYPE_CHECKING:
+    from flashrank import Ranker
+
     from dao_ai.state import Context
 
 

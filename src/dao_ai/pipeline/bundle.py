@@ -145,8 +145,10 @@ def generate_pipeline_databricks_yaml(config: AppConfig, development: bool) -> s
                 "description": (
                     "dao-ai dependency for the serverless environment - the "
                     "bundled './dist/<wheel>' in development mode, or the "
-                    "'dao-ai' PyPI spec otherwise. Installed by the job's "
-                    "serverless environment before each task's notebook runs."
+                    "'dao-ai' PyPI spec otherwise, each carrying the optional-"
+                    "feature extras the config uses (e.g. 'dao-ai[a2a,rerank]'). "
+                    "Installed by the job's serverless environment before each "
+                    "task's notebook runs."
                 ),
                 "default": "dao-ai",
             },

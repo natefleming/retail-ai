@@ -73,7 +73,6 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from deepagents.middleware.subagents import SubAgentMiddleware
 from langchain_core.language_models import BaseChatModel
 from loguru import logger
 
@@ -82,6 +81,8 @@ from dao_ai.middleware._backends import resolve_backend
 from dao_ai.middleware._prompt_utils import resolve_prompt
 
 if TYPE_CHECKING:
+    from deepagents.middleware.subagents import SubAgentMiddleware
+
     from dao_ai.config import InferenceEndpointModel, VolumePathModel
 
 __all__ = [
@@ -248,6 +249,11 @@ def create_subagent_middleware(
             ],
         )
     """
+    from dao_ai._extras import require_extra
+
+    require_extra("deepagents", feature="Subagent middleware")
+    from deepagents.middleware.subagents import SubAgentMiddleware
+
     backend = resolve_backend(
         backend_type=backend_type,
         root_dir=root_dir,

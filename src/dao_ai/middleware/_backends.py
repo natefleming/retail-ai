@@ -10,13 +10,11 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from deepagents.backends import StateBackend
-from deepagents.backends.filesystem import FilesystemBackend
-from deepagents.backends.protocol import BackendProtocol
-from deepagents.backends.store import StoreBackend
 from loguru import logger
 
 if TYPE_CHECKING:
+    from deepagents.backends.protocol import BackendProtocol
+
     from dao_ai.config import VolumePathModel
 
 __all__ = [
@@ -76,6 +74,13 @@ def resolve_backend(
             volume_path="/Volumes/catalog/schema/volume",
         )
     """
+    from dao_ai._extras import require_extra
+
+    require_extra("deepagents", feature="Deep Agents backends")
+    from deepagents.backends import StateBackend
+    from deepagents.backends.filesystem import FilesystemBackend
+    from deepagents.backends.store import StoreBackend
+
     if backend_type == "state":
         logger.debug("Resolving backend", backend_type=backend_type)
         return StateBackend
