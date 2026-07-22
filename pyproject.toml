@@ -43,46 +43,34 @@ classifiers = [
     "Topic :: System :: Distributed Computing",
 ]
 dependencies = [
-    "a2a-sdk>=0.3.0,<1.0.0",
     "databricks-agents>=1.11.0",
     "databricks-langchain[memory]>=0.20.0",
     "databricks-mcp>=0.9.0",
     "databricks-sdk[openai]>=0.108.0",
-    # Pinned in main deps (not optional extra) because dao-ai source
-    # imports databricks.vector_search.{client,index,reranker}
-    # unconditionally. Without this pin, `pip install dao-ai` omits the
-    # package, the serverless env's resolver may leave a stale
-    # pre-installed version, and databricks_openai.vector_search_retriever_tool
-    # fails to import VectorSearchIndex from databricks.vector_search.client.
-    "databricks-vectorsearch>=0.67",
-    "ddgs>=9.10.0",
-    "dspy>=2.6.27",
-    "flashrank>=0.2.10",
-    "grandalf>=0.8",
+    # Core (not an optional extra) because dao-ai source imports
+    # databricks.ai_search.{client,index,reranker} unconditionally (config,
+    # tools, providers, provisioning). This is the successor to the
+    # deprecated databricks-vectorsearch package; databricks-langchain and
+    # friends already depend on it, and it re-exports the VectorSearchClient/
+    # VectorSearchIndex names as back-compat aliases of AISearchClient/Index.
+    "databricks-ai-search>=0.75",
     "langchain>=1.2.12",
     "langchain-community>=0.4.1",
     "langchain-mcp-adapters>=0.3.0",
-    "langchain-tavily>=0.2.15",
     "langgraph-checkpoint-postgres==3.0.5",
     "langgraph>=1.1.10",
-    "langmem>=0.0.30",
     "loguru>=0.7.3",
     "mcp>=1.26.0",
     "mlflow[databricks]>=3.10.1",
     "nest-asyncio>=1.6.0",
-    "openpyxl>=3.1.5",
     "psycopg[binary,pool]>=3.3.2",
     "pydantic>=2.12.5",
     "python-dotenv>=1.2.1",
     "pyyaml>=6.0.2",
     "rfc8785>=0.1.4",
-    "rich>=14.2.0",
     "ruamel.yaml>=0.18,<0.19",
-    "scipy>=1.14.0,<1.17",
     "sqlparse>=0.5.4",
-    "tomli>=2.3.0",
     "unitycatalog-ai[databricks]>=0.3.2",
-    "deepagents>=0.5.7",
 ]
 
 [project.scripts]
@@ -123,6 +111,38 @@ mcp = [
     "fastapi>=0.115.0",
     "uvicorn[standard]>=0.32.0",
 ]
+# ---------------------------------------------------------------------------
+# Optional runtime feature extras. Each gates a heavyweight dependency tree
+# behind a feature that most deployments don't use, keeping `pip install
+# dao-ai` lean. The extras resolver (dao_ai._extras) auto-selects these into
+# generated requirements/pip_requirements based on what a config exercises.
+# Missing an extra at runtime raises a friendly "install dao-ai[<extra>]" error.
+# ---------------------------------------------------------------------------
+a2a = [
+    "a2a-sdk>=0.3.0,<1.0.0",
+]
+rerank = [
+    "flashrank>=0.2.10",
+]
+deepagents = [
+    "deepagents>=0.5.7",
+]
+memory = [
+    "langmem>=0.0.30",
+]
+search = [
+    "ddgs>=9.10.0",
+]
+excel = [
+    "openpyxl>=3.1.5",
+]
+# Convenience bundle of every runtime feature extra (self-referential — a
+# PyPA-supported pattern). Distinct from the PEP 735 [dependency-groups].all
+# below, which bundles the dev/docs/test *tooling* groups. `dao-ai[all]`
+# installs runtime features; `--group all` installs dev tooling.
+all = [
+    "dao-ai[a2a,rerank,deepagents,memory,search,excel]",
+]
 [dependency-groups]
 dev = [
     "pytest>=9.0.2",
@@ -152,6 +172,29 @@ mcp = [
     "fastapi>=0.115.0",
     "uvicorn[standard]>=0.32.0",
 ]
+# Runtime feature groups mirror [project.optional-dependencies] so `uv sync
+# --group <name>` works. PEP 735 groups cannot self-reference `dao-ai[...]`,
+# so the runtime bundle is expressed with include-group directives.
+a2a = [
+    "a2a-sdk>=0.3.0,<1.0.0",
+]
+rerank = [
+    "flashrank>=0.2.10",
+]
+deepagents = [
+    "deepagents>=0.5.7",
+]
+memory = [
+    "langmem>=0.0.30",
+]
+search = [
+    "ddgs>=9.10.0",
+]
+excel = [
+    "openpyxl>=3.1.5",
+]
+# Dev-tooling bundle (NOT the runtime features — see [project.optional-
+# dependencies].all for `dao-ai[all]`).
 all = [
     { include-group = "dev" },
     { include-group = "docs" },

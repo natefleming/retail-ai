@@ -97,6 +97,15 @@ def write_mcp_bundle(
     written: list[str] = []
     skipped: list[str] = []
 
+    # The MCP server always needs the ``mcp`` extra (fastmcp/uvicorn). Merge in
+    # any optional-feature extras the config exercises so a2a/rerank/etc. tools
+    # exposed through the MCP server resolve their dependencies.
+    from dao_ai._extras import expand_all, resolve_required_extras_or_all
+
+    merged_extras: str = ",".join(
+        sorted({"mcp", *expand_all(resolve_required_extras_or_all(config, target="mcp"))})
+    )
+
     def _write(path: Path, content: str) -> None:
         if path.exists() and not overwrite:
             skipped.append(str(path.relative_to(output_dir)))
@@ -140,11 +149,17 @@ def write_mcp_bundle(
 
     _write(
         output_dir / "pyproject.toml",
-        _render_pyproject(app_name=app_name, wheel_filename=wheel_filename),
+        _render_pyproject(
+            app_name=app_name, wheel_filename=wheel_filename, extras=merged_extras
+        ),
     )
     _write(
         output_dir / "requirements.txt",
-        _make_requirements_txt(development=development, wheel_filename=wheel_filename),
+        _make_requirements_txt(
+            development=development,
+            wheel_filename=wheel_filename,
+            extras=merged_extras,
+        ),
     )
     _write(
         output_dir / ".gitignore",
@@ -196,16 +211,22 @@ def _derive_app_name(config: AppConfig) -> str:
     return str(config.app.name).lower().replace("_", "-")
 
 
-def _render_pyproject(*, app_name: str, wheel_filename: str | None = None) -> str:
+def _render_pyproject(
+    *, app_name: str, wheel_filename: str | None = None, extras: str = "mcp"
+) -> str:
     package_name = app_name.replace("-", "_")
     if wheel_filename:
         return _PYPROJECT_DEV_TEMPLATE.format(
-            name=app_name, package_name=package_name, wheel_filename=wheel_filename
+            name=app_name,
+            package_name=package_name,
+            wheel_filename=wheel_filename,
+            extras=extras,
         )
     return _PYPROJECT_TEMPLATE.format(
         name=app_name,
         package_name=package_name,
         dao_ai_version=_get_dao_ai_version(),
+        extras=extras,
     )
 
 
@@ -213,21 +234,28 @@ def _make_requirements_txt(
     *,
     development: bool,
     wheel_filename: str | None = None,
+    extras: str = "mcp",
 ) -> str:
     """Build the requirements.txt content for an MCP app bundle.
 
-    The published pin is intentionally *unbounded* (``dao-ai[mcp]``) — see
-    ``dao_ai.apps.bundle._make_requirements_txt`` for the reasoning. We
-    install the ``[mcp]`` extra so the server module's dependencies
-    (fastmcp, uvicorn, etc.) resolve.
+    The published pin is intentionally *unbounded* (``dao-ai[...]``) — see
+    ``dao_ai.apps.bundle._make_requirements_txt`` for the reasoning. The
+    ``mcp`` extra is always present (the server module needs fastmcp, uvicorn,
+    etc.); any config-derived feature extras (a2a, rerank, ...) are merged in
+    via ``extras``.
+
+    Args:
+        development: Whether to reference a bundled dev wheel vs the PyPI pin.
+        wheel_filename: The dev wheel filename (required in development mode).
+        extras: Comma-joined extras list (no brackets), e.g. ``"mcp,a2a"``.
     """
     if development:
         if not wheel_filename:
             raise ValueError(
                 "_make_requirements_txt: wheel_filename is required in development mode."
             )
-        return f"./dist/{wheel_filename}[mcp]\n"
-    return "dao-ai[mcp]\n"
+        return f"./dist/{wheel_filename}[{extras}]\n"
+    return f"dao-ai[{extras}]\n"
 
 
 def _bundle_local_wheel(output_dir: Path, *, written: list[str]) -> str:
@@ -348,7 +376,7 @@ requires-python = ">=3.11,<3.12"
 # Runtime deps live in requirements.txt (installed by Apps' build phase).
 # Kept declared here too so local `uv sync` works for iterative dev.
 dependencies = [
-    "dao-ai[mcp]>={dao_ai_version}",
+    "dao-ai[{extras}]>={dao_ai_version}",
 ]
 
 [build-system]
@@ -368,7 +396,7 @@ requires-python = ">=3.11,<3.12"
 # Runtime deps live in requirements.txt (installed by Apps' build phase).
 # Kept declared here too so local `uv sync` works for iterative dev.
 dependencies = [
-    "dao-ai[mcp]",
+    "dao-ai[{extras}]",
 ]
 
 [build-system]

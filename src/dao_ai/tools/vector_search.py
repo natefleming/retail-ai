@@ -5,19 +5,26 @@ This module provides a tool factory for creating semantic search tools
 with dynamic filter schemas based on table columns, FlashRank reranking support,
 instructed retrieval with query decomposition and RRF merging, and optional
 query routing, result verification, and instruction-aware reranking.
+
+FlashRank (the ``rerank`` extra) is imported lazily inside the reranking
+functions so this module — which is on the core tool-factory path — imports
+without the optional package installed. FlashRank types appear only in
+string-literal annotations (``"Ranker"``) so the module needs no
+``from __future__ import annotations`` — which must be avoided here because
+LangChain's ``@tool`` decorator introspects live annotations to inject
+``ToolRuntime`` (stringizing them breaks OBO context forwarding).
 """
 
 import json
 import os
 from concurrent.futures import ThreadPoolExecutor
-from typing import Annotated, Any, Literal, Optional
+from typing import TYPE_CHECKING, Annotated, Any, Literal, Optional
 
 import mlflow
 from databricks.sdk import WorkspaceClient
-from databricks.vector_search.client import VectorSearchClient
-from databricks.vector_search.reranker import DatabricksReranker
+from databricks.ai_search.client import VectorSearchClient
+from databricks.ai_search.reranker import DatabricksReranker
 from databricks_langchain import DatabricksVectorSearch
-from flashrank import Ranker, RerankRequest
 from langchain.tools import ToolRuntime, tool
 from langchain_core.documents import Document
 from langchain_core.tools import StructuredTool
@@ -60,6 +67,9 @@ from dao_ai.tools.tracing import (
 )
 from dao_ai.tools.verifier import add_verification_metadata, verify_results
 from dao_ai.utils import is_in_model_serving, normalize_host
+
+if TYPE_CHECKING:
+    from flashrank import Ranker, RerankRequest
 
 
 # auth_type values that the databricks-langchain library (as of 0.20.0) extracts
@@ -614,7 +624,7 @@ def _build_vector_search_input_model(
 
 def build_flashrank_ranker(
     rerank_config: Optional[RerankParametersModel],
-) -> Optional[Ranker]:
+) -> "Optional[Ranker]":
     """Initialize a FlashRank ``Ranker`` from a rerank config, or ``None``.
 
     Returns ``None`` when:
@@ -638,6 +648,11 @@ def build_flashrank_ranker(
     """
     if rerank_config is None or not rerank_config.model:
         return None
+
+    from dao_ai._extras import require_extra
+
+    require_extra("rerank", feature="FlashRank reranking")
+    from flashrank import Ranker
 
     logger.debug(
         "Initializing FlashRank ranker",
@@ -707,7 +722,7 @@ def build_flashrank_ranker(
 def rerank_documents(
     query: str,
     documents: list[Document],
-    ranker: Ranker,
+    ranker: "Ranker",
     rerank_config: RerankParametersModel,
 ) -> list[Document]:
     """
@@ -742,7 +757,11 @@ def rerank_documents(
         {"text": doc.page_content, "meta": doc.metadata} for doc in documents
     ]
 
-    # Create reranking request
+    # Create reranking request. FlashRank is guaranteed importable here: a
+    # non-None ``ranker`` only exists because build_flashrank_ranker() imported
+    # it (via the ``rerank`` extra).
+    from flashrank import RerankRequest
+
     rerank_request: RerankRequest = RerankRequest(query=query, passages=passages)
 
     # Perform reranking
@@ -965,7 +984,7 @@ def create_ai_search_tool(
     # Initialize FlashRank ranker if configured. On init failure the helper
     # returns None and we skip the reranker; the downstream "if ranker" guard
     # handles both "not configured" and "init failed" uniformly.
-    ranker: Optional[Ranker] = build_flashrank_ranker(rerank_config)
+    ranker: "Optional[Ranker]" = build_flashrank_ranker(rerank_config)
 
     # Log instructed retrieval configuration
     if instructed_config and decomposition_config:

@@ -50,20 +50,26 @@ def test_write_mcp_bundle_emits_expected_files(tmp_path: Path) -> None:
     )
 
     pyproject = (out / "pyproject.toml").read_text()
-    assert "dao-ai[mcp]" in pyproject
+    # The MCP server always installs the ``mcp`` extra (fastmcp/uvicorn);
+    # config-driven feature extras (a2a, rerank, ...) are merged alongside it.
+    assert "dao-ai[" in pyproject and "mcp" in pyproject
     assert "[project.scripts]" not in pyproject, (
         "Generated pyproject must not declare the dao-ai-mcp-server console "
         "script — the DAB invokes the module via `python -m` and doesn't "
         "need the script wired into .venv/bin/."
     )
 
-    requirements = (out / "requirements.txt").read_text()
+    requirements = (out / "requirements.txt").read_text().strip()
     # The version pin must be unbounded: the locally-installed dao-ai
     # (`_get_dao_ai_version()`) may be an unreleased pre-publish build,
     # so floor-pinning would cause Apps to fail with ``Could not find a
-    # version that satisfies …`` at build time.
-    assert requirements.strip() == "dao-ai[mcp]", (
-        f"requirements.txt must install unbounded dao-ai[mcp]; got:\n{requirements}"
+    # version that satisfies …`` at build time. The ``mcp`` extra must always
+    # be present; other extras depend on what the config exercises.
+    assert requirements.startswith("dao-ai[") and "mcp" in requirements, (
+        f"requirements.txt must install unbounded dao-ai[mcp,...]; got:\n{requirements}"
+    )
+    assert "==" not in requirements, (
+        f"requirements.txt dao-ai pin must stay unbounded; got:\n{requirements}"
     )
 
     databricks = (out / "databricks.yaml").read_text()

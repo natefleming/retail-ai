@@ -43,12 +43,6 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from deepagents.middleware.summarization import (
-    SummarizationMiddleware as DeepAgentsSummarizationMiddleware,
-)
-from deepagents.middleware.summarization import (
-    TruncateArgsSettings,
-)
 from langchain.agents.middleware import SummarizationMiddleware
 from langchain_core.language_models import LanguageModelLike
 from langchain_core.messages import BaseMessage
@@ -59,6 +53,10 @@ from dao_ai.config import ChatHistoryModel
 from dao_ai.middleware._backends import resolve_backend
 
 if TYPE_CHECKING:
+    from deepagents.middleware.summarization import (
+        SummarizationMiddleware as DeepAgentsSummarizationMiddleware,
+    )
+
     from dao_ai.config import VolumePathModel
 
 __all__ = [
@@ -310,6 +308,14 @@ def create_deep_summarization_middleware(
               trigger: ["tokens", 100000]
               keep: ["messages", 20]
     """
+    from dao_ai._extras import require_extra
+
+    require_extra("deepagents", feature="Deep Agents summarization middleware")
+    from deepagents.middleware.summarization import (
+        SummarizationMiddleware as DeepAgentsSummarizationMiddleware,
+    )
+    from deepagents.middleware.summarization import TruncateArgsSettings
+
     backend = resolve_backend(
         backend_type=backend_type,
         root_dir=root_dir,

@@ -46,7 +46,6 @@ from typing import TYPE_CHECKING, Any, Union
 from langchain_core.language_models import BaseChatModel, LanguageModelLike
 from langchain_core.runnables import RunnableWithFallbacks
 from langgraph.store.base import BaseStore
-from langmem import ReflectionExecutor, create_memory_store_manager
 from loguru import logger
 
 from dao_ai.memory.schemas import resolve_schemas
@@ -192,6 +191,11 @@ def create_extraction_manager(
     if query_model is not None:
         kwargs["query_model"] = _unwrap_to_base_chat_model(query_model)
 
+    from dao_ai._extras import require_extra
+
+    require_extra("memory", feature="Background memory extraction")
+    from langmem import create_memory_store_manager
+
     manager: MemoryStoreManager = create_memory_store_manager(
         _unwrap_to_base_chat_model(model), **kwargs
     )
@@ -234,6 +238,8 @@ class LazyReflectionExecutor:
         if self._executor is None:
             with self._lock:
                 if self._executor is None:
+                    from langmem import ReflectionExecutor
+
                     self._executor = ReflectionExecutor(
                         self._proxy_manager, store=self._store
                     )

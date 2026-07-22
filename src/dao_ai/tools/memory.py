@@ -17,8 +17,6 @@ from typing import Any, Literal, Optional
 from langchain.tools import ToolRuntime
 from langchain_core.tools import BaseTool, StructuredTool
 from langgraph.store.base import BaseStore
-from langmem import create_manage_memory_tool as langmem_create_manage_memory_tool
-from langmem import create_search_memory_tool as langmem_create_search_memory_tool
 from loguru import logger
 from pydantic import BaseModel, Field
 
@@ -44,6 +42,11 @@ def create_search_memory_tool(
     Returns:
         A ``StructuredTool`` compatible with Databricks.
     """
+    from dao_ai._extras import require_extra
+
+    require_extra("memory", feature="Long-term memory tools")
+    from langmem import create_search_memory_tool as langmem_create_search_memory_tool
+
     original_tool = langmem_create_search_memory_tool(namespace=namespace, store=store)
 
     class SearchMemoryInput(BaseModel):
@@ -102,6 +105,11 @@ def create_manage_memory_tool(
     Returns:
         A ``StructuredTool`` compatible with Databricks.
     """
+    from dao_ai._extras import require_extra
+
+    require_extra("memory", feature="Long-term memory tools")
+    from langmem import create_manage_memory_tool as langmem_create_manage_memory_tool
+
     original_tool = langmem_create_manage_memory_tool(namespace=namespace, store=store)
 
     class ManageMemoryInput(BaseModel):

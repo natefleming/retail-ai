@@ -18,6 +18,25 @@ from dao_ai.config import (
     UnityCatalogFunctionSqlModel,
     VectorStoreModel,
 )
+
+
+def _stamp_extras_resolvable(mock_config: MagicMock) -> MagicMock:
+    """Give a ``MagicMock(spec=AppConfig)`` the real, empty collections the
+    extras resolver iterates (``tools``/``retrievers``/``middleware``/
+    ``datasets``) plus a disabled-A2A app, so ``create_agent`` /
+    ``deploy_apps_agent`` — which now resolve optional-feature extras from the
+    config — don't choke on non-iterable mock attributes. Tests that exercise a
+    specific feature can still override these afterwards.
+    """
+    mock_config.tools = {}
+    mock_config.retrievers = {}
+    mock_config.middleware = {}
+    mock_config.datasets = None
+    mock_config.memory = None
+    # app.a2a disabled + no orchestration → resolver adds no extras by default.
+    mock_config.app.a2a = MagicMock(enabled=False)
+    mock_config.app.orchestration = None
+    return mock_config
 from dao_ai.providers.databricks import DatabricksProvider
 
 
@@ -438,6 +457,7 @@ def test_create_agent_sets_experiment():
 
         # Create provider and call create_agent
         provider = DatabricksProvider()
+        _stamp_extras_resolvable(mock_config)
         provider.create_agent(config=mock_config)
 
         # Verify experiment was retrieved/created and set
@@ -547,6 +567,7 @@ def test_create_agent_uses_configured_python_version():
 
         # Create provider and call create_agent
         provider = DatabricksProvider()
+        _stamp_extras_resolvable(mock_config)
         provider.create_agent(config=mock_config)
 
         # Verify log_model was called with conda_env containing the configured Python version
@@ -627,6 +648,7 @@ def test_create_agent_local_source_no_wheel_no_source_raises():
     ):
         provider = DatabricksProvider()
         with pytest.raises(RuntimeError, match="Build a wheel first"):
+            _stamp_extras_resolvable(mock_config)
             provider.create_agent(config=mock_config, development=True)
 
 
@@ -678,6 +700,7 @@ def test_deploy_agent_sets_endpoint_tag():
 
                         # Create provider and call deploy_agent
                         provider = DatabricksProvider()
+                        _stamp_extras_resolvable(mock_config)
                         provider.deploy_agent(config=mock_config)
 
                         # Verify deploy was called with the dao_ai tag
@@ -772,6 +795,7 @@ def test_deploy_agent_routes_to_model_serving_by_default():
     ) as mock_model_serving:
         with patch.object(DatabricksProvider, "deploy_apps_agent") as mock_apps:
             provider = DatabricksProvider()
+            _stamp_extras_resolvable(mock_config)
             provider.deploy_agent(config=mock_config)
 
             # Should route to model serving by default
@@ -805,6 +829,7 @@ def test_deploy_agent_routes_to_model_serving_explicitly():
     ) as mock_model_serving:
         with patch.object(DatabricksProvider, "deploy_apps_agent") as mock_apps:
             provider = DatabricksProvider()
+            _stamp_extras_resolvable(mock_config)
             provider.deploy_agent(
                 config=mock_config, target=DeploymentTarget.MODEL_SERVING
             )
@@ -832,6 +857,7 @@ def test_deploy_agent_routes_to_apps_when_specified():
     ) as mock_model_serving:
         with patch.object(DatabricksProvider, "deploy_apps_agent") as mock_apps:
             provider = DatabricksProvider()
+            _stamp_extras_resolvable(mock_config)
             provider.deploy_agent(config=mock_config, target=DeploymentTarget.APPS)
 
             mock_apps.assert_called_once_with(mock_config)
@@ -910,6 +936,7 @@ def test_deploy_apps_agent_creates_new_app():
             provider.w.apps.wait_get_app_active.return_value = mock_created_app
             provider.w.apps.deploy_and_wait.return_value = mock_deployment
 
+            _stamp_extras_resolvable(mock_config)
             provider.deploy_apps_agent(mock_config)
 
             # Verify REST API was called to create the app
@@ -990,6 +1017,7 @@ def test_deploy_apps_agent_updates_existing_app():
             provider.w.apps.get.return_value = mock_existing_app
             provider.w.apps.deploy_and_wait.return_value = mock_deployment
 
+            _stamp_extras_resolvable(mock_config)
             provider.deploy_apps_agent(mock_config)
 
             # Verify REST API was NOT called with POST (app already exists)
@@ -1056,6 +1084,7 @@ def test_deploy_apps_agent_uploads_rendered_yaml(tmp_path):
             provider.w.apps.get.return_value = mock_existing_app
             provider.w.apps.deploy_and_wait.return_value = mock_deployment
 
+            _stamp_extras_resolvable(mock_config)
             provider.deploy_apps_agent(mock_config)
 
     # Find the workspace.upload call carrying the config
@@ -1127,6 +1156,7 @@ def test_deploy_apps_agent_falls_back_to_source_when_no_rendered_yaml(tmp_path):
             provider.w.apps.get.return_value = mock_existing_app
             provider.w.apps.deploy_and_wait.return_value = mock_deployment
 
+            _stamp_extras_resolvable(mock_config)
             provider.deploy_apps_agent(mock_config)
 
     upload_calls = [
@@ -1203,6 +1233,7 @@ def test_deploy_apps_agent_serializes_python_built_config(tmp_path):
             provider.w.apps.get.return_value = mock_existing_app
             provider.w.apps.deploy_and_wait.return_value = mock_deployment
 
+            _stamp_extras_resolvable(mock_config)
             provider.deploy_apps_agent(mock_config)
 
     # The provider should have created the workspace dir and uploaded a YAML
@@ -2549,6 +2580,7 @@ def test_deploy_apps_agent_uploads_pyproject_with_dao_ai_version_pin(tmp_path):
             provider.w.apps.get.return_value = mock_existing_app
             provider.w.apps.deploy_and_wait.return_value = mock_deployment
 
+            _stamp_extras_resolvable(mock_config)
             provider.deploy_apps_agent(mock_config)
 
     # requirements.txt is the file Apps' build phase recognizes directly
@@ -2673,6 +2705,7 @@ def test_deploy_apps_agent_dev_path_ships_requirements_txt(tmp_path):
             provider.w.apps.get.return_value = mock_existing_app
             provider.w.apps.deploy_and_wait.return_value = mock_deployment
 
+            _stamp_extras_resolvable(mock_config)
             provider.deploy_apps_agent(mock_config)
 
     # requirements.txt is uploaded and points at the bundled wheel via a

@@ -30,6 +30,7 @@ from typing import (
 import yaml
 
 if TYPE_CHECKING:
+    from a2a.types import SecurityScheme
     from dao_ai.audit import LakebaseAuditSink
     from dao_ai.genie.cache.context_aware.optimization import (
         ContextAwareCacheEvalDataset,
@@ -37,7 +38,6 @@ if TYPE_CHECKING:
     )
     from dao_ai.state import Context
 
-from a2a.types import SecurityScheme
 from databricks.sdk import WorkspaceClient
 from databricks.sdk.credentials_provider import (
     CredentialsStrategy,
@@ -48,8 +48,8 @@ from databricks.sdk.service.apps import App
 from databricks.sdk.service.catalog import FunctionInfo, TableInfo
 from databricks.sdk.service.dashboards import GenieListSpacesResponse, GenieSpace
 from databricks.sdk.service.sql import GetWarehouseResponse
-from databricks.vector_search.client import VectorSearchClient
-from databricks.vector_search.index import VectorSearchIndex
+from databricks.ai_search.client import VectorSearchClient
+from databricks.ai_search.index import VectorSearchIndex
 from databricks_langchain import (
     ChatDatabricks,
     DatabricksEmbeddings,
@@ -9225,16 +9225,43 @@ class A2AModel(BaseModel):
         description="Overrides the Agent Card 'skills' list. When unset, one skill is "
         "derived per entry in config.agents.",
     )
-    security_schemes: Optional[dict[str, SecurityScheme]] = Field(
+    security_schemes: Optional[dict[str, Any]] = Field(
         default=None,
         description="Overrides the Agent Card 'securitySchemes'. Keys are scheme names; "
         "values are validated against a2a-sdk's SecurityScheme discriminated union at "
-        "config-load time. See ``dao_ai.apps.a2a.security`` for ready-made constants "
-        "(BEARER_DATABRICKS_PAT, BEARER_DATABRICKS_M2M, BEARER_DATABRICKS_OBO) and "
-        "factories (oauth2_databricks_authorization_code, oauth2_databricks_obo, "
-        "openid_connect_databricks, api_key_header). When unset, derived from "
-        ":attr:`on_behalf_of_user` (bearer scheme with OBO-aware description).",
+        "config-load time (requires the 'a2a' extra). See ``dao_ai.apps.a2a.security`` "
+        "for ready-made constants (BEARER_DATABRICKS_PAT, BEARER_DATABRICKS_M2M, "
+        "BEARER_DATABRICKS_OBO) and factories (oauth2_databricks_authorization_code, "
+        "oauth2_databricks_obo, openid_connect_databricks, api_key_header). When unset, "
+        "derived from :attr:`on_behalf_of_user` (bearer scheme with OBO-aware description).",
     )
+
+    @field_validator("security_schemes", mode="after")
+    @classmethod
+    def _validate_security_schemes(
+        cls, value: Optional[dict[str, Any]]
+    ) -> Optional[dict[str, Any]]:
+        """Validate scheme values against a2a-sdk's SecurityScheme union.
+
+        Typed as ``dict[str, Any]`` so ``dao_ai.config`` imports without the
+        optional ``a2a`` extra installed. When schemes are actually supplied we
+        require the extra and validate each value against the real discriminated
+        union, preserving the original fail-at-load-time contract.
+        """
+        if not value:
+            return value
+
+        from dao_ai._extras import require_extra
+
+        require_extra("a2a", feature="A2A security schemes")
+        from pydantic import TypeAdapter
+
+        from a2a.types import SecurityScheme
+
+        # TypeAdapter validates both raw dicts and already-constructed
+        # SecurityScheme instances against the discriminated union.
+        adapter: TypeAdapter = TypeAdapter(SecurityScheme)
+        return {key: adapter.validate_python(scheme) for key, scheme in value.items()}
     default_input_modes: list[str] = Field(
         default_factory=lambda: ["text/plain", "application/json"],
         description="Default supported input MIME types on the Agent Card.",

@@ -14,15 +14,8 @@ Based on: https://github.com/langchain-ai/deepagents
 from __future__ import annotations
 
 import importlib
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
 
-from deepagents import (
-    SubAgent as DeepAgentsSubAgent,
-)
-from deepagents import (
-    create_deep_agent,
-)
-from deepagents.middleware.permissions import FilesystemPermission
 from langchain.agents.middleware import AgentMiddleware as LangchainAgentMiddleware
 from langchain.agents.middleware.human_in_the_loop import InterruptOnConfig
 from langchain_core.language_models import BaseChatModel
@@ -55,6 +48,10 @@ from dao_ai.orchestration import (
 )
 from dao_ai.skills import resolve_skill_runtime_paths
 from dao_ai.tools import create_tools
+
+if TYPE_CHECKING:
+    from deepagents import SubAgent as DeepAgentsSubAgent
+    from deepagents.middleware.permissions import FilesystemPermission
 
 
 def _resolve_model(
@@ -146,6 +143,9 @@ def _resolve_permissions(
     """
     if not specs:
         return []
+
+    from deepagents.middleware.permissions import FilesystemPermission
+
     resolved: list[FilesystemPermission] = []
     for p in specs:
         resolved.append(
@@ -265,7 +265,7 @@ def _agent_to_subagent(agent: AgentModel, config: AppConfig) -> DeepAgentsSubAge
         sub["middleware"] = _resolve_middleware(agent.middleware)
     if agent.response_format is not None:
         sub["response_format"] = _resolve_response_format(agent.response_format)
-    return cast(DeepAgentsSubAgent, sub)
+    return cast("DeepAgentsSubAgent", sub)
 
 
 def _resolve_subagent(
@@ -309,7 +309,7 @@ def _resolve_subagent(
         sub["permissions"] = _resolve_permissions(spec.permissions)
     if spec.response_format is not None:
         sub["response_format"] = _resolve_response_format(spec.response_format)
-    return cast(DeepAgentsSubAgent, sub)
+    return cast("DeepAgentsSubAgent", sub)
 
 
 def create_deep_agent_graph(config: AppConfig) -> CompiledStateGraph:
@@ -331,6 +331,11 @@ def create_deep_agent_graph(config: AppConfig) -> CompiledStateGraph:
     Raises:
         ValueError: if no ``deep_agent`` block is configured.
     """
+    from dao_ai._extras import require_extra
+
+    require_extra("deepagents", feature="Deep Agent orchestration")
+    from deepagents import create_deep_agent
+
     orchestration: OrchestrationModel = config.app.orchestration
     deep_agent: DeepAgentModel | None = orchestration.deep_agent
     if deep_agent is None:

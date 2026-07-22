@@ -42,7 +42,6 @@ from dao_ai.middleware.assertions import (
 )
 
 # Deep Agents backends and middleware factories
-from dao_ai.middleware.backends import DatabricksVolumeBackend
 from dao_ai.middleware.base import (
     AgentMiddleware,
     ModelRequest,
@@ -237,3 +236,19 @@ __all__ = [
     "create_skills_middleware",
     "create_deep_summarization_middleware",
 ]
+
+
+def __getattr__(name: str):
+    """Lazily expose the deepagents-backed volume backend (PEP 562).
+
+    ``DatabricksVolumeBackend`` subclasses a ``deepagents`` protocol and so
+    can't be imported without the ``deepagents`` extra. The middleware factory
+    functions above are safe to import eagerly — each guards its own deepagents
+    import internally — but this class is resolved on demand so ``import
+    dao_ai.middleware`` (core graph path) works without the extra.
+    """
+    if name == "DatabricksVolumeBackend":
+        from dao_ai.middleware.backends import DatabricksVolumeBackend
+
+        return DatabricksVolumeBackend
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

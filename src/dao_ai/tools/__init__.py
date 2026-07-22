@@ -6,7 +6,6 @@ from dao_ai.tools._api_discovery import (
     discover_serving_endpoint_api,
     resolve_api,
 )
-from dao_ai.tools.a2a_agent import create_a2a_agent_tool
 from dao_ai.tools.agent import create_agent_endpoint_tool
 from dao_ai.tools.app_agent_dispatcher import create_app_dispatcher
 from dao_ai.tools.app_info import create_app_info_tool
@@ -101,3 +100,22 @@ __all__ = [
     "time_in_timezone_tool",
     "time_until_tool",
 ]
+
+
+def __getattr__(name: str):
+    """Lazily expose optional-extra-backed tool factories (PEP 562).
+
+    ``dao_ai.tools.a2a_agent`` imports ``a2a-sdk`` at module scope (including in
+    default argument values), so it cannot be imported when the ``a2a`` extra is
+    absent. Importing it lazily here keeps ``import dao_ai.tools`` — which is on
+    the core graph path — working without the extra; the friendly missing-extra
+    error surfaces from ``create_a2a_agent_tool`` only when an A2A tool is used.
+    """
+    if name == "create_a2a_agent_tool":
+        from dao_ai._extras import require_extra
+
+        require_extra("a2a", feature="Agent-to-Agent (A2A) tools")
+        from dao_ai.tools.a2a_agent import create_a2a_agent_tool
+
+        return create_a2a_agent_tool
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

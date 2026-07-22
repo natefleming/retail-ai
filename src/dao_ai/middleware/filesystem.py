@@ -38,7 +38,6 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from deepagents.middleware.filesystem import FilesystemMiddleware
 from loguru import logger
 
 from dao_ai.config import PromptModel
@@ -46,6 +45,8 @@ from dao_ai.middleware._backends import resolve_backend
 from dao_ai.middleware._prompt_utils import resolve_prompt
 
 if TYPE_CHECKING:
+    from deepagents.middleware.filesystem import FilesystemMiddleware
+
     from dao_ai.config import VolumePathModel
 
 __all__ = [
@@ -116,6 +117,11 @@ def create_filesystem_middleware(
             volume_path="/Volumes/catalog/schema/volume",
         )
     """
+    from dao_ai._extras import require_extra
+
+    require_extra("deepagents", feature="Filesystem middleware")
+    from deepagents.middleware.filesystem import FilesystemMiddleware
+
     backend = resolve_backend(
         backend_type=backend_type,
         root_dir=root_dir,

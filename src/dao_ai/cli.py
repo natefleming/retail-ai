@@ -2521,10 +2521,22 @@ def run_databricks_command(
     config_rel_to_notebooks: str | None = None
     dao_ai_dep: str = "dao-ai"
     if config_path and app_config:
+        from dao_ai._extras import (
+            format_extras_suffix,
+            resolve_required_extras_or_all,
+        )
         from dao_ai.pipeline.bundle import write_pipeline_bundle
         from dao_ai.utils import resolve_use_local_source
 
         use_local_source: bool = resolve_use_local_source(development)
+
+        # The provisioning job's serverless env installs dao-ai with exactly
+        # the optional-feature extras this config exercises, so provisioning
+        # notebooks (ingest, vector-search, deploy) can import feature paths.
+        extras_suffix: str = format_extras_suffix(
+            resolve_required_extras_or_all(app_config, target="pipeline")
+        )
+        dao_ai_dep = f"dao-ai{extras_suffix}"
 
         # Regenerate the owned default dir cleanly so stale dev artifacts
         # (e.g. dist/ wheels) don't linger across dev/published switches.
@@ -2553,7 +2565,7 @@ def run_databricks_command(
                     "Development pipeline bundle has no staged dao-ai wheel "
                     f"under {staging_dir / 'dist'}."
                 )
-            dao_ai_dep = f"./dist/{staged_wheels[-1].name}"
+            dao_ai_dep = f"./dist/{staged_wheels[-1].name}{extras_suffix}"
 
     # Use app-specific cloud target: {app_name}-{cloud}
     # This ensures each app has unique deployment identity while supporting cloud-specific settings
