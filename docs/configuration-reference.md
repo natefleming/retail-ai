@@ -1000,7 +1000,7 @@ shared connection pool.
 **Governance** — because `type: sql` inherits the base tool model, it composes with
 `human_in_the_loop:` and `audit:` (e.g. gate a mutating `UPDATE`/`DELETE` behind
 human approval with a signed audit receipt). See
-[`examples/15_complete_applications/hardware_store_lakebase.yaml`](../examples/15_complete_applications/hardware_store_lakebase.yaml)
+[`examples/15_complete_applications/hardware_store/hardware_store_lakebase.yaml`](../examples/15_complete_applications/hardware_store/hardware_store_lakebase.yaml)
 and [`examples/14_basic_tools/sql_tool_example.yaml`](../examples/14_basic_tools/sql_tool_example.yaml).
 
 ## First-Class Agent Tools

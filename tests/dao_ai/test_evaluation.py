@@ -480,7 +480,7 @@ class TestEvaluationPipeline:
         from dao_ai.evaluation import build_scorers
 
         config = AppConfig.from_file(
-            "examples/15_complete_applications/hardware_store_lakebase.yaml"
+            "examples/15_complete_applications/hardware_store/hardware_store_lakebase.yaml"
         )
 
         scorers = build_scorers(config.evaluation)
@@ -502,7 +502,7 @@ class TestEvaluationPipeline:
         from dao_ai.evaluation import build_scorers
 
         config = AppConfig.from_file(
-            "examples/15_complete_applications/hardware_store_lakebase.yaml"
+            "examples/15_complete_applications/hardware_store/hardware_store_lakebase.yaml"
         )
 
         scorers = build_scorers(config.evaluation)
