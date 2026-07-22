@@ -468,7 +468,7 @@ dao-ai parameters list -c config/my_config.yaml --param catalog=nfleming
 
 ### Deploying to Databricks Apps
 
-`dao-ai generate-agent` produces a deploy-ready Databricks Apps bundle: `databricks.yaml`, the app resource YAML (with the agent's UC resource wiring), a `requirements.txt`, a `pyproject.toml`, and a copy of your config. The Apps build phase installs dependencies by running `pip install -r requirements.txt`, so no `uv.lock` is generated or needed.
+`dao-ai generate-agent` produces a deploy-ready Databricks Apps bundle: `databricks.yaml`, the app resource YAML (with the agent's UC resource wiring), a `pyproject.toml`, a portable `uv.lock`, and a copy of your config. The Apps build phase installs dependencies by running `uv sync --locked --no-dev` from the pyproject + lock (no `requirements.txt` — it would take precedence and force the slower pip path). The lock's internal-mirror URLs are rewritten to the public CDN so it resolves from Apps containers.
 
 The simplest path is the one-step deploy (generate + `bundle deploy` + trace-link/grant + `bundle run`):
 
@@ -485,9 +485,9 @@ databricks bundle deploy -t dev -p <profile>
 databricks bundle run <app-name> -t dev -p <profile>
 ```
 
-The generated `requirements.txt` pins `dao-ai==<version>` (published mode) so the deploy is reproducible, or references the bundled local wheel (`./dist/<wheel>`) under `--development`. The app runtime command is bare `python -m dao_ai.apps.start_app` (chat-proxy variant) or `python -m dao_ai.apps.server` (no chat UI).
+The generated `pyproject.toml` pins `dao-ai[<extras>]==<version>` (published mode) so the deploy is reproducible, or redirects dao-ai to the bundled local wheel via `[tool.uv.sources]` under `--development`; either way `uv lock` captures the full closure into `uv.lock`. The app runtime command is bare `python -m dao_ai.apps.start_app` (chat-proxy variant) or `python -m dao_ai.apps.server` (no chat UI).
 
-> **Note:** A future release plans to move Apps deploys to `pyproject.toml` + a portable `uv.lock` (`uv sync --locked`); that work is not in this version, which uses `requirements.txt` + `pip`.
+> **Pre-publish note:** published-mode lock generation resolves `dao-ai==<version>` from PyPI, so it only works once that version is published (locks are generated at release time in CI). For local/pre-release iteration use `--development`, which locks against the bundled wheel and works anytime.
 
 #### Trace persistence on Apps
 

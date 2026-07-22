@@ -16,10 +16,10 @@ Files produced:
   targets, and (in ``--development`` mode) ``sync: [dist/*.whl]``.
 * ``resources/app.yml`` — the App + experiment block (embedded
   ``config.command`` / ``config.env``, no standalone ``app.yaml``).
-* ``pyproject.toml`` — build metadata; runtime deps live in requirements.txt.
-* ``requirements.txt`` — unbounded ``dao-ai[mcp]`` (prod) or the bundled
-  wheel with ``[mcp]`` extras (dev). Apps' build phase installs from
-  this directly.
+* ``pyproject.toml`` — the sole ``dao-ai[mcp]`` dep (dev redirects it to the
+  bundled wheel via ``[tool.uv.sources]``); build metadata.
+* ``uv.lock`` — the portable, public-CDN-pinned dependency closure. Apps' build
+  phase runs ``uv sync --locked --no-dev`` from pyproject.toml + uv.lock.
 * ``dao_ai.yaml`` — the rendered (param-substituted) config, stripped of
   its top-level ``parameters:`` block.
 * ``.gitignore`` / ``.python-version`` — bundle-parity scaffolding.
@@ -30,13 +30,13 @@ from __future__ import annotations
 
 import shutil
 import subprocess
-from collections.abc import Sequence
 from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as _pkg_version
 from pathlib import Path
 
 from loguru import logger
 
+from dao_ai._locking import generate_bundle_lock
 from dao_ai.apps.bundle import (
     _GITIGNORE_CONTENT,
     _GITIGNORE_DEV_CONTENT,
@@ -98,21 +98,6 @@ def write_mcp_bundle(
     written: list[str] = []
     skipped: list[str] = []
 
-    # The MCP server always needs the ``mcp`` extra (fastmcp/uvicorn). Merge in
-    # any optional-feature extras the config exercises so a2a/rerank/etc. tools
-    # exposed through the MCP server resolve their dependencies.
-    from dao_ai._extras import expand_all, resolve_required_extras_or_all
-
-    merged_extras: str = ",".join(
-        sorted({"mcp", *expand_all(resolve_required_extras_or_all(config, target="mcp"))})
-    )
-
-    # User-declared extra pip packages for custom code, appended to the MCP
-    # app's requirements.txt (parity with Model Serving / generate-agent).
-    user_pip_requirements: list[str] = (
-        list(config.app.pip_requirements) if config.app else []
-    )
-
     def _write(path: Path, content: str) -> None:
         if path.exists() and not overwrite:
             skipped.append(str(path.relative_to(output_dir)))
@@ -154,26 +139,39 @@ def write_mcp_bundle(
     if development:
         wheel_filename = _bundle_local_wheel(output_dir, written=written)
 
+    # The MCP server always needs the ``mcp`` extra (fastapi/uvicorn); merge in
+    # whatever optional-feature extras the config exercises so ``uv sync``
+    # installs them (e.g. "mcp,a2a,rerank").
+    from dao_ai._extras import expand_all, resolve_required_extras_or_all
+
+    merged_extras: str = ",".join(
+        sorted({"mcp", *expand_all(resolve_required_extras_or_all(config, target="mcp"))})
+    )
+
     _write(
         output_dir / "pyproject.toml",
         _render_pyproject(
             app_name=app_name, wheel_filename=wheel_filename, extras=merged_extras
         ),
     )
-    _write(
-        output_dir / "requirements.txt",
-        _make_requirements_txt(
-            development=development,
-            wheel_filename=wheel_filename,
-            extras=merged_extras,
-            pip_requirements=user_pip_requirements,
-        ),
-    )
+
+    # Stub package so uv can build the local project when locking (the
+    # pyproject declares ``packages = ["src/<pkg>"]``).
+    package_name = app_name.replace("-", "_")
+    _write(output_dir / "src" / package_name / "__init__.py", "")
+
     _write(
         output_dir / ".gitignore",
         _GITIGNORE_DEV_CONTENT if development else _GITIGNORE_CONTENT,
     )
     _write(output_dir / ".python-version", "3.11\n")
+
+    # Generate the portable uv.lock (Apps runs ``uv sync --locked --no-dev``
+    # from pyproject.toml + uv.lock; no requirements.txt). In dev mode the lock
+    # references the bundled wheel via ``[tool.uv.sources]``; published mode
+    # locks the full ``dao-ai[mcp]`` public-PyPI closure.
+    generate_bundle_lock(output_dir)
+    written.append("uv.lock")
 
     rendered: str | None = getattr(config, "_rendered_yaml", None)
     if rendered is not None:
@@ -208,8 +206,8 @@ def write_mcp_bundle(
         )
     print(f"  databricks bundle run {app_name} --target dev")
     print()
-    print("  # Apps' build phase installs deps directly from requirements.txt;")
-    print("  # no uv sync or URL rewrite required.")
+    print("  # Apps' build phase installs deps via `uv sync --locked` from")
+    print("  # pyproject.toml + uv.lock (portable, public-CDN URLs).")
     print()
 
 
@@ -236,43 +234,6 @@ def _render_pyproject(
         dao_ai_version=_get_dao_ai_version(),
         extras=extras,
     )
-
-
-def _make_requirements_txt(
-    *,
-    development: bool,
-    wheel_filename: str | None = None,
-    extras: str = "mcp",
-    pip_requirements: Sequence[str] | None = None,
-) -> str:
-    """Build the requirements.txt content for an MCP app bundle.
-
-    Published mode pins the exact installed version (``dao-ai[...]==<version>``)
-    for reproducible redeploys — see ``dao_ai.apps.bundle._make_requirements_txt``
-    for the reasoning (parity with generate-agent + Model Serving). The
-    ``mcp`` extra is always present (the server module needs fastmcp, uvicorn,
-    etc.); any config-derived feature extras (a2a, rerank, ...) are merged in
-    via ``extras``.
-
-    Args:
-        development: Whether to reference a bundled dev wheel vs the PyPI pin.
-        wheel_filename: The dev wheel filename (required in development mode).
-        extras: Comma-joined extras list (no brackets), e.g. ``"mcp,a2a"``.
-        pip_requirements: User-declared extra pip packages
-            (``config.app.pip_requirements``) for custom code, appended after
-            the dao-ai line so the MCP app installs them too.
-    """
-    if development:
-        if not wheel_filename:
-            raise ValueError(
-                "_make_requirements_txt: wheel_filename is required in development mode."
-            )
-        dao_ai_line = f"./dist/{wheel_filename}[{extras}]"
-    else:
-        dao_ai_line = f"dao-ai[{extras}]=={_get_dao_ai_version()}"
-
-    lines = [dao_ai_line, *(pip_requirements or [])]
-    return "\n".join(lines) + "\n"
 
 
 def _bundle_local_wheel(output_dir: Path, *, written: list[str]) -> str:
@@ -390,8 +351,7 @@ name = "{name}"
 version = "0.1.0"
 description = "Databricks Apps MCP server generated from a dao-ai config."
 requires-python = ">=3.11,<3.12"
-# Runtime deps live in requirements.txt (installed by Apps' build phase).
-# Kept declared here too so local `uv sync` works for iterative dev.
+# Runtime deps are pinned in uv.lock (Apps' build phase runs `uv sync`).
 dependencies = [
     "dao-ai[{extras}]=={dao_ai_version}",
 ]
@@ -410,8 +370,7 @@ name = "{name}"
 version = "0.1.0"
 description = "Databricks Apps MCP server (development build with bundled wheel)."
 requires-python = ">=3.11,<3.12"
-# Runtime deps live in requirements.txt (installed by Apps' build phase).
-# Kept declared here too so local `uv sync` works for iterative dev.
+# Runtime deps are pinned in uv.lock (Apps' build phase runs `uv sync`).
 dependencies = [
     "dao-ai[{extras}]",
 ]

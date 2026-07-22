@@ -11,6 +11,19 @@ sys.path.insert(0, str(Path(__file__).parent))
 from _fixtures import mcp_config  # noqa: E402
 
 
+@pytest.fixture(autouse=True)
+def _stub_bundle_lock(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Stub the real ``uv lock`` for every test in this module — generating a
+    lock needs network + a resolvable dao-ai[mcp] on the index. Writes a
+    placeholder lock so bundle layout is exercised; real lock generation is
+    covered live on fevm."""
+
+    def _fake_lock(bundle_dir: Path) -> None:
+        (bundle_dir / "uv.lock").write_text("version = 1\n")
+
+    monkeypatch.setattr("dao_ai.mcp.generate.generate_bundle_lock", _fake_lock)
+
+
 @pytest.mark.unit
 def test_write_mcp_bundle_emits_expected_files(tmp_path: Path) -> None:
     from dao_ai.mcp.config import load_app_config
@@ -27,7 +40,7 @@ def test_write_mcp_bundle_emits_expected_files(tmp_path: Path) -> None:
     expected = {
         "databricks.yaml",
         "pyproject.toml",
-        "requirements.txt",
+        "uv.lock",
         ".gitignore",
         ".python-version",
         "README.md",
@@ -43,10 +56,10 @@ def test_write_mcp_bundle_emits_expected_files(tmp_path: Path) -> None:
         "embedded in the DAB `apps.<key>.config` block via the shared "
         "generate_resources_app_yaml helper."
     )
-    assert "uv.lock" not in top_level_files, (
-        "MCP bundle must not ship uv.lock — Apps' build phase installs "
-        "directly from requirements.txt; a shipped lock would force the "
-        "legacy uv-sync path and re-introduce pypi-proxy URL pain."
+    assert "requirements.txt" not in top_level_files, (
+        "MCP bundle must NOT ship requirements.txt — it takes precedence over "
+        "pyproject.toml + uv.lock and forces the pip path. Apps' build phase "
+        "runs `uv sync --locked` from pyproject.toml + uv.lock."
     )
 
     pyproject = (out / "pyproject.toml").read_text()
@@ -59,18 +72,13 @@ def test_write_mcp_bundle_emits_expected_files(tmp_path: Path) -> None:
         "need the script wired into .venv/bin/."
     )
 
-    requirements = (out / "requirements.txt").read_text().strip()
     # Published mode pins the exact installed version for reproducible
-    # redeploys (fixed in 0.2.4; parity with generate-agent + Model Serving).
-    # The ``mcp`` extra must always be present; other extras depend on what
-    # the config exercises.
+    # redeploys (parity with generate-agent + Model Serving), with the mcp
+    # extra always present. The dep lives in pyproject.toml (uv path).
     from dao_ai.mcp.generate import _get_dao_ai_version
 
-    assert requirements.startswith("dao-ai[") and "mcp" in requirements, (
-        f"requirements.txt must install dao-ai[mcp,...]; got:\n{requirements}"
-    )
-    assert requirements.endswith(f"=={_get_dao_ai_version()}"), (
-        f"requirements.txt dao-ai pin must be exact-version; got:\n{requirements}"
+    assert f"]=={_get_dao_ai_version()}" in pyproject, (
+        f"pyproject must pin the exact dao-ai version; got:\n{pyproject}"
     )
 
     databricks = (out / "databricks.yaml").read_text()

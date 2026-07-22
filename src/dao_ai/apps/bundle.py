@@ -4,7 +4,8 @@ Bundle generation module for creating Databricks Asset Bundle files from dao-ai 
 Generates a complete, deployable bundle directory containing:
 - databricks.yaml: Bundle definition with app config, resources, scopes
 - dao_ai.yaml: Copy of the dao-ai agent config
-- pyproject.toml: Python project with dao-ai dependency
+- pyproject.toml + uv.lock: dao-ai dependency + portable pinned closure
+  (Apps' build phase runs `uv sync --locked --no-dev`)
 - .gitignore, .python-version: Scaffolding files
 
 Usage:
@@ -20,12 +21,13 @@ import shutil
 import subprocess
 from importlib.metadata import version as pkg_version
 from pathlib import Path
-from typing import Any, Optional, Sequence
+from typing import Any
 
 import yaml
 from loguru import logger
 from ruamel.yaml import YAML
 
+from dao_ai._locking import generate_bundle_lock
 from dao_ai.apps.resources import (
     _extract_env_vars_from_config,
     generate_app_resources,
@@ -130,63 +132,21 @@ name = "{name}"
 version = "0.1.0"
 description = "DAO AI Agent: {name} (development build)"
 requires-python = ">=3.11"
-# Deps are installed from requirements.txt at deploy time (which points
-# at the local wheel under dist/). Pyproject is metadata + hatch build
-# target for any user code under src/{package_name}/.
-dependencies = []
+# The dao-ai requirement is redirected to the bundled local wheel via
+# ``[tool.uv.sources]`` below, so ``uv lock`` records the local build and
+# Apps' ``uv sync`` installs THIS code (not PyPI). Everything else resolves
+# from public PyPI through dao-ai's own dependency metadata.
+dependencies = [
+    "dao-ai{extras}",
+]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/{package_name}"]
 sources = ["src"]
+
+[tool.uv.sources]
+dao-ai = {{ path = "dist/{wheel_filename}" }}
 """
-
-
-def _make_requirements_txt(
-    *,
-    development: bool,
-    wheel_filename: Optional[str] = None,
-    extras: str = "",
-    pip_requirements: Optional[Sequence[str]] = None,
-) -> str:
-    """Build the requirements.txt content for an app bundle.
-
-    Published mode pins the exact installed version (``dao-ai==<version>``)
-    so a redeploy months later resolves the same release rather than
-    silently pulling whatever is newest — the deploy is reproducible. This
-    matches the Model Serving path (``create_agent`` pins
-    ``dao-ai=={dao_ai_version()}``). When generating a published bundle from
-    an unreleased local checkout the pin would name a version not yet on
-    PyPI — that is exactly what ``--development`` (bundle the local wheel) is
-    for, so ``--no-development`` legitimately assumes the version is (or will
-    be) published.
-
-    Development mode: reference the bundled wheel via a relative path
-    (``./dist/<wheel>``). Pip installs the wheel and resolves transitive
-    deps from public PyPI from the wheel's declared dependency metadata.
-
-    Args:
-        development: Whether to reference a bundled dev wheel vs the PyPI pin.
-        wheel_filename: The dev wheel filename (required in development mode).
-        extras: Optional requirement-extras suffix (e.g. ``"[a2a,rerank]"``)
-            appended to the ``dao-ai`` spec / dev wheel so the config's
-            optional features install. Empty string installs the base package.
-        pip_requirements: User-declared extra pip packages
-            (``config.app.pip_requirements``) that the deployer's custom code
-            under ``src/<package>/`` needs. Appended verbatim, one per line,
-            after the dao-ai line so Apps' ``pip install -r requirements.txt``
-            installs them into the app environment.
-    """
-    if development:
-        if not wheel_filename:
-            raise ValueError(
-                "_make_requirements_txt: wheel_filename is required in development mode."
-            )
-        dao_ai_line = f"./dist/{wheel_filename}{extras}"
-    else:
-        dao_ai_line = f"dao-ai{extras}=={_get_dao_ai_version()}"
-
-    lines = [dao_ai_line, *(pip_requirements or [])]
-    return "\n".join(lines) + "\n"
 
 
 def _get_dao_ai_version() -> str:
@@ -632,7 +592,7 @@ def generate_databricks_yaml(
         "*.yaml",
         "*.yml",
         "*.toml",
-        "requirements.txt",
+        "uv.lock",
         ".python-version",
     ]
 
@@ -750,21 +710,6 @@ def write_bundle(
     written: list[str] = []
     skipped: list[str] = []
 
-    # Resolve the optional-feature extras this config uses so the generated
-    # bundle installs exactly what its features need (e.g. dao-ai[a2a,rerank]).
-    from dao_ai._extras import format_extras_suffix, resolve_required_extras_or_all
-
-    extras_suffix: str = format_extras_suffix(
-        resolve_required_extras_or_all(config, target="apps")
-    )
-
-    # User-declared extra pip packages for their custom code under
-    # ``src/<package>/`` (the stub the generator scaffolds). These are appended
-    # to the generated requirements.txt so Apps installs them alongside dao-ai.
-    user_pip_requirements: list[str] = (
-        list(config.app.pip_requirements) if config.app else []
-    )
-
     # Warn loudly when the bundle is being built without `trace_location`:
     # Databricks Apps containers cannot reach the artifact-storage host the
     # default MLflow control-plane trace exporter PUTs spans to, so spans
@@ -779,7 +724,7 @@ def write_bundle(
             "trace export targets a storage host that Apps containers cannot "
             "reach, so spans are silently dropped. To capture traces, set "
             "`app.trace_location` in your config (see "
-            "examples/01_getting_started/ai_gateway.yaml for the YAML "
+            "config/examples/01_getting_started/ai_gateway.yaml for the YAML "
             "shape). Local notebook/CLI runs and Model Serving deploys are "
             "not affected by this."
         )
@@ -845,20 +790,20 @@ def write_bundle(
     # the app source and reachable by deepagents' SkillsMiddleware at
     # runtime. Volume-backed skills are NOT copied (they live on UC volumes
     # and are read directly via the ``/Volumes/...`` path).
-    from dao_ai.skills import _skill_base_dir, collect_local_skill_dirs
+    from dao_ai.skills import _project_root, collect_local_skill_dirs
 
-    skill_base: Path = _skill_base_dir(config)
+    project_root: Path = _project_root()
     for skill_dir_str in collect_local_skill_dirs(config):
         src_dir: Path = Path(skill_dir_str)
         if not src_dir.exists():
             continue
-        # Preserve the relative layout under the config dir (e.g.
+        # Preserve the relative layout under the project root (e.g.
         # skills/<vertical>/<skill>) so that ``Path.cwd() / spec.path`` resolves
         # at runtime when the bundle root is the app's CWD.
         try:
-            rel: Path = src_dir.relative_to(skill_base)
+            rel: Path = src_dir.relative_to(project_root)
         except ValueError:
-            # Skill dir is not under the config dir — fall back to copying
+            # Skill dir is not under the project root — fall back to copying
             # under skills/<basename>. The user can still reference the skill
             # via the rendered absolute path in the deployed config.
             rel = Path("skills") / src_dir.name
@@ -878,6 +823,14 @@ def write_bundle(
         written.append(str(rel))
 
     package_name = app_name.replace("-", "_")
+
+    # Optional-feature extras this config exercises, threaded into the dao-ai
+    # dependency so `uv sync --locked` installs them (e.g. "[a2a,rerank]").
+    from dao_ai._extras import format_extras_suffix, resolve_required_extras_or_all
+
+    extras_suffix: str = format_extras_suffix(
+        resolve_required_extras_or_all(config, target="apps")
+    )
 
     if development:
         from dao_ai.utils import dev_local_version, find_dev_wheel
@@ -946,31 +899,21 @@ def write_bundle(
         logger.info("Copied dao-ai wheel for development build", wheel=wheel_path.name)
         written.append(f"dist/{wheel_path.name}")
 
-        # Write dev pyproject.toml (metadata + hatch build target).
-        # Deps are installed from requirements.txt at deploy time.
+        # Write dev pyproject.toml (metadata + hatch build target). The dao-ai
+        # requirement is redirected to the bundled local wheel via
+        # ``[tool.uv.sources]`` so the generated uv.lock installs THIS code.
         _track(
             output_dir / "pyproject.toml",
             _PYPROJECT_DEV_TEMPLATE.format(
                 name=app_name,
                 package_name=package_name,
-            ),
-        )
-
-        # Write requirements.txt pointing at the bundled wheel. Apps'
-        # build phase picks this up directly and runs ``pip install -r
-        # requirements.txt`` — no uv.lock needed, no pypi-proxy URLs to
-        # rewrite, no ambient-env coupling.
-        _track(
-            output_dir / "requirements.txt",
-            _make_requirements_txt(
-                development=True,
                 wheel_filename=wheel_path.name,
                 extras=extras_suffix,
-                pip_requirements=user_pip_requirements,
             ),
         )
 
-        # Create stub package for user's custom code additions
+        # Create stub package for user's custom code additions. Must exist
+        # before locking so uv can build the local project.
         stub_dir = output_dir / "src" / package_name
         stub_init = stub_dir / "__init__.py"
         if not stub_init.exists() or overwrite:
@@ -978,6 +921,13 @@ def write_bundle(
             stub_init.write_text("")
             logger.info(f"Created stub package src/{package_name}/")
             written.append(f"src/{package_name}/__init__.py")
+
+        # Generate the portable uv.lock. Apps' build phase runs
+        # ``uv sync --locked --no-dev`` from pyproject.toml + uv.lock (no
+        # requirements.txt). The lock references the bundled wheel via the
+        # ``[tool.uv.sources]`` path and pins the full public-PyPI closure.
+        generate_bundle_lock(output_dir)
+        written.append("uv.lock")
     else:
         _track(
             output_dir / "pyproject.toml",
@@ -989,20 +939,8 @@ def write_bundle(
             ),
         )
 
-        # Write requirements.txt with version-ranged dao-ai pin. Apps'
-        # build phase runs ``pip install -r requirements.txt`` from
-        # public PyPI — same path used by deploy_apps_agent's published
-        # branch (kept in sync intentionally).
-        _track(
-            output_dir / "requirements.txt",
-            _make_requirements_txt(
-                development=False,
-                extras=extras_suffix,
-                pip_requirements=user_pip_requirements,
-            ),
-        )
-
-        # Create stub package so the wheel builds and users can add custom code
+        # Create stub package so the wheel builds and users can add custom code.
+        # Must exist before locking so uv can build the local project.
         stub_dir = output_dir / "src" / package_name
         stub_init = stub_dir / "__init__.py"
         if not stub_init.exists() or overwrite:
@@ -1010,6 +948,13 @@ def write_bundle(
             stub_init.write_text("")
             logger.info(f"Created stub package src/{package_name}/")
             written.append(f"src/{package_name}/__init__.py")
+
+        # Generate the portable uv.lock. Apps' build phase runs
+        # ``uv sync --locked --no-dev`` from pyproject.toml + uv.lock (no
+        # requirements.txt). The sole ``dao-ai>={ver}`` dep resolves the full
+        # public-PyPI closure at lock time; the lock pins it.
+        generate_bundle_lock(output_dir)
+        written.append("uv.lock")
 
     _track(
         output_dir / ".gitignore",
@@ -1039,6 +984,6 @@ def write_bundle(
         )
     print(f"  databricks bundle run {app_name} --target dev")
     print()
-    print("  # Apps' build phase installs deps directly from requirements.txt;")
-    print("  # no uv sync or URL rewrite required.")
+    print("  # Apps' build phase installs deps via `uv sync --locked` from")
+    print("  # pyproject.toml + uv.lock (portable, public-CDN URLs).")
     print()
