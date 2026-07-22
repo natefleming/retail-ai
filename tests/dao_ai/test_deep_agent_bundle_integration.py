@@ -37,18 +37,14 @@ def project_root_with_skills(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) ->
     Ensures the test exercises the actual deep_agent_with_skills.yaml example
     (the deployment example we ship), not a stripped-down inline fixture.
     """
-    real_project_root = Path(__file__).resolve().parents[2]
-    real_example = (
-        real_project_root
-        / "config"
-        / "examples"
-        / "13_orchestration"
-        / "deep_agent_with_skills.yaml"
+    real_example_dir = (
+        Path(__file__).resolve().parents[2] / "examples" / "13_orchestration"
     )
-    real_skills_dir = real_project_root / "skills"
+    real_example = real_example_dir / "deep_agent_with_skills.yaml"
+    real_skills_dir = real_example_dir / "skills"
 
-    # Mirror the canonical layout into tmp_path.
-    (tmp_path / "config" / "examples" / "13_orchestration").mkdir(parents=True)
+    # Mirror the canonical layout into tmp_path: skills are colocated with the
+    # config (``<config-dir>/skills/...``), so keep them siblings here too.
     shutil.copy(real_example, tmp_path / "deep_agent_with_skills.yaml")
     shutil.copytree(real_skills_dir, tmp_path / "skills")
     (tmp_path / "pyproject.toml").write_text("[project]\nname = 'tmp'\n")
@@ -78,6 +74,29 @@ class TestBundleShipsSkills:
         ).exists()
         assert (
             out / "skills" / "sporting_goods_store" / "research" / "AGENTS.md"
+        ).exists()
+
+    def test_local_skill_copied_when_cwd_is_not_config_dir(
+        self, project_root_with_skills: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Regression: skills are colocated with the config and must be found at
+        bundle time even when the CLI runs from a CWD that is NOT the config's
+        directory (e.g. ``dao-ai generate-agent -c .../deep_agent_with_skills.yaml``
+        from the repo root). The bundle-time resolver anchors on the config's
+        own dir, not CWD."""
+        elsewhere = tmp_path / "elsewhere"
+        elsewhere.mkdir()
+        monkeypatch.chdir(elsewhere)
+        monkeypatch.delenv("DAO_AI_PROJECT_ROOT", raising=False)
+
+        cfg = AppConfig.from_file(
+            str(project_root_with_skills / "deep_agent_with_skills.yaml")
+        )
+        out = tmp_path / "bundle_out"
+        write_bundle(cfg, out, overwrite=True)
+
+        assert (
+            out / "skills" / "sporting_goods_store" / "research" / "SKILL.md"
         ).exists()
 
     def test_volume_skill_NOT_copied(

@@ -9479,7 +9479,7 @@ class AppModel(BaseModel):
         "is wrapped so that requests with background=True or custom_inputs.operation are "
         "persisted in the referenced Lakebase database. In Databricks Apps, strict "
         "Responses API routes (/v1/responses, /v1/responses/{id}, /v1/responses/{id}/cancel) "
-        "are additionally exposed. See config/examples/19_background_agents/.",
+        "are additionally exposed. See examples/19_background_agents/.",
     )
     a2a: A2AModel = Field(
         default_factory=A2AModel,
@@ -10204,6 +10204,21 @@ class DatasetFormat(str, Enum):
     EXCEL = "excel"
 
 
+def _resolve_relative_to_base(value: str, base_path: str | None) -> Path:
+    """Resolve a config asset path against its config directory.
+
+    ``value`` is a filesystem path from a ``ddl``/``data`` field. Absolute
+    values pass through unchanged. Relative values resolve against
+    ``base_path`` (the config file's directory) when set — this is what lets
+    ``ddl: functions/x.sql`` find the file colocated with the config — and
+    against the process CWD otherwise (the legacy notebook-CWD behaviour).
+    """
+    path: Path = Path(value)
+    if path.is_absolute() or base_path is None:
+        return path
+    return (Path(base_path) / path).resolve()
+
+
 class DatasetModel(BaseModel):
     """A dataset definition for provisioning a table with DDL and seed data."""
 
@@ -10220,6 +10235,11 @@ class DatasetModel(BaseModel):
         default=None,
         description="Seed data as inline SQL INSERT statements or a VolumePath to a data file.",
     )
+    # Directory the relative ``ddl``/``data`` paths resolve against — stamped by
+    # ``AppConfig.from_file`` with the config file's own directory so assets can
+    # be colocated with the config (``ddl: functions/x.sql``). ``None`` falls
+    # back to the process CWD, preserving the legacy notebook-CWD behaviour.
+    _base_path: Optional[str] = PrivateAttr(default=None)
     format: Optional[DatasetFormat] = Field(
         default=None,
         description="Data file format when loading from a file (csv, json, parquet, delta, etc.).",
@@ -10236,6 +10256,15 @@ class DatasetModel(BaseModel):
         default_factory=dict,
         description="Variable substitution parameters for DDL and data templates.",
     )
+
+    def resolve_asset_path(self, value: str) -> Path:
+        """Resolve a relative ``ddl``/``data`` path against the config's dir.
+
+        Absolute paths pass through unchanged. Relative paths resolve against
+        ``_base_path`` (the config file's directory, stamped by
+        ``AppConfig.from_file``) when set, else the process CWD.
+        """
+        return _resolve_relative_to_base(value, self._base_path)
 
     def create(self, w: WorkspaceClient | None = None) -> None:
         from dao_ai.providers.base import ServiceProvider
@@ -10273,6 +10302,13 @@ class UnityCatalogFunctionSqlModel(BaseModel):
         default=None,
         description="Optional test to run after creating the function to verify it works.",
     )
+    # See ``DatasetModel._base_path`` — stamped by ``AppConfig.from_file`` so a
+    # relative ``ddl`` resolves against the config file's own directory.
+    _base_path: Optional[str] = PrivateAttr(default=None)
+
+    def resolve_asset_path(self, value: str) -> Path:
+        """Resolve the relative ``ddl`` path against the config's directory."""
+        return _resolve_relative_to_base(value, self._base_path)
 
     def create(
         self,
@@ -10798,6 +10834,16 @@ class AppConfig(BaseModel):
         config._source_config_path = path
         config._rendered_yaml = rendered_text
         config._substitution_vars = dict(merged_params) if merged_params else None
+
+        # Stamp each provisioning model with the config's own directory so its
+        # relative ``ddl``/``data`` paths resolve against the config location
+        # (assets colocated with the config), not the process CWD. Absolute
+        # paths and Volume references are unaffected.
+        base_path: str = str(Path(path).parent)
+        for dataset in config.datasets or []:
+            dataset._base_path = base_path
+        for fn in config.unity_catalog_functions or []:
+            fn._base_path = base_path
         # Stash the pre-substitution dict so tooling can recover which
         # YAML fields were backed by ``${var.X}`` references.
         config._raw_yaml_dict = raw_dict

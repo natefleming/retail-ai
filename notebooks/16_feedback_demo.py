@@ -40,7 +40,7 @@ sys.path.insert(0, "../src")
 
 dbutils.widgets.text(
     name="config-path",
-    defaultValue="../config/examples/15_complete_applications/hardware_store.yaml",
+    defaultValue="../examples/15_complete_applications/hardware_store/hardware_store.yaml",
 )
 config_path: str = dbutils.widgets.get("config-path")
 print(f"Config path: {config_path}")

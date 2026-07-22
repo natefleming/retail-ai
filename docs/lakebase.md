@@ -183,10 +183,10 @@ docs = tool.invoke({"query": "How do I reset my password?"})
 
 | Example | Demonstrates |
 |---|---|
-| [`config/examples/21_lakebase_search/ann_only.yaml`](../config/examples/21_lakebase_search/ann_only.yaml) | Minimal ANN — no tsvector column required. |
-| [`config/examples/21_lakebase_search/bm25_only.yaml`](../config/examples/21_lakebase_search/bm25_only.yaml) | BM25 only — exact-term lookup (SKUs, error codes). |
-| [`config/examples/21_lakebase_search/hybrid_rrf.yaml`](../config/examples/21_lakebase_search/hybrid_rrf.yaml) | ANN + BM25 fused via RRF. |
-| [`config/examples/21_lakebase_search/reranked.yaml`](../config/examples/21_lakebase_search/reranked.yaml) | HYBRID + FlashRank cross-encoder rerank. |
-| [`config/examples/21_lakebase_search/filters_and_traces.yaml`](../config/examples/21_lakebase_search/filters_and_traces.yaml) | Static filters + MLflow `trace_location`. |
-| [`config/examples/21_lakebase_search/dynamic_schema.yaml`](../config/examples/21_lakebase_search/dynamic_schema.yaml) | Hand-declared `ColumnInfo` for per-column filter narrowing. |
-| [`config/examples/21_lakebase_search/instructed.yaml`](../config/examples/21_lakebase_search/instructed.yaml) | Full instructed retrieval pipeline (decompose → parallel → RRF → LLM rerank → verify). |
+| [`examples/21_lakebase_search/ann_only.yaml`](../examples/21_lakebase_search/ann_only.yaml) | Minimal ANN — no tsvector column required. |
+| [`examples/21_lakebase_search/bm25_only.yaml`](../examples/21_lakebase_search/bm25_only.yaml) | BM25 only — exact-term lookup (SKUs, error codes). |
+| [`examples/21_lakebase_search/hybrid_rrf.yaml`](../examples/21_lakebase_search/hybrid_rrf.yaml) | ANN + BM25 fused via RRF. |
+| [`examples/21_lakebase_search/reranked.yaml`](../examples/21_lakebase_search/reranked.yaml) | HYBRID + FlashRank cross-encoder rerank. |
+| [`examples/21_lakebase_search/filters_and_traces.yaml`](../examples/21_lakebase_search/filters_and_traces.yaml) | Static filters + MLflow `trace_location`. |
+| [`examples/21_lakebase_search/dynamic_schema.yaml`](../examples/21_lakebase_search/dynamic_schema.yaml) | Hand-declared `ColumnInfo` for per-column filter narrowing. |
+| [`examples/21_lakebase_search/instructed.yaml`](../examples/21_lakebase_search/instructed.yaml) | Full instructed retrieval pipeline (decompose → parallel → RRF → LLM rerank → verify). |

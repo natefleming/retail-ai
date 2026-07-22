@@ -619,7 +619,7 @@ token land NULL in `obo_access_token` — the receipt still records
 
 - Vault: `00-inbox/dao-ai-auditable-hitl-approvals-research-2026-07-12.md`
 - Config example:
-  `config/examples/07_human_in_the_loop/human_in_the_loop_audited.yaml`
+  `examples/07_human_in_the_loop/human_in_the_loop_audited.yaml`
 - Source:
   - `src/dao_ai/audit/` — receipt schema, JCS, hash chain, Lakebase sink
   - `src/dao_ai/middleware/audit_receipt.py` — execution-time middleware

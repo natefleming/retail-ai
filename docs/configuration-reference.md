@@ -486,7 +486,7 @@ optimizations:
   cache_threshold_optimizations:
     optimize_cache:
       name: string                                # Bayesian cache-threshold optimization
-      # See config/examples/13_optimization/ for the full schema
+      # See examples/13_optimization/ for the full schema
 ```
 
 ### AI Gateway routing (`ai_gateway`)
@@ -1000,8 +1000,8 @@ shared connection pool.
 **Governance** — because `type: sql` inherits the base tool model, it composes with
 `human_in_the_loop:` and `audit:` (e.g. gate a mutating `UPDATE`/`DELETE` behind
 human approval with a signed audit receipt). See
-[`config/examples/15_complete_applications/hardware_store_lakebase.yaml`](../config/examples/15_complete_applications/hardware_store_lakebase.yaml)
-and [`config/examples/14_basic_tools/sql_tool_example.yaml`](../config/examples/14_basic_tools/sql_tool_example.yaml).
+[`examples/15_complete_applications/hardware_store/hardware_store_lakebase.yaml`](../examples/15_complete_applications/hardware_store/hardware_store_lakebase.yaml)
+and [`examples/14_basic_tools/sql_tool_example.yaml`](../examples/14_basic_tools/sql_tool_example.yaml).
 
 ## First-Class Agent Tools
 
@@ -1080,14 +1080,14 @@ tools:
 
 ### `type: a2a` — call an external A2A agent
 
-See [`config/examples/15_complete_applications/procurement_supplier_a2a/README.md`](../config/examples/15_complete_applications/procurement_supplier_a2a/README.md) for the full A2A protocol example. Available since v0.1.80.
+See [`examples/15_complete_applications/procurement_supplier_a2a/README.md`](../examples/15_complete_applications/procurement_supplier_a2a/README.md) for the full A2A protocol example. Available since v0.1.80.
 
 ### See Also
 
-- [`config/examples/10_agent_integrations/app_first_class.yaml`](../config/examples/10_agent_integrations/app_first_class.yaml)
-- [`config/examples/10_agent_integrations/serving_endpoint_first_class.yaml`](../config/examples/10_agent_integrations/serving_endpoint_first_class.yaml)
-- [`config/examples/10_agent_integrations/README.md`](../config/examples/10_agent_integrations/README.md) — routing matrix and migration notes
-- [`config/examples/15_complete_applications/procurement_supplier_a2a/`](../config/examples/15_complete_applications/procurement_supplier_a2a/) — end-to-end A2A example
+- [`examples/10_agent_integrations/app_first_class.yaml`](../examples/10_agent_integrations/app_first_class.yaml)
+- [`examples/10_agent_integrations/serving_endpoint_first_class.yaml`](../examples/10_agent_integrations/serving_endpoint_first_class.yaml)
+- [`examples/10_agent_integrations/README.md`](../examples/10_agent_integrations/README.md) — routing matrix and migration notes
+- [`examples/15_complete_applications/procurement_supplier_a2a/`](../examples/15_complete_applications/procurement_supplier_a2a/) — end-to-end A2A example
 
 ---
 
@@ -1155,8 +1155,8 @@ environment (it is on Apps/MS deploys).
 
 ### See Also
 
-- [`config/examples/10_agent_integrations/genie_agent_model.yaml`](../config/examples/10_agent_integrations/genie_agent_model.yaml)
-- [`config/examples/10_agent_integrations/genie_agent_model_obo.yaml`](../config/examples/10_agent_integrations/genie_agent_model_obo.yaml) — OBO + deployable App
+- [`examples/10_agent_integrations/genie_agent_model.yaml`](../examples/10_agent_integrations/genie_agent_model.yaml)
+- [`examples/10_agent_integrations/genie_agent_model_obo.yaml`](../examples/10_agent_integrations/genie_agent_model_obo.yaml) — OBO + deployable App
 
 ---
 
@@ -1247,8 +1247,8 @@ include_tools: ["execute_query", "list_tables"]  # Only these 2
 
 ### See Also
 
-- Full examples: [`config/examples/02_mcp/filtered_mcp.yaml`](../config/examples/02_mcp/filtered_mcp.yaml)
-- MCP documentation: [`config/examples/02_mcp/README.md`](../config/examples/02_mcp/README.md#mcp-tool-filtering)
+- Full examples: [`examples/02_mcp/filtered_mcp.yaml`](../examples/02_mcp/filtered_mcp.yaml)
+- MCP documentation: [`examples/02_mcp/README.md`](../examples/02_mcp/README.md#mcp-tool-filtering)
 
 ---
 
@@ -1378,8 +1378,8 @@ subagents:
 
 ### See Also
 
-- Full example: [`config/examples/12_middleware/deepagents_middleware.yaml`](../config/examples/12_middleware/deepagents_middleware.yaml)
-- Middleware examples: [`config/examples/12_middleware/README.md`](../config/examples/12_middleware/README.md)
+- Full example: [`examples/12_middleware/deepagents_middleware.yaml`](../examples/12_middleware/deepagents_middleware.yaml)
+- Middleware examples: [`examples/12_middleware/README.md`](../examples/12_middleware/README.md)
 
 ---
 

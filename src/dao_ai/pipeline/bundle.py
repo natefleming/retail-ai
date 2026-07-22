@@ -8,17 +8,19 @@ source checkout**: the ``databricks.yaml`` is built programmatically here
 step notebooks ship as package data under ``dao_ai/pipeline/`` and are
 materialized into a staging directory.
 
-The staging layout mirrors the historic repo layout so the relative paths baked
-into notebooks (``../config``, ``../dist``) and into configs (``../data/...``,
-``../functions/...``) resolve unchanged — no path rewriting::
+Config-referenced ``ddl``/``data`` assets are colocated with the config and
+resolved against the config's own directory (see ``AppConfig.from_file`` /
+``DatasetModel.resolve_asset_path``), so they stage next to the staged config
+under ``config/`` and resolve identically when the notebook reloads the staged
+config::
 
     <output_dir>/
       databricks.yaml          # built programmatically (dict -> yaml.dump)
       notebooks/NN_*.py        # packaged step notebooks
       config/<name>.yaml       # the resolved dao-ai config
+      config/functions/...     # copied config-relative UC-function ddl files
+      config/data/...          # copied config-relative dataset ddl/data files
       dist/dao_ai-*.whl        # development mode only: the current build's wheel
-      data/<vertical>/...      # copied referenced dataset ddl/data files
-      functions/<vertical>/... # copied referenced UC-function ddl files
 
 dao-ai (with its own transitive deps) installs via the serverless job
 environment's ``dao_ai_dep`` dependency (see ``generate_pipeline_databricks_yaml``),
@@ -91,11 +93,15 @@ def generate_pipeline_databricks_yaml(config: AppConfig, development: bool) -> s
 
     sync_include = [
         "config/**",
-        "data/**",
-        "functions/**",
-        "functions/**/*.sql",
         "notebooks/*.py",
     ]
+    # Config-referenced assets stage under ``config/`` (covered above). A config
+    # that references a sibling use case's shared assets via ``../`` stages them
+    # outside ``config/`` at the bundle root; add explicit globs so those upload
+    # too (the staging dir is gitignored, so nothing syncs implicitly).
+    for glob in _asset_sync_globs(config):
+        if glob not in sync_include:
+            sync_include.append(glob)
     if development:
         # The bundle CLI excludes .whl by default; include the staged wheel so
         # the serverless environment can install it (../dist/<wheel> via the
@@ -208,9 +214,9 @@ def _referenced_asset_paths(config: AppConfig) -> list[str]:
     ``VolumePathModel`` references (those live on UC volumes and need no
     staging) and NOT absolute paths.
 
-    Notebooks run from the staged ``notebooks/`` dir, so config paths are
-    written relative to it (``../data/...``). Returned paths are kept verbatim
-    so the caller can resolve + stage them preserving their layout.
+    Paths are config-relative (``functions/find_x.sql``): assets are colocated
+    with the config. Returned verbatim so the caller can resolve them against
+    the config's own directory and stage them next to the staged config.
     """
     candidates: list[str | None] = []
     for dataset in config.datasets or []:
@@ -226,33 +232,63 @@ def _referenced_asset_paths(config: AppConfig) -> list[str]:
     return paths
 
 
+def _asset_sync_globs(config: AppConfig) -> list[str]:
+    """Bundle-root-relative sync globs covering the staged asset locations.
+
+    Assets stage next to the staged config (under ``config/<rel>``), so most
+    are already covered by ``config/**``. Config-relative paths that climb out
+    of ``config/`` with ``../`` (a config referencing a sibling use case's
+    shared assets) land elsewhere under the bundle root; the staging dir is
+    gitignored, so those top-level dirs need explicit sync coverage or the
+    files never upload. Returns the extra ``<top-dir>/**`` globs needed.
+    """
+    import posixpath
+
+    globs: list[str] = []
+    for rel in _referenced_asset_paths(config):
+        # Normalize ``config/../x/y`` → ``x/y`` to find the bundle-root top dir.
+        norm_str = posixpath.normpath(posixpath.join("config", rel))
+        top = norm_str.split("/", 1)[0]
+        glob = f"{top}/**"
+        if top not in {"config", ""} and glob not in globs:
+            globs.append(glob)
+    return globs
+
+
 def _stage_assets(
     config: AppConfig,
     output_dir: Path,
-    source_root: Path,
     overwrite: bool,
 ) -> tuple[list[str], list[str]]:
     """Copy config-referenced data/functions files into the staging bundle.
 
-    Config asset paths are relative to the notebook CWD, which historically is
-    ``<root>/notebooks`` — e.g. ``../data/hardware_store/products.snappy.parquet``
-    means ``<root>/data/hardware_store/products.snappy.parquet``. We resolve the
-    *source* against ``source_root/notebooks`` (the user's tree) and copy each
-    file to the same relative location under the staged bundle, so it resolves
-    identically when the notebook runs in-workspace (CWD == staged
-    ``notebooks/``).
+    Config asset paths are relative to the config file's own directory — e.g.
+    ``data: data/products.snappy.parquet`` in
+    ``.../hardware_store/hardware_store.yaml`` means
+    ``.../hardware_store/data/products.snappy.parquet``. The config stages to
+    ``<output_dir>/config/<name>.yaml``, so we copy each asset to the same
+    path relative to that staged config (``<output_dir>/config/<rel>``); the
+    provisioning notebook reloads the staged config and its
+    :meth:`DatasetModel.resolve_asset_path` resolves the same relative path
+    against the staged config's directory, finding the copy.
 
     Returns ``(copied, missing)`` where ``missing`` lists referenced paths not
     found at stage time (reported to the user, never silently dropped — a
     missing seed file means a provisioning step will fail at run time).
     """
-    src_anchor = (source_root / "notebooks").resolve()
-    dest_anchor = (output_dir / "notebooks").resolve()
+    source_config: str | None = config._source_config_path
+    if source_config is None:
+        # No source path (e.g. programmatically built config) — nothing to
+        # resolve relative paths against, so nothing to stage.
+        return [], []
+
+    src_anchor = Path(source_config).resolve().parent
+    dest_anchor = (output_dir / "config").resolve()
     copied: list[str] = []
     missing: list[str] = []
 
     def _staged_label(dest: Path) -> str:
-        """Bundle-relative label for the summary (e.g. ``data/foo/bar.sql``)."""
+        """Bundle-relative label for the summary (e.g. ``config/foo/bar.sql``)."""
         try:
             return str(dest.relative_to(output_dir))
         except ValueError:
@@ -281,7 +317,6 @@ def write_pipeline_bundle(
     output_dir: Path,
     overwrite: bool = False,
     development: bool = False,
-    source_root: Path | None = None,
 ) -> None:
     """Stage a deployable ``deploy_job`` bundle for ``dao-ai generate-workflow``.
 
@@ -290,18 +325,20 @@ def write_pipeline_bundle(
     ``databricks bundle deploy/run`` can be invoked from there with no source
     checkout. dao-ai installs via the serverless env's ``dao_ai_dep`` dependency.
 
+    Config-referenced ``ddl``/``data`` assets are colocated with the config and
+    resolved against its own directory (via ``AppConfig.from_file``), so they
+    stage next to the staged config under ``config/`` and resolve identically
+    when the provisioning notebook reloads the staged config.
+
     Args:
-        config: The loaded dao-ai config (via ``AppConfig.from_file``).
+        config: The loaded dao-ai config (via ``AppConfig.from_file`` — the
+            source path it records is what asset paths resolve against).
         output_dir: Directory to stage the bundle into.
         overwrite: Overwrite existing staged files.
         development: When True, stage the current build's dao-ai wheel under
             ``dist/`` so the step notebooks install *this* code rather than the
             published PyPI package. When no local wheel/source is available this
             raises rather than silently falling back to PyPI.
-        source_root: Tree the config's relative asset paths (``../data/...``,
-            ``../functions/...``) are resolved against when staging. Defaults to
-            the current working directory — the historic invocation dir where a
-            ``notebooks/`` sibling of ``data/``/``functions/`` lives.
     """
     if config.app is None:
         raise ValueError(
@@ -309,7 +346,6 @@ def write_pipeline_bundle(
         )
 
     output_dir = output_dir.resolve()
-    source_root = (source_root or Path.cwd()).resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
 
     written: list[str] = []
@@ -416,7 +452,7 @@ def write_pipeline_bundle(
         )
 
     # 6. Config-referenced data/functions asset files.
-    copied, missing = _stage_assets(config, output_dir, source_root, overwrite)
+    copied, missing = _stage_assets(config, output_dir, overwrite)
     written.extend(copied)
 
     print(f"\nPipeline bundle staged in {output_dir}/\n")

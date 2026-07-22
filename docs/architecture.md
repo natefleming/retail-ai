@@ -258,7 +258,7 @@ You can mix a cohort with regular single-target handoffs on the same source (age
 
 ![Parallel fan-out orchestration pattern: a source agent fires multiple handoff tools in a single LLM turn; LangGraph runs the siblings concurrently in one superstep and the join reducer runs exactly once](images/parallel-fan-out-pattern.png)
 
-See [`config/examples/13_orchestration/parallel_fan_out_pattern.yaml`](../config/examples/13_orchestration/parallel_fan_out_pattern.yaml) for a complete deployable example.
+See [`examples/13_orchestration/parallel_fan_out_pattern.yaml`](../examples/13_orchestration/parallel_fan_out_pattern.yaml) for a complete deployable example.
 
 ---
 

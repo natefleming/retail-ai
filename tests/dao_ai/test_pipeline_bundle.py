@@ -10,8 +10,8 @@ tests cover:
   environment's dao_ai_dep dependency; no requirements.txt),
 - _referenced_asset_paths picks up relative ddl/data paths and ignores
   Volume-backed / absolute ones,
-- config-referenced data/functions files are copied into the bundle,
-  preserving the relative layout notebooks resolve against.
+- config-referenced data/functions files are copied into the bundle next to
+  the staged config, resolved against the config's own directory.
 """
 
 from __future__ import annotations
@@ -97,7 +97,11 @@ class _AppStub:
 class TestGeneratePipelineDatabricksYaml:
     @staticmethod
     def _config() -> AppConfig:
-        return AppConfig.model_construct(app=_AppStub("pipeline_test_app"))
+        return AppConfig.model_construct(
+            app=_AppStub("pipeline_test_app"),
+            datasets=[],
+            unity_catalog_functions=[],
+        )
 
     def _doc(self, development: bool) -> dict:
         import yaml
@@ -176,15 +180,15 @@ class TestReferencedAssetPaths:
         config = self._config(
             datasets=[
                 DatasetModel(
-                    ddl="../functions/x/table.sql",
-                    data="../data/x/seed.parquet",
+                    ddl="functions/x/table.sql",
+                    data="data/x/seed.parquet",
                     format="parquet",
                 )
             ],
         )
         paths = _referenced_asset_paths(config)
-        assert "../functions/x/table.sql" in paths
-        assert "../data/x/seed.parquet" in paths
+        assert "functions/x/table.sql" in paths
+        assert "data/x/seed.parquet" in paths
 
     def test_volume_backed_ddl_ignored(self) -> None:
         """Volume references live on UC volumes and need no staging."""
@@ -231,7 +235,7 @@ class TestWritePipelineBundle:
     def test_stages_core_assets(self, tmp_path: Path) -> None:
         config = self._load(tmp_path, _MINIMAL_CONFIG)
         out = tmp_path / "bundle"
-        write_pipeline_bundle(config, out, source_root=tmp_path)
+        write_pipeline_bundle(config, out)
 
         assert (out / "databricks.yaml").exists()
         # requirements.txt is retired — deps install via the env-spec dao_ai_dep.
@@ -243,7 +247,7 @@ class TestWritePipelineBundle:
     def test_databricks_yaml_substitutes_app_name(self, tmp_path: Path) -> None:
         config = self._load(tmp_path, _MINIMAL_CONFIG)
         out = tmp_path / "bundle"
-        write_pipeline_bundle(config, out, source_root=tmp_path)
+        write_pipeline_bundle(config, out)
 
         text = (out / "databricks.yaml").read_text()
         assert "__APP_NAME__" not in text
@@ -252,50 +256,82 @@ class TestWritePipelineBundle:
     def test_no_dev_wheel_without_development_flag(self, tmp_path: Path) -> None:
         config = self._load(tmp_path, _MINIMAL_CONFIG)
         out = tmp_path / "bundle"
-        write_pipeline_bundle(config, out, source_root=tmp_path, development=False)
+        write_pipeline_bundle(config, out, development=False)
         assert not (out / "dist").exists()
 
-    def test_stages_referenced_assets_preserving_layout(
+    _ASSET_CONFIG = (
+        "resources:\n"
+        "  models:\n"
+        "    default_llm: &default_llm\n"
+        "      name: databricks-gpt-5-4-mini\n"
+        "agents:\n"
+        "  greeter: &greeter\n"
+        "    name: greeter\n"
+        "    description: A friendly assistant.\n"
+        "    model: *default_llm\n"
+        "    prompt: You are a concise assistant.\n"
+        "app:\n"
+        "  name: hw_app\n"
+        "  deployment_target: apps\n"
+        "  agents:\n"
+        "    - *greeter\n"
+        "datasets:\n"
+        "  - ddl: {ddl}\n"
+        "    data: null\n"
+        "unity_catalog_functions:\n"
+        "  - function:\n"
+        "      name: c.s.f\n"
+        "    ddl: {fn}\n"
+    )
+
+    def test_stages_config_relative_assets_next_to_config(
         self, tmp_path: Path
     ) -> None:
-        # Lay out a source tree: <root>/notebooks (CWD) + <root>/data + functions
-        (tmp_path / "notebooks").mkdir()
-        (tmp_path / "data" / "hw").mkdir(parents=True)
-        (tmp_path / "functions" / "hw").mkdir(parents=True)
-        (tmp_path / "data" / "hw" / "seed.sql").write_text("SELECT 1;")
-        (tmp_path / "functions" / "hw" / "fn.sql").write_text("CREATE FUNCTION f();")
+        # Assets colocated with the config (config-relative bare paths).
+        (tmp_path / "data").mkdir()
+        (tmp_path / "functions").mkdir()
+        (tmp_path / "data" / "seed.sql").write_text("SELECT 1;")
+        (tmp_path / "functions" / "fn.sql").write_text("CREATE FUNCTION f();")
 
-        body = (
-            "resources:\n"
-            "  models:\n"
-            "    default_llm: &default_llm\n"
-            "      name: databricks-gpt-5-4-mini\n"
-            "agents:\n"
-            "  greeter: &greeter\n"
-            "    name: greeter\n"
-            "    description: A friendly assistant.\n"
-            "    model: *default_llm\n"
-            "    prompt: You are a concise assistant.\n"
-            "app:\n"
-            "  name: hw_app\n"
-            "  deployment_target: apps\n"
-            "  agents:\n"
-            "    - *greeter\n"
-            "datasets:\n"
-            "  - ddl: ../data/hw/seed.sql\n"
-            "    data: null\n"
-            "unity_catalog_functions:\n"
-            "  - function:\n"
-            "      name: c.s.f\n"
-            "    ddl: ../functions/hw/fn.sql\n"
+        body = self._ASSET_CONFIG.format(
+            ddl="data/seed.sql", fn="functions/fn.sql"
         )
         config = self._load(tmp_path, body)
         out = tmp_path / "bundle"
-        write_pipeline_bundle(config, out, source_root=tmp_path)
+        write_pipeline_bundle(config, out)
 
-        # Copied to the same relative location so `notebooks/../data/...` resolves.
-        assert (out / "data" / "hw" / "seed.sql").exists()
-        assert (out / "functions" / "hw" / "fn.sql").exists()
+        # Copied next to the staged config so bare `data/...` resolves against
+        # the staged config's own directory at run time.
+        assert (out / "config" / "data" / "seed.sql").exists()
+        assert (out / "config" / "functions" / "fn.sql").exists()
+
+    def test_sibling_use_case_assets_stage_and_get_sync_glob(
+        self, tmp_path: Path
+    ) -> None:
+        # A config that reaches a sibling use case's shared assets via `../`.
+        cfg_dir = tmp_path / "use_case_b"
+        cfg_dir.mkdir()
+        shared = tmp_path / "use_case_a" / "functions"
+        shared.mkdir(parents=True)
+        (shared / "shared.sql").write_text("CREATE FUNCTION f();")
+
+        body = self._ASSET_CONFIG.format(
+            ddl="../use_case_a/functions/shared.sql",
+            fn="../use_case_a/functions/shared.sql",
+        )
+        cfg_path = cfg_dir / "b.yaml"
+        cfg_path.write_text(body)
+        config = AppConfig.from_file(cfg_path, initialize=False)
+        out = tmp_path / "bundle"
+        write_pipeline_bundle(config, out)
+
+        # Staged outside config/ (config/../use_case_a → bundle-root use_case_a).
+        assert (out / "use_case_a" / "functions" / "shared.sql").exists()
+        # ...and the databricks.yaml sync list covers that top-level dir.
+        import yaml
+
+        doc = yaml.safe_load((out / "databricks.yaml").read_text())
+        assert "use_case_a/**" in doc["sync"]["include"]
 
     def test_derived_artifacts_always_regenerate(self, tmp_path: Path) -> None:
         """databricks.yaml is derived, not user content: it must be rewritten on
@@ -303,10 +339,10 @@ class TestWritePipelineBundle:
         being deployed (a stale bundle name/targets would break bundle deploy)."""
         config = self._load(tmp_path, _MINIMAL_CONFIG)
         out = tmp_path / "bundle"
-        write_pipeline_bundle(config, out, source_root=tmp_path)
+        write_pipeline_bundle(config, out)
         (out / "databricks.yaml").write_text("SENTINEL")
         # overwrite=False must STILL regenerate the derived databricks.yaml.
-        write_pipeline_bundle(config, out, source_root=tmp_path, overwrite=False)
+        write_pipeline_bundle(config, out, overwrite=False)
         assert (out / "databricks.yaml").read_text() != "SENTINEL"
         assert "pipeline_test_app" in (out / "databricks.yaml").read_text()
 
@@ -314,19 +350,19 @@ class TestWritePipelineBundle:
         """The copied-in config IS user content: overwrite=False preserves it."""
         config = self._load(tmp_path, _MINIMAL_CONFIG)
         out = tmp_path / "bundle"
-        write_pipeline_bundle(config, out, source_root=tmp_path)
+        write_pipeline_bundle(config, out)
         staged_config = out / "config" / "my_config.yaml"
         staged_config.write_text("SENTINEL")
-        write_pipeline_bundle(config, out, source_root=tmp_path, overwrite=False)
+        write_pipeline_bundle(config, out, overwrite=False)
         assert staged_config.read_text() == "SENTINEL"
 
     def test_overwrite_true_replaces_user_config(self, tmp_path: Path) -> None:
         config = self._load(tmp_path, _MINIMAL_CONFIG)
         out = tmp_path / "bundle"
-        write_pipeline_bundle(config, out, source_root=tmp_path)
+        write_pipeline_bundle(config, out)
         staged_config = out / "config" / "my_config.yaml"
         staged_config.write_text("SENTINEL")
-        write_pipeline_bundle(config, out, source_root=tmp_path, overwrite=True)
+        write_pipeline_bundle(config, out, overwrite=True)
         assert staged_config.read_text() != "SENTINEL"
 
 
@@ -344,8 +380,8 @@ class TestWritePipelineBundle:
             self._write(tmp_path, "b.yaml", cfg_b), initialize=False
         )
         out_a, out_b = tmp_path / "A", tmp_path / "B"
-        write_pipeline_bundle(a, out_a, source_root=tmp_path)
-        write_pipeline_bundle(b, out_b, source_root=tmp_path)
+        write_pipeline_bundle(a, out_a)
+        write_pipeline_bundle(b, out_b)
 
         assert "pipeline_test_app" in (out_a / "databricks.yaml").read_text()
         assert "other_app" in (out_b / "databricks.yaml").read_text()

@@ -54,20 +54,22 @@ src/[industry-example]/             # Core industry-specific code (optional)
 ├── tools.py                         # Industry-specific tools
 └── hooks.py                         # Industry-specific hooks
 
-config/[industry-example]/          # Industry configuration directory (optional)
-├── model_config.yaml               # Main model configuration
-
-
-examples/[industry-example]/        # Industry examples and demos (optional)
-├── README.md                        # Industry-specific documentation
-└── sample_queries.yaml             # Example queries/scenarios
-
-data/[industry-example]/           # Sample industry data (if applicable)
-└── sample_data.parquet
+examples/15_complete_applications/[use-case]/   # Self-contained use-case dir
+├── README.md                        # Use-case documentation
+├── [use-case].yaml                  # dao-ai config (one or more variants)
+├── functions/                       # UC SQL function DDL, colocated
+│   └── *.sql                        # referenced as `ddl: functions/x.sql`
+└── data/                            # Dataset DDL + seed data, colocated
+    └── *.sql, *.parquet             # referenced as `data: data/x.parquet`
 
 tests/[industry-example]/          # Industry-specific tests (optional)
 └── test_[industry-example]_agents.py
 ```
+
+Assets (`functions/`, `data/`) live **inside** the use-case directory next to the
+config and are referenced with **config-relative paths** (bare `functions/x.sql`,
+not `../functions/...`). They resolve against the config file's own directory, so
+a use-case dir is self-contained and portable.
 
 ### Example: Adding Healthcare Use Case
 
@@ -81,31 +83,23 @@ For a healthcare industry use case:
    └── hooks.py           # Healthcare-specific hooks
    ```
 
-2. **Add configuration directory:**
+2. **Add a self-contained use-case directory with colocated assets:**
    ```
-   config/healthcare/
-   └── model_config.yaml        # Main configuration
-   ```
-
-3. **Create examples:**
-   ```
-   examples/healthcare/
+   examples/15_complete_applications/healthcare/
    ├── README.md
-   └── patient_diagnosis_flow.yaml
-   ```
-
-4. **Add sample data:**
-   ```
-   data/healthcare/
-   └── synthetic_patient_data.parquet
+   ├── healthcare.yaml                      # dao-ai config
+   ├── functions/
+   │   └── lookup_patient.sql               # ddl: functions/lookup_patient.sql
+   └── data/
+       └── synthetic_patient_data.parquet   # data: data/synthetic_patient_data.parquet
    ```
 
 ### Key Guidelines
 
-- **Naming consistency**: Directory names should match your industry domain (e.g., `healthcare`, `finance`, `manufacturing`)
-- **Self-contained**: Each industry should be independent with its own src/, config/, examples/, and tests/
-- **Configuration organization**: Use the config/[industry]/ directory structure to organize multiple config files
-- **Documentation**: Include clear README files with usage examples in each industry's examples/ directory
+- **Naming consistency**: Directory names should match your use-case domain (e.g., `healthcare`, `finance`, `manufacturing`)
+- **Self-contained**: Each use case is a single directory holding its config variant(s) and its colocated `functions/` and `data/`
+- **Config-relative paths**: Reference assets with bare `functions/x.sql` / `data/x.parquet` so they resolve against the config's own directory
+- **Documentation**: Include a clear README with usage examples in the use-case directory
 - **Testing**: Add comprehensive tests for new functionality in tests/[industry]/
 
 ## Code Style

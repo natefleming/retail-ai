@@ -2396,7 +2396,7 @@ class DatabricksProvider(ServiceProvider):
             }
 
         if ddl:
-            ddl_path: Path = Path(ddl)
+            ddl_path: Path = dataset.resolve_asset_path(ddl)
             logger.debug("Executing DDL", ddl_path=str(ddl_path))
             statements: Sequence[str] = sqlparse.parse(ddl_path.read_text())
             for statement in statements:
@@ -2409,7 +2409,7 @@ class DatabricksProvider(ServiceProvider):
                 )
 
         if data:
-            data_path: Path = Path(data)
+            data_path: Path = dataset.resolve_asset_path(data)
             if format == "sql":
                 logger.debug("Executing SQL from file", data_path=str(data_path))
                 data_statements: Sequence[str] = sqlparse.parse(data_path.read_text())
@@ -2425,8 +2425,6 @@ class DatabricksProvider(ServiceProvider):
                     )
             else:
                 logger.debug("Writing dataset to table", table=table)
-                if not data_path.is_absolute():
-                    data_path = Path.cwd() / data_path
                 data_path = data_path.resolve()
                 logger.trace("Data path resolved", path=str(data_path))
 
@@ -2829,7 +2827,9 @@ class DatabricksProvider(ServiceProvider):
     ) -> None:
         function: FunctionModel = unity_catalog_function.function
         schema: SchemaModel = function.schema_model
-        ddl_path: Path = Path(unity_catalog_function.ddl)
+        ddl_path: Path = unity_catalog_function.resolve_asset_path(
+            unity_catalog_function.ddl
+        )
         parameters: dict[str, Any] = unity_catalog_function.parameters
 
         statements: Sequence[str] = [

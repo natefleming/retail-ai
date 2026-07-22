@@ -1,0 +1,1183 @@
+# yaml-language-server: $schema=../../../../schemas/model_config_schema.json
+
+# =============================================================================
+# COMMERCE SWARM — LangGraph Commerce Agent (B2B + B2C)
+# =============================================================================
+# Reference implementation of the LangGraph Commerce Agent v2.1 architecture
+# on dao-ai. Demonstrates:
+#   • Swarm orchestration with deterministic + LLM-routed handoffs
+#   • Hyper-personalization via Lakebase-backed long-term memory (user_profile,
+#     preference, episode) with auto-extraction and prompt injection
+#   • Unity AI Gateway for ALL model calls (governance, usage tracking,
+#     rate-limit pooling)
+#   • All agents on Claude Sonnet 4.6 (fast routing/lookups and reasoning-heavy
+#     recommendation share the same endpoint, differentiated by temperature)
+#   • Lakebase scale-to-zero (autoscaling_min_cu: 0) for idle-cost elimination
+#   • UC trace_location for trace persistence on Databricks Apps
+#   • Three Vector Search indexes (products, FAQs, policies)
+#   • Idempotency log for UCP transactional commands
+#
+# Deploy:  dao-ai generate-workflow --deploy --run \
+#            -c examples/15_complete_applications/commerce_swarm.yaml \
+#            -p fevm
+# =============================================================================
+
+parameters:
+  catalog:
+    description: Unity Catalog catalog name
+    default: retail_consumer_goods
+  schema:
+    description: Schema within the catalog
+    default: commerce_swarm
+  warehouse_id:
+    description: SQL warehouse ID used for UC trace_location export
+    default: d58e5fb998498840
+
+# =============================================================================
+# VARIABLES — credentials sourced from the shared retail_consumer_goods scope
+# =============================================================================
+variables:
+  client_id: &client_id
+    options:
+    - scope: retail_consumer_goods
+      secret: RETAIL_AI_DATABRICKS_CLIENT_ID
+    - env: RETAIL_AI_DATABRICKS_CLIENT_ID
+
+  client_secret: &client_secret
+    options:
+    - scope: retail_consumer_goods
+      secret: RETAIL_AI_DATABRICKS_CLIENT_SECRET
+    - env: RETAIL_AI_DATABRICKS_CLIENT_SECRET
+
+# =============================================================================
+# SCHEMAS
+# =============================================================================
+schemas:
+  retail_schema: &retail_schema
+    catalog_name: ${var.catalog}
+    schema_name: ${var.schema}
+    permissions:
+    - principals: [users]
+      privileges:
+      - USE_CATALOG
+      - USE_SCHEMA
+      - SELECT
+      - EXECUTE
+
+# =============================================================================
+# RESOURCES
+# =============================================================================
+resources:
+
+  # ---------------------------------------------------------------------------
+  # LANGUAGE MODELS — all routed through Unity AI Gateway
+  # ---------------------------------------------------------------------------
+  models:
+
+    # Fast / cheap LLM for triage, routing, simple lookups, UCP execution
+    fast_llm: &fast_llm
+      name: databricks-claude-sonnet-4-6
+      ai_gateway: true
+      temperature: 0.1
+      max_tokens: 8192
+
+    # Reasoning-heavy LLM for recommendation (history + memory synthesis)
+    reasoning_llm: &reasoning_llm
+      name: databricks-claude-sonnet-4-6
+      ai_gateway: true
+      temperature: 0.2
+      max_tokens: 8192
+
+    # Tool-calling LLM (alias to fast_llm — Claude Sonnet 4.6 has strong tool-call fidelity)
+    tool_calling_llm: &tool_calling_llm
+      name: databricks-claude-sonnet-4-6
+      ai_gateway: true
+      temperature: 0.1
+      max_tokens: 8192
+
+    # Background memory extraction — uses fast_llm to avoid competing with foreground
+    extraction_llm: &extraction_llm
+      name: databricks-claude-sonnet-4-6
+      ai_gateway: true
+      temperature: 0.1
+      max_tokens: 4096
+
+    # Judge LLM for evaluation runs
+    judge_llm: &judge_llm
+      name: databricks-claude-sonnet-4-6
+      ai_gateway: true
+      temperature: 0.5
+      max_tokens: 8192
+
+    # Embedding model for Vector Search + memory store semantic recall
+    embedding_model: &embedding_model
+      name: databricks-gte-large-en
+      on_behalf_of_user: false
+
+  # ---------------------------------------------------------------------------
+  # VECTOR STORES — three indexes (products, FAQs, policies)
+  # ---------------------------------------------------------------------------
+  vector_stores:
+
+    products_vector_store: &products_vector_store
+      embedding_model: *embedding_model
+      endpoint:
+        name: dbdemos_vs_endpoint
+        type: STANDARD
+      index:
+        schema: *retail_schema
+        name: products_description_index
+      source_table:
+        schema: *retail_schema
+        name: products
+      primary_key: product_id
+      doc_uri:
+      embedding_source_column: description
+      columns:
+      - product_id
+      - sku
+      - product_name
+      - brand
+      - category
+      - subcategory
+      - description
+      - price
+      - is_b2b_only
+      on_behalf_of_user: false
+
+    faqs_vector_store: &faqs_vector_store
+      embedding_model: *embedding_model
+      endpoint:
+        name: dbdemos_vs_endpoint
+        type: STANDARD
+      index:
+        schema: *retail_schema
+        name: faqs_index
+      source_table:
+        schema: *retail_schema
+        name: faqs
+      primary_key: faq_id
+      doc_uri:
+      embedding_source_column: answer
+      columns:
+      - faq_id
+      - category
+      - question
+      - answer
+      on_behalf_of_user: false
+
+    policies_vector_store: &policies_vector_store
+      embedding_model: *embedding_model
+      endpoint:
+        name: dbdemos_vs_endpoint
+        type: STANDARD
+      index:
+        schema: *retail_schema
+        name: policies_index
+      source_table:
+        schema: *retail_schema
+        name: policies
+      primary_key: policy_id
+      doc_uri:
+      embedding_source_column: body
+      columns:
+      - policy_id
+      - title
+      - category
+      - body
+      - effective_date
+      on_behalf_of_user: false
+
+  # ---------------------------------------------------------------------------
+  # UNITY CATALOG FUNCTIONS
+  # ---------------------------------------------------------------------------
+  functions:
+
+    find_product: &find_product
+      schema: *retail_schema
+      name: find_product
+
+    get_order_history: &get_order_history
+      schema: *retail_schema
+      name: get_order_history
+
+    check_stock: &check_stock
+      schema: *retail_schema
+      name: check_stock
+
+    get_credit_limit: &get_credit_limit
+      schema: *retail_schema
+      name: get_credit_limit
+
+    get_cart: &get_cart
+      schema: *retail_schema
+      name: get_cart
+
+    lookup_customer_by_user: &lookup_customer_by_user
+      schema: *retail_schema
+      name: lookup_customer_by_user
+
+  # ---------------------------------------------------------------------------
+  # DATABASES — Lakebase Postgres for memory + checkpointer + idempotency log
+  # ---------------------------------------------------------------------------
+  # autoscaling_min_cu: 0 → scales to zero when idle (cold-start ~few seconds)
+  # autoscaling_max_cu: 4 → burst headroom during demo traffic
+  # ---------------------------------------------------------------------------
+  databases:
+
+    commerce_swarm_db: &commerce_swarm_db
+      name: "Commerce Swarm Lakebase"
+      project: "commerce-swarm"
+      description: "Lakebase Postgres for agent memory, checkpointer, and UCP idempotency log"
+      client_id: *client_id
+      client_secret: *client_secret
+      on_behalf_of_user: false
+      autoscaling_min_cu: 0
+      autoscaling_max_cu: 4
+      suspend_timeout_seconds: 600
+
+# =============================================================================
+# RETRIEVERS
+# =============================================================================
+retrievers:
+
+  products_retriever: &products_retriever
+    vector_store: *products_vector_store
+    columns:
+    - product_id
+    - sku
+    - product_name
+    - brand
+    - category
+    - subcategory
+    - description
+    - price
+    - is_b2b_only
+    search_parameters:
+      num_results: 10
+      filters: {}
+      query_type: ANN
+
+  faqs_retriever: &faqs_retriever
+    vector_store: *faqs_vector_store
+    columns:
+    - faq_id
+    - category
+    - question
+    - answer
+    search_parameters:
+      num_results: 5
+      filters: {}
+      query_type: ANN
+
+  policies_retriever: &policies_retriever
+    vector_store: *policies_vector_store
+    columns:
+    - policy_id
+    - title
+    - category
+    - body
+    - effective_date
+    search_parameters:
+      num_results: 5
+      filters: {}
+      query_type: ANN
+
+# =============================================================================
+# TOOLS
+# =============================================================================
+tools:
+
+  # ---------- Vector Search tools ----------
+  product_search_tool: &product_search_tool
+    name: product_search
+    function:
+      type: vector_search
+      retriever: *products_retriever
+      name: product_search
+      description: "Semantic search over the Commerce Swarm catalog by product description, attributes, or natural-language query"
+
+  faq_search_tool: &faq_search_tool
+    name: faq_search
+    function:
+      type: vector_search
+      retriever: *faqs_retriever
+      name: faq_search
+      description: "Semantic search over the Commerce Swarm FAQ knowledge base — shipping, returns, account, products, b2b, payment"
+
+  policy_search_tool: &policy_search_tool
+    name: policy_search
+    function:
+      type: vector_search
+      retriever: *policies_retriever
+      name: policy_search
+      description: "Semantic search over Commerce Swarm published policies — returns, shipping, privacy, b2b terms, payment, safety"
+
+  # ---------- Unity Catalog function tools ----------
+  find_product_tool: &find_product_tool
+    name: find_product_uc
+    function:
+      type: unity_catalog
+      resource: *find_product
+
+  get_order_history_tool: &get_order_history_tool
+    name: get_order_history_uc
+    function:
+      type: unity_catalog
+      resource: *get_order_history
+
+  check_stock_tool: &check_stock_tool
+    name: check_stock_uc
+    function:
+      type: unity_catalog
+      resource: *check_stock
+
+  get_credit_limit_tool: &get_credit_limit_tool
+    name: get_credit_limit_uc
+    function:
+      type: unity_catalog
+      resource: *get_credit_limit
+
+  get_cart_tool: &get_cart_tool
+    name: get_cart_uc
+    function:
+      type: unity_catalog
+      resource: *get_cart
+
+  lookup_customer_by_user_tool: &lookup_customer_by_user_tool
+    name: lookup_customer_by_user_uc
+    function:
+      type: unity_catalog
+      resource: *lookup_customer_by_user
+
+# =============================================================================
+# MEMORY — Lakebase-backed checkpointer + long-term store + auto-extraction
+# =============================================================================
+# Hyper-personalization is delivered here:
+#   • checkpointer keeps multi-turn conversation state per thread
+#   • store keeps cross-thread memories namespaced by user_id
+#   • extraction runs in the background after each turn, populating
+#     user_profile / preference / episode schemas from the conversation
+#   • auto_inject prepends a `## Memories` block to handler system prompts,
+#     so e.g. the recommendation handler sees "user is allergic to peanuts"
+#     in turn 2 even though it was mentioned in turn 1 of a different thread
+# =============================================================================
+memory: &memory
+
+  checkpointer:
+    name: commerce_swarm_checkpointer
+    database: *commerce_swarm_db
+
+  store:
+    name: commerce_swarm_store
+    database: *commerce_swarm_db
+    namespace: "{user_id}"
+    embedding_model: *embedding_model
+
+  extraction:
+    schemas:
+    - user_profile
+    - preference
+    - episode
+    instructions: |
+      Extract durable customer information that will improve future shopping
+      experiences. Focus on:
+
+      USER PROFILE (singleton — overwrite/update on each turn):
+      - First name, last name, business name (for B2B)
+      - Customer segment (B2C/B2B)
+      - Dietary restrictions and allergens (peanuts, dairy, gluten, etc.)
+      - Vegan / vegetarian / kosher preferences
+      - Sweetness / portion-size preferences
+      - Channel preference (web, mobile, store, b2b_portal)
+      - For B2B: business type (cafe, restaurant, hotel, catering, retail)
+        and typical order cadence
+
+      PREFERENCES (collection — append distinct entries):
+      - Favorite brands within Atelier Patisserie, Heritage Bakehouse, Roma Foods, Confection House
+      - Favorite product categories or subcategories
+      - Price-tolerance band (budget / mid / premium)
+      - Bulk vs single-serve preference
+      - Seasonal interest (e.g. always orders pumpkin items in fall)
+
+      EPISODES (collection — append notable interactions):
+      - Complaints, returns, or quality issues and their resolution
+      - Successful recommendations the customer acted on
+      - Custom orders or recurring large orders
+      - Holiday / event-specific large orders (corporate logo cakes, etc.)
+
+      Do NOT extract PII beyond first/last name. Do NOT store payment-card or
+      account-credential details. If something doesn't fit the schemas, skip it.
+
+    auto_inject: true
+    auto_inject_limit: 5
+    background_extraction: true
+    extraction_model: *extraction_llm
+    query_model: *fast_llm
+    supervisor_auto_inject: false
+
+# =============================================================================
+# AGENTS — 9-agent swarm
+# =============================================================================
+agents:
+
+  # ---------------------------------------------------------------------------
+  # SUPERVISOR — default entry agent. Pure intent CLASSIFICATION (LLM).
+  # Output: intent label(s) + confidence. Hands off deterministically to the
+  # planner, which is responsible for routing.
+  # ---------------------------------------------------------------------------
+  supervisor: &supervisor
+    name: supervisor
+    description: "Intent classification — extracts the customer's intent label(s) and confidence; deterministic handoff to planner."
+    # Internal / plumbing agent — its INTENT classification output is
+    # hidden from non-internal (customer-facing) agents' view of shared
+    # history. Prevents composer from pattern-matching on the
+    # `INTENT: X | CONFIDENCE: Y | NOTES: Z` format and echoing it as a
+    # customer response on sticky-resume turns.
+    internal: true
+    model: *fast_llm
+    tools: []
+    guardrails: []
+    prompt: |
+      ### User Information
+      - **Authenticated User (email)**: {user_email}
+
+      You are the entry-point intent classifier for the Commerce Swarm assistant. Commerce Swarm serves both **B2C consumers** and **B2B foodservice customers**. You do NOT know which one this user is at classification time — `user_id` is the authenticated SSO email, not an internal customer code. Downstream handlers resolve B2C vs B2B by calling `lookup_customer_by_user_uc` and branching on the returned `customer_type`.
+
+      Your ONLY job is to read the customer's message and emit a brief, structured intent classification. Do NOT answer the customer. Do NOT call tools. Do NOT speculate about answers — that is the planner's and specialists' job.
+
+      #### Intent labels
+
+      - `discovery`     — product search by name, attribute, or description
+      - `recommendation` — personalized suggestion, "what should I buy", curated picks
+      - `order_history`  — past orders, tracking, shipping/delivery status
+      - `support`        — policy / FAQ / how-to / returns / account
+      - `stock`          — inventory, availability, restocking
+      - `credit_limit`   — B2B credit availability and payment terms (B2B only)
+      - `transactional`  — add to cart, checkout, place order, cancel, refund
+      - `general`        — greetings, small talk, brand questions
+
+      #### Output format
+
+      Emit exactly one line in this format and nothing else:
+
+      `INTENT: <label> | CONFIDENCE: <0.00-1.00> | NOTES: <one short phrase>`
+
+      Examples:
+      - `INTENT: recommendation | CONFIDENCE: 0.92 | NOTES: brunch planning for 20 people`
+      - `INTENT: order_history | CONFIDENCE: 0.95 | NOTES: tracking last order`
+      - `INTENT: credit_limit | CONFIDENCE: 0.88 | NOTES: B2B customer asking about credit`
+      - `INTENT: transactional | CONFIDENCE: 0.90 | NOTES: add to cart`
+
+      If confidence < 0.65, append ` | NEEDS_CLARIFICATION: true` and a one-sentence clarifying question.
+
+      Control then flows deterministically to the planner — no tool call needed.
+
+    handoff_prompt: |
+      Entry-point intent classifier. Every customer message enters here first.
+
+  # ---------------------------------------------------------------------------
+  # PLANNER — orchestrator. Reads supervisor's intent classification and
+  # routes to exactly one specialist via LLM-driven handoff tool. No data
+  # retrieval, no response generation.
+  # ---------------------------------------------------------------------------
+  planner: &planner
+    name: planner
+    description: "Orchestrator — picks the specialist handler based on supervisor's intent label."
+    # Internal / plumbing agent — its routing decision is internal
+    # plumbing and hidden from non-internal agents. Planner still sees
+    # supervisor's INTENT classification because both are internal.
+    internal: true
+    model: *fast_llm
+    tools: []
+    guardrails: []
+    prompt: |
+      ### User Information
+      - **Authenticated User (email)**: {user_email}
+
+      You are the orchestrator. The previous message in this conversation is a structured intent classification from the supervisor in the form `INTENT: <label> | CONFIDENCE: <x> | NOTES: <phrase>`.
+
+      Your job: read that classification and invoke EXACTLY ONE handoff tool to route the request to the right specialist. Do not write any natural-language reply.
+
+      #### Routing table (label → handoff tool)
+
+      - `discovery`      → `handoff_to_discovery`
+      - `recommendation` → `handoff_to_recommendation`
+      - `order_history`  → `handoff_to_order_history`
+      - `support`        → `handoff_to_support`
+      - `stock`          → `handoff_to_stock`
+      - `credit_limit`   → `handoff_to_credit_limit`
+      - `transactional`  → `handoff_to_ucp`
+      - `general`        → `handoff_to_general`
+
+      #### Routing rules
+
+      - `user_id` is the authenticated SSO email — do not try to infer B2C vs B2B from it. The `credit_limit` handler resolves `customer_type` via `lookup_customer_by_user_uc` and explains politely if a B2C user asks about credit; always route `credit_limit` intent there.
+      - If `NEEDS_CLARIFICATION: true` was emitted, route to `general` — it will ask the clarifying question and hand off to the composer.
+
+      Invoke the chosen handoff tool. Do not output any other text.
+
+    handoff_prompt: |
+      Orchestrator that maps an intent label to the right specialist handler.
+
+  # ---------------------------------------------------------------------------
+  # DISCOVERY HANDLER — product search using Vector Search
+  # ---------------------------------------------------------------------------
+  discovery: &discovery
+    name: discovery
+    description: "Product discovery specialist — finds Commerce Swarm items matching the customer's query using semantic search"
+    model: *fast_llm
+    tools:
+    - *product_search_tool
+    - *find_product_tool
+    guardrails: []
+    prompt: |
+      ### User Information
+      - **Authenticated User (email)**: {user_email}
+
+      You are the Commerce Swarm discovery specialist. You help customers find products in our catalog.
+
+      #### Tools
+      - `product_search`: semantic search over the catalog (use the customer's natural-language description)
+      - `find_product_uc`: exact lookup by SKU or numeric product_id (use when the customer references a code like FRZ-CAKE-001)
+
+      #### Response guidelines
+      - Always use a tool before answering — never invent products.
+      - Surface 3-5 strong matches with: product name, brand, category, price, and one-line description.
+      - You do NOT know whether the user is B2C or B2B from this agent. When a result has `is_b2b_only = true`, note that the item is sold only via B2B channels so the customer can self-select whether it's available to them.
+      - If the customer's query is ambiguous (e.g. "something sweet"), ask one focused clarifying question OR return a broader assortment with categories.
+
+    handoff_prompt: |
+      Product discovery questions — finding items by description, category, attributes, dietary needs, or use case.
+      Examples: "show me gluten-free desserts", "what cakes do you have for under $30", "I need bulk frozen donuts for my cafe".
+
+  # ---------------------------------------------------------------------------
+  # RECOMMENDATION HANDLER — tailored suggestions (reasoning-heavy)
+  # Uses Claude Sonnet because synthesizing user history + memories + catalog
+  # benefits from stronger multi-step reasoning.
+  # ---------------------------------------------------------------------------
+  recommendation: &recommendation
+    name: recommendation
+    description: "Personalized recommendation specialist — synthesizes the customer's preferences, history, and the catalog to suggest 1-3 products that fit"
+    model: *reasoning_llm
+    tools:
+    - *lookup_customer_by_user_tool
+    - *product_search_tool
+    - *get_order_history_tool
+    guardrails: []
+    prompt: |
+      ### User Information
+      - **Authenticated User (email)**: {user_email}
+
+      You are the Commerce Swarm personalized recommendation specialist. Your job is to suggest products this **specific customer** is likely to love.
+
+      #### Use ALL available context
+
+      - **Memories**: any `## Memories` section in this prompt contains durable preferences, dietary constraints, brand affinities, and prior episodes. Treat these as authoritative.
+      - **Order history**: call `get_order_history_uc(customer_id)` to see what they've actually bought before. You need the customer's internal `customer_id` for this — resolve it first with `lookup_customer_by_user_uc(user_id="{user_short_name}")`.
+      - **Catalog search**: use `product_search` to surface candidate products matching memory- or history-derived preferences.
+
+      #### Recommendation strategy
+
+      1. **Always** call `lookup_customer_by_user_uc(user_id="{user_short_name}")` first to get the internal `customer_id`. If it returns no rows, tell the customer we couldn't link their account and skip the history step — work from the prompt + catalog alone.
+      2. Pull 5-10 most recent orders to understand patterns (pass the `customer_id` you just resolved).
+      3. Cross-reference with memories: dietary restrictions are HARD constraints (never recommend an item the customer is allergic to). Brand and category preferences are SOFT signals.
+      4. Search the catalog for items that fit the combined constraints.
+      5. Return 1-3 specific recommendations with reasoning that references what you learned about THIS customer: "Because you ordered FRZ-CAKE-001 last month and noted you preferred chocolate ..."
+      6. If the customer is B2B, lean toward bulk packs and `is_b2b_only` items.
+
+      #### Hard rules
+
+      - NEVER recommend a product whose attributes conflict with a memorized allergen or dietary restriction.
+      - NEVER fabricate order history — only describe orders surfaced by the tool.
+      - Always cite WHY you're recommending each item.
+
+    handoff_prompt: |
+      Personalized recommendation requests — "what should I buy", "recommend something", "what's good for X occasion", or any open-ended suggestion ask.
+
+  # ---------------------------------------------------------------------------
+  # ORDER HISTORY HANDLER
+  # ---------------------------------------------------------------------------
+  order_history: &order_history
+    name: order_history
+    description: "Order tracking specialist — looks up Commerce Swarm orders by customer or by order ID, reports status, shipping, and delivery"
+    model: *fast_llm
+    tools:
+    - *lookup_customer_by_user_tool
+    - *get_order_history_tool
+    guardrails: []
+    prompt: |
+      ### User Information
+      - **Authenticated User (email)**: {user_email}
+
+      You are the Commerce Swarm order tracking specialist.
+
+      #### Tools
+      - `lookup_customer_by_user_uc(user_id)`: resolves the authenticated user's internal `customer_id`.
+      - `get_order_history_uc(customer_id, row_limit)`: returns recent orders for that customer.
+
+      #### Response guidelines
+
+      - **Always** call `lookup_customer_by_user_uc(user_id="{user_short_name}")` first to resolve the `customer_id`. If it returns no rows, tell the customer we couldn't find an account on file for them and hand off to the composer.
+      - Then call `get_order_history_uc(customer_id, row_limit)`. Default row_limit to 10; raise to 25 if the customer asks for "all my orders".
+      - For each order, include: order_id, status, total, channel, placed date, and shipping/delivery dates if available.
+      - If the customer asks about a SPECIFIC order_id, filter the returned rows in your response.
+      - If no orders are returned, say so plainly — don't speculate that orders "may be processing".
+      - For B2B customers, also include the channel (b2b_portal / phone / edi) since it matters for fulfillment expectations.
+
+    handoff_prompt: |
+      Order lookup, tracking, status, shipping, or delivery questions.
+      Examples: "where's my last order", "track O000042", "when will it arrive", "what did I order last week".
+
+  # ---------------------------------------------------------------------------
+  # SUPPORT HANDLER — FAQs + policies
+  # ---------------------------------------------------------------------------
+  support: &support
+    name: support
+    description: "Customer support specialist — answers policy, FAQ, account, and how-to questions using the knowledge base"
+    model: *fast_llm
+    tools:
+    - *faq_search_tool
+    - *policy_search_tool
+    guardrails: []
+    prompt: |
+      ### User Information
+      - **Authenticated User (email)**: {user_email}
+
+      You are the Commerce Swarm customer support specialist. You answer questions about shipping, returns, account management, payment, and store policy.
+
+      #### Tools
+      - `faq_search`: semantic search over the FAQ knowledge base. Best for common how-to and policy questions.
+      - `policy_search`: semantic search over published policy documents. Best for formal policy details (return windows, B2B terms, privacy, food safety).
+
+      #### Strategy
+      1. Always call a tool first — never answer policy questions from memory.
+      2. Prefer FAQ results for short, conversational answers. Fall back to policy results for formal / detailed wording.
+      3. If you use both, lead with the FAQ answer and reference the policy for full detail.
+      4. Always cite the answer source (FAQ category or policy title).
+
+    handoff_prompt: |
+      Policy, FAQ, how-to, shipping, returns, account, payment, or any general support question.
+      Examples: "what's your return policy", "how do I reset my password", "how long does shipping take", "do you ship internationally".
+
+  # ---------------------------------------------------------------------------
+  # STOCK HANDLER — inventory lookups
+  # ---------------------------------------------------------------------------
+  stock: &stock
+    name: stock
+    description: "Inventory specialist — reports on-hand and available-to-promise quantities for Commerce Swarm SKUs across distribution locations"
+    model: *fast_llm
+    tools:
+    - *check_stock_tool
+    - *find_product_tool
+    guardrails: []
+    prompt: |
+      ### User Information
+      - **Authenticated User (email)**: {user_email}
+
+      You are the Commerce Swarm inventory specialist.
+
+      #### Tools
+      - `check_stock_uc(sku)`: returns inventory across all distribution locations for a SKU.
+      - `find_product_uc(sku_or_id)`: resolves a product if the customer gives only a name or numeric ID.
+
+      #### Strategy
+      - If the customer gives a SKU directly, call `check_stock_uc` immediately.
+      - If they describe a product, first call `find_product_uc` (or respond asking the customer to clarify which SKU if you can&apos;t resolve one), then check_stock_uc with the resolved SKU.
+      - Report on-hand and available-to-promise per location, highlighting any location below its reorder threshold.
+      - For B2B customers, default to the nearest distribution center (Buffalo, Dallas, or LA — based on inferred geography).
+
+    handoff_prompt: |
+      Inventory, stock, availability, "is X available", "do you have", or restock-timing questions.
+      Examples: "is FRZ-CAKE-001 in stock", "do you have pizza bites in Dallas", "when will more croissants ship".
+
+  # ---------------------------------------------------------------------------
+  # CREDIT LIMIT HANDLER — B2B credit availability
+  # ---------------------------------------------------------------------------
+  credit_limit: &credit_limit
+    name: credit_limit
+    description: "B2B credit specialist — reports credit limit, available credit, payment terms, and credit-review status for B2B foodservice accounts"
+    model: *fast_llm
+    tools:
+    - *lookup_customer_by_user_tool
+    - *get_credit_limit_tool
+    guardrails: []
+    prompt: |
+      ### User Information
+      - **Authenticated User (email)**: {user_email}
+
+      You are the Commerce Swarm B2B credit specialist. You ONLY serve B2B accounts (`customer_type='B2B'`).
+
+      #### Tools
+      - `lookup_customer_by_user_uc(user_id)`: resolves the authenticated user's internal `customer_id` and `customer_type`.
+      - `get_credit_limit_uc(customer_id)`: returns credit limit, available credit, used credit, payment terms, and risk rating for a B2B account.
+
+      #### Rules
+      - **Always** call `lookup_customer_by_user_uc(user_id="{user_short_name}")` first to resolve the customer's id and type.
+      - If the lookup returns no rows, tell the customer we couldn't find an account for them and hand off to the composer.
+      - If the returned `customer_type` is `B2C`, politely explain credit lines are a B2B-only product and hand off to the composer to format the explanation.
+      - For B2B accounts, call `get_credit_limit_uc(customer_id)` with the resolved id.
+      - Report: total limit, currently available, currently used, payment terms (Net30/Net60/COD), and risk rating.
+      - If they ask whether a hypothetical order would fit ("can I place a $X order"), check against `credit_available`.
+      - Never disclose internal risk ratings to the customer in a way that sounds judgmental — describe the account as "good standing" / "review recommended" / etc. in conversational terms.
+
+    handoff_prompt: |
+      B2B credit limit questions, payment-terms inquiries, or "can I place a $X order" capacity checks.
+      Examples: "what's my credit limit", "how much credit do I have available", "what are my payment terms".
+
+  # ---------------------------------------------------------------------------
+  # UCP — transactional commerce executor with idempotency
+  # ---------------------------------------------------------------------------
+  # The UCP agent executes idempotent commerce commands. MCP tool wiring
+  # (Commercetools, Stripe/Adyen) is intentionally NOT included in this
+  # initial example — those URLs are environment-specific. To enable real
+  # commerce execution: add `mcp` function entries under `tools:` and
+  # attach them to this agent's `tools` list.
+  # ---------------------------------------------------------------------------
+  ucp: &ucp
+    name: ucp
+    description: "Unified Commerce Protocol executor — performs idempotent commerce commands (add to cart, place order, refund) and records every action in the idempotency_log"
+    model: *fast_llm
+    tools:
+    - *lookup_customer_by_user_tool
+    - *get_cart_tool
+    - *find_product_tool
+    guardrails: []
+    prompt: |
+      ### User Information
+      - **Authenticated User (email)**: {user_email}
+
+      You are the Commerce Swarm UCP (Unified Commerce Protocol) executor. You handle transactional commerce commands.
+
+      #### Available commands
+
+      - **Resolve customer**: before any cart or transactional action, call `lookup_customer_by_user_uc(user_id="{user_short_name}")` to resolve the internal `customer_id`. If no row is returned, tell the user we couldn't link their account and hand off to the composer.
+      - **View cart**: call `get_cart_uc(customer_id)` with the resolved id to inspect the customer's current cart.
+      - **Add to cart**: in this demo configuration, MCP execution is stubbed. Acknowledge the add-to-cart request, repeat back exactly which SKU(s) and quantities you would add, and tell the customer the action is pending real MCP wiring.
+      - **Place order / checkout / refund**: same — acknowledge and describe what would happen.
+
+      #### Idempotency contract
+
+      For every transactional intent you handle, conceptually generate an idempotency key as `hash(user_id + intent + payload + action)` and explain that repeated identical calls would short-circuit to the recorded result. This is the contract; the table backing it is `commerce_swarm.idempotency_log`.
+
+      #### Rules
+
+      - Always confirm the SKU(s), quantity, and any monetary value back to the customer before "executing".
+      - For destructive commands (refund, cancel), ask the customer to confirm before acting.
+
+    handoff_prompt: |
+      Transactional commerce commands — add to cart, update cart, checkout, place order, cancel, refund.
+      Examples: "add FRZ-CAKE-001 to my cart", "place the order", "refund order O000042".
+
+  # ---------------------------------------------------------------------------
+  # GENERAL — catch-all conversational
+  # ---------------------------------------------------------------------------
+  general: &general
+    name: general
+    description: "General conversational agent for greetings, small talk, brand questions, and anything outside the specialist handlers"
+    model: *fast_llm
+    tools: []
+    guardrails: []
+    prompt: |
+      ### User Information
+      - **Authenticated User (email)**: {user_email}
+
+      You are the Commerce Swarm general conversational agent. You handle greetings, brand questions ("who is Commerce Swarm"), and queries that don't fit a specialist.
+
+      #### Rules
+
+      - Be warm, concise, and brand-appropriate. Commerce Swarm is a specialty food and dessert company serving both consumers and foodservice operators.
+      - If the customer asks anything product-specific, policy-specific, order-specific, inventory-specific, credit-specific, or transactional — DON&apos;T answer. Acknowledge briefly and hand off to the composer — the user can re-prompt next turn.
+      - Keep responses to 1-3 short sentences unless the customer specifically asks for detail.
+
+    handoff_prompt: |
+      Greetings, small talk, brand questions, or anything that doesn't match a specialist handoff_prompt.
+      Examples: "hi", "what is Commerce Swarm", "thanks", "have a nice day".
+
+  # ---------------------------------------------------------------------------
+  # COMPOSER — final-response formatter. Reads the upstream specialist's
+  # working notes / tool results from the conversation, formats them into a
+  # customer-facing response, and streams. On a new user turn where no
+  # specialist has run yet, hands off back to the supervisor.
+  # ---------------------------------------------------------------------------
+  composer: &composer
+    name: composer
+    description: "Final-response composer — formats and streams the customer-facing response based on upstream specialist output."
+    model: *fast_llm
+    tools: []
+    guardrails: []
+    prompt: |
+      ### User Information
+      - **Authenticated User (email)**: {user_email}
+
+      You are a text formatter. Your only job is to rewrite one
+      specific piece of prepared content — the most recent assistant
+      message in this conversation — into a warm, customer-friendly
+      reply. You have no opinions, no general knowledge, and no
+      interpretive agency. You format what is in front of you.
+
+      ## Your one input
+
+      The most recent assistant message in this conversation is your
+      input. It contains a specialist's finding — data, an outcome,
+      or a determination. That's the ONLY content you may present
+      to the customer.
+
+      Reference other context — memory, the customer's name, tone —
+      only for personalization, never for content.
+
+      ## Your output
+
+      A rewrite of your input:
+      - warm (greeting, tone-matched to the customer's register)
+      - brief (~120 words unless the input is inherently longer)
+      - formatted for the content type (bullets for products,
+        compact list/table for orders, direct quote for policies)
+
+      Nothing else.
+
+      ## What you don't do
+
+      - You don't invoke tools.
+      - You don't reason from general knowledge or memory.
+      - You don't extend, extrapolate, or re-derive findings from
+        prior turns to answer the customer's current question. If
+        the input doesn't address the customer's current question,
+        that isn't a formatting task — it's a fallback (below).
+      - You don't imply a specialist is "on it" or "looking into"
+        anything — the specialist's turn is complete.
+
+      ## Fallback: when the input doesn't answer the current question
+
+      Read the customer's newest question and the most recent
+      assistant message. If the assistant message doesn't address
+      the current question (different topic, stale from a prior
+      turn, or the input is a routing message rather than a
+      finding), respond with ONE short warm sentence inviting them
+      to share what they need help with. Do not answer their
+      question. Do not repurpose a prior finding.
+
+      Example fallback responses:
+      - "Happy to help — could you tell me a bit more about what
+        you're looking for?"
+      - "Sure thing — what would you like help with today?"
+
+      ## Style
+
+      - Warm, brief, in-brand for Commerce Swarm.
+      - Address the customer by name if their profile is in memory.
+
+    handoff_prompt: |
+      Final-response composer. Every specialist hands off here when finished.
+
+# =============================================================================
+# APPLICATION
+# =============================================================================
+app:
+  name: agent_commerce_swarm_dao
+  description: "Commerce Swarm LangGraph Commerce Agent — B2B + B2C swarm with hyper-personalization on Lakebase"
+  log_level: INFO
+  # Deploy to BOTH Databricks Apps (chat UI + agent server) AND Model Serving
+  # (UC-registered model). The Apps surface is the primary user path; the
+  # Model Serving registration enables run-evaluation against the UC model.
+  deployment_target: both
+
+  registered_model:
+    schema: *retail_schema
+    name: commerce_swarm_dao
+
+  endpoint_name: commerce_swarm_dao
+
+  # Pin the runtime identity for MLflow tracing writes — auto-populates
+  # DATABRICKS_CLIENT_ID / DATABRICKS_CLIENT_SECRET on the deployed endpoint
+  # from the referenced secrets. dao-ai auto-grants this SP CAN_EDIT on the
+  # MLflow experiment + UC OTEL table SELECT+MODIFY at deploy time (unless
+  # ``manage_permissions: false``). Independent of the bespoke
+  # RETAIL_AI_DATABRICKS_CLIENT_ID/SECRET env vars below, which the Lakebase
+  # OAuth minting code reads at request time.
+  service_principal:
+    client_id:
+      scope: retail_consumer_goods
+      secret: RETAIL_AI_DATABRICKS_CLIENT_ID
+    client_secret:
+      scope: retail_consumer_goods
+      secret: RETAIL_AI_DATABRICKS_CLIENT_SECRET
+
+  # MLflow trace persistence on Databricks Apps requires trace_location — Apps
+  # containers cannot reach the default control-plane trace storage host
+  # (us-east-1.storage.cloud.databricks.com). Routing exports through a SQL
+  # warehouse to UC OTEL tables keeps traces durable and queryable.
+  #
+  # Note: do NOT set ``table_prefix``. MLflow's V4 search_traces API
+  # hardcodes the default table name ``mlflow_experiment_trace_otel_*``
+  # when searching by UC schema; setting a prefix creates tables the API
+  # can't find, breaking the experiment Traces UI and the per-run trace
+  # linkage on mlflow.genai.evaluate eval runs.
+  trace_location:
+    schema: *retail_schema
+    warehouse: ${var.warehouse_id}
+
+  # Apps runtime needs the SP credentials accessible as env vars for Lakebase
+  # OAuth M2M token minting at request time.
+  environment_vars:
+    RETAIL_AI_DATABRICKS_CLIENT_ID: "{{secrets/retail_consumer_goods/RETAIL_AI_DATABRICKS_CLIENT_ID}}"
+    RETAIL_AI_DATABRICKS_CLIENT_SECRET: "{{secrets/retail_consumer_goods/RETAIL_AI_DATABRICKS_CLIENT_SECRET}}"
+
+  tags:
+    business: rcg
+    streaming: true
+    pattern: swarm
+    persona: commerce
+
+  permissions:
+  - principals: [users]
+    entitlements:
+    - CAN_QUERY
+
+  agents:
+  - *supervisor
+  - *planner
+  - *discovery
+  - *recommendation
+  - *order_history
+  - *support
+  - *stock
+  - *credit_limit
+  - *ucp
+  - *general
+  - *composer
+
+  input_example:
+    messages:
+    - role: user
+      content: "Hi! I'm planning a brunch for 20 people next weekend — what would you recommend?"
+    custom_inputs:
+      configurable:
+        # Authenticated SSO email — Apps/Model Serving deliver this as `user_id`.
+        # Matched case-insensitively against customers.email by lookup_customer_by_user_uc.
+        user_id: uma.davis0@example.com
+      session: {}
+
+  orchestration:
+    memory: *memory
+    # =======================================================================
+    # PIPELINE ORCHESTRATION (swarm with deterministic stage handoffs)
+    # =======================================================================
+    # Linear pipeline matching the LangGraph Commerce Agent v2.1 reference:
+    #
+    #   supervisor → planner → handler_X → composer → [END]
+    #                                  ↘ ucp → composer
+    #
+    # • supervisor → planner: DETERMINISTIC (every turn flows through both
+    #   classification and orchestration stages)
+    # • planner → handler/ucp: LLM tool-call routing (planner picks ONE
+    #   target based on supervisor's intent label)
+    # • handler/ucp → composer: DETERMINISTIC (every specialist terminates
+    #   in the composer, which formats and streams the final response)
+    # • composer: no outbound handoffs — the graph ends after composer
+    #   emits its response. Under canonical swarm semantics, active_agent
+    #   remains sticky on composer, so a subsequent user turn re-enters
+    #   at composer. Composer's prompt handles that case with a brief
+    #   "please restate" fallback (see the composer's "New-turn
+    #   fallback" rule). If you need automatic re-entry at supervisor
+    #   between user turns, switch this orchestration block to the
+    #   supervisor pattern — supervisor restarts every turn by design.
+    #
+    # Deterministic handoffs route via static graph edges. dao-ai's swarm
+    # runtime normalizes the message tail before each deterministic
+    # transition (appends a synthetic HumanMessage when the upstream
+    # agent's turn ended with a plain AIMessage), so downstream LLMs see
+    # a non-assistant tail. This keeps deterministic handoffs compatible
+    # with strict-mode endpoints (Claude on Databricks Model Serving,
+    # AI Gateway, etc.) regardless of model provider.
+    # =======================================================================
+    swarm:
+      default_agent: *supervisor
+      handoffs:
+        # Stage 1 → Stage 2: deterministic, every turn passes through planner
+        supervisor:
+        - agent: *planner
+          is_deterministic: true
+
+        # Stage 2 → Stage 3: LLM tool-call routing (planner picks exactly one)
+        planner:
+        - *discovery
+        - *recommendation
+        - *order_history
+        - *support
+        - *stock
+        - *credit_limit
+        - *ucp
+        - *general
+
+        # Stage 3 → Stage 4 (or 3 → 3.5 → 4 for transactional):
+        # every specialist hands off DETERMINISTICALLY to composer.
+        discovery:
+        - agent: *composer
+          is_deterministic: true
+        recommendation:
+        - agent: *composer
+          is_deterministic: true
+        order_history:
+        - agent: *composer
+          is_deterministic: true
+        support:
+        - agent: *composer
+          is_deterministic: true
+        stock:
+        - agent: *composer
+          is_deterministic: true
+        credit_limit:
+        - agent: *composer
+          is_deterministic: true
+        ucp:
+        - agent: *composer
+          is_deterministic: true
+        general:
+        - agent: *composer
+          is_deterministic: true
+
+        # Stage 4: composer streams the final response and ends the turn.
+        # No outbound handoffs — active_agent stays sticky on composer per
+        # canonical swarm semantics, and composer's prompt handles the
+        # sticky-resume case with a short "please restate" fallback.
+        composer: []
+
+# =============================================================================
+# UNITY CATALOG FUNCTION DEPLOYMENT
+# =============================================================================
+unity_catalog_functions:
+
+- function: *find_product
+  ddl: functions/find_product.sql
+  test:
+    parameters:
+      sku_or_id: "FRZ-CAKE-001"
+
+- function: *get_order_history
+  ddl: functions/get_order_history.sql
+  test:
+    parameters:
+      customer_id: "C0001"
+      row_limit: 5
+
+- function: *check_stock
+  ddl: functions/check_stock.sql
+  test:
+    parameters:
+      sku: "FRZ-CAKE-001"
+
+- function: *get_credit_limit
+  ddl: functions/get_credit_limit.sql
+  test:
+    parameters:
+      customer_id: "B0001"
+
+- function: *get_cart
+  ddl: functions/get_cart.sql
+  test:
+    parameters:
+      customer_id: "C0001"
+
+- function: *lookup_customer_by_user
+  ddl: functions/lookup_customer_by_user.sql
+  test:
+    parameters:
+      # Short-name form — exercises the SPLIT(email, '@')[0] match path.
+      user_id: "uma.davis0"
+
+# =============================================================================
+# EVALUATION
+# =============================================================================
+evaluation:
+  model: *judge_llm
+  table:
+    schema: *retail_schema
+    name: evaluation
+  num_evals: 15
+  replace: false
+  custom_inputs:
+    configurable:
+      user_id: uma.davis0@example.com
+    session: {}
+  guidelines:
+  - name: commerce_swarm_relevance
+    guidelines:
+    - Recommendations must respect the customer's memorized dietary restrictions and allergens.
+    - Order, stock, and credit lookups must cite real data from the underlying tool — never fabricate orders, SKUs, or balances.
+    - For B2B customers, prefer bulk packs and B2B-eligible SKUs.
+    - The supervisor should hand off to specialists rather than answer specialist questions itself.
+
+# =============================================================================
+# DATASETS — DDL + seed data for the 10 Commerce Swarm tables
+# =============================================================================
+datasets:
+
+- table:
+    schema: *retail_schema
+    name: products
+  ddl: data/products.sql
+  data: data/products_data.sql
+  format: sql
+
+- table:
+    schema: *retail_schema
+    name: customers
+  ddl: data/customers.sql
+  data: data/customers_data.sql
+  format: sql
+
+- table:
+    schema: *retail_schema
+    name: orders
+  ddl: data/orders.sql
+  data: data/orders_data.sql
+  format: sql
+
+- table:
+    schema: *retail_schema
+    name: order_items
+  ddl: data/order_items.sql
+  data: data/order_items_data.sql
+  format: sql
+
+- table:
+    schema: *retail_schema
+    name: inventory
+  ddl: data/inventory.sql
+  data: data/inventory_data.sql
+  format: sql
+
+- table:
+    schema: *retail_schema
+    name: credit_limits
+  ddl: data/credit_limits.sql
+  data: data/credit_limits_data.sql
+  format: sql
+
+- table:
+    schema: *retail_schema
+    name: cart
+  ddl: data/cart.sql
+  data: data/cart_data.sql
+  format: sql
+
+- table:
+    schema: *retail_schema
+    name: faqs
+  ddl: data/faqs.sql
+  data: data/faqs_data.sql
+  format: sql
+
+- table:
+    schema: *retail_schema
+    name: policies
+  ddl: data/policies.sql
+  data: data/policies_data.sql
+  format: sql
+
+- table:
+    schema: *retail_schema
+    name: idempotency_log
+  ddl: data/idempotency_log.sql
+  # No data file — table starts empty and is populated by UCP at runtime.

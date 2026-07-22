@@ -101,21 +101,23 @@ from pathlib import Path
 from rich import print as pprint
 
 
-examples_path: Path = Path.cwd().parent / "examples"
-projects: Sequence[str] = [item.name for item in examples_path.iterdir() if item.is_dir()]
+# Inference examples are colocated with each complete-application config as
+# ``<use-case>/examples.yaml``. Discover the use-case dirs that ship one.
+apps_root: Path = (
+    Path.cwd().parent / "examples" / "15_complete_applications"
+)
+projects: Sequence[str] = sorted(
+    item.name
+    for item in apps_root.iterdir()
+    if item.is_dir() and (item / "examples.yaml").exists()
+)
 
 dbutils.widgets.dropdown(name="example-project", defaultValue=projects[0], choices=projects)
 project: str = dbutils.widgets.get("example-project")
 
-project_examples: Path = Path.cwd().parent / "examples" / project
-examples_files: Sequence[str] = [item.name for item in project_examples.iterdir() if item.is_file()]
-
-dbutils.widgets.dropdown(name="example_files", defaultValue=examples_files[0], choices=examples_files)
-example_file: str = dbutils.widgets.get("example_files")
-
 chosen_example: str | None = None
 chosen_input_example: dict[str, Any] = {}
-examples_path: Path = Path.cwd().parent / "examples" / project / example_file
+examples_path: Path = apps_root / project / "examples.yaml"
 if examples_path.exists():
   retail_examples: dict[str, Any] = yaml.safe_load(examples_path.read_text())
 
