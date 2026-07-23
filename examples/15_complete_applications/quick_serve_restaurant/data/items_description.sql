@@ -1,6 +1,6 @@
 USE IDENTIFIER(:database);
 
-CREATE OR REPLACE TABLE items_description (
+CREATE TABLE IF NOT EXISTS items_description (
   item_name STRING,
   item_review STRING)
 USING delta

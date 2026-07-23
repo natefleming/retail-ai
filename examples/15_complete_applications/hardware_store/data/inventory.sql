@@ -1,6 +1,6 @@
 USE IDENTIFIER(:database);
 
-CREATE OR REPLACE TABLE inventory (
+CREATE TABLE IF NOT EXISTS inventory (
   inventory_id BIGINT COMMENT 'Unique identifier for each inventory record' NOT NULL PRIMARY KEY
   ,product_id BIGINT COMMENT 'Foreign key reference to the product table identifying the specific product' NOT NULL 
   ,store STRING COMMENT 'Store identifier where inventory is located' NOT NULL
