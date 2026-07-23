@@ -1694,6 +1694,11 @@ class DatabricksProvider(ServiceProvider):
         user_pip_requirements: list[str] = (
             list(config.app.pip_requirements) if config.app else []
         )
+        from dao_ai.apps.bundle import _format_extra_deps
+
+        # User pip_requirements folded into the generated pyproject deps so the
+        # uploaded uv.lock captures them (parity with the bundle generators).
+        extra_deps: str = _format_extra_deps(user_pip_requirements)
 
         # Use convention-based workspace path: /Workspace/Users/{user}/apps/{app_name}
         current_user: User = self.w.current_user.me()
@@ -1835,6 +1840,7 @@ class DatabricksProvider(ServiceProvider):
                 package_name=package_name,
                 dao_ai_version=dao_ai_version(),
                 extras=extras_suffix,
+                extra_deps=extra_deps,
             )
             self.w.workspace.upload(
                 path=f"{source_path}/pyproject.toml",
@@ -1925,6 +1931,7 @@ class DatabricksProvider(ServiceProvider):
                 package_name=package_name,
                 wheel_filename=wheel_path.name,
                 extras=extras_suffix,
+                extra_deps=extra_deps,
             )
             self.w.workspace.upload(
                 path=f"{source_path}/pyproject.toml",

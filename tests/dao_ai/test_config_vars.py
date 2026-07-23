@@ -1131,6 +1131,40 @@ def test_write_bundle_ships_pyproject_and_uv_lock_no_requirements(
 
 
 @pytest.mark.unit
+def test_write_bundle_folds_user_pip_requirements_into_pyproject(
+    parameterised_config_path: Path, tmp_path: Path
+) -> None:
+    """``config.app.pip_requirements`` must be folded into the generated
+    pyproject ``dependencies`` array so ``uv lock`` captures the deployer's
+    custom-code deps (regression guard: the uv switch briefly dropped them).
+    ``code_paths`` is NOT copied for Apps — custom code lives under ``src/``.
+    """
+    from dao_ai.apps.bundle import write_bundle
+
+    config = AppConfig.from_file(
+        parameterised_config_path,
+        params={"module_id": "09", "catalog": "nfleming"},
+        initialize=False,
+    )
+    config.app.pip_requirements = ["cowsay==6.1", "my-internal-lib>=1.0"]
+    config.app.code_paths = ["some_module.py"]
+    out_dir = tmp_path / "bundle"
+    out_dir.mkdir()
+
+    write_bundle(config, out_dir, overwrite=True, development=False)
+
+    pyproject = (out_dir / "pyproject.toml").read_text()
+    assert '"cowsay==6.1"' in pyproject, (
+        f"pip_requirements must be folded into pyproject deps; got:\n{pyproject}"
+    )
+    assert '"my-internal-lib>=1.0"' in pyproject
+    # code_paths is a Model-Serving concern; Apps custom code lives under src/.
+    assert not (out_dir / "some_module.py").exists(), (
+        "code_paths must NOT be copied into an Apps bundle"
+    )
+
+
+@pytest.mark.unit
 def test_write_bundle_attaches_trace_location_resources(
     parameterised_config_path: Path, tmp_path: Path
 ) -> None:
