@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import shutil
 import subprocess
+from collections.abc import Sequence
 from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as _pkg_version
 from pathlib import Path
@@ -106,6 +107,12 @@ def write_mcp_bundle(
         sorted({"mcp", *expand_all(resolve_required_extras_or_all(config, target="mcp"))})
     )
 
+    # User-declared extra pip packages for custom code, appended to the MCP
+    # app's requirements.txt (parity with Model Serving / generate-agent).
+    user_pip_requirements: list[str] = (
+        list(config.app.pip_requirements) if config.app else []
+    )
+
     def _write(path: Path, content: str) -> None:
         if path.exists() and not overwrite:
             skipped.append(str(path.relative_to(output_dir)))
@@ -159,6 +166,7 @@ def write_mcp_bundle(
             development=development,
             wheel_filename=wheel_filename,
             extras=merged_extras,
+            pip_requirements=user_pip_requirements,
         ),
     )
     _write(
@@ -178,6 +186,15 @@ def write_mcp_bundle(
     _write(
         output_dir / "README.md",
         _render_readme(config, app_name=app_name, tool_name=tool_name),
+    )
+
+    # Ship user-declared code_paths (custom modules) with the MCP bundle —
+    # parity with Model Serving / generate-agent. Reuses the apps-bundle helper
+    # so the copy layout + sys.path resolution behave identically.
+    from dao_ai.apps.bundle import _copy_code_paths_into_bundle
+
+    _copy_code_paths_into_bundle(
+        config, output_dir, overwrite=overwrite, written=written, skipped=skipped
     )
 
     print(f"\nMCP bundle generated in {output_dir}/\n")
@@ -235,6 +252,7 @@ def _make_requirements_txt(
     development: bool,
     wheel_filename: str | None = None,
     extras: str = "mcp",
+    pip_requirements: Sequence[str] | None = None,
 ) -> str:
     """Build the requirements.txt content for an MCP app bundle.
 
@@ -248,14 +266,21 @@ def _make_requirements_txt(
         development: Whether to reference a bundled dev wheel vs the PyPI pin.
         wheel_filename: The dev wheel filename (required in development mode).
         extras: Comma-joined extras list (no brackets), e.g. ``"mcp,a2a"``.
+        pip_requirements: User-declared extra pip packages
+            (``config.app.pip_requirements``) for custom code, appended after
+            the dao-ai line so the MCP app installs them too.
     """
     if development:
         if not wheel_filename:
             raise ValueError(
                 "_make_requirements_txt: wheel_filename is required in development mode."
             )
-        return f"./dist/{wheel_filename}[{extras}]\n"
-    return f"dao-ai[{extras}]\n"
+        dao_ai_line = f"./dist/{wheel_filename}[{extras}]"
+    else:
+        dao_ai_line = f"dao-ai[{extras}]"
+
+    lines = [dao_ai_line, *(pip_requirements or [])]
+    return "\n".join(lines) + "\n"
 
 
 def _bundle_local_wheel(output_dir: Path, *, written: list[str]) -> str:

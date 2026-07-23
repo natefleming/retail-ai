@@ -20,7 +20,7 @@ import shutil
 import subprocess
 from importlib.metadata import version as pkg_version
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Optional, Sequence
 
 import yaml
 from loguru import logger
@@ -146,6 +146,7 @@ def _make_requirements_txt(
     development: bool,
     wheel_filename: Optional[str] = None,
     extras: str = "",
+    pip_requirements: Optional[Sequence[str]] = None,
 ) -> str:
     """Build the requirements.txt content for an app bundle.
 
@@ -167,14 +168,80 @@ def _make_requirements_txt(
         extras: Optional requirement-extras suffix (e.g. ``"[a2a,rerank]"``)
             appended to the ``dao-ai`` spec / dev wheel so the config's
             optional features install. Empty string installs the base package.
+        pip_requirements: User-declared extra pip packages
+            (``config.app.pip_requirements``) that the deployer's custom code
+            under ``src/<package>/`` needs. Appended verbatim, one per line,
+            after the dao-ai line so Apps' ``pip install -r requirements.txt``
+            installs them into the app environment.
     """
     if development:
         if not wheel_filename:
             raise ValueError(
                 "_make_requirements_txt: wheel_filename is required in development mode."
             )
-        return f"./dist/{wheel_filename}{extras}\n"
-    return f"dao-ai{extras}\n"
+        dao_ai_line = f"./dist/{wheel_filename}{extras}"
+    else:
+        dao_ai_line = f"dao-ai{extras}"
+
+    lines = [dao_ai_line, *(pip_requirements or [])]
+    return "\n".join(lines) + "\n"
+
+
+def _copy_code_paths_into_bundle(
+    config: AppConfig,
+    output_dir: Path,
+    *,
+    overwrite: bool,
+    written: list[str],
+    skipped: list[str],
+) -> None:
+    """Copy user-declared ``config.app.code_paths`` into a generated bundle.
+
+    Gives ``code_paths`` the same meaning on Apps/MCP as on Model Serving:
+    the custom modules/packages ship with the deployment. Each entry is copied
+    preserving its path relative to the config dir (the same anchor skills use),
+    so the ``add_code_paths_to_sys_path`` validator resolves it against the
+    bundle-root CWD at app startup. Absolute paths outside the config dir fall
+    back to copying under their basename at the bundle root.
+    """
+    if config.app is None or not config.app.code_paths:
+        return
+
+    from dao_ai.skills import _skill_base_dir
+
+    base: Path = _skill_base_dir(config)
+    for code_path_str in config.app.code_paths:
+        src: Path = Path(code_path_str)
+        if not src.is_absolute():
+            src = (base / src).resolve()
+        if not src.exists():
+            logger.warning(
+                "Declared code_path does not exist; skipping", code_path=code_path_str
+            )
+            continue
+        try:
+            rel: Path = src.relative_to(base)
+        except ValueError:
+            rel = Path(src.name)
+        dest: Path = output_dir / rel
+        if dest.exists() and not overwrite:
+            logger.info(
+                "Skipping code_path copy (exists; use --overwrite)", code_path=str(rel)
+            )
+            skipped.append(str(rel))
+            continue
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        if dest.exists():
+            if dest.is_dir():
+                shutil.rmtree(dest)
+            else:
+                dest.unlink()
+        if src.is_dir():
+            shutil.copytree(src, dest)
+        else:
+            shutil.copy2(src, dest)
+        logger.info("Copied code_path into bundle", code_path=str(rel))
+        written.append(str(rel))
 
 
 def _get_dao_ai_version() -> str:
@@ -746,6 +813,13 @@ def write_bundle(
         resolve_required_extras_or_all(config, target="apps")
     )
 
+    # User-declared extra pip packages for their custom code under
+    # ``src/<package>/`` (the stub the generator scaffolds). These are appended
+    # to the generated requirements.txt so Apps installs them alongside dao-ai.
+    user_pip_requirements: list[str] = (
+        list(config.app.pip_requirements) if config.app else []
+    )
+
     # Warn loudly when the bundle is being built without `trace_location`:
     # Databricks Apps containers cannot reach the artifact-storage host the
     # default MLflow control-plane trace exporter PUTs spans to, so spans
@@ -858,6 +932,16 @@ def write_bundle(
         logger.info("Copied skill directory into bundle", skill=str(rel))
         written.append(str(rel))
 
+    # Copy user-declared ``code_paths`` (custom modules/packages) into the
+    # bundle so they deploy with the app — parity with Model Serving, which
+    # ships them via ``log_model(code_paths=...)``. They're preserved at their
+    # path relative to the config dir so the ``add_code_paths_to_sys_path``
+    # validator (which inserts ``Path(code_path).parent`` onto sys.path at
+    # config load) resolves them against the bundle-root CWD at app startup.
+    _copy_code_paths_into_bundle(
+        config, output_dir, overwrite=overwrite, written=written, skipped=skipped
+    )
+
     package_name = app_name.replace("-", "_")
 
     if development:
@@ -947,6 +1031,7 @@ def write_bundle(
                 development=True,
                 wheel_filename=wheel_path.name,
                 extras=extras_suffix,
+                pip_requirements=user_pip_requirements,
             ),
         )
 
@@ -975,7 +1060,11 @@ def write_bundle(
         # branch (kept in sync intentionally).
         _track(
             output_dir / "requirements.txt",
-            _make_requirements_txt(development=False, extras=extras_suffix),
+            _make_requirements_txt(
+                development=False,
+                extras=extras_suffix,
+                pip_requirements=user_pip_requirements,
+            ),
         )
 
         # Create stub package so the wheel builds and users can add custom code

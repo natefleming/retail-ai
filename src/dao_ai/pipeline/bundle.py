@@ -163,8 +163,17 @@ def generate_pipeline_databricks_yaml(config: AppConfig, development: bool) -> s
                             "environment_key": "dao-ai-env",
                             "spec": {
                                 "environment_version": "5",
+                                # dao-ai (+ resolved extras) via the var, then
+                                # any user-declared extra pip packages so the
+                                # provisioning notebooks' custom code has its
+                                # deps (parity with Model Serving / Apps).
                                 "dependencies": [
-                                    "${var.dao_ai_dep}"
+                                    "${var.dao_ai_dep}",
+                                    *(
+                                        list(config.app.pip_requirements)
+                                        if config.app
+                                        else []
+                                    ),
                                 ],
                             },
                         }
