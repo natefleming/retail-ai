@@ -163,3 +163,64 @@ class TestAppConfigEndToEnd:
             }
         )
         assert cfg_models.resources.models == cfg_llms.resources.models
+
+
+@pytest.mark.unit
+class TestNullableSamplingDefaults:
+    """0.2.x: ``temperature`` / ``max_tokens`` default to ``None`` and, when
+    unset, are omitted from the outbound request so the serving endpoint uses
+    its own default (unblocks reasoning-mode endpoints that reject any
+    ``temperature``). Set values pass through unchanged."""
+
+    def test_defaults_are_none(self) -> None:
+        m = InferenceEndpointModel(name="databricks-claude-sonnet-4-5")
+        assert m.temperature is None
+        assert m.max_tokens is None
+
+    def test_unset_fields_omitted_from_request_payload(self) -> None:
+        from langchain_core.messages import HumanMessage
+
+        chat = InferenceEndpointModel(
+            name="databricks-claude-sonnet-4-5"
+        ).as_chat_model()
+        # as_chat_model may wrap in fallbacks/best_of_n; unwrap to the base client.
+        base = getattr(chat, "runnable", chat)
+        inputs = base._prepare_inputs([HumanMessage("hi")])
+        assert "temperature" not in inputs, (
+            f"unset temperature must be omitted from the payload; got {inputs.keys()}"
+        )
+        assert "max_tokens" not in inputs, (
+            f"unset max_tokens must be omitted from the payload; got {inputs.keys()}"
+        )
+
+    def test_set_fields_present_in_request_payload(self) -> None:
+        from langchain_core.messages import HumanMessage
+
+        chat = InferenceEndpointModel(
+            name="databricks-claude-sonnet-4-5", temperature=0.7, max_tokens=128
+        ).as_chat_model()
+        base = getattr(chat, "runnable", chat)
+        inputs = base._prepare_inputs([HumanMessage("hi")])
+        assert inputs.get("temperature") == 0.7
+        assert inputs.get("max_tokens") == 128
+
+
+@pytest.mark.unit
+class TestPromptModelInlineTemplate:
+    """0.2.x removed the MLflow prompt registry: ``PromptModel`` carries its
+    template inline via ``template`` (required) and rejects the old
+    registry-era ``default_template`` field (``extra="forbid"``)."""
+
+    def test_template_is_required_and_inline(self) -> None:
+        from dao_ai.config import PromptModel
+
+        p = PromptModel(name="greeting", template="You are helpful.")
+        assert p.template == "You are helpful."
+
+    def test_legacy_default_template_field_rejected(self) -> None:
+        from pydantic import ValidationError
+
+        from dao_ai.config import PromptModel
+
+        with pytest.raises(ValidationError):
+            PromptModel(name="greeting", default_template="You are helpful.")

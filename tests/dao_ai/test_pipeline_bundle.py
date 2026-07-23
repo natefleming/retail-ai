@@ -87,25 +87,41 @@ class TestPackagedAssets:
 # ---------------------------------------------------------------------------
 
 
+class _A2AStub:
+    """Stand-in for AppModel.a2a — the extras resolver reads ``.enabled``."""
+
+    enabled = False
+
+
 class _AppStub:
-    """Minimal stand-in — the generator reads ``config.app.name`` and
-    ``config.app.pip_requirements`` (extra deps folded into the job env)."""
+    """Minimal stand-in — the generator reads ``config.app.name``,
+    ``config.app.pip_requirements``, and (in dev mode, via the extras resolver)
+    ``config.app.a2a`` / ``config.app.orchestration``."""
 
     def __init__(
         self, name: str, pip_requirements: list[str] | None = None
     ) -> None:
         self.name = name
         self.pip_requirements = pip_requirements or []
+        # Resolver-touched attributes (dev-mode extras resolution).
+        self.a2a = _A2AStub()
+        self.orchestration = None
 
 
 @pytest.mark.unit
 class TestGeneratePipelineDatabricksYaml:
     @staticmethod
     def _config() -> AppConfig:
+        # ``model_construct`` bypasses validation; set the collections the
+        # extras resolver iterates so dev-mode resolution finds them empty.
         return AppConfig.model_construct(
             app=_AppStub("pipeline_test_app"),
             datasets=[],
             unity_catalog_functions=[],
+            tools={},
+            retrievers={},
+            middleware={},
+            memory=None,
         )
 
     def _doc(self, development: bool) -> dict:
@@ -155,6 +171,28 @@ class TestGeneratePipelineDatabricksYaml:
         # The serverless environment installs exactly the dao_ai_dep dependency.
         env = doc["resources"]["jobs"]["deploy_job"]["environments"][0]
         assert env["spec"]["dependencies"] == ["${var.dao_ai_dep}"]
+
+    def test_dev_env_deps_are_glob_safe_no_extras_on_wheel(self) -> None:
+        # Regression guard: databricks bundle globs local-path env deps, so the
+        # dev-mode wheel dep must NOT carry an ``[extras]`` suffix (a glob char
+        # class → "no files match pattern"). Extras' backing packages are pinned
+        # as separate glob-safe PyPI deps instead.
+        env = self._doc(development=True)["resources"]["jobs"]["deploy_job"][
+            "environments"
+        ][0]
+        deps = env["spec"]["dependencies"]
+        # First dep is the wheel var; no dependency entry may contain "[" (extras
+        # bracket) on a local path.
+        for dep in deps:
+            if dep.endswith(".whl") or "dist/" in dep or dep == "${var.dao_ai_dep}":
+                assert "[" not in dep, f"wheel dep must be glob-safe (no extras): {dep!r}"
+        # In development, the extra-feature package pins are present (glob-safe
+        # PyPI specs like "a2a-sdk==..."). The stub config exercises no optional
+        # features, so at minimum the core pins (e.g. mlflow) appear.
+        joined = " ".join(deps)
+        assert "mlflow" in joined or "databricks-agents" in joined, (
+            f"dev env deps should include glob-safe PyPI pins; got {deps}"
+        )
 
     def test_no_artifacts_block(self) -> None:
         # The dao-ai wheel is never built at bundle-deploy time.

@@ -102,11 +102,26 @@ def generate_pipeline_databricks_yaml(config: AppConfig, development: bool) -> s
     for glob in _asset_sync_globs(config):
         if glob not in sync_include:
             sync_include.append(glob)
+    # Development mode: the ``dao_ai_dep`` var is a BARE local wheel path (no
+    # ``[extras]`` — the bundle globs local-path deps, and ``[a2a]`` would be a
+    # glob char class). So the optional-feature extras the config needs can't
+    # ride on the wheel; pin their backing packages as separate, glob-safe PyPI
+    # deps instead — same approach as the Model Serving dev path. Published mode
+    # keeps extras on the ``dao-ai[extras]==ver`` spec (a PyPI spec is glob-safe).
+    extra_dep_pins: list[str] = []
     if development:
         # The bundle CLI excludes .whl by default; include the staged wheel so
         # the serverless environment can install it (../dist/<wheel> via the
         # ``dao_ai_dep`` variable).
         sync_include.append("dist/*.whl")
+
+        from dao_ai._extras import expand_all, resolve_required_extras_or_all
+        from dao_ai.utils import get_installed_packages
+
+        required_extras = expand_all(
+            resolve_required_extras_or_all(config, target="pipeline")
+        )
+        extra_dep_pins = get_installed_packages(required_extras)
 
     tasks: list[dict[str, Any]] = []
     for task_key, notebook, depends_on, extra_params in _PIPELINE_TASKS:
@@ -164,12 +179,14 @@ def generate_pipeline_databricks_yaml(config: AppConfig, development: bool) -> s
                             "environment_key": "dao-ai-env",
                             "spec": {
                                 "environment_version": "5",
-                                # dao-ai (+ resolved extras) via the var, then
-                                # any user-declared extra pip packages so the
-                                # provisioning notebooks' custom code has its
-                                # deps (parity with Model Serving / Apps).
+                                # dao-ai via the var (published: dao-ai[extras]==ver;
+                                # development: bare local wheel), then the dev-mode
+                                # extra-feature package pins (glob-safe PyPI specs,
+                                # empty in published mode), then any user-declared
+                                # extra pip packages. Parity with Model Serving / Apps.
                                 "dependencies": [
                                     "${var.dao_ai_dep}",
+                                    *extra_dep_pins,
                                     *(
                                         list(config.app.pip_requirements)
                                         if config.app
