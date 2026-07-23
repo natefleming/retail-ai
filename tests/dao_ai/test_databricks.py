@@ -2599,6 +2599,9 @@ def test_deploy_apps_agent_uploads_pyproject_with_dao_ai_version_pin(tmp_path):
     mock_app.trace_location = None
     mock_app.monitoring = None
     mock_app.enable_chat_proxy = True
+    # Skip the permission-grant branch (would touch unstubbed SDK surfaces).
+    mock_app.manage_permissions = False
+    mock_app.service_principal = None
     mock_config.app = mock_app
     mock_config.source_config_path = str(src_file)
     mock_config.rendered_yaml = raw_yaml
@@ -2615,6 +2618,10 @@ def test_deploy_apps_agent_uploads_pyproject_with_dao_ai_version_pin(tmp_path):
     with (
         patch.object(DatabricksProvider, "__init__", return_value=None),
         patch("dao_ai.utils.is_published", return_value=True),
+        patch(
+            "dao_ai._locking.render_portable_lock",
+            return_value="version = 1\n# portable lock (public CDN)\n",
+        ),
     ):
         provider = DatabricksProvider()
         provider.w = MagicMock()
@@ -2630,36 +2637,37 @@ def test_deploy_apps_agent_uploads_pyproject_with_dao_ai_version_pin(tmp_path):
             _stamp_extras_resolvable(mock_config)
             provider.deploy_apps_agent(mock_config)
 
-    # requirements.txt is the file Apps' build phase recognizes directly
-    # (``pyproject.toml`` alone, without ``uv.lock``, is logged as ``No
-    # dependencies file found``). Both files are uploaded so Apps installs
-    # the right dao-ai version on every deploy.
+    # Apps' build phase runs ``uv sync --locked --no-dev`` from pyproject.toml
+    # + uv.lock. requirements.txt must NOT be uploaded — it would take
+    # precedence and force the pip path.
     requirements_uploads = [
         c
         for c in provider.w.workspace.upload.call_args_list
         if c.kwargs.get("path", "").endswith("/requirements.txt")
     ]
-    assert requirements_uploads, (
-        "Published deploy_apps_agent must upload a requirements.txt so Apps' "
-        "build phase recognizes the bundle's pinned dao-ai version (rather "
-        "than the runtime command silently reusing a cached venv from a "
-        "prior deploy)."
-    )
-    requirements_text = (
-        requirements_uploads[0].kwargs["content"].getvalue().decode("utf-8")
-    )
-    # Published mode pins the exact installed version so a redeploy resolves
-    # the same release rather than silently pulling whatever is newest —
-    # reproducible deploys, parity with the Model Serving pin.
-    assert requirements_text.strip() == f"dao-ai=={dao_ai_version()}", (
-        f"requirements.txt must pin the exact dao-ai version; "
-        f"got: {requirements_text!r}"
+    assert not requirements_uploads, (
+        "Published deploy_apps_agent must NOT upload requirements.txt — it takes "
+        "precedence over pyproject.toml + uv.lock and forces the pip path."
     )
 
-    # pyproject.toml is also uploaded with the local version pin (for
-    # uv-native builds + IDE awareness) but isn't the file Apps' build
-    # phase keys on. The floor pin is fine here since it only affects
-    # local dev environments where the version is definitionally present.
+    # uv.lock is the file that (with pyproject.toml) triggers Apps' uv path.
+    lock_uploads = [
+        c
+        for c in provider.w.workspace.upload.call_args_list
+        if c.kwargs.get("path", "").endswith("/uv.lock")
+    ]
+    assert lock_uploads, (
+        "Published deploy_apps_agent must upload a uv.lock so Apps' build phase "
+        "runs ``uv sync --locked`` against the pinned dao-ai version."
+    )
+    lock_text = lock_uploads[0].kwargs["content"].getvalue().decode("utf-8")
+    # The lock must be portable — no internal mirror host (see dao_ai._locking).
+    assert "pypi-proxy" not in lock_text, (
+        "uv.lock must not reference the internal PyPI mirror (unreachable in "
+        "the Apps container / for customers)."
+    )
+
+    # pyproject.toml is uploaded with the local version pin.
     pyproject_uploads = [
         c
         for c in provider.w.workspace.upload.call_args_list
@@ -2667,7 +2675,12 @@ def test_deploy_apps_agent_uploads_pyproject_with_dao_ai_version_pin(tmp_path):
     ]
     assert pyproject_uploads
     pyproject_text = pyproject_uploads[0].kwargs["content"].getvalue().decode("utf-8")
-    assert f"dao-ai=={dao_ai_version()}" in pyproject_text
+    # Exact version pin, whether or not optional-feature extras are present
+    # (``dao-ai==<ver>`` or ``dao-ai[a2a,...]==<ver>``).
+    assert (
+        f"dao-ai=={dao_ai_version()}" in pyproject_text
+        or f"]=={dao_ai_version()}" in pyproject_text
+    ), f"pyproject must pin the exact dao-ai version; got:\n{pyproject_text}"
 
     # app.yaml's command must be a bare ``python -m ...`` (no runtime pip
     # install) so Apps' build-phase install is the sole installer.
@@ -2681,19 +2694,18 @@ def test_deploy_apps_agent_uploads_pyproject_with_dao_ai_version_pin(tmp_path):
     assert "uv pip install dao-ai" not in app_yaml_text, (
         "app.yaml must NOT issue a runtime ``uv pip install dao-ai`` — that "
         "command audits the cached venv and never upgrades. The new path "
-        "relies on Apps' build-phase install of requirements.txt."
+        "relies on Apps' build-phase ``uv sync`` from pyproject.toml + uv.lock."
     )
 
 
-def test_deploy_apps_agent_dev_path_ships_requirements_txt(tmp_path):
-    """Regression: deploy_apps_agent dev path (is_published() == False) must
-    ship a requirements.txt pointing at the local wheel — NOT a uv.lock.
+def test_deploy_apps_agent_dev_path_ships_uv_lock(tmp_path):
+    """deploy_apps_agent dev path (is_published() == False) ships pyproject.toml
+    + a portable uv.lock (referencing the local wheel via [tool.uv.sources]) and
+    NOT a requirements.txt.
 
-    The uv.lock path was vulnerable to Databricks-internal pypi-proxy URLs
-    being baked into the lock from the local environment, which then
-    failed Apps' build-phase install with timeouts. Switching to
-    requirements.txt makes Apps' build use ``pip install -r requirements.txt``
-    against public PyPI directly.
+    Apps' build phase runs ``uv sync --locked --no-dev``. The lock is de-mirrored
+    (public-CDN URLs) by ``dao_ai._locking.render_portable_lock`` — mocked here
+    since generating a real lock needs a real wheel + network (covered live).
     """
     from databricks.sdk.service.apps import (
         App,
@@ -2724,6 +2736,9 @@ def test_deploy_apps_agent_dev_path_ships_requirements_txt(tmp_path):
     mock_app.trace_location = None
     mock_app.monitoring = None
     mock_app.enable_chat_proxy = True
+    # Skip the permission-grant branch (would touch unstubbed SDK surfaces).
+    mock_app.manage_permissions = False
+    mock_app.service_principal = None
     mock_config.app = mock_app
     mock_config.source_config_path = str(src_file)
     mock_config.rendered_yaml = raw_yaml
@@ -2741,6 +2756,10 @@ def test_deploy_apps_agent_dev_path_ships_requirements_txt(tmp_path):
         patch.object(DatabricksProvider, "__init__", return_value=None),
         patch("dao_ai.utils.is_published", return_value=False),
         patch("dao_ai.providers.databricks.find_dev_wheel", return_value=stub_wheel),
+        patch(
+            "dao_ai._locking.render_portable_lock",
+            return_value="version = 1\n# portable lock (public CDN)\n",
+        ),
     ):
         provider = DatabricksProvider()
         provider.w = MagicMock()
@@ -2756,37 +2775,36 @@ def test_deploy_apps_agent_dev_path_ships_requirements_txt(tmp_path):
             _stamp_extras_resolvable(mock_config)
             provider.deploy_apps_agent(mock_config)
 
-    # requirements.txt is uploaded and points at the bundled wheel via a
-    # relative path. Apps' build phase recognizes this directly and runs
-    # ``pip install -r requirements.txt`` — pip installs the wheel and
-    # resolves transitive deps from public PyPI via the wheel's metadata.
-    requirements_uploads = [
-        c
-        for c in provider.w.workspace.upload.call_args_list
-        if c.kwargs.get("path", "").endswith("/requirements.txt")
-    ]
-    assert requirements_uploads, (
-        "Dev-path deploy_apps_agent must upload a requirements.txt pointing "
-        "at the bundled wheel so Apps' build-phase install uses pip + public "
-        "PyPI rather than uv.lock-baked Databricks-internal proxy URLs."
-    )
-    requirements_text = (
-        requirements_uploads[0].kwargs["content"].getvalue().decode("utf-8")
-    )
-    assert "./dist/" in requirements_text and stub_wheel.name in requirements_text, (
-        f"requirements.txt must reference the local wheel under ./dist/; "
-        f"got: {requirements_text!r}"
-    )
-
-    # uv.lock must NOT be uploaded — it would re-introduce the pypi-proxy
-    # URL lock-in that this refactor explicitly eliminates.
+    # uv.lock is uploaded; Apps' build phase runs ``uv sync --locked --no-dev``.
     uv_lock_uploads = [
         c
         for c in provider.w.workspace.upload.call_args_list
         if c.kwargs.get("path", "").endswith("/uv.lock")
     ]
-    assert not uv_lock_uploads, (
-        "Dev-path deploy_apps_agent must NOT upload a uv.lock; that path "
-        "baked Databricks-internal proxy URLs into the lock and broke Apps "
-        "builds. requirements.txt is the supported install vector now."
+    assert uv_lock_uploads, (
+        "Dev-path deploy_apps_agent must upload a uv.lock so Apps' build phase "
+        "runs ``uv sync --locked`` (the lock references the bundled wheel via "
+        "[tool.uv.sources] and is de-mirrored to public-CDN URLs)."
     )
+
+    # requirements.txt must NOT be uploaded — it would take precedence over the
+    # pyproject.toml + uv.lock uv path.
+    requirements_uploads = [
+        c
+        for c in provider.w.workspace.upload.call_args_list
+        if c.kwargs.get("path", "").endswith("/requirements.txt")
+    ]
+    assert not requirements_uploads, (
+        "Dev-path deploy_apps_agent must NOT upload requirements.txt — it takes "
+        "precedence over pyproject.toml + uv.lock and forces the pip path."
+    )
+
+    # The dev pyproject redirects dao-ai to the bundled wheel via uv sources.
+    pyproject_uploads = [
+        c
+        for c in provider.w.workspace.upload.call_args_list
+        if c.kwargs.get("path", "").endswith("/pyproject.toml")
+    ]
+    assert pyproject_uploads
+    pyproject_text = pyproject_uploads[0].kwargs["content"].getvalue().decode("utf-8")
+    assert "[tool.uv.sources]" in pyproject_text and stub_wheel.name in pyproject_text

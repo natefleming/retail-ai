@@ -24,6 +24,21 @@ from dao_ai.config_vars import (
 )
 
 
+@pytest.fixture(autouse=True)
+def _stub_bundle_lock(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Stub ``generate_bundle_lock`` so the write_bundle tests don't invoke a
+    real ``uv lock`` (needs network + a published dao-ai version). Writes a
+    placeholder ``uv.lock``; the lock is covered by test_bundle_dependency_lock.
+    Harmless no-op for tests that never generate a bundle.
+    """
+    from pathlib import Path as _Path
+
+    def _fake_lock(bundle_dir: _Path) -> None:
+        (bundle_dir / "uv.lock").write_text("# stub lock for tests\n")
+
+    monkeypatch.setattr("dao_ai.apps.bundle.generate_bundle_lock", _fake_lock)
+
+
 @pytest.mark.unit
 def test_find_param_references_extracts_distinct_names() -> None:
     text = "a: ${param.foo}\nb: ${param.bar:-default}\nc: ${param.foo}"
@@ -1063,13 +1078,12 @@ def test_write_bundle_bakes_resolved_values_and_drops_parameters(
 
 
 @pytest.mark.unit
-def test_write_bundle_ships_requirements_txt_no_uv_lock(
+def test_write_bundle_ships_pyproject_and_uv_lock_no_requirements(
     parameterised_config_path: Path, tmp_path: Path
 ) -> None:
-    """The generated bundle MUST ship requirements.txt (Apps build installs
-    deps from it; pyproject alone is insufficient) and MUST NOT ship a
-    uv.lock (lock is user-owned, produced by `uv sync` after generate-agent).
-    Unified emit format per PR #117.
+    """The generated bundle MUST ship pyproject.toml + uv.lock (Apps' build
+    phase runs ``uv sync --locked --no-dev``) and MUST NOT ship a
+    requirements.txt (it would take precedence over the uv path and force pip).
     """
     from dao_ai.apps.bundle import write_bundle
 
@@ -1083,16 +1097,17 @@ def test_write_bundle_ships_requirements_txt_no_uv_lock(
 
     write_bundle(config, out_dir, overwrite=True, development=False)
 
-    assert (out_dir / "requirements.txt").exists(), (
-        "Generated bundle must ship requirements.txt — Apps build installs "
-        "deps from it; pyproject alone is insufficient."
-    )
-    assert not (out_dir / "uv.lock").exists(), (
-        "Generated bundle must not ship uv.lock — lock is user-owned and "
-        "should be produced by `uv sync` after generate-agent."
-    )
     assert (out_dir / "pyproject.toml").exists(), (
-        "pyproject.toml must be present so `uv sync` has something to resolve from."
+        "pyproject.toml must be present — it (with uv.lock) drives Apps' "
+        "``uv sync --locked`` build."
+    )
+    assert (out_dir / "uv.lock").exists(), (
+        "Generated bundle must ship uv.lock — Apps' build phase runs "
+        "``uv sync --locked`` from pyproject.toml + uv.lock."
+    )
+    assert not (out_dir / "requirements.txt").exists(), (
+        "Generated bundle must NOT ship requirements.txt — it takes precedence "
+        "over pyproject.toml + uv.lock and forces the pip path."
     )
 
     # The trimmed databricks.yaml carries bundle/include/targets/artifacts only;

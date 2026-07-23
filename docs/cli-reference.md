@@ -168,11 +168,11 @@ The command creates a self-contained bundle directory with everything needed to 
 | `.python-version` | Python version pin (3.11) |
 | `src/<package>/` | Stub package for custom code |
 
-### Dependency install: `requirements.txt` + pip
+### Dependency install: `pyproject.toml` + portable `uv.lock`
 
-`dao-ai generate-agent` writes a `requirements.txt` to the bundle. The Databricks Apps build phase installs dependencies by running `pip install -r requirements.txt` — no `uv.lock` is generated or required. Published mode (`--no-development`) pins `dao-ai==<version>` for reproducible redeploys; `--development` references the bundled local wheel (`./dist/<wheel>`) instead of PyPI.
+`dao-ai generate-agent` writes a `pyproject.toml` and a portable `uv.lock` to the bundle (no `requirements.txt` — its presence would take precedence and force the pip path). The Databricks Apps build phase runs `uv sync --locked --no-dev` from them. Published mode (`--no-development`) pins `dao-ai[<extras>]==<version>` for reproducible redeploys; `--development` redirects dao-ai to the bundled local wheel via `[tool.uv.sources]`. `uv lock` records the full closure, and any internal-mirror host (`pypi-proxy.dev.databricks.com`) is rewritten to the public CDN so the lock resolves from Apps containers.
 
-> **Future direction:** an unmerged branch moves Apps deploys to `pyproject.toml` + a portable `uv.lock` (`uv sync --locked --no-dev`, with internal-mirror URLs rewritten to public PyPI). That is not part of this release — today's generated bundles use `requirements.txt` + pip.
+> **Pre-publish note:** published-mode lock generation resolves `dao-ai==<version>` from PyPI, so it fails with an actionable error until that version is published (release-time / CI). For local/pre-release iteration, generate with `--development` (locks against the bundled wheel — works anytime).
 
 When `app.enable_chat_proxy` is `true` (the default), the deployed app automatically clones and builds the Databricks [e2e-chatbot-app-next](https://github.com/databricks/app-templates/tree/main/e2e-chatbot-app-next) chat UI at startup. The Apps runtime has Node.js pre-installed, so no Node.js is needed on your development machine. Set `enable_chat_proxy: false` to deploy without the chat UI.
 

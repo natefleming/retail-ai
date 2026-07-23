@@ -30,6 +30,22 @@ from dao_ai.config import AppConfig
 from dao_ai.skills import collect_skills_code_paths
 
 
+@pytest.fixture(autouse=True)
+def _stub_bundle_lock(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Stub ``generate_bundle_lock`` so these bundle-layout tests don't invoke a
+    real ``uv lock`` (which needs network + a published dao-ai version, and would
+    choke on the stub pyproject). Writes a placeholder ``uv.lock`` so presence
+    assertions still hold. The lock itself is covered by
+    ``test_bundle_dependency_lock.py``.
+    """
+    from pathlib import Path as _Path
+
+    def _fake_lock(bundle_dir: _Path) -> None:
+        (bundle_dir / "uv.lock").write_text("# stub lock for tests\n")
+
+    monkeypatch.setattr("dao_ai.apps.bundle.generate_bundle_lock", _fake_lock)
+
+
 @pytest.fixture
 def project_root_with_skills(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     """Copy the real project's example YAML + skills dir into a tmp project root.

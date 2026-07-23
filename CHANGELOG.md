@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Apps/MCP deploy switched from `requirements.txt` to `pyproject.toml` + a portable `uv.lock`.** `generate-agent`, `generate-mcp`, and the direct `deploy_apps_agent` path now emit `pyproject.toml` + `uv.lock` (no `requirements.txt` — its presence would take precedence and force the slower pip path). Databricks Apps' build phase runs `uv sync --locked --no-dev`. `dao_ai._locking.generate_bundle_lock` runs `uv lock` then rewrites any internal-mirror host (`pypi-proxy.dev.databricks.com`) to the public CDN so the lock resolves from Apps containers, and guards that no mirror URL survives. The exact-version pin and optional-feature extras from 0.2.4 are preserved in the generated pyproject: `dao-ai[<extras>]==<version>` (published) or a `[tool.uv.sources]` local-wheel redirect (`--development`). **Published-mode lock generation resolves `dao-ai==<version>` from PyPI, so it runs at release time (in CI, after publish); pre-release, use `--development`.** New `make` targets `lock` / `check-lock` / `lock-local` manage the repo's own `uv.lock` (frozen everyday sync, public-CDN re-lock, on-corp-network re-lock-and-rewrite). Workflows are unchanged (serverless env `${var.dao_ai_dep}` + `%uv pip install` notebook bootstrap).
+
 ## [0.2.4] - 2026-07-23
 
 ### Fixed

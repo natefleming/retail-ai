@@ -1810,28 +1810,23 @@ class DatabricksProvider(ServiceProvider):
             "dao_ai.apps.start_app" if enable_chat_proxy else "dao_ai.apps.server"
         )
         if not _use_local_source(development):
-            # Ship a ``requirements.txt`` (pinned) + ``pyproject.toml``
-            # (pinned) so Databricks Apps' build phase installs the dao-ai
-            # version the bundle declares. Apps' build step recognizes
-            # ``requirements.txt`` directly (``pip install -r requirements.txt``)
-            # and emits ``Updated file: python/source_code/requirements.txt``
-            # in the deployment log; ``pyproject.toml`` alone (without
-            # ``uv.lock``) is NOT recognized — the build step logs ``No
-            # dependencies file found. Skipping installation.`` and the
-            # venv persists from prior deploys to the same app slot.
+            # Ship ``pyproject.toml`` (sole ``dao-ai>={ver}`` dep) + a portable
+            # ``uv.lock`` so Databricks Apps' build phase runs
+            # ``uv sync --locked --no-dev`` and installs the exact pinned
+            # closure. Both files are required for the uv path — ``pyproject.toml``
+            # alone (no ``uv.lock``) logs ``No dependencies file found. Skipping
+            # installation`` — and ``requirements.txt`` must be ABSENT (it would
+            # take precedence and force the pip path).
             #
-            # Without this pin, the previous default startup command
-            # (``uv pip install dao-ai`` with no ``--upgrade``) only audited
-            # the cached venv and never upgraded — meaning the deployed app
-            # silently drifted behind the local dao-ai. Surfaced by the
+            # Pinning matters: without it the deployed app silently drifts behind
+            # the local dao-ai (cached venv reused across deploys). Surfaced by the
             # workshop verification on 2026-06-23: Lab 15 introduced
-            # ``app.background:``, but the cached venv was a pre-rename
-            # dao-ai that rejected the new field as ``extra_forbidden`` and
-            # crashed the app at startup.
-            from dao_ai.apps.bundle import (
-                _PYPROJECT_TEMPLATE,
-                _make_requirements_txt,
-            )
+            # ``app.background:``, but the cached venv was a pre-rename dao-ai that
+            # rejected the new field as ``extra_forbidden`` and crashed at startup.
+            # The lock is de-mirrored (public-CDN URLs) so it resolves in the Apps
+            # container — see ``dao_ai._locking``.
+            from dao_ai._locking import render_portable_lock
+            from dao_ai.apps.bundle import _PYPROJECT_TEMPLATE
 
             app_name_normalized = raw_name.lower().replace("_", "-")
             package_name = app_name_normalized.replace("-", "_")
@@ -1848,18 +1843,14 @@ class DatabricksProvider(ServiceProvider):
                 overwrite=True,
             )
 
-            # Route through the shared helper for a single source of truth on
-            # the requirements content: the exact-pinned, extras-aware dao-ai
-            # line plus the deployer's own pip_requirements. See
-            # ``_make_requirements_txt`` for the reasoning.
-            requirements_content = _make_requirements_txt(
-                development=False,
-                extras=extras_suffix,
-                pip_requirements=user_pip_requirements,
-            )
+            # Ship a portable uv.lock (public-CDN pinned) alongside pyproject.
+            # Apps' build phase runs ``uv sync --locked --no-dev`` from
+            # pyproject.toml + uv.lock; requirements.txt is intentionally NOT
+            # shipped (it would take precedence over the uv path).
+            lock_content = render_portable_lock(pyproject_content)
             self.w.workspace.upload(
-                path=f"{source_path}/requirements.txt",
-                content=io.BytesIO(requirements_content.encode("utf-8")),
+                path=f"{source_path}/uv.lock",
+                content=io.BytesIO(lock_content.encode("utf-8")),
                 format=ImportFormat.AUTO,
                 overwrite=True,
             )
@@ -1921,19 +1912,19 @@ class DatabricksProvider(ServiceProvider):
                 )
             logger.info("Dev wheel uploaded", path=workspace_wheel_path)
 
-            # Upload pyproject.toml (metadata + hatch build target for any
-            # user code under src/<package_name>/). Deps install from
-            # requirements.txt at Apps build time.
-            from dao_ai.apps.bundle import (
-                _PYPROJECT_DEV_TEMPLATE,
-                _make_requirements_txt,
-            )
+            # Upload pyproject.toml (dao-ai redirected to the bundled wheel via
+            # ``[tool.uv.sources]``) + a portable uv.lock. Apps' build phase runs
+            # ``uv sync --locked --no-dev`` and installs THIS wheel.
+            from dao_ai._locking import render_portable_lock
+            from dao_ai.apps.bundle import _PYPROJECT_DEV_TEMPLATE
 
             app_name_normalized = raw_name.lower().replace("_", "-")
             package_name = app_name_normalized.replace("-", "_")
             pyproject_content = _PYPROJECT_DEV_TEMPLATE.format(
                 name=app_name_normalized,
                 package_name=package_name,
+                wheel_filename=wheel_path.name,
+                extras=extras_suffix,
             )
             self.w.workspace.upload(
                 path=f"{source_path}/pyproject.toml",
@@ -1954,27 +1945,21 @@ class DatabricksProvider(ServiceProvider):
                 overwrite=True,
             )
 
-            # Ship a requirements.txt that points at the bundled wheel.
-            # Apps' build phase recognizes requirements.txt directly and
-            # runs `pip install -r requirements.txt` — pip installs the
-            # wheel and resolves transitive deps from public PyPI via the
-            # wheel's metadata. Replaces the prior uv.lock-based path
-            # which baked Databricks-internal pypi-proxy URLs into the
-            # lock and timed out on Apps containers.
-            requirements_content: str = _make_requirements_txt(
-                development=True,
-                wheel_filename=wheel_path.name,
-                extras=extras_suffix,
-                pip_requirements=user_pip_requirements,
+            # Portable uv.lock — locked against the local wheel (via
+            # ``[tool.uv.sources]``) plus the public-PyPI closure, with any
+            # internal-mirror host rewritten to the public CDN. No
+            # requirements.txt (it would take precedence over the uv path).
+            lock_content: str = render_portable_lock(
+                pyproject_content, wheel_path=wheel_path
             )
             self.w.workspace.upload(
-                path=f"{source_path}/requirements.txt",
-                content=io.BytesIO(requirements_content.encode("utf-8")),
+                path=f"{source_path}/uv.lock",
+                content=io.BytesIO(lock_content.encode("utf-8")),
                 format=ImportFormat.AUTO,
                 overwrite=True,
             )
             logger.info(
-                "dao-ai source for app: dev wheel (requirements.txt)",
+                "dao-ai source for app: dev wheel (uv.lock)",
                 wheel=wheel_path.name,
                 entrypoint=entrypoint_module,
                 chat_proxy=enable_chat_proxy,
