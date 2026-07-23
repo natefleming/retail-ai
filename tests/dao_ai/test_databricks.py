@@ -36,6 +36,14 @@ def _stamp_extras_resolvable(mock_config: MagicMock) -> MagicMock:
     # app.a2a disabled + no orchestration → resolver adds no extras by default.
     mock_config.app.a2a = MagicMock(enabled=False)
     mock_config.app.orchestration = None
+    # Custom-dep passthrough surfaces read by the Apps/MS deploy paths. Only
+    # default them when the test hasn't set a real list — never clobber a
+    # test's own pip_requirements/code_paths values. ``getattr`` tolerates
+    # both plain and spec-restricted mocks.
+    if not isinstance(getattr(mock_config.app, "pip_requirements", None), list):
+        mock_config.app.pip_requirements = []
+    if not isinstance(getattr(mock_config.app, "code_paths", None), list):
+        mock_config.app.code_paths = []
     return mock_config
 from dao_ai.providers.databricks import DatabricksProvider
 

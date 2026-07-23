@@ -38,6 +38,35 @@ def test_apps_dev_requires_wheel_filename() -> None:
         apps_reqs(development=True)
 
 
+@pytest.mark.unit
+def test_apps_appends_user_pip_requirements_published() -> None:
+    # User custom deps (config.app.pip_requirements) append after dao-ai, so
+    # Apps' `pip install -r requirements.txt` installs the deployer's code deps.
+    out = apps_reqs(
+        development=False,
+        extras="[a2a]",
+        pip_requirements=["cowsay==6.1", "my-internal-lib>=1.0"],
+    )
+    assert out == "dao-ai[a2a]\ncowsay==6.1\nmy-internal-lib>=1.0\n"
+
+
+@pytest.mark.unit
+def test_apps_appends_user_pip_requirements_dev() -> None:
+    out = apps_reqs(
+        development=True,
+        wheel_filename="dao_ai-0.2.0.whl",
+        pip_requirements=["cowsay==6.1"],
+    )
+    assert out == "./dist/dao_ai-0.2.0.whl\ncowsay==6.1\n"
+
+
+@pytest.mark.unit
+def test_apps_no_user_pip_requirements_unchanged() -> None:
+    # Empty/None user deps must not alter the single dao-ai line.
+    assert apps_reqs(development=False, pip_requirements=[]) == "dao-ai\n"
+    assert apps_reqs(development=False, pip_requirements=None) == "dao-ai\n"
+
+
 # ---------------------------------------------------------------------------
 # MCP bundle requirements — always carries the mcp extra, merges features
 # ---------------------------------------------------------------------------
@@ -55,6 +84,14 @@ def test_mcp_published_merged_extras() -> None:
 def test_mcp_dev_merged_extras() -> None:
     out = mcp_reqs(development=True, wheel_filename="w.whl", extras="mcp,rerank")
     assert out == "./dist/w.whl[mcp,rerank]\n"
+
+
+@pytest.mark.unit
+def test_mcp_appends_user_pip_requirements() -> None:
+    out = mcp_reqs(
+        development=False, extras="mcp", pip_requirements=["cowsay==6.1"]
+    )
+    assert out == "dao-ai[mcp]\ncowsay==6.1\n"
 
 
 # ---------------------------------------------------------------------------

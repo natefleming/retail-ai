@@ -1642,7 +1642,7 @@
           "description": "Chat history summarization settings to manage long conversations."
         },
         "code_paths": {
-          "description": "Additional Python file paths bundled with the model artifact.",
+          "description": "Additional Python file paths bundled with the Model Serving model artifact via ``log_model(code_paths=...)``. For Apps/MCP, put custom code in the generated bundle's ``src/<package>/`` instead \u2014 it is built and installed by ``uv sync`` at the app build phase.",
           "items": {
             "type": "string"
           },
@@ -1650,7 +1650,7 @@
           "type": "array"
         },
         "pip_requirements": {
-          "description": "Extra pip packages installed in the serving environment.",
+          "description": "Extra pip packages for your custom code, installed alongside dao-ai in every deployment target (Model Serving conda env; Apps/MCP requirements.txt; pipeline job environment).",
           "items": {
             "type": "string"
           },

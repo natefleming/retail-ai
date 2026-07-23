@@ -20,7 +20,7 @@ import shutil
 import subprocess
 from importlib.metadata import version as pkg_version
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Optional, Sequence
 
 import yaml
 from loguru import logger
@@ -146,6 +146,7 @@ def _make_requirements_txt(
     development: bool,
     wheel_filename: Optional[str] = None,
     extras: str = "",
+    pip_requirements: Optional[Sequence[str]] = None,
 ) -> str:
     """Build the requirements.txt content for an app bundle.
 
@@ -167,14 +168,23 @@ def _make_requirements_txt(
         extras: Optional requirement-extras suffix (e.g. ``"[a2a,rerank]"``)
             appended to the ``dao-ai`` spec / dev wheel so the config's
             optional features install. Empty string installs the base package.
+        pip_requirements: User-declared extra pip packages
+            (``config.app.pip_requirements``) that the deployer's custom code
+            under ``src/<package>/`` needs. Appended verbatim, one per line,
+            after the dao-ai line so Apps' ``pip install -r requirements.txt``
+            installs them into the app environment.
     """
     if development:
         if not wheel_filename:
             raise ValueError(
                 "_make_requirements_txt: wheel_filename is required in development mode."
             )
-        return f"./dist/{wheel_filename}{extras}\n"
-    return f"dao-ai{extras}\n"
+        dao_ai_line = f"./dist/{wheel_filename}{extras}"
+    else:
+        dao_ai_line = f"dao-ai{extras}"
+
+    lines = [dao_ai_line, *(pip_requirements or [])]
+    return "\n".join(lines) + "\n"
 
 
 def _get_dao_ai_version() -> str:
@@ -746,6 +756,13 @@ def write_bundle(
         resolve_required_extras_or_all(config, target="apps")
     )
 
+    # User-declared extra pip packages for their custom code under
+    # ``src/<package>/`` (the stub the generator scaffolds). These are appended
+    # to the generated requirements.txt so Apps installs them alongside dao-ai.
+    user_pip_requirements: list[str] = (
+        list(config.app.pip_requirements) if config.app else []
+    )
+
     # Warn loudly when the bundle is being built without `trace_location`:
     # Databricks Apps containers cannot reach the artifact-storage host the
     # default MLflow control-plane trace exporter PUTs spans to, so spans
@@ -947,6 +964,7 @@ def write_bundle(
                 development=True,
                 wheel_filename=wheel_path.name,
                 extras=extras_suffix,
+                pip_requirements=user_pip_requirements,
             ),
         )
 
@@ -975,7 +993,11 @@ def write_bundle(
         # branch (kept in sync intentionally).
         _track(
             output_dir / "requirements.txt",
-            _make_requirements_txt(development=False, extras=extras_suffix),
+            _make_requirements_txt(
+                development=False,
+                extras=extras_suffix,
+                pip_requirements=user_pip_requirements,
+            ),
         )
 
         # Create stub package so the wheel builds and users can add custom code

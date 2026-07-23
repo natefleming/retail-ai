@@ -1688,6 +1688,12 @@ class DatabricksProvider(ServiceProvider):
         extras_suffix: str = format_extras_suffix(
             resolve_required_extras_or_all(config, target="apps")
         )
+        # User-declared extra pip packages for their custom app code — appended
+        # to the uploaded requirements.txt so Apps installs them (parity with
+        # Model Serving, which bakes them into the model's conda_env).
+        user_pip_requirements: list[str] = (
+            list(config.app.pip_requirements) if config.app else []
+        )
 
         # Use convention-based workspace path: /Workspace/Users/{user}/apps/{app_name}
         current_user: User = self.w.current_user.me()
@@ -1846,7 +1852,9 @@ class DatabricksProvider(ServiceProvider):
             # ``--index-url https://pypi.org/simple/`` override + unbounded
             # dao-ai pin. See ``_make_requirements_txt`` for the reasoning.
             requirements_content = _make_requirements_txt(
-                development=False, extras=extras_suffix
+                development=False,
+                extras=extras_suffix,
+                pip_requirements=user_pip_requirements,
             )
             self.w.workspace.upload(
                 path=f"{source_path}/requirements.txt",
@@ -1956,6 +1964,7 @@ class DatabricksProvider(ServiceProvider):
                 development=True,
                 wheel_filename=wheel_path.name,
                 extras=extras_suffix,
+                pip_requirements=user_pip_requirements,
             )
             self.w.workspace.upload(
                 path=f"{source_path}/requirements.txt",

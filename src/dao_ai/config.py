@@ -9436,11 +9436,16 @@ class AppModel(BaseModel):
     )
     code_paths: list[str] = Field(
         default_factory=list,
-        description="Additional Python file paths bundled with the model artifact.",
+        description="Additional Python file paths bundled with the Model Serving "
+        "model artifact via ``log_model(code_paths=...)``. For Apps/MCP, put "
+        "custom code in the generated bundle's ``src/<package>/`` instead — it is "
+        "built and installed by ``uv sync`` at the app build phase.",
     )
     pip_requirements: list[str] = Field(
         default_factory=list,
-        description="Extra pip packages installed in the serving environment.",
+        description="Extra pip packages for your custom code, installed alongside "
+        "dao-ai in every deployment target (Model Serving conda env; Apps/MCP "
+        "requirements.txt; pipeline job environment).",
     )
     python_version: Optional[str] = Field(
         default="3.12",
