@@ -20,6 +20,7 @@ import pytest
 
 from dao_ai.apps.bundle import (
     _PYPROJECT_DEV_TEMPLATE,
+    _get_dao_ai_version,
     _make_requirements_txt,
 )
 from dao_ai.utils import dev_local_version
@@ -30,14 +31,18 @@ from dao_ai.utils import dev_local_version
 
 
 class TestMakeRequirementsTxt:
-    def test_published_installs_dao_ai_unbounded(self) -> None:
-        """The published pin is intentionally unbounded — the locally-installed
-        version may be an unreleased pre-publish build, so floor-pinning to
-        it would cause Apps to fail with ``Could not find a version``."""
+    def test_published_pins_exact_version(self) -> None:
+        """Published mode pins the exact installed version so a redeploy
+        resolves the same release rather than silently pulling whatever is
+        newest — parity with the Model Serving pin and reproducible deploys."""
         content: str = _make_requirements_txt(development=False)
-        assert content.strip() == "dao-ai", (
-            f"Published requirements.txt must install unbounded dao-ai; got: {content!r}"
+        assert content.strip() == f"dao-ai=={_get_dao_ai_version()}", (
+            f"Published requirements.txt must pin the exact version; got: {content!r}"
         )
+
+    def test_published_pins_exact_version_with_extras(self) -> None:
+        content: str = _make_requirements_txt(development=False, extras="[a2a]")
+        assert content.strip() == f"dao-ai[a2a]=={_get_dao_ai_version()}"
 
     def test_published_does_not_reference_local_wheel(self) -> None:
         content: str = _make_requirements_txt(development=False)

@@ -43,7 +43,7 @@ from dao_ai.apps.bundle import (
     dump_bundle_yaml,
 )
 from dao_ai.config import AppConfig
-from dao_ai.utils import normalize_name
+from dao_ai.utils import dao_ai_version, normalize_name
 
 # Package location of the step notebooks shipped in the wheel.
 _NOTEBOOKS_PKG = "dao_ai.pipeline.notebooks"
@@ -145,12 +145,13 @@ def generate_pipeline_databricks_yaml(config: AppConfig, development: bool) -> s
                 "description": (
                     "dao-ai dependency for the serverless environment - the "
                     "bundled './dist/<wheel>' in development mode, or the "
-                    "'dao-ai' PyPI spec otherwise, each carrying the optional-"
-                    "feature extras the config uses (e.g. 'dao-ai[a2a,rerank]'). "
-                    "Installed by the job's serverless environment before each "
-                    "task's notebook runs."
+                    "version-pinned PyPI spec otherwise, each carrying the "
+                    "optional-feature extras the config uses (e.g. "
+                    "'dao-ai[a2a,rerank]==X.Y.Z'). The CLI overrides this per "
+                    "deploy; the default pins the generating version so a raw "
+                    "``databricks bundle deploy`` stays reproducible."
                 ),
-                "default": "dao-ai",
+                "default": f"dao-ai=={dao_ai_version()}",
             },
         },
         "resources": {

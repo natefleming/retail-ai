@@ -2542,17 +2542,20 @@ def run_databricks_command(
             resolve_required_extras_or_all,
         )
         from dao_ai.pipeline.bundle import write_pipeline_bundle
-        from dao_ai.utils import resolve_use_local_source
+        from dao_ai.utils import dao_ai_version, resolve_use_local_source
 
         use_local_source: bool = resolve_use_local_source(development)
 
         # The provisioning job's serverless env installs dao-ai with exactly
         # the optional-feature extras this config exercises, so provisioning
         # notebooks (ingest, vector-search, deploy) can import feature paths.
+        # Published mode pins the exact version for reproducible re-runs
+        # (parity with Model Serving + the Apps requirements.txt); the local
+        # wheel path (set below when use_local_source) overrides this.
         extras_suffix: str = format_extras_suffix(
             resolve_required_extras_or_all(app_config, target="pipeline")
         )
-        dao_ai_dep = f"dao-ai{extras_suffix}"
+        dao_ai_dep = f"dao-ai{extras_suffix}=={dao_ai_version()}"
 
         # Regenerate the owned default dir cleanly so stale dev artifacts
         # (e.g. dist/ wheels) don't linger across dev/published switches.

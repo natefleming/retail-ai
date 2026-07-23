@@ -112,7 +112,7 @@ version = "0.1.0"
 description = "DAO AI Agent: {name}"
 requires-python = ">=3.11"
 dependencies = [
-    "dao-ai{extras}>={dao_ai_version}",
+    "dao-ai{extras}=={dao_ai_version}",
 ]
 
 [tool.hatch.build.targets.wheel]
@@ -150,13 +150,15 @@ def _make_requirements_txt(
 ) -> str:
     """Build the requirements.txt content for an app bundle.
 
-    The published pin is left *unbounded* (``dao-ai``) rather than
-    floor-pinned to the locally-installed version. ``_get_dao_ai_version()``
-    reflects whatever is checked out in the developer's tree, which may
-    be an unreleased pre-publish build. Baking that floor into
-    requirements.txt would cause Apps to fail with ``Could not find a
-    version that satisfies …``. Users who need reproducibility can
-    tighten the pin by hand.
+    Published mode pins the exact installed version (``dao-ai==<version>``)
+    so a redeploy months later resolves the same release rather than
+    silently pulling whatever is newest — the deploy is reproducible. This
+    matches the Model Serving path (``create_agent`` pins
+    ``dao-ai=={dao_ai_version()}``). When generating a published bundle from
+    an unreleased local checkout the pin would name a version not yet on
+    PyPI — that is exactly what ``--development`` (bundle the local wheel) is
+    for, so ``--no-development`` legitimately assumes the version is (or will
+    be) published.
 
     Development mode: reference the bundled wheel via a relative path
     (``./dist/<wheel>``). Pip installs the wheel and resolves transitive
@@ -181,7 +183,7 @@ def _make_requirements_txt(
             )
         dao_ai_line = f"./dist/{wheel_filename}{extras}"
     else:
-        dao_ai_line = f"dao-ai{extras}"
+        dao_ai_line = f"dao-ai{extras}=={_get_dao_ai_version()}"
 
     lines = [dao_ai_line, *(pip_requirements or [])]
     return "\n".join(lines) + "\n"
