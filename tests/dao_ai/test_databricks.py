@@ -44,6 +44,25 @@ def _stamp_extras_resolvable(mock_config: MagicMock) -> MagicMock:
         mock_config.app.pip_requirements = []
     if not isinstance(getattr(mock_config.app, "code_paths", None), list):
         mock_config.app.code_paths = []
+    # Trace-permission fields the deploy paths read at grant time. Default to
+    # the real model defaults (manage_permissions=True, experiment=None) unless
+    # a test set concrete values. ``getattr`` tolerates spec-restricted mocks.
+    if not isinstance(getattr(mock_config.app, "manage_permissions", None), bool):
+        mock_config.app.manage_permissions = True
+    if getattr(mock_config.app, "experiment", None) is None or isinstance(
+        getattr(mock_config.app, "experiment", None), MagicMock
+    ):
+        mock_config.app.experiment = None
+    # The Model-Serving grant path fires only when a service principal is
+    # declared (``manage_permissions and service_principal is not None``).
+    # Default it off so deploy tests don't spin up a real WorkspaceClient for
+    # grants they aren't asserting; tests exercising the grant path set a
+    # concrete SP themselves. ``spec``-restricted mocks block the attribute
+    # entirely (getattr returns the default and never materializes it), so set
+    # it explicitly unless a test already assigned a concrete model instance.
+    sp = getattr(mock_config.app, "service_principal", None)
+    if sp is None or isinstance(sp, MagicMock):
+        mock_config.app.service_principal = None
     return mock_config
 from dao_ai.providers.databricks import DatabricksProvider
 
@@ -709,6 +728,11 @@ def test_deploy_agent_sets_endpoint_tag():
                         # Create provider and call deploy_agent
                         provider = DatabricksProvider()
                         _stamp_extras_resolvable(mock_config)
+                        # Keep the deploy hermetic: experiment resolution would
+                        # otherwise build a live WorkspaceClient.
+                        provider.get_or_create_experiment = MagicMock(
+                            return_value=MagicMock(experiment_id="exp1")
+                        )
                         provider.deploy_agent(config=mock_config)
 
                         # Verify deploy was called with the dao_ai tag
@@ -746,6 +770,7 @@ def test_deploy_model_serving_omits_tags_when_serving_endpoint_exists():
     mock_app.monitoring = None
     mock_config.app = mock_app
     mock_config.resources = None
+    _stamp_extras_resolvable(mock_config)
 
     with patch.object(
         DatabricksProvider, "_serving_endpoint_exists", return_value=True
@@ -767,6 +792,11 @@ def test_deploy_model_serving_omits_tags_when_serving_endpoint_exists():
                             ):
                                 provider = DatabricksProvider()
                                 provider.w = MagicMock()
+                                # Keep hermetic: experiment resolution would
+                                # otherwise build a live WorkspaceClient.
+                                provider.get_or_create_experiment = MagicMock(
+                                    return_value=MagicMock(experiment_id="exp1")
+                                )
                                 provider.deploy_model_serving_agent(mock_config)
 
                                 mock_deploy.assert_called_once()
@@ -868,7 +898,7 @@ def test_deploy_agent_routes_to_apps_when_specified():
             _stamp_extras_resolvable(mock_config)
             provider.deploy_agent(config=mock_config, target=DeploymentTarget.APPS)
 
-            mock_apps.assert_called_once_with(mock_config)
+            mock_apps.assert_called_once_with(mock_config, development=None)
             mock_model_serving.assert_not_called()
 
 
@@ -2007,6 +2037,14 @@ def test_vector_store_obo_skips_client_args():
             clear=False,
         ),
         patch("dao_ai.tools.vector_search.mlflow"),
+        # Tool creation/invocation triggers column auto-discovery and a VS
+        # refresh, both of which would build a live client (DNS) against the
+        # fake host. Stub the column probe and the refresh VS client.
+        patch(
+            "dao_ai.tools.vector_search._fetch_index_columns",
+            return_value=[("col1", None, None)],
+        ),
+        patch("dao_ai.tools.vector_search.VectorSearchClient"),
     ):
         mock_dvs_instance = MagicMock()
         mock_dvs_instance.similarity_search.return_value = []
@@ -2484,6 +2522,7 @@ def test_deploy_model_serving_links_experiment_and_grants_permissions():
 
     mock_config.app = mock_app
     mock_config.resources = None
+    _stamp_extras_resolvable(mock_config)
 
     mock_experiment = MagicMock()
     mock_experiment.experiment_id = "exp123"
@@ -2609,11 +2648,12 @@ def test_deploy_apps_agent_uploads_pyproject_with_dao_ai_version_pin(tmp_path):
     requirements_text = (
         requirements_uploads[0].kwargs["content"].getvalue().decode("utf-8")
     )
-    # The published pin is intentionally unbounded — the locally-installed
-    # version may be an unreleased pre-publish build, so floor-pinning
-    # would cause Apps to fail with ``Could not find a version``.
-    assert requirements_text.strip() == "dao-ai", (
-        f"requirements.txt must install unbounded dao-ai; got: {requirements_text!r}"
+    # Published mode pins the exact installed version so a redeploy resolves
+    # the same release rather than silently pulling whatever is newest —
+    # reproducible deploys, parity with the Model Serving pin.
+    assert requirements_text.strip() == f"dao-ai=={dao_ai_version()}", (
+        f"requirements.txt must pin the exact dao-ai version; "
+        f"got: {requirements_text!r}"
     )
 
     # pyproject.toml is also uploaded with the local version pin (for
@@ -2627,7 +2667,7 @@ def test_deploy_apps_agent_uploads_pyproject_with_dao_ai_version_pin(tmp_path):
     ]
     assert pyproject_uploads
     pyproject_text = pyproject_uploads[0].kwargs["content"].getvalue().decode("utf-8")
-    assert f"dao-ai>={dao_ai_version()}" in pyproject_text
+    assert f"dao-ai=={dao_ai_version()}" in pyproject_text
 
     # app.yaml's command must be a bare ``python -m ...`` (no runtime pip
     # install) so Apps' build-phase install is the sole installer.

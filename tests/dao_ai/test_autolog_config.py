@@ -21,9 +21,7 @@ Two layers:
 from __future__ import annotations
 
 import asyncio
-import importlib
-import sys
-from unittest.mock import patch
+from pathlib import Path
 
 import mlflow
 import pytest
@@ -42,27 +40,43 @@ class TestAutologCallSite:
         ["dao_ai.apps.handlers", "dao_ai.apps.model_serving"],
     )
     def test_autolog_called_with_run_tracer_inline_true(self, module_name: str) -> None:
-        sys.modules.pop(module_name, None)
-        with (
-            patch("mlflow.langchain.autolog") as mock_autolog,
-            patch("mlflow.set_registry_uri"),
-            patch("mlflow.set_tracking_uri"),
-            patch("mlflow.tracing.set_destination"),
-        ):
-            try:
-                importlib.import_module(module_name)
-            except Exception:
-                # Entry-point modules execute heavy setup at import time
-                # (AppConfig.from_file, etc.). We only need to observe the
-                # autolog kwarg, which fires before that work runs.
-                pass
-        assert mock_autolog.called, (
+        # These entry-point modules build their AppConfig at import time
+        # (``AppConfig.from_file`` in handlers; ``ModelConfig()`` +
+        # ``AppConfig(**...)`` in model_serving) *before* the autolog call, so
+        # importing them here to observe the call would require a live config +
+        # workspace auth. Assert the call-site statically instead — an AST walk
+        # over the module source pins the ``mlflow.langchain.autolog`` call and
+        # its ``run_tracer_inline=True`` kwarg without executing import-time
+        # side effects (and without leaking patches across the suite).
+        import ast
+        import importlib.util
+
+        spec = importlib.util.find_spec(module_name)
+        assert spec and spec.origin, f"cannot locate source for {module_name}"
+        tree = ast.parse(Path(spec.origin).read_text())
+
+        autolog_calls = [
+            node
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr == "autolog"
+            and isinstance(node.func.value, ast.Attribute)
+            and node.func.value.attr == "langchain"
+        ]
+        assert autolog_calls, (
             f"{module_name} did not call mlflow.langchain.autolog"
         )
-        _, kwargs = mock_autolog.call_args
-        assert kwargs.get("run_tracer_inline") is True, (
-            f"{module_name} must call autolog(run_tracer_inline=True); "
-            f"got kwargs={kwargs}"
+        inline_kwargs = [
+            kw
+            for call in autolog_calls
+            for kw in call.keywords
+            if kw.arg == "run_tracer_inline"
+            and isinstance(kw.value, ast.Constant)
+            and kw.value.value is True
+        ]
+        assert inline_kwargs, (
+            f"{module_name} must call autolog(run_tracer_inline=True)"
         )
 
 

@@ -1674,6 +1674,9 @@ def test_cli_run_databricks_command_forwards_vars_to_databricks_cli(
         ["bundle", "deploy"],
         config=str(parameterised_config_path),
         config_vars={"module_id": "09", "catalog": "nfleming"},
+        # Published mode: the stubbed bundle-write stages no wheel, and this
+        # test only asserts --var forwarding, not local-wheel staging.
+        development=False,
     )
 
     cmd = captured["cmd"]

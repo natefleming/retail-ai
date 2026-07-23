@@ -79,10 +79,12 @@ class TestPolymorphicIteration:
 
         all_models = [schema, room, vs, warehouse, table]
         provisionable = [m for m in all_models if isinstance(m, Provisionable)]
+        # ``VectorStoreModel`` is an alias for ``AiSearchVectorStoreModel``
+        # after the Vector Search → AI Search rebrand.
         assert {type(m).__name__ for m in provisionable} == {
             "SchemaModel",
             "GenieRoomModel",
-            "VectorStoreModel",
+            "AiSearchVectorStoreModel",
         }
 
     def test_filter_refreshable_from_mixed_list(self):
@@ -93,7 +95,7 @@ class TestPolymorphicIteration:
         refreshable = [m for m in (schema, room, vs) if isinstance(m, Refreshable)]
         assert {type(m).__name__ for m in refreshable} == {
             "GenieRoomModel",
-            "VectorStoreModel",
+            "AiSearchVectorStoreModel",
         }
 
 

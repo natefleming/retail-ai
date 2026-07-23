@@ -1,4 +1,4 @@
-"""Tests for ``_grant_trace_permissions_to_principal``.
+"""Tests for ``_grant_uc_trace_table_permissions_to_principal``.
 
 The helper must issue the exact set of UC grants the Databricks docs
 prescribe for MLflow trace persistence:
@@ -25,12 +25,14 @@ import pytest
 
 @pytest.mark.unit
 def test_helper_grants_all_documented_privileges() -> None:
-    from dao_ai.providers.databricks import _grant_trace_permissions_to_principal
+    from dao_ai.providers.databricks import (
+        _grant_uc_trace_table_permissions_to_principal,
+    )
 
     with patch("databricks.sdk.WorkspaceClient") as mock_wc:
         mock_client = MagicMock()
         mock_wc.return_value = mock_client
-        _grant_trace_permissions_to_principal(
+        _grant_uc_trace_table_permissions_to_principal(
             principal="sp-uuid",
             catalog_name="cat",
             schema_name="sch",
@@ -68,7 +70,9 @@ def test_helper_grants_all_documented_privileges() -> None:
 
 @pytest.mark.unit
 def test_helper_survives_individual_grant_failures() -> None:
-    from dao_ai.providers.databricks import _grant_trace_permissions_to_principal
+    from dao_ai.providers.databricks import (
+        _grant_uc_trace_table_permissions_to_principal,
+    )
 
     call_count = 0
 
@@ -82,7 +86,7 @@ def test_helper_survives_individual_grant_failures() -> None:
         mock_client = MagicMock()
         mock_client.api_client.do.side_effect = flaky_do
         mock_wc.return_value = mock_client
-        _grant_trace_permissions_to_principal(
+        _grant_uc_trace_table_permissions_to_principal(
             principal="sp-uuid",
             catalog_name="cat",
             schema_name="sch",
