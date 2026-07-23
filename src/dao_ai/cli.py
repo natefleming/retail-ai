@@ -392,8 +392,15 @@ Examples:
     # Version command
     _version_parser: ArgumentParser = subparsers.add_parser(
         "version",
-        help="Show dao-ai version and environment information",
-        description="Display the dao-ai version along with Python, key dependency versions, and platform details.",
+        help="Show dao-ai version and build metadata",
+        description="Display the dao-ai version along with Python, key dependency versions, and platform details. Side-effect free: no network calls or Databricks auth resolution.",
+    )
+
+    # Doctor command
+    _doctor_parser: ArgumentParser = subparsers.add_parser(
+        "doctor",
+        help="Show the resolved Databricks environment and connection details",
+        description="Resolve and display the Databricks host, profile, and auth type. May make network calls or fail when no credentials are configured.",
     )
 
     # Schema command
@@ -2298,7 +2305,12 @@ def handle_list_mcp_tools_command(options: Namespace) -> None:
 
 
 def handle_version_command(options: Namespace) -> None:
-    """Display dao-ai version and environment information."""
+    """Display the dao-ai version and build metadata.
+
+    Intentionally side-effect free: no network calls and no Databricks auth
+    resolution, so this command is fast and never fails. Environment and
+    connection details live in the ``doctor`` command.
+    """
     import platform
     from importlib.metadata import PackageNotFoundError
     from importlib.metadata import version as pkg_version
@@ -2311,14 +2323,11 @@ def handle_version_command(options: Namespace) -> None:
     print(f"  Platform:  {platform.platform()}")
 
     deps = [
-        "mlflow",
-        "langchain-core",
-        "langgraph",
-        "langchain",
-        "databricks-sdk",
         "databricks-langchain",
-        "databricks-ai-bridge",
-        "pydantic",
+        "databricks-sdk",
+        "langchain",
+        "langgraph",
+        "mlflow",
     ]
     print("  Dependencies:")
     for dep in deps:
@@ -2328,14 +2337,21 @@ def handle_version_command(options: Namespace) -> None:
         except PackageNotFoundError:
             print(f"    {dep}: not installed")
 
-    # Databricks auth info
+
+def handle_doctor_command(options: Namespace) -> None:
+    """Display the resolved Databricks environment and connection details.
+
+    Unlike ``version``, this command resolves Databricks auth and may make
+    network calls, prompt, or fail when no credentials are configured.
+    """
     host = os.environ.get("DATABRICKS_HOST")
     profile = os.environ.get("DATABRICKS_CONFIG_PROFILE")
-    if host:
-        print(f"  Databricks Host:    {host}")
+    print("Databricks environment:")
     if profile:
         print(f"  Databricks Profile: {profile}")
-    if not host:
+    if host:
+        print(f"  Databricks Host:    {host}")
+    else:
         try:
             from databricks.sdk import WorkspaceClient
 
@@ -2343,8 +2359,8 @@ def handle_version_command(options: Namespace) -> None:
             print(f"  Databricks Host:    {w.config.host}")
             if w.config.auth_type:
                 print(f"  Auth Type:          {w.config.auth_type}")
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"  Databricks Host:    unresolved ({type(e).__name__})")
 
 
 def setup_logging(verbosity: int) -> None:
@@ -3135,6 +3151,8 @@ def main() -> None:
     match options.command:
         case "version":
             handle_version_command(options)
+        case "doctor":
+            handle_doctor_command(options)
         case "schema":
             handle_schema_command(options)
         case "create-experiment":
