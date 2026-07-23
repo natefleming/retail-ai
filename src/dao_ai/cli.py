@@ -2584,7 +2584,15 @@ def run_databricks_command(
                     "Development pipeline bundle has no staged dao-ai wheel "
                     f"under {staging_dir / 'dist'}."
                 )
-            dao_ai_dep = f"./dist/{staged_wheels[-1].name}{extras_suffix}"
+            # Bare wheel path — NO ``[extras]`` suffix. ``databricks bundle``
+            # treats a serverless-env dependency that looks like a local path as
+            # an artifact and *globs* it, so any ``[...]`` (extras) is parsed as
+            # a glob character class → "no files match pattern". The extras'
+            # backing packages are instead pinned as separate PyPI deps in the
+            # env spec (glob-safe) at bundle-generation time — same approach as
+            # the Model Serving dev path (``get_installed_packages``). See
+            # ``generate_pipeline_databricks_yaml``.
+            dao_ai_dep = f"./dist/{staged_wheels[-1].name}"
 
     # Use app-specific cloud target: {app_name}-{cloud}
     # This ensures each app has unique deployment identity while supporting cloud-specific settings

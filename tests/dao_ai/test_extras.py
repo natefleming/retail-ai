@@ -301,3 +301,106 @@ def test_non_notebook_returns_precise(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("dao_ai.utils.is_in_notebook", lambda: False)
     cfg = _config(app=_app(a2a=A2AModel(enabled=True)))
     assert _extras.resolve_required_extras_or_all(cfg, target="apps") == {"a2a"}
+
+
+@pytest.mark.unit
+def test_import_dao_ai_tools_does_not_eagerly_import_optional_packages() -> None:
+    """Guard the lazy-import contract: ``import dao_ai.tools`` must succeed
+    without pulling in the optional-extra packages (flashrank/langmem/a2a/ddgs/
+    deepagents). They are imported lazily inside factory functions behind
+    ``require_extra`` guards, so a base install (no extras) can import the
+    package tree. Run in a subprocess for a clean module table."""
+    import subprocess
+    import sys
+
+    code = (
+        "import sys, dao_ai.tools; "
+        "opt=['flashrank','langmem','a2a','ddgs','deepagents']; "
+        "leaked=[m for m in opt if m in sys.modules]; "
+        "print('LEAKED:'+','.join(leaked))"
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", code], capture_output=True, text=True, check=True
+    )
+    leaked_line = [
+        ln for ln in result.stdout.splitlines() if ln.startswith("LEAKED:")
+    ]
+    assert leaked_line, f"probe produced no LEAKED line; stdout={result.stdout!r}"
+    leaked = leaked_line[0].removeprefix("LEAKED:").strip()
+    assert leaked == "", (
+        f"import dao_ai.tools eagerly imported optional packages: {leaked}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Permutation matrix — feature combinations resolved across ALL deploy targets.
+# Complements the single-feature tests above: verifies unioning + the one
+# target-dependent rule (default A2A routes count on apps/mcp/pipeline, never
+# on model_serving).
+# ---------------------------------------------------------------------------
+@pytest.mark.unit
+class TestExtrasPermutationMatrix:
+    _ALL_TARGETS = ("apps", "mcp", "pipeline", "model_serving")
+
+    def _search_tool(self):
+        return {"web": ToolModel(name="web", function=SearchToolModel(type="search"))}
+
+    def _reranking_retriever_tool(self):
+        return {
+            "vs": ToolModel(
+                name="vs",
+                function=AiSearchToolModel(
+                    type="vector_search",
+                    retriever=_ai_search_retriever(
+                        rerank=RerankParametersModel(model="ms-marco-MiniLM-L-6-v2")
+                    ),
+                ),
+            )
+        }
+
+    def test_empty_config_no_extras_all_targets(self) -> None:
+        cfg = _config(app=_app(a2a=A2AModel(enabled=False)))
+        for t in self._ALL_TARGETS:
+            assert _extras.resolve_required_extras(cfg, target=t) == set(), t
+
+    def test_default_a2a_routes_target_dependent(self) -> None:
+        # AppModel.a2a defaults enabled → routes pull a2a on route-bearing
+        # targets, never on model_serving.
+        cfg = _config(app=_app())  # a2a defaults enabled
+        for t in ("apps", "mcp", "pipeline"):
+            assert "a2a" in _extras.resolve_required_extras(cfg, target=t), t
+        assert "a2a" not in _extras.resolve_required_extras(
+            cfg, target="model_serving"
+        )
+
+    def test_search_plus_rerank_union_all_targets(self) -> None:
+        tools = {**self._search_tool(), **self._reranking_retriever_tool()}
+        cfg = _config(tools=tools, app=_app(a2a=A2AModel(enabled=False)))
+        for t in self._ALL_TARGETS:
+            got = _extras.resolve_required_extras(cfg, target=t)
+            assert got == {"search", "rerank"}, (t, got)
+
+    def test_excel_dataset_plus_default_a2a(self) -> None:
+        cfg = _config(
+            datasets=[DatasetModel(table=None, ddl=None, data=None, format="excel")],
+            app=_app(),  # a2a enabled
+        )
+        assert _extras.resolve_required_extras(cfg, target="apps") == {"excel", "a2a"}
+        assert _extras.resolve_required_extras(cfg, target="model_serving") == {"excel"}
+
+    def test_kitchen_sink_unions_everything_apps(self) -> None:
+        tools = {**self._search_tool(), **self._reranking_retriever_tool()}
+        cfg = _config(
+            tools=tools,
+            memory=MemoryModel(store=StoreModel(name="s")),
+            datasets=[DatasetModel(table=None, ddl=None, data=None, format="excel")],
+            app=_app(
+                a2a=A2AModel(enabled=True),
+                orchestration=OrchestrationModel(deep_agent=DeepAgentModel(name="da")),
+            ),
+        )
+        got = _extras.resolve_required_extras(cfg, target="apps")
+        assert got == {"search", "rerank", "memory", "excel", "a2a", "deepagents"}, got
+        # model_serving drops only the route-driven a2a (no explicit a2a tool).
+        got_ms = _extras.resolve_required_extras(cfg, target="model_serving")
+        assert got_ms == {"search", "rerank", "memory", "excel", "deepagents"}, got_ms

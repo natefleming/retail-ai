@@ -1,9 +1,16 @@
 """Unit and integration tests for prompt history tracking in context-aware cache."""
 
+import os
 from typing import Any
 from unittest.mock import Mock, patch
 
 import pytest
+
+# The live Genie space this test exercises. Overridable via env so the test
+# isn't brittle to workspace drift (the default may be deleted/rotated in FEVM).
+GENIE_SPACE_ID: str = os.getenv(
+    "DAO_AI_TEST_GENIE_SPACE_ID", "01f0c482e842191587af6a40ad4044d8"
+)
 
 from dao_ai.config import (
     DatabaseModel,
@@ -401,8 +408,9 @@ class TestPromptHistoryIntegration:
 
         from dao_ai.genie.core import GenieService
 
-        # Use provided Genie space ID for testing
-        genie_space_id = "01f0c482e842191587af6a40ad4044d8"
+        # Genie space ID — overridable via DAO_AI_TEST_GENIE_SPACE_ID so the
+        # test survives workspace drift (the default may be rotated in FEVM).
+        genie_space_id = GENIE_SPACE_ID
 
         # Use unique table names for this test run to avoid permission issues
         import uuid
@@ -419,7 +427,15 @@ class TestPromptHistoryIntegration:
             embedding_model="databricks-gte-large-en",
         )
 
-        genie = Genie(space_id=genie_space_id)
+        from databricks.sdk.errors.platform import NotFound
+
+        try:
+            genie = Genie(space_id=genie_space_id)
+        except NotFound:
+            pytest.skip(
+                f"Genie space {genie_space_id} not found in this workspace; set "
+                "DAO_AI_TEST_GENIE_SPACE_ID to a live space to run this test."
+            )
         genie_service = GenieService(genie)
 
         cache_service = PostgresContextAwareGenieService(
