@@ -60,16 +60,17 @@ def test_write_mcp_bundle_emits_expected_files(tmp_path: Path) -> None:
     )
 
     requirements = (out / "requirements.txt").read_text().strip()
-    # The version pin must be unbounded: the locally-installed dao-ai
-    # (`_get_dao_ai_version()`) may be an unreleased pre-publish build,
-    # so floor-pinning would cause Apps to fail with ``Could not find a
-    # version that satisfies …`` at build time. The ``mcp`` extra must always
-    # be present; other extras depend on what the config exercises.
+    # Published mode pins the exact installed version for reproducible
+    # redeploys (fixed in 0.2.4; parity with generate-agent + Model Serving).
+    # The ``mcp`` extra must always be present; other extras depend on what
+    # the config exercises.
+    from dao_ai.mcp.generate import _get_dao_ai_version
+
     assert requirements.startswith("dao-ai[") and "mcp" in requirements, (
-        f"requirements.txt must install unbounded dao-ai[mcp,...]; got:\n{requirements}"
+        f"requirements.txt must install dao-ai[mcp,...]; got:\n{requirements}"
     )
-    assert "==" not in requirements, (
-        f"requirements.txt dao-ai pin must stay unbounded; got:\n{requirements}"
+    assert requirements.endswith(f"=={_get_dao_ai_version()}"), (
+        f"requirements.txt dao-ai pin must be exact-version; got:\n{requirements}"
     )
 
     databricks = (out / "databricks.yaml").read_text()

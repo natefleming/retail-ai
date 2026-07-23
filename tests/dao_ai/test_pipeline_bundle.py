@@ -33,6 +33,7 @@ from dao_ai.pipeline.bundle import (
     generate_pipeline_databricks_yaml,
     write_pipeline_bundle,
 )
+from dao_ai.utils import dao_ai_version
 
 _MINIMAL_CONFIG = """\
 resources:
@@ -87,10 +88,14 @@ class TestPackagedAssets:
 
 
 class _AppStub:
-    """Minimal stand-in — the generator only reads ``config.app.name``."""
+    """Minimal stand-in — the generator reads ``config.app.name`` and
+    ``config.app.pip_requirements`` (extra deps folded into the job env)."""
 
-    def __init__(self, name: str) -> None:
+    def __init__(
+        self, name: str, pip_requirements: list[str] | None = None
+    ) -> None:
         self.name = name
+        self.pip_requirements = pip_requirements or []
 
 
 @pytest.mark.unit
@@ -144,8 +149,9 @@ class TestGeneratePipelineDatabricksYaml:
 
     def test_env_spec_installs_dao_ai_via_bundle_var(self) -> None:
         doc = self._doc(development=False)
-        # The dao_ai_dep variable exists (defaults to the PyPI spec).
-        assert doc["variables"]["dao_ai_dep"]["default"] == "dao-ai"
+        # The dao_ai_dep variable exists and defaults to the version-pinned
+        # PyPI spec so a raw ``bundle deploy`` (no CLI override) is reproducible.
+        assert doc["variables"]["dao_ai_dep"]["default"] == f"dao-ai=={dao_ai_version()}"
         # The serverless environment installs exactly the dao_ai_dep dependency.
         env = doc["resources"]["jobs"]["deploy_job"]["environments"][0]
         assert env["spec"]["dependencies"] == ["${var.dao_ai_dep}"]

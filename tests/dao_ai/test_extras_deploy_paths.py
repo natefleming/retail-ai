@@ -8,9 +8,14 @@ requested.
 
 import pytest
 
+from dao_ai.apps.bundle import _get_dao_ai_version
 from dao_ai.apps.bundle import _make_requirements_txt as apps_reqs
 from dao_ai.mcp.generate import _make_requirements_txt as mcp_reqs
 from dao_ai.utils import get_installed_packages
+
+# Published-mode bundles pin the exact installed version for reproducible
+# redeploys (was previously unbounded; fixed in 0.2.4).
+VER = _get_dao_ai_version()
 
 
 # ---------------------------------------------------------------------------
@@ -18,12 +23,15 @@ from dao_ai.utils import get_installed_packages
 # ---------------------------------------------------------------------------
 @pytest.mark.unit
 def test_apps_published_no_extras() -> None:
-    assert apps_reqs(development=False) == "dao-ai\n"
+    assert apps_reqs(development=False) == f"dao-ai=={VER}\n"
 
 
 @pytest.mark.unit
 def test_apps_published_with_extras() -> None:
-    assert apps_reqs(development=False, extras="[a2a,rerank]") == "dao-ai[a2a,rerank]\n"
+    assert (
+        apps_reqs(development=False, extras="[a2a,rerank]")
+        == f"dao-ai[a2a,rerank]=={VER}\n"
+    )
 
 
 @pytest.mark.unit
@@ -47,7 +55,7 @@ def test_apps_appends_user_pip_requirements_published() -> None:
         extras="[a2a]",
         pip_requirements=["cowsay==6.1", "my-internal-lib>=1.0"],
     )
-    assert out == "dao-ai[a2a]\ncowsay==6.1\nmy-internal-lib>=1.0\n"
+    assert out == f"dao-ai[a2a]=={VER}\ncowsay==6.1\nmy-internal-lib>=1.0\n"
 
 
 @pytest.mark.unit
@@ -63,8 +71,8 @@ def test_apps_appends_user_pip_requirements_dev() -> None:
 @pytest.mark.unit
 def test_apps_no_user_pip_requirements_unchanged() -> None:
     # Empty/None user deps must not alter the single dao-ai line.
-    assert apps_reqs(development=False, pip_requirements=[]) == "dao-ai\n"
-    assert apps_reqs(development=False, pip_requirements=None) == "dao-ai\n"
+    assert apps_reqs(development=False, pip_requirements=[]) == f"dao-ai=={VER}\n"
+    assert apps_reqs(development=False, pip_requirements=None) == f"dao-ai=={VER}\n"
 
 
 # ---------------------------------------------------------------------------
@@ -72,12 +80,12 @@ def test_apps_no_user_pip_requirements_unchanged() -> None:
 # ---------------------------------------------------------------------------
 @pytest.mark.unit
 def test_mcp_published_default_mcp_extra() -> None:
-    assert mcp_reqs(development=False) == "dao-ai[mcp]\n"
+    assert mcp_reqs(development=False) == f"dao-ai[mcp]=={VER}\n"
 
 
 @pytest.mark.unit
 def test_mcp_published_merged_extras() -> None:
-    assert mcp_reqs(development=False, extras="mcp,a2a") == "dao-ai[mcp,a2a]\n"
+    assert mcp_reqs(development=False, extras="mcp,a2a") == f"dao-ai[mcp,a2a]=={VER}\n"
 
 
 @pytest.mark.unit
@@ -91,7 +99,7 @@ def test_mcp_appends_user_pip_requirements() -> None:
     out = mcp_reqs(
         development=False, extras="mcp", pip_requirements=["cowsay==6.1"]
     )
-    assert out == "dao-ai[mcp]\ncowsay==6.1\n"
+    assert out == f"dao-ai[mcp]=={VER}\ncowsay==6.1\n"
 
 
 # ---------------------------------------------------------------------------

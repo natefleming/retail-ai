@@ -187,11 +187,16 @@ class TestHandleCommand:
             patch(
                 "dao_ai.providers.databricks._link_experiment_trace_location"
             ) as link,
+            patch("dao_ai.cli._grant_trace_writes_to_app_sp"),
         ):
             ac.from_file.return_value = cfg
             handle_link_trace_destination_command(
                 Namespace(
-                    config="cfg.yaml", profile=None, experiment_id=None, var=None
+                    config="cfg.yaml",
+                    profile=None,
+                    experiment_id=None,
+                    var=None,
+                    app_sp=None,
                 )
             )
         link.assert_called_once_with(cfg, "exp42")

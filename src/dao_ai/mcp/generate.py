@@ -247,8 +247,9 @@ def _make_requirements_txt(
 ) -> str:
     """Build the requirements.txt content for an MCP app bundle.
 
-    The published pin is intentionally *unbounded* (``dao-ai[...]``) — see
-    ``dao_ai.apps.bundle._make_requirements_txt`` for the reasoning. The
+    Published mode pins the exact installed version (``dao-ai[...]==<version>``)
+    for reproducible redeploys — see ``dao_ai.apps.bundle._make_requirements_txt``
+    for the reasoning (parity with generate-agent + Model Serving). The
     ``mcp`` extra is always present (the server module needs fastmcp, uvicorn,
     etc.); any config-derived feature extras (a2a, rerank, ...) are merged in
     via ``extras``.
@@ -268,7 +269,7 @@ def _make_requirements_txt(
             )
         dao_ai_line = f"./dist/{wheel_filename}[{extras}]"
     else:
-        dao_ai_line = f"dao-ai[{extras}]"
+        dao_ai_line = f"dao-ai[{extras}]=={_get_dao_ai_version()}"
 
     lines = [dao_ai_line, *(pip_requirements or [])]
     return "\n".join(lines) + "\n"
@@ -392,7 +393,7 @@ requires-python = ">=3.11,<3.12"
 # Runtime deps live in requirements.txt (installed by Apps' build phase).
 # Kept declared here too so local `uv sync` works for iterative dev.
 dependencies = [
-    "dao-ai[{extras}]>={dao_ai_version}",
+    "dao-ai[{extras}]=={dao_ai_version}",
 ]
 
 [build-system]

@@ -112,8 +112,14 @@ class TestRetrieverModelWithReranker:
 class TestVectorSearchToolCreation:
     """Unit tests for vector search tool creation using @tool decorator pattern."""
 
+    @patch(
+        "dao_ai.tools.vector_search._fetch_index_columns",
+        return_value=[("text", None, None)],
+    )
     @patch("dao_ai.tools.vector_search.DatabricksVectorSearch")
-    def test_creates_tool_without_reranker(self, mock_vector_search: MagicMock) -> None:
+    def test_creates_tool_without_reranker(
+        self, mock_vector_search: MagicMock, mock_fetch_cols: MagicMock
+    ) -> None:
         """Test that tool is created without reranker when not configured."""
         # Create mock retriever config without reranking
         retriever_config = Mock(spec=AiSearchRetrieverModel)
@@ -147,12 +153,17 @@ class TestVectorSearchToolCreation:
         # Description includes filter columns when columns are specified
         assert tool.description.startswith("Test description")
 
+    @patch(
+        "dao_ai.tools.vector_search._fetch_index_columns",
+        return_value=[("text", None, None), ("metadata", None, None)],
+    )
     @patch("dao_ai.providers.databricks.DatabricksProvider")
     @patch("dao_ai.tools.vector_search.DatabricksVectorSearch")
     def test_creates_tool_from_vector_store_directly(
         self,
         mock_vector_search: MagicMock,
         mock_provider_class: MagicMock,
+        mock_fetch_cols: MagicMock,
     ) -> None:
         """Test that tool can be created from VectorStoreModel directly with defaults."""
         # Mock the provider to avoid actual Databricks calls
@@ -186,9 +197,12 @@ class TestVectorSearchToolCreation:
         # Verify tool was created
         assert hasattr(tool, "invoke")
         assert tool.name == "test_tool"
-        # Description includes filter columns when columns are specified
+        # Description includes filter columns when columns are specified.
+        # 0.2.0 renders the upstream-databricks-langchain bullet format.
         assert tool.description.startswith("Test description")
-        assert "Available filter columns: text, metadata" in tool.description
+        assert "Available columns for filtering:" in tool.description
+        assert "- text" in tool.description
+        assert "- metadata" in tool.description
 
         # DatabricksVectorSearch uses lazy initialization - it's only created when
         # the tool is invoked. Verify the tool structure is correct without invoking.
@@ -218,8 +232,14 @@ class TestVectorSearchToolCreation:
                 retriever=retriever_config, vector_store=vector_store_config
             )
 
+    @patch(
+        "dao_ai.tools.vector_search._fetch_index_columns",
+        return_value=[("text", None, None)],
+    )
     @patch("dao_ai.tools.vector_search.DatabricksVectorSearch")
-    def test_creates_tool_with_reranker(self, mock_vector_search: MagicMock) -> None:
+    def test_creates_tool_with_reranker(
+        self, mock_vector_search: MagicMock, mock_fetch_cols: MagicMock
+    ) -> None:
         """Test that tool is created with reranker when configured."""
         # Create mock retriever config with reranking
         reranker_config = RerankParametersModel(
@@ -309,10 +329,17 @@ class TestRerankingE2E:
         assert reranker2.top_n == 5
         assert reranker2.cache_dir == "/tmp/test"
 
+    @patch(
+        "dao_ai.tools.vector_search._fetch_index_columns",
+        return_value=[("text", None, None)],
+    )
     @patch("dao_ai.tools.vector_search.DatabricksVectorSearch")
     @patch("mlflow.models.set_retriever_schema")
     def test_tool_creation_flow(
-        self, mock_set_schema: MagicMock, mock_vector_search: MagicMock
+        self,
+        mock_set_schema: MagicMock,
+        mock_vector_search: MagicMock,
+        mock_fetch_cols: MagicMock,
     ) -> None:
         """Test that create_vector_search_tool returns a callable tool."""
         # Create mock retriever config

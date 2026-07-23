@@ -7,7 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.2.0] - 2026-07-21
+## [0.2.4] - 2026-07-23
+
+### Fixed
+
+- **Generated deploy bundles now pin the exact dao-ai version in published mode.** `dao-ai generate-agent` / `generate-mcp` previously wrote an *unbounded* `dao-ai` (and a `>=` floor in `pyproject.toml`) into the App bundle's `requirements.txt`, so a redeploy months later silently resolved whatever was newest on PyPI — non-reproducible, and an unintended upgrade on every rebuild. Published mode now emits `dao-ai[extras]==<version>` in both `requirements.txt` and `pyproject.toml`, matching the Model Serving deploy path (`create_agent` already pinned `==`). `generate-workflow`'s `dao_ai_dep` bundle variable is likewise pinned (CLI override and the `databricks.yaml` default). `--development` is unchanged — it references the bundled local wheel (`./dist/<wheel>`) by path.
 
 ### Removed
 
@@ -22,7 +26,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **CLI: unified the three DAB generators into a consistent `generate-*` family.** All three now generate a Databricks Asset Bundle and share `--deploy`/`--run`/`--destroy`/`--dry-run` action flags, a common deploy driver, and a common bundle-staging namespace.
   - **BREAKING — renamed `dao-ai generate-bundle` → `dao-ai generate-agent`** (emits the agent's Databricks App bundle) and **`dao-ai pipeline` → `dao-ai generate-workflow`** (emits the provisioning multi-task Job / Workflow — not a Lakeflow Declarative Pipeline). The old names are **removed** — invoking `generate-bundle` or `pipeline` now exits with an `invalid choice` error. Update scripts to the new verbs. Sibling `generate-mcp` is unchanged.
   - **`generate-agent` / `generate-mcp` gained `--deploy`/`--run`/`--destroy`.** They previously only wrote a bundle. When `--deploy` is passed the shared driver runs `databricks bundle deploy`, then — when `app.trace_location` is set — **automatically links the MLflow experiment trace destination and grants the App SP** the experiment + UC OTEL table privileges (the steps previously documented as manual follow-ups; silent trace loss otherwise), then `--run` starts the app. No action flags → generate-only, as before.
-  - **`generate-workflow` is wheel-only** and stages a self-contained bundle: step notebooks + pinned `requirements.txt` ship as package data; `databricks.yaml` is built programmatically (shared `dump_bundle_yaml`) — no source checkout and no repo-root template. Step notebooks install dao-ai from the bundled wheel (`--development`) or PyPI.
+  - **`generate-workflow` is wheel-only** and stages a self-contained bundle: step notebooks ship as package data; `databricks.yaml` is built programmatically (shared `dump_bundle_yaml`) — no source checkout and no repo-root template. There is no pinned `requirements.txt`: dao-ai (+ its transitive deps) installs via the serverless job environment's `dao_ai_dep` dependency — the bundled wheel (`--development`) or the `dao-ai` PyPI package.
   - **Unified bundle location** `./.dao-ai/bundle/{workflow,agent,mcp}/<app-name>` (per-app, so deploying multiple configs never collides on DAB state). Override the base dir with the `DAO_AI_BUNDLE_DIR` env var (the `{kind}/<app>` structure is appended underneath — e.g. `DAO_AI_BUNDLE_DIR=~/.dao-ai/bundle` for a central location), or a specific bundle dir with `-o/--output-dir` (highest precedence). New `--overwrite` on `generate-workflow`.
     - Each generated `databricks.yaml` carries an explicit `sync.include` for its own source. Databricks bundle sync honors `.gitignore`, and the default `.dao-ai/` base is gitignored — without the include the deployed App would fail with "no files found".
   - **Post-deploy links.** All four deploy paths now print a link on success: `generate-agent`/`generate-mcp` and `dao-ai deploy -t apps` print the **App URL**; `generate-workflow --deploy` prints the **Job URL**; `dao-ai deploy` (Model Serving) prints the **serving-endpoint URL**. Best-effort — a lookup failure never fails the deploy.

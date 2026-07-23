@@ -180,7 +180,12 @@ class TestPipelineEmitsDevelopmentVar:
         exec_mock = patch.object(cli, "_exec_bundle_command").start()
 
         run_databricks_command(
-            None, config=str(cfg), output_dir=str(tmp_path / "out")
+            None,
+            config=str(cfg),
+            output_dir=str(tmp_path / "out"),
+            # Published mode: the stubbed bundle-write stages no wheel; this
+            # test asserts staging + no-exec, not local-wheel resolution.
+            development=False,
         )
         patch.stopall()
 

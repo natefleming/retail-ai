@@ -1,6 +1,6 @@
 # DAO: Declarative Agent Orchestration
 
-[![Version](https://img.shields.io/badge/version-0.1.2-blue.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.2.4-blue.svg)](CHANGELOG.md)
 [![Python](https://img.shields.io/badge/python-3.11+-green.svg)](https://www.python.org/)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
@@ -456,10 +456,8 @@ dao-ai generate-workflow --deploy --run -c config/my_config.yaml
 dao-ai generate-workflow --deploy -c config/my_config.yaml --profile aws-field-eng
 dao-ai generate-workflow --deploy -c config/my_config.yaml --profile azure-retail
 
-# Generate a deployable Databricks Apps bundle
-dao-ai generate-agent -c config/my_config.yaml -o ./my-bundle
-# Then `cd` in and run `uv sync` to produce uv.lock — see "Deploying to
-# Databricks Apps" below for the full two-step workflow.
+# Generate + deploy + start a Databricks Apps bundle in one step
+dao-ai generate-agent -c config/my_config.yaml --deploy --run -p <profile>
 
 # Interactive chat with agent
 dao-ai chat -c config/my_config.yaml
@@ -470,33 +468,26 @@ dao-ai parameters list -c config/my_config.yaml --param catalog=nfleming
 
 ### Deploying to Databricks Apps
 
-`dao-ai generate-agent` produces a bundle skeleton (`pyproject.toml` + app/resource YAML + your config), but it deliberately does **not** generate `uv.lock`. The lock encodes URLs and pins specific to your environment, so you own it.
+`dao-ai generate-agent` produces a deploy-ready Databricks Apps bundle: `databricks.yaml`, the app resource YAML (with the agent's UC resource wiring), a `requirements.txt`, a `pyproject.toml`, and a copy of your config. The Apps build phase installs dependencies by running `pip install -r requirements.txt`, so no `uv.lock` is generated or needed.
 
-**External users** (default index = public PyPI):
+The simplest path is the one-step deploy (generate + `bundle deploy` + trace-link/grant + `bundle run`):
+
+```bash
+dao-ai generate-agent -c config/my_config.yaml --deploy --run -p <profile>
+```
+
+Or generate first and drive the bundle by hand:
 
 ```bash
 dao-ai generate-agent -c config/my_config.yaml -o ./my-bundle
 cd ./my-bundle
-uv sync                                # produces uv.lock from public PyPI
 databricks bundle deploy -t dev -p <profile>
 databricks bundle run <app-name> -t dev -p <profile>
 ```
 
-**Databricks-internal users** (local `uv` config defaults to the internal `pypi-proxy.dev.databricks.com` mirror): you need one extra step. The mirror is not reachable from Apps containers, so the lock URLs must be rewritten to public PyPI before deploy. The mirror is transparent, so hashes match — only the URLs need to change:
+The generated `requirements.txt` pins `dao-ai==<version>` (published mode) so the deploy is reproducible, or references the bundled local wheel (`./dist/<wheel>`) under `--development`. The app runtime command is bare `python -m dao_ai.apps.start_app` (chat-proxy variant) or `python -m dao_ai.apps.server` (no chat UI).
 
-```bash
-dao-ai generate-agent -c config/my_config.yaml -o ./my-bundle
-cd ./my-bundle
-uv sync                                # produces uv.lock with internal-proxy URLs
-sed -i '' \
-  -e 's|pypi-proxy\.dev\.databricks\.com/packages/|files.pythonhosted.org/packages/|g' \
-  -e 's|pypi-proxy\.dev\.databricks\.com/simple/|pypi.org/simple/|g' \
-  uv.lock
-databricks bundle deploy -t dev -p <profile>
-databricks bundle run <app-name> -t dev -p <profile>
-```
-
-Apps' native uv support (announced 2026) activates automatically when `pyproject.toml` + `uv.lock` are present and `requirements.txt` is absent. The BUILD phase runs `uv sync --locked --no-dev`; the runtime command is bare `python -m dao_ai.apps.start_app` (chat-proxy variant) or `python -m dao_ai.apps.server` (no chat UI). No `uv run` wrapper needed.
+> **Note:** A future release plans to move Apps deploys to `pyproject.toml` + a portable `uv.lock` (`uv sync --locked`); that work is not in this version, which uses `requirements.txt` + `pip`.
 
 #### Trace persistence on Apps
 
