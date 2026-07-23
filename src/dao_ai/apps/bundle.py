@@ -187,63 +187,6 @@ def _make_requirements_txt(
     return "\n".join(lines) + "\n"
 
 
-def _copy_code_paths_into_bundle(
-    config: AppConfig,
-    output_dir: Path,
-    *,
-    overwrite: bool,
-    written: list[str],
-    skipped: list[str],
-) -> None:
-    """Copy user-declared ``config.app.code_paths`` into a generated bundle.
-
-    Gives ``code_paths`` the same meaning on Apps/MCP as on Model Serving:
-    the custom modules/packages ship with the deployment. Each entry is copied
-    preserving its path relative to the config dir (the same anchor skills use),
-    so the ``add_code_paths_to_sys_path`` validator resolves it against the
-    bundle-root CWD at app startup. Absolute paths outside the config dir fall
-    back to copying under their basename at the bundle root.
-    """
-    if config.app is None or not config.app.code_paths:
-        return
-
-    from dao_ai.skills import _skill_base_dir
-
-    base: Path = _skill_base_dir(config)
-    for code_path_str in config.app.code_paths:
-        src: Path = Path(code_path_str)
-        if not src.is_absolute():
-            src = (base / src).resolve()
-        if not src.exists():
-            logger.warning(
-                "Declared code_path does not exist; skipping", code_path=code_path_str
-            )
-            continue
-        try:
-            rel: Path = src.relative_to(base)
-        except ValueError:
-            rel = Path(src.name)
-        dest: Path = output_dir / rel
-        if dest.exists() and not overwrite:
-            logger.info(
-                "Skipping code_path copy (exists; use --overwrite)", code_path=str(rel)
-            )
-            skipped.append(str(rel))
-            continue
-        dest.parent.mkdir(parents=True, exist_ok=True)
-        if dest.exists():
-            if dest.is_dir():
-                shutil.rmtree(dest)
-            else:
-                dest.unlink()
-        if src.is_dir():
-            shutil.copytree(src, dest)
-        else:
-            shutil.copy2(src, dest)
-        logger.info("Copied code_path into bundle", code_path=str(rel))
-        written.append(str(rel))
-
-
 def _get_dao_ai_version() -> str:
     """Return the currently installed dao-ai version for pinning in generated bundles."""
     try:
@@ -931,16 +874,6 @@ def write_bundle(
         shutil.copytree(src_dir, dest)
         logger.info("Copied skill directory into bundle", skill=str(rel))
         written.append(str(rel))
-
-    # Copy user-declared ``code_paths`` (custom modules/packages) into the
-    # bundle so they deploy with the app — parity with Model Serving, which
-    # ships them via ``log_model(code_paths=...)``. They're preserved at their
-    # path relative to the config dir so the ``add_code_paths_to_sys_path``
-    # validator (which inserts ``Path(code_path).parent`` onto sys.path at
-    # config load) resolves them against the bundle-root CWD at app startup.
-    _copy_code_paths_into_bundle(
-        config, output_dir, overwrite=overwrite, written=written, skipped=skipped
-    )
 
     package_name = app_name.replace("-", "_")
 

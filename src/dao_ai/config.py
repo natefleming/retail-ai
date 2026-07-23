@@ -9436,9 +9436,10 @@ class AppModel(BaseModel):
     )
     code_paths: list[str] = Field(
         default_factory=list,
-        description="Additional local Python modules/packages (paths relative to "
-        "the config) shipped with the deployment — bundled into the Model Serving "
-        "artifact and copied into generated Apps/MCP bundles.",
+        description="Additional Python file paths bundled with the Model Serving "
+        "model artifact via ``log_model(code_paths=...)``. For Apps/MCP, put "
+        "custom code in the generated bundle's ``src/<package>/`` instead — it is "
+        "built and installed by ``uv sync`` at the app build phase.",
     )
     pip_requirements: list[str] = Field(
         default_factory=list,

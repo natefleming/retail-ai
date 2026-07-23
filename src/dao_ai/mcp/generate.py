@@ -188,15 +188,6 @@ def write_mcp_bundle(
         _render_readme(config, app_name=app_name, tool_name=tool_name),
     )
 
-    # Ship user-declared code_paths (custom modules) with the MCP bundle —
-    # parity with Model Serving / generate-agent. Reuses the apps-bundle helper
-    # so the copy layout + sys.path resolution behave identically.
-    from dao_ai.apps.bundle import _copy_code_paths_into_bundle
-
-    _copy_code_paths_into_bundle(
-        config, output_dir, overwrite=overwrite, written=written, skipped=skipped
-    )
-
     print(f"\nMCP bundle generated in {output_dir}/\n")
     for name in written:
         print(f"  {name:<32s} (created)")

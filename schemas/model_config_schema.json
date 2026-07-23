@@ -1642,7 +1642,7 @@
           "description": "Chat history summarization settings to manage long conversations."
         },
         "code_paths": {
-          "description": "Additional local Python modules/packages (paths relative to the config) shipped with the deployment \u2014 bundled into the Model Serving artifact and copied into generated Apps/MCP bundles.",
+          "description": "Additional Python file paths bundled with the Model Serving model artifact via ``log_model(code_paths=...)``. For Apps/MCP, put custom code in the generated bundle's ``src/<package>/`` instead \u2014 it is built and installed by ``uv sync`` at the app build phase.",
           "items": {
             "type": "string"
           },
