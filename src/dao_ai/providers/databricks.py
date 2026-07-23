@@ -1848,9 +1848,10 @@ class DatabricksProvider(ServiceProvider):
                 overwrite=True,
             )
 
-            # Route through the shared helper so this path picks up the
-            # ``--index-url https://pypi.org/simple/`` override + unbounded
-            # dao-ai pin. See ``_make_requirements_txt`` for the reasoning.
+            # Route through the shared helper for a single source of truth on
+            # the requirements content: the exact-pinned, extras-aware dao-ai
+            # line plus the deployer's own pip_requirements. See
+            # ``_make_requirements_txt`` for the reasoning.
             requirements_content = _make_requirements_txt(
                 development=False,
                 extras=extras_suffix,

@@ -25,6 +25,8 @@ jobs:
       uses: astral-sh/setup-uv@caf0cab7a618c569241d31dcd442f54681755d39  # v3
       with:
         version: "0.11.1"
+    - name: Guard against a mirror-poisoned uv.lock
+      run: make check-lock
     - name: Build distribution using Makefile
       run: make dist
     - name: Store the distribution packages
