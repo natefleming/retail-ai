@@ -148,10 +148,24 @@ def write_mcp_bundle(
         sorted({"mcp", *expand_all(resolve_required_extras_or_all(config, target="mcp"))})
     )
 
+    # User-declared extra pip packages (config.app.pip_requirements) folded
+    # into the pyproject deps so uv.lock captures them. config.app.code_paths
+    # is NOT copied — for Apps/MCP custom modules live under the bundle's
+    # ``src/``; code_paths applies to Model Serving only.
+    from dao_ai.apps.bundle import _format_extra_deps
+
+    user_pip_requirements: list[str] = (
+        list(config.app.pip_requirements) if config.app else []
+    )
+    extra_deps: str = _format_extra_deps(user_pip_requirements)
+
     _write(
         output_dir / "pyproject.toml",
         _render_pyproject(
-            app_name=app_name, wheel_filename=wheel_filename, extras=merged_extras
+            app_name=app_name,
+            wheel_filename=wheel_filename,
+            extras=merged_extras,
+            extra_deps=extra_deps,
         ),
     )
 
@@ -218,7 +232,11 @@ def _derive_app_name(config: AppConfig) -> str:
 
 
 def _render_pyproject(
-    *, app_name: str, wheel_filename: str | None = None, extras: str = "mcp"
+    *,
+    app_name: str,
+    wheel_filename: str | None = None,
+    extras: str = "mcp",
+    extra_deps: str = "",
 ) -> str:
     package_name = app_name.replace("-", "_")
     if wheel_filename:
@@ -227,12 +245,14 @@ def _render_pyproject(
             package_name=package_name,
             wheel_filename=wheel_filename,
             extras=extras,
+            extra_deps=extra_deps,
         )
     return _PYPROJECT_TEMPLATE.format(
         name=app_name,
         package_name=package_name,
         dao_ai_version=_get_dao_ai_version(),
         extras=extras,
+        extra_deps=extra_deps,
     )
 
 
@@ -353,7 +373,7 @@ description = "Databricks Apps MCP server generated from a dao-ai config."
 requires-python = ">=3.11,<3.12"
 # Runtime deps are pinned in uv.lock (Apps' build phase runs `uv sync`).
 dependencies = [
-    "dao-ai[{extras}]=={dao_ai_version}",
+    "dao-ai[{extras}]=={dao_ai_version}",{extra_deps}
 ]
 
 [build-system]
@@ -372,7 +392,7 @@ description = "Databricks Apps MCP server (development build with bundled wheel)
 requires-python = ">=3.11,<3.12"
 # Runtime deps are pinned in uv.lock (Apps' build phase runs `uv sync`).
 dependencies = [
-    "dao-ai[{extras}]",
+    "dao-ai[{extras}]",{extra_deps}
 ]
 
 [build-system]

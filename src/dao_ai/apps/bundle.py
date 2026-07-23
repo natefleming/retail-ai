@@ -21,7 +21,7 @@ import shutil
 import subprocess
 from importlib.metadata import version as pkg_version
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional, Sequence
 
 import yaml
 from loguru import logger
@@ -114,7 +114,7 @@ version = "0.1.0"
 description = "DAO AI Agent: {name}"
 requires-python = ">=3.11"
 dependencies = [
-    "dao-ai{extras}=={dao_ai_version}",
+    "dao-ai{extras}=={dao_ai_version}",{extra_deps}
 ]
 
 [tool.hatch.build.targets.wheel]
@@ -137,7 +137,7 @@ requires-python = ">=3.11"
 # Apps' ``uv sync`` installs THIS code (not PyPI). Everything else resolves
 # from public PyPI through dao-ai's own dependency metadata.
 dependencies = [
-    "dao-ai{extras}",
+    "dao-ai{extras}",{extra_deps}
 ]
 
 [tool.hatch.build.targets.wheel]
@@ -155,6 +155,18 @@ def _get_dao_ai_version() -> str:
         return pkg_version("dao-ai")
     except Exception:
         return "0.1.0"
+
+
+def _format_extra_deps(pip_requirements: Optional[Sequence[str]]) -> str:
+    """Render user ``config.app.pip_requirements`` as extra lines inside the
+    generated pyproject ``dependencies`` array (so ``uv lock`` captures them
+    alongside dao-ai). Returns "" when there are none, otherwise a leading
+    newline + one indented, quoted requirement per line (no trailing comma —
+    the template's dao-ai line already carries one before this block)."""
+    reqs = list(pip_requirements or [])
+    if not reqs:
+        return ""
+    return "\n" + "\n".join(f'    "{r}",' for r in reqs)
 
 
 def _strip_parameters_block(rendered_yaml: str) -> str:
@@ -832,6 +844,18 @@ def write_bundle(
         resolve_required_extras_or_all(config, target="apps")
     )
 
+    # User-declared extra pip packages (config.app.pip_requirements) — folded
+    # into the generated pyproject dependencies so `uv lock` captures them for
+    # the deployer's custom code (parity with Model Serving / pipeline).
+    # NOTE: config.app.code_paths is intentionally NOT copied here — for
+    # Apps/MCP the deployer's custom modules live under the bundle's ``src/``
+    # (built into the app by hatch); code_paths applies to Model Serving only
+    # (shipped via ``log_model(code_paths=...)``).
+    user_pip_requirements: list[str] = (
+        list(config.app.pip_requirements) if config.app else []
+    )
+    extra_deps: str = _format_extra_deps(user_pip_requirements)
+
     if development:
         from dao_ai.utils import dev_local_version, find_dev_wheel
 
@@ -909,6 +933,7 @@ def write_bundle(
                 package_name=package_name,
                 wheel_filename=wheel_path.name,
                 extras=extras_suffix,
+                extra_deps=extra_deps,
             ),
         )
 
@@ -936,6 +961,7 @@ def write_bundle(
                 package_name=package_name,
                 dao_ai_version=_get_dao_ai_version(),
                 extras=extras_suffix,
+                extra_deps=extra_deps,
             ),
         )
 
