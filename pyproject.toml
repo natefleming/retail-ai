@@ -43,6 +43,11 @@ classifiers = [
     "Topic :: System :: Distributed Computing",
 ]
 dependencies = [
+    # Shell tab-completion for the ``dao-ai`` CLI (argparse + argcomplete).
+    # Zero runtime deps and ~240 KB, so it's a core dep — completion just works
+    # once enabled in the shell (see docs/cli-reference.md). The autocomplete()
+    # hook in cli.py is still guarded, so a stripped env without it is harmless.
+    "argcomplete>=3.0.0",
     "databricks-agents>=1.11.0",
     "databricks-langchain[memory]>=0.20.0",
     "databricks-mcp>=0.9.0",

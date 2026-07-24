@@ -1,5 +1,27 @@
 # CLI Reference
 
+## Shell Completion
+
+`dao-ai` supports tab-completion of subcommands and flags via
+[argcomplete](https://kislyuk.github.io/argcomplete/) (a core dependency —
+nothing extra to install). Enable it once in your shell:
+
+**bash** — add to `~/.bashrc`:
+
+```bash
+eval "$(register-python-argcomplete dao-ai)"
+```
+
+**zsh** — add to `~/.zshrc`:
+
+```zsh
+autoload -U bashcompinit && bashcompinit
+eval "$(register-python-argcomplete dao-ai)"
+```
+
+Restart the shell (or `source` the rc file), then `dao-ai <TAB>` completes
+subcommands and `dao-ai deploy --<TAB>` completes flags.
+
 ## Validate Configuration
 
 Check your configuration for errors:

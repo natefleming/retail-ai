@@ -1,3 +1,4 @@
+# PYTHON_ARGCOMPLETE_OK
 import argparse
 import getpass
 import json
@@ -1190,6 +1191,17 @@ Examples:
         vars_parser,
     ):
         _add_profile_argument(sub)
+
+    # Shell completion via argcomplete (a core dep; enable in your shell — see
+    # docs/cli-reference.md). Still guarded so a stripped env without argcomplete
+    # is harmless. The ``# PYTHON_ARGCOMPLETE_OK`` marker at the top of this file
+    # lets ``register-python-argcomplete dao-ai`` discover the entry point.
+    try:
+        import argcomplete
+
+        argcomplete.autocomplete(parser)
+    except ImportError:
+        pass
 
     options = parser.parse_args(args)
 
