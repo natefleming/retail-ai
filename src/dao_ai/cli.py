@@ -2356,24 +2356,51 @@ def _print_auth_error_detail(error: Exception) -> None:
 
     The SDK crams the human-readable message, a multi-line reauth hint, and a
     ``Config: k=v, k=v, ...`` dump onto a single string. Rendered verbatim that
-    is unreadable, so split it into indented lines: the leading message first,
-    then each ``Config`` key/value on its own line.
+    is unreadable, so reformat it:
+
+    - word-wrap the message to the terminal width, aligned under ``Detail:``
+    - list each ``Config`` key/value on its own line as an aligned table
     """
-    message: str = str(error)
+    import shutil
+    import textwrap
+
     indent: str = " " * 22
+    width: int = max(shutil.get_terminal_size((100, 24)).columns, 60)
 
+    message: str = str(error)
     config_split: list[str] = message.split("Config:", 1)
-    detail_lines: list[str] = config_split[0].strip().splitlines()
-    print(f"  Detail:             {detail_lines[0].strip()}")
-    for line in detail_lines[1:]:
-        print(f"{indent}{line.strip()}")
 
-    if len(config_split) == 2:
-        print(f"{indent}Config:")
-        for pair in config_split[1].split(","):
-            pair = pair.strip()
-            if pair:
-                print(f"{indent}  {pair}")
+    # Message: collapse internal whitespace, then word-wrap. Keep the leading
+    # "$ ..." reauth command on its own line so it stays copy-pasteable.
+    message_body: str = config_split[0].strip()
+    first: bool = True
+    for segment in message_body.split("\n"):
+        segment = " ".join(segment.split())
+        if not segment:
+            continue
+        wrapped: list[str] = textwrap.wrap(segment, width=width - len(indent)) or [""]
+        for line in wrapped:
+            if first:
+                print(f"  Detail:             {line}")
+                first = False
+            else:
+                print(f"{indent}{line}")
+
+    if len(config_split) != 2:
+        return
+
+    pairs: list[tuple[str, str]] = []
+    for pair in config_split[1].split(","):
+        pair = pair.strip()
+        if not pair:
+            continue
+        key, _, value = pair.partition("=")
+        pairs.append((key.strip(), value.strip()))
+
+    print(f"{indent}Config:")
+    key_width: int = max((len(k) for k, _ in pairs), default=0)
+    for key, value in pairs:
+        print(f"{indent}  {key:<{key_width}}  {value}")
 
 
 def handle_doctor_command(options: Namespace) -> None:
