@@ -2351,6 +2351,31 @@ def handle_version_command(options: Namespace) -> None:
             print(f"    {dep}: not installed")
 
 
+def _print_auth_error_detail(error: Exception) -> None:
+    """Pretty-print a Databricks SDK auth error under a ``Detail:`` heading.
+
+    The SDK crams the human-readable message, a multi-line reauth hint, and a
+    ``Config: k=v, k=v, ...`` dump onto a single string. Rendered verbatim that
+    is unreadable, so split it into indented lines: the leading message first,
+    then each ``Config`` key/value on its own line.
+    """
+    message: str = str(error)
+    indent: str = " " * 22
+
+    config_split: list[str] = message.split("Config:", 1)
+    detail_lines: list[str] = config_split[0].strip().splitlines()
+    print(f"  Detail:             {detail_lines[0].strip()}")
+    for line in detail_lines[1:]:
+        print(f"{indent}{line.strip()}")
+
+    if len(config_split) == 2:
+        print(f"{indent}Config:")
+        for pair in config_split[1].split(","):
+            pair = pair.strip()
+            if pair:
+                print(f"{indent}  {pair}")
+
+
 def handle_doctor_command(options: Namespace) -> None:
     """Display the resolved Databricks environment and connection details.
 
@@ -2379,7 +2404,7 @@ def handle_doctor_command(options: Namespace) -> None:
     except Exception as e:
         print("  Authenticated:      no")
         print(f"  Reason:             could not resolve config ({type(e).__name__})")
-        print(f"  Detail:             {e}")
+        _print_auth_error_detail(e)
         return
 
     try:
@@ -2388,7 +2413,7 @@ def handle_doctor_command(options: Namespace) -> None:
     except Exception as e:
         print("  Authenticated:      no")
         print(f"  Reason:             {type(e).__name__}")
-        print(f"  Detail:             {e}")
+        _print_auth_error_detail(e)
 
 
 def setup_logging(verbosity: int) -> None:
