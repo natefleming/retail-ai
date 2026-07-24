@@ -147,7 +147,9 @@ def write_mcp_bundle(
     from dao_ai._extras import expand_all, resolve_required_extras_or_all
 
     merged_extras: str = ",".join(
-        sorted({"mcp", *expand_all(resolve_required_extras_or_all(config, target="mcp"))})
+        sorted(
+            {"mcp", *expand_all(resolve_required_extras_or_all(config, target="mcp"))}
+        )
     )
 
     # User-declared extra pip packages (config.app.pip_requirements) folded
@@ -198,7 +200,7 @@ def write_mcp_bundle(
         # their parameters: block). Belt-and-suspenders behind the CLI guard.
         preserved.append(config_filename)
     else:
-        rendered: str | None = getattr(config, "_rendered_yaml", None)
+        rendered: str | None = config._rendered_yaml
         if rendered is not None:
             _write(config_dest, _strip_parameters_block(rendered))
         elif source_config_path is not None:
