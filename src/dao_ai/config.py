@@ -31,6 +31,7 @@ import yaml
 
 if TYPE_CHECKING:
     from a2a.types import SecurityScheme
+
     from dao_ai.audit import LakebaseAuditSink
     from dao_ai.genie.cache.context_aware.optimization import (
         ContextAwareCacheEvalDataset,
@@ -38,6 +39,8 @@ if TYPE_CHECKING:
     )
     from dao_ai.state import Context
 
+from databricks.ai_search.client import VectorSearchClient
+from databricks.ai_search.index import VectorSearchIndex
 from databricks.sdk import WorkspaceClient
 from databricks.sdk.credentials_provider import (
     CredentialsStrategy,
@@ -48,8 +51,6 @@ from databricks.sdk.service.apps import App
 from databricks.sdk.service.catalog import FunctionInfo, TableInfo
 from databricks.sdk.service.dashboards import GenieListSpacesResponse, GenieSpace
 from databricks.sdk.service.sql import GetWarehouseResponse
-from databricks.ai_search.client import VectorSearchClient
-from databricks.ai_search.index import VectorSearchIndex
 from databricks_langchain import (
     ChatDatabricks,
     DatabricksEmbeddings,
@@ -9254,9 +9255,8 @@ class A2AModel(BaseModel):
         from dao_ai._extras import require_extra
 
         require_extra("a2a", feature="A2A security schemes")
-        from pydantic import TypeAdapter
-
         from a2a.types import SecurityScheme
+        from pydantic import TypeAdapter
 
         # TypeAdapter validates both raw dicts and already-constructed
         # SecurityScheme instances against the discriminated union.
@@ -9436,10 +9436,13 @@ class AppModel(BaseModel):
     )
     code_paths: list[str] = Field(
         default_factory=list,
-        description="Additional Python file paths bundled with the Model Serving "
-        "model artifact via ``log_model(code_paths=...)``. For Apps/MCP, put "
-        "custom code in the generated bundle's ``src/<package>/`` instead — it is "
-        "built and installed by ``uv sync`` at the app build phase.",
+        description="Additional Python files/directories (relative to the config "
+        "file's directory; absolute paths pass through) shipped with EVERY "
+        "deployment target: Model Serving via ``log_model(code_paths=...)``, "
+        "Databricks Apps by uploading them next to the config (importable via "
+        "``sys.path``), and the generate-workflow job by staging them into the "
+        "bundle. Use for custom ``type: python`` tool modules or agent code. "
+        "(Apps bundles also still support hand-packaged code under ``src/<package>/``.)",
     )
     pip_requirements: list[str] = Field(
         default_factory=list,
@@ -10876,6 +10879,25 @@ class AppConfig(BaseModel):
             dataset._base_path = base_path
         for fn in config.unity_catalog_functions or []:
             fn._base_path = base_path
+
+        # Put custom code (``app.code_paths``) on ``sys.path`` now that the
+        # config directory is known, resolving each entry against it. The
+        # ``add_code_paths_to_sys_path`` validator ran at construction (before
+        # ``_source_config_path`` was set) and could only anchor at the process
+        # CWD; this makes config-relative custom modules importable for every
+        # consumer that loads a config from a file — the deploy notebook's
+        # ``display_graph``/``create_agent``, the Apps runtime, and any tool
+        # resolution via ``load_function`` — regardless of the process CWD.
+        from dao_ai.code_paths import (
+            prepend_code_paths_to_sys_path,
+            prepend_src_to_sys_path,
+        )
+
+        prepend_code_paths_to_sys_path(config)
+        # Convention: a colocated ``src/`` dir auto-ships its packages; put it on
+        # sys.path so ``src/foo/bar.py`` imports as ``foo.bar`` for every consumer
+        # (deploy notebook display_graph/create_agent, Apps runtime, load_function).
+        prepend_src_to_sys_path(config)
         # Stash the pre-substitution dict so tooling can recover which
         # YAML fields were backed by ``${var.X}`` references.
         config._raw_yaml_dict = raw_dict
