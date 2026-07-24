@@ -1133,11 +1133,15 @@ class DatabricksProvider(ServiceProvider):
             user_api_scopes=list(auth_policy.user_auth_policy.api_scopes),
         )
 
-        code_paths: list[str] = config.app.code_paths
-        for path in code_paths:
-            path = Path(path)
-            if not path.exists():
-                raise FileNotFoundError(f"Code path does not exist: {path}")
+        # Resolve config.app.code_paths against the config directory (with a
+        # legacy CWD fallback), fail-loud on a missing entry. Shared with the
+        # Apps/pipeline/generate-* paths via dao_ai.code_paths. ``from_file``
+        # already put resolved code_paths on ``sys.path`` (best-effort); this is
+        # the deploy-time guard that fails loud if any entry is missing before
+        # log_model ships an unimportable model.
+        from dao_ai.code_paths import collect_code_paths
+
+        code_paths: list[str] = collect_code_paths(config)
 
         model_root_path: Path = Path(dao_ai.__file__).parent
         model_path: Path = model_root_path / "apps" / "model_serving.py"
@@ -1634,6 +1638,49 @@ class DatabricksProvider(ServiceProvider):
                 scorer_count=len(registered_scorers),
             )
 
+    def _upload_code_paths(self, config: AppConfig, source_path: str) -> None:
+        """Upload ``config.app.code_paths`` files under the app ``source_path``.
+
+        Each entry is placed preserving its config-relative layout (or under
+        ``code/`` for absolute / ``../``-climbing entries), so the app's
+        ``add_code_paths_to_sys_path`` validator finds it on ``sys.path`` at
+        runtime. Directories are walked file-by-file (``workspace.upload`` has no
+        recursive form); parent workspace dirs are created as needed.
+        """
+        import io
+
+        from dao_ai.code_paths import (
+            iter_code_path_stagings,
+            walk_code_path_files,
+        )
+
+        stagings = iter_code_path_stagings(config)
+        if not stagings:
+            return
+
+        uploaded = 0
+        for src, dest in stagings:
+            for file_src, file_dest in walk_code_path_files(src, dest):
+                ws_path = f"{source_path}/{file_dest}"
+                parent = ws_path.rsplit("/", 1)[0]
+                try:
+                    self.w.workspace.mkdirs(parent)
+                except Exception as e:  # noqa: BLE001
+                    logger.debug(f"code_paths parent dir may exist: {e}")
+                with open(file_src, "rb") as f:
+                    self.w.workspace.upload(
+                        path=ws_path,
+                        content=io.BytesIO(f.read()),
+                        format=ImportFormat.AUTO,
+                        overwrite=True,
+                    )
+                uploaded += 1
+        logger.info(
+            "Uploaded custom code (app.code_paths) to app source",
+            file_count=uploaded,
+            source_path=source_path,
+        )
+
     def deploy_apps_agent(
         self, config: AppConfig, development: bool | None = None
     ) -> None:
@@ -1801,6 +1848,13 @@ class DatabricksProvider(ServiceProvider):
             overwrite=True,
         )
         logger.info("Config file uploaded", path=workspace_config_path)
+
+        # Upload the config's custom code (app.code_paths) next to the config so
+        # it is importable in the app container: the app CWD is source_path and
+        # AppConfig.from_file's add_code_paths_to_sys_path validator inserts each
+        # entry's parent onto sys.path. Same declaration used by Model Serving
+        # (log_model code_paths) and the bundle generators.
+        self._upload_code_paths(config, source_path)
 
         # Determine install command based on dev vs published mode.
         # Respect config.app.enable_chat_proxy (default True) so the deployed

@@ -349,6 +349,44 @@ class TestWritePipelineBundle:
         assert (out / "config" / "data" / "seed.sql").exists()
         assert (out / "config" / "functions" / "fn.sql").exists()
 
+    _CODE_PATHS_CONFIG = (
+        "resources:\n"
+        "  models:\n"
+        "    default_llm: &default_llm\n"
+        "      name: databricks-gpt-5-4-mini\n"
+        "agents:\n"
+        "  greeter: &greeter\n"
+        "    name: greeter\n"
+        "    description: A friendly assistant.\n"
+        "    model: *default_llm\n"
+        "    prompt: You are a concise assistant.\n"
+        "app:\n"
+        "  name: cp_app\n"
+        "  deployment_target: apps\n"
+        "  code_paths:\n"
+        "    - tools/custom_tool.py\n"
+        "  agents:\n"
+        "    - *greeter\n"
+    )
+
+    def test_stages_code_paths_next_to_config(self, tmp_path: Path) -> None:
+        # Custom code colocated with the config stages under config/ so the
+        # deploy notebook resolves it against the staged config directory.
+        (tmp_path / "tools").mkdir()
+        (tmp_path / "tools" / "custom_tool.py").write_text(
+            "def my_tool():\n    return 'custom'\n"
+        )
+        config = self._load(tmp_path, self._CODE_PATHS_CONFIG)
+        out = tmp_path / "bundle"
+        write_pipeline_bundle(config, out)
+
+        assert (out / "config" / "tools" / "custom_tool.py").exists()
+        # config/** already covers it; no extra sync glob needed.
+        import yaml
+
+        doc = yaml.safe_load((out / "databricks.yaml").read_text())
+        assert "config/**" in doc["sync"]["include"]
+
     def test_sibling_use_case_assets_stage_and_get_sync_glob(
         self, tmp_path: Path
     ) -> None:

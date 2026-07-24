@@ -150,8 +150,9 @@ def write_mcp_bundle(
 
     # User-declared extra pip packages (config.app.pip_requirements) folded
     # into the pyproject deps so uv.lock captures them. config.app.code_paths
-    # is NOT copied — for Apps/MCP custom modules live under the bundle's
-    # ``src/``; code_paths applies to Model Serving only.
+    # files are copied into the bundle below (next to the config) so they import
+    # at runtime via ``add_code_paths_to_sys_path``; the manual ``src/<package>``
+    # hatch-wheel route still works for hand-packaged code.
     from dao_ai.apps.bundle import _format_extra_deps
 
     user_pip_requirements: list[str] = (
@@ -194,6 +195,20 @@ def write_mcp_bundle(
         _write(output_dir / config_filename, Path(source_config_path).read_text())
     else:
         logger.warning("mcp.generate.no_source_config — skipping config copy")
+
+    # Copy the config's custom code (app.code_paths) next to the config so it is
+    # importable at runtime (bundle root is the app CWD; add_code_paths_to_sys_path
+    # inserts each entry's parent onto sys.path). Shared with generate-agent.
+    from dao_ai.code_paths import iter_code_path_stagings, walk_code_path_files
+
+    for src, code_dest in iter_code_path_stagings(config):
+        for file_src, file_dest in walk_code_path_files(src, code_dest):
+            out = output_dir / file_dest
+            if out.exists():
+                continue
+            out.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(file_src, out)
+            written.append(file_dest)
 
     _write(
         output_dir / "README.md",

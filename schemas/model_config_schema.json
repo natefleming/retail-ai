@@ -1642,7 +1642,7 @@
           "description": "Chat history summarization settings to manage long conversations."
         },
         "code_paths": {
-          "description": "Additional Python file paths bundled with the Model Serving model artifact via ``log_model(code_paths=...)``. For Apps/MCP, put custom code in the generated bundle's ``src/<package>/`` instead \u2014 it is built and installed by ``uv sync`` at the app build phase.",
+          "description": "Additional Python files/directories (relative to the config file's directory; absolute paths pass through) shipped with EVERY deployment target: Model Serving via ``log_model(code_paths=...)``, Databricks Apps by uploading them next to the config (importable via ``sys.path``), and the generate-workflow job by staging them into the bundle. Use for custom ``type: python`` tool modules or agent code. (Apps bundles also still support hand-packaged code under ``src/<package>/``.)",
           "items": {
             "type": "string"
           },

@@ -19,9 +19,12 @@ from pathlib import Path
 
 import pytest
 
-from dao_ai.apps.bundle import _PYPROJECT_DEV_TEMPLATE, _PYPROJECT_TEMPLATE
+from dao_ai.apps.bundle import (
+    _PYPROJECT_DEV_TEMPLATE,
+    _PYPROJECT_TEMPLATE,
+    _format_extra_deps,
+)
 from dao_ai.utils import dev_local_version
-
 
 # ---------------------------------------------------------------------------
 # pyproject templates — dev redirects dao-ai to the bundled wheel
@@ -35,6 +38,7 @@ class TestPyprojectTemplates:
             package_name="foo_bar",
             wheel_filename="dao_ai-0.2.0-py3-none-any.whl",
             extras="[a2a]",
+            extra_deps="",
         )
         assert "[tool.uv.sources]" in rendered
         assert 'dao-ai = { path = "dist/dao_ai-0.2.0-py3-none-any.whl" }' in rendered
@@ -47,11 +51,25 @@ class TestPyprojectTemplates:
             package_name="foo_bar",
             dao_ai_version="0.2.0",
             extras="[a2a,rerank]",
+            extra_deps="",
         )
         # Exact pin (==) for reproducible redeploys, extras threaded through.
         assert "dao-ai[a2a,rerank]==0.2.0" in rendered
         # No local wheel source in published mode.
         assert "tool.uv.sources" not in rendered
+
+    def test_published_template_threads_user_pip_requirements(self) -> None:
+        # config.app.pip_requirements flow through the {extra_deps} slot so the
+        # generated pyproject's dependency array captures the deployer's own
+        # packages alongside dao-ai.
+        rendered: str = _PYPROJECT_TEMPLATE.format(
+            name="foo-bar",
+            package_name="foo_bar",
+            dao_ai_version="0.2.0",
+            extras="",
+            extra_deps=_format_extra_deps(["httpx>=0.27"]),
+        )
+        assert '"httpx>=0.27",' in rendered
 
 
 # ---------------------------------------------------------------------------

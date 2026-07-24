@@ -9436,10 +9436,13 @@ class AppModel(BaseModel):
     )
     code_paths: list[str] = Field(
         default_factory=list,
-        description="Additional Python file paths bundled with the Model Serving "
-        "model artifact via ``log_model(code_paths=...)``. For Apps/MCP, put "
-        "custom code in the generated bundle's ``src/<package>/`` instead — it is "
-        "built and installed by ``uv sync`` at the app build phase.",
+        description="Additional Python files/directories (relative to the config "
+        "file's directory; absolute paths pass through) shipped with EVERY "
+        "deployment target: Model Serving via ``log_model(code_paths=...)``, "
+        "Databricks Apps by uploading them next to the config (importable via "
+        "``sys.path``), and the generate-workflow job by staging them into the "
+        "bundle. Use for custom ``type: python`` tool modules or agent code. "
+        "(Apps bundles also still support hand-packaged code under ``src/<package>/``.)",
     )
     pip_requirements: list[str] = Field(
         default_factory=list,
@@ -10876,6 +10879,18 @@ class AppConfig(BaseModel):
             dataset._base_path = base_path
         for fn in config.unity_catalog_functions or []:
             fn._base_path = base_path
+
+        # Put custom code (``app.code_paths``) on ``sys.path`` now that the
+        # config directory is known, resolving each entry against it. The
+        # ``add_code_paths_to_sys_path`` validator ran at construction (before
+        # ``_source_config_path`` was set) and could only anchor at the process
+        # CWD; this makes config-relative custom modules importable for every
+        # consumer that loads a config from a file — the deploy notebook's
+        # ``display_graph``/``create_agent``, the Apps runtime, and any tool
+        # resolution via ``load_function`` — regardless of the process CWD.
+        from dao_ai.code_paths import prepend_code_paths_to_sys_path
+
+        prepend_code_paths_to_sys_path(config)
         # Stash the pre-substitution dict so tooling can recover which
         # YAML fields were backed by ``${var.X}`` references.
         config._raw_yaml_dict = raw_dict

@@ -33,6 +33,7 @@ from dao_ai.apps.resources import (
     generate_app_resources,
     generate_user_api_scopes,
 )
+from dao_ai.code_paths import code_path_sync_globs
 from dao_ai.config import AppConfig, value_of
 
 
@@ -607,6 +608,13 @@ def generate_databricks_yaml(
         "uv.lock",
         ".python-version",
     ]
+    # Custom code (app.code_paths) is copied into the bundle at config-relative
+    # paths (e.g. ``tools/**``); force-include those top-level dirs so they sync
+    # from a gitignored staging dir. Entries at the bundle root that aren't dirs
+    # are already covered by the globs above.
+    for glob in code_path_sync_globs(config):
+        if glob not in sync_include:
+            sync_include.append(glob)
 
     bundle: dict[str, Any] = {
         "bundle": {
@@ -834,6 +842,24 @@ def write_bundle(
         logger.info("Copied skill directory into bundle", skill=str(rel))
         written.append(str(rel))
 
+    # Copy the config's custom code (app.code_paths) into the bundle next to the
+    # config so it is importable at runtime: the bundle root is the app CWD and
+    # ``add_code_paths_to_sys_path`` inserts each entry's parent onto sys.path.
+    # This is the uniform declaration shared with Model Serving and the direct
+    # Apps/pipeline deploys; the manual ``src/<package>`` wheel route still works
+    # for users who prefer to hand-package their code.
+    from dao_ai.code_paths import iter_code_path_stagings, walk_code_path_files
+
+    for src, code_dest in iter_code_path_stagings(config):
+        for file_src, file_dest in walk_code_path_files(src, code_dest):
+            out = output_dir / file_dest
+            if out.exists() and not overwrite:
+                skipped.append(file_dest)
+                continue
+            out.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(file_src, out)
+            written.append(file_dest)
+
     package_name = app_name.replace("-", "_")
 
     # Optional-feature extras this config exercises, threaded into the dao-ai
@@ -847,10 +873,9 @@ def write_bundle(
     # User-declared extra pip packages (config.app.pip_requirements) — folded
     # into the generated pyproject dependencies so `uv lock` captures them for
     # the deployer's custom code (parity with Model Serving / pipeline).
-    # NOTE: config.app.code_paths is intentionally NOT copied here — for
-    # Apps/MCP the deployer's custom modules live under the bundle's ``src/``
-    # (built into the app by hatch); code_paths applies to Model Serving only
-    # (shipped via ``log_model(code_paths=...)``).
+    # config.app.code_paths files are copied into the bundle above (next to the
+    # config) so they import at runtime via ``add_code_paths_to_sys_path``; the
+    # manual ``src/<package>`` hatch-wheel route still works for hand-packaged code.
     user_pip_requirements: list[str] = (
         list(config.app.pip_requirements) if config.app else []
     )
