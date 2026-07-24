@@ -2351,56 +2351,21 @@ def handle_version_command(options: Namespace) -> None:
             print(f"    {dep}: not installed")
 
 
-def _print_auth_error_detail(error: Exception) -> None:
-    """Pretty-print a Databricks SDK auth error under a ``Detail:`` heading.
+def _reauth_command(error: Exception, profile: Optional[str]) -> str:
+    """Return the copy-pasteable ``databricks auth login`` command to fix auth.
 
-    The SDK crams the human-readable message, a multi-line reauth hint, and a
-    ``Config: k=v, k=v, ...`` dump onto a single string. Rendered verbatim that
-    is unreadable, so reformat it:
-
-    - word-wrap the message to the terminal width, aligned under ``Detail:``
-    - list each ``Config`` key/value on its own line as an aligned table
+    The Databricks SDK auth error embeds a reauth hint like
+    ``$ databricks auth login --profile DEFAULT`` inside a wall of config dump.
+    Extract just that command so ``doctor`` can print a single actionable line.
+    Falls back to a command for the requested/DEFAULT profile if the SDK message
+    doesn't include one.
     """
-    import shutil
-    import textwrap
+    import re
 
-    indent: str = " " * 22
-    width: int = max(shutil.get_terminal_size((100, 24)).columns, 60)
-
-    message: str = str(error)
-    config_split: list[str] = message.split("Config:", 1)
-
-    # Message: collapse internal whitespace, then word-wrap. Keep the leading
-    # "$ ..." reauth command on its own line so it stays copy-pasteable.
-    message_body: str = config_split[0].strip()
-    first: bool = True
-    for segment in message_body.split("\n"):
-        segment = " ".join(segment.split())
-        if not segment:
-            continue
-        wrapped: list[str] = textwrap.wrap(segment, width=width - len(indent)) or [""]
-        for line in wrapped:
-            if first:
-                print(f"  Detail:             {line}")
-                first = False
-            else:
-                print(f"{indent}{line}")
-
-    if len(config_split) != 2:
-        return
-
-    pairs: list[tuple[str, str]] = []
-    for pair in config_split[1].split(","):
-        pair = pair.strip()
-        if not pair:
-            continue
-        key, _, value = pair.partition("=")
-        pairs.append((key.strip(), value.strip()))
-
-    print(f"{indent}Config:")
-    key_width: int = max((len(k) for k, _ in pairs), default=0)
-    for key, value in pairs:
-        print(f"{indent}  {key:<{key_width}}  {value}")
+    match = re.search(r"databricks auth login[^\n.]*", str(error))
+    if match:
+        return match.group(0).strip()
+    return f"databricks auth login --profile {profile or 'DEFAULT'}"
 
 
 def handle_doctor_command(options: Namespace) -> None:
@@ -2430,8 +2395,7 @@ def handle_doctor_command(options: Namespace) -> None:
             print(f"  Auth Type:          {w.config.auth_type}")
     except Exception as e:
         print("  Authenticated:      no")
-        print(f"  Reason:             could not resolve config ({type(e).__name__})")
-        _print_auth_error_detail(e)
+        print(f"  To authenticate:    {_reauth_command(e, options.profile)}")
         return
 
     try:
@@ -2439,8 +2403,7 @@ def handle_doctor_command(options: Namespace) -> None:
         print("  Authenticated:      yes")
     except Exception as e:
         print("  Authenticated:      no")
-        print(f"  Reason:             {type(e).__name__}")
-        _print_auth_error_detail(e)
+        print(f"  To authenticate:    {_reauth_command(e, options.profile)}")
 
 
 def setup_logging(verbosity: int) -> None:
