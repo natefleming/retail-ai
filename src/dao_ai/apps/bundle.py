@@ -155,7 +155,7 @@ dao-ai = {{ path = "dist/{wheel_filename}" }}
 
 
 def _get_dao_ai_version() -> str:
-    """Return the currently installed dao-ai version for pinning in generated bundles."""
+    """Return the installed dao-ai version for pinning in generated bundles."""
     try:
         return pkg_version("dao-ai")
     except Exception:
@@ -339,7 +339,8 @@ def _convert_to_bundle_resources(
         result.append(converted)
 
     logger.info(
-        f"Converted {len(result)} bundle resources (from {len(app_resources)} app resources)"
+        f"Converted {len(result)} bundle resources "
+        f"(from {len(app_resources)} app resources)"
     )
     return result
 
@@ -805,7 +806,7 @@ def write_bundle(
             # and the parameters: declaration block stripped) so the deployed
             # app does not need the original CLI --var arguments. Fall back to
             # a plain copy if the config wasn't loaded via from_file.
-            rendered: str | None = getattr(config, "_rendered_yaml", None)
+            rendered: str | None = config._rendered_yaml
             if rendered is not None:
                 dest.write_text(_strip_parameters_block(rendered))
                 logger.info(
