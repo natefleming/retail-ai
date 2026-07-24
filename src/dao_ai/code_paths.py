@@ -44,6 +44,12 @@ if TYPE_CHECKING:
 # ``skills/<basename>`` fallback used for skill bundling.
 _CODE_FALLBACK_PREFIX = "code"
 
+# Convention: a ``src/`` directory colocated with the config auto-ships every
+# top-level package under it as custom code (no ``code_paths`` declaration
+# needed). The import FQN drops the ``src`` prefix — ``src/foo/bar.py`` imports
+# as ``foo.bar`` — in every target (see the module docstring / the deploy code).
+_SRC_DIRNAME = "src"
+
 # Directory entries whose contents dao-ai never needs to ship.
 _SKIP_DIR_NAMES = {"__pycache__"}
 
@@ -143,6 +149,79 @@ def prepend_code_paths_to_sys_path(config: "AppConfig") -> None:
         if parent not in sys.path:
             sys.path.insert(0, parent)
             logger.debug("Prepended resolved code_path parent to sys.path", path=parent)
+
+
+def _src_dir(config: "AppConfig") -> Path:
+    """The ``src/`` directory colocated with the config (may not exist)."""
+    return _code_paths_base_dir(config) / _SRC_DIRNAME
+
+
+def discover_src_packages(config: "AppConfig") -> list[Path]:
+    """Top-level package directories under the config's colocated ``src/``.
+
+    The ``src/`` convention auto-ships custom code with NO ``code_paths``
+    declaration: any top-level directory under ``<config_dir>/src`` is a
+    package (namespace packages allowed — ``__init__.py`` is not required).
+    Loose files directly under ``src/`` are ignored (``src/`` holds packages,
+    not modules); ``__pycache__`` and ``*.egg-info`` are skipped.
+
+    Callers ship these so ``src/foo/bar.py`` imports as ``foo.bar`` (never
+    ``src.foo``): Model Serving passes each dir to ``log_model(code_paths=...)``
+    (MLflow copies it to ``code/foo/``); the wheel path lets hatch
+    (``packages=["src"]``) discover it; local validation puts ``src/`` itself on
+    ``sys.path`` (see :func:`prepend_src_to_sys_path`). Sorted, deduped; ``[]``
+    when ``src/`` is absent or empty.
+    """
+    src_dir = _src_dir(config)
+    if not src_dir.is_dir():
+        return []
+
+    packages: list[Path] = []
+    for child in sorted(src_dir.iterdir()):
+        if not child.is_dir():
+            continue
+        if child.name in _SKIP_DIR_NAMES or child.name.endswith(".egg-info"):
+            continue
+        packages.append(child.resolve())
+    return packages
+
+
+def prepend_src_to_sys_path(config: "AppConfig") -> None:
+    """Put ``<config_dir>/src`` on ``sys.path`` so ``src/`` packages import.
+
+    Best-effort, idempotent. Makes ``import foo`` resolve during in-process
+    ``log_model`` validation (and any config load), matching the Model Serving
+    ``code/foo/`` layout and the Apps wheel — all three yield ``foo.bar``.
+    No-op when ``src/`` is absent.
+    """
+    import sys
+
+    src_dir = _src_dir(config)
+    if not src_dir.is_dir():
+        return
+    src_path = str(src_dir.resolve())
+    if src_path not in sys.path:
+        sys.path.insert(0, src_path)
+        logger.debug("Prepended src/ to sys.path", path=src_path)
+
+
+def collect_serving_code_paths(config: "AppConfig") -> list[str]:
+    """Model Serving ``code_paths``: explicit ``code_paths`` + ``src/`` packages.
+
+    The deduped (by resolved posix path) union of :func:`collect_code_paths`
+    (explicit, out-of-tree, fail-loud on missing) and :func:`discover_src_packages`
+    (the colocated ``src/`` convention). Passing each ``src/`` package dir makes
+    MLflow copy it to ``code/<pkg>`` → import ``<pkg>.mod``. Deduping prevents a
+    double-ship when a ``code_paths`` entry points into ``src/``.
+    """
+    resolved: list[str] = list(collect_code_paths(config))
+    seen: set[str] = set(resolved)
+    for pkg in discover_src_packages(config):
+        as_str = pkg.as_posix()
+        if as_str not in seen:
+            seen.add(as_str)
+            resolved.append(as_str)
+    return resolved
 
 
 def iter_code_path_stagings(config: "AppConfig") -> list[tuple[Path, str]]:

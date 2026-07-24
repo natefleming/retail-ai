@@ -93,6 +93,33 @@ class TestGenerateBundleLock:
 
         return _run
 
+    def test_render_portable_lock_stubs_src_package(self, monkeypatch) -> None:
+        """``render_portable_lock`` must create a stub package under ``src/`` so
+        hatch can build the local project during locking. The template now uses
+        ``packages = ["src"]`` (not ``src/<pkg>``); a stub must still appear."""
+        from dao_ai import _locking
+
+        seen: dict[str, bool] = {}
+
+        def _run(cmd, cwd=None, capture_output=None, text=None, check=None):
+            seen["stub"] = (Path(cwd) / "src" / "_daoai_lockstub" / "__init__.py").exists()
+            (Path(cwd) / "uv.lock").write_text("# stub lock\n")
+
+            class _R:
+                returncode = 0
+                stderr = ""
+
+            return _R()
+
+        monkeypatch.setattr(_locking.subprocess, "run", _run)
+        pyproject = (
+            '[project]\nname = "x"\n'
+            '[tool.hatch.build.targets.wheel]\n'
+            'packages = ["src"]\nsources = ["src"]\n'
+        )
+        _locking.render_portable_lock(pyproject)
+        assert seen.get("stub") is True
+
     def test_rewrites_mirror_host_to_public_cdn(self, tmp_path, monkeypatch) -> None:
         from dao_ai import _locking
 

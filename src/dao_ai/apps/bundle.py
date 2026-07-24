@@ -33,7 +33,7 @@ from dao_ai.apps.resources import (
     generate_app_resources,
     generate_user_api_scopes,
 )
-from dao_ai.code_paths import code_path_sync_globs
+from dao_ai.code_paths import _SRC_DIRNAME, code_path_sync_globs
 from dao_ai.config import AppConfig, value_of
 
 
@@ -119,7 +119,9 @@ dependencies = [
 ]
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/{package_name}"]
+# ``packages = ["src"]`` auto-discovers every top-level package under ``src/``
+# (the ``src/`` convention), so ``src/foo/bar.py`` installs as ``foo.bar``.
+packages = ["src"]
 sources = ["src"]
 """
 
@@ -142,7 +144,9 @@ dependencies = [
 ]
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/{package_name}"]
+# ``packages = ["src"]`` auto-discovers every top-level package under ``src/``
+# (the ``src/`` convention), so ``src/foo/bar.py`` installs as ``foo.bar``.
+packages = ["src"]
 sources = ["src"]
 
 [tool.uv.sources]
@@ -848,10 +852,29 @@ def write_bundle(
     # This is the uniform declaration shared with Model Serving and the direct
     # Apps/pipeline deploys; the manual ``src/<package>`` wheel route still works
     # for users who prefer to hand-package their code.
-    from dao_ai.code_paths import iter_code_path_stagings, walk_code_path_files
+    from dao_ai.code_paths import (
+        discover_src_packages,
+        iter_code_path_stagings,
+        walk_code_path_files,
+    )
 
     for src, code_dest in iter_code_path_stagings(config):
         for file_src, file_dest in walk_code_path_files(src, code_dest):
+            out = output_dir / file_dest
+            if out.exists() and not overwrite:
+                skipped.append(file_dest)
+                continue
+            out.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(file_src, out)
+            written.append(file_dest)
+
+    # Convention: copy any colocated ``src/<pkg>`` packages into the bundle's
+    # ``src/`` so hatch (``packages=["src"]``) builds them into the app wheel —
+    # ``src/foo/bar.py`` installs as ``foo.bar``. No config declaration needed.
+    for pkg_dir in discover_src_packages(config):
+        for file_src, file_dest in walk_code_path_files(
+            pkg_dir, f"{_SRC_DIRNAME}/{pkg_dir.name}"
+        ):
             out = output_dir / file_dest
             if out.exists() and not overwrite:
                 skipped.append(file_dest)

@@ -376,6 +376,46 @@ def _stage_code_paths(
     return copied
 
 
+def _stage_src_packages(
+    config: AppConfig,
+    output_dir: Path,
+    overwrite: bool,
+) -> list[str]:
+    """Copy colocated ``src/<pkg>`` packages into the staged bundle under ``config/src``.
+
+    The ``src/`` convention: packages stage under ``config/src/<pkg>`` (next to
+    the staged config), so when ``06_deploy_agent.py`` reloads the staged config
+    its ``src/`` anchor is ``config/src`` — ``collect_serving_code_paths`` passes
+    each ``config/src/<pkg>`` to ``log_model`` (MLflow -> ``code/<pkg>``) and
+    ``prepend_src_to_sys_path`` puts ``config/src`` on ``sys.path``, both yielding
+    ``<pkg>.mod``. Returns bundle-relative labels copied.
+    """
+    from dao_ai.code_paths import (
+        _SRC_DIRNAME,
+        discover_src_packages,
+        walk_code_path_files,
+    )
+
+    dest_anchor = (output_dir / "config").resolve()
+    copied: list[str] = []
+    for pkg_dir in discover_src_packages(config):
+        for file_src, file_dest in walk_code_path_files(
+            pkg_dir, f"{_SRC_DIRNAME}/{pkg_dir.name}"
+        ):
+            file_out = (dest_anchor / file_dest).resolve()
+            if file_src == file_out:
+                continue
+            if file_out.exists() and not overwrite:
+                continue
+            file_out.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(file_src, file_out)
+            try:
+                copied.append(str(file_out.relative_to(output_dir)))
+            except ValueError:
+                copied.append(str(file_out))
+    return copied
+
+
 def write_pipeline_bundle(
     config: AppConfig,
     output_dir: Path,
@@ -522,6 +562,7 @@ def write_pipeline_bundle(
     # 6b. Custom code (app.code_paths) staged next to the config so the deploy
     # notebook's create_agent/deploy_agent find it (Model Serving + Apps).
     written.extend(_stage_code_paths(config, output_dir, overwrite))
+    written.extend(_stage_src_packages(config, output_dir, overwrite))
 
     print(f"\nPipeline bundle staged in {output_dir}/\n")
     for name in sorted(written):

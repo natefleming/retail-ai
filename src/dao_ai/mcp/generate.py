@@ -199,10 +199,28 @@ def write_mcp_bundle(
     # Copy the config's custom code (app.code_paths) next to the config so it is
     # importable at runtime (bundle root is the app CWD; add_code_paths_to_sys_path
     # inserts each entry's parent onto sys.path). Shared with generate-agent.
-    from dao_ai.code_paths import iter_code_path_stagings, walk_code_path_files
+    from dao_ai.code_paths import (
+        _SRC_DIRNAME,
+        discover_src_packages,
+        iter_code_path_stagings,
+        walk_code_path_files,
+    )
 
     for src, code_dest in iter_code_path_stagings(config):
         for file_src, file_dest in walk_code_path_files(src, code_dest):
+            out = output_dir / file_dest
+            if out.exists():
+                continue
+            out.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(file_src, out)
+            written.append(file_dest)
+
+    # Convention: copy colocated ``src/<pkg>`` packages into the bundle's ``src/``
+    # so hatch (``packages=["src"]``) builds them prefix-free (``foo.bar``).
+    for pkg_dir in discover_src_packages(config):
+        for file_src, file_dest in walk_code_path_files(
+            pkg_dir, f"{_SRC_DIRNAME}/{pkg_dir.name}"
+        ):
             out = output_dir / file_dest
             if out.exists():
                 continue
@@ -396,7 +414,10 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/{package_name}"]
+# ``packages = ["src"]`` + ``sources = ["src"]`` auto-discovers every top-level
+# package under ``src/`` and installs it prefix-free (``src/foo`` -> ``foo``).
+packages = ["src"]
+sources = ["src"]
 """
 
 _PYPROJECT_DEV_TEMPLATE = """\
@@ -415,7 +436,8 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/{package_name}"]
+packages = ["src"]
+sources = ["src"]
 
 [tool.uv.sources]
 dao-ai = {{ path = "dist/{wheel_filename}" }}

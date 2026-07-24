@@ -387,6 +387,19 @@ class TestWritePipelineBundle:
         doc = yaml.safe_load((out / "databricks.yaml").read_text())
         assert "config/**" in doc["sync"]["include"]
 
+    def test_stages_src_packages_under_config_src(self, tmp_path: Path) -> None:
+        # The src/ convention: a colocated src/<pkg> stages under config/src/<pkg>
+        # so the deploy notebook's src anchor (config/src) yields foo.bar.
+        (tmp_path / "src" / "foo").mkdir(parents=True)
+        (tmp_path / "src" / "foo" / "bar.py").write_text(
+            "def my_tool():\n    return 'src-custom'\n"
+        )
+        config = self._load(tmp_path, _MINIMAL_CONFIG)
+        out = tmp_path / "bundle"
+        write_pipeline_bundle(config, out)
+
+        assert (out / "config" / "src" / "foo" / "bar.py").exists()
+
     def test_sibling_use_case_assets_stage_and_get_sync_glob(
         self, tmp_path: Path
     ) -> None:
