@@ -58,6 +58,14 @@ dao-ai deploy -c config/my_config.yaml --development --profile fevm
 Target resolution: `--target` > `app.deployment_target` in the config >
 `model_serving`.
 
+No extra install is required: a plain `pip install dao-ai` is enough to deploy to
+either target. Model Serving logs the MLflow model in-process, which touches
+spark-connect — the core `databricks-connect` dependency supplies a
+protobuf-5-compatible pyspark for this, so do **not** add a standalone `pyspark`
+(pyspark 4.x needs protobuf ≥ 6.33 and collides with `databricks-ai-search`'s
+`protobuf < 6` cap; see issue #211). The Databricks runtime provides its own Spark,
+so this local stack never ships to the deployed endpoint.
+
 **When to use which:**
 
 - **`dao-ai deploy`** — quickest path to a running agent (Model Serving or Apps),

@@ -103,8 +103,10 @@ test = [
     "pytest-xdist>=3.6.1",
 ]
 databricks = [
-    # databricks-vectorsearch moved to main dependencies (used unconditionally).
-    "pyspark>=3.5.0",
+    # databricks-connect bundles its own protobuf-5-compatible pyspark; a
+    # standalone pyspark>=3.5.0 resolves to 4.x, whose spark-connect gencode
+    # needs protobuf>=6.33 and collides with databricks-ai-search's protobuf<6
+    # cap (breaks local `dao-ai deploy --target model_serving`). See issue #211.
     "databricks-connect>=16.0.0",
 ]
 mcp = [
@@ -164,8 +166,10 @@ test = [
     "pytest-xdist>=3.6.1",
 ]
 databricks = [
-    # databricks-vectorsearch moved to main dependencies (used unconditionally).
-    "pyspark>=3.5.0",
+    # databricks-connect bundles its own protobuf-5-compatible pyspark; a
+    # standalone pyspark>=3.5.0 resolves to 4.x, whose spark-connect gencode
+    # needs protobuf>=6.33 and collides with databricks-ai-search's protobuf<6
+    # cap (breaks local `dao-ai deploy --target model_serving`). See issue #211.
     "databricks-connect>=16.0.0",
 ]
 mcp = [
