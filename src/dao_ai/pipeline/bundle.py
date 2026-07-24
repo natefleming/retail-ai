@@ -347,40 +347,40 @@ def _stage_assets(
 def _stage_code_paths(
     config: AppConfig,
     output_dir: Path,
-    overwrite: bool,
-) -> list[str]:
+) -> tuple[list[str], list[str]]:
     """Copy ``config.app.code_paths`` files into the staged bundle under ``config/``.
 
     Custom code stages next to the staged config (``config/<dest>``) so that when
     ``06_deploy_agent.py`` reloads the staged config, ``add_code_paths_to_sys_path``
     inserts the staged parent and ``create_agent``'s ``collect_code_paths`` resolves
-    against the staged config directory. Returns bundle-relative labels copied.
+    against the staged config directory.
+
+    User code is sacred: an existing file at the dest is preserved (never
+    overwritten, even in a user-managed ``-o`` dir), and a file is never copied
+    onto itself. Returns ``(copied, preserved)`` bundle-relative labels.
     """
     from dao_ai.code_paths import iter_code_path_stagings, walk_code_path_files
 
     dest_anchor = (output_dir / "config").resolve()
     copied: list[str] = []
+    preserved: list[str] = []
     for src, dest in iter_code_path_stagings(config):
         for file_src, file_dest in walk_code_path_files(src, dest):
             file_out = (dest_anchor / file_dest).resolve()
-            if file_src == file_out:
-                continue
-            if file_out.exists() and not overwrite:
+            label = _bundle_label(file_out, output_dir)
+            if file_src == file_out or file_out.exists():
+                preserved.append(label)
                 continue
             file_out.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(file_src, file_out)
-            try:
-                copied.append(str(file_out.relative_to(output_dir)))
-            except ValueError:
-                copied.append(str(file_out))
-    return copied
+            copied.append(label)
+    return copied, preserved
 
 
 def _stage_src_packages(
     config: AppConfig,
     output_dir: Path,
-    overwrite: bool,
-) -> list[str]:
+) -> tuple[list[str], list[str]]:
     """Copy colocated ``src/<pkg>`` packages into the staged bundle under ``config/src``.
 
     The ``src/`` convention: packages stage under ``config/src/<pkg>`` (next to
@@ -388,7 +388,10 @@ def _stage_src_packages(
     its ``src/`` anchor is ``config/src`` — ``collect_serving_code_paths`` passes
     each ``config/src/<pkg>`` to ``log_model`` (MLflow -> ``code/<pkg>``) and
     ``prepend_src_to_sys_path`` puts ``config/src`` on ``sys.path``, both yielding
-    ``<pkg>.mod``. Returns bundle-relative labels copied.
+    ``<pkg>.mod``.
+
+    User code is sacred (see :func:`_stage_code_paths`). Returns
+    ``(copied, preserved)`` bundle-relative labels.
     """
     from dao_ai.code_paths import (
         _SRC_DIRNAME,
@@ -398,22 +401,28 @@ def _stage_src_packages(
 
     dest_anchor = (output_dir / "config").resolve()
     copied: list[str] = []
+    preserved: list[str] = []
     for pkg_dir in discover_src_packages(config):
         for file_src, file_dest in walk_code_path_files(
             pkg_dir, f"{_SRC_DIRNAME}/{pkg_dir.name}"
         ):
             file_out = (dest_anchor / file_dest).resolve()
-            if file_src == file_out:
-                continue
-            if file_out.exists() and not overwrite:
+            label = _bundle_label(file_out, output_dir)
+            if file_src == file_out or file_out.exists():
+                preserved.append(label)
                 continue
             file_out.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(file_src, file_out)
-            try:
-                copied.append(str(file_out.relative_to(output_dir)))
-            except ValueError:
-                copied.append(str(file_out))
-    return copied
+            copied.append(label)
+    return copied, preserved
+
+
+def _bundle_label(file_out: Path, output_dir: Path) -> str:
+    """Bundle-relative label for the staging summary (best-effort)."""
+    try:
+        return str(file_out.relative_to(output_dir))
+    except ValueError:
+        return str(file_out)
 
 
 def write_pipeline_bundle(
@@ -453,6 +462,8 @@ def write_pipeline_bundle(
     output_dir.mkdir(parents=True, exist_ok=True)
 
     written: list[str] = []
+    # User code (src/ + code_paths + source config) left untouched.
+    preserved_user_code: list[str] = []
 
     # Packaged/derived artifacts (databricks.yaml, requirements.txt, notebooks)
     # are ALWAYS regenerated — they are 100% derived from the installed wheel and
@@ -481,15 +492,19 @@ def write_pipeline_bundle(
     #    `../config` discovery and an explicit config-path both resolve. Prefer
     #    the rendered YAML (${param.NAME} substituted, parameters: block
     #    stripped) so the deployed job needs no --var arguments.
-    source_config: str | None = getattr(config, "_source_config_path", None)
+    source_config: str | None = config._source_config_path
     config_filename = Path(source_config).name if source_config else "dao_ai.yaml"
     config_dir = output_dir / "config"
     config_dir.mkdir(parents=True, exist_ok=True)
     config_dest = config_dir / config_filename
-    if config_dest.exists() and not overwrite:
+    if source_config and config_dest.resolve() == Path(source_config).resolve():
+        # Never write over the user's ORIGINAL config in place (would strip
+        # their parameters: block). Belt-and-suspenders behind the CLI guard.
+        preserved_user_code.append(f"config/{config_filename}")
+    elif config_dest.exists() and not overwrite:
         logger.info(f"Skipping {config_filename} (exists; use --overwrite)")
     else:
-        rendered: str | None = getattr(config, "_rendered_yaml", None)
+        rendered: str | None = config._rendered_yaml
         if rendered is not None:
             config_dest.write_text(_strip_parameters_block(rendered))
         elif source_config:
@@ -559,14 +574,21 @@ def write_pipeline_bundle(
     copied, missing = _stage_assets(config, output_dir, overwrite)
     written.extend(copied)
 
-    # 6b. Custom code (app.code_paths) staged next to the config so the deploy
-    # notebook's create_agent/deploy_agent find it (Model Serving + Apps).
-    written.extend(_stage_code_paths(config, output_dir, overwrite))
-    written.extend(_stage_src_packages(config, output_dir, overwrite))
+    # 6b. Custom code (app.code_paths + colocated src/) staged next to the config
+    # so the deploy notebook's create_agent/deploy_agent find it. User code is
+    # sacred — existing files are preserved, never overwritten.
+    cp_copied, cp_preserved = _stage_code_paths(config, output_dir)
+    src_copied, src_preserved = _stage_src_packages(config, output_dir)
+    written.extend(cp_copied)
+    written.extend(src_copied)
+    preserved_user_code.extend(cp_preserved)
+    preserved_user_code.extend(src_preserved)
 
     print(f"\nPipeline bundle staged in {output_dir}/\n")
     for name in sorted(written):
         print(f"  {name}")
+    for name in sorted(preserved_user_code):
+        print(f"  {name}  (preserved — your code, not overwritten)")
     if missing:
         print(
             "\n  WARNING: the config references asset files that were not found "

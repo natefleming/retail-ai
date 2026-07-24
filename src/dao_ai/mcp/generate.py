@@ -90,13 +90,15 @@ def write_mcp_bundle(
 
     app_name = _derive_app_name(config)
     tool_name = _slugify(str(config.app.name))
-    source_config_path: str | None = getattr(config, "_source_config_path", None)
+    source_config_path: str | None = config._source_config_path
     config_filename = (
         Path(source_config_path).name if source_config_path else DEFAULT_CONFIG_FILENAME
     )
 
     written: list[str] = []
     skipped: list[str] = []
+    # User code (src/ + code_paths + source config) preserved as-is.
+    preserved: list[str] = []
 
     def _write(path: Path, content: str) -> None:
         if path.exists() and not overwrite:
@@ -188,13 +190,21 @@ def write_mcp_bundle(
     generate_bundle_lock(output_dir)
     written.append("uv.lock")
 
-    rendered: str | None = getattr(config, "_rendered_yaml", None)
-    if rendered is not None:
-        _write(output_dir / config_filename, _strip_parameters_block(rendered))
-    elif source_config_path is not None:
-        _write(output_dir / config_filename, Path(source_config_path).read_text())
+    config_dest = output_dir / config_filename
+    if source_config_path is not None and (
+        config_dest.resolve() == Path(source_config_path).resolve()
+    ):
+        # Never write over the user's ORIGINAL config in place (would strip
+        # their parameters: block). Belt-and-suspenders behind the CLI guard.
+        preserved.append(config_filename)
     else:
-        logger.warning("mcp.generate.no_source_config — skipping config copy")
+        rendered: str | None = getattr(config, "_rendered_yaml", None)
+        if rendered is not None:
+            _write(config_dest, _strip_parameters_block(rendered))
+        elif source_config_path is not None:
+            _write(config_dest, Path(source_config_path).read_text())
+        else:
+            logger.warning("mcp.generate.no_source_config — skipping config copy")
 
     # Copy the config's custom code (app.code_paths) next to the config so it is
     # importable at runtime (bundle root is the app CWD; add_code_paths_to_sys_path
@@ -209,7 +219,9 @@ def write_mcp_bundle(
     for src, code_dest in iter_code_path_stagings(config):
         for file_src, file_dest in walk_code_path_files(src, code_dest):
             out = output_dir / file_dest
-            if out.exists():
+            # User code is sacred: never overwrite; never copy onto itself.
+            if file_src.resolve() == out.resolve() or out.exists():
+                preserved.append(file_dest)
                 continue
             out.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(file_src, out)
@@ -222,7 +234,8 @@ def write_mcp_bundle(
             pkg_dir, f"{_SRC_DIRNAME}/{pkg_dir.name}"
         ):
             out = output_dir / file_dest
-            if out.exists():
+            if file_src.resolve() == out.resolve() or out.exists():
+                preserved.append(file_dest)
                 continue
             out.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(file_src, out)
@@ -238,6 +251,8 @@ def write_mcp_bundle(
         print(f"  {name:<32s} (created)")
     for name in skipped:
         print(f"  {name:<32s} (skipped — re-run with --overwrite to overwrite)")
+    for name in preserved:
+        print(f"  {name:<32s} (preserved — your code, not overwritten)")
 
     print(f"\nMCP tool exposed: {tool_name}")
     print("\nNext steps:")

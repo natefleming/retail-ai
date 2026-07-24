@@ -733,6 +733,9 @@ def write_bundle(
     app_name: str = config.app.name.lower().replace("_", "-")
     written: list[str] = []
     skipped: list[str] = []
+    # User code (src/ + code_paths + source config) that already existed at the
+    # dest and was left untouched — never overwritten, even with --overwrite.
+    preserved: list[str] = []
 
     # Warn loudly when the bundle is being built without `trace_location`:
     # Databricks Apps containers cannot reach the artifact-storage host the
@@ -761,7 +764,7 @@ def write_bundle(
         else:
             skipped.append(path.name)
 
-    source_config: str | None = getattr(config, "_source_config_path", None)
+    source_config: str | None = config._source_config_path
     config_filename: str = Path(source_config).name if source_config else "dao_ai.yaml"
 
     # The chat UI (e2e-chatbot-app-next) is cloned and built at runtime
@@ -787,7 +790,12 @@ def write_bundle(
 
     if source_config:
         dest = output_dir / config_filename
-        if dest.exists() and not overwrite:
+        # Never write over the user's ORIGINAL config (would strip their
+        # parameters: block irreversibly). Belt-and-suspenders behind the
+        # overlap hard-error in the CLI.
+        if dest.resolve() == Path(source_config).resolve():
+            preserved.append(config_filename)
+        elif dest.exists() and not overwrite:
             print(
                 f"  WARNING: Skipping {config_filename} (exists; use --overwrite)"
             )
@@ -832,6 +840,11 @@ def write_bundle(
             # via the rendered absolute path in the deployed config.
             rel = Path("skills") / src_dir.name
         dest = output_dir / rel
+        # In-place (output overlaps the skill source): never rmtree the user's
+        # own skills dir. Belt-and-suspenders behind the overlap hard-error.
+        if dest.resolve() == src_dir.resolve():
+            preserved.append(str(rel))
+            continue
         if dest.exists() and not overwrite:
             logger.info(
                 "Skipping skill directory copy (exists; use --overwrite)",
@@ -861,8 +874,13 @@ def write_bundle(
     for src, code_dest in iter_code_path_stagings(config):
         for file_src, file_dest in walk_code_path_files(src, code_dest):
             out = output_dir / file_dest
-            if out.exists() and not overwrite:
-                skipped.append(file_dest)
+            # User code is sacred: never overwrite it (even with --overwrite),
+            # and never copy a file onto itself when output overlaps the source.
+            if file_src.resolve() == out.resolve():
+                preserved.append(file_dest)
+                continue
+            if out.exists():
+                preserved.append(file_dest)
                 continue
             out.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(file_src, out)
@@ -876,8 +894,11 @@ def write_bundle(
             pkg_dir, f"{_SRC_DIRNAME}/{pkg_dir.name}"
         ):
             out = output_dir / file_dest
-            if out.exists() and not overwrite:
-                skipped.append(file_dest)
+            if file_src.resolve() == out.resolve():
+                preserved.append(file_dest)
+                continue
+            if out.exists():
+                preserved.append(file_dest)
                 continue
             out.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(file_src, out)
@@ -986,10 +1007,13 @@ def write_bundle(
         )
 
         # Create stub package for user's custom code additions. Must exist
-        # before locking so uv can build the local project.
+        # before locking so uv can build the local project. Only scaffold when
+        # ABSENT — never overwrite an existing __init__.py (the user may have a
+        # real src/<app_name> package, copied by the src/ loop above), even with
+        # --overwrite; clobbering it with an empty file would destroy their code.
         stub_dir = output_dir / "src" / package_name
         stub_init = stub_dir / "__init__.py"
-        if not stub_init.exists() or overwrite:
+        if not stub_init.exists():
             stub_dir.mkdir(parents=True, exist_ok=True)
             stub_init.write_text("")
             logger.info(f"Created stub package src/{package_name}/")
@@ -1014,10 +1038,12 @@ def write_bundle(
         )
 
         # Create stub package so the wheel builds and users can add custom code.
-        # Must exist before locking so uv can build the local project.
+        # Only scaffold when ABSENT — never overwrite an existing __init__.py
+        # (the user may have a real src/<app_name> package, copied above), even
+        # with --overwrite; clobbering it with an empty file destroys their code.
         stub_dir = output_dir / "src" / package_name
         stub_init = stub_dir / "__init__.py"
-        if not stub_init.exists() or overwrite:
+        if not stub_init.exists():
             stub_dir.mkdir(parents=True, exist_ok=True)
             stub_init.write_text("")
             logger.info(f"Created stub package src/{package_name}/")
@@ -1041,9 +1067,14 @@ def write_bundle(
         print(f"  {name:<20s} (created)")
     for name in skipped:
         print(f"  {name:<20s} (skipped, already exists)")
+    for name in preserved:
+        print(f"  {name:<20s} (preserved — your code, not overwritten)")
 
     if skipped:
-        print("\n  Re-run with --overwrite to overwrite existing files.")
+        print(
+            "\n  Re-run with --overwrite to overwrite generated scaffold "
+            "(your src/, code_paths, and config are always preserved)."
+        )
 
     print("\nNext steps:")
     print(f"  cd {output_dir}")
