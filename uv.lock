@@ -988,7 +988,6 @@ all = [
 databricks = [
     { name = "databricks-connect", version = "16.1.7", source = { registry = "https://files.pythonhosted.org/simple/" }, marker = "python_full_version < '3.12'" },
     { name = "databricks-connect", version = "17.0.10", source = { registry = "https://files.pythonhosted.org/simple/" }, marker = "python_full_version >= '3.12'" },
-    { name = "pyspark" },
 ]
 deepagents = [
     { name = "deepagents" },
@@ -1049,7 +1048,6 @@ all = [
 databricks = [
     { name = "databricks-connect", version = "16.1.7", source = { registry = "https://files.pythonhosted.org/simple/" }, marker = "python_full_version < '3.12'" },
     { name = "databricks-connect", version = "17.0.10", source = { registry = "https://files.pythonhosted.org/simple/" }, marker = "python_full_version >= '3.12'" },
-    { name = "pyspark" },
 ]
 deepagents = [
     { name = "deepagents" },
@@ -1122,7 +1120,6 @@ requires-dist = [
     { name = "pre-commit", marker = "extra == 'dev'", specifier = ">=4.5.1" },
     { name = "psycopg", extras = ["binary", "pool"], specifier = ">=3.3.2" },
     { name = "pydantic", specifier = ">=2.12.5" },
-    { name = "pyspark", marker = "extra == 'databricks'", specifier = ">=3.5.0" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=9.0.2" },
     { name = "pytest", marker = "extra == 'test'", specifier = ">=9.0.2" },
     { name = "pytest-cov", marker = "extra == 'test'", specifier = ">=7.0.0" },
@@ -1156,10 +1153,7 @@ all = [
     { name = "pytest-xdist", specifier = ">=3.6.1" },
     { name = "ruff", specifier = ">=0.14.9" },
 ]
-databricks = [
-    { name = "databricks-connect", specifier = ">=16.0.0" },
-    { name = "pyspark", specifier = ">=3.5.0" },
-]
+databricks = [{ name = "databricks-connect", specifier = ">=16.0.0" }]
 deepagents = [{ name = "deepagents", specifier = ">=0.5.7" }]
 dev = [
     { name = "mypy", specifier = ">=1.19.1" },
@@ -4898,16 +4892,6 @@ sdist = { url = "https://files.pythonhosted.org/packages/f3/91/9c6ee907786a473bf
 wheels = [
     { url = "https://files.pythonhosted.org/packages/10/bd/c038d7cc38edc1aa5bf91ab8068b63d4308c66c4c8bb3cbba7dfbc049f9c/pyparsing-3.3.2-py3-none-any.whl", hash = "sha256:850ba148bd908d7e2411587e247a1e4f0327839c40e2e5e6d05a007ecc69911d", upload-time = "2026-01-21T03:57:55.912Z" },
 ]
-
-[[package]]
-name = "pyspark"
-version = "4.1.2"
-source = { registry = "https://files.pythonhosted.org/simple/" }
-dependencies = [
-    { name = "py4j", version = "0.10.9.7", source = { registry = "https://files.pythonhosted.org/simple/" }, marker = "python_full_version < '3.12'" },
-    { name = "py4j", version = "0.10.9.9", source = { registry = "https://files.pythonhosted.org/simple/" }, marker = "python_full_version >= '3.12'" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/5e/71/4dd20c69332a2a4bf7ece8a655c9da98e4bd9b6bcea235349c1a00399d57/pyspark-4.1.2.tar.gz", hash = "sha256:fa5d6159f700d0990a07f4f62df1b7449401dccee9cd7d5d6df8957530841602", upload-time = "2026-05-21T14:49:21.785Z" }
 
 [[package]]
 name = "pytest"
