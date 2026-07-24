@@ -53,6 +53,37 @@ def _write_config(tmp_path: Path, code_paths: list[str]) -> AppConfig:
     return AppConfig.from_file(str(tmp_path / "cfg.yaml"))
 
 
+_CONFIG_NO_CODE_PATHS = textwrap.dedent(
+    """
+    schemas:
+      s: &s
+        catalog_name: cat
+        schema_name: sch
+    resources:
+      models:
+        m: &m
+          name: databricks-claude-sonnet-5
+    agents:
+      a: &a
+        name: agent_one
+        model: *m
+        prompt: hi
+    app:
+      name: test_app
+      registered_model:
+        schema: *s
+        name: test_model
+      agents:
+      - *a
+    """
+)
+
+
+def _write_config_no_code_paths(tmp_path: Path) -> AppConfig:
+    (tmp_path / "cfg.yaml").write_text(_CONFIG_NO_CODE_PATHS)
+    return AppConfig.from_file(str(tmp_path / "cfg.yaml"))
+
+
 class TestResolveCodePath:
     def test_config_relative_resolves_against_config_dir(self, tmp_path: Path) -> None:
         (tmp_path / "tools").mkdir()
@@ -223,3 +254,82 @@ class TestCodePathSyncGlobs:
         abs_file.write_text("x = 1\n")
         config = _write_config(tmp_path, [str(abs_file)])
         assert cp.code_path_sync_globs(config) == ["code/**"]
+
+
+class TestDiscoverSrcPackages:
+    def test_discovers_top_level_packages(self, tmp_path: Path) -> None:
+        (tmp_path / "src" / "foo").mkdir(parents=True)
+        (tmp_path / "src" / "baz").mkdir()
+        (tmp_path / "src" / "foo" / "bar.py").write_text("x = 1\n")  # namespace pkg
+        (tmp_path / "src" / "baz" / "__init__.py").write_text("")   # regular pkg
+        config = _write_config_no_code_paths(tmp_path)
+
+        names = [p.name for p in cp.discover_src_packages(config)]
+        assert names == ["baz", "foo"]  # sorted
+
+    def test_absent_src_returns_empty(self, tmp_path: Path) -> None:
+        config = _write_config_no_code_paths(tmp_path)
+        assert cp.discover_src_packages(config) == []
+
+    def test_empty_src_returns_empty(self, tmp_path: Path) -> None:
+        (tmp_path / "src").mkdir()
+        config = _write_config_no_code_paths(tmp_path)
+        assert cp.discover_src_packages(config) == []
+
+    def test_skips_loose_files_pycache_egginfo(self, tmp_path: Path) -> None:
+        (tmp_path / "src" / "foo").mkdir(parents=True)
+        (tmp_path / "src" / "foo" / "__init__.py").write_text("")
+        (tmp_path / "src" / "loose.py").write_text("x = 1\n")  # loose file → ignored
+        (tmp_path / "src" / "__pycache__").mkdir()
+        (tmp_path / "src" / "pkg.egg-info").mkdir()
+        config = _write_config_no_code_paths(tmp_path)
+
+        assert [p.name for p in cp.discover_src_packages(config)] == ["foo"]
+
+
+class TestCollectServingCodePaths:
+    def test_unions_code_paths_and_src(self, tmp_path: Path) -> None:
+        (tmp_path / "tools").mkdir()
+        (tmp_path / "tools" / "t.py").write_text("x = 1\n")
+        (tmp_path / "src" / "foo").mkdir(parents=True)
+        (tmp_path / "src" / "foo" / "bar.py").write_text("x = 1\n")
+        config = _write_config(tmp_path, ["tools/t.py"])
+
+        names = sorted(Path(p).name for p in cp.collect_serving_code_paths(config))
+        assert names == ["foo", "t.py"]
+
+    def test_dedupes_code_path_pointing_into_src(self, tmp_path: Path) -> None:
+        # A code_paths entry that IS a src package must not be shipped twice.
+        (tmp_path / "src" / "foo").mkdir(parents=True)
+        (tmp_path / "src" / "foo" / "bar.py").write_text("x = 1\n")
+        config = _write_config(tmp_path, ["src/foo"])
+
+        resolved = cp.collect_serving_code_paths(config)
+        assert len(resolved) == 1
+        assert Path(resolved[0]).name == "foo"
+
+
+class TestPrependSrcToSysPath:
+    def test_puts_src_on_path_import_prefix_free(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        (tmp_path / "src" / "cpkg").mkdir(parents=True)
+        (tmp_path / "src" / "cpkg" / "mod.py").write_text("VALUE = 'src-ok'\n")
+        config = _write_config_no_code_paths(tmp_path)
+
+        other = tmp_path / "elsewhere"
+        other.mkdir()
+        monkeypatch.chdir(other)
+
+        import importlib
+        import sys as _sys
+
+        _sys.modules.pop("cpkg", None)
+        _sys.modules.pop("cpkg.mod", None)
+        cp.prepend_src_to_sys_path(config)
+        # FQN is prefix-free: cpkg.mod, NOT src.cpkg.mod
+        assert importlib.import_module("cpkg.mod").VALUE == "src-ok"
+
+    def test_noop_when_src_absent(self, tmp_path: Path) -> None:
+        config = _write_config_no_code_paths(tmp_path)
+        cp.prepend_src_to_sys_path(config)  # must not raise

@@ -31,6 +31,7 @@ import yaml
 
 if TYPE_CHECKING:
     from a2a.types import SecurityScheme
+
     from dao_ai.audit import LakebaseAuditSink
     from dao_ai.genie.cache.context_aware.optimization import (
         ContextAwareCacheEvalDataset,
@@ -38,6 +39,8 @@ if TYPE_CHECKING:
     )
     from dao_ai.state import Context
 
+from databricks.ai_search.client import VectorSearchClient
+from databricks.ai_search.index import VectorSearchIndex
 from databricks.sdk import WorkspaceClient
 from databricks.sdk.credentials_provider import (
     CredentialsStrategy,
@@ -48,8 +51,6 @@ from databricks.sdk.service.apps import App
 from databricks.sdk.service.catalog import FunctionInfo, TableInfo
 from databricks.sdk.service.dashboards import GenieListSpacesResponse, GenieSpace
 from databricks.sdk.service.sql import GetWarehouseResponse
-from databricks.ai_search.client import VectorSearchClient
-from databricks.ai_search.index import VectorSearchIndex
 from databricks_langchain import (
     ChatDatabricks,
     DatabricksEmbeddings,
@@ -9254,9 +9255,8 @@ class A2AModel(BaseModel):
         from dao_ai._extras import require_extra
 
         require_extra("a2a", feature="A2A security schemes")
-        from pydantic import TypeAdapter
-
         from a2a.types import SecurityScheme
+        from pydantic import TypeAdapter
 
         # TypeAdapter validates both raw dicts and already-constructed
         # SecurityScheme instances against the discriminated union.
@@ -10888,9 +10888,16 @@ class AppConfig(BaseModel):
         # consumer that loads a config from a file — the deploy notebook's
         # ``display_graph``/``create_agent``, the Apps runtime, and any tool
         # resolution via ``load_function`` — regardless of the process CWD.
-        from dao_ai.code_paths import prepend_code_paths_to_sys_path
+        from dao_ai.code_paths import (
+            prepend_code_paths_to_sys_path,
+            prepend_src_to_sys_path,
+        )
 
         prepend_code_paths_to_sys_path(config)
+        # Convention: a colocated ``src/`` dir auto-ships its packages; put it on
+        # sys.path so ``src/foo/bar.py`` imports as ``foo.bar`` for every consumer
+        # (deploy notebook display_graph/create_agent, Apps runtime, load_function).
+        prepend_src_to_sys_path(config)
         # Stash the pre-substitution dict so tooling can recover which
         # YAML fields were backed by ``${var.X}`` references.
         config._raw_yaml_dict = raw_dict

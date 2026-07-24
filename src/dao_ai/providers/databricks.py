@@ -11,6 +11,8 @@ import sqlparse
 import yaml
 from databricks import agents
 from databricks.agents import PermissionLevel, set_permissions
+from databricks.ai_search.client import VectorSearchClient
+from databricks.ai_search.index import VectorSearchIndex
 from databricks.sdk import WorkspaceClient
 from databricks.sdk.errors.platform import (
     BadRequest,
@@ -32,8 +34,6 @@ from databricks.sdk.service.catalog import (
 from databricks.sdk.service.iam import User
 from databricks.sdk.service.serving import EndpointStateConfigUpdate
 from databricks.sdk.service.workspace import GetSecretResponse, ImportFormat
-from databricks.ai_search.client import VectorSearchClient
-from databricks.ai_search.index import VectorSearchIndex
 from loguru import logger
 from mlflow import MlflowClient
 from mlflow.entities import Experiment
@@ -1133,15 +1133,15 @@ class DatabricksProvider(ServiceProvider):
             user_api_scopes=list(auth_policy.user_auth_policy.api_scopes),
         )
 
-        # Resolve config.app.code_paths against the config directory (with a
-        # legacy CWD fallback), fail-loud on a missing entry. Shared with the
-        # Apps/pipeline/generate-* paths via dao_ai.code_paths. ``from_file``
-        # already put resolved code_paths on ``sys.path`` (best-effort); this is
-        # the deploy-time guard that fails loud if any entry is missing before
-        # log_model ships an unimportable model.
-        from dao_ai.code_paths import collect_code_paths
+        # Resolve the model's custom code: explicit ``config.app.code_paths``
+        # (out-of-tree, fail-loud on a missing entry) UNION the colocated ``src/``
+        # packages (the zero-config convention), deduped. Each is passed to
+        # ``log_model(code_paths=...)`` so MLflow copies it to ``code/<pkg>`` and
+        # it imports prefix-free (``src/foo`` -> ``foo.bar``). ``from_file`` already
+        # put these on ``sys.path`` (best-effort) for the in-process validation load.
+        from dao_ai.code_paths import collect_serving_code_paths
 
-        code_paths: list[str] = collect_code_paths(config)
+        code_paths: list[str] = collect_serving_code_paths(config)
 
         model_root_path: Path = Path(dao_ai.__file__).parent
         model_path: Path = model_root_path / "apps" / "model_serving.py"
@@ -1647,12 +1647,7 @@ class DatabricksProvider(ServiceProvider):
         runtime. Directories are walked file-by-file (``workspace.upload`` has no
         recursive form); parent workspace dirs are created as needed.
         """
-        import io
-
-        from dao_ai.code_paths import (
-            iter_code_path_stagings,
-            walk_code_path_files,
-        )
+        from dao_ai.code_paths import iter_code_path_stagings
 
         stagings = iter_code_path_stagings(config)
         if not stagings:
@@ -1660,26 +1655,65 @@ class DatabricksProvider(ServiceProvider):
 
         uploaded = 0
         for src, dest in stagings:
-            for file_src, file_dest in walk_code_path_files(src, dest):
-                ws_path = f"{source_path}/{file_dest}"
-                parent = ws_path.rsplit("/", 1)[0]
-                try:
-                    self.w.workspace.mkdirs(parent)
-                except Exception as e:  # noqa: BLE001
-                    logger.debug(f"code_paths parent dir may exist: {e}")
-                with open(file_src, "rb") as f:
-                    self.w.workspace.upload(
-                        path=ws_path,
-                        content=io.BytesIO(f.read()),
-                        format=ImportFormat.AUTO,
-                        overwrite=True,
-                    )
-                uploaded += 1
+            uploaded += self._upload_dir_files(src, dest, source_path)
         logger.info(
             "Uploaded custom code (app.code_paths) to app source",
             file_count=uploaded,
             source_path=source_path,
         )
+
+    def _upload_src_packages(self, config: AppConfig, source_path: str) -> None:
+        """Upload colocated ``src/<pkg>`` packages under ``<source_path>/src``.
+
+        The ``src/`` convention: every top-level package under the config's
+        ``src/`` is uploaded so the app's ``uv sync`` (with the generated
+        ``packages=["src"]`` pyproject) builds it into the app wheel — importing
+        prefix-free (``src/foo`` -> ``foo.bar``). No config declaration needed.
+        """
+        from dao_ai.code_paths import _SRC_DIRNAME, discover_src_packages
+
+        uploaded = 0
+        for pkg_dir in discover_src_packages(config):
+            uploaded += self._upload_dir_files(
+                pkg_dir, f"{_SRC_DIRNAME}/{pkg_dir.name}", source_path
+            )
+        if uploaded:
+            logger.info(
+                "Uploaded src/ packages to app source",
+                file_count=uploaded,
+                source_path=source_path,
+            )
+
+    def _upload_dir_files(
+        self, src: "Path", dest: str, source_path: str
+    ) -> int:
+        """Upload one staging pair's files under ``source_path`` (workspace).
+
+        ``workspace.upload`` has no recursive form, so directories are walked
+        file-by-file with parent workspace dirs created as needed. Returns the
+        number of files uploaded.
+        """
+        import io
+
+        from dao_ai.code_paths import walk_code_path_files
+
+        count = 0
+        for file_src, file_dest in walk_code_path_files(src, dest):
+            ws_path = f"{source_path}/{file_dest}"
+            parent = ws_path.rsplit("/", 1)[0]
+            try:
+                self.w.workspace.mkdirs(parent)
+            except Exception as e:  # noqa: BLE001
+                logger.debug(f"workspace parent dir may exist: {e}")
+            with open(file_src, "rb") as f:
+                self.w.workspace.upload(
+                    path=ws_path,
+                    content=io.BytesIO(f.read()),
+                    format=ImportFormat.AUTO,
+                    overwrite=True,
+                )
+            count += 1
+        return count
 
     def deploy_apps_agent(
         self, config: AppConfig, development: bool | None = None
@@ -1855,6 +1889,10 @@ class DatabricksProvider(ServiceProvider):
         # entry's parent onto sys.path. Same declaration used by Model Serving
         # (log_model code_paths) and the bundle generators.
         self._upload_code_paths(config, source_path)
+
+        # Upload colocated src/<pkg> packages (the zero-config convention) so the
+        # app's uv sync (packages=["src"]) builds them into the app wheel.
+        self._upload_src_packages(config, source_path)
 
         # Determine install command based on dev vs published mode.
         # Respect config.app.enable_chat_proxy (default True) so the deployed

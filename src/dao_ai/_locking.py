@@ -114,12 +114,20 @@ def render_portable_lock(pyproject_content: str, wheel_path: Path | None = None)
     with tempfile.TemporaryDirectory() as tmp:
         tmp_dir = Path(tmp)
         (tmp_dir / "pyproject.toml").write_text(pyproject_content)
-        # Stub package so uv can build the local project (packages = ["src/..."]).
+        # Stub package so uv can build the local project during locking. dao-ai
+        # templates use ``packages = ["src"]`` (auto-discover every package under
+        # ``src/``); older bundles used ``packages = ["src/<pkg>"]``. Either way
+        # hatch needs at least one package present under ``src/`` — create a stub.
         import re
 
-        match = re.search(r'packages\s*=\s*\["src/([^"]+)"\]', pyproject_content)
-        if match:
-            pkg_dir = tmp_dir / "src" / match.group(1)
+        legacy = re.search(r'packages\s*=\s*\["src/([^"]+)"\]', pyproject_content)
+        if legacy:
+            pkg_dir = tmp_dir / "src" / legacy.group(1)
+        elif re.search(r'packages\s*=\s*\["src"\]', pyproject_content):
+            pkg_dir = tmp_dir / "src" / "_daoai_lockstub"
+        else:
+            pkg_dir = None
+        if pkg_dir is not None:
             pkg_dir.mkdir(parents=True, exist_ok=True)
             (pkg_dir / "__init__.py").write_text("")
         if wheel_path is not None:
