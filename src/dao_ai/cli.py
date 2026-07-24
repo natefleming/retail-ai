@@ -2351,6 +2351,23 @@ def handle_version_command(options: Namespace) -> None:
             print(f"    {dep}: not installed")
 
 
+def _reauth_command(error: Exception, profile: Optional[str]) -> str:
+    """Return the copy-pasteable ``databricks auth login`` command to fix auth.
+
+    The Databricks SDK auth error embeds a reauth hint like
+    ``$ databricks auth login --profile DEFAULT`` inside a wall of config dump.
+    Extract just that command so ``doctor`` can print a single actionable line.
+    Falls back to a command for the requested/DEFAULT profile if the SDK message
+    doesn't include one.
+    """
+    import re
+
+    match = re.search(r"databricks auth login[^\n.]*", str(error))
+    if match:
+        return match.group(0).strip()
+    return f"databricks auth login --profile {profile or 'DEFAULT'}"
+
+
 def handle_doctor_command(options: Namespace) -> None:
     """Display the resolved Databricks environment and connection details.
 
@@ -2378,8 +2395,7 @@ def handle_doctor_command(options: Namespace) -> None:
             print(f"  Auth Type:          {w.config.auth_type}")
     except Exception as e:
         print("  Authenticated:      no")
-        print(f"  Reason:             could not resolve config ({type(e).__name__})")
-        print(f"  Detail:             {e}")
+        print(f"  To authenticate:    {_reauth_command(e, options.profile)}")
         return
 
     try:
@@ -2387,8 +2403,7 @@ def handle_doctor_command(options: Namespace) -> None:
         print("  Authenticated:      yes")
     except Exception as e:
         print("  Authenticated:      no")
-        print(f"  Reason:             {type(e).__name__}")
-        print(f"  Detail:             {e}")
+        print(f"  To authenticate:    {_reauth_command(e, options.profile)}")
 
 
 def setup_logging(verbosity: int) -> None:
