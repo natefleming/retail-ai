@@ -403,6 +403,7 @@ Examples:
         help="Show the resolved Databricks environment and connection details",
         description="Resolve and display the Databricks host, profile, and auth type. May make network calls or fail when no credentials are configured.",
     )
+    _add_profile_argument(_doctor_parser)
 
     # Schema command
     _: ArgumentParser = subparsers.add_parser(
@@ -2356,23 +2357,38 @@ def handle_doctor_command(options: Namespace) -> None:
     Unlike ``version``, this command resolves Databricks auth and may make
     network calls, prompt, or fail when no credentials are configured.
     """
-    host = os.environ.get("DATABRICKS_HOST")
-    profile = os.environ.get("DATABRICKS_CONFIG_PROFILE")
-    print("Databricks environment:")
-    if profile:
-        print(f"  Databricks Profile: {profile}")
-    if host:
-        print(f"  Databricks Host:    {host}")
-    else:
-        try:
-            from databricks.sdk import WorkspaceClient
+    _apply_profile_context(options.profile)
 
-            w = WorkspaceClient()
-            print(f"  Databricks Host:    {w.config.host}")
-            if w.config.auth_type:
-                print(f"  Auth Type:          {w.config.auth_type}")
-        except Exception as e:
-            print(f"  Databricks Host:    unresolved ({type(e).__name__})")
+    from databricks.sdk import WorkspaceClient
+
+    print("Databricks environment:")
+    if options.profile:
+        print(f"  Requested Profile:  {options.profile}")
+
+    # Resolve the config (host/profile/auth type) first, then actively
+    # authenticate so we report whether the credentials actually work — not
+    # just what was configured. A resolved host with an expired token is the
+    # most common failure and looks "fine" until an SDK call is made.
+    try:
+        w = WorkspaceClient()
+        print(f"  Databricks Host:    {w.config.host}")
+        if w.config.profile:
+            print(f"  Databricks Profile: {w.config.profile}")
+        if w.config.auth_type:
+            print(f"  Auth Type:          {w.config.auth_type}")
+    except Exception as e:
+        print("  Authenticated:      no")
+        print(f"  Reason:             could not resolve config ({type(e).__name__})")
+        print(f"  Detail:             {e}")
+        return
+
+    try:
+        w.config.authenticate()
+        print("  Authenticated:      yes")
+    except Exception as e:
+        print("  Authenticated:      no")
+        print(f"  Reason:             {type(e).__name__}")
+        print(f"  Detail:             {e}")
 
 
 def setup_logging(verbosity: int) -> None:
