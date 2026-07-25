@@ -1213,3 +1213,52 @@ class TestTraceNounDispatch:
     ) -> None:
         called = self._invoke(monkeypatch, ["trace", "grant", "-c", "c.yaml"])
         assert called == {"grant": 1}
+
+
+@pytest.mark.unit
+class TestGlobalProfileVerbose:
+    """``-p/--profile`` and ``-v/--verbose`` work at both top level and subcommand level."""
+
+    def test_profile_before_subcommand(self) -> None:
+        o = parse_args(["-p", "fevm", "agent", "deploy", "-c", "c.yaml"])
+        assert o.profile == "fevm"
+
+    def test_profile_after_subcommand(self) -> None:
+        o = parse_args(["agent", "deploy", "-c", "c.yaml", "-p", "fevm"])
+        assert o.profile == "fevm"
+
+    def test_profile_subcommand_wins_when_both(self) -> None:
+        o = parse_args(["-p", "top", "agent", "deploy", "-c", "c.yaml", "-p", "sub"])
+        assert o.profile == "sub"
+
+    def test_profile_absent_defaults_none(self) -> None:
+        o = parse_args(["agent", "generate", "-c", "c.yaml"])
+        assert getattr(o, "profile", None) is None
+
+    def test_verbose_before_subcommand(self) -> None:
+        o = parse_args(["-v", "agent", "deploy", "-c", "c.yaml"])
+        assert o.verbose >= 1
+
+    def test_verbose_after_subcommand(self) -> None:
+        o = parse_args(["agent", "deploy", "-c", "c.yaml", "-vv"])
+        assert o.verbose >= 2
+
+    def test_verbose_absent_defaults_zero(self) -> None:
+        o = parse_args(["agent", "generate", "-c", "c.yaml"])
+        assert getattr(o, "verbose", 0) == 0
+
+    def test_profile_before_trace_subcommand(self) -> None:
+        o = parse_args(["-p", "fevm", "trace", "link", "-c", "c.yaml"])
+        assert o.profile == "fevm"
+
+    def test_profile_after_trace_subcommand(self) -> None:
+        o = parse_args(["trace", "link", "-c", "c.yaml", "-p", "fevm"])
+        assert o.profile == "fevm"
+
+    def test_verbose_before_workflow_subcommand(self) -> None:
+        o = parse_args(["-vv", "workflow", "generate", "-c", "c.yaml"])
+        assert o.verbose >= 2
+
+    def test_verbose_after_workflow_subcommand(self) -> None:
+        o = parse_args(["workflow", "deploy", "-c", "c.yaml", "-v"])
+        assert o.verbose >= 1

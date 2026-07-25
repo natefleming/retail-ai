@@ -218,19 +218,35 @@ def _add_var_argument(parser: ArgumentParser) -> None:
     )
 
 
-def _add_profile_argument(parser: ArgumentParser) -> None:
-    """Add the ``-p/--profile`` flag to a subparser.
+def _global_parent_parser() -> ArgumentParser:
+    """Shared parent parser carrying ``-p/--profile`` and ``-v/--verbose``.
 
-    Shared so every subcommand spells the Databricks profile flag identically.
-    Handlers must call ``_apply_profile_context(options.profile)`` before
-    constructing any WorkspaceClient so the profile is authoritative.
+    Passed via ``parents=[_global_parent_parser()]`` to BOTH the top-level
+    ``ArgumentParser`` and every subparser / nested-verb parser so that either
+    flag is accepted at any level. ``default=argparse.SUPPRESS`` prevents a
+    level that *didn't* set the flag from clobbering a value that a higher
+    (or lower) level *did* set — the last parse that actually saw the flag
+    wins (subcommand beats top-level when both are present). Callers must do
+    ``getattr(options, "profile", None)`` / ``getattr(options, "verbose", 0)``
+    since SUPPRESS means the attribute may be absent when the flag is omitted
+    everywhere.
     """
-    parser.add_argument(
+    p = ArgumentParser(add_help=False)
+    p.add_argument(
         "-p",
         "--profile",
         type=str,
-        help="The Databricks CLI profile to use for authentication.",
+        default=argparse.SUPPRESS,
+        help="The Databricks CLI profile to use (accepted at any level).",
     )
+    p.add_argument(
+        "-v",
+        "--verbose",
+        action="count",
+        default=argparse.SUPPRESS,
+        help="Increase verbosity (-v..-vvvv). Accepted at any level.",
+    )
+    return p
 
 
 def _add_bundle_action_arguments(parser: ArgumentParser) -> None:
@@ -296,7 +312,6 @@ def _add_bundle_common_args(parser: ArgumentParser, *, kind: str) -> None:
         action="store_true",
         help="Print the databricks bundle commands without executing them.",
     )
-    _add_profile_argument(parser)
     _add_var_argument(parser)
 
 
@@ -368,6 +383,7 @@ def _add_noun_verb_parsers(
     noun: str,
     generate_description: str,
     generate_epilog: str,
+    parents: list[ArgumentParser],
 ) -> None:
     """Register the generate/deploy/run/destroy verb parsers for one noun.
 
@@ -375,6 +391,8 @@ def _add_noun_verb_parsers(
     carries the source flags (+ one-shot --deploy/--run/--destroy) and inherits
     the noun's rich help; deploy/run/destroy carry only the common args. The
     workflow noun additionally gets target/cloud flags on every verb.
+    ``parents`` is forwarded to every ``add_parser`` call so the global
+    ``-p/--profile`` and ``-v/--verbose`` flags are accepted at each level.
     """
     is_workflow: bool = noun == "workflow"
 
@@ -383,6 +401,7 @@ def _add_noun_verb_parsers(
         help=f"Manage the {noun} bundle (generate | deploy | run | destroy)",
         description=generate_description,
         formatter_class=argparse.RawDescriptionHelpFormatter,
+        parents=parents,
     )
     verbs = parser.add_subparsers(dest="subcommand", required=True)
 
@@ -392,6 +411,7 @@ def _add_noun_verb_parsers(
         description=generate_description,
         epilog=generate_epilog,
         formatter_class=argparse.RawDescriptionHelpFormatter,
+        parents=parents,
     )
     _add_bundle_common_args(generate_parser, kind=noun)
     _add_bundle_source_args(generate_parser)
@@ -412,6 +432,7 @@ def _add_noun_verb_parsers(
             help=verb_help,
             description=f"{verb_help}. Acts on the staging dir written by "
             f"`dao-ai {noun} generate` (or -o); errors if nothing is staged.",
+            parents=parents,
         )
         _add_bundle_common_args(verb_parser, kind=noun)
         if is_workflow:
@@ -585,6 +606,11 @@ def _print_config_variable_error(err: ConfigVariableError) -> None:
 
 
 def parse_args(args: Sequence[str]) -> Namespace:
+    # One shared parent holds -p/--profile and -v/--verbose with SUPPRESS
+    # defaults so that a level which doesn't see the flag never overwrites
+    # a value that was written at another level.  See _global_parent_parser().
+    _GLOBAL: ArgumentParser = _global_parent_parser()
+
     parser: ArgumentParser = ArgumentParser(
         prog="dao-ai",
         description="DAO AI Agent Command Line Interface - A comprehensive tool for managing, validating, and visualizing multi-agent DAO AI systems",
@@ -600,13 +626,7 @@ Examples:
   dao-ai agent generate -c my_config.yaml --deploy --run # Generate + deploy + start the agent App
         """,
         formatter_class=argparse.RawDescriptionHelpFormatter,
-    )
-    parser.add_argument(
-        "-v",
-        "--verbose",
-        action="count",
-        default=0,
-        help="Increase verbosity level (use -v, -vv, -vvv, or -vvvv for ERROR, WARNING, INFO, DEBUG, or TRACE levels)",
+        parents=[_GLOBAL],
     )
 
     subparsers = parser.add_subparsers(
@@ -621,6 +641,7 @@ Examples:
         "version",
         help="Show dao-ai version and build metadata",
         description="Display the dao-ai version along with Python, key dependency versions, and platform details. Side-effect free: no network calls or Databricks auth resolution.",
+        parents=[_GLOBAL],
     )
 
     # Doctor command
@@ -628,8 +649,8 @@ Examples:
         "doctor",
         help="Show the resolved Databricks environment and connection details",
         description="Resolve and display the Databricks host, profile, and auth type. May make network calls or fail when no credentials are configured.",
+        parents=[_GLOBAL],
     )
-    _add_profile_argument(_doctor_parser)
 
     # Schema command
     _: ArgumentParser = subparsers.add_parser(
@@ -643,6 +664,7 @@ including agents, tools, models, orchestration patterns, and guardrails.
         """,
         epilog="Example: dao-ai schema > config_schema.json",
         formatter_class=argparse.RawDescriptionHelpFormatter,
+        parents=[_GLOBAL],
     )
 
     # Validation command
@@ -670,6 +692,7 @@ Examples:
   dao-ai validate -c config/production.yaml       # Validate specific config file
         """,
         formatter_class=argparse.RawDescriptionHelpFormatter,
+        parents=[_GLOBAL],
     )
     validation_parser.add_argument(
         "-c",
@@ -685,6 +708,7 @@ Examples:
         "trace",
         help="Manage MLflow experiments and UC trace destinations (create | link | grant)",
         formatter_class=argparse.RawDescriptionHelpFormatter,
+        parents=[_GLOBAL],
     )
     trace_verbs = trace_parser.add_subparsers(dest="subcommand", required=True)
 
@@ -709,6 +733,7 @@ Examples:
   dao-ai trace create --name /Shared/only-if-exists --no-create
         """,
         formatter_class=argparse.RawDescriptionHelpFormatter,
+        parents=[_GLOBAL],
     )
     _create_exp_ident_group = trace_create_parser.add_mutually_exclusive_group(
         required=True
@@ -729,12 +754,6 @@ Examples:
         "--no-create",
         action="store_true",
         help="With --name: fail instead of creating when the experiment is missing.",
-    )
-    trace_create_parser.add_argument(
-        "-p",
-        "--profile",
-        type=str,
-        help="Databricks profile to use for authentication.",
     )
     trace_create_parser.add_argument(
         "-o",
@@ -795,6 +814,7 @@ Notes:
     continues writing to its original UC destination forever.
         """,
         formatter_class=argparse.RawDescriptionHelpFormatter,
+        parents=[_GLOBAL],
     )
     trace_link_parser.add_argument(
         "-c",
@@ -803,12 +823,6 @@ Notes:
         required=True,
         metavar="FILE",
         help="Path to the model configuration file (must set app.trace_location).",
-    )
-    trace_link_parser.add_argument(
-        "-p",
-        "--profile",
-        type=str,
-        help="Databricks profile to use for authentication.",
     )
     trace_link_parser.add_argument(
         "--experiment-id",
@@ -871,6 +885,7 @@ Examples:
   dao-ai trace grant -c config.yaml --app-sp <uuid> -p fevm
         """,
         formatter_class=argparse.RawDescriptionHelpFormatter,
+        parents=[_GLOBAL],
     )
     trace_grant_parser.add_argument(
         "-c",
@@ -879,12 +894,6 @@ Examples:
         required=True,
         metavar="FILE",
         help="Path to the model configuration file (must set app.trace_location).",
-    )
-    trace_grant_parser.add_argument(
-        "-p",
-        "--profile",
-        type=str,
-        help="Databricks profile to use for authentication.",
     )
     trace_grant_parser.add_argument(
         "--experiment-id",
@@ -922,6 +931,7 @@ Examples:
   dao-ai graph -o workflow.png -c prod.yaml       # Generate PNG from specific config
         """,
         formatter_class=argparse.RawDescriptionHelpFormatter,
+        parents=[_GLOBAL],
     )
     graph_parser.add_argument(
         "-o",
@@ -970,6 +980,7 @@ Examples:
   dao-ai agent generate -c config/retail.yaml --mode mcp  # MCP-server bundle
   dao-ai agent deploy   -c config/retail.yaml -p fevm      # ship staged bundle
 """,
+        parents=[_GLOBAL],
     )
     _add_noun_verb_parsers(
         subparsers,
@@ -980,6 +991,7 @@ Examples:
   dao-ai workflow generate -c config/retail.yaml --deploy
   dao-ai workflow run      -c config/retail.yaml   # run staged provisioning job
 """,
+        parents=[_GLOBAL],
     )
 
     # List MCP tools command
@@ -1013,6 +1025,7 @@ Note: Schemas are displayed in a concise, readable format instead of verbose JSO
   dao-ai tools -c config/model_config.yaml --apply-filters
         """,
         formatter_class=argparse.RawDescriptionHelpFormatter,
+        parents=[_GLOBAL],
     )
     list_mcp_parser.add_argument(
         "-c",
@@ -1047,6 +1060,7 @@ Examples:
   dao-ai monitor disable -c config/model_config.yaml    # Stop all monitoring scorers
         """,
         formatter_class=argparse.RawDescriptionHelpFormatter,
+        parents=[_GLOBAL],
     )
     monitor_parser.add_argument(
         "-c",
@@ -1085,6 +1099,7 @@ Examples:
   dao-ai chat -c config/retail.yaml --custom-input store_num=123 --custom-input region=west  # Multiple custom inputs
         """,
         formatter_class=argparse.RawDescriptionHelpFormatter,
+        parents=[_GLOBAL],
     )
     chat_parser.add_argument(
         "-c",
@@ -1136,6 +1151,7 @@ Examples:
   dao-ai vars list -c config/model_config.yaml             # legacy alias
         """,
         formatter_class=argparse.RawDescriptionHelpFormatter,
+        parents=[_GLOBAL],
     )
     vars_parser.add_argument(
         "action",
@@ -1151,9 +1167,10 @@ Examples:
         help="Path to the model configuration file to inspect.",
     )
 
-    # The bundle nouns (agent/mcp/workflow) and their generate-* aliases get
-    # --param/--var and -p/--profile from `_add_bundle_common_args`, so they are
-    # NOT listed here — only the non-bundle subcommands are.
+    # Add --param/--var to the non-bundle subcommands (bundle verbs get it from
+    # _add_bundle_common_args; trace verbs add it inline above).
+    # -p/--profile and -v/--verbose are now global (from _GLOBAL parent) so
+    # they no longer need per-subcommand attachment here.
     for sub in (
         validation_parser,
         graph_parser,
@@ -1163,21 +1180,6 @@ Examples:
         vars_parser,
     ):
         _add_var_argument(sub)
-
-    # Add -p/--profile to the subcommands that touch Databricks but don't
-    # already declare it inline (trace verb parsers define their own;
-    # bundle nouns get it from _add_bundle_common_args).
-    # Without it a shell/.env DATABRICKS_* var silently wins — the hijack
-    # _apply_profile_context guards.
-    for sub in (
-        validation_parser,
-        graph_parser,
-        list_mcp_parser,
-        monitor_parser,
-        chat_parser,
-        vars_parser,
-    ):
-        _add_profile_argument(sub)
 
     # Shell completion via argcomplete (a core dep; enable in your shell — see
     # docs/cli-reference.md). Still guarded so a stripped env without argcomplete
@@ -1191,6 +1193,15 @@ Examples:
         pass
 
     options = parser.parse_args(args)
+
+    # Normalize the SUPPRESS-defaulted globals so handlers can use plain
+    # attribute access.  When neither level saw the flag, the attribute is
+    # absent from the namespace; set safe defaults here so downstream code
+    # (handlers, setup_logging, _apply_profile_context) never needs getattr.
+    if not hasattr(options, "profile"):
+        options.profile = None
+    if not hasattr(options, "verbose"):
+        options.verbose = 0
 
     # Generate a new thread_id UUID if not provided (only for chat command)
     if hasattr(options, "thread_id") and options.thread_id is None:
@@ -3369,6 +3380,7 @@ def handle_vars_command(options: Namespace) -> None:
 
 def main() -> None:
     options: argparse.Namespace = parse_args(sys.argv[1:])
+    # parse_args already normalizes profile/verbose (SUPPRESS → None/0).
     setup_logging(options.verbose)
 
     command: str = options.command
