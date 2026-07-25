@@ -1670,18 +1670,6 @@
           "description": "Python version for Model Serving deployment. Defaults to 3.12 which is supported by Databricks Model Serving. This allows deploying from environments with different Python versions (e.g., Databricks Apps with 3.11).",
           "title": "Python Version"
         },
-        "deployment_target": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/DeploymentTarget"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "description": "Default deployment target. If not specified, defaults to MODEL_SERVING. Can be overridden via CLI --target flag. Options: 'model_serving' or 'apps'."
-        },
         "trace_location": {
           "anyOf": [
             {
@@ -3729,16 +3717,6 @@
       },
       "title": "DeepAgentModel",
       "type": "object"
-    },
-    "DeploymentTarget": {
-      "description": "Target platform for agent deployment.",
-      "enum": [
-        "model_serving",
-        "apps",
-        "both"
-      ],
-      "title": "DeploymentTarget",
-      "type": "string"
     },
     "Entitlement": {
       "description": "Access control entitlements for serving endpoints and apps.",

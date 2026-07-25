@@ -1035,7 +1035,6 @@ def parameterised_config_path(tmp_path: Path) -> Path:
             app:
               name: dao_ai_test_${var.module_id}
               description: "test"
-              deployment_target: apps
               agents:
                 - *hello
             """
@@ -1336,7 +1335,6 @@ def anchored_config_path(tmp_path: Path) -> Path:
             app:
               name: dao_ai_test_${var.module_id}
               description: "test"
-              deployment_target: apps
               agents:
                 - *hello
             """
@@ -1741,3 +1739,62 @@ def test_cli_run_databricks_command_forwards_vars_to_databricks_cli(
     cmd_str = " ".join(cmd)
     assert '--var="module_id=09"' in cmd_str
     assert '--var="catalog=nfleming"' in cmd_str
+
+
+@pytest.mark.unit
+def test_appconfig_has_no_deployment_target_field():
+    from dao_ai.config import AppModel
+
+    assert "deployment_target" not in AppModel.model_fields
+
+
+@pytest.mark.unit
+def test_appconfig_no_registered_model_no_config_time_error():
+    """Removing deployment_target also removes the config-time validator that
+    raised when registered_model was absent.  The check now lives at deploy
+    time in deploy_model_serving_agent.  Constructing AppConfig with a missing
+    registered_model must not raise."""
+    import tempfile
+
+    from dao_ai.config import AppConfig
+
+    yaml_text = dedent(
+        """\
+        schemas:
+          s:
+            catalog_name: cat
+            schema_name: sch
+
+        agents:
+          hello:
+            name: hello
+            description: hello
+            model:
+              name: databricks-meta-llama-3-1-70b-instruct
+            prompt: hi
+
+        app:
+          name: no_model_app
+          description: "app without registered_model"
+          agents:
+            - name: hello
+              description: hello
+              model:
+                name: databricks-meta-llama-3-1-70b-instruct
+              prompt: hi
+        """
+    )
+
+    with tempfile.NamedTemporaryFile(
+        mode="w", suffix=".yaml", delete=False
+    ) as fh:
+        fh.write(yaml_text)
+        tmp_path = Path(fh.name)
+
+    try:
+        # Should not raise — the registered_model check moved to deploy time.
+        config = AppConfig.from_file(tmp_path, initialize=False)
+        assert config.app is not None
+        assert config.app.registered_model is None
+    finally:
+        tmp_path.unlink(missing_ok=True)

@@ -9457,11 +9457,6 @@ class AppModel(BaseModel):
         "which is supported by Databricks Model Serving. This allows deploying from "
         "environments with different Python versions (e.g., Databricks Apps with 3.11).",
     )
-    deployment_target: Optional[DeploymentTarget] = Field(
-        default=None,
-        description="Default deployment target. If not specified, defaults to MODEL_SERVING. "
-        "Can be overridden via CLI --target flag. Options: 'model_serving' or 'apps'.",
-    )
     trace_location: Optional[TraceLocationModel] = Field(
         default=None,
         description="Unity Catalog location for storing MLflow traces in OTEL-format Delta tables. "
@@ -9639,19 +9634,6 @@ class AppModel(BaseModel):
             if color[name] == WHITE:
                 visit(name, [name])
 
-        return self
-
-    @model_validator(mode="after")
-    def validate_registered_model_required_for_serving(self) -> Self:
-        """Ensure registered_model is provided when deployment target is not apps."""
-        if (
-            self.registered_model is None
-            and self.deployment_target != DeploymentTarget.APPS
-        ):
-            raise ValueError(
-                "registered_model is required when deployment_target is not 'apps'. "
-                "Either add a registered_model section or set deployment_target to 'apps'."
-            )
         return self
 
     @staticmethod
@@ -11053,14 +11035,12 @@ class AppConfig(BaseModel):
         """
         Deploy the agent to the specified target.
 
-        Target resolution follows this priority:
-        1. Explicit `target` parameter (if provided)
-        2. `app.deployment_target` from config file (if set)
-        3. Default: MODEL_SERVING
+        Target resolution: the caller supplies ``target`` (the CLI defaults it).
+        If not provided, defaults to MODEL_SERVING.
 
         Args:
-            target: The deployment target (MODEL_SERVING or APPS). If None, uses
-                config.app.deployment_target or defaults to MODEL_SERVING.
+            target: The deployment target (MODEL_SERVING, APPS, or MCP). If None,
+                defaults to MODEL_SERVING.
             w: Optional WorkspaceClient instance
             vsc: Optional VectorSearchClient instance
             pat: Optional personal access token for authentication
@@ -11073,17 +11053,9 @@ class AppConfig(BaseModel):
         from dao_ai.providers.base import ServiceProvider
         from dao_ai.providers.databricks import DatabricksProvider
 
-        # Resolve target using hybrid logic:
-        # 1. Explicit parameter takes precedence
-        # 2. Fall back to config.app.deployment_target
-        # 3. Default to MODEL_SERVING
-        resolved_target: DeploymentTarget
-        if target is not None:
-            resolved_target = target
-        elif self.app is not None and self.app.deployment_target is not None:
-            resolved_target = self.app.deployment_target
-        else:
-            resolved_target = DeploymentTarget.MODEL_SERVING
+        # Mode is a deploy-action parameter, not config: the caller supplies it
+        # (the CLI defaults it). No AppConfig fallback.
+        resolved_target: DeploymentTarget = target or DeploymentTarget.MODEL_SERVING
 
         provider: ServiceProvider = DatabricksProvider(
             w=w,
