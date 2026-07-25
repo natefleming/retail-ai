@@ -50,7 +50,6 @@ class TestCreateDeepAgentGraph:
             resources=ResourcesModel(),
             app=AppModel(
                 name="test_app",
-                deployment_target="apps",
                 agents=[AgentModel(name="main", model=LLMModel(name="x"))],
                 orchestration=OrchestrationModel(
                     deep_agent=DeepAgentModel(
@@ -70,7 +69,6 @@ class TestCreateDeepAgentGraph:
             ),
             app=AppModel(
                 name="test_app",
-                deployment_target="apps",
                 agents=[AgentModel(name="main", model=LLMModel(name="x"))],
                 orchestration=OrchestrationModel(
                     deep_agent=DeepAgentModel(
@@ -89,7 +87,6 @@ class TestCreateDeepAgentGraph:
             resources=ResourcesModel(),
             app=AppModel(
                 name="test_app",
-                deployment_target="apps",
                 agents=[AgentModel(name="main", model=LLMModel(name="x"))],
                 orchestration=OrchestrationModel(
                     deep_agent=DeepAgentModel(
@@ -120,7 +117,6 @@ class TestCreateDeepAgentGraph:
             resources=ResourcesModel(),
             app=AppModel(
                 name="test_app",
-                deployment_target="apps",
                 agents=[
                     AgentModel(name="main", model=LLMModel(name="x")),
                     researcher,
@@ -145,7 +141,6 @@ class TestCreateOrchestrationGraphDispatch:
             resources=ResourcesModel(),
             app=AppModel(
                 name="test_app",
-                deployment_target="apps",
                 agents=[AgentModel(name="main", model=LLMModel(name="x"))],
                 orchestration=OrchestrationModel(
                     deep_agent=DeepAgentModel(system_prompt="hi")

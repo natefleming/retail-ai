@@ -352,7 +352,6 @@ class TestAppResourcesIntegration:
             AppConfig,
             AppModel,
             DatabaseModel,
-            DeploymentTarget,
             LLMModel,
             ResourcesModel,
         )
@@ -372,7 +371,6 @@ class TestAppResourcesIntegration:
             agents={"a": agent},
             app=AppModel(
                 name="lakebase-test",
-                deployment_target=DeploymentTarget.APPS,
                 agents=[agent],
             ),
         )

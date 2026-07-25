@@ -861,7 +861,6 @@ app:
   # Deploy to BOTH Databricks Apps (chat UI + agent server) AND Model Serving
   # (UC-registered model). The Apps surface is the primary user path; the
   # Model Serving registration enables run-evaluation against the UC model.
-  deployment_target: both
 
   registered_model:
     schema: *retail_schema

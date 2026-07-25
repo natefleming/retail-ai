@@ -74,7 +74,6 @@ def _config_with_deep_agent(
         resources=ResourcesModel(skills=resource_skills or {}),
         app=AppModel(
             name="test_app",
-            deployment_target="apps",
             agents=[AgentModel(name="a", model=LLMModel(name="x"))],
             orchestration=OrchestrationModel(deep_agent=deep),
         ),
@@ -101,7 +100,6 @@ class TestIterDeepAgentSkills:
             agents={"a": AgentModel(name="a", model=LLMModel(name="x"))},
             app=AppModel(
                 name="test_app",
-                deployment_target="apps",
                 agents=[AgentModel(name="a", model=LLMModel(name="x"))],
                 orchestration=OrchestrationModel(),
             ),

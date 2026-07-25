@@ -54,7 +54,6 @@ def _minimal_config(*, agents: list[AgentModel] | None = None) -> AppConfig:
         resources=ResourcesModel(),
         app=AppModel(
             name="test_app",
-            deployment_target="apps",
             agents=agents,
             orchestration=OrchestrationModel(deep_agent=DeepAgentModel()),
         ),

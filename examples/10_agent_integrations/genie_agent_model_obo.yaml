@@ -41,7 +41,6 @@ app:
   description: >
     Genie Agent model with forwarded-token OBO, deployed as a Databricks App.
   log_level: INFO
-  deployment_target: apps
   agents:
   - *genie_specialist
 

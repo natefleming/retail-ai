@@ -39,9 +39,6 @@ from dao_ai.config import (
 def _app(**kwargs) -> AppModel:
     """A minimal valid AppModel (requires a name + at least one agent)."""
     kwargs.setdefault("name", "my-app")
-    # deployment_target=apps avoids the registered_model requirement; the
-    # resolver's target arg is independent of this field.
-    kwargs.setdefault("deployment_target", "apps")
     kwargs.setdefault(
         "agents",
         [AgentModel(name="ag", model=InferenceEndpointModel(name="databricks-gpt-oss-120b"))],

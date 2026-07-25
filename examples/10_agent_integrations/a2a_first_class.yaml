@@ -84,7 +84,6 @@ app:
   description: >
     Minimal example of the first-class `type: a2a` tool shape.
   log_level: INFO
-  deployment_target: apps
   agents:
   - *delegate_agent
 

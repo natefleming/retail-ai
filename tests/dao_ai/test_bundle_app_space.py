@@ -15,7 +15,6 @@ from dao_ai.config import (
     AgentModel,
     AppConfig,
     AppModel,
-    DeploymentTarget,
     InferenceEndpointModel,
 )
 
@@ -28,7 +27,6 @@ def _config(*, space: str | None = None) -> AppConfig:
         app=AppModel(
             name="dao-ai-space-test",
             description="test agent",
-            deployment_target=DeploymentTarget.APPS,
             enable_chat_proxy=False,
             agents=[
                 AgentModel(

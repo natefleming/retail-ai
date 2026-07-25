@@ -95,7 +95,6 @@ agents:
 app:
   name: dao_ai_genie_provisioning_test
   log_level: INFO
-  deployment_target: model_serving
   registered_model:
     schema: *loyalty_schema
     name: dao_ai_genie_provisioning_test

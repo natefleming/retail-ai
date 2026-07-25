@@ -78,7 +78,6 @@ app:
     with the procurement app in this directory; see README.md for
     deployment.
   log_level: INFO
-  deployment_target: apps
   agents:
     - *supplier_agent
   # ``orchestration.memory`` is omitted — this agent has no HITL, no

@@ -73,7 +73,6 @@ app:
     Minimal example of the first-class `type: app` tool shape for
     calling a Databricks App as a tool.
   log_level: INFO
-  deployment_target: apps
   agents:
   - *orchestrator
 

@@ -39,7 +39,6 @@ from dao_ai.config import (
     AppConfig,
     AppModel,
     ConnectionModel,
-    DeploymentTarget,
     FunctionModel,
     GenieRoomModel,
     IndexModel,
@@ -199,7 +198,6 @@ class TestGenerateAppResourcesPartition:
             agents={"a": agent},
             app=AppModel(
                 name="obo-test",
-                deployment_target=DeploymentTarget.APPS,
                 agents=[agent],
             ),
         )

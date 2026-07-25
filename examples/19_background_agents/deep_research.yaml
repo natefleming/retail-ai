@@ -95,7 +95,6 @@ app:
   name: background_dao
   description: "Background deep-research agent (demo of background kickoff + poll)"
   log_level: INFO
-  deployment_target: both
 
   registered_model:
     schema: *retail_schema

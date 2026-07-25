@@ -46,18 +46,13 @@ from dao_ai.state import (
 
 
 def _basic_app_config(agent_names: list[str]) -> AppConfig:
-    """Build a minimal AppConfig with the given agent names.
-
-    ``deployment_target='apps'`` lets us skip the ``registered_model`` field
-    that's otherwise required.
-    """
+    """Build a minimal AppConfig with the given agent names."""
     agents = [
         AgentModel(name=name, model=LLMModel(name="test-model")) for name in agent_names
     ]
     return AppConfig(
         app=AppModel(
             name="dao_ai_test",
-            deployment_target="apps",
             agents=agents,
             orchestration=OrchestrationModel(
                 supervisor=SupervisorModel(model=LLMModel(name="test-model"))

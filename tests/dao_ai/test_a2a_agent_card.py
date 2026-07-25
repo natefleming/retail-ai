@@ -26,7 +26,6 @@ from dao_ai.config import (
     AppConfig,
     AppModel,
     DatabaseModel,
-    DeploymentTarget,
     InferenceEndpointModel,
     ProviderModel,
 )
@@ -53,7 +52,6 @@ def _minimal_config(
         app=AppModel(
             name="dao-ai-test",
             description=description,
-            deployment_target=DeploymentTarget.APPS,
             agents=agents,
             **extra,
         ),

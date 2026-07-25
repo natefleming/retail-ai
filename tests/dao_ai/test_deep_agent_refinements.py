@@ -42,7 +42,6 @@ class TestAgentSkillsTranslation:
             resources=ResourcesModel(),
             app=AppModel(
                 name="test_app",
-                deployment_target="apps",
                 agents=[agent],
                 orchestration=OrchestrationModel(deep_agent=DeepAgentModel()),
             ),
@@ -73,7 +72,6 @@ class TestAgentSkillsTranslation:
             resources=ResourcesModel(skills={"research": skill}),
             app=AppModel(
                 name="test_app",
-                deployment_target="apps",
                 agents=[agent],
                 orchestration=OrchestrationModel(deep_agent=DeepAgentModel()),
             ),
@@ -94,7 +92,6 @@ class TestAgentSkillsTranslation:
                 resources=ResourcesModel(),
                 app=AppModel(
                     name="test_app",
-                    deployment_target="apps",
                     agents=[agent],
                 ),
             )
@@ -114,7 +111,6 @@ class TestAgentSkillsTranslation:
             resources=ResourcesModel(),
             app=AppModel(
                 name="test_app",
-                deployment_target="apps",
                 agents=[agent],
                 orchestration=OrchestrationModel(deep_agent=DeepAgentModel()),
             ),
@@ -133,7 +129,6 @@ class TestAgentSkillsTranslation:
             resources=ResourcesModel(),
             app=AppModel(
                 name="test_app",
-                deployment_target="apps",
                 agents=[agent],
                 orchestration=OrchestrationModel(deep_agent=DeepAgentModel()),
             ),
@@ -144,7 +139,6 @@ class TestAgentSkillsTranslation:
             resources=ResourcesModel(),
             app=AppModel(
                 name="test_app",
-                deployment_target="apps",
                 agents=[agent],
                 orchestration=OrchestrationModel(deep_agent=DeepAgentModel()),
             ),
@@ -220,7 +214,6 @@ class TestImplicitSubagents:
             resources=ResourcesModel(),
             app=AppModel(
                 name="test_app",
-                deployment_target="apps",
                 agents=[],
                 orchestration=OrchestrationModel(
                     deep_agent=DeepAgentModel(system_prompt="hi")
@@ -234,7 +227,6 @@ class TestImplicitSubagents:
                 resources=ResourcesModel(),
                 app=AppModel(
                     name="test_app",
-                    deployment_target="apps",
                     agents=[],
                 ),
             )
@@ -256,7 +248,6 @@ class TestImplicitSubagents:
             resources=ResourcesModel(),
             app=AppModel(
                 name="test_app",
-                deployment_target="apps",
                 agents=[researcher],
                 orchestration=OrchestrationModel(
                     deep_agent=DeepAgentModel(system_prompt="plan")
@@ -297,7 +288,6 @@ class TestImplicitSubagents:
             resources=ResourcesModel(),
             app=AppModel(
                 name="test_app",
-                deployment_target="apps",
                 agents=[base],
                 orchestration=OrchestrationModel(
                     deep_agent=DeepAgentModel(subagents=[override])

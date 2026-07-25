@@ -109,7 +109,6 @@ def test_from_file_stamps_base_path_on_models(tmp_path):
         "    prompt: You are concise.\n"
         "app:\n"
         "  name: hw_app\n"
-        "  deployment_target: apps\n"
         "  agents:\n"
         "    - *greeter\n"
         "datasets:\n"

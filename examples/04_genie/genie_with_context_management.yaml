@@ -76,7 +76,6 @@ app:
   name: genie_context_managed
   description: "Sales & pricing analytics agent for sporting goods with summarization and context management"
   log_level: DEBUG
-  deployment_target: apps
   agents:
   - *genie_agent
 

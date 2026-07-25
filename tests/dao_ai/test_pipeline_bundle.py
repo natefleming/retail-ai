@@ -48,7 +48,6 @@ agents:
     prompt: You are a concise assistant.
 app:
   name: pipeline_test_app
-  deployment_target: apps
   agents:
     - *greeter
 """
@@ -316,7 +315,6 @@ class TestWritePipelineBundle:
         "    prompt: You are a concise assistant.\n"
         "app:\n"
         "  name: hw_app\n"
-        "  deployment_target: apps\n"
         "  agents:\n"
         "    - *greeter\n"
         "datasets:\n"
@@ -362,7 +360,6 @@ class TestWritePipelineBundle:
         "    prompt: You are a concise assistant.\n"
         "app:\n"
         "  name: cp_app\n"
-        "  deployment_target: apps\n"
         "  code_paths:\n"
         "    - tools/custom_tool.py\n"
         "  agents:\n"
