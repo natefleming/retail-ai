@@ -680,9 +680,17 @@ Examples:
         help="Path to the model configuration file to validate (default: ./config/model_config.yaml)",
     )
 
-    # Create-experiment command
-    create_experiment_parser: ArgumentParser = subparsers.add_parser(
-        "create-experiment",
+    # Trace noun: `dao-ai trace <create|link|grant>`
+    trace_parser: ArgumentParser = subparsers.add_parser(
+        "trace",
+        help="Manage MLflow experiments and UC trace destinations (create | link | grant)",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    trace_verbs = trace_parser.add_subparsers(dest="subcommand", required=True)
+
+    # trace create (was: create-experiment)
+    trace_create_parser: ArgumentParser = trace_verbs.add_parser(
+        "create",
         help="Create (or look up) an MLflow experiment and print its id",
         description="""
 Provision or resolve an MLflow experiment on Databricks and print the
@@ -695,14 +703,14 @@ to verify an existing experiment. Exactly one of the two is required.
         """,
         epilog="""
 Examples:
-  dao-ai create-experiment --name /Shared/rcg/hardware_store_traces
-  dao-ai create-experiment --name /Shared/team/agent -p fevm
-  dao-ai create-experiment --id 1952423719449237 --output json
-  dao-ai create-experiment --name /Shared/only-if-exists --no-create
+  dao-ai trace create --name /Shared/rcg/hardware_store_traces
+  dao-ai trace create --name /Shared/team/agent -p fevm
+  dao-ai trace create --id 1952423719449237 --output json
+  dao-ai trace create --name /Shared/only-if-exists --no-create
         """,
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    _create_exp_ident_group = create_experiment_parser.add_mutually_exclusive_group(
+    _create_exp_ident_group = trace_create_parser.add_mutually_exclusive_group(
         required=True
     )
     _create_exp_ident_group.add_argument(
@@ -717,18 +725,18 @@ Examples:
         metavar="ID",
         help="Numeric experiment id. Fetched (not created).",
     )
-    create_experiment_parser.add_argument(
+    trace_create_parser.add_argument(
         "--no-create",
         action="store_true",
         help="With --name: fail instead of creating when the experiment is missing.",
     )
-    create_experiment_parser.add_argument(
+    trace_create_parser.add_argument(
         "-p",
         "--profile",
         type=str,
         help="Databricks profile to use for authentication.",
     )
-    create_experiment_parser.add_argument(
+    trace_create_parser.add_argument(
         "-o",
         "--output",
         choices=["text", "json"],
@@ -736,9 +744,9 @@ Examples:
         help="Output format (default: text).",
     )
 
-    # Link-trace-destination command
-    link_trace_parser: ArgumentParser = subparsers.add_parser(
-        "link-trace-destination",
+    # trace link (was: link-trace-destination)
+    trace_link_parser: ArgumentParser = trace_verbs.add_parser(
+        "link",
         help="Link an MLflow experiment to its UC trace destination",
         description="""
 Link an MLflow experiment to the Unity Catalog trace destination
@@ -763,11 +771,11 @@ No-op when ``config.app.trace_location`` is not set.
 Examples:
   # Typical bundle flow — insert between deploy and run
   databricks bundle deploy --target dev -p fevm
-  dao-ai link-trace-destination -c config.yaml -p fevm
+  dao-ai trace link -c config.yaml -p fevm
   databricks bundle run my-app --target dev -p fevm
 
   # Explicit experiment id
-  dao-ai link-trace-destination -c config.yaml --experiment-id 1234567890 -p fevm
+  dao-ai trace link -c config.yaml --experiment-id 1234567890 -p fevm
 
 Notes:
   * Restart the app after linking. MLflow's tracer provider is
@@ -788,7 +796,7 @@ Notes:
         """,
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    link_trace_parser.add_argument(
+    trace_link_parser.add_argument(
         "-c",
         "--config",
         type=str,
@@ -796,19 +804,19 @@ Notes:
         metavar="FILE",
         help="Path to the model configuration file (must set app.trace_location).",
     )
-    link_trace_parser.add_argument(
+    trace_link_parser.add_argument(
         "-p",
         "--profile",
         type=str,
         help="Databricks profile to use for authentication.",
     )
-    link_trace_parser.add_argument(
+    trace_link_parser.add_argument(
         "--experiment-id",
         type=str,
         metavar="ID",
         help="Explicit experiment id (skips resolution from config/bundle name).",
     )
-    link_trace_parser.add_argument(
+    trace_link_parser.add_argument(
         "--app-sp",
         type=str,
         metavar="CLIENT_ID",
@@ -821,11 +829,11 @@ Notes:
             "entirely (admin-provisioned scenarios)."
         ),
     )
-    _add_var_argument(link_trace_parser)
+    _add_var_argument(trace_link_parser)
 
-    # Grant trace permissions command
-    grant_trace_parser: ArgumentParser = subparsers.add_parser(
-        "grant-trace-permissions",
+    # trace grant (was: grant-trace-permissions)
+    trace_grant_parser: ArgumentParser = trace_verbs.add_parser(
+        "grant",
         help="Grant an App SP the experiment + UC OTEL table permissions MLflow tracing needs.",
         description="""
 Grant the experiment ``CAN_EDIT`` ACL and the UC OTEL trace-table
@@ -836,14 +844,14 @@ experiment's OTEL Delta tables.
 Standalone counterpart to the grant step that ``dao-ai deploy`` / ``dao-ai
 pipeline`` runs automatically inside ``deploy_app_agent`` /
 ``deploy_model_serving_agent``. Useful for the ``generate-agent`` + ``bundle
-deploy`` + ``link-trace-destination`` flow (where no full deploy fires),
+deploy`` + ``dao-ai trace link`` flow (where no full deploy fires),
 or for retroactively fixing grants when an app was deployed by an
 identity that lacked GRANT rights.
 
 Idempotent — repeated calls with the same principal + privileges no-op
 on the workspace side.
 
-Experiment resolution order matches ``link-trace-destination``:
+Experiment resolution order matches ``dao-ai trace link``:
   1. ``--experiment-id`` flag
   2. ``config.app.experiment.resolved_id`` if ``experiment:`` is set
   3. Bundle-declared name lookup (``/Users/<current-user>/<app-name>``)
@@ -857,14 +865,14 @@ No-op when ``config.app.trace_location`` is not set.
         epilog="""
 Examples:
   # Retroactively grant an already-deployed App its trace-write permissions
-  dao-ai grant-trace-permissions -c config.yaml -p fevm
+  dao-ai trace grant -c config.yaml -p fevm
 
   # Grant a specific SP explicitly (e.g. shared workload identity)
-  dao-ai grant-trace-permissions -c config.yaml --app-sp <uuid> -p fevm
+  dao-ai trace grant -c config.yaml --app-sp <uuid> -p fevm
         """,
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    grant_trace_parser.add_argument(
+    trace_grant_parser.add_argument(
         "-c",
         "--config",
         type=str,
@@ -872,19 +880,19 @@ Examples:
         metavar="FILE",
         help="Path to the model configuration file (must set app.trace_location).",
     )
-    grant_trace_parser.add_argument(
+    trace_grant_parser.add_argument(
         "-p",
         "--profile",
         type=str,
         help="Databricks profile to use for authentication.",
     )
-    grant_trace_parser.add_argument(
+    trace_grant_parser.add_argument(
         "--experiment-id",
         type=str,
         metavar="ID",
         help="Explicit experiment id (skips resolution from config/bundle name).",
     )
-    grant_trace_parser.add_argument(
+    trace_grant_parser.add_argument(
         "--app-sp",
         type=str,
         metavar="CLIENT_ID",
@@ -893,7 +901,7 @@ Examples:
             "auto-resolved via ``apps.get(config.app.name)``."
         ),
     )
-    _add_var_argument(grant_trace_parser)
+    _add_var_argument(trace_grant_parser)
 
     # Graph command
     graph_parser: ArgumentParser = subparsers.add_parser(
@@ -1157,8 +1165,8 @@ Examples:
         _add_var_argument(sub)
 
     # Add -p/--profile to the subcommands that touch Databricks but don't
-    # already declare it inline (create-experiment/link-trace/grant-trace
-    # define their own; bundle nouns get it from _add_bundle_common_args).
+    # already declare it inline (trace verb parsers define their own;
+    # bundle nouns get it from _add_bundle_common_args).
     # Without it a shell/.env DATABRICKS_* var silently wins — the hijack
     # _apply_profile_context guards.
     for sub in (
@@ -1547,6 +1555,17 @@ def handle_chat_command(options: Namespace) -> None:
 def handle_schema_command(options: Namespace) -> None:
     logger.debug("Generating JSON schema...")
     print(json.dumps(AppConfig.model_json_schema(), indent=2))
+
+
+def handle_trace_command(options: Namespace) -> None:
+    """Dispatch ``dao-ai trace <create|link|grant>``."""
+    match options.subcommand:
+        case "create":
+            handle_create_experiment_command(options)
+        case "link":
+            handle_link_trace_destination_command(options)
+        case "grant":
+            handle_grant_trace_permissions_command(options)
 
 
 def handle_create_experiment_command(options: Namespace) -> None:
@@ -3352,12 +3371,8 @@ def main() -> None:
             handle_doctor_command(options)
         case "schema":
             handle_schema_command(options)
-        case "create-experiment":
-            handle_create_experiment_command(options)
-        case "link-trace-destination":
-            handle_link_trace_destination_command(options)
-        case "grant-trace-permissions":
-            handle_grant_trace_permissions_command(options)
+        case "trace":
+            handle_trace_command(options)
         case "validate":
             handle_validate_command(options)
         case "graph":

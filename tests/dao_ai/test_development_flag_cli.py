@@ -1066,3 +1066,125 @@ class TestDeployAutoGenerate:
         assert (
             resolve_calls == []
         ), "in-place deploy path must NOT call _resolve_all_resources"
+
+
+@pytest.mark.unit
+class TestTraceNoun:
+    """``dao-ai trace create|link|grant`` is the new surface; old flat names are gone."""
+
+    def test_trace_create_parses(self) -> None:
+        o = parse_args(["trace", "create", "--name", "/Shared/my-exp"])
+        assert o.command == "trace"
+        assert o.subcommand == "create"
+        assert o.name == "/Shared/my-exp"
+
+    def test_trace_create_id_flag(self) -> None:
+        o = parse_args(["trace", "create", "--id", "1234"])
+        assert o.command == "trace"
+        assert o.subcommand == "create"
+        assert o.id == "1234"
+
+    def test_trace_create_output_default(self) -> None:
+        o = parse_args(["trace", "create", "--name", "/foo"])
+        assert o.output == "text"
+
+    def test_trace_create_output_json(self) -> None:
+        o = parse_args(["trace", "create", "--name", "/foo", "-o", "json"])
+        assert o.output == "json"
+
+    def test_trace_create_no_create_flag(self) -> None:
+        o = parse_args(["trace", "create", "--name", "/foo", "--no-create"])
+        assert o.no_create is True
+
+    def test_trace_link_parses(self) -> None:
+        o = parse_args(["trace", "link", "-c", "config.yaml"])
+        assert o.command == "trace"
+        assert o.subcommand == "link"
+        assert o.config == "config.yaml"
+
+    def test_trace_link_optional_flags(self) -> None:
+        o = parse_args(
+            ["trace", "link", "-c", "c.yaml", "--experiment-id", "9999", "--app-sp", "uuid-1"]
+        )
+        assert o.experiment_id == "9999"
+        assert o.app_sp == "uuid-1"
+
+    def test_trace_grant_parses(self) -> None:
+        o = parse_args(["trace", "grant", "-c", "config.yaml"])
+        assert o.command == "trace"
+        assert o.subcommand == "grant"
+        assert o.config == "config.yaml"
+
+    def test_trace_grant_optional_flags(self) -> None:
+        o = parse_args(
+            ["trace", "grant", "-c", "c.yaml", "--experiment-id", "8888", "--app-sp", "uuid-2"]
+        )
+        assert o.experiment_id == "8888"
+        assert o.app_sp == "uuid-2"
+
+    @pytest.mark.parametrize(
+        "old",
+        ["create-experiment", "link-trace-destination", "grant-trace-permissions"],
+    )
+    def test_old_flat_names_rejected(self, old: str) -> None:
+        with pytest.raises(SystemExit):
+            parse_args([old])
+
+    def test_bare_trace_requires_verb(self) -> None:
+        with pytest.raises(SystemExit):
+            parse_args(["trace"])
+
+    def test_trace_link_var_flag(self) -> None:
+        o = parse_args(["trace", "link", "-c", "c.yaml", "--var", "k=v"])
+        assert o.var == ["k=v"]
+
+    def test_trace_grant_var_flag(self) -> None:
+        o = parse_args(["trace", "grant", "-c", "c.yaml", "--var", "k=v"])
+        assert o.var == ["k=v"]
+
+
+@pytest.mark.unit
+class TestTraceNounDispatch:
+    """main() routes ``trace <verb>`` to the correct handler via handle_trace_command."""
+
+    def _invoke(
+        self, monkeypatch: pytest.MonkeyPatch, argv: list[str]
+    ) -> dict[str, int]:
+        called: dict[str, int] = {}
+        monkeypatch.setattr(
+            cli,
+            "handle_create_experiment_command",
+            lambda o: called.update(create=called.get("create", 0) + 1),
+        )
+        monkeypatch.setattr(
+            cli,
+            "handle_link_trace_destination_command",
+            lambda o: called.update(link=called.get("link", 0) + 1),
+        )
+        monkeypatch.setattr(
+            cli,
+            "handle_grant_trace_permissions_command",
+            lambda o: called.update(grant=called.get("grant", 0) + 1),
+        )
+        monkeypatch.setattr(cli, "setup_logging", lambda v: None)
+        monkeypatch.setattr("sys.argv", ["dao-ai"] + argv)
+        cli.main()
+        return called
+
+    def test_trace_create_routes_to_create_handler(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        called = self._invoke(monkeypatch, ["trace", "create", "--name", "/foo"])
+        assert called == {"create": 1}
+
+    def test_trace_link_routes_to_link_handler(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        called = self._invoke(monkeypatch, ["trace", "link", "-c", "c.yaml"])
+        assert called == {"link": 1}
+
+    def test_trace_grant_routes_to_grant_handler(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        called = self._invoke(monkeypatch, ["trace", "grant", "-c", "c.yaml"])
+        assert called == {"grant": 1}
