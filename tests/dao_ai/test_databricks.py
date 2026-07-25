@@ -903,6 +903,49 @@ def test_deploy_agent_routes_to_apps_when_specified():
 
 
 @pytest.mark.unit
+def test_deploy_agent_routes_mcp(monkeypatch):
+    """deploy_agent routes target=MCP to deploy_mcp_agent."""
+    from dao_ai.config import DeploymentTarget
+    from dao_ai.providers.databricks import DatabricksProvider
+
+    p = DatabricksProvider.__new__(DatabricksProvider)  # no __init__ / no WorkspaceClient
+    calls = []
+    monkeypatch.setattr(p, "deploy_model_serving_agent", lambda c: calls.append("ms"), raising=False)
+    monkeypatch.setattr(p, "deploy_apps_agent", lambda c, development=None: calls.append("apps"), raising=False)
+    monkeypatch.setattr(p, "deploy_mcp_agent", lambda c, development=None: calls.append("mcp"), raising=False)
+    p.deploy_agent(config=object(), target=DeploymentTarget.MCP)
+    assert calls == ["mcp"]
+
+
+@pytest.mark.unit
+def test_deploy_mcp_agent_command_and_extras(monkeypatch):
+    """deploy_mcp_agent forwards the MCP command, mcp extras, and chat-UI off."""
+    import dao_ai._extras as _extras
+    from dao_ai.providers.databricks import DatabricksProvider
+
+    monkeypatch.setattr(_extras, "resolve_required_extras_or_all", lambda config, target="mcp": set())
+
+    p = DatabricksProvider.__new__(DatabricksProvider)
+    captured = {}
+
+    def _fake_deploy_app(config, *, app_command, extras, include_chat_ui, development):
+        captured.update(app_command=app_command, extras=extras, include_chat_ui=include_chat_ui)
+
+    monkeypatch.setattr(p, "_deploy_app", _fake_deploy_app, raising=False)
+
+    class _App:
+        enable_chat_proxy = None
+
+    class _Cfg:
+        app = _App()
+
+    p.deploy_mcp_agent(_Cfg())
+    assert captured["app_command"] == ["python", "-m", "dao_ai.mcp.server"]
+    assert "mcp" in captured["extras"]
+    assert captured["include_chat_ui"] is False
+
+
+@pytest.mark.unit
 def test_deploy_apps_agent_creates_new_app():
     """Test that deploy_apps_agent creates a new app when it doesn't exist."""
     from unittest.mock import MagicMock, patch
