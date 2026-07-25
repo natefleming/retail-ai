@@ -441,6 +441,15 @@ def _add_noun_verb_parsers(
                 action="store_true",
                 help="After deploying, run `databricks bundle run <app>`.",
             )
+            verb_parser.add_argument(
+                "--direct",
+                action="store_true",
+                default=False,
+                help=(
+                    "Deploy via the SDK directly (no DAB bundle on disk) — fast "
+                    "iteration escape hatch for --mode apps|mcp."
+                ),
+            )
 
 
 def _validate_bundle_action_flags(options: Namespace) -> None:
@@ -3138,6 +3147,35 @@ def _load_app_config(options: Namespace, *, what: str) -> AppConfig:
     return config
 
 
+def _stage_app_bundle(
+    config: AppConfig,
+    bundle_dir: Path,
+    *,
+    is_default_dir: bool,
+    writer: Callable[..., None],
+    development: bool,
+    overwrite: bool,
+    noun: str,
+) -> None:
+    """Write bundle files to *bundle_dir* (clean → write → marker).
+
+    This is the staging-only half of :func:`_generate_app_bundle`.  It does NOT
+    run any bundle actions (deploy/run/destroy); callers that want actions invoke
+    :func:`_run_bundle_actions` themselves.  Extracted so the ``deploy``
+    auto-generate path can stage without risking recursion through
+    ``_run_bundle_actions``.
+    """
+    logger.debug(f"Staging {noun} bundle to {bundle_dir}...")
+    # Regenerate the owned default dir from scratch so a prior --development run
+    # can't leave stale dist/ + dev pyproject that a published rebuild mixes in.
+    # Refuses to wipe a default dir that carries hand-edits unless --overwrite.
+    _clean_default_staging_dir(
+        bundle_dir, is_default=is_default_dir, overwrite=overwrite, noun=noun
+    )
+    writer(config, bundle_dir, overwrite=overwrite, development=development)
+    _write_staging_marker(bundle_dir, is_default=is_default_dir)
+
+
 def _generate_app_bundle(options: Namespace, *, kind: str, writer, what: str) -> None:
     """Generate an App bundle (agent or mcp), then run any one-shot actions.
 
@@ -3159,15 +3197,15 @@ def _generate_app_bundle(options: Namespace, *, kind: str, writer, what: str) ->
     config._resolve_all_resources()
 
     bundle_dir, is_default_dir = _resolve_bundle_dir(kind, config, options.output_dir)
-    # Regenerate the owned default dir from scratch so a prior --development run
-    # can't leave stale dist/ + dev pyproject that a published rebuild mixes in.
-    # Refuses to wipe a default dir that carries hand-edits unless --overwrite.
-    _clean_default_staging_dir(
-        bundle_dir, is_default=is_default_dir, overwrite=options.overwrite, noun=kind
+    _stage_app_bundle(
+        config,
+        bundle_dir,
+        is_default_dir=is_default_dir,
+        writer=writer,
+        development=development,
+        overwrite=options.overwrite,
+        noun=kind,
     )
-
-    writer(config, bundle_dir, overwrite=options.overwrite, development=development)
-    _write_staging_marker(bundle_dir, is_default=is_default_dir)
 
     _run_bundle_actions(options, config, bundle_dir, options.profile)
 
@@ -3175,24 +3213,77 @@ def _generate_app_bundle(options: Namespace, *, kind: str, writer, what: str) ->
 def _deploy_run_destroy_app_bundle(
     options: Namespace, *, kind: str, deploy: bool, run: bool, destroy: bool
 ) -> None:
-    """Deploy/run/destroy an ALREADY-STAGED App bundle without regenerating.
+    """Deploy/run/destroy an App bundle, auto-generating when ``deploy=True`` and unstaged.
 
-    Resolves the same staging dir that ``<noun> generate`` writes, errors with
-    guidance if nothing is staged there, then drives :func:`deploy_app_bundle`.
-    For a run-only invocation, best-effort verifies the app is deployed and
-    points at ``<noun> deploy --run`` instead of leaking a raw bundle error.
+    Routing (deploy-only):
+
+    1. ``--mode model_serving``: call ``config.deploy_agent(target=MODEL_SERVING)``
+       and return — Model Serving has no DAB bundle.
+    2. ``--direct``: call ``config.deploy_agent(target=DeploymentTarget(mode))``
+       (SDK path; no bundle on disk). ``--direct`` + ``--mode model_serving`` is
+       redundant — treated identically to plain model_serving deploy (no error).
+    3. Bundle path: if ``databricks.yaml`` is absent AND ``deploy=True``, auto-stage
+       via :func:`_stage_app_bundle` (CDK/SAM norm), then deploy. If already staged,
+       deploy in-place (preserves hand-edits). ``run`` / ``destroy`` still error when
+       unstaged — you can't run or destroy something never staged.
     """
-    what = "a bundle" if kind == "agent" else "an MCP bundle"
-    config: AppConfig = _load_app_config(options, what=what)
-    bundle_dir, _ = _resolve_bundle_dir(kind, config, options.output_dir)
+    from dao_ai.utils import resolve_use_local_source
+
+    what: str = "a bundle" if kind == "agent" else "an MCP bundle"
+    mode: str = getattr(options, "mode", "apps") or "apps"
+    direct: bool = getattr(options, "direct", False)
+
+    # --- Route 1: model_serving (always SDK, never a bundle) ---
+    if deploy and mode == "model_serving":
+        from dao_ai.config import DeploymentTarget
+
+        config: AppConfig = _load_app_config(options, what=what)
+        development: bool = resolve_use_local_source(getattr(options, "development", None))
+        config.deploy_agent(target=DeploymentTarget.MODEL_SERVING, development=development)
+        return
+
+    # --- Route 2: --direct (SDK path for apps/mcp; model_serving is a no-op alias) ---
+    if deploy and direct:
+        from dao_ai.config import DeploymentTarget
+
+        config = _load_app_config(options, what=what)
+        development = resolve_use_local_source(getattr(options, "development", None))
+        config.deploy_agent(
+            target=DeploymentTarget(mode),
+            development=development,
+        )
+        return
+
+    # --- Route 3: bundle path ---
+    config = _load_app_config(options, what=what)
+    bundle_dir, is_default_dir = _resolve_bundle_dir(kind, config, options.output_dir)
 
     if not (bundle_dir / "databricks.yaml").exists():
-        logger.error(
-            f"No staged {kind} bundle at {bundle_dir}. "
-            f"Run `dao-ai {kind} generate -c {options.config}"
-            f"{f' -o {options.output_dir}' if options.output_dir else ''}` first."
-        )
-        sys.exit(1)
+        if deploy:
+            # Auto-generate (CDK/SAM norm): stage the bundle, then fall through
+            # to deploy_app_bundle below.  run/destroy still error — nothing to
+            # run or destroy if the bundle was never staged.
+            logger.info(
+                f"No staged {kind} bundle at {bundle_dir}; auto-generating before deploy."
+            )
+            writer: Callable[..., None] = _mode_writer(mode)
+            development = resolve_use_local_source(getattr(options, "development", None))
+            _stage_app_bundle(
+                config,
+                bundle_dir,
+                is_default_dir=is_default_dir,
+                writer=writer,
+                development=development,
+                overwrite=getattr(options, "overwrite", False),
+                noun=kind,
+            )
+        else:
+            logger.error(
+                f"No staged {kind} bundle at {bundle_dir}. "
+                f"Run `dao-ai {kind} generate -c {options.config}"
+                f"{f' -o {options.output_dir}' if options.output_dir else ''}` first."
+            )
+            sys.exit(1)
 
     dry_run: bool = options.dry_run
     if run and not deploy and not destroy and not dry_run:

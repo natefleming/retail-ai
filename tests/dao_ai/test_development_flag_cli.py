@@ -806,3 +806,151 @@ class TestNounVerbDispatch:
         with pytest.raises(SystemExit) as exc:
             cli.handle_agent_command(opts)
         assert exc.value.code == 1
+
+
+_MINIMAL_CONFIG_NO_TARGET = (
+    "resources:\n  models:\n    m: &m\n      name: databricks-gpt-5-4-mini\n"
+    "agents:\n  g: &g\n    name: g\n    description: d\n    model: *m\n"
+    "    prompt: p\n"
+    "app:\n  name: my_app\n  agents:\n    - *g\n"
+)
+
+
+@pytest.mark.unit
+class TestDeployAutoGenerate:
+    """Task 6: deploy auto-generates when unstaged; --direct; model_serving routing."""
+
+    def _write_cfg(self, tmp_path: Path) -> Path:
+        cfg = tmp_path / "c.yaml"
+        cfg.write_text(_MINIMAL_CONFIG_NO_TARGET)
+        return cfg
+
+    def test_deploy_autogenerates_when_unstaged(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """`agent deploy` on an empty dir stages first, then deploys the bundle."""
+        cfg = self._write_cfg(tmp_path)
+        out = tmp_path / "out"  # does NOT pre-exist with databricks.yaml
+
+        wrote: dict[str, bool] = {}
+
+        def fake_writer(config: object, bundle_dir: object, **kw: object) -> None:
+            wrote["called"] = True
+            # Create databricks.yaml so deploy_app_bundle finds it staged.
+            import pathlib
+
+            pathlib.Path(str(bundle_dir)).mkdir(parents=True, exist_ok=True)
+            (pathlib.Path(str(bundle_dir)) / "databricks.yaml").write_text("bundle: {}\n")
+
+        monkeypatch.setattr(cli, "_apply_profile_context", lambda p: None)
+        monkeypatch.setattr(
+            "dao_ai.apps.bundle.write_bundle",
+            fake_writer,
+        )
+        with patch.object(cli, "deploy_app_bundle") as dep:
+            opts = parse_args(["agent", "deploy", "-c", str(cfg), "-o", str(out)])
+            cli.handle_agent_command(opts)
+
+        assert wrote.get("called"), "writer must be called to auto-generate the bundle"
+        dep.assert_called_once()
+
+    def test_deploy_in_place_when_staged(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """`agent deploy` on an already-staged dir deploys in-place without regenerating."""
+        cfg = self._write_cfg(tmp_path)
+        out = tmp_path / "staged"
+        out.mkdir()
+        (out / "databricks.yaml").write_text("bundle: {}\n")
+        (out / "sentinel").write_text("keep\n")
+
+        wrote: dict[str, bool] = {}
+
+        monkeypatch.setattr(cli, "_apply_profile_context", lambda p: None)
+        monkeypatch.setattr(
+            "dao_ai.apps.bundle.write_bundle",
+            lambda *a, **k: wrote.setdefault("called", True),
+        )
+        with patch.object(cli, "deploy_app_bundle") as dep:
+            opts = parse_args(["agent", "deploy", "-c", str(cfg), "-o", str(out)])
+            cli.handle_agent_command(opts)
+
+        assert not wrote, "deploy must NOT regenerate when already staged"
+        dep.assert_called_once()
+        assert (out / "sentinel").read_text() == "keep\n"
+
+    def test_direct_flag_uses_sdk_not_bundle(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """`agent deploy --direct` calls deploy_agent (SDK path) without touching bundles."""
+        cfg = self._write_cfg(tmp_path)
+
+        deploy_agent_calls: list[dict[str, object]] = []
+
+        def fake_deploy_agent(
+            self_config: object,
+            target: object = None,
+            development: object = None,
+        ) -> None:
+            deploy_agent_calls.append({"target": target, "development": development})
+
+        monkeypatch.setattr(cli, "_apply_profile_context", lambda p: None)
+        monkeypatch.setattr(
+            "dao_ai.config.AppConfig.deploy_agent",
+            fake_deploy_agent,
+        )
+        with patch.object(cli, "deploy_app_bundle") as dep, patch.object(
+            cli, "_exec_bundle_command"
+        ) as exec_cmd:
+            opts = parse_args(["agent", "deploy", "-c", str(cfg), "--direct"])
+            cli.handle_agent_command(opts)
+
+        assert deploy_agent_calls, "--direct must call deploy_agent"
+        dep.assert_not_called()
+        exec_cmd.assert_not_called()
+
+    def test_model_serving_deploy_uses_provider_not_bundle(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """`agent deploy --mode model_serving` routes to deploy_agent, not the bundle path."""
+        cfg = self._write_cfg(tmp_path)
+
+        deploy_agent_calls: list[dict[str, object]] = []
+
+        def fake_deploy_agent(
+            self_config: object,
+            target: object = None,
+            development: object = None,
+        ) -> None:
+            deploy_agent_calls.append({"target": target, "development": development})
+
+        monkeypatch.setattr(cli, "_apply_profile_context", lambda p: None)
+        monkeypatch.setattr(
+            "dao_ai.config.AppConfig.deploy_agent",
+            fake_deploy_agent,
+        )
+        with patch.object(cli, "deploy_app_bundle") as dep:
+            opts = parse_args(["agent", "deploy", "-c", str(cfg), "--mode", "model_serving"])
+            cli.handle_agent_command(opts)
+
+        from dao_ai.config import DeploymentTarget
+
+        assert deploy_agent_calls, "--mode model_serving must call deploy_agent"
+        assert deploy_agent_calls[0]["target"] == DeploymentTarget.MODEL_SERVING
+        dep.assert_not_called()
+
+    def test_direct_flag_parses(self) -> None:
+        """`--direct` is accepted on the deploy verb."""
+        opts = parse_args(["agent", "deploy", "-c", "c.yaml", "--direct"])
+        assert opts.direct is True
+
+    def test_run_still_errors_when_unstaged(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """`agent run` on an empty dir must still error (auto-generate is deploy-only)."""
+        cfg = self._write_cfg(tmp_path)
+        monkeypatch.setattr(cli, "_apply_profile_context", lambda p: None)
+        opts = parse_args(["agent", "run", "-c", str(cfg), "-o", str(tmp_path / "nope")])
+        with pytest.raises(SystemExit) as exc:
+            cli.handle_agent_command(opts)
+        assert exc.value.code == 1
