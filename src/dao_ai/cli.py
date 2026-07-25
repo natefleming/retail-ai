@@ -335,8 +335,7 @@ def _add_workflow_target_args(parser: ArgumentParser) -> None:
 
     The workflow bundle's target is ``<app>-<cloud>`` (contrast the App
     bundle's fixed ``dev``), so deploy/run/destroy need cloud + optional target
-    overrides to address the right target; ``--deployment-target`` selects the
-    agent deploy surface passed to the provisioning notebook.
+    overrides to address the right target.
     """
     parser.add_argument(
         "-t",
@@ -349,15 +348,6 @@ def _add_workflow_target_args(parser: ArgumentParser) -> None:
         type=str,
         choices=["azure", "aws", "gcp"],
         help="Cloud provider (auto-detected from workspace URL if not specified)",
-    )
-    parser.add_argument(
-        "--deployment-target",
-        type=str,
-        choices=["model_serving", "apps", "both"],
-        default=None,
-        help="Agent deployment target: 'model_serving', 'apps', or 'both'. "
-        "If not specified, uses app.deployment_target from config file, "
-        "or defaults to 'model_serving'. Passed to the deploy notebook.",
     )
 
 
@@ -407,8 +397,8 @@ def _add_noun_verb_parsers(
     _add_bundle_source_args(generate_parser)
     if is_workflow:
         _add_workflow_target_args(generate_parser)
+        _add_mode_argument(generate_parser, choices=["apps", "mcp"])
     else:
-        # Workflow gets --mode in Task 8; agent/mcp get it here.
         _add_mode_argument(generate_parser, choices=["apps", "mcp"])
     _add_bundle_action_arguments(generate_parser)
 
@@ -426,12 +416,10 @@ def _add_noun_verb_parsers(
         _add_bundle_common_args(verb_parser, kind=noun)
         if is_workflow:
             _add_workflow_target_args(verb_parser)
+        if verb == "deploy":
+            _add_mode_argument(verb_parser, choices=["model_serving", "apps", "mcp"])
         else:
-            # Workflow gets --mode in Task 8; agent/mcp get it here.
-            if verb == "deploy":
-                _add_mode_argument(verb_parser, choices=["model_serving", "apps", "mcp"])
-            else:
-                _add_mode_argument(verb_parser, choices=["apps", "mcp"])
+            _add_mode_argument(verb_parser, choices=["apps", "mcp"])
         if verb == "deploy":
             # Forward chaining: `dao-ai <noun> deploy --run` deploys the staged
             # bundle then runs it (parity with `generate --deploy --run`).
@@ -2614,24 +2602,10 @@ def run_databricks_command(
     for key, value in (config_vars or {}).items():
         extra_vars.append(f'--var="{key}={value}"')
 
-    # Add deployment_target variable for notebooks (hybrid resolution)
-    # Priority: CLI arg > config file > default (model_serving)
-    resolved_deployment_target: str = "model_serving"
-    if deployment_target is not None:
-        resolved_deployment_target = deployment_target
-        logger.debug(
-            f"Using CLI-specified deployment target: {resolved_deployment_target}"
-        )
-    elif app_config and app_config.app and app_config.app.deployment_target:
-        # deployment_target is DeploymentTarget enum (str subclass) or string
-        # str() works for both since DeploymentTarget inherits from str
-        resolved_deployment_target = str(app_config.app.deployment_target)
-        logger.debug(
-            f"Using config file deployment target: {resolved_deployment_target}"
-        )
-    else:
-        logger.debug("Using default deployment target: model_serving")
-
+    # Add deployment_target variable for notebooks.
+    # Priority: CLI arg > default (model_serving)
+    resolved_deployment_target: str = deployment_target or "model_serving"
+    logger.debug(f"Using deployment target: {resolved_deployment_target}")
     extra_vars.append(f'--var="deployment_target={resolved_deployment_target}"')
 
     # Forward the development tri-state to the deploy notebook via a bundle var.
@@ -2887,7 +2861,7 @@ def _exec_workflow_verb(options: Namespace, command: list[str]) -> None:
         target=options.target,
         cloud=options.cloud,
         dry_run=options.dry_run,
-        deployment_target=options.deployment_target,
+        deployment_target=getattr(options, "mode", None),
         config_vars=_parse_var_args(options.var),
         output_dir=options.output_dir,
         stage=False,
@@ -2901,7 +2875,7 @@ def handle_generate_workflow_command(options: Namespace) -> None:
     target: Optional[str] = options.target
     cloud: Optional[str] = options.cloud
     dry_run: bool = options.dry_run
-    deployment_target: Optional[str] = options.deployment_target
+    deployment_target: Optional[str] = getattr(options, "mode", None)
     development: bool | None = getattr(options, "development", None)
     config_vars: dict[str, str] = _parse_var_args(options.var)
     output_dir: str | None = getattr(options, "output_dir", None)

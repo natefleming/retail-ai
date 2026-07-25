@@ -267,7 +267,7 @@ class TestPipelineEmitsDevelopmentVar:
             "resources:\n  models:\n    m: &m\n      name: databricks-gpt-5-4-mini\n"
             "agents:\n  g: &g\n    name: g\n    description: d\n    model: *m\n"
             "    prompt: p\n"
-            "app:\n  name: stage_only_app\n  deployment_target: apps\n  agents:\n    - *g\n"
+            "app:\n  name: stage_only_app\n  agents:\n    - *g\n"
         )
         staged: dict[str, object] = {}
         monkeypatch.setattr(cli, "_apply_profile_context", lambda p: None)
@@ -302,7 +302,7 @@ class TestPipelineEmitsDevelopmentVar:
             "resources:\n  models:\n    m: &m\n      name: databricks-gpt-5-4-mini\n"
             "agents:\n  g: &g\n    name: g\n    description: d\n    model: *m\n"
             "    prompt: p\n"
-            "app:\n  name: stage_only_app\n  deployment_target: apps\n  agents:\n    - *g\n"
+            "app:\n  name: stage_only_app\n  agents:\n    - *g\n"
         )
         out = tmp_path / "out"
         out.mkdir()
@@ -339,7 +339,7 @@ class TestPipelineEmitsDevelopmentVar:
             "resources:\n  models:\n    m: &m\n      name: databricks-gpt-5-4-mini\n"
             "agents:\n  g: &g\n    name: g\n    description: d\n    model: *m\n"
             "    prompt: p\n"
-            "app:\n  name: stage_only_app\n  deployment_target: apps\n  agents:\n    - *g\n"
+            "app:\n  name: stage_only_app\n  agents:\n    - *g\n"
         )
         monkeypatch.setattr(cli, "_apply_profile_context", lambda p: None)
         monkeypatch.setattr(cli, "detect_cloud_provider", lambda p: "aws")
@@ -406,6 +406,54 @@ class TestModeChoices:
 
     def test_mode_defaults_to_apps(self) -> None:
         assert parse_args(["agent", "deploy", "-c", "c.yaml"]).mode == "apps"
+
+
+@pytest.mark.unit
+class TestWorkflowModeChoices:
+    """workflow verbs must accept --mode with the same choices as agent verbs."""
+
+    def test_workflow_deploy_accepts_all_three(self) -> None:
+        for m in ("model_serving", "apps", "mcp"):
+            assert (
+                parse_args(["workflow", "deploy", "-c", "c.yaml", "--mode", m]).mode
+                == m
+            )
+
+    def test_workflow_generate_accepts_apps_and_mcp(self) -> None:
+        for m in ("apps", "mcp"):
+            assert (
+                parse_args(["workflow", "generate", "-c", "c.yaml", "--mode", m]).mode
+                == m
+            )
+
+    def test_workflow_run_accepts_apps_and_mcp(self) -> None:
+        for m in ("apps", "mcp"):
+            assert (
+                parse_args(["workflow", "run", "-c", "c.yaml", "--mode", m]).mode == m
+            )
+
+    def test_workflow_destroy_accepts_apps_and_mcp(self) -> None:
+        for m in ("apps", "mcp"):
+            assert (
+                parse_args(["workflow", "destroy", "-c", "c.yaml", "--mode", m]).mode
+                == m
+            )
+
+    def test_workflow_run_rejects_model_serving(self) -> None:
+        with pytest.raises(SystemExit):
+            parse_args(["workflow", "run", "-c", "c.yaml", "--mode", "model_serving"])
+
+    def test_workflow_destroy_rejects_model_serving(self) -> None:
+        with pytest.raises(SystemExit):
+            parse_args(
+                ["workflow", "destroy", "-c", "c.yaml", "--mode", "model_serving"]
+            )
+
+    def test_workflow_generate_rejects_model_serving(self) -> None:
+        with pytest.raises(SystemExit):
+            parse_args(
+                ["workflow", "generate", "-c", "c.yaml", "--mode", "model_serving"]
+            )
 
 
 @pytest.mark.unit
@@ -769,7 +817,7 @@ class TestNounVerbDispatch:
             "resources:\n  models:\n    m: &m\n      name: databricks-gpt-5-4-mini\n"
             "agents:\n  g: &g\n    name: g\n    description: d\n    model: *m\n"
             "    prompt: p\n"
-            "app:\n  name: my_app\n  deployment_target: apps\n  agents:\n    - *g\n"
+            "app:\n  name: my_app\n  agents:\n    - *g\n"
         )
         out = tmp_path / "staged"
         out.mkdir()
@@ -799,7 +847,7 @@ class TestNounVerbDispatch:
             "resources:\n  models:\n    m: &m\n      name: databricks-gpt-5-4-mini\n"
             "agents:\n  g: &g\n    name: g\n    description: d\n    model: *m\n"
             "    prompt: p\n"
-            "app:\n  name: my_app\n  deployment_target: apps\n  agents:\n    - *g\n"
+            "app:\n  name: my_app\n  agents:\n    - *g\n"
         )
         monkeypatch.setattr(cli, "_apply_profile_context", lambda p: None)
         opts = parse_args(

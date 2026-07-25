@@ -37,7 +37,7 @@ def find_yaml_files_os_walk(base_path: str) -> Sequence[str]:
 dbutils.widgets.text(name="config-path", defaultValue="")
 dbutils.widgets.dropdown(
     name="deployment-target",
-    choices=["", "model_serving", "apps", "both"],
+    choices=["", "model_serving", "apps", "mcp"],
     defaultValue="",
 )
 dbutils.widgets.dropdown(
@@ -133,9 +133,6 @@ deployment_target: DeploymentTarget
 if deployment_target_str:
     deployment_target = DeploymentTarget(deployment_target_str)
     print(f"Using widget-specified deployment target: {deployment_target.value}")
-elif config.app and config.app.deployment_target:
-    deployment_target = config.app.deployment_target
-    print(f"Using config file deployment target: {deployment_target.value}")
 else:
     deployment_target = DeploymentTarget.MODEL_SERVING
     print("Using default deployment target: model_serving")
@@ -147,14 +144,10 @@ config.display_graph()
 # COMMAND ----------
 
 # Only log/register the MLflow model for Model Serving deployments.
-# Apps deploy directly from the config + PyPI package.
-if deployment_target != DeploymentTarget.APPS:
+# Apps and MCP deploy directly from the config + PyPI package (no MLflow model registration).
+if deployment_target not in (DeploymentTarget.APPS, DeploymentTarget.MCP):
     config.create_agent(development=development)
 
 # COMMAND ----------
 
-if deployment_target == DeploymentTarget.BOTH:
-    config.deploy_agent(target=DeploymentTarget.MODEL_SERVING, development=development)
-    config.deploy_agent(target=DeploymentTarget.APPS, development=development)
-else:
-    config.deploy_agent(target=deployment_target, development=development)
+config.deploy_agent(target=deployment_target, development=development)

@@ -149,7 +149,7 @@ def generate_pipeline_databricks_yaml(config: AppConfig, development: bool) -> s
                 "description": "Cloud provider (azure, aws, gcp) - set per target.",
             },
             "deployment_target": {
-                "description": "Agent deployment target (model_serving, apps, both).",
+                "description": "Agent deployment target (model_serving, apps, mcp).",
                 "default": "model_serving",
             },
             "development": {
