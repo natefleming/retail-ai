@@ -475,13 +475,6 @@ def _validate_bundle_action_flags(options: Namespace) -> None:
 _BUNDLE_DIR_ENV_VAR = "DAO_AI_BUNDLE_DIR"
 _DEFAULT_BUNDLE_BASE = ".dao-ai/bundle"
 
-# Back-compat: flat `generate-<noun>` commands map to the nested `<noun>
-# generate` verb. main() rewrites options.command via this table before
-# dispatch, so the aliases share the exact generate code path.
-_ALIAS_TO_NOUN: dict[str, str] = {
-    "generate-agent": "agent",
-    "generate-workflow": "workflow",
-}
 
 
 def _default_bundle_base() -> Path:
@@ -993,75 +986,6 @@ Examples:
 """,
     )
 
-    # --- Back-compat flat aliases: `generate-<noun>` == `<noun> generate` -----
-    # Register each as its own top-level parser reusing the same generate-verb
-    # flags (argparse can't alias a flat name onto a nested subcommand). main()
-    # normalizes options.command back to (noun, "generate") before dispatch.
-    for alias, noun in _ALIAS_TO_NOUN.items():
-        alias_parser: ArgumentParser = subparsers.add_parser(
-            alias,
-            help=f"Alias for `dao-ai {noun} generate` (back-compat).",
-            description=f"Deprecated alias for `dao-ai {noun} generate`. "
-            f"Generates the {noun} bundle; supports the same flags.",
-            formatter_class=argparse.RawDescriptionHelpFormatter,
-        )
-        _add_bundle_common_args(alias_parser, kind=noun)
-        _add_bundle_source_args(alias_parser)
-        if noun == "workflow":
-            _add_workflow_target_args(alias_parser)
-        _add_bundle_action_arguments(alias_parser)
-
-    # Deploy command
-    deploy_parser: ArgumentParser = subparsers.add_parser(
-        "deploy",
-        help="Deploy configuration file syntax and semantics",
-        description="""
-Deploy the DAO AI system using the specified configuration file.
-This command validates the configuration and deploys the DAO AI agents, tools, and models to the
-        """,
-        epilog="""
-Examples:
-  dao-ai deploy                                  # Validate default ./config/model_config.yaml
-  dao-ai deploy -c config/production.yaml       # Validate specific config file
-        """,
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-    )
-    deploy_parser.add_argument(
-        "-c",
-        "--config",
-        type=str,
-        required=True,
-        metavar="FILE",
-        help="Path to the model configuration file to deploy.",
-    )
-    deploy_parser.add_argument(
-        "-t",
-        "--target",
-        type=str,
-        choices=["model_serving", "apps", "both"],
-        default=None,
-        help="Deployment target: 'model_serving', 'apps', or 'both'. "
-        "If not specified, uses app.deployment_target from config file, "
-        "or defaults to 'model_serving'.",
-    )
-    _add_profile_argument(deploy_parser)
-    deploy_parser.add_argument(
-        "--development",
-        dest="development",
-        default=None,
-        action="store_true",
-        help="Ship local dao-ai source/wheel instead of the published PyPI "
-        "package (Apps target). Rebuild the wheel first with 'uv build --wheel'. "
-        "Defaults to auto-detect from the install type.",
-    )
-    deploy_parser.add_argument(
-        "--no-development",
-        dest="development",
-        action="store_false",
-        help="Force the published PyPI dao-ai package even from a local/editable "
-        "install (Apps target).",
-    )
-
     # List MCP tools command
     list_mcp_parser: ArgumentParser = subparsers.add_parser(
         "list-mcp-tools",
@@ -1237,7 +1161,6 @@ Examples:
     for sub in (
         validation_parser,
         graph_parser,
-        deploy_parser,
         list_mcp_parser,
         monitor_parser,
         chat_parser,
@@ -1246,7 +1169,7 @@ Examples:
         _add_var_argument(sub)
 
     # Add -p/--profile to the subcommands that touch Databricks but don't
-    # already declare it inline (deploy/create-experiment/link-trace/grant-trace
+    # already declare it inline (create-experiment/link-trace/grant-trace
     # define their own; bundle nouns get it from _add_bundle_common_args).
     # Without it a shell/.env DATABRICKS_* var silently wins — the hijack
     # _apply_profile_context guards.
@@ -1960,62 +1883,6 @@ def handle_graph_command(options: Namespace) -> None:
         sys.exit(1)
     app = create_dao_ai_graph(config)
     save_image(app, options.output)
-
-
-def handle_deploy_command(options: Namespace) -> None:
-    from dao_ai.config import DeploymentTarget
-
-    # Make --profile authoritative for this process before any WorkspaceClient
-    # is constructed. Both the provider's ``self.w`` and the bare
-    # ``WorkspaceClient()`` instances in the grant helpers read
-    # ``DATABRICKS_CONFIG_PROFILE``, so this routes the whole deploy — log,
-    # register, deploy, and the SP grants — at the selected profile.
-    _apply_profile_context(options.profile)
-
-    logger.debug(f"Validating configuration from {options.config}...")
-    try:
-        try:
-            config: AppConfig = AppConfig.from_file(
-                options.config, params=_parse_var_args(options.var)
-            )
-        except ConfigVariableError as e:
-            _print_config_variable_error(e)
-            sys.exit(1)
-
-        # Hybrid target resolution:
-        # 1. CLI --target takes precedence
-        # 2. Fall back to config.app.deployment_target
-        # 3. Default to MODEL_SERVING (handled in deploy_agent)
-        target: DeploymentTarget | None = None
-        if options.target is not None:
-            target = DeploymentTarget(options.target)
-            logger.info(f"Using CLI-specified deployment target: {target.value}")
-        elif config.app is not None and config.app.deployment_target is not None:
-            target = config.app.deployment_target
-            logger.info(f"Using config file deployment target: {target.value}")
-        else:
-            logger.info("No deployment target specified, defaulting to model_serving")
-
-        # Only log/register the MLflow model for Model Serving deployments.
-        # Apps deploy directly from the config + wheel/PyPI package.
-        development: bool | None = getattr(options, "development", None)
-        if target != DeploymentTarget.APPS:
-            config.create_agent(development=development)
-        config.deploy_agent(target=target, development=development)
-
-        # Surface a link to whatever was deployed (matches the generate-*
-        # commands). `both` prints both; model_serving is the default when no
-        # target resolved. Best-effort — never fails the deploy.
-        resolved = target or DeploymentTarget.MODEL_SERVING
-        if config.app is not None:
-            if resolved in (DeploymentTarget.MODEL_SERVING, DeploymentTarget.BOTH):
-                _print_endpoint_link(config.app.endpoint_name)
-            if resolved in (DeploymentTarget.APPS, DeploymentTarget.BOTH):
-                _print_app_link(config.app.name.lower().replace("_", "-"))
-        sys.exit(0)
-    except Exception as e:
-        logger.error(f"Deployment failed: {e}")
-        sys.exit(1)
 
 
 def handle_monitor_command(options: Namespace) -> None:
@@ -3503,13 +3370,7 @@ def main() -> None:
     options: argparse.Namespace = parse_args(sys.argv[1:])
     setup_logging(options.verbose)
 
-    # Normalize the flat `generate-<noun>` aliases to the nested `<noun>
-    # generate` form so they share the exact per-noun handler code path.
     command: str = options.command
-    if command in _ALIAS_TO_NOUN:
-        options.subcommand = "generate"
-        command = _ALIAS_TO_NOUN[command]
-
     match command:
         case "version":
             handle_version_command(options)
@@ -3531,8 +3392,6 @@ def main() -> None:
             handle_agent_command(options)
         case "workflow":
             handle_workflow_command(options)
-        case "deploy":
-            handle_deploy_command(options)
         case "monitor":
             handle_monitor_command(options)
         case "chat":

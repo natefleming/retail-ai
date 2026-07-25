@@ -1668,7 +1668,7 @@ def test_cli_var_flag_appears_in_subparser_help(
     """Every config-aware subparser must surface --var in its help."""
     from dao_ai.cli import parse_args
 
-    for command in ("validate", "graph", "deploy", "monitor", "chat", "vars"):
+    for command in ("validate", "graph", "monitor", "chat", "vars"):
         with pytest.raises(SystemExit):
             # --help triggers a clean SystemExit(0) after printing.
             parse_args([command, "--help"])

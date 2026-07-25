@@ -1,11 +1,13 @@
 """Tests for the --development / --no-development tri-state across CLI commands.
 
 The flag must resolve identically on every deploy-capable command:
-``deploy``, ``<noun> generate`` (agent/mcp/workflow) and the flat
-``generate-<noun>`` aliases — ``--development`` -> True, ``--no-development`` ->
-False, omitted -> None (auto-detect). For the workflow it is additionally
-forwarded to the deploy notebook as a ``--var development=auto|true|false``
-bundle variable.
+``<noun> generate`` (agent/workflow) — ``--development`` -> True,
+``--no-development`` -> False, omitted -> None (auto-detect). For the workflow
+it is additionally forwarded to the deploy notebook as a
+``--var development=auto|true|false`` bundle variable.
+
+The removed commands ``deploy``, ``generate-agent``, ``generate-workflow``, and
+``generate-mcp`` must now be rejected by the parser.
 """
 
 from __future__ import annotations
@@ -29,12 +31,8 @@ def _base(cmd: str) -> list[str]:
 @pytest.mark.parametrize(
     "command",
     [
-        "deploy",
         "workflow generate",
         "agent generate",
-        # Flat aliases carry the same source flags.
-        "generate-workflow",
-        "generate-agent",
     ],
 )
 class TestDevelopmentTriState:
@@ -53,8 +51,8 @@ class TestDevelopmentTriState:
 
 @pytest.mark.unit
 class TestNounVerbParsing:
-    """Nested `<noun> <verb>` parses to (command=noun, subcommand=verb); the
-    flat `generate-<noun>` aliases still parse; truly-removed names are rejected.
+    """Nested `<noun> <verb>` parses to (command=noun, subcommand=verb);
+    removed top-level names are rejected by the parser.
     """
 
     @pytest.mark.parametrize("noun", ["agent", "workflow"])
@@ -69,19 +67,25 @@ class TestNounVerbParsing:
         with pytest.raises(SystemExit):
             parse_args([noun, "-c", "config.yaml"])
 
-    def test_flat_aliases_parse(self) -> None:
-        assert parse_args(_base("generate-agent")).command == "generate-agent"
-        assert parse_args(_base("generate-workflow")).command == "generate-workflow"
-
     def test_deploy_verb_accepts_run_chain(self) -> None:
         # `<noun> deploy --run` deploys then runs; run flag is on the deploy verb.
         assert parse_args(["agent", "deploy", "-c", "c.yaml", "--run"]).run is True
 
-    @pytest.mark.parametrize("old", ["generate-bundle", "pipeline"])
-    def test_old_names_rejected(self, old: str) -> None:
-        # argparse rejects an unknown subcommand with SystemExit(2).
+    @pytest.mark.parametrize(
+        "argv",
+        [
+            ["deploy", "-c", "c.yaml"],
+            ["generate-agent", "-c", "c.yaml"],
+            ["generate-mcp", "-c", "c.yaml"],
+            ["generate-workflow", "-c", "c.yaml"],
+            ["generate-bundle", "-c", "c.yaml"],
+            ["pipeline", "-c", "c.yaml"],
+        ],
+    )
+    def test_removed_commands_rejected(self, argv: list[str]) -> None:
+        # argparse rejects unknown subcommands with SystemExit(2).
         with pytest.raises(SystemExit):
-            parse_args(_base(old))
+            parse_args(argv)
 
 
 @pytest.mark.unit
@@ -738,11 +742,11 @@ class TestNounVerbDispatch:
     """main() routes nouns to per-noun handlers; aliases share the generate path;
     standalone deploy/run act on the staged dir without regenerating."""
 
-    def test_alias_equivalent_to_generate_verb(
+    def test_generate_verb_routes_to_bundle(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """`generate-agent` and `agent generate` reach _generate_app_bundle with
-        the same subcommand normalized in."""
+        """`agent generate` reaches _generate_app_bundle with the correct command
+        and subcommand."""
         seen: list[tuple[str, str]] = []
         monkeypatch.setattr(
             cli,
@@ -751,11 +755,9 @@ class TestNounVerbDispatch:
         )
         monkeypatch.setattr(cli, "setup_logging", lambda v: None)
 
-        for argv in (["agent", "generate", "-c", "c.yaml"], ["generate-agent", "-c", "c.yaml"]):
-            monkeypatch.setattr("sys.argv", ["dao-ai", *argv])
-            cli.main()
-        # Both routed to agent generate; the alias was normalized to subcommand.
-        assert seen == [("agent", "generate"), ("generate-agent", "generate")]
+        monkeypatch.setattr("sys.argv", ["dao-ai", "agent", "generate", "-c", "c.yaml"])
+        cli.main()
+        assert seen == [("agent", "generate")]
 
     def test_deploy_verb_no_regenerate(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
