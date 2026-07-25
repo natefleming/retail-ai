@@ -1302,6 +1302,17 @@ def test_deployment_target_enum_values():
     assert DeploymentTarget("apps") == DeploymentTarget.APPS
 
 
+@pytest.mark.unit
+def test_deployment_target_members():
+    from dao_ai.config import DeploymentTarget
+    assert {t.value for t in DeploymentTarget} == {"model_serving", "apps", "mcp"}
+    assert DeploymentTarget("mcp") is DeploymentTarget.MCP
+    with pytest.raises(ValueError):
+        DeploymentTarget("both")
+    with pytest.raises(AttributeError):
+        _ = DeploymentTarget.BOTH
+
+
 # =============================================================================
 # WorkspaceClient OBO with Forwarded Headers Tests
 # =============================================================================

@@ -621,16 +621,17 @@ class IsDatabricksResource(ABC, BaseModel):
 
 
 class DeploymentTarget(str, Enum):
-    """Target platform for agent deployment."""
+    """Target platform for agent deployment (a deploy-action parameter — NOT a
+    field on AppConfig)."""
 
     MODEL_SERVING = "model_serving"
-    """Deploy to Databricks Model Serving endpoint."""
+    """Deploy to a Databricks Model Serving endpoint (no DAB bundle)."""
 
     APPS = "apps"
-    """Deploy as a Databricks App."""
+    """Deploy as a Databricks App (chat UI) from a DAB bundle."""
 
-    BOTH = "both"
-    """Deploy to both Model Serving and Apps."""
+    MCP = "mcp"
+    """Deploy the MCP server as a Databricks App from a DAB bundle."""
 
 
 class Privilege(str, Enum):
