@@ -20,7 +20,7 @@ eval "$(register-python-argcomplete dao-ai)"
 ```
 
 Restart the shell (or `source` the rc file), then `dao-ai <TAB>` completes
-subcommands and `dao-ai deploy --<TAB>` completes flags.
+subcommands and `dao-ai agent deploy --<TAB>` completes flags.
 
 ## Validate Configuration
 
@@ -52,36 +52,39 @@ dao-ai graph -c config/my_config.yaml -o workflow.png
 dao-ai graph -c config/my_config.yaml -o workflow.png --param catalog=main
 ```
 
-## Deploy (direct)
+## Deploy
 
-`dao-ai deploy` deploys the agent **directly** from your machine — no Databricks
-Asset Bundle, no job. It calls `AppConfig.create_agent()` + `deploy_agent()`
-in-process: for Model Serving it registers the MLflow model and creates the
-serving endpoint (`agents.deploy`); for Apps it uploads the config + source and
-drives the Apps REST API. It works from a pip-installed `dao-ai` (no repo
-checkout), auto-links the UC trace destination, and auto-grants the runtime
-service principal the trace-write permissions (gated on `app.manage_permissions`).
-On success it prints a link to the endpoint or app.
+`dao-ai agent deploy` deploys the agent using its staged bundle (the default path).
+Pass `--mode model_serving` to deploy directly to Databricks Model Serving (no
+bundle), or `--direct` to deploy Apps/MCP via the SDK without writing a bundle to
+disk. All paths call `AppConfig.create_agent()` + `deploy_agent()` in-process:
+for Model Serving it registers the MLflow model and creates the serving endpoint
+(`agents.deploy`); for Apps it uploads the config + source and drives the Apps
+REST API. Auto-links the UC trace destination and auto-grants the runtime service
+principal the trace-write permissions (gated on `app.manage_permissions`).
 
 ```bash
-# Deploy to Model Serving (default when no target is set)
-dao-ai deploy -c config/my_config.yaml --target model_serving --profile fevm
+# Deploy to Model Serving (SDK path, no bundle)
+dao-ai agent deploy -c config/my_config.yaml --mode model_serving --profile fevm
 
-# Deploy as a Databricks App
-dao-ai deploy -c config/my_config.yaml --target apps --profile fevm
+# Deploy as a Databricks App (bundle path, default)
+dao-ai agent deploy -c config/my_config.yaml --mode apps --profile fevm
 
-# Both surfaces
-dao-ai deploy -c config/my_config.yaml --target both --profile fevm
+# Deploy as Apps via SDK directly (no bundle on disk — fast iteration)
+dao-ai agent deploy -c config/my_config.yaml --mode apps --direct --profile fevm
+
+# Deploy MCP server App
+dao-ai agent deploy -c config/my_config.yaml --mode mcp --profile fevm
 
 # Ship the local dao-ai wheel instead of the published PyPI package
-dao-ai deploy -c config/my_config.yaml --development --profile fevm
+dao-ai agent generate -c config/my_config.yaml --development --profile fevm
+dao-ai agent deploy   -c config/my_config.yaml --profile fevm
 ```
 
-Target resolution: `--target` > `app.deployment_target` in the config >
-`model_serving`.
+Mode resolution: `--mode` flag wins; default is `apps`.
 
 No extra install is required: a plain `pip install dao-ai` is enough to deploy to
-either target. Model Serving logs the MLflow model in-process, which touches
+any mode. Model Serving logs the MLflow model in-process, which touches
 spark-connect — the core `databricks-connect` dependency supplies a
 protobuf-5-compatible pyspark for this, so do **not** add a standalone `pyspark`
 (pyspark 4.x needs protobuf ≥ 6.33 and collides with `databricks-ai-search`'s
@@ -90,31 +93,28 @@ so this local stack never ships to the deployed endpoint.
 
 **When to use which:**
 
-- **`dao-ai deploy`** — quickest path to a running agent (Model Serving or Apps),
-  no bundle artifact. Best for iterating.
-- **`dao-ai agent` / `dao-ai mcp`** — emit an inspectable/committable
-  Databricks App bundle you can deploy from CI or hand-tune (Apps only).
+- **`dao-ai agent deploy --mode model_serving`** — deploy to Model Serving (SDK, no bundle). Best for iterating on the serving endpoint.
+- **`dao-ai agent deploy --mode apps` / `--mode mcp`** — deploy Apps or MCP bundle. Generates on first run if unstaged; ships staged bundle if already generated.
+- **`dao-ai agent deploy --direct`** — deploy Apps/MCP via SDK without writing a bundle (fast iteration when you don't need an auditable bundle artifact).
 - **`dao-ai workflow`** — provision the full backing infra (schemas,
   Vector Search, Lakebase, Genie, UC functions) *and* deploy the agent, as a
   multi-task Databricks Job. The job's deploy step runs the same
-  `create_agent`/`deploy_agent` code `dao-ai deploy` runs directly.
+  `create_agent`/`deploy_agent` code as the direct deploy paths.
 
-## Bundle Generators: `agent`, `mcp`, `workflow`
+## Bundle Generators: `agent`, `workflow`
 
-The three bundle generators are **verb-under-noun** commands — pick a noun for
+The bundle generators are **verb-under-noun** commands — pick a noun for
 what you're shipping, then a verb for the lifecycle step:
 
 | Noun | What it ships |
 |------|---------------|
-| `dao-ai agent` | A Databricks App running the agent graph. |
-| `dao-ai mcp` | A Databricks App exposing the agent as an MCP server. |
+| `dao-ai agent` | A Databricks App running the agent graph (default: `--mode apps`). Use `--mode mcp` to emit the MCP-server App instead, or `--mode model_serving` on `deploy` to go SDK-direct. |
 | `dao-ai workflow` | A multi-task Databricks Job that provisions the backing infra (schemas, Vector Search, Lakebase, Genie, UC functions) *and* deploys the agent. |
 
 Each noun takes the same four verbs:
 
 ```bash
 dao-ai agent    generate|deploy|run|destroy  -c <cfg> [-p <profile>]
-dao-ai mcp      generate|deploy|run|destroy  -c <cfg> [-p <profile>]
 dao-ai workflow generate|deploy|run|destroy  -c <cfg> [-p <profile>]
 ```
 
@@ -144,9 +144,10 @@ marker file's mtime), unless you pass `--overwrite`. The error points you at
 `--overwrite` and `--development` are only on `generate`, not on
 `deploy`/`run`/`destroy`.
 
-> **Back-compat:** the flat commands `generate-agent`, `generate-mcp`, and
-> `generate-workflow` still work — they are aliases for `<noun> generate` with
-> identical flags. Existing scripts and examples remain valid.
+> **Migration:** the flat commands `generate-agent`, `generate-mcp`, and
+> `generate-workflow` have been removed. Use `dao-ai agent generate`,
+> `dao-ai agent generate --mode mcp`, and `dao-ai workflow generate` instead.
+> See [Migration reference](#migration-from-pre-v2-cli) below.
 
 ## Workflow: Provision and Deploy
 
@@ -235,7 +236,7 @@ dao-ai agent deploy -c config/retail.yaml -p fevm
 dao-ai agent deploy --run -c config/retail.yaml -p fevm
 ```
 
-The same verbs apply to `dao-ai mcp` (MCP server App). Use `dao-ai agent run` / `dao-ai mcp run` to `databricks bundle run <app>` an already-deployed bundle, and `dao-ai agent destroy` to tear it down. See [Bundle Generators](#bundle-generators-agent-mcp-workflow) for the full lifecycle and the flat `generate-agent` / `generate-mcp` back-compat aliases.
+MCP server bundles use `dao-ai agent generate --mode mcp` (not a separate noun). Use `dao-ai agent run` to `databricks bundle run <app>` an already-deployed bundle, and `dao-ai agent destroy` to tear it down. See [Bundle Generators](#bundle-generators-agent-workflow) for the full lifecycle.
 
 ### Output location
 
@@ -310,7 +311,7 @@ When `trace_location` is unset, `agent generate` emits a `⚠` warning to alert 
 
 See `examples/01_getting_started/ai_gateway.yaml` for a drop-in example.
 
-#### Linking the UC trace destination — run `dao-ai link-trace-destination` between deploy and run
+#### Linking the UC trace destination — run `dao-ai trace link` between deploy and run
 
 MLflow requires the UC trace-destination link to be established on an experiment **before** that experiment receives any traces. On a re-deploy (or after a `trace_location` change), the experiment already has traces from prior runs, so the app's runtime attempt to link is rejected with `already contains traces` and every subsequent trace silently drops with `TABLE_DOES_NOT_EXIST`.
 
@@ -318,7 +319,7 @@ The fix is a standalone CLI verb that links from **your** machine (operator cred
 
 ```bash
 databricks bundle deploy --target dev -p <profile>
-dao-ai link-trace-destination -c my_config.yaml -p <profile>
+dao-ai trace link -c my_config.yaml -p <profile>
 databricks bundle run <app-name> --target dev -p <profile>
 # then restart to pick up the freshly-linked destination:
 databricks apps restart <app-name> -p <profile>
@@ -326,11 +327,11 @@ databricks apps restart <app-name> -p <profile>
 
 The verb is idempotent — safe on every deploy — but load-bearing on re-deploys and after `trace_location` changes. `agent generate` prints a one-line reminder in its "Next steps" when `trace_location` is configured.
 
-See [Link Trace Destination](#link-trace-destination) for full flag reference and the migration playbook for moving traces between destinations.
+See [Trace Commands](#trace-commands) for full flag reference and the migration playbook for moving traces between destinations.
 
 #### Runtime trace-destination sync (`apply_runtime_trace_destination`)
 
-`link-trace-destination` writes the trace-destination tag on the experiment record so that future traces route to the configured UC schema. That works when MLflow's runtime picks up the linkage from the experiment — but if the app also has `MLFLOW_TRACING_DESTINATION` env set (dao-ai's `agent generate` sets it as `catalog.schema` for warehouse routing), MLflow parses that env value as the deprecated `UCSchemaLocation` and populates the `_MLFLOW_TRACE_USER_DESTINATION` ContextVar accordingly. The ContextVar SHADOWS MLflow's auto-resolver from experiment tags, so the exporter targets `mlflow_experiment_trace_otel_spans` (the un-prefixed default) which doesn't exist on the prefixed schema — and every span export fails with `TABLE_DOES_NOT_EXIST`.
+`dao-ai trace link` writes the trace-destination tag on the experiment record so that future traces route to the configured UC schema. That works when MLflow's runtime picks up the linkage from the experiment — but if the app also has `MLFLOW_TRACING_DESTINATION` env set (dao-ai's `agent generate` sets it as `catalog.schema` for warehouse routing), MLflow parses that env value as the deprecated `UCSchemaLocation` and populates the `_MLFLOW_TRACE_USER_DESTINATION` ContextVar accordingly. The ContextVar SHADOWS MLflow's auto-resolver from experiment tags, so the exporter targets `mlflow_experiment_trace_otel_spans` (the un-prefixed default) which doesn't exist on the prefixed schema — and every span export fails with `TABLE_DOES_NOT_EXIST`.
 
 To close that gap, the App startup path (`apps/handlers.py`) and the MCP-server startup path (`mcp/server.py`) both call `apply_runtime_trace_destination(config)` from `dao_ai.providers.databricks` right after `link_experiment_trace_location`. The helper:
 
@@ -345,7 +346,7 @@ The helper is only invoked from the two container entrypoints that HAVE ambient 
 Once an experiment has been linked to a UC trace destination with a specific `table_prefix`, MLflow rejects any attempt to change it — you'll see `already contains traces` on the re-link. To change catalog / schema / table_prefix, provision a fresh experiment:
 
 ```bash
-dao-ai create-experiment --name /Shared/my-app/dao-ai-fresh -p <profile>
+dao-ai trace create --name /Shared/my-app/dao-ai-fresh -p <profile>
 # Then reference the new experiment id under `app.experiment.id` in the config,
 # or rev `app.name` so the auto-declared experiment path is distinct.
 ```
@@ -398,15 +399,17 @@ databricks bundle deploy --target dev
 databricks bundle run <app-name> --target dev
 ```
 
-## Link Trace Destination
+## Trace Commands
 
-`dao-ai link-trace-destination` attaches an MLflow experiment to its Unity Catalog trace destination declared under `app.trace_location`. Run it as an explicit step **between** `databricks bundle deploy` and `databricks bundle run` — see the [background above](#linking-the-uc-trace-destination--run-dao-ai-link-trace-destination-between-deploy-and-run) for why the app's runtime attempt is unreliable.
+The `dao-ai trace` group manages MLflow experiments and UC trace destinations.
 
-### Basic usage
+### `dao-ai trace link`
+
+`dao-ai trace link` attaches an MLflow experiment to its Unity Catalog trace destination declared under `app.trace_location`. Run it as an explicit step **between** `databricks bundle deploy` and `databricks bundle run` — see the [background above](#linking-the-uc-trace-destination--run-dao-ai-trace-link-between-deploy-and-run) for why the app's runtime attempt is unreliable.
 
 ```bash
 databricks bundle deploy --target dev -p <profile>
-dao-ai link-trace-destination -c my_config.yaml -p <profile>
+dao-ai trace link -c my_config.yaml -p <profile>
 databricks bundle run <app-name> --target dev -p <profile>
 databricks apps restart <app-name> -p <profile>    # required — see below
 ```
@@ -432,7 +435,7 @@ If none of the above resolves, the CLI prints the candidates and exits 1.
 
 ### Two things that surprise operators
 
-**1. You must restart the app after linking.** MLflow's OTEL exporter binds the trace destination at **process startup**. Running `link-trace-destination` while the app is up does not retroactively route in-flight traces to the new location — the running exporter is already bound to whatever destination was in effect when it started. Trigger `databricks apps restart <name>` (or any bundle re-deploy) so the app picks up the fresh linkage.
+**1. You must restart the app after linking.** MLflow's OTEL exporter binds the trace destination at **process startup**. Running `dao-ai trace link` while the app is up does not retroactively route in-flight traces to the new location — the running exporter is already bound to whatever destination was in effect when it started. Trigger `databricks apps restart <name>` (or any bundle re-deploy) so the app picks up the fresh linkage.
 
 **2. A UC-linked experiment is permanently bound to that destination on Databricks.** Verified against a live Databricks workspace (MLflow 3.11):
 
@@ -477,7 +480,7 @@ app:
 dao-ai agent generate -c my_config.yaml -o ./bundle --overwrite
 cd ./bundle
 databricks bundle deploy --target dev -p <profile>
-dao-ai link-trace-destination -c ../my_config.yaml -p <profile>
+dao-ai trace link -c ../my_config.yaml -p <profile>
 databricks bundle run <new-app-name> --target dev -p <profile>
 databricks apps restart <new-app-name> -p <profile>
 ```
@@ -499,15 +502,17 @@ dao-ai chat -c config/my_config.yaml --param catalog=nfleming --param module_id=
 
 Discover and inspect tools available from MCP (Model Context Protocol) servers configured in your application.
 
+Use `dao-ai tools` (formerly `dao-ai list-mcp-tools`).
+
 ### Basic Usage
 
 List all MCP tools with full descriptions and schemas:
 
 ```bash
-dao-ai list-mcp-tools -c config/my_config.yaml
+dao-ai tools -c config/my_config.yaml
 
 # With parameter overrides
-dao-ai list-mcp-tools -c config/my_config.yaml --param catalog=main
+dao-ai tools -c config/my_config.yaml --param catalog=main
 ```
 
 ### Show Only Filtered Tools
@@ -515,7 +520,7 @@ dao-ai list-mcp-tools -c config/my_config.yaml --param catalog=main
 Use `--apply-filters` to see only the tools that will actually be loaded (respecting `include_tools` and `exclude_tools` configuration):
 
 ```bash
-dao-ai list-mcp-tools -c config/my_config.yaml --apply-filters
+dao-ai tools -c config/my_config.yaml --apply-filters
 ```
 
 ### What It Shows
@@ -690,7 +695,7 @@ dao-ai workflow destroy  -c config/my_config.yaml [OPTIONS]
 | `--param KEY=VALUE` / `--var KEY=VALUE` | Config parameter overrides (repeatable) | all |
 | `--cloud {azure,aws,gcp}` | Cloud provider (auto-detected if not specified) | all |
 | `-t, --target NAME` | Bundle target name (auto-generated if not specified) | all |
-| `--deployment-target` | Deployment target selector | all |
+| `--mode {apps,mcp}` | Serving mode selector (`generate`); also `model_serving` for `deploy` | all |
 | `--dry-run` | Preview commands without executing | all |
 | `-d, --deploy` | After generating, deploy the workflow bundle to Databricks | `generate` |
 | `-r, --run` | Run the `deploy_job` after deploying | `generate` |
@@ -701,23 +706,21 @@ dao-ai workflow destroy  -c config/my_config.yaml [OPTIONS]
 
 With no action flag (`--deploy`/`--run`/`--destroy`), `workflow generate`
 stages the bundle only, for inspection or manual `databricks bundle deploy`.
-The flat `generate-workflow` command remains as a back-compat alias for
-`workflow generate`.
+The flat `generate-workflow` command has been removed — use `dao-ai workflow generate`.
 
-### Agent / MCP Options (`dao-ai agent|mcp generate|deploy|run|destroy`)
+### Agent Options (`dao-ai agent generate|deploy|run|destroy`)
 
 ```bash
 dao-ai agent generate -c config/my_config.yaml [OPTIONS]
 dao-ai agent deploy   -c config/my_config.yaml [OPTIONS]
 dao-ai agent run      -c config/my_config.yaml [OPTIONS]
 dao-ai agent destroy  -c config/my_config.yaml [OPTIONS]
-# dao-ai mcp <verb> ... — identical, emits an MCP-server App instead
+# Use --mode mcp to generate/deploy the MCP-server bundle instead of the chat-agent bundle
 ```
 
-Both nouns emit a Databricks App bundle and share the same options. `generate`
-stages the bundle (and can one-shot `--deploy`/`--run`); `deploy`/`run`/`destroy`
+`generate` stages the bundle (and can one-shot `--deploy`/`--run`); `deploy`/`run`/`destroy`
 drive `databricks bundle` from the already-staged dir without regenerating. For
-`agent`/`mcp`, `run` is `databricks bundle run <app>`.
+`agent`, `run` is `databricks bundle run <app>`.
 
 | Option | Description | Verbs |
 |--------|-------------|-------|
@@ -725,6 +728,8 @@ drive `databricks bundle` from the already-staged dir without regenerating. For
 | `-o, --output-dir DIR` | Output dir (default: `$DAO_AI_BUNDLE_DIR/<kind>/<app>` or `./.dao-ai/bundle/<kind>/<app>`, where `<kind>` is `agent` or `mcp`) | all |
 | `-p, --profile NAME` | Databricks profile for config loading and deploy | all |
 | `--param KEY=VALUE` / `--var KEY=VALUE` | Config parameter overrides (repeatable) | all |
+| `--mode {apps,mcp}` | Serving mode for `generate`; also `model_serving` for `deploy` (default: `apps`) | all |
+| `--direct` | Deploy via SDK directly, no bundle on disk (apps/mcp; `deploy` only) | `deploy` |
 | `--dry-run` | Preview commands without executing | all |
 | `-d, --deploy` | After generating, run `databricks bundle deploy` (auto-links traces + grants SP when `app.trace_location` is set) | `generate` |
 | `-r, --run` | Start the app via `databricks bundle run <app>` | `generate` |
@@ -733,8 +738,7 @@ drive `databricks bundle` from the already-staged dir without regenerating. For
 | `--development` / `--no-development` | Bundle a local dao-ai wheel vs pin PyPI (default: auto-detect) | `generate` |
 | `--run` | Start the app after deploying the staged bundle | `deploy` |
 
-The flat `generate-agent` / `generate-mcp` commands remain as back-compat
-aliases for `agent generate` / `mcp generate`.
+The flat `generate-agent` and `generate-mcp` commands have been removed — use `dao-ai agent generate` and `dao-ai agent generate --mode mcp`.
 
 ### Chat Options
 
@@ -747,7 +751,7 @@ Starts an interactive REPL session where you can chat with your agent locally.
 ### List MCP Tools Options
 
 ```bash
-dao-ai list-mcp-tools -c config/my_config.yaml [OPTIONS]
+dao-ai tools -c config/my_config.yaml [OPTIONS]
 ```
 
 | Option | Description |
@@ -841,6 +845,29 @@ dao-ai graph -c config/my_app.yaml -o workflow.png
 # Generate and deploy and run
 dao-ai workflow generate --deploy --run -c config/my_app.yaml --profile aws-field-eng
 ```
+
+---
+
+## Migration from pre-v2 CLI
+
+The deploy-model v2 release removed several commands and renamed others. Use this table to update scripts and docs.
+
+| Old command (removed) | New command |
+|---|---|
+| `dao-ai deploy -c ... --target model_serving` | `dao-ai agent deploy -c ... --mode model_serving` |
+| `dao-ai deploy -c ... --target apps` | `dao-ai agent deploy -c ... --mode apps` |
+| `dao-ai deploy -c ... --target both` | Run `dao-ai agent deploy --mode model_serving` then `dao-ai agent deploy --mode apps` |
+| `dao-ai generate-agent ...` | `dao-ai agent generate ...` |
+| `dao-ai generate-mcp ...` | `dao-ai agent generate --mode mcp ...` |
+| `dao-ai generate-workflow ...` | `dao-ai workflow generate ...` |
+| `dao-ai mcp generate\|deploy\|run\|destroy` | `dao-ai agent generate\|deploy\|run\|destroy --mode mcp` |
+| `dao-ai create-experiment ...` | `dao-ai trace create ...` |
+| `dao-ai link-trace-destination ...` | `dao-ai trace link ...` |
+| `dao-ai grant-trace-permissions ...` | `dao-ai trace grant ...` |
+| `dao-ai list-mcp-tools ...` | `dao-ai tools ...` |
+| `--deployment-target <mode>` flag | `--mode <mode>` flag |
+| `app.deployment_target:` config field | Removed — serving mode is chosen at deploy time via `--mode` (default `apps`) |
+| `DeploymentTarget.BOTH` | Removed — deploy each mode separately |
 
 ---
 

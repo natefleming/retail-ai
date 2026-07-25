@@ -9441,7 +9441,7 @@ class AppModel(BaseModel):
         "file's directory; absolute paths pass through) shipped with EVERY "
         "deployment target: Model Serving via ``log_model(code_paths=...)``, "
         "Databricks Apps by uploading them next to the config (importable via "
-        "``sys.path``), and the generate-workflow job by staging them into the "
+        "``sys.path``), and the ``workflow generate`` job by staging them into the "
         "bundle. Use for custom ``type: python`` tool modules or agent code. "
         "(Apps bundles also still support hand-packaged code under ``src/<package>/``.)",
     )
@@ -9469,7 +9469,7 @@ class AppModel(BaseModel):
         default=None,
         description=(
             "Server-side MCP capabilities exposed when dao-ai is deployed as an "
-            "MCP server (``dao-ai generate-mcp``). Declares static resources, "
+            "MCP server (``dao-ai agent generate --mode mcp``). Declares static resources, "
             "prompt templates, and whether progress + logging notifications are "
             "emitted from the agent tool. When None the server publishes only "
             "the single agent-as-tool surface with no notifications."

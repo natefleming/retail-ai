@@ -579,7 +579,7 @@ connection-check failed. If you're seeing this in production:
 
 The dao-ai CLI's start-before-deploy step can't reconcile this state. The
 workaround is to invoke `databricks apps deploy <app>` directly — once
-the app is back in `RUNNING`, subsequent `dao-ai deploy -t apps` calls
+the app is back in `RUNNING`, subsequent `dao-ai agent deploy --mode apps` calls
 work normally.
 
 ## Best practices

@@ -400,7 +400,7 @@ app:
   scale_to_zero: bool              # default: true
   workload_size: Small | Medium | Large   # default: Small
   python_version: string           # default: "3.12"
-  deployment_target: model_serving | apps # default override; CLI --deployment-target wins
+  # deployment_target field removed — serving mode is chosen at deploy time via --mode (default apps)
   budget_policy_id: string         # Cost-attribution policy id
   code_paths: [string]             # Extra Python files bundled with the model artifact
   pip_requirements: [string]       # Extra pip packages installed in the serving env
@@ -417,8 +417,8 @@ app:
 
   # OTEL trace storage in Unity Catalog Delta tables.
   # Requires an explicit post-deploy link step:
-  #   `dao-ai link-trace-destination -c my_config.yaml -p <profile>`
-  # See `docs/cli-reference.md#link-trace-destination` for the flow and
+  #   `dao-ai trace link -c my_config.yaml -p <profile>`
+  # See `docs/cli-reference.md#trace-commands` for the flow and
   # for the migration playbook. IMPORTANT: once an experiment is linked
   # to a UC destination, Databricks does NOT allow un-linking or
   # changing the destination (verified live — the server rejects

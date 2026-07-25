@@ -8,8 +8,8 @@ dao-ai supports three deploy targets and each drives MLflow tracing differently:
 
 | Target | Startup entrypoint | Trace destination binding |
 |---|---|---|
-| Databricks Apps (`generate-agent`) | `src/dao_ai/apps/handlers.py` | `link_experiment_trace_location` at import time + `apply_runtime_trace_destination` populates `_MLFLOW_TRACE_USER_DESTINATION` ContextVar so the OTEL exporter picks the correct UC table. |
-| MCP server on Apps (`generate-mcp`) | `src/dao_ai/mcp/server.py` | Same as Databricks Apps — imports `apply_runtime_trace_destination` after `mlflow.set_experiment`. |
+| Databricks Apps (`dao-ai agent generate`) | `src/dao_ai/apps/handlers.py` | `link_experiment_trace_location` at import time + `apply_runtime_trace_destination` populates `_MLFLOW_TRACE_USER_DESTINATION` ContextVar so the OTEL exporter picks the correct UC table. |
+| MCP server on Apps (`dao-ai agent generate --mode mcp`) | `src/dao_ai/mcp/server.py` | Same as Databricks Apps — imports `apply_runtime_trace_destination` after `mlflow.set_experiment`. |
 | Model Serving (`agents.deploy`) | `src/dao_ai/apps/model_serving.py` | **No** in-container MLflow calls. `agents.deploy()` sets `MLFLOW_EXPERIMENT_ID`, `MLFLOW_TRACING_DESTINATION`, and `MLFLOW_TRACING_SQL_WAREHOUSE_ID` on the endpoint; MLflow's `_get_span_processors` resolves the destination from those env vars. See the header comment in `model_serving.py` for the rationale (MS containers can't reliably call `mlflow.set_experiment` without OAuth-config crashes). |
 
 The Apps and MCP-server paths intentionally diverge from Model Serving: they call `mlflow.set_experiment(trace_location=UnityCatalog(...))` because their containers have ambient OAuth. Model Serving relies purely on env-driven routing so the container can boot even when the model wasn't logged with the experiment as a resource dependency.
@@ -34,34 +34,34 @@ Semantics:
 **`table_prefix` is permanent per experiment.** Once an experiment has been linked to a UC trace destination with a specific prefix, MLflow rejects any attempt to change catalog / schema / table_prefix ("already contains traces"). To change any of the three, provision a fresh experiment:
 
 ```bash
-dao-ai create-experiment --name /Shared/my-app/dao-ai-v2 -p <profile>
+dao-ai trace create --name /Shared/my-app/dao-ai-v2 -p <profile>
 # then reference the new experiment id under app.experiment.id in your config,
 # or rev app.name so the auto-declared experiment path is distinct.
 ```
 
-## The `dao-ai link-trace-destination` CLI
+## The `dao-ai trace link` CLI
 
 Between `bundle deploy` and `bundle run` you must run:
 
 ```bash
 databricks bundle deploy --target dev -p <profile>
-dao-ai link-trace-destination -c my_config.yaml -p <profile>
+dao-ai trace link -c my_config.yaml -p <profile>
 databricks bundle run <app-name> --target dev -p <profile>
 ```
 
 The verb is idempotent — safe on every deploy — but load-bearing on re-deploys and after `trace_location` changes because the app's own runtime linkage attempt is rejected once the experiment already has traces. Running the link from the operator machine (deterministic timing, full OAuth) avoids that race.
 
-`generate-agent` and `generate-mcp` both print a one-line reminder in their "Next steps" output when `trace_location` is configured.
+`dao-ai agent generate` prints a one-line reminder in its "Next steps" output when `trace_location` is configured.
 
 ## Runtime ContextVar sync — `apply_runtime_trace_destination`
 
-`link-trace-destination` writes the experiment ↔ trace_location tag on the tracking server. That's necessary but not sufficient — MLflow's OTEL span exporter reads a client-side ContextVar `mlflow.tracing.provider._MLFLOW_TRACE_USER_DESTINATION` to decide which table to write to. Three things can populate the ContextVar:
+`dao-ai trace link` writes the experiment ↔ trace_location tag on the tracking server. That's necessary but not sufficient — MLflow's OTEL span exporter reads a client-side ContextVar `mlflow.tracing.provider._MLFLOW_TRACE_USER_DESTINATION` to decide which table to write to. Three things can populate the ContextVar:
 
 1. `mlflow.set_experiment(..., trace_location=UnityCatalog(...))` — inside MLflow, this calls `_sync_trace_destination_and_provider` which writes the correct UnityCatalog into the ContextVar.
-2. `MLFLOW_TRACING_DESTINATION` env var — MLflow's env parser reads this as a 2-part `catalog.schema` string and populates the ContextVar with the **deprecated `UCSchemaLocation`** (whose `full_otel_spans_table_name` defaults to the hard-coded `mlflow_experiment_trace_otel_spans`). `dao-ai generate-agent` emits this env var whenever `trace_location` is set.
+2. `MLFLOW_TRACING_DESTINATION` env var — MLflow's env parser reads this as a 2-part `catalog.schema` string and populates the ContextVar with the **deprecated `UCSchemaLocation`** (whose `full_otel_spans_table_name` defaults to the hard-coded `mlflow_experiment_trace_otel_spans`). `dao-ai agent generate` emits this env var whenever `trace_location` is set.
 3. `mlflow.tracing.set_destination(...)` — the public API, which explicitly rejects the `UnityCatalog(table_prefix=...)` form.
 
-The problem: when `link-trace-destination` skips re-linking on the "already linked" path, MLflow never calls `_sync_trace_destination_and_provider`. So the ContextVar keeps whatever `MLFLOW_TRACING_DESTINATION` set — the deprecated UCSchemaLocation. The exporter then targets `mlflow_experiment_trace_otel_spans` (which doesn't exist on the prefixed schema) and every span export silently fails with `TABLE_DOES_NOT_EXIST`.
+The problem: when `dao-ai trace link` skips re-linking on the "already linked" path, MLflow never calls `_sync_trace_destination_and_provider`. So the ContextVar keeps whatever `MLFLOW_TRACING_DESTINATION` set — the deprecated UCSchemaLocation. The exporter then targets `mlflow_experiment_trace_otel_spans` (which doesn't exist on the prefixed schema) and every span export silently fails with `TABLE_DOES_NOT_EXIST`.
 
 `dao_ai.providers.databricks.apply_runtime_trace_destination(config)` closes that gap:
 
@@ -89,10 +89,10 @@ When traces are landing correctly you'll see the full agent flow — root `predi
 ## Diagnostic loop when traces don't land
 
 1. **App logs** — `databricks apps logs <app-name>` and grep for `mlflow.tracing.export` warnings. A `TABLE_DOES_NOT_EXIST: mlflow_experiment_trace_otel_spans` line means the exporter fell back to the deprecated UCSchemaLocation path — `apply_runtime_trace_destination` didn't run (or its provider reset didn't take effect).
-2. **`link-trace-destination` log** — the CLI reports either "Linked experiment to UC trace location" or "Experiment already linked to matching UC trace destination, skipping". The second is fine on re-deploys; only worrying if you're changing catalog / schema / table_prefix on an existing experiment (which is rejected — you need a fresh experiment).
+2. **`dao-ai trace link` log** — the CLI reports either "Linked experiment to UC trace location" or "Experiment already linked to matching UC trace destination, skipping". The second is fine on re-deploys; only worrying if you're changing catalog / schema / table_prefix on an existing experiment (which is rejected — you need a fresh experiment).
 3. **App startup log** — grep for `Set MLflow runtime trace destination`. Confirms `apply_runtime_trace_destination` ran. If absent, either `trace_location` is unset or the app crashed before reaching that line.
 4. **Experiment lifecycle** — check with `databricks api get /api/2.0/mlflow/experiments/get --json '{"experiment_id":"<id>"}'`. Trashed experiments accept trace metadata writes but silently drop OTEL spans. Restore with `databricks api post /api/2.0/mlflow/experiments/restore --json '{"experiment_id":"<id>"}'`.
-5. **App SP grants** — the app service principal needs `USE_CATALOG` + `USE_SCHEMA` + `CREATE_TABLE` + `MODIFY` + `SELECT` on the trace-location schema (one-time per app SP). `generate-agent`'s "Next steps" prints the grant commands.
+5. **App SP grants** — the app service principal needs `USE_CATALOG` + `USE_SCHEMA` + `CREATE_TABLE` + `MODIFY` + `SELECT` on the trace-location schema (one-time per app SP). `dao-ai agent generate`'s "Next steps" prints the grant commands.
 6. **Async flush** — MLflow batches OTEL exports. Allow 60–120 s between the inference call and querying the tables. Async logging can be disabled per-app with `MLFLOW_ENABLE_ASYNC_TRACE_LOGGING=false` in the app env.
 
 ## Distributed tracing across MCP (`_meta` propagation)

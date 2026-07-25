@@ -50,7 +50,7 @@ DAO AI Builder generates valid YAML configurations that work seamlessly with thi
 - **[Configuration Reference](docs/configuration-reference.md)** - Complete YAML configuration guide
 - **[Examples](docs/examples.md)** - Ready-to-use example configurations
 - **[A2A Protocol](docs/a2a_protocol.md)** - Google Agent2Agent endpoints on every Apps deployment
-- **[MCP Server](docs/mcp_server.md)** - Expose a dao-ai agent as a single MCP tool via `dao-ai mcp generate` — for integrating dao-ai into external agent frameworks (Claude Desktop, Cursor, MAS, ADK, etc.)
+- **[MCP Server](docs/mcp_server.md)** - Expose a dao-ai agent as a single MCP tool via `dao-ai agent generate --mode mcp` — for integrating dao-ai into external agent frameworks (Claude Desktop, Cursor, MAS, ADK, etc.)
 - **[Background Agents](docs/background_agents.md)** - kickoff/poll/cancel for multi-minute graph runs
 - **[Auditable Tool Invocations](docs/audit.md)** - Tamper-evident approval receipts + agent-driven audit-trail queries (SOX / SOC2 / HIPAA-ready)
 
@@ -307,11 +307,12 @@ dao-ai workflow generate --deploy --run -c config/my_agent.yaml --profile azure-
 ```
 
 > The bundle generators are **verb-under-noun** commands —
-> `dao-ai <agent|mcp|workflow> <generate|deploy|run|destroy>`. `generate` stages
+> `dao-ai <agent|workflow> <generate|deploy|run|destroy>`. `generate` stages
 > the bundle (and can one-shot `--deploy`/`--run`); `deploy`/`run`/`destroy` act
-> on the already-staged bundle without regenerating. The flat `generate-agent`,
-> `generate-mcp`, and `generate-workflow` commands remain as back-compat aliases
-> for `<noun> generate`.
+> on the already-staged bundle without regenerating. Use `--mode mcp` on the
+> `agent` noun to generate/deploy the MCP-server App instead. The old flat
+> `generate-agent`, `generate-mcp`, `generate-workflow`, and `dao-ai mcp` commands
+> have been removed — see the [migration table](docs/cli-reference.md#migration-from-pre-v2-cli).
 
 **Step 5: Interact with your agent**
 
@@ -526,7 +527,7 @@ databricks grants update schema <catalog>.<schema> -p <profile> \
   --json "{\"changes\":[{\"principal\":\"$SP\",\"add\":[\"USE_SCHEMA\",\"CREATE_TABLE\",\"MODIFY\",\"SELECT\"]}]}"
 ```
 
-**Run `dao-ai link-trace-destination` between `bundle deploy` and `bundle run`** so the UC linkage is established from your machine on a fresh (0-traces) experiment — the app's own runtime link attempt is rejected on re-deploys with `already contains traces`, which causes silent trace loss. `agent generate` prints a one-line reminder in its "Next steps" when `trace_location` is set. See [`docs/cli-reference.md#link-trace-destination`](docs/cli-reference.md#link-trace-destination) for details, including the migration playbook (Databricks does not allow un-linking or changing a UC destination once set — moving traces to a different `catalog` / `schema` / `table_prefix` requires a fresh experiment).
+**Run `dao-ai trace link` between `bundle deploy` and `bundle run`** so the UC linkage is established from your machine on a fresh (0-traces) experiment — the app's own runtime link attempt is rejected on re-deploys with `already contains traces`, which causes silent trace loss. `agent generate` prints a one-line reminder in its "Next steps" when `trace_location` is set. See [`docs/cli-reference.md#trace-commands`](docs/cli-reference.md#trace-commands) for details, including the migration playbook (Databricks does not allow un-linking or changing a UC destination once set — moving traces to a different `catalog` / `schema` / `table_prefix` requires a fresh experiment).
 
 When `trace_location` is unset, `agent generate` emits a loud warning. Local notebook/CLI runs and Model Serving deploys are unaffected and continue to use the default control-plane path. See `examples/01_getting_started/ai_gateway.yaml` for a commented example.
 

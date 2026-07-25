@@ -36,7 +36,7 @@ governed by the Linux Foundation. Once an agent speaks A2A, it can:
 
 ## What you get out of the box
 
-When you set `app.deployment_target: apps` and deploy, your agent's
+When you deploy to Databricks Apps (the default — or pass `--mode apps`), your agent's
 Agent Card automatically advertises:
 
 - **`name`** — `app.name`.
@@ -66,7 +66,7 @@ everything):
 app:
   name: my_agent
   description: My helpful assistant.
-  deployment_target: apps
+  # deploy with: dao-ai agent deploy --mode apps
   agents:
     - *my_agent
 ```
@@ -79,7 +79,7 @@ To customise:
 app:
   name: my_agent
   description: My helpful assistant.
-  deployment_target: apps
+  # deploy with: dao-ai agent deploy --mode apps
   a2a:
     enabled: true                        # default; set false to skip mounting
     server_url: null                     # default: derive from $DATABRICKS_APP_URL
@@ -250,7 +250,7 @@ agents:
 
 app:
   name: my-app
-  deployment_target: apps
+  # deploy with: dao-ai agent deploy --mode apps
   agents: [...]
   # No a2a block — Agent Card auto-emits oauth2 + bearer
 ```

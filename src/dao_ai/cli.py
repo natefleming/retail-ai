@@ -57,7 +57,7 @@ def _apply_profile_context(profile: Optional[str]) -> None:
     # the profile's ``databricks-cli`` (OAuth U2M) auth.
     #
     # Why: OAuth U2M mints tokens by forking the ``databricks`` binary. During
-    # ``dao-ai deploy``, MLflow's ``log_model`` validation runs the full agent
+    # ``dao-ai agent deploy``, MLflow's ``log_model`` validation runs the full agent
     # in-process (LLMs, tools, tracing) with live gRPC channels / threads, and
     # any SDK token refresh then forks unsafely — producing
     # ``forced token refresh: cache update: exit status 45`` and a ``401`` that
@@ -596,8 +596,8 @@ Examples:
   dao-ai chat -c config/retail.yaml --custom-input store_num=87887  # Start interactive chat session
   dao-ai tools -c config/mcp_config.yaml --apply-filters  # List filtered MCP tools only
   dao-ai validate                                        # Validate with detailed logging
-  dao-ai generate-workflow -c my_config.yaml --deploy    # Provision infra + deploy the agent (Workflow Job)
-  dao-ai generate-agent -c my_config.yaml --deploy --run # Generate + deploy + start the agent App
+  dao-ai workflow generate -c my_config.yaml --deploy    # Provision infra + deploy the agent (Workflow Job)
+  dao-ai agent generate -c my_config.yaml --deploy --run # Generate + deploy + start the agent App
         """,
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
@@ -696,7 +696,7 @@ Examples:
 Provision or resolve an MLflow experiment on Databricks and print the
 resulting id + metadata. Delegates to
 ``DatabricksProvider.create_experiment`` — same code path used by
-``dao-ai deploy`` when it resolves ``app.experiment`` from a config.
+``dao-ai agent deploy`` when it resolves ``app.experiment`` from a config.
 
 Pass ``--name`` for create-if-missing behavior (default) or ``--id``
 to verify an existing experiment. Exactly one of the two is required.
@@ -762,7 +762,7 @@ Experiment resolution order:
   1. ``--experiment-id`` flag (explicit override)
   2. ``config.app.experiment.resolved_id`` if ``experiment:`` is set
   3. Bundle-declared experiment name (``/Users/<current-user>/<app-name>``)
-     looked up via MlflowClient — matches what dao-ai generate-agent
+     looked up via MlflowClient — matches what dao-ai agent generate
      writes for the auto-declared experiment path.
 
 No-op when ``config.app.trace_location`` is not set.
@@ -841,9 +841,9 @@ Grant the experiment ``CAN_EDIT`` ACL and the UC OTEL trace-table
 MLflow tracing needs at runtime to persist traces into a UC-backed
 experiment's OTEL Delta tables.
 
-Standalone counterpart to the grant step that ``dao-ai deploy`` / ``dao-ai
-pipeline`` runs automatically inside ``deploy_app_agent`` /
-``deploy_model_serving_agent``. Useful for the ``generate-agent`` + ``bundle
+Standalone counterpart to the grant step that ``dao-ai agent deploy`` /
+``dao-ai workflow`` runs automatically inside ``deploy_app_agent`` /
+``deploy_model_serving_agent``. Useful for the ``agent generate`` + ``bundle
 deploy`` + ``dao-ai trace link`` flow (where no full deploy fires),
 or for retroactively fixing grants when an app was deployed by an
 identity that lacked GRANT rights.
@@ -1625,8 +1625,8 @@ def handle_link_trace_destination_command(options: Namespace) -> None:
     SELECT+MODIFY privileges MLflow tracing needs — matching the grant
     step that ``dao-ai deploy_app_agent`` / ``deploy_model_serving_agent``
     perform automatically on their own deploy paths. Without this the
-    bundle-based flow (``generate-agent`` + ``bundle deploy`` +
-    ``link-trace-destination``) leaves the App SP without table-write
+    bundle-based flow (``agent generate`` + ``bundle deploy`` +
+    ``dao-ai trace link``) leaves the App SP without table-write
     permissions and traces are silently dropped at runtime.
     """
     _apply_profile_context(options.profile)
@@ -1720,8 +1720,8 @@ def _grant_trace_writes_to_app_sp(
 ) -> None:
     """Resolve the App SP and grant it the trace-write privileges.
 
-    Shared implementation for ``link-trace-destination`` (post-link grant)
-    and ``grant-trace-permissions`` (standalone). Respects
+    Shared implementation for ``dao-ai trace link`` (post-link grant)
+    and ``dao-ai trace grant`` (standalone). Respects
     ``config.app.manage_permissions`` — when False, skips silently on the
     assumption that an admin has pre-provisioned grants.
 
@@ -1803,7 +1803,7 @@ def _resolve_experiment_id_for_link(
     config: AppConfig,
     override: Optional[str],
 ) -> Optional[str]:
-    """Resolve the MLflow experiment id for link-trace-destination.
+    """Resolve the MLflow experiment id for dao-ai trace link.
 
     Resolution order:
       1. ``override`` from ``--experiment-id`` flag.
@@ -1825,7 +1825,7 @@ def _resolve_experiment_id_for_link(
             return resolved
         print(
             "app.experiment is set but resolved_id is None — pass "
-            "--experiment-id explicitly or run `dao-ai create-experiment` first.",
+            "--experiment-id explicitly or run `dao-ai trace create` first.",
             file=sys.stderr,
         )
         return None
@@ -2370,8 +2370,8 @@ def _exec_bundle_command(
 ) -> None:
     """Run ``databricks bundle <command>`` from ``cwd`` and stream its output.
 
-    Shared executor for every dao-ai DAB generator (``generate-agent``,
-    ``generate-mcp``, ``generate-workflow``). Assembles ``databricks [--profile P]
+    Shared executor for every dao-ai DAB generator (``agent generate``,
+    ``agent generate --mode mcp``, ``workflow generate``). Assembles ``databricks [--profile P]
     <command...> [--target T] [--var ...]``, runs it with ``cwd`` set to the
     staged/generated bundle dir, streams stdout, and ``sys.exit(1)`` on failure.
 
@@ -2642,7 +2642,7 @@ def run_databricks_command(
     extra_vars.append(f'--var="dao_ai_dep={dao_ai_dep}"')
 
     # command=None -> stage-only (generate the bundle, don't run a bundle verb).
-    # This is what `generate-workflow` with no --deploy/--run/--destroy does.
+    # This is what `workflow generate` with no --deploy/--run/--destroy does.
     if command is None:
         logger.info(f"Workflow bundle staged in {staging_dir}")
         return
@@ -2710,7 +2710,7 @@ def _link_and_grant_trace(
     """Link the experiment trace destination and grant the App SP, if configured.
 
     No-op unless ``config.app.trace_location`` is set. Runs the same logic as
-    ``dao-ai link-trace-destination`` (which also grants) — it MUST run after
+    ``dao-ai trace link`` (which also grants) — it MUST run after
     ``bundle deploy`` (the experiment + app exist) and before ``bundle run``
     (the app's own runtime link is rejected on re-deploys with "already contains
     traces", causing silent trace loss). Reuses the existing helpers so there is
@@ -2729,10 +2729,10 @@ def _link_and_grant_trace(
     experiment_id: Optional[str] = _resolve_experiment_id_for_link(config, None)
     if experiment_id is None:
         # Diagnostic already printed; don't abort the deploy — the operator can
-        # run `dao-ai link-trace-destination` manually.
+        # run `dao-ai trace link` manually.
         logger.warning(
             "Could not resolve experiment id for trace linking; skipping. "
-            "Run `dao-ai link-trace-destination -c <config>` manually."
+            "Run `dao-ai trace link -c <config>` manually."
         )
         return
 
@@ -2748,7 +2748,7 @@ def _link_and_grant_trace(
     except Exception as e:  # noqa: BLE001
         logger.warning(
             f"Trace-destination link failed ({type(e).__name__}: {e}); "
-            "run `dao-ai link-trace-destination` manually."
+            "run `dao-ai trace link` manually."
         )
         return
 
@@ -2767,7 +2767,7 @@ def deploy_app_bundle(
 ) -> None:
     """Deploy/run/destroy an already-generated App bundle (agent or MCP).
 
-    Shared driver for ``generate-agent`` / ``generate-mcp`` action flags. The
+    Shared driver for ``agent generate`` / ``agent generate --mode mcp`` action flags. The
     App bundle uses a single ``dev`` target and is run by its app-name resource
     key (contrast the workflow job, run by ``deploy_job``). Order when
     ``--deploy`` and ``--run`` are combined: deploy → auto trace-link+grant →
