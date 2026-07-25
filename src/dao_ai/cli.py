@@ -370,6 +370,7 @@ def _add_mode_argument(parser: ArgumentParser, *, choices: list[str]) -> None:
     """Add the serving-mode flag. Choices are per-verb so an unusable value is
     rejected at parse time (never offered when it cannot succeed)."""
     parser.add_argument(
+        "-m",
         "--mode",
         choices=choices,
         default="apps",

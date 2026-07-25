@@ -407,6 +407,9 @@ class TestModeChoices:
     def test_mode_defaults_to_apps(self) -> None:
         assert parse_args(["agent", "deploy", "-c", "c.yaml"]).mode == "apps"
 
+    def test_short_alias_m(self) -> None:
+        assert parse_args(["agent", "deploy", "-c", "c.yaml", "-m", "mcp"]).mode == "mcp"
+
 
 @pytest.mark.unit
 class TestWorkflowModeChoices:
