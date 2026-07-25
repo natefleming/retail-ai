@@ -1679,6 +1679,15 @@ def test_cli_var_flag_appears_in_subparser_help(
             f"--var flag missing from `{command} --help` output"
         )
 
+    # Bundle-noun verbs get --var from the shared _add_bundle_common_args helper.
+    for argv in (["agent", "generate", "--help"], ["workflow", "deploy", "--help"]):
+        with pytest.raises(SystemExit):
+            parse_args(argv)
+        captured = capsys.readouterr()
+        assert "--var" in captured.out, (
+            f"--var flag missing from `{' '.join(argv)}` output"
+        )
+
 
 @pytest.mark.unit
 def test_cli_run_databricks_command_forwards_vars_to_databricks_cli(

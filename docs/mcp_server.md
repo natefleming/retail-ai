@@ -24,8 +24,8 @@ Search, UC functions) already have first-class Databricks MCP surfaces or
 UC exposure; publishing them a second time from a dao-ai MCP server is
 duplicative.
 
-`dao-ai generate-mcp` bundles a Databricks App that runs the same graph
-`generate-agent` deploys — but with an MCP entrypoint instead of an
+`dao-ai mcp generate` bundles a Databricks App that runs the same graph
+`dao-ai agent generate` deploys — but with an MCP entrypoint instead of an
 MLflow AgentServer HTTP entrypoint. OBO tokens from the caller flow
 through the graph unchanged: downstream Genie / Vector Search / UC
 function calls run as the caller, not as the App's service principal.
@@ -46,12 +46,15 @@ function calls run as the caller, not as the App's service principal.
 pip install 'dao-ai[mcp]'
 
 # 2. Generate a deploy-ready bundle from your dao-ai config
-dao-ai generate-mcp \
+dao-ai mcp generate \
   -c my_agent.yaml \
   -o ./my-agent-mcp \
   -p <profile>
 
-# 3. Deploy to Databricks Apps
+# 3. Deploy + run in one step (or drive databricks bundle by hand, below)
+dao-ai mcp deploy --run -c my_agent.yaml -o ./my-agent-mcp -p <profile>
+
+# 3b. ...or drive the bundle manually
 cd my-agent-mcp
 uv sync
 databricks bundle deploy -t dev -p <profile>

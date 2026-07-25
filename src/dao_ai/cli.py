@@ -233,11 +233,14 @@ def _add_profile_argument(parser: ArgumentParser) -> None:
 
 
 def _add_bundle_action_arguments(parser: ArgumentParser) -> None:
-    """Add the deploy/run/destroy/dry-run action flags to a generate-* subparser.
+    """Add the deploy/run/destroy continuation flags to a ``generate`` verb.
 
-    Shared by ``generate-agent`` and ``generate-mcp`` so the App bundles gain the
-    same lifecycle verbs as ``generate-workflow``. When none of these flags are
-    passed the command stays generate-only (writes the bundle and stops).
+    These let a single ``<noun> generate`` invocation continue into deploy/run/
+    destroy (the one-shot happy path, e.g. ``dao-ai agent generate --deploy
+    --run``). When none are passed the command stays generate-only (writes the
+    bundle and stops). ``--dry-run`` is added separately via
+    :func:`_add_bundle_common_args` so the standalone ``deploy``/``run``/
+    ``destroy`` verbs get it too.
     """
     parser.add_argument(
         "-d",
@@ -259,11 +262,164 @@ def _add_bundle_action_arguments(parser: ArgumentParser) -> None:
         action="store_true",
         help="Run `databricks bundle destroy` for the generated bundle.",
     )
+
+
+def _add_bundle_common_args(parser: ArgumentParser, *, kind: str) -> None:
+    """Add the flags every bundle verb shares: -c/-o/-p/--dry-run/--param.
+
+    Shared across ``generate``/``deploy``/``run``/``destroy`` for all three
+    nouns (agent/mcp/workflow) so the config path, staging dir, profile, and
+    dry-run switch are spelled identically everywhere. ``kind`` only customizes
+    the ``--output-dir`` help text (``<base>/<kind>/<app>``).
+    """
+    parser.add_argument(
+        "-c",
+        "--config",
+        type=str,
+        required=True,
+        metavar="FILE",
+        help="Path to the dao-ai configuration file",
+    )
+    parser.add_argument(
+        "-o",
+        "--output-dir",
+        type=str,
+        default=None,
+        metavar="DIR",
+        help=f"Directory for the bundle staging dir (default: <base>/{kind}/"
+        "<app-name>; <base> is $DAO_AI_BUNDLE_DIR or ./.dao-ai/bundle). deploy/"
+        "run/destroy act on this same dir without regenerating it.",
+    )
     parser.add_argument(
         "--dry-run",
         action="store_true",
         help="Print the databricks bundle commands without executing them.",
     )
+    _add_profile_argument(parser)
+    _add_var_argument(parser)
+
+
+def _add_bundle_source_args(parser: ArgumentParser) -> None:
+    """Add source-selection flags (--overwrite, --development tri-state).
+
+    Only meaningful on the ``generate`` verb — deploy/run/destroy never
+    re-stage, so these would be inert there.
+    """
+    parser.add_argument(
+        "--overwrite",
+        action="store_true",
+        help="Overwrite existing files in the staging directory (and discard "
+        "local hand-edits in a default staging dir).",
+    )
+    parser.add_argument(
+        "--development",
+        dest="development",
+        default=None,
+        action="store_true",
+        help="Bundle local dao-ai source/wheel instead of pinning the published "
+        "PyPI package. Rebuild the wheel first with 'uv build --wheel'. "
+        "Defaults to auto-detect from the install type.",
+    )
+    parser.add_argument(
+        "--no-development",
+        dest="development",
+        action="store_false",
+        help="Force the published PyPI dao-ai package even from a local/editable "
+        "install.",
+    )
+
+
+def _add_workflow_target_args(parser: ArgumentParser) -> None:
+    """Add workflow-only target/cloud flags used to resolve the bundle target.
+
+    The workflow bundle's target is ``<app>-<cloud>`` (contrast the App
+    bundle's fixed ``dev``), so deploy/run/destroy need cloud + optional target
+    overrides to address the right target; ``--deployment-target`` selects the
+    agent deploy surface passed to the provisioning notebook.
+    """
+    parser.add_argument(
+        "-t",
+        "--target",
+        type=str,
+        help="Bundle target name (default: auto-generated from app name and cloud)",
+    )
+    parser.add_argument(
+        "--cloud",
+        type=str,
+        choices=["azure", "aws", "gcp"],
+        help="Cloud provider (auto-detected from workspace URL if not specified)",
+    )
+    parser.add_argument(
+        "--deployment-target",
+        type=str,
+        choices=["model_serving", "apps", "both"],
+        default=None,
+        help="Agent deployment target: 'model_serving', 'apps', or 'both'. "
+        "If not specified, uses app.deployment_target from config file, "
+        "or defaults to 'model_serving'. Passed to the deploy notebook.",
+    )
+
+
+def _add_noun_verb_parsers(
+    subparsers: "argparse._SubParsersAction",
+    *,
+    noun: str,
+    generate_description: str,
+    generate_epilog: str,
+) -> None:
+    """Register the generate/deploy/run/destroy verb parsers for one noun.
+
+    ``noun`` is ``"agent"``/``"mcp"``/``"workflow"``. The ``generate`` verb
+    carries the source flags (+ one-shot --deploy/--run/--destroy) and inherits
+    the noun's rich help; deploy/run/destroy carry only the common args. The
+    workflow noun additionally gets target/cloud flags on every verb.
+    """
+    is_workflow: bool = noun == "workflow"
+
+    parser: ArgumentParser = subparsers.add_parser(
+        noun,
+        help=f"Manage the {noun} bundle (generate | deploy | run | destroy)",
+        description=generate_description,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    verbs = parser.add_subparsers(dest="subcommand", required=True)
+
+    generate_parser: ArgumentParser = verbs.add_parser(
+        "generate",
+        help=f"Generate the {noun} bundle from a config",
+        description=generate_description,
+        epilog=generate_epilog,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    _add_bundle_common_args(generate_parser, kind=noun)
+    _add_bundle_source_args(generate_parser)
+    if is_workflow:
+        _add_workflow_target_args(generate_parser)
+    _add_bundle_action_arguments(generate_parser)
+
+    for verb, verb_help in (
+        ("deploy", f"Deploy the already-staged {noun} bundle (no regenerate)"),
+        ("run", f"Run the deployed {noun} bundle"),
+        ("destroy", f"Destroy the deployed {noun} bundle"),
+    ):
+        verb_parser: ArgumentParser = verbs.add_parser(
+            verb,
+            help=verb_help,
+            description=f"{verb_help}. Acts on the staging dir written by "
+            f"`dao-ai {noun} generate` (or -o); errors if nothing is staged.",
+        )
+        _add_bundle_common_args(verb_parser, kind=noun)
+        if is_workflow:
+            _add_workflow_target_args(verb_parser)
+        if verb == "deploy":
+            # Forward chaining: `dao-ai <noun> deploy --run` deploys the staged
+            # bundle then runs it (parity with `generate --deploy --run`).
+            verb_parser.add_argument(
+                "-r",
+                "--run",
+                action="store_true",
+                help="After deploying, run `databricks bundle run <app>`.",
+            )
 
 
 def _validate_bundle_action_flags(options: Namespace) -> None:
@@ -289,6 +445,15 @@ def _validate_bundle_action_flags(options: Namespace) -> None:
 _BUNDLE_DIR_ENV_VAR = "DAO_AI_BUNDLE_DIR"
 _DEFAULT_BUNDLE_BASE = ".dao-ai/bundle"
 
+# Back-compat: flat `generate-<noun>` commands map to the nested `<noun>
+# generate` verb. main() rewrites options.command via this table before
+# dispatch, so the aliases share the exact generate code path.
+_ALIAS_TO_NOUN: dict[str, str] = {
+    "generate-agent": "agent",
+    "generate-mcp": "mcp",
+    "generate-workflow": "workflow",
+}
+
 
 def _default_bundle_base() -> Path:
     """Base dir for generated bundles: ``$DAO_AI_BUNDLE_DIR`` or ``.dao-ai/bundle``.
@@ -312,16 +477,60 @@ def _default_bundle_dir(kind: str, app_name: str) -> Path:
     return _default_bundle_base() / kind / normalize_name(app_name)
 
 
-def _clean_default_staging_dir(bundle_dir: Path, *, is_default: bool) -> None:
+# Marker file dao-ai drops in a default staging dir after each generate. Its
+# mtime is the "last generated" timestamp used to detect later hand-edits.
+_STAGING_MARKER = ".dao-ai-generated"
+
+
+def _write_staging_marker(bundle_dir: Path, *, is_default: bool) -> None:
+    """Stamp a default staging dir as freshly dao-ai-generated.
+
+    Only marks a dao-ai-owned default dir (never a user ``-o`` dir). Written
+    LAST, after the writer, so its mtime post-dates every generated file; a
+    later hand-edit then shows an mtime newer than the marker, which
+    :func:`_clean_default_staging_dir` uses to protect edits from a re-generate.
+    """
+    if not is_default or not bundle_dir.exists():
+        return
+    (bundle_dir / _STAGING_MARKER).write_text("")
+
+
+def _staging_dir_has_local_edits(bundle_dir: Path) -> bool:
+    """True if a marked staging dir looks hand-edited since its last generate.
+
+    Missing marker → treat as edited (a legacy or user-created dir we didn't
+    stamp). Otherwise any file with an mtime newer than the marker (an edit or a
+    newly-added stray file) counts as a local edit.
+    """
+    marker: Path = bundle_dir / _STAGING_MARKER
+    if not marker.exists():
+        return True
+    marker_mtime: float = marker.stat().st_mtime
+    for path in bundle_dir.rglob("*"):
+        if path == marker or path.is_dir():
+            continue
+        if path.stat().st_mtime > marker_mtime:
+            return True
+    return False
+
+
+def _clean_default_staging_dir(
+    bundle_dir: Path, *, is_default: bool, overwrite: bool, noun: str
+) -> None:
     """Clear a dao-ai-owned default staging dir before regenerating into it.
 
-    Only wipes when ``is_default`` (a path dao-ai chose under
-    :func:`_default_bundle_base`) — never a user-supplied ``-o`` dir, which may
+    Only touches an ``is_default`` path dao-ai chose under
+    :func:`_default_bundle_base` — never a user-supplied ``-o`` dir, which may
     hold hand-edits. Regenerating into a stale dir otherwise produces an
     internally-inconsistent bundle (e.g. a ``--development`` run leaves ``dist/``
     wheels + a dev ``pyproject.toml`` that a later ``--no-development`` run then
     mixes with a published layout). Guarded to only ever remove a path under the
     resolved default base.
+
+    Edit safety: if the dir carries local modifications since the last generate
+    (see :func:`_staging_dir_has_local_edits`), refuse to wipe unless
+    ``overwrite`` — pointing the user at ``<noun> deploy`` to ship what's on
+    disk. Untouched dao-ai output is wiped silently as before.
     """
     if not is_default or not bundle_dir.exists():
         return
@@ -330,6 +539,13 @@ def _clean_default_staging_dir(bundle_dir: Path, *, is_default: bool) -> None:
     # safety: only wipe paths strictly under the owned base dir
     if base not in resolved.parents:
         return
+    if not overwrite and _staging_dir_has_local_edits(bundle_dir):
+        logger.error(
+            f"Staging dir {bundle_dir} has local modifications. "
+            f"Ship it with `dao-ai {noun} deploy -c <config>`, "
+            f"or pass --overwrite to discard the edits and regenerate."
+        )
+        sys.exit(1)
     shutil.rmtree(bundle_dir)
 
 
@@ -706,244 +922,80 @@ Examples:
         help="Path to the model configuration file to visualize",
     )
 
-    generate_workflow_parser: ArgumentParser = subparsers.add_parser(
-        "generate-workflow",
-        help="Generate + deploy/run the provisioning Workflow (multi-task Job)",
-        description="""
-Generate and deploy/run the DAO AI provisioning Workflow — a multi-task
-Databricks Job (Lakeflow Workflow) that provisions the backing infra (schemas,
-Vector Search, Lakebase, Genie, UC functions), deploys the agent, and runs
-evaluation. Emits a self-contained Databricks Asset Bundle and wraps
-`databricks bundle deploy/run/destroy`. (This is a Job/Workflow, not a Lakeflow
-Declarative Pipeline.) Sibling of `generate-agent` / `generate-mcp`.
+    # --- Bundle nouns: `dao-ai <noun> <generate|deploy|run|destroy>` ----------
+    # Each noun owns the full generate → deploy → run → destroy lifecycle as
+    # discrete verbs. generate stages (and can one-shot --deploy/--run); deploy/
+    # run/destroy act on the already-staged dir without regenerating it.
+    _WORKFLOW_DESC = """
+Manage the DAO AI provisioning Workflow — a multi-task Databricks Job (Lakeflow
+Workflow) that provisions the backing infra (schemas, Vector Search, Lakebase,
+Genie, UC functions), deploys the agent, and runs evaluation. Emits a
+self-contained Databricks Asset Bundle and wraps `databricks bundle
+deploy/run/destroy`. (This is a Job/Workflow, not a Lakeflow Declarative
+Pipeline.) Sibling of `agent` / `mcp`.
+"""
+    _AGENT_DESC = """
+Manage the agent's Databricks Apps bundle. `generate` writes a complete,
+deployable bundle directory (databricks.yaml, app.yaml, pyproject.toml, and
+scaffolding) from a dao-ai config; `deploy`/`run`/`destroy` act on that staged
+bundle. Sibling of `mcp` (the MCP-server App bundle).
+"""
+    _MCP_DESC = """
+Manage the dao-ai MCP-server Databricks Apps bundle. `generate` writes a
+deploy-ready bundle that exposes the configured Genie cache + Vector Search
+retriever tools as MCP tools over Streamable HTTP; `deploy`/`run`/`destroy` act
+on that staged bundle. Mirrors `agent` but emits the MCP-only artifact.
+"""
+
+    _add_noun_verb_parsers(
+        subparsers,
+        noun="agent",
+        generate_description=_AGENT_DESC,
+        generate_epilog="""
+Examples:
+  dao-ai agent generate -c config/retail.yaml
+  dao-ai agent generate -c config/retail.yaml --deploy --run -p fevm
+  dao-ai agent deploy   -c config/retail.yaml -p fevm      # ship staged bundle
 """,
-        epilog="""
+    )
+    _add_noun_verb_parsers(
+        subparsers,
+        noun="mcp",
+        generate_description=_MCP_DESC,
+        generate_epilog="""
 Examples:
-    dao-ai generate-workflow -c config/retail.yaml --deploy
-    dao-ai generate-workflow -c config/retail.yaml --run
+  dao-ai mcp generate -c config/retail.yaml -o ./retail-mcp
+  dao-ai mcp deploy   -c config/retail.yaml -p fevm
+""",
+    )
+    _add_noun_verb_parsers(
+        subparsers,
+        noun="workflow",
+        generate_description=_WORKFLOW_DESC,
+        generate_epilog="""
+Examples:
+  dao-ai workflow generate -c config/retail.yaml --deploy
+  dao-ai workflow run      -c config/retail.yaml   # run staged provisioning job
 """,
     )
 
-    generate_workflow_parser.add_argument(
-        "-p",
-        "--profile",
-        type=str,
-        help="The Databricks profile to use for deployment",
-    )
-    generate_workflow_parser.add_argument(
-        "-c",
-        "--config",
-        type=str,
-        required=True,
-        metavar="FILE",
-        help="Path to the model configuration file for the bundle",
-    )
-    generate_workflow_parser.add_argument(
-        "-d",
-        "--deploy",
-        action="store_true",
-        help="Deploy the DAO AI asset bundle",
-    )
-    generate_workflow_parser.add_argument(
-        "--destroy",
-        action="store_true",
-        help="Destroy the DAO AI asset bundle",
-    )
-    generate_workflow_parser.add_argument(
-        "-r",
-        "--run",
-        action="store_true",
-        help="Run the DAO AI system with the current configuration",
-    )
-    generate_workflow_parser.add_argument(
-        "-t",
-        "--target",
-        type=str,
-        help="Bundle target name (default: auto-generated from app name and cloud)",
-    )
-    generate_workflow_parser.add_argument(
-        "--cloud",
-        type=str,
-        choices=["azure", "aws", "gcp"],
-        help="Cloud provider (auto-detected from workspace URL if not specified)",
-    )
-    generate_workflow_parser.add_argument(
-        "--dry-run",
-        action="store_true",
-        help="Perform a dry run without executing the deployment or run commands",
-    )
-    generate_workflow_parser.add_argument(
-        "--deployment-target",
-        type=str,
-        choices=["model_serving", "apps", "both"],
-        default=None,
-        help="Agent deployment target: 'model_serving', 'apps', or 'both'. "
-        "If not specified, uses app.deployment_target from config file, "
-        "or defaults to 'model_serving'. Passed to the deploy notebook.",
-    )
-    generate_workflow_parser.add_argument(
-        "--development",
-        dest="development",
-        default=None,
-        action="store_true",
-        help="Ship local dao-ai source/wheel instead of the published PyPI "
-        "package. Rebuild the wheel first with 'uv build --wheel'. "
-        "Defaults to auto-detect from the install type. Passed to the deploy "
-        "notebook.",
-    )
-    generate_workflow_parser.add_argument(
-        "--no-development",
-        dest="development",
-        action="store_false",
-        help="Force the published PyPI dao-ai package even from a local/editable "
-        "install. Passed to the deploy notebook.",
-    )
-    generate_workflow_parser.add_argument(
-        "-o",
-        "--output-dir",
-        type=str,
-        default=None,
-        metavar="DIR",
-        help="Directory to stage the workflow bundle into before deploying "
-        "(default: <base>/workflow/<app-name>, a per-app dir so deploying "
-        "multiple configs never collides; <base> is $DAO_AI_BUNDLE_DIR or "
-        "./.dao-ai/bundle). The bundle is self-contained — notebooks, "
-        "requirements.txt, and databricks.yaml are materialized from the "
-        "installed dao-ai wheel, so no source checkout is required.",
-    )
-    generate_workflow_parser.add_argument(
-        "--overwrite",
-        action="store_true",
-        help="Overwrite existing files in the staging output directory.",
-    )
-
-    # Generate agent-app bundle command.
-    generate_agent_parser: ArgumentParser = subparsers.add_parser(
-        "generate-agent",
-        help="Generate the agent's Databricks App bundle from a config",
-        description="""
-Generate a complete, deployable Databricks Apps bundle directory that serves the
-dao-ai agent, from a dao-ai config file. Creates databricks.yaml, app.yaml,
-pyproject.toml, and scaffolding files. Sibling of `generate-mcp` (which emits the
-MCP-server App bundle).
-        """,
-        epilog="""
-Examples:
-  dao-ai generate-agent -c config/retail.yaml -o ./my-bundle
-  dao-ai generate-agent -c config/retail.yaml -o ./my-bundle --overwrite
-        """,
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-    )
-    generate_agent_parser.add_argument(
-        "-c",
-        "--config",
-        type=str,
-        required=True,
-        metavar="FILE",
-        help="Path to the dao-ai configuration file",
-    )
-    generate_agent_parser.add_argument(
-        "-o",
-        "--output-dir",
-        type=str,
-        default=None,
-        metavar="DIR",
-        help="Directory to write the generated bundle files to "
-        "(default: <base>/agent/<app-name>; <base> is $DAO_AI_BUNDLE_DIR or "
-        "./.dao-ai/bundle).",
-    )
-    generate_agent_parser.add_argument(
-        "--overwrite",
-        action="store_true",
-        help="Overwrite existing files in the output directory",
-    )
-    generate_agent_parser.add_argument(
-        "--development",
-        dest="development",
-        default=None,
-        action="store_true",
-        help="Bundle local dao-ai source/wheel instead of pinning the published "
-        "PyPI package. Rebuild the wheel first with 'uv build --wheel'. "
-        "Defaults to auto-detect from the install type.",
-    )
-    generate_agent_parser.add_argument(
-        "--no-development",
-        dest="development",
-        action="store_false",
-        help="Force the published PyPI dao-ai package even from a local/editable "
-        "install.",
-    )
-    generate_agent_parser.add_argument(
-        "-p",
-        "--profile",
-        type=str,
-        help="The Databricks profile to use for config loading",
-    )
-    _add_bundle_action_arguments(generate_agent_parser)
-
-    # Generate MCP-server bundle command
-    generate_mcp_parser: ArgumentParser = subparsers.add_parser(
-        "generate-mcp",
-        help="Generate a Databricks Apps bundle that runs the dao-ai MCP server",
-        description="""
-Generate a deploy-ready Databricks Apps bundle from a dao-ai config that exposes
-the configured Genie cache + Vector Search retriever tools as MCP tools over
-Streamable HTTP. Mirrors `generate-agent` but emits the MCP-only artifact
-(databricks.yml, app.yaml, pyproject.toml, requirements.txt, README.md).
-        """,
-        epilog="""
-Examples:
-  dao-ai generate-mcp -c config/retail.yaml -o ./retail-mcp
-  dao-ai generate-mcp -c config/retail.yaml -o ./retail-mcp --overwrite
-        """,
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-    )
-    generate_mcp_parser.add_argument(
-        "-c",
-        "--config",
-        type=str,
-        required=True,
-        metavar="FILE",
-        help="Path to the dao-ai configuration file",
-    )
-    generate_mcp_parser.add_argument(
-        "-o",
-        "--output-dir",
-        type=str,
-        default=None,
-        metavar="DIR",
-        help="Directory to write the generated MCP bundle files to "
-        "(default: <base>/mcp/<app-name>; <base> is $DAO_AI_BUNDLE_DIR or "
-        "./.dao-ai/bundle).",
-    )
-    generate_mcp_parser.add_argument(
-        "--overwrite",
-        action="store_true",
-        help="Overwrite existing files in the output directory",
-    )
-    generate_mcp_parser.add_argument(
-        "--development",
-        dest="development",
-        default=None,
-        action="store_true",
-        help="Bundle local dao-ai source/wheel instead of pinning the published "
-        "PyPI package. Rebuild the wheel first with 'uv build --wheel'. "
-        "Defaults to auto-detect from the install type.",
-    )
-    generate_mcp_parser.add_argument(
-        "--no-development",
-        dest="development",
-        action="store_false",
-        help="Force the published PyPI dao-ai package even from a local/editable "
-        "install.",
-    )
-    generate_mcp_parser.add_argument(
-        "-p",
-        "--profile",
-        type=str,
-        help="The Databricks profile to use for config loading",
-    )
-    _add_bundle_action_arguments(generate_mcp_parser)
+    # --- Back-compat flat aliases: `generate-<noun>` == `<noun> generate` -----
+    # Register each as its own top-level parser reusing the same generate-verb
+    # flags (argparse can't alias a flat name onto a nested subcommand). main()
+    # normalizes options.command back to (noun, "generate") before dispatch.
+    for alias, noun in _ALIAS_TO_NOUN.items():
+        alias_parser: ArgumentParser = subparsers.add_parser(
+            alias,
+            help=f"Alias for `dao-ai {noun} generate` (back-compat).",
+            description=f"Deprecated alias for `dao-ai {noun} generate`. "
+            f"Generates the {noun} bundle; supports the same flags.",
+            formatter_class=argparse.RawDescriptionHelpFormatter,
+        )
+        _add_bundle_common_args(alias_parser, kind=noun)
+        _add_bundle_source_args(alias_parser)
+        if noun == "workflow":
+            _add_workflow_target_args(alias_parser)
+        _add_bundle_action_arguments(alias_parser)
 
     # Deploy command
     deploy_parser: ArgumentParser = subparsers.add_parser(
@@ -1165,12 +1217,12 @@ Examples:
         help="Path to the model configuration file to inspect.",
     )
 
+    # The bundle nouns (agent/mcp/workflow) and their generate-* aliases get
+    # --param/--var and -p/--profile from `_add_bundle_common_args`, so they are
+    # NOT listed here — only the non-bundle subcommands are.
     for sub in (
         validation_parser,
         graph_parser,
-        generate_workflow_parser,
-        generate_agent_parser,
-        generate_mcp_parser,
         deploy_parser,
         list_mcp_parser,
         monitor_parser,
@@ -1180,9 +1232,10 @@ Examples:
         _add_var_argument(sub)
 
     # Add -p/--profile to the subcommands that touch Databricks but don't
-    # already declare it inline (deploy/pipeline/generate-*/create-experiment/
-    # link-trace/grant-trace define their own). Without it a shell/.env
-    # DATABRICKS_* var silently wins — the hijack _apply_profile_context guards.
+    # already declare it inline (deploy/create-experiment/link-trace/grant-trace
+    # define their own; bundle nouns get it from _add_bundle_common_args).
+    # Without it a shell/.env DATABRICKS_* var silently wins — the hijack
+    # _apply_profile_context guards.
     for sub in (
         validation_parser,
         graph_parser,
@@ -2498,6 +2551,7 @@ def run_databricks_command(
     config_vars: Optional[dict[str, str]] = None,
     output_dir: Optional[str] = None,
     overwrite: bool = False,
+    stage: bool = True,
 ) -> None:
     """Execute a databricks CLI command with optional profile, target, and cloud.
 
@@ -2526,6 +2580,13 @@ def run_databricks_command(
         overwrite: Overwrite copied-in *content* (config, data/functions assets)
             in the staging dir. Derived artifacts (databricks.yaml,
             requirements.txt, notebooks) are always regenerated regardless.
+        stage: When True (default) write/refresh the bundle in the staging dir
+            before running ``command`` — the behavior of ``workflow generate``.
+            When False, skip staging entirely and run ``command`` against the
+            EXISTING staged dir (the standalone ``workflow deploy/run/destroy``
+            verbs); the bundle ``--var`` values are still re-derived from config
+            + the already-staged ``dist/`` so the bundle verb has what it needs.
+            Errors if nothing is staged there.
     """
     config_path = Path(config) if config else None
 
@@ -2600,16 +2661,31 @@ def run_databricks_command(
         )
         dao_ai_dep = f"dao-ai{extras_suffix}=={dao_ai_version()}"
 
-        # Regenerate the owned default dir cleanly so stale dev artifacts
-        # (e.g. dist/ wheels) don't linger across dev/published switches.
-        _clean_default_staging_dir(staging_dir, is_default=is_default_dir)
+        if stage:
+            # Regenerate the owned default dir cleanly so stale dev artifacts
+            # (e.g. dist/ wheels) don't linger across dev/published switches.
+            _clean_default_staging_dir(
+                staging_dir,
+                is_default=is_default_dir,
+                overwrite=overwrite,
+                noun="workflow",
+            )
+            write_pipeline_bundle(
+                app_config,
+                staging_dir,
+                overwrite=overwrite,
+                development=use_local_source,
+            )
+            _write_staging_marker(staging_dir, is_default=is_default_dir)
+        elif not (staging_dir / "databricks.yaml").exists():
+            # Standalone deploy/run/destroy on an unstaged dir: nothing to run.
+            logger.error(
+                f"No staged workflow bundle at {staging_dir}. "
+                f"Run `dao-ai workflow generate -c {config}"
+                f"{f' -o {output_dir}' if output_dir else ''}` first."
+            )
+            sys.exit(1)
 
-        write_pipeline_bundle(
-            app_config,
-            staging_dir,
-            overwrite=overwrite,
-            development=use_local_source,
-        )
         # The config is staged at <staging>/config/<name>; notebooks run with
         # CWD == <staging>/notebooks, so the config-path var is deterministic.
         config_filename: str = Path(config_path).name
@@ -2619,13 +2695,15 @@ def run_databricks_command(
         # bundle variable: the staged local wheel in development mode (the
         # notebooks run with CWD == <staging>/notebooks, so ``./dist`` resolves),
         # else the unbounded ``dao-ai`` PyPI spec. write_pipeline_bundle staged
-        # exactly one wheel under <staging>/dist in development mode.
+        # exactly one wheel under <staging>/dist in development mode — the
+        # no-stage path reads that same already-staged wheel.
         if use_local_source:
             staged_wheels = sorted((staging_dir / "dist").glob("dao_ai-*.whl"))
             if not staged_wheels:
                 raise RuntimeError(
                     "Development pipeline bundle has no staged dao-ai wheel "
-                    f"under {staging_dir / 'dist'}."
+                    f"under {staging_dir / 'dist'}. "
+                    "Run `dao-ai workflow generate --development` first."
                 )
             # Bare wheel path — NO ``[extras]`` suffix. ``databricks bundle``
             # treats a serverless-env dependency that looks like a local path as
@@ -2900,6 +2978,41 @@ def _print_endpoint_link(endpoint_name: str) -> None:
         logger.debug(f"Could not resolve endpoint URL for {endpoint_name}: {e}")
 
 
+def handle_workflow_command(options: Namespace) -> None:
+    """Dispatch `dao-ai workflow <generate|deploy|run|destroy>`.
+
+    ``generate`` stages the provisioning-job bundle (and may one-shot
+    ``--deploy``/``--run``/``--destroy``). The standalone verbs run the
+    corresponding ``databricks bundle`` command against the ALREADY-STAGED dir
+    without re-staging (``stage=False``).
+    """
+    match options.subcommand:
+        case "generate":
+            handle_generate_workflow_command(options)
+        case "deploy":
+            _exec_workflow_verb(options, ["bundle", "deploy"])
+        case "run":
+            _exec_workflow_verb(options, ["bundle", "run", "deploy_job"])
+        case "destroy":
+            _exec_workflow_verb(options, ["bundle", "destroy", "--auto-approve"])
+
+
+def _exec_workflow_verb(options: Namespace, command: list[str]) -> None:
+    """Run a bundle verb against an already-staged workflow bundle (no restage)."""
+    run_databricks_command(
+        command,
+        profile=options.profile,
+        config=options.config,
+        target=options.target,
+        cloud=options.cloud,
+        dry_run=options.dry_run,
+        deployment_target=options.deployment_target,
+        config_vars=_parse_var_args(options.var),
+        output_dir=options.output_dir,
+        stage=False,
+    )
+
+
 def handle_generate_workflow_command(options: Namespace) -> None:
     logger.debug("Preparing provisioning-workflow configuration...")
     profile: Optional[str] = options.profile
@@ -2980,50 +3093,186 @@ def handle_generate_workflow_command(options: Namespace) -> None:
         )
 
 
-def handle_generate_agent_command(options: Namespace) -> None:
-    logger.debug("Generating bundle...")
-    config_path: str = options.config
-    output_dir: str | None = options.output_dir
-    overwrite: bool = options.overwrite
-    # Resolve the --development/--no-development tri-state to a concrete bool
-    # (None -> auto-detect via is_published()) so write_bundle's bool contract
-    # matches deploy's source-selection semantics.
-    from dao_ai.utils import resolve_use_local_source
+def _resolve_bundle_dir(
+    kind: str, config: AppConfig, output_dir: str | None
+) -> tuple[Path, bool]:
+    """Resolve the staging dir for an App bundle, shared by generate + verbs.
 
-    development: bool = resolve_use_local_source(options.development)
-    profile: str | None = options.profile
+    Returns ``(bundle_dir, is_default)``. ``is_default`` is True when the dir
+    was chosen by dao-ai (``<base>/<kind>/<app>``) rather than supplied via
+    ``-o``. Both ``<noun> generate`` and the standalone ``deploy``/``run``/
+    ``destroy`` verbs call this so they always agree on the same directory.
+    """
+    is_default_dir: bool = output_dir is None
+    bundle_dir: Path = (
+        Path(output_dir)
+        if output_dir is not None
+        else _default_bundle_dir(kind, config.app.name)
+    ).resolve()
+    return bundle_dir, is_default_dir
 
-    _apply_profile_context(profile)
 
+def _load_app_config(options: Namespace, *, what: str) -> AppConfig:
+    """Load the config for a bundle command; exit cleanly if it lacks ``app``.
+
+    ``what`` names the artifact for the error message (e.g. "a bundle",
+    "an MCP bundle"). Applies the profile context first so config loading and
+    later SDK calls resolve against ``-p``.
+    """
+    _apply_profile_context(options.profile)
     try:
         config: AppConfig = AppConfig.from_file(
-            config_path, params=_parse_var_args(options.var), initialize=False
+            options.config, params=_parse_var_args(options.var), initialize=False
         )
     except ConfigVariableError as e:
         _print_config_variable_error(e)
         sys.exit(1)
     if config.app is None:
-        logger.error("Config must have an 'app' section to generate a bundle")
+        logger.error(f"Config must have an 'app' section to generate {what}")
         sys.exit(1)
+    return config
 
-    # Resolve resources so Genie room tables and warehouses can be discovered
+
+def _generate_app_bundle(options: Namespace, *, kind: str, writer, what: str) -> None:
+    """Generate an App bundle (agent or mcp), then run any one-shot actions.
+
+    ``writer`` is ``write_bundle`` / ``write_mcp_bundle``. ``kind`` selects the
+    default staging dir and ``what`` the guard message. After writing, drops the
+    ``.dao-ai-generated`` marker and runs ``--deploy``/``--run``/``--destroy`` if
+    requested.
+    """
+    logger.debug(f"Generating {kind} bundle...")
+    # Resolve the --development/--no-development tri-state to a concrete bool
+    # (None -> auto-detect via is_published()) so the writer's bool contract
+    # matches deploy's source-selection semantics.
+    from dao_ai.utils import resolve_use_local_source
+
+    development: bool = resolve_use_local_source(options.development)
+    config: AppConfig = _load_app_config(options, what=what)
+
+    # Resolve resources so Genie room tables and warehouses can be discovered.
     config._resolve_all_resources()
 
-    is_default_dir: bool = output_dir is None
-    bundle_dir: Path = (
-        Path(output_dir)
-        if output_dir is not None
-        else _default_bundle_dir("agent", config.app.name)
-    ).resolve()
+    bundle_dir, is_default_dir = _resolve_bundle_dir(kind, config, options.output_dir)
     # Regenerate the owned default dir from scratch so a prior --development run
     # can't leave stale dist/ + dev pyproject that a published rebuild mixes in.
-    _clean_default_staging_dir(bundle_dir, is_default=is_default_dir)
+    # Refuses to wipe a default dir that carries hand-edits unless --overwrite.
+    _clean_default_staging_dir(
+        bundle_dir, is_default=is_default_dir, overwrite=options.overwrite, noun=kind
+    )
 
+    writer(config, bundle_dir, overwrite=options.overwrite, development=development)
+    _write_staging_marker(bundle_dir, is_default=is_default_dir)
+
+    _run_bundle_actions(options, config, bundle_dir, options.profile)
+
+
+def _deploy_run_destroy_app_bundle(
+    options: Namespace, *, kind: str, deploy: bool, run: bool, destroy: bool
+) -> None:
+    """Deploy/run/destroy an ALREADY-STAGED App bundle without regenerating.
+
+    Resolves the same staging dir that ``<noun> generate`` writes, errors with
+    guidance if nothing is staged there, then drives :func:`deploy_app_bundle`.
+    For a run-only invocation, best-effort verifies the app is deployed and
+    points at ``<noun> deploy --run`` instead of leaking a raw bundle error.
+    """
+    what = "a bundle" if kind == "agent" else "an MCP bundle"
+    config: AppConfig = _load_app_config(options, what=what)
+    bundle_dir, _ = _resolve_bundle_dir(kind, config, options.output_dir)
+
+    if not (bundle_dir / "databricks.yaml").exists():
+        logger.error(
+            f"No staged {kind} bundle at {bundle_dir}. "
+            f"Run `dao-ai {kind} generate -c {options.config}"
+            f"{f' -o {options.output_dir}' if options.output_dir else ''}` first."
+        )
+        sys.exit(1)
+
+    dry_run: bool = options.dry_run
+    if run and not deploy and not destroy and not dry_run:
+        _verify_app_deployed_or_exit(config.app.name, kind=kind, config=options.config)
+
+    deploy_app_bundle(
+        config,
+        output_dir=bundle_dir,
+        deploy=deploy,
+        run=run,
+        destroy=destroy,
+        profile=options.profile,
+        dry_run=dry_run,
+    )
+
+
+def _verify_app_deployed_or_exit(app_name: str, *, kind: str, config: str) -> None:
+    """Best-effort: exit with guidance if the app has never been deployed.
+
+    A ``run`` against a staged-but-undeployed bundle otherwise fails deep inside
+    ``databricks bundle run`` with an opaque error. Resolves the app via the
+    Apps API; a not-found result means deploy first. Any other lookup failure is
+    swallowed — this is a friendliness check, not a gate.
+    """
+    normalized: str = app_name.lower().replace("_", "-")
+    try:
+        from databricks.sdk import WorkspaceClient
+        from databricks.sdk.errors import NotFound
+
+        try:
+            WorkspaceClient().apps.get(name=normalized)
+        except NotFound:
+            logger.error(
+                f"App '{normalized}' is not deployed yet. "
+                f"Run `dao-ai {kind} deploy -c {config} --run` to deploy then run."
+            )
+            sys.exit(1)
+    except ImportError:
+        return
+
+
+def handle_agent_command(options: Namespace) -> None:
+    """Dispatch `dao-ai agent <generate|deploy|run|destroy>`."""
     from dao_ai.apps.bundle import write_bundle
 
-    write_bundle(config, bundle_dir, overwrite=overwrite, development=development)
+    match options.subcommand:
+        case "generate":
+            _generate_app_bundle(
+                options, kind="agent", writer=write_bundle, what="a bundle"
+            )
+        case "deploy":
+            _deploy_run_destroy_app_bundle(
+                options, kind="agent", deploy=True, run=options.run, destroy=False
+            )
+        case "run":
+            _deploy_run_destroy_app_bundle(
+                options, kind="agent", deploy=False, run=True, destroy=False
+            )
+        case "destroy":
+            _deploy_run_destroy_app_bundle(
+                options, kind="agent", deploy=False, run=False, destroy=True
+            )
 
-    _run_bundle_actions(options, config, bundle_dir, profile)
+
+def handle_mcp_command(options: Namespace) -> None:
+    """Dispatch `dao-ai mcp <generate|deploy|run|destroy>`."""
+    from dao_ai.mcp.generate import write_mcp_bundle
+
+    match options.subcommand:
+        case "generate":
+            _generate_app_bundle(
+                options, kind="mcp", writer=write_mcp_bundle, what="an MCP bundle"
+            )
+        case "deploy":
+            _deploy_run_destroy_app_bundle(
+                options, kind="mcp", deploy=True, run=options.run, destroy=False
+            )
+        case "run":
+            _deploy_run_destroy_app_bundle(
+                options, kind="mcp", deploy=False, run=True, destroy=False
+            )
+        case "destroy":
+            _deploy_run_destroy_app_bundle(
+                options, kind="mcp", deploy=False, run=False, destroy=True
+            )
 
 
 def _run_bundle_actions(
@@ -3057,57 +3306,6 @@ def _run_bundle_actions(
         profile=profile,
         dry_run=dry_run,
     )
-
-
-def handle_generate_mcp_command(options: Namespace) -> None:
-    """Emit a Databricks Apps bundle that runs the dao-ai MCP server.
-
-    The emitted server exposes the whole dao-ai agent graph as a single MCP
-    tool. Requires ``config.app.name`` (used as both the deployed App name
-    and the MCP tool name); ``config.app.description`` is strongly
-    recommended (surfaced to MCP clients as the tool description).
-    """
-    logger.debug("Generating MCP bundle...")
-    config_path: str = options.config
-    output_dir: str | None = options.output_dir
-    overwrite: bool = options.overwrite
-    # Resolve the --development/--no-development tri-state to a concrete bool
-    # (None -> auto-detect via is_published()) so write_mcp_bundle's bool
-    # contract matches deploy's source-selection semantics.
-    from dao_ai.utils import resolve_use_local_source
-
-    development: bool = resolve_use_local_source(options.development)
-    profile: str | None = options.profile
-
-    _apply_profile_context(profile)
-
-    try:
-        config: AppConfig = AppConfig.from_file(
-            config_path, params=_parse_var_args(options.var), initialize=False
-        )
-    except ConfigVariableError as e:
-        _print_config_variable_error(e)
-        sys.exit(1)
-    if config.app is None:
-        logger.error("Config must have an 'app' section to generate an MCP bundle")
-        sys.exit(1)
-
-    # Resolve resources so any Genie / VS lookups can fully bind.
-    config._resolve_all_resources()
-
-    is_default_dir: bool = output_dir is None
-    bundle_dir: Path = (
-        Path(output_dir)
-        if output_dir is not None
-        else _default_bundle_dir("mcp", config.app.name)
-    ).resolve()
-    _clean_default_staging_dir(bundle_dir, is_default=is_default_dir)
-
-    from dao_ai.mcp.generate import write_mcp_bundle
-
-    write_mcp_bundle(config, bundle_dir, overwrite=overwrite, development=development)
-
-    _run_bundle_actions(options, config, bundle_dir, profile)
 
 
 def handle_vars_command(options: Namespace) -> None:
@@ -3202,7 +3400,15 @@ def handle_vars_command(options: Namespace) -> None:
 def main() -> None:
     options: argparse.Namespace = parse_args(sys.argv[1:])
     setup_logging(options.verbose)
-    match options.command:
+
+    # Normalize the flat `generate-<noun>` aliases to the nested `<noun>
+    # generate` form so they share the exact per-noun handler code path.
+    command: str = options.command
+    if command in _ALIAS_TO_NOUN:
+        options.subcommand = "generate"
+        command = _ALIAS_TO_NOUN[command]
+
+    match command:
         case "version":
             handle_version_command(options)
         case "doctor":
@@ -3219,12 +3425,12 @@ def main() -> None:
             handle_validate_command(options)
         case "graph":
             handle_graph_command(options)
-        case "generate-workflow":
-            handle_generate_workflow_command(options)
-        case "generate-agent":
-            handle_generate_agent_command(options)
-        case "generate-mcp":
-            handle_generate_mcp_command(options)
+        case "agent":
+            handle_agent_command(options)
+        case "mcp":
+            handle_mcp_command(options)
+        case "workflow":
+            handle_workflow_command(options)
         case "deploy":
             handle_deploy_command(options)
         case "monitor":

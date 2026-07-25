@@ -135,10 +135,10 @@ Yes! Use different configuration files for each environment:
 
 ```bash
 # Development
-dao-ai generate-workflow --deploy -c config/dev.yaml --profile dev
+dao-ai workflow generate --deploy -c config/dev.yaml --profile dev
 
 # Production
-dao-ai generate-workflow --deploy -c config/prod.yaml --profile prod
+dao-ai workflow generate --deploy -c config/prod.yaml --profile prod
 ```
 
 **Learn more:** [`docs/cli-reference.md`](cli-reference.md) · [`docs/configuration-reference.md`](configuration-reference.md) (parameters + variables lifecycle)
@@ -171,7 +171,7 @@ variables:
 Simply redeploy with the updated configuration:
 
 ```bash
-dao-ai generate-workflow --deploy --run -c config/my_config.yaml
+dao-ai workflow generate --deploy --run -c config/my_config.yaml
 ```
 
 This will update the existing deployment.
@@ -194,16 +194,19 @@ print(f"Deployed app: {config.app.name}")
 
 `deploy_agent(target=APPS)` generates the Asset Bundle, uploads source + `requirements.txt`, deploys the app, waits for compute ACTIVE, and (if `app.trace_location:` is set) grants the App SP the OTEL-table permissions.  See [Lab 1 — Your First DAO-AI Agent](https://github.com/natefleming/dao-ai-workshop/tree/main/L100-foundations/lab-01-first-agent) for the shortest working example.
 
-**Path 2 — `dao-ai generate-agent` (Asset Bundle you can inspect / edit / check into Git):**
+**Path 2 — `dao-ai agent generate` (Asset Bundle you can inspect / edit / check into Git):**
 
 ```bash
-dao-ai generate-agent -c config/my_agent.yaml -o ./my-bundle
+dao-ai agent generate -c config/my_agent.yaml -o ./my-bundle
+# Optionally hand-edit ./my-bundle, then ship exactly what's on disk (no regeneration):
+dao-ai agent deploy --run -c config/my_agent.yaml -o ./my-bundle
+# ...or drive the bundle manually
 cd my-bundle
 databricks bundle deploy
 databricks bundle run <app-name>
 ```
 
-`generate-agent` writes a complete, deployable Databricks Apps bundle directory (`databricks.yaml`, `app.yaml`, `pyproject.toml`, scaffolding). Useful when you want the bundle under version control, need to hand-tune anything the generator produced, or want to deploy from CI outside of Python. Add `--development` to bundle local dao-ai source instead of the pinned PyPI wheel; add `--overwrite` to overwrite an existing output directory.
+`agent generate` writes a complete, deployable Databricks Apps bundle directory (`databricks.yaml`, `app.yaml`, `pyproject.toml`, scaffolding). Useful when you want the bundle under version control, need to hand-tune anything the generator produced, or want to deploy from CI outside of Python. Add `--development` to bundle local dao-ai source instead of the pinned PyPI wheel; add `--overwrite` to overwrite an existing output directory. The strict `deploy`/`run`/`destroy` verbs act on the already-staged bundle without regenerating. The flat `generate-agent` command remains as a back-compat alias.
 
 **Learn more:** [`docs/cli-reference.md`](cli-reference.md) · [`docs/python-api.md`](python-api.md)
 
@@ -758,7 +761,7 @@ app:
 **Deploy flow for Databricks Apps** (bundle path):
 
 ```bash
-dao-ai generate-agent -c my_config.yaml -o ./bundle
+dao-ai agent generate -c my_config.yaml -o ./bundle
 cd ./bundle
 databricks bundle deploy --target dev -p <profile>
 dao-ai link-trace-destination -c ../my_config.yaml -p <profile>   # explicit link step
