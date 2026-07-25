@@ -3099,6 +3099,11 @@ def _deploy_run_destroy_app_bundle(
 
         config: AppConfig = _load_app_config(options, what=what)
         development: bool = resolve_use_local_source(getattr(options, "development", None))
+        # Model Serving deploys a REGISTERED MLflow model, so log/register the
+        # current config first (mirrors the workflow deploy notebook + the former
+        # `dao-ai deploy` handler). Without this, deploy_model_serving_agent
+        # deploys a stale-or-nonexistent model version.
+        config.create_agent(development=development)
         config.deploy_agent(target=DeploymentTarget.MODEL_SERVING, development=development)
         return
 
@@ -3108,6 +3113,9 @@ def _deploy_run_destroy_app_bundle(
 
         config = _load_app_config(options, what=what)
         development = resolve_use_local_source(getattr(options, "development", None))
+        # Apps/MCP deploy directly from config + wheel (no MLflow model to
+        # register — matches the former `if target != APPS: create_agent()`
+        # gate). model_serving is handled by Route 1 above, so mode is apps|mcp here.
         config.deploy_agent(
             target=DeploymentTarget(mode),
             development=development,

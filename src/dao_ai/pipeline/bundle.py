@@ -150,7 +150,7 @@ def generate_pipeline_databricks_yaml(config: AppConfig, development: bool) -> s
             },
             "deployment_target": {
                 "description": "Agent deployment target (model_serving, apps, mcp).",
-                "default": "model_serving",
+                "default": "apps",
             },
             "development": {
                 "description": (

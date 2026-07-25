@@ -959,11 +959,21 @@ class TestDeployAutoGenerate:
         dep.assert_not_called()
         exec_cmd.assert_not_called()
 
-    def test_model_serving_deploy_uses_provider_not_bundle(
+    def test_model_serving_deploy_registers_then_deploys_not_bundle(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """`agent deploy --mode model_serving` routes to deploy_agent, not the bundle path."""
+        """`agent deploy --mode model_serving` must register the model
+        (create_agent) BEFORE deploy_agent, and NOT touch the bundle path.
+
+        Model Serving deploys a registered MLflow model version, so skipping
+        create_agent would deploy a stale/nonexistent version.
+        """
         cfg = self._write_cfg(tmp_path)
+
+        calls: list[str] = []
+
+        def fake_create_agent(self_config: object, development: object = None) -> None:
+            calls.append("create")
 
         deploy_agent_calls: list[dict[str, object]] = []
 
@@ -972,20 +982,21 @@ class TestDeployAutoGenerate:
             target: object = None,
             development: object = None,
         ) -> None:
+            calls.append("deploy")
             deploy_agent_calls.append({"target": target, "development": development})
 
         monkeypatch.setattr(cli, "_apply_profile_context", lambda p: None)
-        monkeypatch.setattr(
-            "dao_ai.config.AppConfig.deploy_agent",
-            fake_deploy_agent,
-        )
+        monkeypatch.setattr("dao_ai.config.AppConfig.create_agent", fake_create_agent)
+        monkeypatch.setattr("dao_ai.config.AppConfig.deploy_agent", fake_deploy_agent)
         with patch.object(cli, "deploy_app_bundle") as dep:
             opts = parse_args(["agent", "deploy", "-c", str(cfg), "--mode", "model_serving"])
             cli.handle_agent_command(opts)
 
         from dao_ai.config import DeploymentTarget
 
-        assert deploy_agent_calls, "--mode model_serving must call deploy_agent"
+        # create_agent (register) must run BEFORE deploy_agent, and the bundle
+        # path must not be touched.
+        assert calls == ["create", "deploy"], calls
         assert deploy_agent_calls[0]["target"] == DeploymentTarget.MODEL_SERVING
         dep.assert_not_called()
 

@@ -134,8 +134,8 @@ if deployment_target_str:
     deployment_target = DeploymentTarget(deployment_target_str)
     print(f"Using widget-specified deployment target: {deployment_target.value}")
 else:
-    deployment_target = DeploymentTarget.MODEL_SERVING
-    print("Using default deployment target: model_serving")
+    deployment_target = DeploymentTarget.APPS
+    print("Using default deployment target: apps")
 
 # COMMAND ----------
 
