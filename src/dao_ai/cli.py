@@ -470,7 +470,6 @@ _DEFAULT_BUNDLE_BASE = ".dao-ai/bundle"
 # dispatch, so the aliases share the exact generate code path.
 _ALIAS_TO_NOUN: dict[str, str] = {
     "generate-agent": "agent",
-    "generate-mcp": "mcp",
     "generate-workflow": "workflow",
 }
 
@@ -958,13 +957,7 @@ Pipeline.) Sibling of `agent` / `mcp`.
 Manage the agent's Databricks Apps bundle. `generate` writes a complete,
 deployable bundle directory (databricks.yaml, app.yaml, pyproject.toml, and
 scaffolding) from a dao-ai config; `deploy`/`run`/`destroy` act on that staged
-bundle. Sibling of `mcp` (the MCP-server App bundle).
-"""
-    _MCP_DESC = """
-Manage the dao-ai MCP-server Databricks Apps bundle. `generate` writes a
-deploy-ready bundle that exposes the configured Genie cache + Vector Search
-retriever tools as MCP tools over Streamable HTTP; `deploy`/`run`/`destroy` act
-on that staged bundle. Mirrors `agent` but emits the MCP-only artifact.
+bundle. Use `--mode mcp` to generate/deploy the MCP-server bundle instead.
 """
 
     _add_noun_verb_parsers(
@@ -975,17 +968,8 @@ on that staged bundle. Mirrors `agent` but emits the MCP-only artifact.
 Examples:
   dao-ai agent generate -c config/retail.yaml
   dao-ai agent generate -c config/retail.yaml --deploy --run -p fevm
+  dao-ai agent generate -c config/retail.yaml --mode mcp  # MCP-server bundle
   dao-ai agent deploy   -c config/retail.yaml -p fevm      # ship staged bundle
-""",
-    )
-    _add_noun_verb_parsers(
-        subparsers,
-        noun="mcp",
-        generate_description=_MCP_DESC,
-        generate_epilog="""
-Examples:
-  dao-ai mcp generate -c config/retail.yaml -o ./retail-mcp
-  dao-ai mcp deploy   -c config/retail.yaml -p fevm
 """,
     )
     _add_noun_verb_parsers(
@@ -3249,49 +3233,53 @@ def _verify_app_deployed_or_exit(app_name: str, *, kind: str, config: str) -> No
         return
 
 
-def handle_agent_command(options: Namespace) -> None:
-    """Dispatch `dao-ai agent <generate|deploy|run|destroy>`."""
+def _mode_bundle_kind(mode: str) -> str:
+    """Staging-dir kind derived from serving mode.
+
+    ``mcp`` keeps its own dir so apps and mcp bundles never clobber each
+    other; every other mode (apps, model_serving) maps to ``"agent"``.
+    """
+    return "mcp" if mode == "mcp" else "agent"
+
+
+def _mode_writer(mode: str):
+    """Bundle writer function for the given serving mode."""
+    if mode == "mcp":
+        from dao_ai.mcp.generate import write_mcp_bundle
+
+        return write_mcp_bundle
     from dao_ai.apps.bundle import write_bundle
 
-    match options.subcommand:
-        case "generate":
-            _generate_app_bundle(
-                options, kind="agent", writer=write_bundle, what="a bundle"
-            )
-        case "deploy":
-            _deploy_run_destroy_app_bundle(
-                options, kind="agent", deploy=True, run=options.run, destroy=False
-            )
-        case "run":
-            _deploy_run_destroy_app_bundle(
-                options, kind="agent", deploy=False, run=True, destroy=False
-            )
-        case "destroy":
-            _deploy_run_destroy_app_bundle(
-                options, kind="agent", deploy=False, run=False, destroy=True
-            )
+    return write_bundle
 
 
-def handle_mcp_command(options: Namespace) -> None:
-    """Dispatch `dao-ai mcp <generate|deploy|run|destroy>`."""
-    from dao_ai.mcp.generate import write_mcp_bundle
+def handle_agent_command(options: Namespace) -> None:
+    """Dispatch `dao-ai agent <generate|deploy|run|destroy>`.
+
+    ``--mode mcp``   → writes the MCP-server bundle (staging dir ``mcp/<app>``)
+    ``--mode apps``  → writes the chat-agent bundle  (staging dir ``agent/<app>``)
+    ``--mode model_serving`` → only valid for `deploy`; bundle path is a no-op
+    here (Task 6 wires the direct deploy path).
+    """
+    mode: str = getattr(options, "mode", "apps") or "apps"
+    kind: str = _mode_bundle_kind(mode)
+    writer = _mode_writer(mode)
+    what: str = "an MCP bundle" if mode == "mcp" else "a bundle"
 
     match options.subcommand:
         case "generate":
-            _generate_app_bundle(
-                options, kind="mcp", writer=write_mcp_bundle, what="an MCP bundle"
-            )
+            _generate_app_bundle(options, kind=kind, writer=writer, what=what)
         case "deploy":
             _deploy_run_destroy_app_bundle(
-                options, kind="mcp", deploy=True, run=options.run, destroy=False
+                options, kind=kind, deploy=True, run=options.run, destroy=False
             )
         case "run":
             _deploy_run_destroy_app_bundle(
-                options, kind="mcp", deploy=False, run=True, destroy=False
+                options, kind=kind, deploy=False, run=True, destroy=False
             )
         case "destroy":
             _deploy_run_destroy_app_bundle(
-                options, kind="mcp", deploy=False, run=False, destroy=True
+                options, kind=kind, deploy=False, run=False, destroy=True
             )
 
 
@@ -3303,7 +3291,7 @@ def _run_bundle_actions(
 ) -> None:
     """Invoke deploy/run/destroy on a just-generated App bundle, if requested.
 
-    Shared tail for ``generate-agent`` / ``generate-mcp``: when any of
+    Shared tail for ``agent generate`` (apps or mcp mode): when any of
     ``--deploy``/``--run``/``--destroy`` is passed, drive the bundle via
     :func:`deploy_app_bundle`; otherwise the command stays generate-only.
     """
@@ -3447,8 +3435,6 @@ def main() -> None:
             handle_graph_command(options)
         case "agent":
             handle_agent_command(options)
-        case "mcp":
-            handle_mcp_command(options)
         case "workflow":
             handle_workflow_command(options)
         case "deploy":

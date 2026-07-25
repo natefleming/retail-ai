@@ -32,11 +32,9 @@ def _base(cmd: str) -> list[str]:
         "deploy",
         "workflow generate",
         "agent generate",
-        "mcp generate",
         # Flat aliases carry the same source flags.
         "generate-workflow",
         "generate-agent",
-        "generate-mcp",
     ],
 )
 class TestDevelopmentTriState:
@@ -59,21 +57,20 @@ class TestNounVerbParsing:
     flat `generate-<noun>` aliases still parse; truly-removed names are rejected.
     """
 
-    @pytest.mark.parametrize("noun", ["agent", "mcp", "workflow"])
+    @pytest.mark.parametrize("noun", ["agent", "workflow"])
     @pytest.mark.parametrize("verb", ["generate", "deploy", "run", "destroy"])
     def test_nested_verbs_parse(self, noun: str, verb: str) -> None:
         opts = parse_args([noun, verb, "-c", "config.yaml"])
         assert opts.command == noun
         assert opts.subcommand == verb
 
-    @pytest.mark.parametrize("noun", ["agent", "mcp", "workflow"])
+    @pytest.mark.parametrize("noun", ["agent", "workflow"])
     def test_bare_noun_requires_verb(self, noun: str) -> None:
         with pytest.raises(SystemExit):
             parse_args([noun, "-c", "config.yaml"])
 
     def test_flat_aliases_parse(self) -> None:
         assert parse_args(_base("generate-agent")).command == "generate-agent"
-        assert parse_args(_base("generate-mcp")).command == "generate-mcp"
         assert parse_args(_base("generate-workflow")).command == "generate-workflow"
 
     def test_deploy_verb_accepts_run_chain(self) -> None:
@@ -361,7 +358,7 @@ class TestValidateBundleActionFlags:
     """
 
     @pytest.mark.parametrize(
-        "cmd", ["workflow generate", "agent generate", "mcp generate"]
+        "cmd", ["workflow generate", "agent generate"]
     )
     @pytest.mark.parametrize("bad", [["--deploy", "--destroy"], ["--run", "--destroy"], ["--deploy", "--run", "--destroy"]])
     def test_destroy_with_deploy_or_run_exits(self, cmd: str, bad: list[str]) -> None:
@@ -371,7 +368,7 @@ class TestValidateBundleActionFlags:
         assert exc.value.code == 1
 
     @pytest.mark.parametrize(
-        "cmd", ["workflow generate", "agent generate", "mcp generate"]
+        "cmd", ["workflow generate", "agent generate"]
     )
     @pytest.mark.parametrize("ok", [["--deploy"], ["--run"], ["--deploy", "--run"], ["--destroy"], []])
     def test_valid_combinations_pass(self, cmd: str, ok: list[str]) -> None:
@@ -405,6 +402,85 @@ class TestModeChoices:
 
     def test_mode_defaults_to_apps(self) -> None:
         assert parse_args(["agent", "deploy", "-c", "c.yaml"]).mode == "apps"
+
+
+@pytest.mark.unit
+class TestMcpNounRemoved:
+    """The `mcp` noun has been removed; its modes are now routed via `agent --mode mcp`."""
+
+    def test_mcp_noun_removed(self) -> None:
+        with pytest.raises(SystemExit):
+            parse_args(["mcp", "generate", "-c", "c.yaml"])
+
+
+_MINIMAL_CONFIG_YAML = (
+    "resources:\n  models:\n    m: &m\n      name: databricks-gpt-5-4-mini\n"
+    "agents:\n  g: &g\n    name: g\n    description: d\n    model: *m\n"
+    "    prompt: p\n"
+    "app:\n  name: test_app\n  agents:\n    - *g\n"
+)
+
+
+@pytest.mark.unit
+class TestAgentModeWriterSelection:
+    """handle_agent_command selects the correct bundle writer based on --mode."""
+
+    def _write_config(self, tmp_path: Path) -> Path:
+        cfg = tmp_path / "c.yaml"
+        cfg.write_text(_MINIMAL_CONFIG_YAML)
+        return cfg
+
+    def test_agent_generate_mcp_uses_mcp_writer(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """--mode mcp must call write_mcp_bundle, not write_bundle."""
+        called: dict[str, bool] = {}
+        monkeypatch.setattr(
+            "dao_ai.mcp.generate.write_mcp_bundle",
+            lambda *a, **k: called.setdefault("mcp", True),
+        )
+        monkeypatch.setattr(
+            "dao_ai.apps.bundle.write_bundle",
+            lambda *a, **k: called.setdefault("apps", True),
+        )
+        monkeypatch.setattr(cli, "_apply_profile_context", lambda p: None)
+        monkeypatch.setattr(cli, "detect_cloud_provider", lambda p: "aws")
+
+        cfg = self._write_config(tmp_path)
+        opts = parse_args(
+            ["agent", "generate", "-c", str(cfg), "-o", str(tmp_path / "out"), "--mode", "mcp"]
+        )
+        cli.handle_agent_command(opts)
+
+        assert called == {"mcp": True}, (
+            f"Expected only write_mcp_bundle to be called; got called={called}"
+        )
+
+    def test_agent_generate_apps_uses_default_writer(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Mode omitted (defaults to apps) must call write_bundle, not write_mcp_bundle."""
+        called: dict[str, bool] = {}
+        monkeypatch.setattr(
+            "dao_ai.mcp.generate.write_mcp_bundle",
+            lambda *a, **k: called.setdefault("mcp", True),
+        )
+        monkeypatch.setattr(
+            "dao_ai.apps.bundle.write_bundle",
+            lambda *a, **k: called.setdefault("apps", True),
+        )
+        monkeypatch.setattr(cli, "_apply_profile_context", lambda p: None)
+        monkeypatch.setattr(cli, "detect_cloud_provider", lambda p: "aws")
+
+        cfg = self._write_config(tmp_path)
+        opts = parse_args(
+            ["agent", "generate", "-c", str(cfg), "-o", str(tmp_path / "out")]
+        )
+        cli.handle_agent_command(opts)
+
+        assert called == {"apps": True}, (
+            f"Expected only write_bundle to be called; got called={called}"
+        )
 
 
 @pytest.mark.unit
