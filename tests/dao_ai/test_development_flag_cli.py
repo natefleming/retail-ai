@@ -482,6 +482,41 @@ class TestAgentModeWriterSelection:
             f"Expected only write_bundle to be called; got called={called}"
         )
 
+    def test_agent_deploy_mcp_uses_mcp_staging_dir(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """agent deploy --mode mcp passes the mcp-kind staging dir to deploy_app_bundle."""
+        cfg = self._write_config(tmp_path)
+        # Capture what _resolve_bundle_dir is asked to return: (Path, is_default).
+        resolved_bundle_dirs: dict[str, tuple[str, Path]] = {}
+
+        def mock_resolve_bundle_dir(
+            kind: str, config: object, output_dir: str | None
+        ) -> tuple[Path, bool]:
+            # Record: kind -> (output_dir passed in, resolved path)
+            mcp_staging = tmp_path / "staged" / kind / "test_app"
+            mcp_staging.mkdir(parents=True, exist_ok=True)
+            (mcp_staging / "databricks.yaml").write_text("bundle: {}\n")
+            resolved_bundle_dirs[kind] = (output_dir or "default", mcp_staging)
+            return mcp_staging, output_dir is None
+
+        monkeypatch.setattr(cli, "_apply_profile_context", lambda p: None)
+
+        with patch.object(cli, "_resolve_bundle_dir", side_effect=mock_resolve_bundle_dir):
+            with patch.object(cli, "deploy_app_bundle"):
+                opts = parse_args(
+                    ["agent", "deploy", "-c", str(cfg), "--mode", "mcp"]
+                )
+                cli.handle_agent_command(opts)
+
+        assert "mcp" in resolved_bundle_dirs, (
+            "deploy must call _resolve_bundle_dir with kind='mcp' when --mode mcp"
+        )
+        _, resolved_path = resolved_bundle_dirs["mcp"]
+        assert "/mcp/" in str(resolved_path), (
+            f"Expected mcp staging dir path to contain /mcp/, got {resolved_path}"
+        )
+
 
 @pytest.mark.unit
 class TestDeployAppBundle:

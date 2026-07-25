@@ -10,6 +10,7 @@ import sys
 import traceback
 from argparse import ArgumentParser, Namespace
 from pathlib import Path
+from collections.abc import Callable
 from typing import Any, Optional, Sequence
 
 from dotenv import find_dotenv, load_dotenv
@@ -951,7 +952,7 @@ Workflow) that provisions the backing infra (schemas, Vector Search, Lakebase,
 Genie, UC functions), deploys the agent, and runs evaluation. Emits a
 self-contained Databricks Asset Bundle and wraps `databricks bundle
 deploy/run/destroy`. (This is a Job/Workflow, not a Lakeflow Declarative
-Pipeline.) Sibling of `agent` / `mcp`.
+Pipeline.) Sibling of `agent`.
 """
     _AGENT_DESC = """
 Manage the agent's Databricks Apps bundle. `generate` writes a complete,
@@ -3242,7 +3243,7 @@ def _mode_bundle_kind(mode: str) -> str:
     return "mcp" if mode == "mcp" else "agent"
 
 
-def _mode_writer(mode: str):
+def _mode_writer(mode: str) -> Callable[..., None]:
     """Bundle writer function for the given serving mode."""
     if mode == "mcp":
         from dao_ai.mcp.generate import write_mcp_bundle
