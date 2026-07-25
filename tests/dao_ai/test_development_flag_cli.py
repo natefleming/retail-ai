@@ -954,3 +954,65 @@ class TestDeployAutoGenerate:
         with pytest.raises(SystemExit) as exc:
             cli.handle_agent_command(opts)
         assert exc.value.code == 1
+
+    def test_deploy_autogenerate_calls_resolve_all_resources(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """On auto-generate (unstaged deploy), _resolve_all_resources must be called."""
+        cfg = self._write_cfg(tmp_path)
+        out = tmp_path / "out"
+
+        resolve_calls: list[str] = []
+
+        def fake_writer(config: object, bundle_dir: object, **kw: object) -> None:
+            import pathlib
+
+            pathlib.Path(str(bundle_dir)).mkdir(parents=True, exist_ok=True)
+            (pathlib.Path(str(bundle_dir)) / "databricks.yaml").write_text("bundle: {}\n")
+
+        def track_resolve(self_config: object) -> None:
+            resolve_calls.append("called")
+
+        monkeypatch.setattr(cli, "_apply_profile_context", lambda p: None)
+        monkeypatch.setattr(
+            "dao_ai.apps.bundle.write_bundle",
+            fake_writer,
+        )
+        monkeypatch.setattr(
+            "dao_ai.config.AppConfig._resolve_all_resources",
+            track_resolve,
+        )
+        with patch.object(cli, "deploy_app_bundle"):
+            opts = parse_args(["agent", "deploy", "-c", str(cfg), "-o", str(out)])
+            cli.handle_agent_command(opts)
+
+        assert resolve_calls == [
+            "called"
+        ], "auto-generate path must call _resolve_all_resources"
+
+    def test_deploy_inplace_does_not_call_resolve_all_resources(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """On in-place deploy (already staged), _resolve_all_resources must NOT be called."""
+        cfg = self._write_cfg(tmp_path)
+        out = tmp_path / "staged"
+        out.mkdir()
+        (out / "databricks.yaml").write_text("bundle: {}\n")
+
+        resolve_calls: list[str] = []
+
+        def track_resolve(self_config: object) -> None:
+            resolve_calls.append("called")
+
+        monkeypatch.setattr(cli, "_apply_profile_context", lambda p: None)
+        monkeypatch.setattr(
+            "dao_ai.config.AppConfig._resolve_all_resources",
+            track_resolve,
+        )
+        with patch.object(cli, "deploy_app_bundle"):
+            opts = parse_args(["agent", "deploy", "-c", str(cfg), "-o", str(out)])
+            cli.handle_agent_command(opts)
+
+        assert (
+            resolve_calls == []
+        ), "in-place deploy path must NOT call _resolve_all_resources"

@@ -3266,6 +3266,8 @@ def _deploy_run_destroy_app_bundle(
             logger.info(
                 f"No staged {kind} bundle at {bundle_dir}; auto-generating before deploy."
             )
+            # Resolve resources so Genie room tables and warehouses can be discovered.
+            config._resolve_all_resources()
             writer: Callable[..., None] = _mode_writer(mode)
             development = resolve_use_local_source(getattr(options, "development", None))
             _stage_app_bundle(
