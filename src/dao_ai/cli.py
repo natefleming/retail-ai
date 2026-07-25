@@ -360,6 +360,17 @@ def _add_workflow_target_args(parser: ArgumentParser) -> None:
     )
 
 
+def _add_mode_argument(parser: ArgumentParser, *, choices: list[str]) -> None:
+    """Add the serving-mode flag. Choices are per-verb so an unusable value is
+    rejected at parse time (never offered when it cannot succeed)."""
+    parser.add_argument(
+        "--mode",
+        choices=choices,
+        default="apps",
+        help="How to serve the agent: " + " | ".join(choices) + " (default: apps).",
+    )
+
+
 def _add_noun_verb_parsers(
     subparsers: "argparse._SubParsersAction",
     *,
@@ -395,6 +406,9 @@ def _add_noun_verb_parsers(
     _add_bundle_source_args(generate_parser)
     if is_workflow:
         _add_workflow_target_args(generate_parser)
+    else:
+        # Workflow gets --mode in Task 8; agent/mcp get it here.
+        _add_mode_argument(generate_parser, choices=["apps", "mcp"])
     _add_bundle_action_arguments(generate_parser)
 
     for verb, verb_help in (
@@ -411,6 +425,12 @@ def _add_noun_verb_parsers(
         _add_bundle_common_args(verb_parser, kind=noun)
         if is_workflow:
             _add_workflow_target_args(verb_parser)
+        else:
+            # Workflow gets --mode in Task 8; agent/mcp get it here.
+            if verb == "deploy":
+                _add_mode_argument(verb_parser, choices=["model_serving", "apps", "mcp"])
+            else:
+                _add_mode_argument(verb_parser, choices=["apps", "mcp"])
         if verb == "deploy":
             # Forward chaining: `dao-ai <noun> deploy --run` deploys the staged
             # bundle then runs it (parity with `generate --deploy --run`).

@@ -390,6 +390,24 @@ def _app_config(*, trace: bool) -> AppConfig:
 
 
 @pytest.mark.unit
+class TestModeChoices:
+    def test_deploy_accepts_all_three(self) -> None:
+        for m in ("model_serving", "apps", "mcp"):
+            assert parse_args(["agent", "deploy", "-c", "c.yaml", "--mode", m]).mode == m
+
+    def test_generate_rejects_model_serving(self) -> None:
+        with pytest.raises(SystemExit):
+            parse_args(["agent", "generate", "-c", "c.yaml", "--mode", "model_serving"])
+
+    def test_generate_accepts_apps_and_mcp(self) -> None:
+        for m in ("apps", "mcp"):
+            assert parse_args(["agent", "generate", "-c", "c.yaml", "--mode", m]).mode == m
+
+    def test_mode_defaults_to_apps(self) -> None:
+        assert parse_args(["agent", "deploy", "-c", "c.yaml"]).mode == "apps"
+
+
+@pytest.mark.unit
 class TestDeployAppBundle:
     """Shared App deploy driver: deploy -> (link+grant) -> run, by app name."""
 
