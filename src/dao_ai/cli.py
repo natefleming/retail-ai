@@ -594,7 +594,7 @@ Examples:
   dao-ai validate -c config/model_config.yaml            # Validate a specific configuration file
   dao-ai graph -o architecture.png -c my_config.yaml -v  # Generate visual graph with verbose output
   dao-ai chat -c config/retail.yaml --custom-input store_num=87887  # Start interactive chat session
-  dao-ai list-mcp-tools -c config/mcp_config.yaml --apply-filters  # List filtered MCP tools only
+  dao-ai tools -c config/mcp_config.yaml --apply-filters  # List filtered MCP tools only
   dao-ai validate                                        # Validate with detailed logging
   dao-ai generate-workflow -c my_config.yaml --deploy    # Provision infra + deploy the agent (Workflow Job)
   dao-ai generate-agent -c my_config.yaml --deploy --run # Generate + deploy + start the agent App
@@ -984,7 +984,7 @@ Examples:
 
     # List MCP tools command
     list_mcp_parser: ArgumentParser = subparsers.add_parser(
-        "list-mcp-tools",
+        "tools",
         help="List available MCP tools from configuration",
         description="""
 List all available MCP tools from the configured MCP servers.
@@ -1009,8 +1009,8 @@ Options:
 Note: Schemas are displayed in a concise, readable format instead of verbose JSON
         """,
         epilog="""Examples:
-  dao-ai list-mcp-tools -c config/model_config.yaml
-  dao-ai list-mcp-tools -c config/model_config.yaml --apply-filters
+  dao-ai tools -c config/model_config.yaml
+  dao-ai tools -c config/model_config.yaml --apply-filters
         """,
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
@@ -3385,7 +3385,7 @@ def main() -> None:
             handle_monitor_command(options)
         case "chat":
             handle_chat_command(options)
-        case "list-mcp-tools":
+        case "tools":
             handle_list_mcp_tools_command(options)
         case "parameters" | "vars":
             handle_vars_command(options)

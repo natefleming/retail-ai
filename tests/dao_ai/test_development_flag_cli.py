@@ -1069,6 +1069,20 @@ class TestDeployAutoGenerate:
 
 
 @pytest.mark.unit
+class TestToolsCommandRenamed:
+    """list-mcp-tools renamed to tools."""
+
+    def test_tools_renamed(self) -> None:
+        """tools command parses successfully with the new name."""
+        assert parse_args(["tools", "-c", "c.yaml"]).command == "tools"
+
+    def test_list_mcp_tools_rejected(self) -> None:
+        """Old list-mcp-tools name is rejected by the parser."""
+        with pytest.raises(SystemExit):
+            parse_args(["list-mcp-tools", "-c", "c.yaml"])
+
+
+@pytest.mark.unit
 class TestTraceNoun:
     """``dao-ai trace create|link|grant`` is the new surface; old flat names are gone."""
 
