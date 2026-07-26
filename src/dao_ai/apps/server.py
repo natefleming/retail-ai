@@ -215,10 +215,13 @@ def _parse_server_args() -> tuple[int, int]:
     return args.port, args.workers
 
 
-# Cap auto-derived worker count. The agent is async/I/O-bound, so throughput
-# past ~one worker per core has sharply diminishing returns while each worker
-# still holds a (COW-shared) copy of the graph; keep a sane ceiling.
-_MAX_AUTO_WORKERS = 4
+# Ceiling for auto-derived worker count. The agent is async/I/O-bound, so
+# throughput past a handful of workers has diminishing returns (each still
+# handles many concurrent requests on its event loop); the gunicorn preload
+# path keeps the per-worker memory cheap via copy-on-write. 8 leaves headroom
+# for larger Apps compute while bounding fork overhead. (Validated live at 4
+# workers on MEDIUM; higher counts are within the same COW-preload mechanism.)
+_MAX_AUTO_WORKERS = 8
 
 
 def _auto_workers() -> int:
