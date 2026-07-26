@@ -9388,18 +9388,22 @@ class AppModel(BaseModel):
         description="Model Serving workload size (Small, Medium, Large).",
     )
     workers: Optional[int] = Field(
-        default=2,
+        default=1,
         gt=0,
         description=(
             "Number of uvicorn worker processes for the Databricks Apps backend "
-            "server. Each worker is a separate process, raising the app's "
-            "concurrent-request ceiling on multi-core Apps compute. Defaults to "
-            "2 (a modest bump over uvicorn's single-worker default that is safe "
-            "on the small default Apps compute); raise it to match larger compute "
-            "cores. Emitted to the app as the ``DAO_AI_APP_WORKERS`` env var and "
-            "forwarded to the backend as ``--workers``. Too many workers on a "
-            "small instance contends for CPU. Apps-target only (no effect on "
-            "Model Serving, which manages its own worker pool via workload_size)."
+            "server. Each worker is a SEPARATE PROCESS that re-imports the app "
+            "and rebuilds the full agent graph, so its memory footprint is "
+            "duplicated per worker (uvicorn spawns workers — there is no "
+            "copy-on-write sharing). Defaults to 1: on the default MEDIUM Apps "
+            "compute (2 vCPU / 6 GB) a second full graph OOM-kills the workers "
+            "in a respawn loop. Because this agent is async and I/O-bound, a "
+            "single worker's event loop already serves many concurrent requests, "
+            "so 1 is the right default. Raise ONLY on larger Apps compute with "
+            "headroom for N resident graphs. Emitted as the ``DAO_AI_APP_WORKERS`` "
+            "env var and forwarded to the backend as ``--workers``. Apps-target "
+            "only (no effect on Model Serving, which manages its own worker pool "
+            "via workload_size)."
         ),
     )
     permissions: Optional[list[AppPermissionModel]] = Field(
