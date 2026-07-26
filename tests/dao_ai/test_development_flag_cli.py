@@ -231,6 +231,77 @@ class TestEditSafety:
 
 
 @pytest.mark.unit
+class TestConfigFingerprint:
+    """The staging marker records a config fingerprint for staleness detection."""
+
+    def _config(self, name: str = "greeter") -> AppConfig:
+        from dao_ai.config import AgentModel, AppModel, InferenceEndpointModel
+
+        return AppConfig(
+            app=AppModel(
+                name="fp-test",
+                agents=[
+                    AgentModel(
+                        name=name,
+                        description="says hi",
+                        model=InferenceEndpointModel(name="databricks-gpt-5-4-mini"),
+                    )
+                ],
+            )
+        )
+
+    def test_fingerprint_stable_for_identical_config(self) -> None:
+        a = cli._config_fingerprint(self._config(), development=False)
+        b = cli._config_fingerprint(self._config(), development=False)
+        assert a == b
+
+    def test_fingerprint_changes_with_config(self) -> None:
+        a = cli._config_fingerprint(self._config(name="greeter"), development=False)
+        b = cli._config_fingerprint(self._config(name="farewell"), development=False)
+        assert a != b
+
+    def test_fingerprint_changes_with_development_flag(self) -> None:
+        a = cli._config_fingerprint(self._config(), development=False)
+        b = cli._config_fingerprint(self._config(), development=True)
+        assert a != b
+
+    def test_marker_records_fingerprint(self, tmp_path: Path) -> None:
+        d = tmp_path / "base" / "agent" / "app"
+        d.mkdir(parents=True)
+        cli._write_staging_marker(d, is_default=True, fingerprint="abc123")
+        assert (d / cli._STAGING_MARKER).read_text() == "abc123"
+
+
+@pytest.mark.unit
+class TestStagedConfigStaleness:
+    """_staged_config_is_stale compares current config vs the stamped fingerprint."""
+
+    def _marked(self, tmp_path: Path, fingerprint: str) -> Path:
+        d = tmp_path / "base" / "agent" / "app"
+        d.mkdir(parents=True)
+        cli._write_staging_marker(d, is_default=True, fingerprint=fingerprint)
+        return d
+
+    def test_matching_fingerprint_not_stale(self, tmp_path: Path) -> None:
+        d = self._marked(tmp_path, "fp-1")
+        assert cli._staged_config_is_stale(d, "fp-1") is False
+
+    def test_differing_fingerprint_is_stale(self, tmp_path: Path) -> None:
+        d = self._marked(tmp_path, "fp-1")
+        assert cli._staged_config_is_stale(d, "fp-2") is True
+
+    def test_missing_marker_not_stale(self, tmp_path: Path) -> None:
+        d = tmp_path / "base" / "agent" / "app"
+        d.mkdir(parents=True)  # no marker (legacy / -o dir)
+        assert cli._staged_config_is_stale(d, "fp-1") is False
+
+    def test_empty_marker_not_stale(self, tmp_path: Path) -> None:
+        # A workflow bundle stamps an empty marker; never treat it as stale.
+        d = self._marked(tmp_path, "")
+        assert cli._staged_config_is_stale(d, "fp-1") is False
+
+
+@pytest.mark.unit
 class TestPipelineEmitsDevelopmentVar:
     """run_databricks_command forwards development as a bundle --var."""
 
@@ -598,6 +669,122 @@ class TestAgentModeWriterSelection:
         _, resolved_path = resolved_bundle_dirs["mcp"]
         assert "/mcp/" in str(resolved_path), (
             f"Expected mcp staging dir path to contain /mcp/, got {resolved_path}"
+        )
+
+
+@pytest.mark.unit
+class TestDeployRestagesOnConfigDrift:
+    """agent deploy re-stages an already-staged bundle when the source config drifts."""
+
+    def _write_config(self, tmp_path: Path) -> Path:
+        cfg = tmp_path / "c.yaml"
+        cfg.write_text(_MINIMAL_CONFIG_YAML)
+        return cfg
+
+    def _run_deploy(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        *,
+        marker_fingerprint: str | None,
+        has_edits: bool = False,
+        overwrite: bool = False,
+    ) -> bool:
+        """Drive `agent deploy` against a pre-staged dir. Returns True if re-staged.
+
+        ``marker_fingerprint`` seeds the staged marker: None omits it (legacy
+        dir), "" is a workflow-style empty marker, a string is a recorded hash.
+        ``has_edits`` simulates hand-edits; ``overwrite`` passes --overwrite.
+        """
+        cfg = self._write_config(tmp_path)
+        staged = tmp_path / "staged" / "agent" / "test_app"
+        staged.mkdir(parents=True)
+        (staged / "databricks.yaml").write_text("bundle: {}\n")
+        if marker_fingerprint is not None:
+            (staged / cli._STAGING_MARKER).write_text(marker_fingerprint)
+
+        restaged: dict[str, bool] = {}
+        monkeypatch.setattr(cli, "_apply_profile_context", lambda p: None)
+        monkeypatch.setattr(
+            cli, "_resolve_bundle_dir", lambda kind, config, output_dir: (staged, True)
+        )
+        monkeypatch.setattr(
+            cli, "_staging_dir_has_local_edits", lambda d: has_edits
+        )
+        monkeypatch.setattr(cli, "deploy_app_bundle", lambda *a, **k: None)
+        monkeypatch.setattr(AppConfig, "_resolve_all_resources", lambda self: None)
+        monkeypatch.setattr(
+            cli,
+            "_stage_app_bundle",
+            lambda *a, **k: restaged.setdefault("staged", True),
+        )
+
+        argv = ["agent", "deploy", "-c", str(cfg)]
+        if overwrite:
+            argv.append("--overwrite")
+        opts = parse_args(argv)
+        cli.handle_agent_command(opts)
+        return restaged.get("staged", False)
+
+    def test_restages_when_marker_fingerprint_differs(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # A fingerprint that cannot match the current config -> stale -> re-stage.
+        assert (
+            self._run_deploy(tmp_path, monkeypatch, marker_fingerprint="stale-hash")
+            is True
+        )
+
+    def test_deploys_in_place_when_fingerprint_matches(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # Stamp the marker with the CURRENT config's real fingerprint -> not stale.
+        # Resolve development exactly as the deploy path does (options.development
+        # is None here -> auto-detect), so the seeded hash matches.
+        from dao_ai.utils import resolve_use_local_source
+
+        cfg = self._write_config(tmp_path)
+        config = AppConfig.from_file(str(cfg), initialize=False)
+        current_fp = cli._config_fingerprint(
+            config, development=resolve_use_local_source(None)
+        )
+        assert (
+            self._run_deploy(tmp_path, monkeypatch, marker_fingerprint=current_fp)
+            is False
+        )
+
+    def test_deploys_in_place_when_marker_absent(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # Legacy staged dir with no marker -> no recorded fingerprint -> in place.
+        assert (
+            self._run_deploy(tmp_path, monkeypatch, marker_fingerprint=None) is False
+        )
+
+    def test_stale_with_edits_deploys_in_place(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # Config drifted but the dir has hand-edits and no --overwrite -> in place.
+        assert (
+            self._run_deploy(
+                tmp_path, monkeypatch, marker_fingerprint="stale", has_edits=True
+            )
+            is False
+        )
+
+    def test_stale_with_edits_and_overwrite_regenerates(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # --overwrite forces regen even over hand-edits when the config drifted.
+        assert (
+            self._run_deploy(
+                tmp_path,
+                monkeypatch,
+                marker_fingerprint="stale",
+                has_edits=True,
+                overwrite=True,
+            )
+            is True
         )
 
 

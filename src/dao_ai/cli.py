@@ -1,6 +1,7 @@
 # PYTHON_ARGCOMPLETE_OK
 import argparse
 import getpass
+import hashlib
 import json
 import os
 import shutil
@@ -535,17 +536,46 @@ def _default_bundle_dir(kind: str, app_name: str) -> Path:
 _STAGING_MARKER = ".dao-ai-generated"
 
 
-def _write_staging_marker(bundle_dir: Path, *, is_default: bool) -> None:
+def _config_fingerprint(config: AppConfig, *, development: bool) -> str:
+    """Stable hash of the config content that determines the generated bundle.
+
+    Computed from the UNRESOLVED config (``model_dump`` with no network resource
+    resolution) plus the resolved ``development`` source-selection flag — the two
+    inputs the bundle writer consumes. MUST be taken before
+    ``config._resolve_all_resources()`` mutates the config in place, so the
+    generate-time stamp and the deploy-time check hash identical inputs.
+
+    Stamped into the staging marker so ``deploy``/``up`` can tell when the source
+    config changed since the bundle was last generated (see
+    :func:`_staged_config_is_stale`) and re-stage instead of silently shipping a
+    stale bundle.
+    """
+    payload: str = json.dumps(
+        {"config": config.model_dump(mode="json"), "development": development},
+        sort_keys=True,
+        default=str,
+    )
+    return hashlib.sha256(payload.encode()).hexdigest()
+
+
+def _write_staging_marker(
+    bundle_dir: Path, *, is_default: bool, fingerprint: str = ""
+) -> None:
     """Stamp a default staging dir as freshly dao-ai-generated.
 
     Only marks a dao-ai-owned default dir (never a user ``-o`` dir). Written
     LAST, after the writer, so its mtime post-dates every generated file; a
     later hand-edit then shows an mtime newer than the marker, which
     :func:`_clean_default_staging_dir` uses to protect edits from a re-generate.
+
+    ``fingerprint`` (from :func:`_config_fingerprint`) records the source config
+    the bundle was generated from; :func:`_staged_config_is_stale` reads it back
+    to detect config drift. App bundles pass it; the workflow bundle omits it
+    (empty marker) since ``workflow up`` always re-stages.
     """
     if not is_default or not bundle_dir.exists():
         return
-    (bundle_dir / _STAGING_MARKER).write_text("")
+    (bundle_dir / _STAGING_MARKER).write_text(fingerprint)
 
 
 def _staging_dir_has_local_edits(bundle_dir: Path) -> bool:
@@ -565,6 +595,25 @@ def _staging_dir_has_local_edits(bundle_dir: Path) -> bool:
         if path.stat().st_mtime > marker_mtime:
             return True
     return False
+
+
+def _staged_config_is_stale(bundle_dir: Path, fingerprint: str) -> bool:
+    """True if the staged bundle was generated from a different source config.
+
+    Compares ``fingerprint`` (the current config, from
+    :func:`_config_fingerprint`) against the value stamped into the
+    ``.dao-ai-generated`` marker at generate time. A missing or empty marker (a
+    legacy dir or a workflow bundle) returns False: there is no recorded
+    fingerprint to contradict, and :func:`_staging_dir_has_local_edits` already
+    guards those dirs from an unwanted regenerate.
+    """
+    marker: Path = bundle_dir / _STAGING_MARKER
+    if not marker.exists():
+        return False
+    staged: str = marker.read_text().strip()
+    if not staged:
+        return False
+    return staged != fingerprint
 
 
 def _clean_default_staging_dir(
@@ -3103,6 +3152,7 @@ def _stage_app_bundle(
     development: bool,
     overwrite: bool,
     noun: str,
+    fingerprint: str,
 ) -> None:
     """Write bundle files to *bundle_dir* (clean → write → marker).
 
@@ -3111,6 +3161,10 @@ def _stage_app_bundle(
     :func:`_run_bundle_actions` themselves.  Extracted so the ``deploy``
     auto-generate path can stage without risking recursion through
     ``_run_bundle_actions``.
+
+    ``fingerprint`` is the current config's hash (:func:`_config_fingerprint`),
+    computed by the caller BEFORE ``config._resolve_all_resources()`` and stamped
+    into the marker so a later ``deploy`` can detect source-config drift.
     """
     logger.debug(f"Staging {noun} bundle to {bundle_dir}...")
     # Regenerate the owned default dir from scratch so a prior --development run
@@ -3120,7 +3174,9 @@ def _stage_app_bundle(
         bundle_dir, is_default=is_default_dir, overwrite=overwrite, noun=noun
     )
     writer(config, bundle_dir, overwrite=overwrite, development=development)
-    _write_staging_marker(bundle_dir, is_default=is_default_dir)
+    _write_staging_marker(
+        bundle_dir, is_default=is_default_dir, fingerprint=fingerprint
+    )
 
 
 def _generate_app_bundle(options: Namespace, *, kind: str, writer, what: str) -> None:
@@ -3140,6 +3196,11 @@ def _generate_app_bundle(options: Namespace, *, kind: str, writer, what: str) ->
     development: bool = resolve_use_local_source(options.development)
     config: AppConfig = _load_app_config(options, what=what)
 
+    # Fingerprint the UNRESOLVED config before _resolve_all_resources() mutates
+    # it, so the stamp matches the deploy-time staleness check (which also hashes
+    # the unresolved config).
+    fingerprint: str = _config_fingerprint(config, development=development)
+
     # Resolve resources so Genie room tables and warehouses can be discovered.
     config._resolve_all_resources()
 
@@ -3152,6 +3213,7 @@ def _generate_app_bundle(options: Namespace, *, kind: str, writer, what: str) ->
         development=development,
         overwrite=options.overwrite,
         noun=kind,
+        fingerprint=fingerprint,
     )
 
 
@@ -3215,35 +3277,71 @@ def _deploy_run_destroy_app_bundle(
     # --- Route 3: bundle path ---
     config = _load_app_config(options, what=what)
     bundle_dir, is_default_dir = _resolve_bundle_dir(kind, config, options.output_dir)
+    is_staged: bool = (bundle_dir / "databricks.yaml").exists()
 
-    if not (bundle_dir / "databricks.yaml").exists():
-        if deploy:
-            # Auto-generate (CDK/SAM norm): stage the bundle, then fall through
-            # to deploy_app_bundle below.  run/destroy still error — nothing to
-            # run or destroy if the bundle was never staged.
-            logger.info(
-                f"No staged {kind} bundle at {bundle_dir}; auto-generating before deploy."
+    if not is_staged and not deploy:
+        # run/destroy on an unstaged dir: nothing to act on.
+        logger.error(
+            f"No staged {kind} bundle at {bundle_dir}. "
+            f"Run `dao-ai {kind} generate -c {options.config}"
+            f"{f' -o {options.output_dir}' if options.output_dir else ''}` first."
+        )
+        sys.exit(1)
+
+    if deploy:
+        development = resolve_use_local_source(options.development)
+        overwrite: bool = options.overwrite
+        # Fingerprint the UNRESOLVED config (matches the generate-time stamp).
+        fingerprint: str = _config_fingerprint(config, development=development)
+
+        # Decide whether to (re)stage. Fresh dir → stage (CDK/SAM auto-generate
+        # norm). Already staged → stage only when the source config drifted from
+        # the staged fingerprint, and only if the dir carries no hand-edits (or
+        # --overwrite). A stale bundle with hand-edits deploys in place with a
+        # warning so the user's edits win but they're told source changes aren't
+        # reflected. run/destroy never reach here unstaged (guarded above).
+        should_stage: bool = not is_staged
+        if is_staged and _staged_config_is_stale(bundle_dir, fingerprint):
+            # Only a dao-ai-owned default dir is safe to regenerate; a user `-o`
+            # dir is never touched. --overwrite forces regen even over hand-edits;
+            # otherwise a clean default dir regenerates and an edited one is left
+            # in place with a warning so the user's edits win.
+            can_regen: bool = is_default_dir and (
+                overwrite or not _staging_dir_has_local_edits(bundle_dir)
             )
+            if can_regen:
+                logger.info(
+                    f"Source config changed since {bundle_dir} was generated; "
+                    f"regenerating the {kind} bundle before deploy."
+                )
+                should_stage = True
+            else:
+                logger.warning(
+                    f"Source config changed since {bundle_dir} was generated, but "
+                    f"the staging dir has local edits — deploying it as-is. Pass "
+                    f"--overwrite (or re-run `dao-ai {kind} generate --overwrite`) "
+                    f"to discard the edits and regenerate from the current config."
+                )
+
+        if should_stage:
+            if not is_staged:
+                logger.info(
+                    f"No staged {kind} bundle at {bundle_dir}; "
+                    f"auto-generating before deploy."
+                )
             # Resolve resources so Genie room tables and warehouses can be discovered.
             config._resolve_all_resources()
             writer: Callable[..., None] = _mode_writer(mode)
-            development = resolve_use_local_source(getattr(options, "development", None))
             _stage_app_bundle(
                 config,
                 bundle_dir,
                 is_default_dir=is_default_dir,
                 writer=writer,
                 development=development,
-                overwrite=getattr(options, "overwrite", False),
+                overwrite=overwrite,
                 noun=kind,
+                fingerprint=fingerprint,
             )
-        else:
-            logger.error(
-                f"No staged {kind} bundle at {bundle_dir}. "
-                f"Run `dao-ai {kind} generate -c {options.config}"
-                f"{f' -o {options.output_dir}' if options.output_dir else ''}` first."
-            )
-            sys.exit(1)
 
     dry_run: bool = options.dry_run
     if run and not deploy and not destroy and not dry_run:
