@@ -208,10 +208,34 @@ def _parse_server_args() -> tuple[int, int]:
 
     parser = argparse.ArgumentParser(description="Start the dao-ai agent server")
     parser.add_argument("--port", type=int, default=8000)
-    parser.add_argument("--workers", type=int, default=1)
+    # default=0 sentinel → "unset" → auto-size to the container's CPUs in main().
+    parser.add_argument("--workers", type=int, default=0)
     parser.add_argument("--reload", action="store_true")
     args, _ = parser.parse_known_args()
     return args.port, args.workers
+
+
+# Cap auto-derived worker count. The agent is async/I/O-bound, so throughput
+# past ~one worker per core has sharply diminishing returns while each worker
+# still holds a (COW-shared) copy of the graph; keep a sane ceiling.
+_MAX_AUTO_WORKERS = 4
+
+
+def _auto_workers() -> int:
+    """Worker count sized to the container's available CPUs (min 1, capped).
+
+    Uses ``sched_getaffinity`` (the cgroup/affinity-limited CPU set the
+    container can actually run on) rather than ``os.cpu_count()`` — the latter
+    reports the HOST's CPUs, which on a small Apps container is far larger than
+    the allotment and would oversubscribe (the exact over-worker condition that
+    crash-looped). Falls back to ``os.cpu_count()`` then 1 where affinity is
+    unavailable.
+    """
+    try:
+        cpus = len(os.sched_getaffinity(0))  # type: ignore[attr-defined]
+    except (AttributeError, OSError):
+        cpus = os.cpu_count() or 1
+    return max(1, min(cpus, _MAX_AUTO_WORKERS))
 
 
 def _run_gunicorn_preload(port: int, workers: int) -> None:
@@ -260,7 +284,14 @@ def main() -> None:
     copy-on-write across forked workers rather than rebuilt (and OOM-duplicated)
     in each spawned uvicorn worker.
     """
+    from loguru import logger
+
     port, workers = _parse_server_args()
+    # workers==0 → unset (app.workers not configured): auto-size to the
+    # container's CPUs. An explicit --workers N (from app.workers) is honored.
+    if workers <= 0:
+        workers = _auto_workers()
+        logger.info("Auto-sized backend workers to {} (container CPUs)", workers)
     if workers > 1:
         _run_gunicorn_preload(port, workers)
     else:

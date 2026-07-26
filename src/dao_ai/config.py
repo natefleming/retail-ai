@@ -9388,22 +9388,22 @@ class AppModel(BaseModel):
         description="Model Serving workload size (Small, Medium, Large).",
     )
     workers: Optional[int] = Field(
-        default=1,
+        default=None,
         gt=0,
         description=(
-            "Number of uvicorn worker processes for the Databricks Apps backend "
-            "server. Each worker is a SEPARATE PROCESS that re-imports the app "
-            "and rebuilds the full agent graph, so its memory footprint is "
-            "duplicated per worker (uvicorn spawns workers — there is no "
-            "copy-on-write sharing). Defaults to 1: on the default MEDIUM Apps "
-            "compute (2 vCPU / 6 GB) a second full graph OOM-kills the workers "
-            "in a respawn loop. Because this agent is async and I/O-bound, a "
-            "single worker's event loop already serves many concurrent requests, "
-            "so 1 is the right default. Raise ONLY on larger Apps compute with "
-            "headroom for N resident graphs. Emitted as the ``DAO_AI_APP_WORKERS`` "
-            "env var and forwarded to the backend as ``--workers``. Apps-target "
-            "only (no effect on Model Serving, which manages its own worker pool "
-            "via workload_size)."
+            "Number of backend worker processes for the Databricks Apps server. "
+            "Leave UNSET (the default) to auto-size at runtime to the container's "
+            "available CPUs — the simplest config: pick the Apps compute size and "
+            "dao-ai matches the worker count to it. For workers>1 the backend runs "
+            "under gunicorn with ``preload_app`` so the agent graph is built ONCE "
+            "in the arbiter and copy-on-write shared across forked workers (cheap "
+            "memory, and workers are ready immediately rather than each rebuilding "
+            "the graph — which on the older uvicorn spawn path exceeded the "
+            "multi-worker startup window and crash-looped). Set an explicit "
+            "integer to override the auto-sizing. Emitted as the "
+            "``DAO_AI_APP_WORKERS`` env var (only when set) and forwarded to the "
+            "backend as ``--workers``. Apps-target only (no effect on Model "
+            "Serving, which manages its own worker pool via workload_size)."
         ),
     )
     permissions: Optional[list[AppPermissionModel]] = Field(
