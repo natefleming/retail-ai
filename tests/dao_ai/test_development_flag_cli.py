@@ -33,6 +33,12 @@ def _base(cmd: str) -> list[str]:
     [
         "workflow generate",
         "agent generate",
+        # deploy and up also have source-selection flags (deploy can
+        # auto-generate and handles model_serving create_agent/deploy_agent).
+        "agent deploy",
+        "agent up",
+        "workflow deploy",
+        "workflow up",
     ],
 )
 class TestDevelopmentTriState:

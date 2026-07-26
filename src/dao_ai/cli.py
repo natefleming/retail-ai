@@ -491,6 +491,11 @@ def _add_noun_verb_parsers(
             _add_workflow_target_args(verb_parser)
         if verb == "deploy":
             _add_mode_argument(verb_parser, choices=["model_serving", "apps", "mcp"])
+            # Source-selection flags: deploy can auto-generate (needs development
+            # for the bundle writer) and handles --mode model_serving (needs
+            # development for create_agent/deploy_agent). run/destroy act on
+            # already-built artifacts so source flags are omitted there.
+            _add_bundle_source_args(verb_parser)
         else:
             _add_mode_argument(verb_parser, choices=["apps", "mcp"])
 
