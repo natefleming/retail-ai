@@ -410,6 +410,20 @@ class TestModeChoices:
     def test_short_alias_m(self) -> None:
         assert parse_args(["agent", "deploy", "-c", "c.yaml", "-m", "mcp"]).mode == "mcp"
 
+    @pytest.mark.parametrize("alias", ["ms", "model-serving", "model_serving"])
+    def test_model_serving_aliases_normalize_on_deploy(self, alias: str) -> None:
+        # ms / model-serving normalize to the canonical model_serving value.
+        assert (
+            parse_args(["agent", "deploy", "-c", "c.yaml", "-m", alias]).mode
+            == "model_serving"
+        )
+
+    @pytest.mark.parametrize("bad", ["ms", "model-serving", "model_serving"])
+    def test_model_serving_aliases_rejected_on_generate(self, bad: str) -> None:
+        # model_serving (and its aliases) are not valid on generate — no bundle.
+        with pytest.raises(SystemExit):
+            parse_args(["agent", "generate", "-c", "c.yaml", "--mode", bad])
+
 
 @pytest.mark.unit
 class TestWorkflowModeChoices:

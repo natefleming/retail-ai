@@ -366,15 +366,42 @@ def _add_workflow_target_args(parser: ArgumentParser) -> None:
     )
 
 
+# Convenience input aliases for serving-mode values -> canonical ServingMode
+# value. Accepted on the CLI and normalized post-parse so ``options.mode`` is
+# always canonical downstream (matches the enum / bundle --var / notebook).
+_MODE_ALIASES: dict[str, str] = {
+    "ms": "model_serving",
+    "model-serving": "model_serving",
+}
+
+
+def _canonical_modes(choices: list[str]) -> list[str]:
+    """Expand a canonical mode-choice list with its accepted input aliases."""
+    return choices + [a for a, canon in _MODE_ALIASES.items() if canon in choices]
+
+
+def _normalize_mode(value: str) -> str:
+    """Map a mode alias (``ms``, ``model-serving``) to its canonical value."""
+    return _MODE_ALIASES.get(value, value)
+
+
 def _add_mode_argument(parser: ArgumentParser, *, choices: list[str]) -> None:
     """Add the serving-mode flag. Choices are per-verb so an unusable value is
-    rejected at parse time (never offered when it cannot succeed)."""
+    rejected at parse time (never offered when it cannot succeed). Input aliases
+    (``ms``/``model-serving`` -> ``model_serving``) are accepted where the
+    canonical value is valid and normalized in :func:`parse_args`.
+    """
+    accepted: list[str] = _canonical_modes(choices)
     parser.add_argument(
         "-m",
         "--mode",
-        choices=choices,
+        choices=accepted,
         default="apps",
-        help="How to serve the agent: " + " | ".join(choices) + " (default: apps).",
+        metavar="{" + ",".join(choices) + "}",
+        help="How to serve the agent: "
+        + " | ".join(choices)
+        + " (default: apps)."
+        + (" Aliases: ms/model-serving." if "model_serving" in choices else ""),
     )
 
 
@@ -1203,6 +1230,11 @@ Examples:
         options.profile = None
     if not hasattr(options, "verbose"):
         options.verbose = 0
+
+    # Normalize serving-mode input aliases (ms/model-serving -> model_serving)
+    # so options.mode is always the canonical ServingMode value downstream.
+    if getattr(options, "mode", None) is not None:
+        options.mode = _normalize_mode(options.mode)
 
     # Generate a new thread_id UUID if not provided (only for chat command)
     if hasattr(options, "thread_id") and options.thread_id is None:
