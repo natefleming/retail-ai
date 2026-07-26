@@ -249,38 +249,6 @@ def _global_parent_parser() -> ArgumentParser:
     return p
 
 
-def _add_bundle_action_arguments(parser: ArgumentParser) -> None:
-    """Add the deploy/run/destroy continuation flags to a ``generate`` verb.
-
-    These let a single ``<noun> generate`` invocation continue into deploy/run/
-    destroy (the one-shot happy path, e.g. ``dao-ai agent generate --deploy
-    --run``). When none are passed the command stays generate-only (writes the
-    bundle and stops). ``--dry-run`` is added separately via
-    :func:`_add_bundle_common_args` so the standalone ``deploy``/``run``/
-    ``destroy`` verbs get it too.
-    """
-    parser.add_argument(
-        "-d",
-        "--deploy",
-        action="store_true",
-        help="After generating, run `databricks bundle deploy` (and, when "
-        "app.trace_location is set, link the trace destination + grant the App "
-        "SP so spans persist).",
-    )
-    parser.add_argument(
-        "-r",
-        "--run",
-        action="store_true",
-        help="After generating (and deploying, if --deploy), run "
-        "`databricks bundle run <app>` to start the app.",
-    )
-    parser.add_argument(
-        "--destroy",
-        action="store_true",
-        help="Run `databricks bundle destroy` for the generated bundle.",
-    )
-
-
 def _add_bundle_common_args(parser: ArgumentParser, *, kind: str) -> None:
     """Add the flags every bundle verb shares: -c/-o/-p/--dry-run/--param.
 
@@ -420,12 +388,13 @@ def _add_noun_verb_parsers(
     generate_epilog: str,
     parents: list[ArgumentParser],
 ) -> None:
-    """Register the generate/deploy/run/destroy verb parsers for one noun.
+    """Register the up/generate/deploy/run/destroy verb parsers for one noun.
 
-    ``noun`` is ``"agent"``/``"workflow"``. The ``generate`` verb carries
-    the source flags (+ one-shot --deploy/--run/--destroy) and inherits the
-    noun's rich help; deploy/run/destroy carry only the common args. The
-    workflow noun additionally gets target/cloud flags on every verb.
+    ``noun`` is ``"agent"``/``"workflow"``. ``up`` is the orchestration verb
+    (generate-if-needed → deploy → run). ``generate`` is the pure staging verb
+    (writes a bundle, no deploy/run). ``deploy``/``run``/``destroy`` are the
+    DAB-faithful granular primitives. The workflow noun additionally gets
+    target/cloud flags on ``up``/``generate``/``deploy``/``run``/``destroy``.
     ``parents`` is forwarded to every ``add_parser`` call so the global
     ``-p/--profile`` and ``-v/--verbose`` flags are accepted at each level.
     """
@@ -433,7 +402,7 @@ def _add_noun_verb_parsers(
 
     parser: ArgumentParser = subparsers.add_parser(
         noun,
-        help=f"Manage the {noun} bundle (generate | deploy | run | destroy)",
+        help=f"Manage the {noun} bundle (up | generate | deploy | run | destroy)",
         description=noun_description,
         epilog=noun_epilog,
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -441,9 +410,44 @@ def _add_noun_verb_parsers(
     )
     verbs = parser.add_subparsers(dest="subcommand", required=True)
 
+    # --- up: orchestration verb (generate-if-needed → deploy → run) ----------
+    up_parser: ArgumentParser = verbs.add_parser(
+        "up",
+        help=(
+            f"Bring the {noun} up: generate (if needed), deploy, and start it — "
+            "the one-command path to a live agent. Use `deploy`/`run` for granular "
+            "control."
+        ),
+        description=(
+            f"Bring the {noun} up: generate (if needed), deploy, and start it.\n\n"
+            "For bundle modes (apps, mcp): stages the bundle when unstaged, runs\n"
+            "`databricks bundle deploy`, links the trace destination, then runs\n"
+            "`databricks bundle run <app>`. Use `--direct` to skip the bundle\n"
+            "entirely and deploy via the SDK (apps/mcp only).\n\n"
+            "For --mode model_serving: registers then deploys the endpoint\n"
+            "(serving once READY; `run` is n/a for endpoints)."
+        ),
+        parents=parents,
+    )
+    _add_bundle_common_args(up_parser, kind=noun)
+    _add_bundle_source_args(up_parser)
+    if is_workflow:
+        _add_workflow_target_args(up_parser)
+    _add_mode_argument(up_parser, choices=["model_serving", "apps", "mcp"])
+    up_parser.add_argument(
+        "--direct",
+        action="store_true",
+        default=False,
+        help=(
+            "Deploy via the SDK directly (no DAB bundle on disk) — fast "
+            "iteration path for --mode apps|mcp. Inherently starts the app."
+        ),
+    )
+
+    # --- generate: pure staging verb (no deploy/run) -------------------------
     generate_parser: ArgumentParser = verbs.add_parser(
         "generate",
-        help=f"Generate the {noun} bundle from a config",
+        help=f"Generate the {noun} bundle from a config (stage only, no deploy)",
         description=generate_description,
         epilog=generate_epilog,
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -456,7 +460,6 @@ def _add_noun_verb_parsers(
         _add_mode_argument(generate_parser, choices=["apps", "mcp"])
     else:
         _add_mode_argument(generate_parser, choices=["apps", "mcp"])
-    _add_bundle_action_arguments(generate_parser)
 
     for verb, verb_help in (
         (
@@ -471,7 +474,8 @@ def _add_noun_verb_parsers(
             f"(written by `dao-ai {noun} generate`) it is deployed in place, "
             f"preserving any hand-edits. When nothing is staged, the bundle is "
             f"generated first automatically. Use `--mode` to select the serving "
-            f"target (apps | mcp | model_serving; default: apps)."
+            f"target (apps | mcp | model_serving; default: apps). "
+            f"Use `dao-ai {noun} up` to deploy AND start in one command."
         )
         verb_parser: ArgumentParser = verbs.add_parser(
             verb,
@@ -489,41 +493,6 @@ def _add_noun_verb_parsers(
             _add_mode_argument(verb_parser, choices=["model_serving", "apps", "mcp"])
         else:
             _add_mode_argument(verb_parser, choices=["apps", "mcp"])
-        if verb == "deploy":
-            # Forward chaining: `dao-ai <noun> deploy --run` deploys the staged
-            # bundle then runs it (parity with `generate --deploy --run`).
-            verb_parser.add_argument(
-                "-r",
-                "--run",
-                action="store_true",
-                help="After deploying, run `databricks bundle run <app>`.",
-            )
-            verb_parser.add_argument(
-                "--direct",
-                action="store_true",
-                default=False,
-                help=(
-                    "Deploy via the SDK directly (no DAB bundle on disk) — fast "
-                    "iteration escape hatch for --mode apps|mcp."
-                ),
-            )
-
-
-def _validate_bundle_action_flags(options: Namespace) -> None:
-    """Reject contradictory ``--destroy`` + ``--deploy``/``--run`` combinations.
-
-    ``--destroy`` tears a bundle down; ``--deploy``/``--run`` stand it up.
-    Combining them is contradictory and the two code paths historically
-    diverged (the workflow handler deployed-then-destroyed; the App driver
-    destroyed-only). Fail uniformly with a clean message across all three
-    generate-* commands rather than silently picking one behavior.
-    """
-    destroy: bool = getattr(options, "destroy", False)
-    deploy: bool = getattr(options, "deploy", False)
-    run: bool = getattr(options, "run", False)
-    if destroy and (deploy or run):
-        logger.error("--destroy cannot be combined with --deploy or --run")
-        sys.exit(1)
 
 
 # Env var that overrides the base directory for generated bundles. The
@@ -1030,10 +999,11 @@ Examples:
         help="Path to the model configuration file to visualize",
     )
 
-    # --- Bundle nouns: `dao-ai <noun> <generate|deploy|run|destroy>` ----------
-    # Each noun owns the full generate → deploy → run → destroy lifecycle as
-    # discrete verbs. generate stages (and can one-shot --deploy/--run); deploy/
-    # run/destroy act on the already-staged dir without regenerating it.
+    # --- Bundle nouns: `dao-ai <noun> <up|generate|deploy|run|destroy>` -------
+    # Each noun owns the full up/generate/deploy/run/destroy lifecycle as
+    # discrete verbs. `up` is the orchestration verb (generate-if-needed →
+    # deploy → run). `generate` stages only. `deploy`/`run`/`destroy` are the
+    # DAB-faithful granular primitives acting on the already-staged dir.
     _WORKFLOW_DESC = """
 Manage the provisioning Workflow — a Databricks Job (Lakeflow Workflow) that
 provisions backing infrastructure (schemas, Vector Search, Lakebase, Genie, UC
@@ -1042,42 +1012,40 @@ Databricks Asset Bundle.
 """
     _WORKFLOW_EPILOG = """
 Examples:
-  # Provision infra + deploy the workflow job in one shot
-  dao-ai workflow generate -c config.yaml --deploy -p fevm
+  # One command: generate → deploy → run the provisioning job
+  dao-ai workflow up -c config.yaml -p fevm
 
-  # Run the already-deployed provisioning job
-  dao-ai workflow run -c config.yaml -p fevm
-
-  # Generate bundle only, inspect, then deploy manually
+  # Generate bundle only, inspect, then deploy and run separately
   dao-ai workflow generate -c config.yaml
   dao-ai workflow deploy   -c config.yaml -p fevm
+  dao-ai workflow run      -c config.yaml -p fevm
 """
     _AGENT_DESC = """
 Manage the agent bundle — a Databricks App (or MCP server / Model Serving
-endpoint). `generate` writes a deployable Databricks Asset Bundle; `deploy`
-ships it to Databricks. `deploy` auto-generates when nothing is staged so a
-single command covers both steps.
+endpoint). `up` is the one-command path: generate (if needed) → deploy →
+start. `generate` writes a bundle only. `deploy`/`run` are the DAB-faithful
+granular primitives.
 """
     _AGENT_EPILOG = """
 Examples:
-  # One-shot: generate bundle → deploy → start the App
-  dao-ai agent generate -c config.yaml --deploy --run -p fevm
+  # One command: generate (if needed) → deploy → start the App
+  dao-ai agent up -c config.yaml -p fevm
 
-  # Deploy staged bundle (auto-generates if nothing is staged yet)
+  # One command for an MCP server
+  dao-ai agent up -c config.yaml --mode mcp -p fevm
+
+  # Deploy staged bundle only (auto-generates if nothing is staged yet)
   dao-ai agent deploy -c config.yaml -p fevm
 
   # Deploy to Model Serving endpoint; -m ms is an accepted alias
   dao-ai agent deploy -c config.yaml --mode model_serving -p fevm
   dao-ai agent deploy -c config.yaml -m ms -p fevm
 
-  # Deploy as MCP server
-  dao-ai agent deploy -c config.yaml --mode mcp -p fevm
-
-  # SDK fast-path: deploy without writing a bundle to disk (apps/mcp only)
-  dao-ai agent deploy -c config.yaml --direct -p fevm
+  # SDK fast-path: up via SDK without writing a bundle to disk (apps/mcp only)
+  dao-ai agent up -c config.yaml --direct -p fevm
 
   # Pass -p at the top level (equivalent)
-  dao-ai -p fevm agent deploy -c config.yaml
+  dao-ai -p fevm agent up -c config.yaml
 """
 
     _add_noun_verb_parsers(
@@ -2874,17 +2842,17 @@ def deploy_app_bundle(
     profile: Optional[str],
     dry_run: bool = False,
 ) -> None:
-    """Deploy/run/destroy an already-generated App bundle (agent or MCP).
+    """Deploy/run/destroy an already-staged App bundle (agent or MCP).
 
-    Shared driver for ``agent generate`` / ``agent generate --mode mcp`` action flags. The
-    App bundle uses a single ``dev`` target and is run by its app-name resource
-    key (contrast the workflow job, run by ``deploy_job``). Order when
-    ``--deploy`` and ``--run`` are combined: deploy → auto trace-link+grant →
-    run, matching the sequence the docs prescribe.
+    Shared driver for the ``up``, ``deploy``, ``run``, and ``destroy`` verbs.
+    The App bundle uses a single ``dev`` target and is run by its app-name
+    resource key (contrast the workflow job, run by ``deploy_job``). When both
+    ``deploy`` and ``run`` are True (as in ``up``), the order is: deploy →
+    auto trace-link+grant → run, matching the sequence the docs prescribe.
 
     Args:
         config: loaded AppConfig (for trace_location + app name).
-        output_dir: the generated bundle dir (``bundle`` commands run here).
+        output_dir: the staged bundle dir (``bundle`` commands run here).
         deploy / run / destroy: which action(s) to perform.
         profile: Databricks CLI profile.
         dry_run: print instead of executing.
@@ -2962,14 +2930,15 @@ def _print_endpoint_link(endpoint_name: str) -> None:
 
 
 def handle_workflow_command(options: Namespace) -> None:
-    """Dispatch `dao-ai workflow <generate|deploy|run|destroy>`.
+    """Dispatch `dao-ai workflow <up|generate|deploy|run|destroy>`.
 
-    ``generate`` stages the provisioning-job bundle (and may one-shot
-    ``--deploy``/``--run``/``--destroy``). The standalone verbs run the
-    corresponding ``databricks bundle`` command against the ALREADY-STAGED dir
-    without re-staging (``stage=False``).
+    ``up`` orchestrates generate → deploy → run in one command. ``generate``
+    stages the bundle only. The standalone ``deploy``/``run``/``destroy`` verbs
+    act on the ALREADY-STAGED dir without re-staging (``stage=False``).
     """
     match options.subcommand:
+        case "up":
+            _handle_up_workflow_command(options)
         case "generate":
             handle_generate_workflow_command(options)
         case "deploy":
@@ -2997,6 +2966,7 @@ def _exec_workflow_verb(options: Namespace, command: list[str]) -> None:
 
 
 def handle_generate_workflow_command(options: Namespace) -> None:
+    """Stage the workflow bundle only; no deploy/run (use `up` or standalone verbs)."""
     logger.debug("Preparing provisioning-workflow configuration...")
     profile: Optional[str] = options.profile
     config: Optional[str] = options.config
@@ -3009,71 +2979,67 @@ def handle_generate_workflow_command(options: Namespace) -> None:
     output_dir: str | None = getattr(options, "output_dir", None)
     overwrite: bool = getattr(options, "overwrite", False)
 
-    _validate_bundle_action_flags(options)
+    # Generate-only: stage the bundle so the user can inspect it or deploy
+    # manually (`cd <output-dir> && databricks bundle deploy ...`). Use
+    # `dao-ai workflow up` to generate → deploy → run in one command.
+    logger.info("Staging DAO AI workflow bundle...")
+    run_databricks_command(
+        None,
+        profile=profile,
+        config=config,
+        target=target,
+        cloud=cloud,
+        dry_run=dry_run,
+        mode=mode,
+        development=development,
+        config_vars=config_vars,
+        output_dir=output_dir,
+        overwrite=overwrite,
+    )
 
-    if options.deploy:
-        logger.info("Deploying DAO AI asset bundle...")
-        run_databricks_command(
-            ["bundle", "deploy"],
-            profile=profile,
-            config=config,
-            target=target,
-            cloud=cloud,
-            dry_run=dry_run,
-            mode=mode,
-            development=development,
-            config_vars=config_vars,
-            output_dir=output_dir,
-            overwrite=overwrite,
-        )
-    if options.run:
-        logger.info("Running DAO AI system with current configuration...")
-        run_databricks_command(
-            ["bundle", "run", "deploy_job"],
-            profile=profile,
-            config=config,
-            target=target,
-            cloud=cloud,
-            dry_run=dry_run,
-            mode=mode,
-            development=development,
-            config_vars=config_vars,
-            output_dir=output_dir,
-            overwrite=overwrite,
-        )
-    if options.destroy:
-        logger.info("Destroying DAO AI system with current configuration...")
-        run_databricks_command(
-            ["bundle", "destroy", "--auto-approve"],
-            profile=profile,
-            config=config,
-            target=target,
-            cloud=cloud,
-            dry_run=dry_run,
-            mode=mode,
-            development=development,
-            config_vars=config_vars,
-            output_dir=output_dir,
-            overwrite=overwrite,
-        )
-    if not any([options.deploy, options.run, options.destroy]):
-        # Generate-only: stage the bundle so the user can inspect it or deploy
-        # manually (`cd <output-dir> && databricks bundle deploy ...`). This is
-        # the default for a `generate-*` command — deploy/run/destroy are opt-in.
-        logger.info("Staging DAO AI workflow bundle (no deploy/run requested)...")
-        run_databricks_command(
-            None,
-            profile=profile,
-            config=config,
-            target=target,
-            cloud=cloud,
-            dry_run=dry_run,
-            mode=mode,
-            development=development,
-            config_vars=config_vars,
-            output_dir=output_dir,
-            overwrite=overwrite,
-        )
+
+def _handle_up_workflow_command(options: Namespace) -> None:
+    """Orchestrate workflow up: generate → deploy → run deploy_job."""
+    logger.debug("Bringing workflow up (generate → deploy → run)...")
+    profile: Optional[str] = options.profile
+    config: Optional[str] = options.config
+    target: Optional[str] = options.target
+    cloud: Optional[str] = options.cloud
+    dry_run: bool = options.dry_run
+    mode: Optional[str] = getattr(options, "mode", None)
+    development: bool | None = getattr(options, "development", None)
+    config_vars: dict[str, str] = _parse_var_args(options.var)
+    output_dir: str | None = getattr(options, "output_dir", None)
+    overwrite: bool = getattr(options, "overwrite", False)
+
+    logger.info("Deploying DAO AI asset bundle...")
+    run_databricks_command(
+        ["bundle", "deploy"],
+        profile=profile,
+        config=config,
+        target=target,
+        cloud=cloud,
+        dry_run=dry_run,
+        mode=mode,
+        development=development,
+        config_vars=config_vars,
+        output_dir=output_dir,
+        overwrite=overwrite,
+    )
+    logger.info("Running DAO AI provisioning workflow...")
+    run_databricks_command(
+        ["bundle", "run", "deploy_job"],
+        profile=profile,
+        config=config,
+        target=target,
+        cloud=cloud,
+        dry_run=dry_run,
+        mode=mode,
+        development=development,
+        config_vars=config_vars,
+        output_dir=output_dir,
+        overwrite=overwrite,
+    )
 
 
 def _resolve_bundle_dir(
@@ -3146,12 +3112,12 @@ def _stage_app_bundle(
 
 
 def _generate_app_bundle(options: Namespace, *, kind: str, writer, what: str) -> None:
-    """Generate an App bundle (agent or mcp), then run any one-shot actions.
+    """Stage an App bundle (agent or mcp) — pure staging, no deploy or run.
 
     ``writer`` is ``write_bundle`` / ``write_mcp_bundle``. ``kind`` selects the
-    default staging dir and ``what`` the guard message. After writing, drops the
-    ``.dao-ai-generated`` marker and runs ``--deploy``/``--run``/``--destroy`` if
-    requested.
+    default staging dir and ``what`` the guard message. Drops the
+    ``.dao-ai-generated`` marker after writing. Use ``dao-ai <noun> up`` to
+    generate, deploy, and start in one command.
     """
     logger.debug(f"Generating {kind} bundle...")
     # Resolve the --development/--no-development tri-state to a concrete bool
@@ -3176,25 +3142,28 @@ def _generate_app_bundle(options: Namespace, *, kind: str, writer, what: str) ->
         noun=kind,
     )
 
-    _run_bundle_actions(options, config, bundle_dir, options.profile)
-
 
 def _deploy_run_destroy_app_bundle(
     options: Namespace, *, kind: str, deploy: bool, run: bool, destroy: bool
 ) -> None:
-    """Deploy/run/destroy an App bundle, auto-generating when ``deploy=True`` and unstaged.
+    """Shared driver for deploy/run/destroy/up on an App bundle.
 
-    Routing (deploy-only):
+    Called by the ``up`` verb (deploy=True, run=True) and the standalone
+    ``deploy``/``run``/``destroy`` verbs. Auto-generates when unstaged and
+    ``deploy=True``.
 
-    1. ``--mode model_serving``: call ``config.deploy_agent(target=MODEL_SERVING)``
-       and return — Model Serving has no DAB bundle.
-    2. ``--direct``: call ``config.deploy_agent(target=ServingMode(mode))``
-       (SDK path; no bundle on disk). ``--direct`` + ``--mode model_serving`` is
-       redundant — treated identically to plain model_serving deploy (no error).
-    3. Bundle path: if ``databricks.yaml`` is absent AND ``deploy=True``, auto-stage
-       via :func:`_stage_app_bundle` (CDK/SAM norm), then deploy. If already staged,
-       deploy in-place (preserves hand-edits). ``run`` / ``destroy`` still error when
-       unstaged — you can't run or destroy something never staged.
+    Routing:
+
+    1. ``--mode model_serving``: call ``config.create_agent`` then
+       ``config.deploy_agent(target=MODEL_SERVING)`` — no DAB bundle. ``run``
+       is irrelevant for an endpoint (it serves once READY).
+    2. ``up --direct`` (or any direct=True): call
+       ``config.deploy_agent(target=ServingMode(mode))`` via SDK (no bundle on
+       disk). ``--direct`` + ``--mode model_serving`` is handled by Route 1.
+    3. Bundle path: if ``databricks.yaml`` is absent AND ``deploy=True``,
+       auto-stage via :func:`_stage_app_bundle` (CDK/SAM norm), then deploy.
+       If already staged, deploy in-place (preserves hand-edits). ``run`` /
+       ``destroy`` still error when unstaged.
     """
     from dao_ai.utils import resolve_use_local_source
 
@@ -3297,7 +3266,7 @@ def _verify_app_deployed_or_exit(app_name: str, *, kind: str, config: str) -> No
         except NotFound:
             logger.error(
                 f"App '{normalized}' is not deployed yet. "
-                f"Run `dao-ai {kind} deploy -c {config} --run` to deploy then run."
+                f"Run `dao-ai {kind} up -c {config}` to deploy and run."
             )
             sys.exit(1)
     except ImportError:
@@ -3325,12 +3294,13 @@ def _mode_writer(mode: str) -> Callable[..., None]:
 
 
 def handle_agent_command(options: Namespace) -> None:
-    """Dispatch `dao-ai agent <generate|deploy|run|destroy>`.
+    """Dispatch `dao-ai agent <up|generate|deploy|run|destroy>`.
 
+    ``up``           → generate (if needed) → deploy → run (one-command path).
     ``--mode mcp``   → writes the MCP-server bundle (staging dir ``mcp/<app>``)
     ``--mode apps``  → writes the chat-agent bundle  (staging dir ``agent/<app>``)
-    ``--mode model_serving`` → only valid for `deploy`; bundle path is a no-op
-    here (Task 6 wires the direct deploy path).
+    ``--mode model_serving`` → only valid for `deploy`/`up`; SDK path only.
+    ``--direct``     → only valid for `up`; SDK deploy without a bundle on disk.
     """
     mode: str = getattr(options, "mode", "apps") or "apps"
     kind: str = _mode_bundle_kind(mode)
@@ -3338,11 +3308,15 @@ def handle_agent_command(options: Namespace) -> None:
     what: str = "an MCP bundle" if mode == "mcp" else "a bundle"
 
     match options.subcommand:
+        case "up":
+            _deploy_run_destroy_app_bundle(
+                options, kind=kind, deploy=True, run=True, destroy=False
+            )
         case "generate":
             _generate_app_bundle(options, kind=kind, writer=writer, what=what)
         case "deploy":
             _deploy_run_destroy_app_bundle(
-                options, kind=kind, deploy=True, run=options.run, destroy=False
+                options, kind=kind, deploy=True, run=False, destroy=False
             )
         case "run":
             _deploy_run_destroy_app_bundle(
@@ -3352,39 +3326,6 @@ def handle_agent_command(options: Namespace) -> None:
             _deploy_run_destroy_app_bundle(
                 options, kind=kind, deploy=False, run=False, destroy=True
             )
-
-
-def _run_bundle_actions(
-    options: Namespace,
-    config: AppConfig,
-    output_dir: Path,
-    profile: Optional[str],
-) -> None:
-    """Invoke deploy/run/destroy on a just-generated App bundle, if requested.
-
-    Shared tail for ``agent generate`` (apps or mcp mode): when any of
-    ``--deploy``/``--run``/``--destroy`` is passed, drive the bundle via
-    :func:`deploy_app_bundle`; otherwise the command stays generate-only.
-    """
-    _validate_bundle_action_flags(options)
-
-    deploy: bool = getattr(options, "deploy", False)
-    run: bool = getattr(options, "run", False)
-    destroy: bool = getattr(options, "destroy", False)
-    dry_run: bool = getattr(options, "dry_run", False)
-
-    if not any([deploy, run, destroy]):
-        return
-
-    deploy_app_bundle(
-        config,
-        output_dir=output_dir,
-        deploy=deploy,
-        run=run,
-        destroy=destroy,
-        profile=profile,
-        dry_run=dry_run,
-    )
 
 
 def handle_vars_command(options: Namespace) -> None:

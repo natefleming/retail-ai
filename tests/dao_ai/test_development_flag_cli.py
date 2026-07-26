@@ -56,7 +56,7 @@ class TestNounVerbParsing:
     """
 
     @pytest.mark.parametrize("noun", ["agent", "workflow"])
-    @pytest.mark.parametrize("verb", ["generate", "deploy", "run", "destroy"])
+    @pytest.mark.parametrize("verb", ["up", "generate", "deploy", "run", "destroy"])
     def test_nested_verbs_parse(self, noun: str, verb: str) -> None:
         opts = parse_args([noun, verb, "-c", "config.yaml"])
         assert opts.command == noun
@@ -67,9 +67,25 @@ class TestNounVerbParsing:
         with pytest.raises(SystemExit):
             parse_args([noun, "-c", "config.yaml"])
 
-    def test_deploy_verb_accepts_run_chain(self) -> None:
-        # `<noun> deploy --run` deploys then runs; run flag is on the deploy verb.
-        assert parse_args(["agent", "deploy", "-c", "c.yaml", "--run"]).run is True
+    def test_deploy_verb_rejects_run(self) -> None:
+        # deploy no longer has --run; use `up` to deploy+run in one command.
+        with pytest.raises(SystemExit):
+            parse_args(["agent", "deploy", "-c", "c.yaml", "--run"])
+
+    def test_deploy_verb_rejects_direct(self) -> None:
+        # --direct moved to `up`; deploy is the pure push verb.
+        with pytest.raises(SystemExit):
+            parse_args(["agent", "deploy", "-c", "c.yaml", "--direct"])
+
+    def test_up_verb_parses(self) -> None:
+        opts = parse_args(["agent", "up", "-c", "c.yaml", "--mode", "mcp"])
+        assert opts.command == "agent"
+        assert opts.subcommand == "up"
+        assert opts.mode == "mcp"
+
+    def test_up_verb_direct_flag(self) -> None:
+        opts = parse_args(["agent", "up", "-c", "c.yaml", "--direct"])
+        assert opts.direct is True
 
     @pytest.mark.parametrize(
         "argv",
@@ -355,29 +371,21 @@ class TestPipelineEmitsDevelopmentVar:
 
 
 @pytest.mark.unit
-class TestValidateBundleActionFlags:
-    """``--destroy`` + ``--deploy``/``--run`` is contradictory and must be
-    rejected uniformly across all three generate-* commands (previously the
-    workflow handler deployed-then-destroyed while the App driver destroyed-only).
+class TestGenerateIsStageOnly:
+    """``generate`` is now a pure staging verb — ``--deploy``/``--run``/``--destroy``
+    are rejected by the parser (use ``up`` for orchestration).
     """
 
-    @pytest.mark.parametrize(
-        "cmd", ["workflow generate", "agent generate"]
-    )
-    @pytest.mark.parametrize("bad", [["--deploy", "--destroy"], ["--run", "--destroy"], ["--deploy", "--run", "--destroy"]])
-    def test_destroy_with_deploy_or_run_exits(self, cmd: str, bad: list[str]) -> None:
-        options = parse_args(_base(cmd) + bad)
-        with pytest.raises(SystemExit) as exc:
-            cli._validate_bundle_action_flags(options)
-        assert exc.value.code == 1
+    @pytest.mark.parametrize("noun", ["agent", "workflow"])
+    @pytest.mark.parametrize("flag", ["--deploy", "--run", "--destroy"])
+    def test_generate_rejects_action_flags(self, noun: str, flag: str) -> None:
+        with pytest.raises(SystemExit):
+            parse_args([noun, "generate", "-c", "config.yaml", flag])
 
-    @pytest.mark.parametrize(
-        "cmd", ["workflow generate", "agent generate"]
-    )
-    @pytest.mark.parametrize("ok", [["--deploy"], ["--run"], ["--deploy", "--run"], ["--destroy"], []])
-    def test_valid_combinations_pass(self, cmd: str, ok: list[str]) -> None:
-        options = parse_args(_base(cmd) + ok)
-        cli._validate_bundle_action_flags(options)  # must not raise
+    @pytest.mark.parametrize("noun", ["agent", "workflow"])
+    def test_generate_without_action_flags_parses(self, noun: str) -> None:
+        opts = parse_args([noun, "generate", "-c", "config.yaml"])
+        assert opts.subcommand == "generate"
 
 
 def _app_config(*, trace: bool) -> AppConfig:
@@ -949,7 +957,7 @@ class TestDeployAutoGenerate:
     def test_direct_flag_uses_sdk_not_bundle(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """`agent deploy --direct` calls deploy_agent (SDK path) without touching bundles."""
+        """`agent up --direct` calls deploy_agent (SDK path) without touching bundles."""
         cfg = self._write_cfg(tmp_path)
 
         deploy_agent_calls: list[dict[str, object]] = []
@@ -969,7 +977,7 @@ class TestDeployAutoGenerate:
         with patch.object(cli, "deploy_app_bundle") as dep, patch.object(
             cli, "_exec_bundle_command"
         ) as exec_cmd:
-            opts = parse_args(["agent", "deploy", "-c", str(cfg), "--direct"])
+            opts = parse_args(["agent", "up", "-c", str(cfg), "--direct"])
             cli.handle_agent_command(opts)
 
         assert deploy_agent_calls, "--direct must call deploy_agent"
@@ -1017,10 +1025,15 @@ class TestDeployAutoGenerate:
         assert deploy_agent_calls[0]["target"] == ServingMode.MODEL_SERVING
         dep.assert_not_called()
 
-    def test_direct_flag_parses(self) -> None:
-        """`--direct` is accepted on the deploy verb."""
-        opts = parse_args(["agent", "deploy", "-c", "c.yaml", "--direct"])
+    def test_direct_flag_parses_on_up(self) -> None:
+        """`--direct` is accepted on the `up` verb (moved from deploy)."""
+        opts = parse_args(["agent", "up", "-c", "c.yaml", "--direct"])
         assert opts.direct is True
+
+    def test_direct_flag_rejected_on_deploy(self) -> None:
+        """`--direct` is NOT accepted on `deploy` — use `up --direct` instead."""
+        with pytest.raises(SystemExit):
+            parse_args(["agent", "deploy", "-c", "c.yaml", "--direct"])
 
     def test_run_still_errors_when_unstaged(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -1094,6 +1107,27 @@ class TestDeployAutoGenerate:
         assert (
             resolve_calls == []
         ), "in-place deploy path must NOT call _resolve_all_resources"
+
+    def test_up_deploys_and_runs(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """`agent up --mode apps` bundle path calls deploy_app_bundle with deploy=True AND run=True."""
+        cfg = self._write_cfg(tmp_path)
+        out = tmp_path / "staged"
+        out.mkdir()
+        (out / "databricks.yaml").write_text("bundle: {}\n")
+
+        monkeypatch.setattr(cli, "_apply_profile_context", lambda p: None)
+        with patch.object(cli, "deploy_app_bundle") as dep:
+            opts = parse_args(
+                ["agent", "up", "-c", str(cfg), "-o", str(out), "--mode", "apps"]
+            )
+            cli.handle_agent_command(opts)
+
+        dep.assert_called_once()
+        call_kwargs = dep.call_args.kwargs
+        assert call_kwargs["deploy"] is True, "up must call deploy_app_bundle(deploy=True)"
+        assert call_kwargs["run"] is True, "up must call deploy_app_bundle(run=True)"
 
 
 @pytest.mark.unit
