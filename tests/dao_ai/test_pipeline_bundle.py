@@ -146,9 +146,9 @@ class TestGeneratePipelineDatabricksYaml:
         # run-evaluation fans in from deploy-agents + generate-evaluation-data.
         deps = {d["task_key"] for d in by_key["run-evaluation"]["depends_on"]}
         assert deps == {"deploy-agents", "generate-evaluation-data"}
-        # deploy-agents forwards the deployment_target + development vars.
+        # deploy-agents forwards the mode + development vars.
         params = by_key["deploy-agents"]["notebook_task"]["base_parameters"]
-        assert params["deployment-target"] == "${var.deployment_target}"
+        assert params["mode"] == "${var.mode}"
         assert params["development"] == "${var.development}"
 
     def test_development_includes_wheel_in_sync(self) -> None:

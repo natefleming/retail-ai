@@ -995,12 +995,12 @@ class TestDeployAutoGenerate:
             opts = parse_args(["agent", "deploy", "-c", str(cfg), "--mode", "model_serving"])
             cli.handle_agent_command(opts)
 
-        from dao_ai.config import DeploymentTarget
+        from dao_ai.config import ServingMode
 
         # create_agent (register) must run BEFORE deploy_agent, and the bundle
         # path must not be touched.
         assert calls == ["create", "deploy"], calls
-        assert deploy_agent_calls[0]["target"] == DeploymentTarget.MODEL_SERVING
+        assert deploy_agent_calls[0]["target"] == ServingMode.MODEL_SERVING
         dep.assert_not_called()
 
     def test_direct_flag_parses(self) -> None:

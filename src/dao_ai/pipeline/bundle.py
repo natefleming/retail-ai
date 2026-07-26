@@ -64,7 +64,7 @@ _PIPELINE_TASKS: tuple[tuple[str, str, tuple[str, ...], dict[str, str]], ...] = 
      ("provision-vector-search", "provision-lakebase"), {}),
     ("provision-genie", "05_provision_genie.py", ("unity-catalog-tools",), {}),
     ("deploy-agents", "06_deploy_agent.py", ("provision-genie",),
-     {"deployment-target": "${var.deployment_target}",
+     {"mode": "${var.mode}",
       "development": "${var.development}"}),
     ("generate-evaluation-data", "07_generate_evaluation_data.py",
      ("provision-vector-search",), {}),
@@ -148,8 +148,8 @@ def generate_pipeline_databricks_yaml(config: AppConfig, development: bool) -> s
             "cloud": {
                 "description": "Cloud provider (azure, aws, gcp) - set per target.",
             },
-            "deployment_target": {
-                "description": "Agent deployment target (model_serving, apps, mcp).",
+            "mode": {
+                "description": "Agent serving mode (model_serving, apps, mcp).",
                 "default": "apps",
             },
             "development": {

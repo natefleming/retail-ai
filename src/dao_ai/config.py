@@ -620,7 +620,7 @@ class IsDatabricksResource(ABC, BaseModel):
         return self.workspace_client
 
 
-class DeploymentTarget(str, Enum):
+class ServingMode(str, Enum):
     """Target platform for agent deployment (a deploy-action parameter — NOT a
     field on AppConfig)."""
 
@@ -11023,7 +11023,7 @@ class AppConfig(BaseModel):
 
     def deploy_agent(
         self,
-        target: DeploymentTarget | None = None,
+        target: ServingMode | None = None,
         w: WorkspaceClient | None = None,
         vsc: "VectorSearchClient | None" = None,
         pat: str | None = None,
@@ -11055,7 +11055,7 @@ class AppConfig(BaseModel):
 
         # Mode is a deploy-action parameter, not config: the caller supplies it
         # (the CLI defaults it). No AppConfig fallback.
-        resolved_target: DeploymentTarget = target or DeploymentTarget.MODEL_SERVING
+        resolved_target: ServingMode = target or ServingMode.MODEL_SERVING
 
         provider: ServiceProvider = DatabricksProvider(
             w=w,

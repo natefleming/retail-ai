@@ -845,7 +845,7 @@ def test_deploy_agent_routes_to_model_serving_explicitly():
     """Test that deploy_agent routes to deploy_model_serving_agent when target=MODEL_SERVING."""
     from unittest.mock import MagicMock, patch
 
-    from dao_ai.config import AppConfig, AppModel, DeploymentTarget
+    from dao_ai.config import AppConfig, AppModel, ServingMode
     from dao_ai.providers.databricks import DatabricksProvider
 
     mock_config = MagicMock(spec=AppConfig)
@@ -868,7 +868,7 @@ def test_deploy_agent_routes_to_model_serving_explicitly():
             provider = DatabricksProvider()
             _stamp_extras_resolvable(mock_config)
             provider.deploy_agent(
-                config=mock_config, target=DeploymentTarget.MODEL_SERVING
+                config=mock_config, target=ServingMode.MODEL_SERVING
             )
 
             mock_model_serving.assert_called_once_with(mock_config)
@@ -880,7 +880,7 @@ def test_deploy_agent_routes_to_apps_when_specified():
     """Test that deploy_agent routes to deploy_apps_agent when target=APPS."""
     from unittest.mock import MagicMock, patch
 
-    from dao_ai.config import AppConfig, AppModel, DeploymentTarget
+    from dao_ai.config import AppConfig, AppModel, ServingMode
     from dao_ai.providers.databricks import DatabricksProvider
 
     mock_config = MagicMock(spec=AppConfig)
@@ -895,7 +895,7 @@ def test_deploy_agent_routes_to_apps_when_specified():
         with patch.object(DatabricksProvider, "deploy_apps_agent") as mock_apps:
             provider = DatabricksProvider()
             _stamp_extras_resolvable(mock_config)
-            provider.deploy_agent(config=mock_config, target=DeploymentTarget.APPS)
+            provider.deploy_agent(config=mock_config, target=ServingMode.APPS)
 
             mock_apps.assert_called_once_with(mock_config, development=None)
             mock_model_serving.assert_not_called()
@@ -904,7 +904,7 @@ def test_deploy_agent_routes_to_apps_when_specified():
 @pytest.mark.unit
 def test_deploy_agent_routes_mcp(monkeypatch):
     """deploy_agent routes target=MCP to deploy_mcp_agent."""
-    from dao_ai.config import DeploymentTarget
+    from dao_ai.config import ServingMode
     from dao_ai.providers.databricks import DatabricksProvider
 
     p = DatabricksProvider.__new__(DatabricksProvider)  # no __init__ / no WorkspaceClient
@@ -912,7 +912,7 @@ def test_deploy_agent_routes_mcp(monkeypatch):
     monkeypatch.setattr(p, "deploy_model_serving_agent", lambda c: calls.append("ms"), raising=False)
     monkeypatch.setattr(p, "deploy_apps_agent", lambda c, development=None: calls.append("apps"), raising=False)
     monkeypatch.setattr(p, "deploy_mcp_agent", lambda c, development=None: calls.append("mcp"), raising=False)
-    p.deploy_agent(config=object(), target=DeploymentTarget.MCP)
+    p.deploy_agent(config=object(), target=ServingMode.MCP)
     assert calls == ["mcp"]
 
 
@@ -1332,27 +1332,27 @@ def test_deploy_apps_agent_serializes_python_built_config(tmp_path):
 
 
 @pytest.mark.unit
-def test_deployment_target_enum_values():
-    """Test that DeploymentTarget enum has expected values."""
-    from dao_ai.config import DeploymentTarget
+def test_serving_mode_enum_values():
+    """Test that ServingMode enum has expected values."""
+    from dao_ai.config import ServingMode
 
-    assert DeploymentTarget.MODEL_SERVING.value == "model_serving"
-    assert DeploymentTarget.APPS.value == "apps"
+    assert ServingMode.MODEL_SERVING.value == "model_serving"
+    assert ServingMode.APPS.value == "apps"
 
     # Test enum can be created from string
-    assert DeploymentTarget("model_serving") == DeploymentTarget.MODEL_SERVING
-    assert DeploymentTarget("apps") == DeploymentTarget.APPS
+    assert ServingMode("model_serving") == ServingMode.MODEL_SERVING
+    assert ServingMode("apps") == ServingMode.APPS
 
 
 @pytest.mark.unit
-def test_deployment_target_members():
-    from dao_ai.config import DeploymentTarget
-    assert {t.value for t in DeploymentTarget} == {"model_serving", "apps", "mcp"}
-    assert DeploymentTarget("mcp") is DeploymentTarget.MCP
+def test_serving_mode_members():
+    from dao_ai.config import ServingMode
+    assert {t.value for t in ServingMode} == {"model_serving", "apps", "mcp"}
+    assert ServingMode("mcp") is ServingMode.MCP
     with pytest.raises(ValueError):
-        DeploymentTarget("both")
+        ServingMode("both")
     with pytest.raises(AttributeError):
-        _ = DeploymentTarget.BOTH
+        _ = ServingMode.BOTH
 
 
 # =============================================================================

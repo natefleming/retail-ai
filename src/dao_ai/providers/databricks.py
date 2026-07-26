@@ -53,7 +53,6 @@ from dao_ai.config import (
     DatabaseModel,
     DatabricksAppModel,
     DatasetModel,
-    DeploymentTarget,
     FunctionModel,
     GenieEntitlement,
     GenieRoomModel,
@@ -62,6 +61,7 @@ from dao_ai.config import (
     InferenceEndpointModel,
     IsDatabricksResource,
     SchemaModel,
+    ServingMode,
     TableModel,
     UnityCatalogFunctionSqlModel,
     VectorStoreModel,
@@ -2405,7 +2405,7 @@ class DatabricksProvider(ServiceProvider):
     def deploy_agent(
         self,
         config: AppConfig,
-        target: DeploymentTarget = DeploymentTarget.MODEL_SERVING,
+        target: ServingMode = ServingMode.MODEL_SERVING,
         development: bool | None = None,
     ) -> None:
         """
@@ -2416,19 +2416,19 @@ class DatabricksProvider(ServiceProvider):
 
         Args:
             config: The AppConfig containing deployment configuration
-            target: The deployment target (MODEL_SERVING, APPS, or MCP)
+            target: The serving mode (MODEL_SERVING, APPS, or MCP)
             development: When True, ship local dao-ai source/wheel; when False,
                 the published PyPI package; when None, auto-detect from the
                 install type. Only the Apps path consumes this today.
         """
-        if target == DeploymentTarget.MODEL_SERVING:
+        if target == ServingMode.MODEL_SERVING:
             self.deploy_model_serving_agent(config)
-        elif target == DeploymentTarget.APPS:
+        elif target == ServingMode.APPS:
             self.deploy_apps_agent(config, development=development)
-        elif target == DeploymentTarget.MCP:
+        elif target == ServingMode.MCP:
             self.deploy_mcp_agent(config, development=development)
         else:
-            raise ValueError(f"Unknown deployment target: {target}")
+            raise ValueError(f"Unknown serving mode: {target}")
 
     def create_catalog(self, schema: SchemaModel) -> CatalogInfo:
         catalog_info: CatalogInfo

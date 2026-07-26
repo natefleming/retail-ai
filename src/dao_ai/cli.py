@@ -2446,7 +2446,7 @@ def run_databricks_command(
     target: Optional[str] = None,
     cloud: Optional[str] = None,
     dry_run: bool = False,
-    deployment_target: Optional[str] = None,
+    mode: Optional[str] = None,
     development: bool | None = None,
     config_vars: Optional[dict[str, str]] = None,
     output_dir: Optional[str] = None,
@@ -2462,7 +2462,7 @@ def run_databricks_command(
         target: Optional bundle target name (if not provided, auto-generated from app name and cloud)
         cloud: Optional cloud provider ('azure', 'aws', 'gcp'). Auto-detected if not specified.
         dry_run: If True, print the command without executing
-        deployment_target: Optional agent deployment target ('model_serving' or 'apps').
+        mode: Optional agent serving mode ('model_serving', 'apps', or 'mcp').
             Passed to the deploy notebook via bundle variable.
         development: Optional tri-state source selection passed to the deploy
             notebook via the ``development`` bundle variable — ``True`` ships
@@ -2633,14 +2633,14 @@ def run_databricks_command(
     for key, value in (config_vars or {}).items():
         extra_vars.append(f'--var="{key}={value}"')
 
-    # Add deployment_target variable for notebooks.
+    # Add mode variable for notebooks.
     # Priority: CLI arg > default (model_serving)
-    resolved_deployment_target: str = deployment_target or "model_serving"
-    logger.debug(f"Using deployment target: {resolved_deployment_target}")
-    extra_vars.append(f'--var="deployment_target={resolved_deployment_target}"')
+    resolved_mode: str = mode or "model_serving"
+    logger.debug(f"Using serving mode: {resolved_mode}")
+    extra_vars.append(f'--var="mode={resolved_mode}"')
 
     # Forward the development tri-state to the deploy notebook via a bundle var.
-    # Always emit (mirrors deployment_target) so the notebook widget default
+    # Always emit (mirrors mode) so the notebook widget default
     # never diverges from the CLI intent. None → "auto" (notebook resolves via
     # is_published()), True → "true" (local source/wheel), False → "false" (PyPI).
     resolved_development: str = (
@@ -2892,7 +2892,7 @@ def _exec_workflow_verb(options: Namespace, command: list[str]) -> None:
         target=options.target,
         cloud=options.cloud,
         dry_run=options.dry_run,
-        deployment_target=getattr(options, "mode", None),
+        mode=getattr(options, "mode", None),
         config_vars=_parse_var_args(options.var),
         output_dir=options.output_dir,
         stage=False,
@@ -2906,7 +2906,7 @@ def handle_generate_workflow_command(options: Namespace) -> None:
     target: Optional[str] = options.target
     cloud: Optional[str] = options.cloud
     dry_run: bool = options.dry_run
-    deployment_target: Optional[str] = getattr(options, "mode", None)
+    mode: Optional[str] = getattr(options, "mode", None)
     development: bool | None = getattr(options, "development", None)
     config_vars: dict[str, str] = _parse_var_args(options.var)
     output_dir: str | None = getattr(options, "output_dir", None)
@@ -2923,7 +2923,7 @@ def handle_generate_workflow_command(options: Namespace) -> None:
             target=target,
             cloud=cloud,
             dry_run=dry_run,
-            deployment_target=deployment_target,
+            mode=mode,
             development=development,
             config_vars=config_vars,
             output_dir=output_dir,
@@ -2938,7 +2938,7 @@ def handle_generate_workflow_command(options: Namespace) -> None:
             target=target,
             cloud=cloud,
             dry_run=dry_run,
-            deployment_target=deployment_target,
+            mode=mode,
             development=development,
             config_vars=config_vars,
             output_dir=output_dir,
@@ -2953,7 +2953,7 @@ def handle_generate_workflow_command(options: Namespace) -> None:
             target=target,
             cloud=cloud,
             dry_run=dry_run,
-            deployment_target=deployment_target,
+            mode=mode,
             development=development,
             config_vars=config_vars,
             output_dir=output_dir,
@@ -2971,7 +2971,7 @@ def handle_generate_workflow_command(options: Namespace) -> None:
             target=target,
             cloud=cloud,
             dry_run=dry_run,
-            deployment_target=deployment_target,
+            mode=mode,
             development=development,
             config_vars=config_vars,
             output_dir=output_dir,
@@ -3091,7 +3091,7 @@ def _deploy_run_destroy_app_bundle(
 
     1. ``--mode model_serving``: call ``config.deploy_agent(target=MODEL_SERVING)``
        and return — Model Serving has no DAB bundle.
-    2. ``--direct``: call ``config.deploy_agent(target=DeploymentTarget(mode))``
+    2. ``--direct``: call ``config.deploy_agent(target=ServingMode(mode))``
        (SDK path; no bundle on disk). ``--direct`` + ``--mode model_serving`` is
        redundant — treated identically to plain model_serving deploy (no error).
     3. Bundle path: if ``databricks.yaml`` is absent AND ``deploy=True``, auto-stage
@@ -3107,7 +3107,7 @@ def _deploy_run_destroy_app_bundle(
 
     # --- Route 1: model_serving (always SDK, never a bundle) ---
     if deploy and mode == "model_serving":
-        from dao_ai.config import DeploymentTarget
+        from dao_ai.config import ServingMode
 
         config: AppConfig = _load_app_config(options, what=what)
         development: bool = resolve_use_local_source(getattr(options, "development", None))
@@ -3116,12 +3116,12 @@ def _deploy_run_destroy_app_bundle(
         # `dao-ai deploy` handler). Without this, deploy_model_serving_agent
         # deploys a stale-or-nonexistent model version.
         config.create_agent(development=development)
-        config.deploy_agent(target=DeploymentTarget.MODEL_SERVING, development=development)
+        config.deploy_agent(target=ServingMode.MODEL_SERVING, development=development)
         return
 
     # --- Route 2: --direct (SDK path for apps/mcp; model_serving is a no-op alias) ---
     if deploy and direct:
-        from dao_ai.config import DeploymentTarget
+        from dao_ai.config import ServingMode
 
         config = _load_app_config(options, what=what)
         development = resolve_use_local_source(getattr(options, "development", None))
@@ -3129,7 +3129,7 @@ def _deploy_run_destroy_app_bundle(
         # register — matches the former `if target != APPS: create_agent()`
         # gate). model_serving is handled by Route 1 above, so mode is apps|mcp here.
         config.deploy_agent(
-            target=DeploymentTarget(mode),
+            target=ServingMode(mode),
             development=development,
         )
         return

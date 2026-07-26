@@ -572,11 +572,10 @@ def generate_databricks_yaml(
     dao-ai wheel is uploaded as a regular source file (not intercepted as
     an artifact).
 
-    Note on deployment_target:
+    Note on serving mode:
         The emitted bundle is always Databricks-Apps-shaped
         (``resources.apps.<name>`` with its ``resources`` list and optional
-        ``user_api_scopes``). This bundle works regardless of
-        ``app.deployment_target``:
+        ``user_api_scopes``). This bundle works regardless of serving mode:
 
         - ``apps``           → the App IS the deployment target.
         - ``model_serving``  → the App process registers the MLflow model
@@ -587,8 +586,8 @@ def generate_databricks_yaml(
                                ``dao-ai deploy-agent`` instead of
                                ``generate-agent`` + ``databricks bundle deploy``.
 
-        ``generate-agent`` therefore intentionally ignores
-        ``app.deployment_target``; the enum selects the runtime code path,
+        ``generate-agent`` therefore intentionally ignores the serving mode;
+        the ``--mode`` CLI flag selects the runtime code path,
         not the bundle layout.
     """
     app_name, _experiments_block, _apps_block = _build_app_block(
