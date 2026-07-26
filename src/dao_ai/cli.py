@@ -392,16 +392,21 @@ def _add_mode_argument(parser: ArgumentParser, *, choices: list[str]) -> None:
     canonical value is valid and normalized in :func:`parse_args`.
     """
     accepted: list[str] = _canonical_modes(choices)
+    _mode_choices_str = " | ".join(choices)
+    _mode_aliases_note = (
+        " Aliases accepted for model_serving: ms, model-serving."
+        if "model_serving" in choices
+        else ""
+    )
     parser.add_argument(
         "-m",
         "--mode",
         choices=accepted,
         default="apps",
         metavar="{" + ",".join(choices) + "}",
-        help="How to serve the agent: "
-        + " | ".join(choices)
-        + " (default: apps)."
-        + (" Aliases: ms/model-serving." if "model_serving" in choices else ""),
+        help=(
+            f"Serving target: {_mode_choices_str} (default: apps).{_mode_aliases_note}"
+        ),
     )
 
 
@@ -409,15 +414,17 @@ def _add_noun_verb_parsers(
     subparsers: "argparse._SubParsersAction",
     *,
     noun: str,
+    noun_description: str,
+    noun_epilog: str,
     generate_description: str,
     generate_epilog: str,
     parents: list[ArgumentParser],
 ) -> None:
     """Register the generate/deploy/run/destroy verb parsers for one noun.
 
-    ``noun`` is ``"agent"``/``"mcp"``/``"workflow"``. The ``generate`` verb
-    carries the source flags (+ one-shot --deploy/--run/--destroy) and inherits
-    the noun's rich help; deploy/run/destroy carry only the common args. The
+    ``noun`` is ``"agent"``/``"workflow"``. The ``generate`` verb carries
+    the source flags (+ one-shot --deploy/--run/--destroy) and inherits the
+    noun's rich help; deploy/run/destroy carry only the common args. The
     workflow noun additionally gets target/cloud flags on every verb.
     ``parents`` is forwarded to every ``add_parser`` call so the global
     ``-p/--profile`` and ``-v/--verbose`` flags are accepted at each level.
@@ -427,7 +434,8 @@ def _add_noun_verb_parsers(
     parser: ArgumentParser = subparsers.add_parser(
         noun,
         help=f"Manage the {noun} bundle (generate | deploy | run | destroy)",
-        description=generate_description,
+        description=noun_description,
+        epilog=noun_epilog,
         formatter_class=argparse.RawDescriptionHelpFormatter,
         parents=parents,
     )
@@ -451,15 +459,27 @@ def _add_noun_verb_parsers(
     _add_bundle_action_arguments(generate_parser)
 
     for verb, verb_help in (
-        ("deploy", f"Deploy the already-staged {noun} bundle (no regenerate)"),
+        (
+            "deploy",
+            f"Deploy the {noun} bundle — auto-generates if nothing is staged",
+        ),
         ("run", f"Run the deployed {noun} bundle"),
         ("destroy", f"Destroy the deployed {noun} bundle"),
     ):
+        _deploy_desc = (
+            f"Deploy the {noun} bundle to Databricks. When a staged bundle exists "
+            f"(written by `dao-ai {noun} generate`) it is deployed in place, "
+            f"preserving any hand-edits. When nothing is staged, the bundle is "
+            f"generated first automatically. Use `--mode` to select the serving "
+            f"target (apps | mcp | model_serving; default: apps)."
+        )
         verb_parser: ArgumentParser = verbs.add_parser(
             verb,
             help=verb_help,
-            description=f"{verb_help}. Acts on the staging dir written by "
-            f"`dao-ai {noun} generate` (or -o); errors if nothing is staged.",
+            description=_deploy_desc if verb == "deploy" else (
+                f"{verb_help}. Acts on the staging dir written by "
+                f"`dao-ai {noun} generate` (or -o); errors if nothing is staged."
+            ),
             parents=parents,
         )
         _add_bundle_common_args(verb_parser, kind=noun)
@@ -641,17 +661,34 @@ def parse_args(args: Sequence[str]) -> Namespace:
 
     parser: ArgumentParser = ArgumentParser(
         prog="dao-ai",
-        description="DAO AI Agent Command Line Interface - A comprehensive tool for managing, validating, and visualizing multi-agent DAO AI systems",
+        description="Build and operate multi-agent AI systems on Databricks.",
         epilog="""
-Examples:
-  dao-ai schema                                          # Generate JSON schema for configuration validation
-  dao-ai validate -c config/model_config.yaml            # Validate a specific configuration file
-  dao-ai graph -o architecture.png -c my_config.yaml -v  # Generate visual graph with verbose output
-  dao-ai chat -c config/retail.yaml --custom-input store_num=87887  # Start interactive chat session
-  dao-ai tools -c config/mcp_config.yaml --apply-filters  # List filtered MCP tools only
-  dao-ai validate                                        # Validate with detailed logging
-  dao-ai workflow generate -c my_config.yaml --deploy    # Provision infra + deploy the agent (Workflow Job)
-  dao-ai agent generate -c my_config.yaml --deploy --run # Generate + deploy + start the agent App
+Getting started:
+  dao-ai agent generate -c config.yaml --deploy --run -p fevm   # generate + deploy + start in one shot
+  dao-ai agent deploy   -c config.yaml -p fevm                  # deploy staged bundle (auto-generates if unstaged)
+
+Deploy an agent:
+  dao-ai agent generate -c config.yaml --deploy --run -p fevm          # one-shot: generate → deploy → run (Apps)
+  dao-ai agent deploy   -c config.yaml --mode model_serving -p fevm    # deploy to Model Serving endpoint
+  dao-ai agent deploy   -c config.yaml -m ms -p fevm                   # same, using -m ms alias
+  dao-ai agent deploy   -c config.yaml --mode mcp -p fevm              # deploy as MCP server
+  dao-ai agent deploy   -c config.yaml --direct -p fevm                # SDK fast-path (no bundle on disk)
+  dao-ai -p fevm agent deploy -c config.yaml                           # -p accepted at top level too
+
+Provision infrastructure:
+  dao-ai workflow generate -c config.yaml --deploy -p fevm      # provision infra (VS, Lakebase, Genie…) + deploy
+  dao-ai workflow run      -c config.yaml -p fevm                # run the staged provisioning job
+
+Trace & experiments:
+  dao-ai trace create --name /Shared/team/traces -p fevm
+  dao-ai trace link   -c config.yaml -p fevm
+  dao-ai trace grant  -c config.yaml -p fevm
+
+Inspect & utilities:
+  dao-ai tools      -c config.yaml                 # list MCP tools visible to agents
+  dao-ai validate   -c config.yaml                 # validate config syntax + semantics
+  dao-ai parameters list -c config.yaml            # show declared parameters + resolved values
+  dao-ai schema                                    # dump JSON schema for IDE validation
         """,
         formatter_class=argparse.RawDescriptionHelpFormatter,
         parents=[_GLOBAL],
@@ -735,6 +772,21 @@ Examples:
     trace_parser: ArgumentParser = subparsers.add_parser(
         "trace",
         help="Manage MLflow experiments and UC trace destinations (create | link | grant)",
+        description="Manage MLflow experiments and Unity Catalog trace destinations for deployed agents.",
+        epilog="""
+Examples:
+  # Provision a new experiment (create-if-missing)
+  dao-ai trace create --name /Shared/team/traces -p fevm
+
+  # Link experiment to its UC trace destination (run after bundle deploy, before bundle run)
+  dao-ai trace link -c config.yaml -p fevm
+
+  # Grant an already-deployed App SP its trace-write permissions retroactively
+  dao-ai trace grant -c config.yaml -p fevm
+
+  # Explicit experiment lookup by id
+  dao-ai trace create --id 1952423719449237 --output json -p fevm
+        """,
         formatter_class=argparse.RawDescriptionHelpFormatter,
         parents=[_GLOBAL],
     )
@@ -983,74 +1035,87 @@ Examples:
     # discrete verbs. generate stages (and can one-shot --deploy/--run); deploy/
     # run/destroy act on the already-staged dir without regenerating it.
     _WORKFLOW_DESC = """
-Manage the DAO AI provisioning Workflow — a multi-task Databricks Job (Lakeflow
-Workflow) that provisions the backing infra (schemas, Vector Search, Lakebase,
-Genie, UC functions), deploys the agent, and runs evaluation. Emits a
-self-contained Databricks Asset Bundle and wraps `databricks bundle
-deploy/run/destroy`. (This is a Job/Workflow, not a Lakeflow Declarative
-Pipeline.) Sibling of `agent`.
+Manage the provisioning Workflow — a Databricks Job (Lakeflow Workflow) that
+provisions backing infrastructure (schemas, Vector Search, Lakebase, Genie, UC
+functions), deploys the agent, and runs evaluation. Emits a self-contained
+Databricks Asset Bundle.
+"""
+    _WORKFLOW_EPILOG = """
+Examples:
+  # Provision infra + deploy the workflow job in one shot
+  dao-ai workflow generate -c config.yaml --deploy -p fevm
+
+  # Run the already-deployed provisioning job
+  dao-ai workflow run -c config.yaml -p fevm
+
+  # Generate bundle only, inspect, then deploy manually
+  dao-ai workflow generate -c config.yaml
+  dao-ai workflow deploy   -c config.yaml -p fevm
 """
     _AGENT_DESC = """
-Manage the agent's Databricks Apps bundle. `generate` writes a complete,
-deployable bundle directory (databricks.yaml, app.yaml, pyproject.toml, and
-scaffolding) from a dao-ai config; `deploy`/`run`/`destroy` act on that staged
-bundle. Use `--mode mcp` to generate/deploy the MCP-server bundle instead.
+Manage the agent bundle — a Databricks App (or MCP server / Model Serving
+endpoint). `generate` writes a deployable Databricks Asset Bundle; `deploy`
+ships it to Databricks. `deploy` auto-generates when nothing is staged so a
+single command covers both steps.
+"""
+    _AGENT_EPILOG = """
+Examples:
+  # One-shot: generate bundle → deploy → start the App
+  dao-ai agent generate -c config.yaml --deploy --run -p fevm
+
+  # Deploy staged bundle (auto-generates if nothing is staged yet)
+  dao-ai agent deploy -c config.yaml -p fevm
+
+  # Deploy to Model Serving endpoint; -m ms is an accepted alias
+  dao-ai agent deploy -c config.yaml --mode model_serving -p fevm
+  dao-ai agent deploy -c config.yaml -m ms -p fevm
+
+  # Deploy as MCP server
+  dao-ai agent deploy -c config.yaml --mode mcp -p fevm
+
+  # SDK fast-path: deploy without writing a bundle to disk (apps/mcp only)
+  dao-ai agent deploy -c config.yaml --direct -p fevm
+
+  # Pass -p at the top level (equivalent)
+  dao-ai -p fevm agent deploy -c config.yaml
 """
 
     _add_noun_verb_parsers(
         subparsers,
         noun="agent",
+        noun_description=_AGENT_DESC,
+        noun_epilog=_AGENT_EPILOG,
         generate_description=_AGENT_DESC,
-        generate_epilog="""
-Examples:
-  dao-ai agent generate -c config/retail.yaml
-  dao-ai agent generate -c config/retail.yaml --deploy --run -p fevm
-  dao-ai agent generate -c config/retail.yaml --mode mcp  # MCP-server bundle
-  dao-ai agent deploy   -c config/retail.yaml -p fevm      # ship staged bundle
-""",
+        generate_epilog=_AGENT_EPILOG,
         parents=[_GLOBAL],
     )
     _add_noun_verb_parsers(
         subparsers,
         noun="workflow",
+        noun_description=_WORKFLOW_DESC,
+        noun_epilog=_WORKFLOW_EPILOG,
         generate_description=_WORKFLOW_DESC,
-        generate_epilog="""
-Examples:
-  dao-ai workflow generate -c config/retail.yaml --deploy
-  dao-ai workflow run      -c config/retail.yaml   # run staged provisioning job
-""",
+        generate_epilog=_WORKFLOW_EPILOG,
         parents=[_GLOBAL],
     )
 
     # List MCP tools command
     list_mcp_parser: ArgumentParser = subparsers.add_parser(
         "tools",
-        help="List available MCP tools from configuration",
+        help="List MCP tools visible to agents in a configuration",
         description="""
-List all available MCP tools from the configured MCP servers.
-This command shows:
-- All MCP servers/functions in the configuration
-- Available tools from each server
-- Full descriptions for each tool (no truncation)
-- Tool parameters in readable format (type, required/optional, descriptions)
-- Which tools are included/excluded based on filters
-- Filter patterns (include_tools, exclude_tools)
+List the MCP tools declared in a dao-ai config. Shows each tool's name,
+description, parameter schema, and include/exclude filter status. Useful for
+verifying connectivity and discovering tool names before writing agent configs.
 
-Use this command to:
-- Discover available tools before configuring agents
-- Review tool descriptions and parameter schemas
-- Debug tool filtering configuration
-- Verify MCP server connectivity
-
-Options:
-- Use --apply-filters to only show tools that will be loaded (hides excluded tools)
-- Without --apply-filters, see all available tools with include/exclude status
-
-Note: Schemas are displayed in a concise, readable format instead of verbose JSON
+Use --apply-filters to see only the tools that will actually be loaded (hides
+excluded tools). Without it, all available tools are shown with filter status.
         """,
-        epilog="""Examples:
-  dao-ai tools -c config/model_config.yaml
-  dao-ai tools -c config/model_config.yaml --apply-filters
+        epilog="""
+Examples:
+  dao-ai tools -c config.yaml                     # list all tools + filter status
+  dao-ai tools -c config.yaml --apply-filters     # only show tools that pass filters
+  dao-ai tools -c config.yaml -p fevm             # use a specific Databricks profile
         """,
         formatter_class=argparse.RawDescriptionHelpFormatter,
         parents=[_GLOBAL],
