@@ -1683,6 +1683,7 @@ def generate_app_yaml(
     config: AppConfig,
     command: str | list[str] | None = None,
     include_resources: bool = True,
+    include_chat_ui: bool | None = None,
 ) -> str:
     """
     Generate a complete app.yaml for Databricks Apps deployment.
@@ -1696,6 +1697,9 @@ def generate_app_yaml(
         config: The AppConfig containing deployment configuration
         command: Optional custom command. If not provided, uses default dao-ai app_server
         include_resources: Whether to include the resources section (default: True)
+        include_chat_ui: Whether to inject the chat-UI proxy env vars. None
+            (default) preserves the legacy behavior of deriving this from
+            config.app.enable_chat_proxy; True force-includes; False skips.
 
     Returns:
         A complete app.yaml as a string
@@ -1746,7 +1750,7 @@ def generate_app_yaml(
         if config.app and config.app.enable_chat_proxy is not None
         else True
     )
-    if enable_chat_proxy:
+    if enable_chat_proxy if include_chat_ui is None else include_chat_ui:
         from dao_ai.apps.chat_ui import chat_ui_env_vars
 
         env_vars.extend(chat_ui_env_vars())

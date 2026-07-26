@@ -88,7 +88,6 @@ app:
   name: a2a-hitl-obo
   description: dao-ai A2A demo with live HITL + OBO inference.
   log_level: INFO
-  deployment_target: apps
   agents:
     - *hitl_obo_agent
   orchestration:

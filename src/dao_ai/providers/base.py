@@ -4,8 +4,8 @@ from typing import TYPE_CHECKING, Any, Sequence
 from dao_ai.config import (
     AppModel,
     DatasetModel,
-    DeploymentTarget,
     SchemaModel,
+    ServingMode,
     UnityCatalogFunctionSqlModel,
     VectorStoreModel,
     VolumeModel,
@@ -71,7 +71,7 @@ class ServiceProvider(ABC):
     def deploy_agent(
         self,
         config: "AppConfig",
-        target: DeploymentTarget = DeploymentTarget.MODEL_SERVING,
+        target: ServingMode = ServingMode.MODEL_SERVING,
         development: bool | None = None,
     ) -> Any:
         """
@@ -79,6 +79,6 @@ class ServiceProvider(ABC):
 
         Args:
             config: The AppConfig containing deployment configuration
-            target: The deployment target (MODEL_SERVING or APPS)
+            target: The serving mode (MODEL_SERVING or APPS)
         """
         ...

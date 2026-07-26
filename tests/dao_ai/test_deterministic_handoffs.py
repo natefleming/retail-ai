@@ -1072,7 +1072,6 @@ class TestSwarmCycleDetectionIntegration:
             "agents": agents,
             "app": {
                 "name": "tier-routing",
-                "deployment_target": "apps",
                 "agents": list(agents.values()),
                 "orchestration": {
                     "swarm": {
@@ -1102,7 +1101,6 @@ class TestSwarmCycleDetectionIntegration:
             "agents": agents,
             "app": {
                 "name": "tier-routing",
-                "deployment_target": "apps",
                 "agents": list(agents.values()),
                 "orchestration": {
                     "swarm": {

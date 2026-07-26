@@ -400,7 +400,7 @@ app:
   scale_to_zero: bool              # default: true
   workload_size: Small | Medium | Large   # default: Small
   python_version: string           # default: "3.12"
-  deployment_target: model_serving | apps # default override; CLI --deployment-target wins
+  # deployment_target field removed — serving mode is chosen at deploy time via --mode (default apps)
   budget_policy_id: string         # Cost-attribution policy id
   code_paths: [string]             # Extra Python files bundled with the model artifact
   pip_requirements: [string]       # Extra pip packages installed in the serving env
@@ -417,8 +417,8 @@ app:
 
   # OTEL trace storage in Unity Catalog Delta tables.
   # Requires an explicit post-deploy link step:
-  #   `dao-ai link-trace-destination -c my_config.yaml -p <profile>`
-  # See `docs/cli-reference.md#link-trace-destination` for the flow and
+  #   `dao-ai trace link -c my_config.yaml -p <profile>`
+  # See `docs/cli-reference.md#trace-commands` for the flow and
   # for the migration playbook. IMPORTANT: once an experiment is linked
   # to a UC destination, Databricks does NOT allow un-linking or
   # changing the destination (verified live — the server rejects
@@ -782,7 +782,7 @@ Substitution does not recurse. If a substituted value happens to contain `${para
 
 ### Bundle behaviour
 
-When `dao-ai generate-agent` writes the deployable Apps bundle, the emitted config YAML has every reference (both `${param.*}` and `${workspace.*}`) substituted to a literal value and the `parameters:` block dropped. The deployed app does not need the original `--param` flags or runtime workspace lookups.
+When `dao-ai agent generate` writes the deployable Apps bundle, the emitted config YAML has every reference (both `${param.*}` and `${workspace.*}`) substituted to a literal value and the `parameters:` block dropped. The deployed app does not need the original `--param` flags or runtime workspace lookups.
 
 ---
 
@@ -899,7 +899,7 @@ At load time, `${var.secret_scope}` and `${var.client_id_secret_key}` are text-s
 Override at deploy time:
 
 ```bash
-dao-ai generate-workflow --deploy -c dao_ai.yaml --param secret_scope=prod_dao_ai --param client_id_secret_key=PROD_SP_CLIENT_ID
+dao-ai workflow generate --deploy -c dao_ai.yaml --param secret_scope=prod_dao_ai --param client_id_secret_key=PROD_SP_CLIENT_ID
 ```
 
 **What this does NOT do:** You cannot substitute a parameter for an _entire_ typed mapping - only for string fields inside one. This works:

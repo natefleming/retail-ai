@@ -138,7 +138,6 @@ app:
     Procurement officer agent that calls Acme Industrial Supply via
     A2A. Paired with supplier.yaml in this directory; see README.md.
   log_level: INFO
-  deployment_target: apps
   agents:
     - *procurement_agent
   # ``orchestration.memory`` is omitted — no HITL, no deep-agent state.

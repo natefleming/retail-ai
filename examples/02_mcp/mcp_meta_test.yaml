@@ -74,7 +74,6 @@ app:
     name: dao_ai_mcp_meta_test
   agents:
   - *mcp_meta_test_agent
-  deployment_target: apps                              # Deploy as a Databricks App
   environment_vars:
     DAO_AI_WAREHOUSE_ID:                               # Forwarded to the deployed app env
       env: DAO_AI_WAREHOUSE_ID

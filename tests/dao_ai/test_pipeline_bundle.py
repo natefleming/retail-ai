@@ -48,7 +48,6 @@ agents:
     prompt: You are a concise assistant.
 app:
   name: pipeline_test_app
-  deployment_target: apps
   agents:
     - *greeter
 """
@@ -147,9 +146,9 @@ class TestGeneratePipelineDatabricksYaml:
         # run-evaluation fans in from deploy-agents + generate-evaluation-data.
         deps = {d["task_key"] for d in by_key["run-evaluation"]["depends_on"]}
         assert deps == {"deploy-agents", "generate-evaluation-data"}
-        # deploy-agents forwards the deployment_target + development vars.
+        # deploy-agents forwards the mode + development vars.
         params = by_key["deploy-agents"]["notebook_task"]["base_parameters"]
-        assert params["deployment-target"] == "${var.deployment_target}"
+        assert params["mode"] == "${var.mode}"
         assert params["development"] == "${var.development}"
 
     def test_development_includes_wheel_in_sync(self) -> None:
@@ -316,7 +315,6 @@ class TestWritePipelineBundle:
         "    prompt: You are a concise assistant.\n"
         "app:\n"
         "  name: hw_app\n"
-        "  deployment_target: apps\n"
         "  agents:\n"
         "    - *greeter\n"
         "datasets:\n"
@@ -362,7 +360,6 @@ class TestWritePipelineBundle:
         "    prompt: You are a concise assistant.\n"
         "app:\n"
         "  name: cp_app\n"
-        "  deployment_target: apps\n"
         "  code_paths:\n"
         "    - tools/custom_tool.py\n"
         "  agents:\n"

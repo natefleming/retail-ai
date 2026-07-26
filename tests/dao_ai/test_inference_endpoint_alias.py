@@ -115,7 +115,6 @@ class TestAppConfigEndToEnd:
             },
             "app": {
                 "name": "alias-test",
-                "deployment_target": "apps",
                 "agents": [
                     {
                         "name": "tester",

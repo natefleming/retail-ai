@@ -45,7 +45,6 @@ from dao_ai.config import (
     AgentModel,
     AppConfig,
     AppModel,
-    DeploymentTarget,
     InferenceEndpointModel,
 )
 
@@ -59,7 +58,6 @@ def _minimal_config() -> AppConfig:
         app=AppModel(
             name="dao-ai-exec-test",
             description="executor test",
-            deployment_target=DeploymentTarget.APPS,
             agents=[
                 AgentModel(
                     name="greeter",

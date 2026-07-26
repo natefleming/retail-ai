@@ -146,8 +146,8 @@ config.deploy_agent()
 # Deploy directly to Databricks Apps (no asset bundle needed)
 config.deploy_agent(target=DeploymentTarget.APPS)
 
-# Deploy to both Model Serving and Apps
-config.deploy_agent(target=DeploymentTarget.BOTH)
+# Deploy to MCP server (Apps with MCP entrypoint)
+config.deploy_agent(target=DeploymentTarget.MCP)
 ```
 
 ### Apps deployment and chat UI
@@ -161,8 +161,8 @@ additional tools are needed on your development machine.
 All three deploy flows converge on the same runtime behavior:
 
 - `config.deploy_agent(target=DeploymentTarget.APPS)` (programmatic)
-- `dao-ai generate-workflow --deploy --run --deployment-target apps` (CLI, runs a notebook that calls `deploy_agent`)
-- `dao-ai generate-agent` + `databricks bundle deploy` (standalone bundle)
+- `dao-ai workflow generate --deploy --run --mode apps` (CLI, runs a notebook that calls `deploy_agent`)
+- `dao-ai agent generate` + `databricks bundle deploy` (standalone bundle)
 
 Set `app.enable_chat_proxy: false` in your config to deploy without the chat
 UI (backend API only).

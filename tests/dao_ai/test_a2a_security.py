@@ -36,7 +36,6 @@ from dao_ai.config import (
     AgentModel,
     AppConfig,
     AppModel,
-    DeploymentTarget,
     InferenceEndpointModel,
 )
 
@@ -46,7 +45,6 @@ def _config_with_schemes(schemes: dict) -> AppConfig:
         app=AppModel(
             name="dao-ai-test",
             description="test",
-            deployment_target=DeploymentTarget.APPS,
             a2a=A2AModel(security_schemes=schemes),
             agents=[
                 AgentModel(

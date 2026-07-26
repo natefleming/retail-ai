@@ -53,7 +53,6 @@ from dao_ai.config import (
     DatabaseModel,
     DatabricksAppModel,
     DatasetModel,
-    DeploymentTarget,
     FunctionModel,
     GenieEntitlement,
     GenieRoomModel,
@@ -62,6 +61,7 @@ from dao_ai.config import (
     InferenceEndpointModel,
     IsDatabricksResource,
     SchemaModel,
+    ServingMode,
     TableModel,
     UnityCatalogFunctionSqlModel,
     VectorStoreModel,
@@ -1715,14 +1715,23 @@ class DatabricksProvider(ServiceProvider):
             count += 1
         return count
 
-    def deploy_apps_agent(
-        self, config: AppConfig, development: bool | None = None
+    def _deploy_app(
+        self,
+        config: AppConfig,
+        *,
+        app_command: list[str],
+        extras: set[str],
+        include_chat_ui: bool,
+        development: bool | None = None,
     ) -> None:
         """
-        Deploy agent as a Databricks App.
+        Deploy a dao-ai app to Databricks Apps via the SDK-native path.
 
-        This method creates or updates a Databricks App that serves the agent
-        using the app_server module.
+        Shared machinery for both the chat App (:meth:`deploy_apps_agent`) and
+        the MCP server (:meth:`deploy_mcp_agent`). Creates or updates a
+        Databricks App, uploading config + code + a portable pyproject/uv.lock,
+        then deploys and waits, links the trace destination, and grants the
+        App SP the trace-persistence privileges.
 
         The deployment process:
         1. Determine the workspace source path for the app
@@ -1731,7 +1740,14 @@ class DatabricksProvider(ServiceProvider):
         4. Deploy the app
 
         Args:
-            config: The AppConfig containing deployment configuration
+            config: The AppConfig containing deployment configuration.
+            app_command: The container command to run (e.g. the chat proxy or
+                the MCP server entrypoint).
+            extras: The dao-ai optional-feature extras to install.
+            include_chat_ui: Whether the generated app.yaml should inject the
+                chat-UI proxy env vars.
+            development: When True, ship local dao-ai source/wheel; when False,
+                the published PyPI package; when None, auto-detect.
 
         Note:
             The config file must be loaded via AppConfig.from_file() so that
@@ -1759,16 +1775,12 @@ class DatabricksProvider(ServiceProvider):
 
         logger.info("Deploying agent to Databricks Apps", app_name=app_name)
 
-        # Resolve optional-feature extras so the uploaded requirements install
-        # exactly what this config's features need (e.g. dao-ai[a2a,rerank]).
-        from dao_ai._extras import (
-            format_extras_suffix,
-            resolve_required_extras_or_all,
-        )
+        # Format the caller-resolved optional-feature extras so the uploaded
+        # requirements install exactly what this deploy needs (e.g.
+        # dao-ai[a2a,rerank]).
+        from dao_ai._extras import format_extras_suffix
 
-        extras_suffix: str = format_extras_suffix(
-            resolve_required_extras_or_all(config, target="apps")
-        )
+        extras_suffix: str = format_extras_suffix(extras)
         # User-declared extra pip packages for their custom app code — appended
         # to the uploaded requirements.txt so Apps installs them (parity with
         # Model Serving, which bakes them into the model's conda_env).
@@ -1894,18 +1906,9 @@ class DatabricksProvider(ServiceProvider):
         # app's uv sync (packages=["src"]) builds them into the app wheel.
         self._upload_src_packages(config, source_path)
 
-        # Determine install command based on dev vs published mode.
-        # Respect config.app.enable_chat_proxy (default True) so the deployed
-        # app spawns the chat UI alongside the agent backend, matching the
-        # behavior of `dao-ai generate-agent`.
-        enable_chat_proxy: bool = (
-            config.app.enable_chat_proxy
-            if config.app and config.app.enable_chat_proxy is not None
-            else True
-        )
-        entrypoint_module: str = (
-            "dao_ai.apps.start_app" if enable_chat_proxy else "dao_ai.apps.server"
-        )
+        # Determine install command based on dev vs published mode. The
+        # container command (chat proxy vs MCP server) is chosen by the caller
+        # and threaded in via ``app_command``.
         if not _use_local_source(development):
             # Ship ``pyproject.toml`` (sole ``dao-ai>={ver}`` dep) + a portable
             # ``uv.lock`` so Databricks Apps' build phase runs
@@ -1967,12 +1970,10 @@ class DatabricksProvider(ServiceProvider):
                 overwrite=True,
             )
 
-            app_command = ["python", "-m", entrypoint_module]
             logger.info(
                 "dao-ai source for app: PyPI package",
                 version=dao_ai_version(),
-                entrypoint=entrypoint_module,
-                chat_proxy=enable_chat_proxy,
+                command=app_command,
             )
         else:
             dev_wheel: Path | None = find_dev_wheel()
@@ -2060,10 +2061,8 @@ class DatabricksProvider(ServiceProvider):
             logger.info(
                 "dao-ai source for app: dev wheel (uv.lock)",
                 wheel=wheel_path.name,
-                entrypoint=entrypoint_module,
-                chat_proxy=enable_chat_proxy,
+                command=app_command,
             )
-            app_command = ["python", "-m", entrypoint_module]
 
         # The chat UI (e2e-chatbot-app-next) is cloned and built at runtime
         # by start_app.py, matching the official Databricks agent template
@@ -2076,6 +2075,7 @@ class DatabricksProvider(ServiceProvider):
             config,
             command=app_command,
             include_resources=True,
+            include_chat_ui=include_chat_ui,
         )
 
         app_yaml_path: str = f"{source_path}/app.yaml"
@@ -2366,10 +2366,46 @@ class DatabricksProvider(ServiceProvider):
                     error=str(e),
                 )
 
+    def deploy_apps_agent(
+        self, config: AppConfig, development: bool | None = None
+    ) -> None:
+        """Deploy the agent as a Databricks App (chat UI) via the SDK path."""
+        from dao_ai._extras import resolve_required_extras_or_all
+
+        enable_chat_proxy: bool = (
+            config.app.enable_chat_proxy
+            if config.app and config.app.enable_chat_proxy is not None
+            else True
+        )
+        entrypoint: str = (
+            "dao_ai.apps.start_app" if enable_chat_proxy else "dao_ai.apps.server"
+        )
+        self._deploy_app(
+            config,
+            app_command=["python", "-m", entrypoint],
+            extras=set(resolve_required_extras_or_all(config, target="apps")),
+            include_chat_ui=enable_chat_proxy,
+            development=development,
+        )
+
+    def deploy_mcp_agent(
+        self, config: AppConfig, development: bool | None = None
+    ) -> None:
+        """Deploy the dao-ai MCP server as a Databricks App via the SDK path."""
+        from dao_ai._extras import expand_all, resolve_required_extras_or_all
+
+        self._deploy_app(
+            config,
+            app_command=["python", "-m", "dao_ai.mcp.server"],
+            extras={"mcp", *expand_all(resolve_required_extras_or_all(config, target="mcp"))},
+            include_chat_ui=False,
+            development=development,
+        )
+
     def deploy_agent(
         self,
         config: AppConfig,
-        target: DeploymentTarget = DeploymentTarget.MODEL_SERVING,
+        target: ServingMode = ServingMode.MODEL_SERVING,
         development: bool | None = None,
     ) -> None:
         """
@@ -2380,20 +2416,19 @@ class DatabricksProvider(ServiceProvider):
 
         Args:
             config: The AppConfig containing deployment configuration
-            target: The deployment target (MODEL_SERVING or APPS)
+            target: The serving mode (MODEL_SERVING, APPS, or MCP)
             development: When True, ship local dao-ai source/wheel; when False,
                 the published PyPI package; when None, auto-detect from the
                 install type. Only the Apps path consumes this today.
         """
-        if target == DeploymentTarget.BOTH:
+        if target == ServingMode.MODEL_SERVING:
             self.deploy_model_serving_agent(config)
+        elif target == ServingMode.APPS:
             self.deploy_apps_agent(config, development=development)
-        elif target == DeploymentTarget.MODEL_SERVING:
-            self.deploy_model_serving_agent(config)
-        elif target == DeploymentTarget.APPS:
-            self.deploy_apps_agent(config, development=development)
+        elif target == ServingMode.MCP:
+            self.deploy_mcp_agent(config, development=development)
         else:
-            raise ValueError(f"Unknown deployment target: {target}")
+            raise ValueError(f"Unknown serving mode: {target}")
 
     def create_catalog(self, schema: SchemaModel) -> CatalogInfo:
         catalog_info: CatalogInfo

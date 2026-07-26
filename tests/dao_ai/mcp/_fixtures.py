@@ -37,7 +37,6 @@ app:
   name: mcp-dao-ai-test
   description: "Test MCP agent server exposing the dao-ai graph."
   log_level: WARNING
-  deployment_target: apps
   trace_location:
     schema:
       catalog_name: test_catalog

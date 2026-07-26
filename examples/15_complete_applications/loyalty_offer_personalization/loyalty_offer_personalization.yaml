@@ -743,7 +743,6 @@ app:
   name: loyalty_offers_dao
   description: "Multi-agent operator companion for receipt-driven loyalty offer personalization. CRM marketers + merchandisers investigate, explain, and re-run LLM-ranked offer assignments."
   log_level: INFO
-  deployment_target: both
   registered_model:
     schema: *loyalty_schema
     name: loyalty_offers_dao

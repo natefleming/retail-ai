@@ -36,8 +36,8 @@ def find_yaml_files_os_walk(base_path: str) -> Sequence[str]:
 
 dbutils.widgets.text(name="config-path", defaultValue="")
 dbutils.widgets.dropdown(
-    name="deployment-target",
-    choices=["", "model_serving", "apps", "both"],
+    name="mode",
+    choices=["", "model_serving", "apps", "mcp"],
     defaultValue="",
 )
 dbutils.widgets.dropdown(
@@ -51,12 +51,12 @@ dbutils.widgets.dropdown(name="config-paths", choices=config_files, defaultValue
 
 config_path: str | None = dbutils.widgets.get("config-path") or None
 project_path: str = dbutils.widgets.get("config-paths") or None
-deployment_target_str: str | None = dbutils.widgets.get("deployment-target") or None
+mode_str: str | None = dbutils.widgets.get("mode") or None
 
 config_path: str = config_path or project_path
 
 print(f"Config path: {config_path}")
-print(f"Deployment target: {deployment_target_str or '(using config default)'}")
+print(f"Serving mode: {mode_str or '(using config default)'}")
 
 # COMMAND ----------
 
@@ -96,10 +96,10 @@ nest_asyncio.apply()
 
 # COMMAND ----------
 
-from dao_ai.config import AppConfig, DeploymentTarget
+from dao_ai.config import AppConfig, ServingMode
 
 config_path: str = dbutils.widgets.get("config-path") or dbutils.widgets.get("config-paths")
-deployment_target_str: str | None = dbutils.widgets.get("deployment-target") or None
+mode_str: str | None = dbutils.widgets.get("mode") or None
 
 # Source selection tri-state forwarded by `dao-ai generate-workflow` via the
 # `development` bundle var: "true" ships local dao-ai source/wheel, "false"
@@ -115,7 +115,7 @@ else:
     development = None
 
 print(f"Config path: {config_path}")
-print(f"Deployment target: {deployment_target_str or '(using config default)'}")
+print(f"Serving mode: {mode_str or '(using config default)'}")
 print(f"Development source: {development_str}")
 
 # Pull any resolved parameter values that upstream provisioning tasks
@@ -129,16 +129,13 @@ config: AppConfig = AppConfig.from_file(
 )
 print(f"Substituted parameters: {config.substitution_vars}")
 
-deployment_target: DeploymentTarget
-if deployment_target_str:
-    deployment_target = DeploymentTarget(deployment_target_str)
-    print(f"Using widget-specified deployment target: {deployment_target.value}")
-elif config.app and config.app.deployment_target:
-    deployment_target = config.app.deployment_target
-    print(f"Using config file deployment target: {deployment_target.value}")
+mode: ServingMode
+if mode_str:
+    mode = ServingMode(mode_str)
+    print(f"Using widget-specified serving mode: {mode.value}")
 else:
-    deployment_target = DeploymentTarget.MODEL_SERVING
-    print("Using default deployment target: model_serving")
+    mode = ServingMode.APPS
+    print("Using default serving mode: apps")
 
 # COMMAND ----------
 
@@ -147,14 +144,10 @@ config.display_graph()
 # COMMAND ----------
 
 # Only log/register the MLflow model for Model Serving deployments.
-# Apps deploy directly from the config + PyPI package.
-if deployment_target != DeploymentTarget.APPS:
+# Apps and MCP deploy directly from the config + PyPI package (no MLflow model registration).
+if mode not in (ServingMode.APPS, ServingMode.MCP):
     config.create_agent(development=development)
 
 # COMMAND ----------
 
-if deployment_target == DeploymentTarget.BOTH:
-    config.deploy_agent(target=DeploymentTarget.MODEL_SERVING, development=development)
-    config.deploy_agent(target=DeploymentTarget.APPS, development=development)
-else:
-    config.deploy_agent(target=deployment_target, development=development)
+config.deploy_agent(target=mode, development=development)

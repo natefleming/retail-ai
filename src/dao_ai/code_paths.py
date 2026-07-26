@@ -16,7 +16,7 @@ reach all deployment targets:
   CWD is that directory and ``AppConfig.add_code_paths_to_sys_path`` (a config
   validator) inserts each entry's parent onto ``sys.path``, so the module imports.
 
-* **generate-workflow / generate-agent / generate-mcp bundles** — the bundle
+* **workflow / agent bundles (dao-ai <noun> generate)** — the bundle
   generators stage each entry next to the staged config using the same
   :func:`iter_code_path_stagings` plan, so the job/app finds them.
 

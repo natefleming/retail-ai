@@ -78,7 +78,6 @@ app:
   name: a2a-background
   description: dao-ai A2A demo with Lakebase-persisted Tasks + HITL + OBO.
   log_level: INFO
-  deployment_target: apps
   agents:
     - *hitl_obo_agent
   orchestration:

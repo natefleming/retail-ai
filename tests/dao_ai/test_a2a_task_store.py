@@ -18,7 +18,6 @@ from dao_ai.config import (
     AppModel,
     BackgroundModel,
     DatabaseModel,
-    DeploymentTarget,
     InferenceEndpointModel,
 )
 
@@ -52,7 +51,6 @@ def _config(
         app=AppModel(
             name="dao-ai-test",
             description="test",
-            deployment_target=DeploymentTarget.APPS,
             background=background,
             agents=[_agent()],
             **extra,

@@ -87,7 +87,7 @@ dao-ai chat -c examples/02_tools/slack_integration.yaml
 
 ### Deploy to Databricks
 ```bash
-dao-ai generate-workflow --deploy --run -c examples/07_human_in_the_loop/human_in_the_loop.yaml
+dao-ai workflow generate --deploy --run -c examples/07_human_in_the_loop/human_in_the_loop.yaml
 ```
 
 ---
@@ -461,7 +461,7 @@ Each example is a starting point:
 2. **Modify** prompts, tools, and settings
 3. **Validate**: `dao-ai validate -c config/my_agent.yaml`
 4. **Test** locally: `dao-ai chat -c config/my_agent.yaml`
-5. **Deploy**: `dao-ai generate-workflow --deploy -c config/my_agent.yaml`
+5. **Deploy**: `dao-ai workflow generate --deploy -c config/my_agent.yaml`
 
 For detailed guidance, see the README.md in each category directory.
 

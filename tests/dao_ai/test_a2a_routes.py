@@ -16,7 +16,6 @@ from dao_ai.config import (
     AgentModel,
     AppConfig,
     AppModel,
-    DeploymentTarget,
     InferenceEndpointModel,
 )
 
@@ -37,7 +36,6 @@ def _config(*, a2a: A2AModel | None = None) -> AppConfig:
         app=AppModel(
             name="dao-ai-routes-test",
             description="test agent",
-            deployment_target=DeploymentTarget.APPS,
             agents=[_agent()],
             **extra,
         ),

@@ -1497,8 +1497,8 @@
               "type": "null"
             }
           ],
-          "default": 2,
-          "description": "Number of uvicorn worker processes for the Databricks Apps backend server. Each worker is a separate process, raising the app's concurrent-request ceiling on multi-core Apps compute. Defaults to 2 (a modest bump over uvicorn's single-worker default that is safe on the small default Apps compute); raise it to match larger compute cores. Emitted to the app as the ``DAO_AI_APP_WORKERS`` env var and forwarded to the backend as ``--workers``. Too many workers on a small instance contends for CPU. Apps-target only (no effect on Model Serving, which manages its own worker pool via workload_size).",
+          "default": 1,
+          "description": "Number of uvicorn worker processes for the Databricks Apps backend server. Each worker is a SEPARATE PROCESS that re-imports the app and rebuilds the full agent graph, so its memory footprint is duplicated per worker (uvicorn spawns workers \u2014 there is no copy-on-write sharing). Defaults to 1: on the default MEDIUM Apps compute (2 vCPU / 6 GB) a second full graph OOM-kills the workers in a respawn loop. Because this agent is async and I/O-bound, a single worker's event loop already serves many concurrent requests, so 1 is the right default. Raise ONLY on larger Apps compute with headroom for N resident graphs. Emitted as the ``DAO_AI_APP_WORKERS`` env var and forwarded to the backend as ``--workers``. Apps-target only (no effect on Model Serving, which manages its own worker pool via workload_size).",
           "title": "Workers"
         },
         "permissions": {
@@ -1642,7 +1642,7 @@
           "description": "Chat history summarization settings to manage long conversations."
         },
         "code_paths": {
-          "description": "Additional Python files/directories (relative to the config file's directory; absolute paths pass through) shipped with EVERY deployment target: Model Serving via ``log_model(code_paths=...)``, Databricks Apps by uploading them next to the config (importable via ``sys.path``), and the generate-workflow job by staging them into the bundle. Use for custom ``type: python`` tool modules or agent code. (Apps bundles also still support hand-packaged code under ``src/<package>/``.)",
+          "description": "Additional Python files/directories (relative to the config file's directory; absolute paths pass through) shipped with EVERY deployment target: Model Serving via ``log_model(code_paths=...)``, Databricks Apps by uploading them next to the config (importable via ``sys.path``), and the ``workflow generate`` job by staging them into the bundle. Use for custom ``type: python`` tool modules or agent code. (Apps bundles also still support hand-packaged code under ``src/<package>/``.)",
           "items": {
             "type": "string"
           },
@@ -1670,18 +1670,6 @@
           "description": "Python version for Model Serving deployment. Defaults to 3.12 which is supported by Databricks Model Serving. This allows deploying from environments with different Python versions (e.g., Databricks Apps with 3.11).",
           "title": "Python Version"
         },
-        "deployment_target": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/DeploymentTarget"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "description": "Default deployment target. If not specified, defaults to MODEL_SERVING. Can be overridden via CLI --target flag. Options: 'model_serving' or 'apps'."
-        },
         "trace_location": {
           "anyOf": [
             {
@@ -1704,7 +1692,7 @@
             }
           ],
           "default": null,
-          "description": "Server-side MCP capabilities exposed when dao-ai is deployed as an MCP server (``dao-ai generate-mcp``). Declares static resources, prompt templates, and whether progress + logging notifications are emitted from the agent tool. When None the server publishes only the single agent-as-tool surface with no notifications."
+          "description": "Server-side MCP capabilities exposed when dao-ai is deployed as an MCP server (``dao-ai agent generate --mode mcp``). Declares static resources, prompt templates, and whether progress + logging notifications are emitted from the agent tool. When None the server publishes only the single agent-as-tool surface with no notifications."
         },
         "experiment": {
           "anyOf": [
@@ -3729,16 +3717,6 @@
       },
       "title": "DeepAgentModel",
       "type": "object"
-    },
-    "DeploymentTarget": {
-      "description": "Target platform for agent deployment.",
-      "enum": [
-        "model_serving",
-        "apps",
-        "both"
-      ],
-      "title": "DeploymentTarget",
-      "type": "string"
     },
     "Entitlement": {
       "description": "Access control entitlements for serving endpoints and apps.",

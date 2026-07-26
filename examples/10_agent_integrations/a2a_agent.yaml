@@ -155,7 +155,6 @@ app:
     Single-agent system that delegates to a remote agent via the Google
     A2A (Agent-to-Agent) protocol.
   log_level: INFO
-  deployment_target: apps
   agents:
   - *a2a_delegate_agent
 

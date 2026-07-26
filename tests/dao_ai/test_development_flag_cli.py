@@ -1,10 +1,13 @@
 """Tests for the --development / --no-development tri-state across CLI commands.
 
 The flag must resolve identically on every deploy-capable command:
-``deploy``, ``generate-workflow``, ``generate-agent``, ``generate-mcp`` —
-``--development`` -> True, ``--no-development`` -> False, omitted -> None
-(auto-detect). For ``generate-workflow`` it is additionally forwarded to the
-deploy notebook as a ``--var development=auto|true|false`` bundle variable.
+``<noun> generate`` (agent/workflow) — ``--development`` -> True,
+``--no-development`` -> False, omitted -> None (auto-detect). For the workflow
+it is additionally forwarded to the deploy notebook as a
+``--var development=auto|true|false`` bundle variable.
+
+The removed commands ``deploy``, ``generate-agent``, ``generate-workflow``, and
+``generate-mcp`` must now be rejected by the parser.
 """
 
 from __future__ import annotations
@@ -20,13 +23,23 @@ from dao_ai.config import AppConfig
 
 
 def _base(cmd: str) -> list[str]:
-    return [cmd, "-c", "config.yaml"]
+    """Build argv for a command, splitting a nested `"agent generate"` on space."""
+    return cmd.split() + ["-c", "config.yaml"]
 
 
 @pytest.mark.unit
 @pytest.mark.parametrize(
     "command",
-    ["deploy", "generate-workflow", "generate-agent", "generate-mcp"],
+    [
+        "workflow generate",
+        "agent generate",
+        # deploy and up also have source-selection flags (deploy can
+        # auto-generate and handles model_serving create_agent/deploy_agent).
+        "agent deploy",
+        "agent up",
+        "workflow deploy",
+        "workflow up",
+    ],
 )
 class TestDevelopmentTriState:
     def test_development_true(self, command: str) -> None:
@@ -43,20 +56,58 @@ class TestDevelopmentTriState:
 
 
 @pytest.mark.unit
-class TestRemovedCommandAliases:
-    """0.2.0 removed the old command names; only the new verbs are accepted."""
+class TestNounVerbParsing:
+    """Nested `<noun> <verb>` parses to (command=noun, subcommand=verb);
+    removed top-level names are rejected by the parser.
+    """
 
-    def test_new_names_parse(self) -> None:
-        assert parse_args(_base("generate-agent")).command == "generate-agent"
-        assert (
-            parse_args(_base("generate-workflow")).command == "generate-workflow"
-        )
+    @pytest.mark.parametrize("noun", ["agent", "workflow"])
+    @pytest.mark.parametrize("verb", ["up", "generate", "deploy", "run", "destroy"])
+    def test_nested_verbs_parse(self, noun: str, verb: str) -> None:
+        opts = parse_args([noun, verb, "-c", "config.yaml"])
+        assert opts.command == noun
+        assert opts.subcommand == verb
 
-    @pytest.mark.parametrize("old", ["generate-bundle", "pipeline"])
-    def test_old_names_rejected(self, old: str) -> None:
-        # argparse rejects an unknown subcommand with SystemExit(2).
+    @pytest.mark.parametrize("noun", ["agent", "workflow"])
+    def test_bare_noun_requires_verb(self, noun: str) -> None:
         with pytest.raises(SystemExit):
-            parse_args(_base(old))
+            parse_args([noun, "-c", "config.yaml"])
+
+    def test_deploy_verb_rejects_run(self) -> None:
+        # deploy no longer has --run; use `up` to deploy+run in one command.
+        with pytest.raises(SystemExit):
+            parse_args(["agent", "deploy", "-c", "c.yaml", "--run"])
+
+    def test_deploy_verb_rejects_direct(self) -> None:
+        # --direct moved to `up`; deploy is the pure push verb.
+        with pytest.raises(SystemExit):
+            parse_args(["agent", "deploy", "-c", "c.yaml", "--direct"])
+
+    def test_up_verb_parses(self) -> None:
+        opts = parse_args(["agent", "up", "-c", "c.yaml", "--mode", "mcp"])
+        assert opts.command == "agent"
+        assert opts.subcommand == "up"
+        assert opts.mode == "mcp"
+
+    def test_up_verb_direct_flag(self) -> None:
+        opts = parse_args(["agent", "up", "-c", "c.yaml", "--direct"])
+        assert opts.direct is True
+
+    @pytest.mark.parametrize(
+        "argv",
+        [
+            ["deploy", "-c", "c.yaml"],
+            ["generate-agent", "-c", "c.yaml"],
+            ["generate-mcp", "-c", "c.yaml"],
+            ["generate-workflow", "-c", "c.yaml"],
+            ["generate-bundle", "-c", "c.yaml"],
+            ["pipeline", "-c", "c.yaml"],
+        ],
+    )
+    def test_removed_commands_rejected(self, argv: list[str]) -> None:
+        # argparse rejects unknown subcommands with SystemExit(2).
+        with pytest.raises(SystemExit):
+            parse_args(argv)
 
 
 @pytest.mark.unit
@@ -99,14 +150,155 @@ class TestDefaultBundleDir:
         under = base / "agent" / "app"
         under.mkdir(parents=True)
         (under / "sentinel").write_text("x")
-        cli._clean_default_staging_dir(under, is_default=True)
+        cli._write_staging_marker(under, is_default=True)  # mark as our output
+        cli._clean_default_staging_dir(
+            under, is_default=True, overwrite=False, noun="agent"
+        )
         assert not under.exists(), "path under env base must be cleaned"
 
         outside = tmp_path / "user_dir"
         outside.mkdir()
         (outside / "keep").write_text("x")
-        cli._clean_default_staging_dir(outside, is_default=True)
+        cli._clean_default_staging_dir(
+            outside, is_default=True, overwrite=False, noun="agent"
+        )
         assert (outside / "keep").exists(), "path outside base must be protected"
+
+
+@pytest.mark.unit
+class TestEditSafety:
+    """A default staging dir with hand-edits is protected from re-generate."""
+
+    def _staged(self, tmp_path: Path) -> Path:
+        base = tmp_path / "base"
+        d = base / "agent" / "app"
+        d.mkdir(parents=True)
+        (d / "app.yaml").write_text("orig\n")
+        cli._write_staging_marker(d, is_default=True)
+        return d
+
+    def test_untouched_dir_wiped_silently(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("DAO_AI_BUNDLE_DIR", str(tmp_path / "base"))
+        d = self._staged(tmp_path)
+        cli._clean_default_staging_dir(
+            d, is_default=True, overwrite=False, noun="agent"
+        )
+        assert not d.exists()
+
+    def test_hand_edit_refuses_without_overwrite(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("DAO_AI_BUNDLE_DIR", str(tmp_path / "base"))
+        d = self._staged(tmp_path)
+        # Edit a file so its mtime post-dates the marker.
+        marker_mtime = (d / cli._STAGING_MARKER).stat().st_mtime
+        import os
+
+        (d / "app.yaml").write_text("edited\n")
+        os.utime(d / "app.yaml", (marker_mtime + 10, marker_mtime + 10))
+        with pytest.raises(SystemExit) as exc:
+            cli._clean_default_staging_dir(
+                d, is_default=True, overwrite=False, noun="agent"
+            )
+        assert exc.value.code == 1
+        assert d.exists(), "edited dir must be preserved"
+
+    def test_overwrite_wipes_edited_dir(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("DAO_AI_BUNDLE_DIR", str(tmp_path / "base"))
+        d = self._staged(tmp_path)
+        (d / "app.yaml").write_text("edited\n")
+        cli._clean_default_staging_dir(
+            d, is_default=True, overwrite=True, noun="agent"
+        )
+        assert not d.exists()
+
+    def test_missing_marker_treated_as_edited(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("DAO_AI_BUNDLE_DIR", str(tmp_path / "base"))
+        d = tmp_path / "base" / "agent" / "app"
+        d.mkdir(parents=True)
+        (d / "app.yaml").write_text("user file\n")  # no marker written
+        with pytest.raises(SystemExit):
+            cli._clean_default_staging_dir(
+                d, is_default=True, overwrite=False, noun="agent"
+            )
+        assert d.exists()
+
+
+@pytest.mark.unit
+class TestConfigFingerprint:
+    """The staging marker records a config fingerprint for staleness detection."""
+
+    def _config(self, name: str = "greeter") -> AppConfig:
+        from dao_ai.config import AgentModel, AppModel, InferenceEndpointModel
+
+        return AppConfig(
+            app=AppModel(
+                name="fp-test",
+                agents=[
+                    AgentModel(
+                        name=name,
+                        description="says hi",
+                        model=InferenceEndpointModel(name="databricks-gpt-5-4-mini"),
+                    )
+                ],
+            )
+        )
+
+    def test_fingerprint_stable_for_identical_config(self) -> None:
+        a = cli._config_fingerprint(self._config(), development=False)
+        b = cli._config_fingerprint(self._config(), development=False)
+        assert a == b
+
+    def test_fingerprint_changes_with_config(self) -> None:
+        a = cli._config_fingerprint(self._config(name="greeter"), development=False)
+        b = cli._config_fingerprint(self._config(name="farewell"), development=False)
+        assert a != b
+
+    def test_fingerprint_changes_with_development_flag(self) -> None:
+        a = cli._config_fingerprint(self._config(), development=False)
+        b = cli._config_fingerprint(self._config(), development=True)
+        assert a != b
+
+    def test_marker_records_fingerprint(self, tmp_path: Path) -> None:
+        d = tmp_path / "base" / "agent" / "app"
+        d.mkdir(parents=True)
+        cli._write_staging_marker(d, is_default=True, fingerprint="abc123")
+        assert (d / cli._STAGING_MARKER).read_text() == "abc123"
+
+
+@pytest.mark.unit
+class TestStagedConfigStaleness:
+    """_staged_config_is_stale compares current config vs the stamped fingerprint."""
+
+    def _marked(self, tmp_path: Path, fingerprint: str) -> Path:
+        d = tmp_path / "base" / "agent" / "app"
+        d.mkdir(parents=True)
+        cli._write_staging_marker(d, is_default=True, fingerprint=fingerprint)
+        return d
+
+    def test_matching_fingerprint_not_stale(self, tmp_path: Path) -> None:
+        d = self._marked(tmp_path, "fp-1")
+        assert cli._staged_config_is_stale(d, "fp-1") is False
+
+    def test_differing_fingerprint_is_stale(self, tmp_path: Path) -> None:
+        d = self._marked(tmp_path, "fp-1")
+        assert cli._staged_config_is_stale(d, "fp-2") is True
+
+    def test_missing_marker_not_stale(self, tmp_path: Path) -> None:
+        d = tmp_path / "base" / "agent" / "app"
+        d.mkdir(parents=True)  # no marker (legacy / -o dir)
+        assert cli._staged_config_is_stale(d, "fp-1") is False
+
+    def test_empty_marker_not_stale(self, tmp_path: Path) -> None:
+        # A workflow bundle stamps an empty marker; never treat it as stale.
+        d = self._marked(tmp_path, "")
+        assert cli._staged_config_is_stale(d, "fp-1") is False
 
 
 @pytest.mark.unit
@@ -168,7 +360,7 @@ class TestPipelineEmitsDevelopmentVar:
             "resources:\n  models:\n    m: &m\n      name: databricks-gpt-5-4-mini\n"
             "agents:\n  g: &g\n    name: g\n    description: d\n    model: *m\n"
             "    prompt: p\n"
-            "app:\n  name: stage_only_app\n  deployment_target: apps\n  agents:\n    - *g\n"
+            "app:\n  name: stage_only_app\n  agents:\n    - *g\n"
         )
         staged: dict[str, object] = {}
         monkeypatch.setattr(cli, "_apply_profile_context", lambda p: None)
@@ -192,27 +384,85 @@ class TestPipelineEmitsDevelopmentVar:
         assert staged.get("wrote") is True, "bundle must be staged"
         exec_mock.assert_not_called()
 
+    def test_stage_false_skips_write_and_execs(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """`workflow deploy` (stage=False) runs the bundle verb WITHOUT
+        re-staging: write_pipeline_bundle must not be called, and the existing
+        staged databricks.yaml is executed against in place."""
+        cfg = tmp_path / "c.yaml"
+        cfg.write_text(
+            "resources:\n  models:\n    m: &m\n      name: databricks-gpt-5-4-mini\n"
+            "agents:\n  g: &g\n    name: g\n    description: d\n    model: *m\n"
+            "    prompt: p\n"
+            "app:\n  name: stage_only_app\n  agents:\n    - *g\n"
+        )
+        out = tmp_path / "out"
+        out.mkdir()
+        (out / "databricks.yaml").write_text("bundle: {}\n")  # pretend pre-staged
 
-@pytest.mark.unit
-class TestValidateBundleActionFlags:
-    """``--destroy`` + ``--deploy``/``--run`` is contradictory and must be
-    rejected uniformly across all three generate-* commands (previously the
-    workflow handler deployed-then-destroyed while the App driver destroyed-only).
-    """
+        wrote: dict[str, object] = {}
+        monkeypatch.setattr(cli, "_apply_profile_context", lambda p: None)
+        monkeypatch.setattr(cli, "detect_cloud_provider", lambda p: "aws")
+        monkeypatch.setattr(
+            "dao_ai.pipeline.bundle.write_pipeline_bundle",
+            lambda *a, **k: wrote.setdefault("wrote", True),
+        )
+        exec_mock = patch.object(cli, "_exec_bundle_command").start()
 
-    @pytest.mark.parametrize("cmd", ["generate-workflow", "generate-agent", "generate-mcp"])
-    @pytest.mark.parametrize("bad", [["--deploy", "--destroy"], ["--run", "--destroy"], ["--deploy", "--run", "--destroy"]])
-    def test_destroy_with_deploy_or_run_exits(self, cmd: str, bad: list[str]) -> None:
-        options = parse_args(_base(cmd) + bad)
+        run_databricks_command(
+            ["bundle", "deploy"],
+            config=str(cfg),
+            output_dir=str(out),
+            development=False,
+            stage=False,
+        )
+        patch.stopall()
+
+        assert "wrote" not in wrote, "stage=False must NOT regenerate the bundle"
+        exec_mock.assert_called_once()
+        assert exec_mock.call_args.kwargs["cwd"] == out
+
+    def test_stage_false_errors_when_not_staged(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """`workflow deploy` against an unstaged dir exits with guidance."""
+        cfg = tmp_path / "c.yaml"
+        cfg.write_text(
+            "resources:\n  models:\n    m: &m\n      name: databricks-gpt-5-4-mini\n"
+            "agents:\n  g: &g\n    name: g\n    description: d\n    model: *m\n"
+            "    prompt: p\n"
+            "app:\n  name: stage_only_app\n  agents:\n    - *g\n"
+        )
+        monkeypatch.setattr(cli, "_apply_profile_context", lambda p: None)
+        monkeypatch.setattr(cli, "detect_cloud_provider", lambda p: "aws")
         with pytest.raises(SystemExit) as exc:
-            cli._validate_bundle_action_flags(options)
+            run_databricks_command(
+                ["bundle", "deploy"],
+                config=str(cfg),
+                output_dir=str(tmp_path / "nonexistent"),
+                development=False,
+                stage=False,
+            )
         assert exc.value.code == 1
 
-    @pytest.mark.parametrize("cmd", ["generate-workflow", "generate-agent", "generate-mcp"])
-    @pytest.mark.parametrize("ok", [["--deploy"], ["--run"], ["--deploy", "--run"], ["--destroy"], []])
-    def test_valid_combinations_pass(self, cmd: str, ok: list[str]) -> None:
-        options = parse_args(_base(cmd) + ok)
-        cli._validate_bundle_action_flags(options)  # must not raise
+
+@pytest.mark.unit
+class TestGenerateIsStageOnly:
+    """``generate`` is now a pure staging verb — ``--deploy``/``--run``/``--destroy``
+    are rejected by the parser (use ``up`` for orchestration).
+    """
+
+    @pytest.mark.parametrize("noun", ["agent", "workflow"])
+    @pytest.mark.parametrize("flag", ["--deploy", "--run", "--destroy"])
+    def test_generate_rejects_action_flags(self, noun: str, flag: str) -> None:
+        with pytest.raises(SystemExit):
+            parse_args([noun, "generate", "-c", "config.yaml", flag])
+
+    @pytest.mark.parametrize("noun", ["agent", "workflow"])
+    def test_generate_without_action_flags_parses(self, noun: str) -> None:
+        opts = parse_args([noun, "generate", "-c", "config.yaml"])
+        assert opts.subcommand == "generate"
 
 
 def _app_config(*, trace: bool) -> AppConfig:
@@ -223,6 +473,346 @@ def _app_config(*, trace: bool) -> AppConfig:
         trace_location = object() if trace else None
 
     return AppConfig.model_construct(app=_App())
+
+
+@pytest.mark.unit
+class TestModeChoices:
+    def test_deploy_accepts_all_three(self) -> None:
+        for m in ("model_serving", "apps", "mcp"):
+            assert parse_args(["agent", "deploy", "-c", "c.yaml", "--mode", m]).mode == m
+
+    def test_generate_rejects_model_serving(self) -> None:
+        with pytest.raises(SystemExit):
+            parse_args(["agent", "generate", "-c", "c.yaml", "--mode", "model_serving"])
+
+    def test_generate_accepts_apps_and_mcp(self) -> None:
+        for m in ("apps", "mcp"):
+            assert parse_args(["agent", "generate", "-c", "c.yaml", "--mode", m]).mode == m
+
+    def test_mode_defaults_to_apps(self) -> None:
+        assert parse_args(["agent", "deploy", "-c", "c.yaml"]).mode == "apps"
+
+    def test_short_alias_m(self) -> None:
+        assert parse_args(["agent", "deploy", "-c", "c.yaml", "-m", "mcp"]).mode == "mcp"
+
+    @pytest.mark.parametrize("alias", ["ms", "model-serving", "model_serving"])
+    def test_model_serving_aliases_normalize_on_deploy(self, alias: str) -> None:
+        # ms / model-serving normalize to the canonical model_serving value.
+        assert (
+            parse_args(["agent", "deploy", "-c", "c.yaml", "-m", alias]).mode
+            == "model_serving"
+        )
+
+    @pytest.mark.parametrize("bad", ["ms", "model-serving", "model_serving"])
+    def test_model_serving_aliases_rejected_on_generate(self, bad: str) -> None:
+        # model_serving (and its aliases) are not valid on generate — no bundle.
+        with pytest.raises(SystemExit):
+            parse_args(["agent", "generate", "-c", "c.yaml", "--mode", bad])
+
+
+@pytest.mark.unit
+class TestWorkflowModeChoices:
+    """workflow verbs must accept --mode with the same choices as agent verbs."""
+
+    def test_workflow_deploy_accepts_all_three(self) -> None:
+        for m in ("model_serving", "apps", "mcp"):
+            assert (
+                parse_args(["workflow", "deploy", "-c", "c.yaml", "--mode", m]).mode
+                == m
+            )
+
+    def test_workflow_generate_accepts_apps_and_mcp(self) -> None:
+        for m in ("apps", "mcp"):
+            assert (
+                parse_args(["workflow", "generate", "-c", "c.yaml", "--mode", m]).mode
+                == m
+            )
+
+    def test_workflow_run_accepts_apps_and_mcp(self) -> None:
+        for m in ("apps", "mcp"):
+            assert (
+                parse_args(["workflow", "run", "-c", "c.yaml", "--mode", m]).mode == m
+            )
+
+    def test_workflow_destroy_accepts_apps_and_mcp(self) -> None:
+        for m in ("apps", "mcp"):
+            assert (
+                parse_args(["workflow", "destroy", "-c", "c.yaml", "--mode", m]).mode
+                == m
+            )
+
+    def test_workflow_run_rejects_model_serving(self) -> None:
+        with pytest.raises(SystemExit):
+            parse_args(["workflow", "run", "-c", "c.yaml", "--mode", "model_serving"])
+
+    def test_workflow_destroy_rejects_model_serving(self) -> None:
+        with pytest.raises(SystemExit):
+            parse_args(
+                ["workflow", "destroy", "-c", "c.yaml", "--mode", "model_serving"]
+            )
+
+    def test_workflow_generate_rejects_model_serving(self) -> None:
+        with pytest.raises(SystemExit):
+            parse_args(
+                ["workflow", "generate", "-c", "c.yaml", "--mode", "model_serving"]
+            )
+
+
+@pytest.mark.unit
+class TestMcpNounRemoved:
+    """The `mcp` noun has been removed; its modes are now routed via `agent --mode mcp`."""
+
+    def test_mcp_noun_removed(self) -> None:
+        with pytest.raises(SystemExit):
+            parse_args(["mcp", "generate", "-c", "c.yaml"])
+
+
+@pytest.mark.unit
+class TestMonitorScorersRegroup:
+    """`monitor <action>` is regrouped under `monitor scorers <action>` (breaking)."""
+
+    @pytest.mark.parametrize("action", ["enable", "status", "disable"])
+    def test_scorers_subcommand_parses(self, action: str) -> None:
+        opts = parse_args(["monitor", "scorers", action, "-c", "c.yaml"])
+        assert opts.command == "monitor"
+        assert opts.subcommand == "scorers"
+        assert opts.action == action
+
+    @pytest.mark.parametrize("action", ["enable", "status", "disable"])
+    def test_flat_monitor_action_rejected(self, action: str) -> None:
+        # The old flat form `monitor enable` is gone; the action is now a
+        # positional on the `scorers` sub-verb, so `enable` is an unknown verb.
+        with pytest.raises(SystemExit):
+            parse_args(["monitor", action, "-c", "c.yaml"])
+
+    def test_bare_monitor_requires_subcommand(self) -> None:
+        with pytest.raises(SystemExit):
+            parse_args(["monitor", "-c", "c.yaml"])
+
+    def test_scorers_rejects_unknown_action(self) -> None:
+        with pytest.raises(SystemExit):
+            parse_args(["monitor", "scorers", "bogus", "-c", "c.yaml"])
+
+
+_MINIMAL_CONFIG_YAML = (
+    "resources:\n  models:\n    m: &m\n      name: databricks-gpt-5-4-mini\n"
+    "agents:\n  g: &g\n    name: g\n    description: d\n    model: *m\n"
+    "    prompt: p\n"
+    "app:\n  name: test_app\n  agents:\n    - *g\n"
+)
+
+
+@pytest.mark.unit
+class TestAgentModeWriterSelection:
+    """handle_agent_command selects the correct bundle writer based on --mode."""
+
+    def _write_config(self, tmp_path: Path) -> Path:
+        cfg = tmp_path / "c.yaml"
+        cfg.write_text(_MINIMAL_CONFIG_YAML)
+        return cfg
+
+    def test_agent_generate_mcp_uses_mcp_writer(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """--mode mcp must call write_mcp_bundle, not write_bundle."""
+        called: dict[str, bool] = {}
+        monkeypatch.setattr(
+            "dao_ai.mcp.generate.write_mcp_bundle",
+            lambda *a, **k: called.setdefault("mcp", True),
+        )
+        monkeypatch.setattr(
+            "dao_ai.apps.bundle.write_bundle",
+            lambda *a, **k: called.setdefault("apps", True),
+        )
+        monkeypatch.setattr(cli, "_apply_profile_context", lambda p: None)
+        monkeypatch.setattr(cli, "detect_cloud_provider", lambda p: "aws")
+
+        cfg = self._write_config(tmp_path)
+        opts = parse_args(
+            ["agent", "generate", "-c", str(cfg), "-o", str(tmp_path / "out"), "--mode", "mcp"]
+        )
+        cli.handle_agent_command(opts)
+
+        assert called == {"mcp": True}, (
+            f"Expected only write_mcp_bundle to be called; got called={called}"
+        )
+
+    def test_agent_generate_apps_uses_default_writer(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Mode omitted (defaults to apps) must call write_bundle, not write_mcp_bundle."""
+        called: dict[str, bool] = {}
+        monkeypatch.setattr(
+            "dao_ai.mcp.generate.write_mcp_bundle",
+            lambda *a, **k: called.setdefault("mcp", True),
+        )
+        monkeypatch.setattr(
+            "dao_ai.apps.bundle.write_bundle",
+            lambda *a, **k: called.setdefault("apps", True),
+        )
+        monkeypatch.setattr(cli, "_apply_profile_context", lambda p: None)
+        monkeypatch.setattr(cli, "detect_cloud_provider", lambda p: "aws")
+
+        cfg = self._write_config(tmp_path)
+        opts = parse_args(
+            ["agent", "generate", "-c", str(cfg), "-o", str(tmp_path / "out")]
+        )
+        cli.handle_agent_command(opts)
+
+        assert called == {"apps": True}, (
+            f"Expected only write_bundle to be called; got called={called}"
+        )
+
+    def test_agent_deploy_mcp_uses_mcp_staging_dir(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """agent deploy --mode mcp passes the mcp-kind staging dir to deploy_app_bundle."""
+        cfg = self._write_config(tmp_path)
+        # Capture what _resolve_bundle_dir is asked to return: (Path, is_default).
+        resolved_bundle_dirs: dict[str, tuple[str, Path]] = {}
+
+        def mock_resolve_bundle_dir(
+            kind: str, config: object, output_dir: str | None
+        ) -> tuple[Path, bool]:
+            # Record: kind -> (output_dir passed in, resolved path)
+            mcp_staging = tmp_path / "staged" / kind / "test_app"
+            mcp_staging.mkdir(parents=True, exist_ok=True)
+            (mcp_staging / "databricks.yaml").write_text("bundle: {}\n")
+            resolved_bundle_dirs[kind] = (output_dir or "default", mcp_staging)
+            return mcp_staging, output_dir is None
+
+        monkeypatch.setattr(cli, "_apply_profile_context", lambda p: None)
+
+        with patch.object(cli, "_resolve_bundle_dir", side_effect=mock_resolve_bundle_dir):
+            with patch.object(cli, "deploy_app_bundle"):
+                opts = parse_args(
+                    ["agent", "deploy", "-c", str(cfg), "--mode", "mcp"]
+                )
+                cli.handle_agent_command(opts)
+
+        assert "mcp" in resolved_bundle_dirs, (
+            "deploy must call _resolve_bundle_dir with kind='mcp' when --mode mcp"
+        )
+        _, resolved_path = resolved_bundle_dirs["mcp"]
+        assert "/mcp/" in str(resolved_path), (
+            f"Expected mcp staging dir path to contain /mcp/, got {resolved_path}"
+        )
+
+
+@pytest.mark.unit
+class TestDeployRestagesOnConfigDrift:
+    """agent deploy re-stages an already-staged bundle when the source config drifts."""
+
+    def _write_config(self, tmp_path: Path) -> Path:
+        cfg = tmp_path / "c.yaml"
+        cfg.write_text(_MINIMAL_CONFIG_YAML)
+        return cfg
+
+    def _run_deploy(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        *,
+        marker_fingerprint: str | None,
+        has_edits: bool = False,
+        overwrite: bool = False,
+    ) -> bool:
+        """Drive `agent deploy` against a pre-staged dir. Returns True if re-staged.
+
+        ``marker_fingerprint`` seeds the staged marker: None omits it (legacy
+        dir), "" is a workflow-style empty marker, a string is a recorded hash.
+        ``has_edits`` simulates hand-edits; ``overwrite`` passes --overwrite.
+        """
+        cfg = self._write_config(tmp_path)
+        staged = tmp_path / "staged" / "agent" / "test_app"
+        staged.mkdir(parents=True)
+        (staged / "databricks.yaml").write_text("bundle: {}\n")
+        if marker_fingerprint is not None:
+            (staged / cli._STAGING_MARKER).write_text(marker_fingerprint)
+
+        restaged: dict[str, bool] = {}
+        monkeypatch.setattr(cli, "_apply_profile_context", lambda p: None)
+        monkeypatch.setattr(
+            cli, "_resolve_bundle_dir", lambda kind, config, output_dir: (staged, True)
+        )
+        monkeypatch.setattr(
+            cli, "_staging_dir_has_local_edits", lambda d: has_edits
+        )
+        monkeypatch.setattr(cli, "deploy_app_bundle", lambda *a, **k: None)
+        monkeypatch.setattr(AppConfig, "_resolve_all_resources", lambda self: None)
+        monkeypatch.setattr(
+            cli,
+            "_stage_app_bundle",
+            lambda *a, **k: restaged.setdefault("staged", True),
+        )
+
+        argv = ["agent", "deploy", "-c", str(cfg)]
+        if overwrite:
+            argv.append("--overwrite")
+        opts = parse_args(argv)
+        cli.handle_agent_command(opts)
+        return restaged.get("staged", False)
+
+    def test_restages_when_marker_fingerprint_differs(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # A fingerprint that cannot match the current config -> stale -> re-stage.
+        assert (
+            self._run_deploy(tmp_path, monkeypatch, marker_fingerprint="stale-hash")
+            is True
+        )
+
+    def test_deploys_in_place_when_fingerprint_matches(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # Stamp the marker with the CURRENT config's real fingerprint -> not stale.
+        # Resolve development exactly as the deploy path does (options.development
+        # is None here -> auto-detect), so the seeded hash matches.
+        from dao_ai.utils import resolve_use_local_source
+
+        cfg = self._write_config(tmp_path)
+        config = AppConfig.from_file(str(cfg), initialize=False)
+        current_fp = cli._config_fingerprint(
+            config, development=resolve_use_local_source(None)
+        )
+        assert (
+            self._run_deploy(tmp_path, monkeypatch, marker_fingerprint=current_fp)
+            is False
+        )
+
+    def test_deploys_in_place_when_marker_absent(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # Legacy staged dir with no marker -> no recorded fingerprint -> in place.
+        assert (
+            self._run_deploy(tmp_path, monkeypatch, marker_fingerprint=None) is False
+        )
+
+    def test_stale_with_edits_deploys_in_place(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # Config drifted but the dir has hand-edits and no --overwrite -> in place.
+        assert (
+            self._run_deploy(
+                tmp_path, monkeypatch, marker_fingerprint="stale", has_edits=True
+            )
+            is False
+        )
+
+    def test_stale_with_edits_and_overwrite_regenerates(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # --overwrite forces regen even over hand-edits when the config drifted.
+        assert (
+            self._run_deploy(
+                tmp_path,
+                monkeypatch,
+                marker_fingerprint="stale",
+                has_edits=True,
+                overwrite=True,
+            )
+            is True
+        )
 
 
 @pytest.mark.unit
@@ -438,3 +1028,508 @@ class TestDeployLinks:
         with patch.object(_sp, "run", return_value=_R()):
             cli._print_job_link(tmp_path, profile=None, target=None)  # no raise
         assert "Job URL" not in capsys.readouterr().out
+
+
+@pytest.mark.unit
+class TestNounVerbDispatch:
+    """main() routes nouns to per-noun handlers; aliases share the generate path;
+    standalone deploy/run act on the staged dir without regenerating."""
+
+    def test_generate_verb_routes_to_bundle(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """`agent generate` reaches _generate_app_bundle with the correct command
+        and subcommand."""
+        seen: list[tuple[str, str]] = []
+        monkeypatch.setattr(
+            cli,
+            "_generate_app_bundle",
+            lambda opts, **kw: seen.append((opts.command, opts.subcommand)),
+        )
+        monkeypatch.setattr(cli, "setup_logging", lambda v: None)
+
+        monkeypatch.setattr("sys.argv", ["dao-ai", "agent", "generate", "-c", "c.yaml"])
+        cli.main()
+        assert seen == [("agent", "generate")]
+
+    def test_deploy_verb_no_regenerate(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """`agent deploy` on a staged dir calls deploy_app_bundle and never a
+        bundle writer; the sentinel on disk survives."""
+        cfg = tmp_path / "c.yaml"
+        cfg.write_text(
+            "resources:\n  models:\n    m: &m\n      name: databricks-gpt-5-4-mini\n"
+            "agents:\n  g: &g\n    name: g\n    description: d\n    model: *m\n"
+            "    prompt: p\n"
+            "app:\n  name: my_app\n  agents:\n    - *g\n"
+        )
+        out = tmp_path / "staged"
+        out.mkdir()
+        (out / "databricks.yaml").write_text("bundle: {}\n")
+        (out / "sentinel").write_text("keep\n")
+
+        monkeypatch.setattr(cli, "_apply_profile_context", lambda p: None)
+        wrote: dict[str, object] = {}
+        monkeypatch.setattr(
+            "dao_ai.apps.bundle.write_bundle",
+            lambda *a, **k: wrote.setdefault("wrote", True),
+        )
+        with patch.object(cli, "deploy_app_bundle") as dep:
+            opts = parse_args(["agent", "deploy", "-c", str(cfg), "-o", str(out)])
+            cli.handle_agent_command(opts)
+
+        assert "wrote" not in wrote, "deploy must not regenerate"
+        dep.assert_called_once()
+        assert dep.call_args.kwargs["output_dir"] == out
+        assert (out / "sentinel").read_text() == "keep\n"
+
+    def test_deploy_verb_errors_when_not_staged(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        cfg = tmp_path / "c.yaml"
+        cfg.write_text(
+            "resources:\n  models:\n    m: &m\n      name: databricks-gpt-5-4-mini\n"
+            "agents:\n  g: &g\n    name: g\n    description: d\n    model: *m\n"
+            "    prompt: p\n"
+            "app:\n  name: my_app\n  agents:\n    - *g\n"
+        )
+        monkeypatch.setattr(cli, "_apply_profile_context", lambda p: None)
+        opts = parse_args(
+            ["agent", "deploy", "-c", str(cfg), "-o", str(tmp_path / "nope")]
+        )
+        with pytest.raises(SystemExit) as exc:
+            cli.handle_agent_command(opts)
+        assert exc.value.code == 1
+
+
+_MINIMAL_CONFIG_NO_TARGET = (
+    "resources:\n  models:\n    m: &m\n      name: databricks-gpt-5-4-mini\n"
+    "agents:\n  g: &g\n    name: g\n    description: d\n    model: *m\n"
+    "    prompt: p\n"
+    "app:\n  name: my_app\n  agents:\n    - *g\n"
+)
+
+
+@pytest.mark.unit
+class TestDeployAutoGenerate:
+    """Task 6: deploy auto-generates when unstaged; --direct; model_serving routing."""
+
+    def _write_cfg(self, tmp_path: Path) -> Path:
+        cfg = tmp_path / "c.yaml"
+        cfg.write_text(_MINIMAL_CONFIG_NO_TARGET)
+        return cfg
+
+    def test_deploy_autogenerates_when_unstaged(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """`agent deploy` on an empty dir stages first, then deploys the bundle."""
+        cfg = self._write_cfg(tmp_path)
+        out = tmp_path / "out"  # does NOT pre-exist with databricks.yaml
+
+        wrote: dict[str, bool] = {}
+
+        def fake_writer(config: object, bundle_dir: object, **kw: object) -> None:
+            wrote["called"] = True
+            # Create databricks.yaml so deploy_app_bundle finds it staged.
+            import pathlib
+
+            pathlib.Path(str(bundle_dir)).mkdir(parents=True, exist_ok=True)
+            (pathlib.Path(str(bundle_dir)) / "databricks.yaml").write_text("bundle: {}\n")
+
+        monkeypatch.setattr(cli, "_apply_profile_context", lambda p: None)
+        monkeypatch.setattr(
+            "dao_ai.apps.bundle.write_bundle",
+            fake_writer,
+        )
+        with patch.object(cli, "deploy_app_bundle") as dep:
+            opts = parse_args(["agent", "deploy", "-c", str(cfg), "-o", str(out)])
+            cli.handle_agent_command(opts)
+
+        assert wrote.get("called"), "writer must be called to auto-generate the bundle"
+        dep.assert_called_once()
+
+    def test_deploy_in_place_when_staged(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """`agent deploy` on an already-staged dir deploys in-place without regenerating."""
+        cfg = self._write_cfg(tmp_path)
+        out = tmp_path / "staged"
+        out.mkdir()
+        (out / "databricks.yaml").write_text("bundle: {}\n")
+        (out / "sentinel").write_text("keep\n")
+
+        wrote: dict[str, bool] = {}
+
+        monkeypatch.setattr(cli, "_apply_profile_context", lambda p: None)
+        monkeypatch.setattr(
+            "dao_ai.apps.bundle.write_bundle",
+            lambda *a, **k: wrote.setdefault("called", True),
+        )
+        with patch.object(cli, "deploy_app_bundle") as dep:
+            opts = parse_args(["agent", "deploy", "-c", str(cfg), "-o", str(out)])
+            cli.handle_agent_command(opts)
+
+        assert not wrote, "deploy must NOT regenerate when already staged"
+        dep.assert_called_once()
+        assert (out / "sentinel").read_text() == "keep\n"
+
+    def test_direct_flag_uses_sdk_not_bundle(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """`agent up --direct` calls deploy_agent (SDK path) without touching bundles."""
+        cfg = self._write_cfg(tmp_path)
+
+        deploy_agent_calls: list[dict[str, object]] = []
+
+        def fake_deploy_agent(
+            self_config: object,
+            target: object = None,
+            development: object = None,
+        ) -> None:
+            deploy_agent_calls.append({"target": target, "development": development})
+
+        monkeypatch.setattr(cli, "_apply_profile_context", lambda p: None)
+        monkeypatch.setattr(
+            "dao_ai.config.AppConfig.deploy_agent",
+            fake_deploy_agent,
+        )
+        with patch.object(cli, "deploy_app_bundle") as dep, patch.object(
+            cli, "_exec_bundle_command"
+        ) as exec_cmd:
+            opts = parse_args(["agent", "up", "-c", str(cfg), "--direct"])
+            cli.handle_agent_command(opts)
+
+        assert deploy_agent_calls, "--direct must call deploy_agent"
+        dep.assert_not_called()
+        exec_cmd.assert_not_called()
+
+    def test_model_serving_deploy_registers_then_deploys_not_bundle(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """`agent deploy --mode model_serving` must register the model
+        (create_agent) BEFORE deploy_agent, and NOT touch the bundle path.
+
+        Model Serving deploys a registered MLflow model version, so skipping
+        create_agent would deploy a stale/nonexistent version.
+        """
+        cfg = self._write_cfg(tmp_path)
+
+        calls: list[str] = []
+
+        def fake_create_agent(self_config: object, development: object = None) -> None:
+            calls.append("create")
+
+        deploy_agent_calls: list[dict[str, object]] = []
+
+        def fake_deploy_agent(
+            self_config: object,
+            target: object = None,
+            development: object = None,
+        ) -> None:
+            calls.append("deploy")
+            deploy_agent_calls.append({"target": target, "development": development})
+
+        monkeypatch.setattr(cli, "_apply_profile_context", lambda p: None)
+        monkeypatch.setattr("dao_ai.config.AppConfig.create_agent", fake_create_agent)
+        monkeypatch.setattr("dao_ai.config.AppConfig.deploy_agent", fake_deploy_agent)
+        with patch.object(cli, "deploy_app_bundle") as dep:
+            opts = parse_args(["agent", "deploy", "-c", str(cfg), "--mode", "model_serving"])
+            cli.handle_agent_command(opts)
+
+        from dao_ai.config import ServingMode
+
+        # create_agent (register) must run BEFORE deploy_agent, and the bundle
+        # path must not be touched.
+        assert calls == ["create", "deploy"], calls
+        assert deploy_agent_calls[0]["target"] == ServingMode.MODEL_SERVING
+        dep.assert_not_called()
+
+    def test_direct_flag_parses_on_up(self) -> None:
+        """`--direct` is accepted on the `up` verb (moved from deploy)."""
+        opts = parse_args(["agent", "up", "-c", "c.yaml", "--direct"])
+        assert opts.direct is True
+
+    def test_direct_flag_rejected_on_deploy(self) -> None:
+        """`--direct` is NOT accepted on `deploy` — use `up --direct` instead."""
+        with pytest.raises(SystemExit):
+            parse_args(["agent", "deploy", "-c", "c.yaml", "--direct"])
+
+    def test_run_still_errors_when_unstaged(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """`agent run` on an empty dir must still error (auto-generate is deploy-only)."""
+        cfg = self._write_cfg(tmp_path)
+        monkeypatch.setattr(cli, "_apply_profile_context", lambda p: None)
+        opts = parse_args(["agent", "run", "-c", str(cfg), "-o", str(tmp_path / "nope")])
+        with pytest.raises(SystemExit) as exc:
+            cli.handle_agent_command(opts)
+        assert exc.value.code == 1
+
+    def test_deploy_autogenerate_calls_resolve_all_resources(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """On auto-generate (unstaged deploy), _resolve_all_resources must be called."""
+        cfg = self._write_cfg(tmp_path)
+        out = tmp_path / "out"
+
+        resolve_calls: list[str] = []
+
+        def fake_writer(config: object, bundle_dir: object, **kw: object) -> None:
+            import pathlib
+
+            pathlib.Path(str(bundle_dir)).mkdir(parents=True, exist_ok=True)
+            (pathlib.Path(str(bundle_dir)) / "databricks.yaml").write_text("bundle: {}\n")
+
+        def track_resolve(self_config: object) -> None:
+            resolve_calls.append("called")
+
+        monkeypatch.setattr(cli, "_apply_profile_context", lambda p: None)
+        monkeypatch.setattr(
+            "dao_ai.apps.bundle.write_bundle",
+            fake_writer,
+        )
+        monkeypatch.setattr(
+            "dao_ai.config.AppConfig._resolve_all_resources",
+            track_resolve,
+        )
+        with patch.object(cli, "deploy_app_bundle"):
+            opts = parse_args(["agent", "deploy", "-c", str(cfg), "-o", str(out)])
+            cli.handle_agent_command(opts)
+
+        assert resolve_calls == [
+            "called"
+        ], "auto-generate path must call _resolve_all_resources"
+
+    def test_deploy_inplace_does_not_call_resolve_all_resources(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """On in-place deploy (already staged), _resolve_all_resources must NOT be called."""
+        cfg = self._write_cfg(tmp_path)
+        out = tmp_path / "staged"
+        out.mkdir()
+        (out / "databricks.yaml").write_text("bundle: {}\n")
+
+        resolve_calls: list[str] = []
+
+        def track_resolve(self_config: object) -> None:
+            resolve_calls.append("called")
+
+        monkeypatch.setattr(cli, "_apply_profile_context", lambda p: None)
+        monkeypatch.setattr(
+            "dao_ai.config.AppConfig._resolve_all_resources",
+            track_resolve,
+        )
+        with patch.object(cli, "deploy_app_bundle"):
+            opts = parse_args(["agent", "deploy", "-c", str(cfg), "-o", str(out)])
+            cli.handle_agent_command(opts)
+
+        assert (
+            resolve_calls == []
+        ), "in-place deploy path must NOT call _resolve_all_resources"
+
+    def test_up_deploys_and_runs(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """`agent up --mode apps` bundle path calls deploy_app_bundle with deploy=True AND run=True."""
+        cfg = self._write_cfg(tmp_path)
+        out = tmp_path / "staged"
+        out.mkdir()
+        (out / "databricks.yaml").write_text("bundle: {}\n")
+
+        monkeypatch.setattr(cli, "_apply_profile_context", lambda p: None)
+        with patch.object(cli, "deploy_app_bundle") as dep:
+            opts = parse_args(
+                ["agent", "up", "-c", str(cfg), "-o", str(out), "--mode", "apps"]
+            )
+            cli.handle_agent_command(opts)
+
+        dep.assert_called_once()
+        call_kwargs = dep.call_args.kwargs
+        assert call_kwargs["deploy"] is True, "up must call deploy_app_bundle(deploy=True)"
+        assert call_kwargs["run"] is True, "up must call deploy_app_bundle(run=True)"
+
+
+@pytest.mark.unit
+class TestToolsCommandRenamed:
+    """list-mcp-tools renamed to tools."""
+
+    def test_tools_renamed(self) -> None:
+        """tools command parses successfully with the new name."""
+        assert parse_args(["tools", "-c", "c.yaml"]).command == "tools"
+
+    def test_list_mcp_tools_rejected(self) -> None:
+        """Old list-mcp-tools name is rejected by the parser."""
+        with pytest.raises(SystemExit):
+            parse_args(["list-mcp-tools", "-c", "c.yaml"])
+
+
+@pytest.mark.unit
+class TestTraceNoun:
+    """``dao-ai trace create|link|grant`` is the new surface; old flat names are gone."""
+
+    def test_trace_create_parses(self) -> None:
+        o = parse_args(["trace", "create", "--name", "/Shared/my-exp"])
+        assert o.command == "trace"
+        assert o.subcommand == "create"
+        assert o.name == "/Shared/my-exp"
+
+    def test_trace_create_id_flag(self) -> None:
+        o = parse_args(["trace", "create", "--id", "1234"])
+        assert o.command == "trace"
+        assert o.subcommand == "create"
+        assert o.id == "1234"
+
+    def test_trace_create_output_default(self) -> None:
+        o = parse_args(["trace", "create", "--name", "/foo"])
+        assert o.output == "text"
+
+    def test_trace_create_output_json(self) -> None:
+        o = parse_args(["trace", "create", "--name", "/foo", "-o", "json"])
+        assert o.output == "json"
+
+    def test_trace_create_no_create_flag(self) -> None:
+        o = parse_args(["trace", "create", "--name", "/foo", "--no-create"])
+        assert o.no_create is True
+
+    def test_trace_link_parses(self) -> None:
+        o = parse_args(["trace", "link", "-c", "config.yaml"])
+        assert o.command == "trace"
+        assert o.subcommand == "link"
+        assert o.config == "config.yaml"
+
+    def test_trace_link_optional_flags(self) -> None:
+        o = parse_args(
+            ["trace", "link", "-c", "c.yaml", "--experiment-id", "9999", "--app-sp", "uuid-1"]
+        )
+        assert o.experiment_id == "9999"
+        assert o.app_sp == "uuid-1"
+
+    def test_trace_grant_parses(self) -> None:
+        o = parse_args(["trace", "grant", "-c", "config.yaml"])
+        assert o.command == "trace"
+        assert o.subcommand == "grant"
+        assert o.config == "config.yaml"
+
+    def test_trace_grant_optional_flags(self) -> None:
+        o = parse_args(
+            ["trace", "grant", "-c", "c.yaml", "--experiment-id", "8888", "--app-sp", "uuid-2"]
+        )
+        assert o.experiment_id == "8888"
+        assert o.app_sp == "uuid-2"
+
+    @pytest.mark.parametrize(
+        "old",
+        ["create-experiment", "link-trace-destination", "grant-trace-permissions"],
+    )
+    def test_old_flat_names_rejected(self, old: str) -> None:
+        with pytest.raises(SystemExit):
+            parse_args([old])
+
+    def test_bare_trace_requires_verb(self) -> None:
+        with pytest.raises(SystemExit):
+            parse_args(["trace"])
+
+    def test_trace_link_var_flag(self) -> None:
+        o = parse_args(["trace", "link", "-c", "c.yaml", "--var", "k=v"])
+        assert o.var == ["k=v"]
+
+    def test_trace_grant_var_flag(self) -> None:
+        o = parse_args(["trace", "grant", "-c", "c.yaml", "--var", "k=v"])
+        assert o.var == ["k=v"]
+
+
+@pytest.mark.unit
+class TestTraceNounDispatch:
+    """main() routes ``trace <verb>`` to the correct handler via handle_trace_command."""
+
+    def _invoke(
+        self, monkeypatch: pytest.MonkeyPatch, argv: list[str]
+    ) -> dict[str, int]:
+        called: dict[str, int] = {}
+        monkeypatch.setattr(
+            cli,
+            "handle_create_experiment_command",
+            lambda o: called.update(create=called.get("create", 0) + 1),
+        )
+        monkeypatch.setattr(
+            cli,
+            "handle_link_trace_destination_command",
+            lambda o: called.update(link=called.get("link", 0) + 1),
+        )
+        monkeypatch.setattr(
+            cli,
+            "handle_grant_trace_permissions_command",
+            lambda o: called.update(grant=called.get("grant", 0) + 1),
+        )
+        monkeypatch.setattr(cli, "setup_logging", lambda v: None)
+        monkeypatch.setattr("sys.argv", ["dao-ai"] + argv)
+        cli.main()
+        return called
+
+    def test_trace_create_routes_to_create_handler(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        called = self._invoke(monkeypatch, ["trace", "create", "--name", "/foo"])
+        assert called == {"create": 1}
+
+    def test_trace_link_routes_to_link_handler(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        called = self._invoke(monkeypatch, ["trace", "link", "-c", "c.yaml"])
+        assert called == {"link": 1}
+
+    def test_trace_grant_routes_to_grant_handler(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        called = self._invoke(monkeypatch, ["trace", "grant", "-c", "c.yaml"])
+        assert called == {"grant": 1}
+
+
+@pytest.mark.unit
+class TestGlobalProfileVerbose:
+    """``-p/--profile`` and ``-v/--verbose`` work at both top level and subcommand level."""
+
+    def test_profile_before_subcommand(self) -> None:
+        o = parse_args(["-p", "fevm", "agent", "deploy", "-c", "c.yaml"])
+        assert o.profile == "fevm"
+
+    def test_profile_after_subcommand(self) -> None:
+        o = parse_args(["agent", "deploy", "-c", "c.yaml", "-p", "fevm"])
+        assert o.profile == "fevm"
+
+    def test_profile_subcommand_wins_when_both(self) -> None:
+        o = parse_args(["-p", "top", "agent", "deploy", "-c", "c.yaml", "-p", "sub"])
+        assert o.profile == "sub"
+
+    def test_profile_absent_defaults_none(self) -> None:
+        o = parse_args(["agent", "generate", "-c", "c.yaml"])
+        assert getattr(o, "profile", None) is None
+
+    def test_verbose_before_subcommand(self) -> None:
+        o = parse_args(["-v", "agent", "deploy", "-c", "c.yaml"])
+        assert o.verbose >= 1
+
+    def test_verbose_after_subcommand(self) -> None:
+        o = parse_args(["agent", "deploy", "-c", "c.yaml", "-vv"])
+        assert o.verbose >= 2
+
+    def test_verbose_absent_defaults_zero(self) -> None:
+        o = parse_args(["agent", "generate", "-c", "c.yaml"])
+        assert getattr(o, "verbose", 0) == 0
+
+    def test_profile_before_trace_subcommand(self) -> None:
+        o = parse_args(["-p", "fevm", "trace", "link", "-c", "c.yaml"])
+        assert o.profile == "fevm"
+
+    def test_profile_after_trace_subcommand(self) -> None:
+        o = parse_args(["trace", "link", "-c", "c.yaml", "-p", "fevm"])
+        assert o.profile == "fevm"
+
+    def test_verbose_before_workflow_subcommand(self) -> None:
+        o = parse_args(["-vv", "workflow", "generate", "-c", "c.yaml"])
+        assert o.verbose >= 2
+
+    def test_verbose_after_workflow_subcommand(self) -> None:
+        o = parse_args(["workflow", "deploy", "-c", "c.yaml", "-v"])
+        assert o.verbose >= 1

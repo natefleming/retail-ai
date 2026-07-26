@@ -84,7 +84,6 @@ app:
     Minimal example of the first-class `type: serving_endpoint` tool
     shape for calling Model Serving endpoints (FMAPI or UC agents).
   log_level: INFO
-  deployment_target: apps
   agents:
   - *orchestrator
 

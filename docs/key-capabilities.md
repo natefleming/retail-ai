@@ -28,9 +28,9 @@ These are the powerful features that make DAO production-ready. Don't worry if s
 ```yaml
 app:
   name: my_agent
-  deployment_target: model_serving  # or 'apps'
+  # Serving mode is chosen at deploy time via --mode (default: apps)
   
-  # Model Serving specific options (only used when deployment_target: model_serving)
+  # Model Serving specific options (used when deploying with --mode model_serving)
   endpoint_name: my_agent_endpoint
   workload_size: Small
   scale_to_zero: true
@@ -41,15 +41,15 @@ app:
 
 **Deploy to Model Serving:**
 ```bash
-dao-ai deploy -c config.yaml --target model_serving
+dao-ai agent deploy -c config.yaml --mode model_serving
 ```
 
 **Deploy to Databricks Apps:**
 ```bash
-dao-ai deploy -c config.yaml --target apps
+dao-ai agent deploy -c config.yaml --mode apps
 ```
 
-**CLI override:** The `--target` flag always takes precedence over the YAML config, making it easy to deploy the same config to different environments.
+**CLI override:** The `--mode` flag selects the serving target at deploy time (default: `apps`).
 
 **Behind the scenes:**
 - Model Serving deployments create an MLflow model and serving endpoint
@@ -2090,8 +2090,7 @@ same LangGraph, same checkpointer, two protocols on one FastAPI app.
 - **Ecosystem interop.** Once your agent speaks A2A, any A2A-aware client
   (LangChain, AutoGen, Strands, OpenAI Agents SDK, custom Python clients)
   can discover and call it without bespoke glue.
-- **Zero config to enable.** A2A is on by default when
-  `app.deployment_target: apps`. Set `app.a2a.enabled: false` to opt out.
+- **Zero config to enable.** A2A is on by default on every Apps deployment. Set `app.a2a.enabled: false` to opt out.
 - **Same dao-ai capabilities, exposed on a different wire.** HITL, OBO,
   conversation history (`thread_id`↔`contextId`), custom inputs (via
   `DataPart`), and long-running task persistence (via Lakebase-backed
@@ -2112,7 +2111,6 @@ same LangGraph, same checkpointer, two protocols on one FastAPI app.
 app:
   name: my_agent
   description: My agent's job
-  deployment_target: apps
   agents: [*my_agent]
   # No app.a2a block required — A2A is on by default with sensible
   # defaults. To customise:

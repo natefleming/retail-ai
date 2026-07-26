@@ -136,7 +136,7 @@ def dev_local_version(pyproject_path: Path) -> Iterator[None]:
     restored on exit so the working tree is left unchanged.
 
     Wrap every ``uv build --wheel`` call that produces a dev wheel with this
-    (generate-agent, deploy, generate-mcp) so ``--development`` behaves
+    (agent generate, agent deploy, agent generate --mode mcp) so ``--development`` behaves
     uniformly across all deploy paths.
     """
     original = pyproject_path.read_text()

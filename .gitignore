@@ -289,3 +289,6 @@ deploy/
 # Chat UI build artifacts (cloned/built by dao-ai when enable_chat_proxy is true)
 e2e-chatbot-app-next/
 chat-ui.tar.gz
+
+# Isaac local tool state
+.isaac/

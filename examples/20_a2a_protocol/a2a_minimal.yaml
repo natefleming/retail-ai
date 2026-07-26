@@ -30,7 +30,6 @@ app:
   name: a2a-minimal
   description: Minimal dao-ai agent demonstrating Google A2A protocol support.
   log_level: INFO
-  deployment_target: apps
   agents:
     - *greeter
   # A2A is enabled by default on Databricks Apps deployments. The block below

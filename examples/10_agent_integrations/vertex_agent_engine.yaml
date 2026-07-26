@@ -246,7 +246,6 @@ app:
     Two-agent system: Genie-powered retail analytics (sales + logistics) +
     Vertex AI Agent Engine customer service agent.
   log_level: INFO
-  deployment_target: apps
   agents:
   - *retail_analytics_agent
   - *customer_service_agent

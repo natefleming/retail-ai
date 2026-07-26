@@ -135,10 +135,10 @@ Yes! Use different configuration files for each environment:
 
 ```bash
 # Development
-dao-ai generate-workflow --deploy -c config/dev.yaml --profile dev
+dao-ai workflow generate --deploy -c config/dev.yaml --profile dev
 
 # Production
-dao-ai generate-workflow --deploy -c config/prod.yaml --profile prod
+dao-ai workflow generate --deploy -c config/prod.yaml --profile prod
 ```
 
 **Learn more:** [`docs/cli-reference.md`](cli-reference.md) · [`docs/configuration-reference.md`](configuration-reference.md) (parameters + variables lifecycle)
@@ -171,7 +171,7 @@ variables:
 Simply redeploy with the updated configuration:
 
 ```bash
-dao-ai generate-workflow --deploy --run -c config/my_config.yaml
+dao-ai workflow generate --deploy --run -c config/my_config.yaml
 ```
 
 This will update the existing deployment.
@@ -194,16 +194,19 @@ print(f"Deployed app: {config.app.name}")
 
 `deploy_agent(target=APPS)` generates the Asset Bundle, uploads source + `requirements.txt`, deploys the app, waits for compute ACTIVE, and (if `app.trace_location:` is set) grants the App SP the OTEL-table permissions.  See [Lab 1 — Your First DAO-AI Agent](https://github.com/natefleming/dao-ai-workshop/tree/main/L100-foundations/lab-01-first-agent) for the shortest working example.
 
-**Path 2 — `dao-ai generate-agent` (Asset Bundle you can inspect / edit / check into Git):**
+**Path 2 — `dao-ai agent generate` (Asset Bundle you can inspect / edit / check into Git):**
 
 ```bash
-dao-ai generate-agent -c config/my_agent.yaml -o ./my-bundle
+dao-ai agent generate -c config/my_agent.yaml -o ./my-bundle
+# Optionally hand-edit ./my-bundle, then ship exactly what's on disk (no regeneration):
+dao-ai agent deploy --run -c config/my_agent.yaml -o ./my-bundle
+# ...or drive the bundle manually
 cd my-bundle
 databricks bundle deploy
 databricks bundle run <app-name>
 ```
 
-`generate-agent` writes a complete, deployable Databricks Apps bundle directory (`databricks.yaml`, `app.yaml`, `pyproject.toml`, scaffolding). Useful when you want the bundle under version control, need to hand-tune anything the generator produced, or want to deploy from CI outside of Python. Add `--development` to bundle local dao-ai source instead of the pinned PyPI wheel; add `--overwrite` to overwrite an existing output directory.
+`agent generate` writes a complete, deployable Databricks Apps bundle directory (`databricks.yaml`, `app.yaml`, `pyproject.toml`, scaffolding). Useful when you want the bundle under version control, need to hand-tune anything the generator produced, or want to deploy from CI outside of Python. Add `--development` to bundle local dao-ai source instead of the pinned PyPI wheel; add `--overwrite` to overwrite an existing output directory. The strict `deploy`/`run`/`destroy` verbs act on the already-staged bundle without regenerating. Use `--mode mcp` to generate an MCP-server App instead.
 
 **Learn more:** [`docs/cli-reference.md`](cli-reference.md) · [`docs/python-api.md`](python-api.md)
 
@@ -758,19 +761,19 @@ app:
 **Deploy flow for Databricks Apps** (bundle path):
 
 ```bash
-dao-ai generate-agent -c my_config.yaml -o ./bundle
+dao-ai agent generate -c my_config.yaml -o ./bundle
 cd ./bundle
 databricks bundle deploy --target dev -p <profile>
-dao-ai link-trace-destination -c ../my_config.yaml -p <profile>   # explicit link step
+dao-ai trace link -c ../my_config.yaml -p <profile>               # explicit link step
 databricks bundle run <app-name> --target dev -p <profile>
 databricks apps restart <app-name> -p <profile>                   # required
 ```
 
-The `link-trace-destination` step is idempotent — safe on every deploy — but load-bearing on re-deploys. It runs from your machine with your credentials, before the app boots. Skipping it (and relying on the app's own runtime link attempt in `dao_ai.apps.handlers`) causes silent trace loss on re-deploys because MLflow rejects re-linking with `already contains traces`.
+The `dao-ai trace link` step is idempotent — safe on every deploy — but load-bearing on re-deploys. It runs from your machine with your credentials, before the app boots. Skipping it (and relying on the app's own runtime link attempt in `dao_ai.apps.handlers`) causes silent trace loss on re-deploys because MLflow rejects re-linking with `already contains traces`.
 
 **Model Serving** deploys via `dao-ai deploy` link automatically inside `deploy_apps_agent` / `deploy_model_serving_agent` (same `link_experiment_trace_location` helper) — no manual step required.
 
-**Important once linked:** Databricks does NOT allow un-linking or changing a UC trace destination. `catalog` / `schema` / `table_prefix` are permanent for that experiment. To move traces to a different destination, create a fresh experiment (new name or id) and re-link it — see [`docs/cli-reference.md#link-trace-destination`](cli-reference.md#link-trace-destination) for the full migration playbook.
+**Important once linked:** Databricks does NOT allow un-linking or changing a UC trace destination. `catalog` / `schema` / `table_prefix` are permanent for that experiment. To move traces to a different destination, create a fresh experiment (new name or id) and re-link it — see [`docs/cli-reference.md#trace-commands`](cli-reference.md#trace-commands) for the full migration playbook.
 
 See [Lab 24 — UC OTEL Trace Tables](https://github.com/natefleming/dao-ai-workshop/tree/main/L300-advanced/lab-24-uc-trace-location) for the walkthrough. **Note:** in-process notebook usage of the same config additionally needs `mlflow.langchain.autolog(run_tracer_inline=True)` + `dao_ai.logging.suppress_autolog_context_warnings()` — the deploy runtime does both automatically at boot, but the notebook flow must do them explicitly.
 
@@ -786,7 +789,7 @@ dao-ai grants the required privileges automatically at deploy time (see `_grant_
 - `USE_SCHEMA` on the target schema
 - `SELECT` + `MODIFY` on each of the four OTEL tables
 
-**Gotcha:** the *deployer* (the person running `deploy_agent(...)` or `dao-ai generate-workflow --deploy`) must hold `MANAGE` on the target UC schema for those grants to succeed. If the deployer doesn't have `MANAGE`, ask a metastore admin to run once:
+**Gotcha:** the *deployer* (the person running `deploy_agent(...)` or `dao-ai workflow generate --deploy`) must hold `MANAGE` on the target UC schema for those grants to succeed. If the deployer doesn't have `MANAGE`, ask a metastore admin to run once:
 
 ```sql
 GRANT USE_CATALOG ON CATALOG <catalog> TO `<endpoint-sp-client-id>`;

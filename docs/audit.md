@@ -523,14 +523,14 @@ Databricks Apps forwards user identity on `X-Forwarded-User` /
 picks these up automatically. Deployment flow:
 
 ```bash
-uv run dao-ai generate-agent --overwrite --development -c my_config.yaml
+uv run dao-ai agent generate --overwrite --development -c my_config.yaml
 databricks bundle deploy -p <profile>
 # Critical: link the trace destination BEFORE bundle run.
-uv run dao-ai link-trace-destination -c my_config.yaml -p <profile>
+uv run dao-ai trace link -c my_config.yaml -p <profile>
 databricks bundle run <app_name> -p <profile>
 ```
 
-The `link-trace-destination` step provisions the OTEL span tables in
+The `dao-ai trace link` step provisions the OTEL span tables in
 the configured `trace_location` schema and links the experiment to
 them. Without it, span attributes still emit but the OTEL tables are
 missing on cold-start and traces do not surface in the Databricks Trace

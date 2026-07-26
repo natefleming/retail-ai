@@ -620,17 +620,18 @@ class IsDatabricksResource(ABC, BaseModel):
         return self.workspace_client
 
 
-class DeploymentTarget(str, Enum):
-    """Target platform for agent deployment."""
+class ServingMode(str, Enum):
+    """Target platform for agent deployment (a deploy-action parameter — NOT a
+    field on AppConfig)."""
 
     MODEL_SERVING = "model_serving"
-    """Deploy to Databricks Model Serving endpoint."""
+    """Deploy to a Databricks Model Serving endpoint (no DAB bundle)."""
 
     APPS = "apps"
-    """Deploy as a Databricks App."""
+    """Deploy as a Databricks App (chat UI) from a DAB bundle."""
 
-    BOTH = "both"
-    """Deploy to both Model Serving and Apps."""
+    MCP = "mcp"
+    """Deploy the MCP server as a Databricks App from a DAB bundle."""
 
 
 class Privilege(str, Enum):
@@ -9387,18 +9388,22 @@ class AppModel(BaseModel):
         description="Model Serving workload size (Small, Medium, Large).",
     )
     workers: Optional[int] = Field(
-        default=2,
+        default=1,
         gt=0,
         description=(
             "Number of uvicorn worker processes for the Databricks Apps backend "
-            "server. Each worker is a separate process, raising the app's "
-            "concurrent-request ceiling on multi-core Apps compute. Defaults to "
-            "2 (a modest bump over uvicorn's single-worker default that is safe "
-            "on the small default Apps compute); raise it to match larger compute "
-            "cores. Emitted to the app as the ``DAO_AI_APP_WORKERS`` env var and "
-            "forwarded to the backend as ``--workers``. Too many workers on a "
-            "small instance contends for CPU. Apps-target only (no effect on "
-            "Model Serving, which manages its own worker pool via workload_size)."
+            "server. Each worker is a SEPARATE PROCESS that re-imports the app "
+            "and rebuilds the full agent graph, so its memory footprint is "
+            "duplicated per worker (uvicorn spawns workers — there is no "
+            "copy-on-write sharing). Defaults to 1: on the default MEDIUM Apps "
+            "compute (2 vCPU / 6 GB) a second full graph OOM-kills the workers "
+            "in a respawn loop. Because this agent is async and I/O-bound, a "
+            "single worker's event loop already serves many concurrent requests, "
+            "so 1 is the right default. Raise ONLY on larger Apps compute with "
+            "headroom for N resident graphs. Emitted as the ``DAO_AI_APP_WORKERS`` "
+            "env var and forwarded to the backend as ``--workers``. Apps-target "
+            "only (no effect on Model Serving, which manages its own worker pool "
+            "via workload_size)."
         ),
     )
     permissions: Optional[list[AppPermissionModel]] = Field(
@@ -9440,7 +9445,7 @@ class AppModel(BaseModel):
         "file's directory; absolute paths pass through) shipped with EVERY "
         "deployment target: Model Serving via ``log_model(code_paths=...)``, "
         "Databricks Apps by uploading them next to the config (importable via "
-        "``sys.path``), and the generate-workflow job by staging them into the "
+        "``sys.path``), and the ``workflow generate`` job by staging them into the "
         "bundle. Use for custom ``type: python`` tool modules or agent code. "
         "(Apps bundles also still support hand-packaged code under ``src/<package>/``.)",
     )
@@ -9456,11 +9461,6 @@ class AppModel(BaseModel):
         "which is supported by Databricks Model Serving. This allows deploying from "
         "environments with different Python versions (e.g., Databricks Apps with 3.11).",
     )
-    deployment_target: Optional[DeploymentTarget] = Field(
-        default=None,
-        description="Default deployment target. If not specified, defaults to MODEL_SERVING. "
-        "Can be overridden via CLI --target flag. Options: 'model_serving' or 'apps'.",
-    )
     trace_location: Optional[TraceLocationModel] = Field(
         default=None,
         description="Unity Catalog location for storing MLflow traces in OTEL-format Delta tables. "
@@ -9473,7 +9473,7 @@ class AppModel(BaseModel):
         default=None,
         description=(
             "Server-side MCP capabilities exposed when dao-ai is deployed as an "
-            "MCP server (``dao-ai generate-mcp``). Declares static resources, "
+            "MCP server (``dao-ai agent generate --mode mcp``). Declares static resources, "
             "prompt templates, and whether progress + logging notifications are "
             "emitted from the agent tool. When None the server publishes only "
             "the single agent-as-tool surface with no notifications."
@@ -9638,19 +9638,6 @@ class AppModel(BaseModel):
             if color[name] == WHITE:
                 visit(name, [name])
 
-        return self
-
-    @model_validator(mode="after")
-    def validate_registered_model_required_for_serving(self) -> Self:
-        """Ensure registered_model is provided when deployment target is not apps."""
-        if (
-            self.registered_model is None
-            and self.deployment_target != DeploymentTarget.APPS
-        ):
-            raise ValueError(
-                "registered_model is required when deployment_target is not 'apps'. "
-                "Either add a registered_model section or set deployment_target to 'apps'."
-            )
         return self
 
     @staticmethod
@@ -11040,7 +11027,7 @@ class AppConfig(BaseModel):
 
     def deploy_agent(
         self,
-        target: DeploymentTarget | None = None,
+        target: ServingMode | None = None,
         w: WorkspaceClient | None = None,
         vsc: "VectorSearchClient | None" = None,
         pat: str | None = None,
@@ -11052,14 +11039,12 @@ class AppConfig(BaseModel):
         """
         Deploy the agent to the specified target.
 
-        Target resolution follows this priority:
-        1. Explicit `target` parameter (if provided)
-        2. `app.deployment_target` from config file (if set)
-        3. Default: MODEL_SERVING
+        Target resolution: the caller supplies ``target`` (the CLI defaults it).
+        If not provided, defaults to MODEL_SERVING.
 
         Args:
-            target: The deployment target (MODEL_SERVING or APPS). If None, uses
-                config.app.deployment_target or defaults to MODEL_SERVING.
+            target: The deployment target (MODEL_SERVING, APPS, or MCP). If None,
+                defaults to MODEL_SERVING.
             w: Optional WorkspaceClient instance
             vsc: Optional VectorSearchClient instance
             pat: Optional personal access token for authentication
@@ -11072,17 +11057,9 @@ class AppConfig(BaseModel):
         from dao_ai.providers.base import ServiceProvider
         from dao_ai.providers.databricks import DatabricksProvider
 
-        # Resolve target using hybrid logic:
-        # 1. Explicit parameter takes precedence
-        # 2. Fall back to config.app.deployment_target
-        # 3. Default to MODEL_SERVING
-        resolved_target: DeploymentTarget
-        if target is not None:
-            resolved_target = target
-        elif self.app is not None and self.app.deployment_target is not None:
-            resolved_target = self.app.deployment_target
-        else:
-            resolved_target = DeploymentTarget.MODEL_SERVING
+        # Mode is a deploy-action parameter, not config: the caller supplies it
+        # (the CLI defaults it). No AppConfig fallback.
+        resolved_target: ServingMode = target or ServingMode.MODEL_SERVING
 
         provider: ServiceProvider = DatabricksProvider(
             w=w,
