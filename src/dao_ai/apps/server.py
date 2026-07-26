@@ -37,6 +37,12 @@ agent_server = AgentServer("ResponsesAgent", enable_chat_proxy=_enable_chat_prox
 # Define the app as a module level variable to enable multiple workers
 app = agent_server.app
 
+# TEMPORARY: memory-footprint probe (no-op unless DAO_AI_MEMPROBE is set). Runs
+# in every process — master + each worker — so summed PSS reveals COW sharing.
+from dao_ai.apps import _memprobe  # noqa: E402
+
+_memprobe.start()
+
 
 def _mount_background_routes() -> None:
     """Register /v1/responses* routes when background is configured.
@@ -201,9 +207,72 @@ def _mount_a2a_routes() -> None:
 _mount_a2a_routes()
 
 
+def _parse_server_args() -> tuple[int, int]:
+    """Parse ``--port`` / ``--workers`` (matching MLflow AgentServer's flags)."""
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Start the dao-ai agent server")
+    parser.add_argument("--port", type=int, default=8000)
+    parser.add_argument("--workers", type=int, default=1)
+    parser.add_argument("--reload", action="store_true")
+    args, _ = parser.parse_known_args()
+    return args.port, args.workers
+
+
+def _run_gunicorn_preload(port: int, workers: int) -> None:
+    """Serve with gunicorn + UvicornWorker + ``preload_app=True``.
+
+    Preload imports ``dao_ai.apps.server`` (building the agent graph) ONCE in
+    the gunicorn arbiter, then forks the workers — so the graph's read-only
+    pages are copy-on-write shared instead of rebuilt per worker (uvicorn's own
+    multi-worker path spawns fresh interpreters with no sharing, which OOMs on
+    small Apps compute). Fork-safety: the Lakebase pool and langmem reflection
+    thread are already lazy (bound on first request, post-fork), so no live DB
+    connection or background thread exists at fork time.
+    """
+    from gunicorn.app.base import BaseApplication
+    from loguru import logger
+
+    def _post_fork(_server: Any, worker: Any) -> None:  # pragma: no cover — runtime hook
+        # Restart the (daemon, lock-free) mem probe in each forked worker so we
+        # capture per-worker PSS; safe to call — no-op unless DAO_AI_MEMPROBE set.
+        _memprobe.start()
+        logger.info("gunicorn worker forked | pid={} worker={}", os.getpid(), worker.pid)
+
+    class _DaoAiGunicornApp(BaseApplication):
+        def load_config(self) -> None:
+            self.cfg.set("bind", f"0.0.0.0:{port}")
+            self.cfg.set("workers", workers)
+            self.cfg.set("worker_class", "uvicorn.workers.UvicornWorker")
+            self.cfg.set("preload_app", True)
+            self.cfg.set("post_fork", _post_fork)
+
+        def load(self) -> Any:
+            # Return the already-imported, already-built ASGI app. Under
+            # preload this runs in the arbiter, so the graph is built once here.
+            return app
+
+    logger.info(
+        "Starting gunicorn (preload) | workers={} port={} worker_class=UvicornWorker",
+        workers,
+        port,
+    )
+    _DaoAiGunicornApp().run()
+
+
 def main() -> None:
-    """Entry point for running the agent server."""
-    agent_server.run(app_import_string="dao_ai.apps.server:app")
+    """Entry point for running the agent server.
+
+    Single worker → MLflow's uvicorn launcher (unchanged). Multiple workers →
+    gunicorn with ``preload_app`` so the agent graph is built once and shared
+    copy-on-write across forked workers rather than rebuilt (and OOM-duplicated)
+    in each spawned uvicorn worker.
+    """
+    port, workers = _parse_server_args()
+    if workers > 1:
+        _run_gunicorn_preload(port, workers)
+    else:
+        agent_server.run(app_import_string="dao_ai.apps.server:app")
 
 
 if __name__ == "__main__":
