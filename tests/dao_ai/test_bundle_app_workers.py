@@ -2,8 +2,9 @@
 
 Locks in the contract that ``_build_app_block`` emits the ``DAO_AI_APP_WORKERS``
 env var, which ``start_app.py`` forwards to the backend as ``--workers``. The
-field defaults to 2 (a modest bump over uvicorn's single-worker default, safe on
-the small default Apps compute).
+field defaults to 1: on the default MEDIUM Apps compute a second full graph
+OOM-kills the workers in a respawn loop, and the async I/O-bound agent already
+serves many concurrent requests on one worker's event loop.
 """
 
 from __future__ import annotations
@@ -50,12 +51,12 @@ def _workers_env(apps_block: dict) -> str | None:
 
 @pytest.mark.unit
 class TestAppWorkersEmission:
-    def test_default_workers_is_two(self) -> None:
-        assert _config().app.workers == 2
+    def test_default_workers_is_one(self) -> None:
+        assert _config().app.workers == 1
 
     def test_emits_default_workers_env(self) -> None:
         _, _, apps_block = _build_app_block(_config(), "dao_ai.yaml")
-        assert _workers_env(apps_block) == "2"
+        assert _workers_env(apps_block) == "1"
 
     def test_emits_explicit_workers_env(self) -> None:
         _, _, apps_block = _build_app_block(_config(workers=4), "dao_ai.yaml")
