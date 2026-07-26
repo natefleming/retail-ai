@@ -638,20 +638,26 @@ def parse_args(args: Sequence[str]) -> Namespace:
         description="Build and operate multi-agent AI systems on Databricks.",
         epilog="""
 Getting started:
-  dao-ai agent generate -c config.yaml --deploy --run -p fevm   # generate + deploy + start in one shot
-  dao-ai agent deploy   -c config.yaml -p fevm                  # deploy staged bundle (auto-generates if unstaged)
+  dao-ai agent up      -c config.yaml -p fevm                   # generate + deploy + start — one command to a live agent
+  dao-ai agent deploy  -c config.yaml -p fevm                   # push the bundle (auto-generates if unstaged); start with `run`
 
-Deploy an agent:
-  dao-ai agent generate -c config.yaml --deploy --run -p fevm          # one-shot: generate → deploy → run (Apps)
-  dao-ai agent deploy   -c config.yaml --mode model_serving -p fevm    # deploy to Model Serving endpoint
-  dao-ai agent deploy   -c config.yaml -m ms -p fevm                   # same, using -m ms alias
-  dao-ai agent deploy   -c config.yaml --mode mcp -p fevm              # deploy as MCP server
-  dao-ai agent deploy   -c config.yaml --direct -p fevm                # SDK fast-path (no bundle on disk)
-  dao-ai -p fevm agent deploy -c config.yaml                           # -p accepted at top level too
+Bring an agent up (generate → deploy → run):
+  dao-ai agent up -c config.yaml -p fevm                        # live agent (Apps, default --mode apps)
+  dao-ai agent up -c config.yaml --mode model_serving -p fevm  # deploy to a Model Serving endpoint
+  dao-ai agent up -c config.yaml -m ms -p fevm                 # same, using the -m ms alias
+  dao-ai agent up -c config.yaml --mode mcp -p fevm            # bring up an MCP server
+  dao-ai agent up -c config.yaml --direct -p fevm             # SDK fast-path (no bundle on disk)
+  dao-ai -p fevm agent up -c config.yaml                       # -p accepted at the top level too
+
+Granular lifecycle (DAB-style primitives):
+  dao-ai agent generate -c config.yaml -p fevm                 # stage the bundle only (inspect / hand-edit)
+  dao-ai agent deploy   -c config.yaml -p fevm                 # push resources (bundle deploy)
+  dao-ai agent run      -c config.yaml -p fevm                 # start the deployed app (bundle run)
+  dao-ai agent destroy  -c config.yaml -p fevm                 # tear it down
 
 Provision infrastructure:
-  dao-ai workflow generate -c config.yaml --deploy -p fevm      # provision infra (VS, Lakebase, Genie…) + deploy
-  dao-ai workflow run      -c config.yaml -p fevm                # run the staged provisioning job
+  dao-ai workflow up  -c config.yaml -p fevm                    # provision infra (VS, Lakebase, Genie…) + deploy the agent
+  dao-ai workflow run -c config.yaml -p fevm                    # run the staged provisioning job
 
 Trace & experiments:
   dao-ai trace create --name /Shared/team/traces -p fevm
@@ -2724,7 +2730,8 @@ def run_databricks_command(
     extra_vars.append(f'--var="dao_ai_dep={dao_ai_dep}"')
 
     # command=None -> stage-only (generate the bundle, don't run a bundle verb).
-    # This is what `workflow generate` with no --deploy/--run/--destroy does.
+    # This is what `workflow generate` does (staging only; deploy/run/up drive
+    # the bundle verbs).
     if command is None:
         logger.info(f"Workflow bundle staged in {staging_dir}")
         return
