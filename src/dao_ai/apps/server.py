@@ -38,12 +38,6 @@ agent_server = AgentServer("ResponsesAgent", enable_chat_proxy=_enable_chat_prox
 # Define the app as a module level variable to enable multiple workers
 app = agent_server.app
 
-# TEMPORARY: memory-footprint probe (no-op unless DAO_AI_MEMPROBE is set). Runs
-# in every process — master + each worker — so summed PSS reveals COW sharing.
-from dao_ai.apps import _memprobe  # noqa: E402
-
-_memprobe.start()
-
 
 def _mount_background_routes() -> None:
     """Register /v1/responses* routes when background is configured.
@@ -235,9 +229,6 @@ def _run_gunicorn_preload(port: int, workers: int) -> None:
     from loguru import logger
 
     def _post_fork(_server: Any, worker: Any) -> None:  # pragma: no cover — runtime hook
-        # Restart the (daemon, lock-free) mem probe in each forked worker so we
-        # capture per-worker PSS; safe to call — no-op unless DAO_AI_MEMPROBE set.
-        _memprobe.start()
         logger.info("gunicorn worker forked | pid={} worker={}", os.getpid(), worker.pid)
 
     class _DaoAiGunicornApp(BaseApplication):
@@ -270,15 +261,7 @@ def main() -> None:
     in each spawned uvicorn worker.
     """
     port, workers = _parse_server_args()
-    # TEMPORARY (experiment): DAO_AI_FORCE_UVICORN=1 forces the original
-    # uvicorn spawn path even for workers>1, to measure the pre-gunicorn OOM.
-    force_uvicorn = os.environ.get("DAO_AI_FORCE_UVICORN", "").strip().lower() in {
-        "1",
-        "true",
-        "yes",
-        "on",
-    }
-    if workers > 1 and not force_uvicorn:
+    if workers > 1:
         _run_gunicorn_preload(port, workers)
     else:
         agent_server.run(app_import_string="dao_ai.apps.server:app")
