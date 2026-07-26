@@ -21,6 +21,7 @@ Usage:
     python -m dao_ai.apps.server
 """
 
+import os
 from typing import Any, AsyncGenerator, Optional
 
 from mlflow.genai.agent_server import AgentServer
@@ -269,7 +270,15 @@ def main() -> None:
     in each spawned uvicorn worker.
     """
     port, workers = _parse_server_args()
-    if workers > 1:
+    # TEMPORARY (experiment): DAO_AI_FORCE_UVICORN=1 forces the original
+    # uvicorn spawn path even for workers>1, to measure the pre-gunicorn OOM.
+    force_uvicorn = os.environ.get("DAO_AI_FORCE_UVICORN", "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+    if workers > 1 and not force_uvicorn:
         _run_gunicorn_preload(port, workers)
     else:
         agent_server.run(app_import_string="dao_ai.apps.server:app")
