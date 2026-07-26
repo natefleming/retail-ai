@@ -21,6 +21,7 @@ Usage:
     python -m dao_ai.apps.server
 """
 
+import os
 from typing import Any, AsyncGenerator, Optional
 
 from mlflow.genai.agent_server import AgentServer
@@ -201,9 +202,103 @@ def _mount_a2a_routes() -> None:
 _mount_a2a_routes()
 
 
+def _parse_server_args() -> tuple[int, int]:
+    """Parse ``--port`` / ``--workers`` (matching MLflow AgentServer's flags)."""
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Start the dao-ai agent server")
+    parser.add_argument("--port", type=int, default=8000)
+    # default=0 sentinel → "unset" → auto-size to the container's CPUs in main().
+    parser.add_argument("--workers", type=int, default=0)
+    parser.add_argument("--reload", action="store_true")
+    args, _ = parser.parse_known_args()
+    return args.port, args.workers
+
+
+# Ceiling for auto-derived worker count. The agent is async/I/O-bound, so
+# throughput past a handful of workers has diminishing returns (each still
+# handles many concurrent requests on its event loop); the gunicorn preload
+# path keeps the per-worker memory cheap via copy-on-write. 8 leaves headroom
+# for larger Apps compute while bounding fork overhead. (Validated live at 4
+# workers on MEDIUM; higher counts are within the same COW-preload mechanism.)
+_MAX_AUTO_WORKERS = 8
+
+
+def _auto_workers() -> int:
+    """Worker count sized to the container's available CPUs (min 1, capped).
+
+    Uses ``sched_getaffinity`` (the cgroup/affinity-limited CPU set the
+    container can actually run on) rather than ``os.cpu_count()`` — the latter
+    reports the HOST's CPUs, which on a small Apps container is far larger than
+    the allotment and would oversubscribe (the exact over-worker condition that
+    crash-looped). Falls back to ``os.cpu_count()`` then 1 where affinity is
+    unavailable.
+    """
+    try:
+        cpus = len(os.sched_getaffinity(0))  # type: ignore[attr-defined]
+    except (AttributeError, OSError):
+        cpus = os.cpu_count() or 1
+    return max(1, min(cpus, _MAX_AUTO_WORKERS))
+
+
+def _run_gunicorn_preload(port: int, workers: int) -> None:
+    """Serve with gunicorn + UvicornWorker + ``preload_app=True``.
+
+    Preload imports ``dao_ai.apps.server`` (building the agent graph) ONCE in
+    the gunicorn arbiter, then forks the workers — so the graph's read-only
+    pages are copy-on-write shared instead of rebuilt per worker (uvicorn's own
+    multi-worker path spawns fresh interpreters with no sharing, which OOMs on
+    small Apps compute). Fork-safety: the Lakebase pool and langmem reflection
+    thread are already lazy (bound on first request, post-fork), so no live DB
+    connection or background thread exists at fork time.
+    """
+    from gunicorn.app.base import BaseApplication
+    from loguru import logger
+
+    def _post_fork(_server: Any, worker: Any) -> None:  # pragma: no cover — runtime hook
+        logger.info("gunicorn worker forked | pid={} worker={}", os.getpid(), worker.pid)
+
+    class _DaoAiGunicornApp(BaseApplication):
+        def load_config(self) -> None:
+            self.cfg.set("bind", f"0.0.0.0:{port}")
+            self.cfg.set("workers", workers)
+            self.cfg.set("worker_class", "uvicorn.workers.UvicornWorker")
+            self.cfg.set("preload_app", True)
+            self.cfg.set("post_fork", _post_fork)
+
+        def load(self) -> Any:
+            # Return the already-imported, already-built ASGI app. Under
+            # preload this runs in the arbiter, so the graph is built once here.
+            return app
+
+    logger.info(
+        "Starting gunicorn (preload) | workers={} port={} worker_class=UvicornWorker",
+        workers,
+        port,
+    )
+    _DaoAiGunicornApp().run()
+
+
 def main() -> None:
-    """Entry point for running the agent server."""
-    agent_server.run(app_import_string="dao_ai.apps.server:app")
+    """Entry point for running the agent server.
+
+    Single worker → MLflow's uvicorn launcher (unchanged). Multiple workers →
+    gunicorn with ``preload_app`` so the agent graph is built once and shared
+    copy-on-write across forked workers rather than rebuilt (and OOM-duplicated)
+    in each spawned uvicorn worker.
+    """
+    from loguru import logger
+
+    port, workers = _parse_server_args()
+    # workers==0 → unset (app.workers not configured): auto-size to the
+    # container's CPUs. An explicit --workers N (from app.workers) is honored.
+    if workers <= 0:
+        workers = _auto_workers()
+        logger.info("Auto-sized backend workers to {} (container CPUs)", workers)
+    if workers > 1:
+        _run_gunicorn_preload(port, workers)
+    else:
+        agent_server.run(app_import_string="dao_ai.apps.server:app")
 
 
 if __name__ == "__main__":
