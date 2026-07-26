@@ -567,6 +567,33 @@ class TestMcpNounRemoved:
             parse_args(["mcp", "generate", "-c", "c.yaml"])
 
 
+@pytest.mark.unit
+class TestMonitorScorersRegroup:
+    """`monitor <action>` is regrouped under `monitor scorers <action>` (breaking)."""
+
+    @pytest.mark.parametrize("action", ["enable", "status", "disable"])
+    def test_scorers_subcommand_parses(self, action: str) -> None:
+        opts = parse_args(["monitor", "scorers", action, "-c", "c.yaml"])
+        assert opts.command == "monitor"
+        assert opts.subcommand == "scorers"
+        assert opts.action == action
+
+    @pytest.mark.parametrize("action", ["enable", "status", "disable"])
+    def test_flat_monitor_action_rejected(self, action: str) -> None:
+        # The old flat form `monitor enable` is gone; the action is now a
+        # positional on the `scorers` sub-verb, so `enable` is an unknown verb.
+        with pytest.raises(SystemExit):
+            parse_args(["monitor", action, "-c", "c.yaml"])
+
+    def test_bare_monitor_requires_subcommand(self) -> None:
+        with pytest.raises(SystemExit):
+            parse_args(["monitor", "-c", "c.yaml"])
+
+    def test_scorers_rejects_unknown_action(self) -> None:
+        with pytest.raises(SystemExit):
+            parse_args(["monitor", "scorers", "bogus", "-c", "c.yaml"])
+
+
 _MINIMAL_CONFIG_YAML = (
     "resources:\n  models:\n    m: &m\n      name: databricks-gpt-5-4-mini\n"
     "agents:\n  g: &g\n    name: g\n    description: d\n    model: *m\n"

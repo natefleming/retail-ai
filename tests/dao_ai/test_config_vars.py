@@ -1668,13 +1668,14 @@ def test_cli_var_flag_appears_in_subparser_help(
     """Every config-aware subparser must surface --var in its help."""
     from dao_ai.cli import parse_args
 
-    for command in ("validate", "graph", "monitor", "chat", "vars"):
+    simple_help = (["validate"], ["graph"], ["chat"], ["vars"])
+    for argv in (*simple_help, ["monitor", "scorers"]):
         with pytest.raises(SystemExit):
             # --help triggers a clean SystemExit(0) after printing.
-            parse_args([command, "--help"])
+            parse_args([*argv, "--help"])
         captured = capsys.readouterr()
         assert "--var" in captured.out, (
-            f"--var flag missing from `{command} --help` output"
+            f"--var flag missing from `{' '.join(argv)} --help` output"
         )
 
     # Bundle-noun verbs get --var from the shared _add_bundle_common_args helper.

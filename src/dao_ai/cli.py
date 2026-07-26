@@ -713,6 +713,11 @@ Trace & experiments:
   dao-ai trace link   -c config.yaml -p fevm
   dao-ai trace grant  -c config.yaml -p fevm
 
+Production monitoring:
+  dao-ai monitor scorers enable  -c config.yaml -p fevm         # register + start monitoring scorers
+  dao-ai monitor scorers status  -c config.yaml -p fevm         # list active scorers
+  dao-ai monitor scorers disable -c config.yaml -p fevm         # stop all monitoring scorers
+
 Inspect & utilities:
   dao-ai tools      -c config.yaml                 # list MCP tools visible to agents
   dao-ai validate   -c config.yaml                 # validate config syntax + semantics
@@ -1166,24 +1171,47 @@ Examples:
     # Monitor command
     monitor_parser: ArgumentParser = subparsers.add_parser(
         "monitor",
-        help="Manage production monitoring scorers",
+        help="Manage production monitoring for the deployed agent (scorers)",
         description="""
-Manage production monitoring scorers for the deployed agent.
-Scorers continuously evaluate production traces for quality,
-safety, and guideline compliance.
+Manage production monitoring for the deployed agent.
+
+Currently exposes the `scorers` sub-group, which registers, inspects, and
+stops MLflow monitoring scorers that continuously evaluate production traces
+for quality, safety, and guideline compliance.
 
 Requires app.monitoring to be configured in the YAML config.
         """,
         epilog="""
 Examples:
-  dao-ai monitor enable -c config/model_config.yaml     # Register and start monitoring scorers
-  dao-ai monitor status -c config/model_config.yaml     # Show active scorers and sample rates
-  dao-ai monitor disable -c config/model_config.yaml    # Stop all monitoring scorers
+  dao-ai monitor scorers enable -c config/model_config.yaml    # Register and start monitoring scorers
+  dao-ai monitor scorers status -c config/model_config.yaml    # Show active scorers and sample rates
+  dao-ai monitor scorers disable -c config/model_config.yaml   # Stop all monitoring scorers
         """,
         formatter_class=argparse.RawDescriptionHelpFormatter,
         parents=[_GLOBAL],
     )
-    monitor_parser.add_argument(
+    monitor_verbs = monitor_parser.add_subparsers(dest="subcommand", required=True)
+
+    monitor_scorers_parser: ArgumentParser = monitor_verbs.add_parser(
+        "scorers",
+        help="Register, inspect, or stop MLflow monitoring scorers",
+        description="""
+Manage MLflow production monitoring scorers for the deployed agent.
+Scorers continuously evaluate production traces for quality, safety, and
+guideline compliance.
+
+Requires app.monitoring to be configured in the YAML config.
+        """,
+        epilog="""
+Examples:
+  dao-ai monitor scorers enable -c config/model_config.yaml    # Register and start monitoring scorers
+  dao-ai monitor scorers status -c config/model_config.yaml    # Show active scorers and sample rates
+  dao-ai monitor scorers disable -c config/model_config.yaml   # Stop all monitoring scorers
+        """,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        parents=[_GLOBAL],
+    )
+    monitor_scorers_parser.add_argument(
         "-c",
         "--config",
         type=str,
@@ -1191,10 +1219,10 @@ Examples:
         metavar="FILE",
         help="Path to the model configuration file",
     )
-    monitor_parser.add_argument(
+    monitor_scorers_parser.add_argument(
         "action",
         choices=["enable", "status", "disable"],
-        help="Monitoring action: enable (register/start scorers), "
+        help="Scorers action: enable (register/start scorers), "
         "status (list active scorers), disable (stop all scorers)",
     )
 
@@ -1296,7 +1324,7 @@ Examples:
         validation_parser,
         graph_parser,
         list_mcp_parser,
-        monitor_parser,
+        monitor_scorers_parser,
         chat_parser,
         vars_parser,
     ):
@@ -2030,7 +2058,18 @@ def handle_graph_command(options: Namespace) -> None:
 
 
 def handle_monitor_command(options: Namespace) -> None:
+    """Dispatch `dao-ai monitor <scorers>`.
+
+    ``scorers enable|status|disable`` manages MLflow production monitoring
+    scorers. (Runtime log/metrics sub-groups are intentionally absent: the
+    Databricks Apps platform exposes no logs or memory/CPU metrics API — see
+    the vault note ``dao-ai-monitor-observability-api-gap``.)
+    """
     from dao_ai.providers.databricks import DatabricksProvider
+
+    if options.subcommand != "scorers":
+        logger.error(f"Unknown monitor sub-command: {options.subcommand}")
+        sys.exit(1)
 
     _apply_profile_context(options.profile)
     logger.debug(f"Loading configuration from {options.config}...")
