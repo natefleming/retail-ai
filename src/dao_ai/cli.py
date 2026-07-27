@@ -12,12 +12,15 @@ import traceback
 from argparse import ArgumentParser, Namespace
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Optional, Sequence
+from typing import TYPE_CHECKING, Any, Optional, Sequence
 
 from dotenv import find_dotenv, load_dotenv
 from loguru import logger
 
 from dao_ai.config import AppConfig
+
+if TYPE_CHECKING:
+    from dao_ai.config import McpFunctionModel
 from dao_ai.config_vars import ConfigVariableError, resolve_parameters
 from dao_ai.graph import create_dao_ai_graph
 from dao_ai.logging import configure_logging
