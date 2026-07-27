@@ -2727,20 +2727,52 @@ def _handle_mcp_inspect(options: Namespace) -> None:
         print(f"Server: {mcp_url}")
         print(f"{'=' * 80}\n")
 
-        # Health is best-effort: only dao-ai MCP servers expose /healthz.
+        # Health is best-effort. dao-ai apps (agent and MCP-server) expose
+        # /healthz; arbitrary/managed MCP servers may not. The probe reuses the
+        # resolved workspace-client auth headers, since Databricks Apps sit
+        # behind an authenticating proxy. A 200 with an empty body still means
+        # healthy — only a 404 means "no such endpoint".
         health_url = f"{mcp_url.rstrip('/').removesuffix('/mcp')}/healthz"
         try:
             import httpx
 
-            resp = httpx.get(health_url, timeout=10.0)
+            headers = function.workspace_client.config.authenticate() or {}
+            resp = httpx.get(
+                health_url, headers=headers, timeout=10.0, follow_redirects=True
+            )
             if resp.status_code == 200:
-                print(f"   Health: ✓ {resp.json()}")
+                body = resp.text.strip()
+                detail = ""
+                if body:
+                    try:
+                        detail = f" {resp.json()}"
+                    except ValueError:
+                        detail = f" {body[:200]}"
+                print(f"   Health: ✓ 200{detail}")
+            elif resp.status_code == 404:
+                print("   Health: n/a (no /healthz endpoint)")
             else:
                 print(f"   Health: n/a (HTTP {resp.status_code})")
-        except Exception:
-            print("   Health: n/a (no /healthz endpoint)")
+        except Exception as e:
+            print(f"   Health: n/a ({type(e).__name__})")
 
-        tools = list_mcp_tools(function, apply_filters=False)
+        # Tool listing. Only MCP servers expose a tool list; a plain dao-ai
+        # agent App has no /mcp tool-listing route, so surface that as guidance
+        # rather than an opaque hard error.
+        try:
+            tools = list_mcp_tools(function, apply_filters=False)
+        except Exception as e:
+            logger.debug(traceback.format_exc())
+            print(
+                "\n   ⚠️  Could not list tools — this endpoint did not respond as "
+                "an MCP server.\n   If this is a dao-ai agent App (not an MCP "
+                "server), inspect it via its\n   agent API instead; only "
+                "`agent --mode mcp` deployments expose MCP tools.\n"
+                f"\n   Detail: {e}"
+            )
+            print(f"\n{'=' * 80}\n")
+            sys.exit(1)
+
         print(f"\n   Available Tools: {len(tools)}\n")
         for tool in sorted(tools, key=lambda t: t.name):
             print(f"     • {tool.name}")
@@ -2779,8 +2811,10 @@ def _handle_mcp_call(options: Namespace) -> None:
         print(f"\n❌ Error: --args must be a JSON object: {e}", file=sys.stderr)
         sys.exit(1)
     if not isinstance(args, dict):
-        print("\n❌ Error: --args must be a JSON object (e.g. '{\"q\": \"hi\"}')",
-              file=sys.stderr)
+        print(
+            '\n❌ Error: --args must be a JSON object (e.g. \'{"q": "hi"}\')',
+            file=sys.stderr,
+        )
         sys.exit(1)
 
     try:
