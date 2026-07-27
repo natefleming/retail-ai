@@ -713,9 +713,9 @@ Provision infrastructure:
   dao-ai workflow run -c config.yaml -p fevm                    # run the staged provisioning job
 
 Trace & experiments:
-  dao-ai trace create --name /Shared/team/traces -p fevm
-  dao-ai trace link   -c config.yaml -p fevm
-  dao-ai trace grant  -c config.yaml -p fevm
+  dao-ai trace create --name /Shared/team/traces -p fevm        # create (or resolve) the MLflow experiment for traces
+  dao-ai trace link   -c config.yaml -p fevm                    # link experiment to its UC trace destination (after deploy, before run)
+  dao-ai trace grant  -c config.yaml -p fevm                    # grant a deployed App/MS SP its trace-write permissions
 
 Production monitoring:
   dao-ai monitor scorers enable  -c config.yaml -p fevm         # register + start monitoring scorers
