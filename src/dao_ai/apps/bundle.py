@@ -16,6 +16,7 @@ Usage:
     write_bundle(config, Path("./my-bundle"), overwrite=False)
 """
 
+import hashlib
 import io
 import shutil
 import subprocess
@@ -35,6 +36,18 @@ from dao_ai.apps.resources import (
 )
 from dao_ai.code_paths import _SRC_DIRNAME, code_path_sync_globs
 from dao_ai.config import AppConfig, value_of
+
+
+def _sha256_file(path: Path) -> str:
+    """Hex SHA-256 of a file's bytes.
+
+    Used to build the staging manifest (``.dao-ai-manifest.yaml``): the manifest
+    records a content hash for every file dao-ai generated so a later
+    ``deploy``/``generate`` can tell a hand-edited generated file from an
+    untouched one (see ``_staging_dir_has_local_edits`` in ``cli.py``). Shared by
+    the app, MCP, and pipeline bundle writers.
+    """
+    return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
 def dump_bundle_yaml(doc: dict[str, Any]) -> str:
@@ -701,7 +714,7 @@ def write_bundle(
     output_dir: Path,
     overwrite: bool = False,
     development: bool = False,
-) -> None:
+) -> dict[str, str]:
     """Write a complete, deployable Databricks Apps bundle directory.
 
     Generates databricks.yaml, copies the dao-ai config, and creates
@@ -716,6 +729,12 @@ def write_bundle(
     clobber the dao-ai project descriptor if the deployer accidentally ran
     ``generate-agent`` from inside a dao-ai checkout (the default
     ``--output-dir`` is the CWD).
+
+    Returns the staging registry: ``{relative_posix_path: sha256}`` for the
+    files dao-ai *generated* (databricks.yaml, resources/app.yml, pyproject.toml,
+    uv.lock, scaffold). User code (the rendered config, code_paths, src/<pkg>,
+    skills, dist wheels) is deliberately excluded so hand-edits to it never trip
+    edit-detection. The caller stamps this into ``.dao-ai-manifest.yaml``.
     """
     resolved_output = output_dir.resolve()
     if (resolved_output / "src" / "dao_ai" / "config.py").exists():
@@ -734,6 +753,14 @@ def write_bundle(
     # User code (src/ + code_paths + source config) that already existed at the
     # dest and was left untouched — never overwritten, even with --overwrite.
     preserved: list[str] = []
+    # Content hashes of the files dao-ai generated, keyed by output-dir-relative
+    # POSIX path. Populated only at generated-scaffold write sites (see _track and
+    # the uv.lock write); user-code copy sites deliberately omit themselves.
+    registry: dict[str, str] = {}
+
+    def _register(path: Path) -> None:
+        if path.exists():
+            registry[path.relative_to(output_dir).as_posix()] = _sha256_file(path)
 
     # Warn loudly when the bundle is being built without `trace_location`:
     # Databricks Apps containers cannot reach the artifact-storage host the
@@ -761,6 +788,10 @@ def write_bundle(
             written.append(path.name)
         else:
             skipped.append(path.name)
+        # Register the on-disk content whether we wrote it or skipped an existing
+        # copy — either way it's a dao-ai-generated file whose hand-edits we want
+        # to detect on the next deploy.
+        _register(path)
 
     source_config: str | None = config._source_config_path
     config_filename: str = Path(source_config).name if source_config else "dao_ai.yaml"
@@ -1051,6 +1082,7 @@ def write_bundle(
         # public-PyPI closure at lock time; the lock pins it.
         generate_bundle_lock(output_dir)
         written.append("uv.lock")
+        _register(output_dir / "uv.lock")
 
     _track(
         output_dir / ".gitignore",
@@ -1088,3 +1120,5 @@ def write_bundle(
     print("  # Apps' build phase installs deps via `uv sync --locked` from")
     print("  # pyproject.toml + uv.lock (portable, public-CDN URLs).")
     print()
+
+    return registry
