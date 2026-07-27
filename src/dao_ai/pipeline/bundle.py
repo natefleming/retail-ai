@@ -38,6 +38,7 @@ from typing import Any
 from loguru import logger
 
 from dao_ai.apps.bundle import (
+    _sha256_file,
     _strip_parameters_block,
     _write_file,
     dump_bundle_yaml,
@@ -449,7 +450,7 @@ def write_pipeline_bundle(
     output_dir: Path,
     overwrite: bool = False,
     development: bool = False,
-) -> None:
+) -> dict[str, str]:
     """Stage a deployable ``deploy_job`` bundle for ``dao-ai generate-workflow``.
 
     Materializes the packaged pipeline assets (``databricks.yaml`` template,
@@ -471,6 +472,12 @@ def write_pipeline_bundle(
             ``dist/`` so the step notebooks install *this* code rather than the
             published PyPI package. When no local wheel/source is available this
             raises rather than silently falling back to PyPI.
+
+    Returns the staging registry: ``{relative_posix_path: sha256}`` for the files
+    dao-ai *generated* (databricks.yaml, step notebooks). The staged config,
+    referenced assets, code_paths, src/<pkg>, and dist wheel are excluded so
+    hand-edits to them never trip edit-detection. The caller stamps this into
+    ``.dao-ai-manifest.yaml``.
     """
     if config.app is None:
         raise ValueError(
@@ -483,6 +490,15 @@ def write_pipeline_bundle(
     written: list[str] = []
     # User code (src/ + code_paths + source config) left untouched.
     preserved_user_code: list[str] = []
+    # Content hashes of the files dao-ai generated (databricks.yaml + notebooks),
+    # keyed by output-dir-relative POSIX path. The staged config and assets are
+    # user-editable, so they're excluded.
+    registry: dict[str, str] = {}
+
+    def _register(rel: str) -> None:
+        path = output_dir / rel
+        if path.exists():
+            registry[Path(rel).as_posix()] = _sha256_file(path)
 
     # Packaged/derived artifacts (databricks.yaml, requirements.txt, notebooks)
     # are ALWAYS regenerated — they are 100% derived from the installed wheel and
@@ -501,11 +517,15 @@ def write_pipeline_bundle(
         overwrite=True,
     )
     written.append("databricks.yaml")
+    _register("databricks.yaml")
 
     # 2. Step notebooks. (No requirements.txt: the serverless environment
     #    installs dao-ai — which pulls its own transitive deps — via the
     #    ``dao_ai_dep`` dependency, mirroring the Apps deploy paths.)
-    written.extend(_materialize_notebooks(output_dir, overwrite=True))
+    notebook_rels = _materialize_notebooks(output_dir, overwrite=True)
+    written.extend(notebook_rels)
+    for rel in notebook_rels:
+        _register(rel)
 
     # 4. The resolved config, under config/<name>.yaml so the notebook's
     #    `../config` discovery and an explicit config-path both resolve. Prefer
@@ -620,3 +640,5 @@ def write_pipeline_bundle(
             "from a tree that contains them, point them at UC volume paths, or "
             "use --development from a full checkout."
         )
+
+    return registry

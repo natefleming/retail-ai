@@ -27,6 +27,23 @@ def _base(cmd: str) -> list[str]:
     return cmd.split() + ["-c", "config.yaml"]
 
 
+def _stamp_manifest(
+    bundle_dir: Path, *, fingerprint: str = "", files: list[str] | None = None
+) -> None:
+    """Write a `.dao-ai-manifest.yaml` recording the given files' current hashes.
+
+    Mirrors what the bundle writers hand `_write_staging_manifest`: only the
+    listed (generated) files are registered, so edits to unlisted user code are
+    ignored by `_staging_dir_has_local_edits`.
+    """
+    from dao_ai.apps.bundle import _sha256_file
+
+    registry = {rel: _sha256_file(bundle_dir / rel) for rel in (files or [])}
+    cli._write_staging_manifest(
+        bundle_dir, is_default=True, fingerprint=fingerprint, registry=registry
+    )
+
+
 @pytest.mark.unit
 @pytest.mark.parametrize(
     "command",
@@ -160,7 +177,7 @@ class TestDefaultBundleDir:
         under = base / "agent" / "app"
         under.mkdir(parents=True)
         (under / "sentinel").write_text("x")
-        cli._write_staging_marker(under, is_default=True)  # mark as our output
+        _stamp_manifest(under, files=["sentinel"])  # mark as our output
         cli._clean_default_staging_dir(
             under, is_default=True, overwrite=False, noun="agent"
         )
@@ -183,8 +200,12 @@ class TestEditSafety:
         base = tmp_path / "base"
         d = base / "agent" / "app"
         d.mkdir(parents=True)
-        (d / "app.yaml").write_text("orig\n")
-        cli._write_staging_marker(d, is_default=True)
+        (d / "app.yaml").write_text("orig\n")  # generated (tracked in `files`)
+        (d / "src").mkdir()
+        (d / "src" / "mine.py").write_text("print('mine')\n")  # user code (in `known`)
+        # Only app.yaml is a generated file; src/mine.py is present at stamp time,
+        # so it lands in `known` (not `files`) and is safe to edit later.
+        _stamp_manifest(d, files=["app.yaml"])
         return d
 
     def test_untouched_dir_wiped_silently(
@@ -202,12 +223,8 @@ class TestEditSafety:
     ) -> None:
         monkeypatch.setenv("DAO_AI_BUNDLE_DIR", str(tmp_path / "base"))
         d = self._staged(tmp_path)
-        # Edit a file so its mtime post-dates the marker.
-        marker_mtime = (d / cli._STAGING_MARKER).stat().st_mtime
-        import os
-
+        # Change a registered file's CONTENT — hash no longer matches the manifest.
         (d / "app.yaml").write_text("edited\n")
-        os.utime(d / "app.yaml", (marker_mtime + 10, marker_mtime + 10))
         with pytest.raises(SystemExit) as exc:
             cli._clean_default_staging_dir(
                 d, is_default=True, overwrite=False, noun="agent"
@@ -230,12 +247,87 @@ class TestEditSafety:
         monkeypatch.setenv("DAO_AI_BUNDLE_DIR", str(tmp_path / "base"))
         d = tmp_path / "base" / "agent" / "app"
         d.mkdir(parents=True)
-        (d / "app.yaml").write_text("user file\n")  # no marker written
+        (d / "app.yaml").write_text("user file\n")  # no manifest written
         with pytest.raises(SystemExit):
             cli._clean_default_staging_dir(
                 d, is_default=True, overwrite=False, noun="agent"
             )
         assert d.exists()
+
+    def test_editing_existing_user_code_does_not_trigger(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Editing user code that existed at generate time must never flag edits.
+
+        Only dao-ai-generated files are hashed; a user's in-place edits to src/,
+        code_paths, or their config (present in ``known`` but not ``files``) are
+        invisible to edit-detection, so the dir regenerates cleanly.
+        """
+        monkeypatch.setenv("DAO_AI_BUNDLE_DIR", str(tmp_path / "base"))
+        d = self._staged(tmp_path)  # src/mine.py present at stamp time
+        (d / "src" / "mine.py").write_text("print('edited')\n")  # edit existing user code
+        assert cli._staging_dir_has_local_edits(d) is False
+        # A dir with no edited generated files + no strays is wiped silently.
+        cli._clean_default_staging_dir(
+            d, is_default=True, overwrite=False, noun="agent"
+        )
+        assert not d.exists()
+
+    def test_user_added_stray_file_triggers(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A NEW user file added after generate (e.g. a hand-dropped resources/
+        jobs.yml) must be protected — the dir must not be silently wiped."""
+        monkeypatch.setenv("DAO_AI_BUNDLE_DIR", str(tmp_path / "base"))
+        d = self._staged(tmp_path)
+        (d / "resources").mkdir()
+        (d / "resources" / "jobs.yml").write_text("resources: {}\n")  # stray, not in `known`
+        assert cli._staging_dir_has_local_edits(d) is True
+        with pytest.raises(SystemExit):
+            cli._clean_default_staging_dir(
+                d, is_default=True, overwrite=False, noun="agent"
+            )
+        assert d.exists(), "stray user file must be preserved"
+
+    def test_build_noise_not_treated_as_stray(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """__pycache__/.venv/dist churn appearing after generate is ignored."""
+        monkeypatch.setenv("DAO_AI_BUNDLE_DIR", str(tmp_path / "base"))
+        d = self._staged(tmp_path)
+        (d / "__pycache__").mkdir()
+        (d / "__pycache__" / "x.cpython-311.pyc").write_text("noise")
+        (d / "src" / "app.pyc").write_text("noise")
+        (d / "dist").mkdir()
+        (d / "dist" / "app-0.1.0.whl").write_text("noise")
+        assert cli._staging_dir_has_local_edits(d) is False
+
+    def test_deleted_generated_file_triggers(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("DAO_AI_BUNDLE_DIR", str(tmp_path / "base"))
+        d = self._staged(tmp_path)
+        (d / "app.yaml").unlink()  # a tracked file vanished
+        assert cli._staging_dir_has_local_edits(d) is True
+
+    def test_legacy_marker_mtime_fallback(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A pre-manifest dir (legacy marker, no manifest) uses the mtime heuristic."""
+        import os
+
+        monkeypatch.setenv("DAO_AI_BUNDLE_DIR", str(tmp_path / "base"))
+        d = tmp_path / "base" / "agent" / "app"
+        d.mkdir(parents=True)
+        (d / "app.yaml").write_text("orig\n")
+        (d / cli._STAGING_MARKER).write_text("legacy-fp")
+        marker_mtime = (d / cli._STAGING_MARKER).stat().st_mtime
+        # Untouched (all files older-or-equal to marker) -> no edits.
+        os.utime(d / "app.yaml", (marker_mtime - 10, marker_mtime - 10))
+        assert cli._staging_dir_has_local_edits(d) is False
+        # A file newer than the marker -> edited.
+        os.utime(d / "app.yaml", (marker_mtime + 10, marker_mtime + 10))
+        assert cli._staging_dir_has_local_edits(d) is True
 
 
 @pytest.mark.unit
@@ -273,11 +365,44 @@ class TestConfigFingerprint:
         b = cli._config_fingerprint(self._config(), development=True)
         assert a != b
 
-    def test_marker_records_fingerprint(self, tmp_path: Path) -> None:
+    def test_manifest_records_fingerprint_and_files(self, tmp_path: Path) -> None:
         d = tmp_path / "base" / "agent" / "app"
         d.mkdir(parents=True)
-        cli._write_staging_marker(d, is_default=True, fingerprint="abc123")
-        assert (d / cli._STAGING_MARKER).read_text() == "abc123"
+        (d / "databricks.yaml").write_text("bundle: x\n")
+        from dao_ai.apps.bundle import _sha256_file
+
+        registry = {"databricks.yaml": _sha256_file(d / "databricks.yaml")}
+        cli._write_staging_manifest(
+            d, is_default=True, fingerprint="abc123", registry=registry
+        )
+        manifest = cli._read_staging_manifest(d)
+        assert manifest is not None
+        assert manifest["version"] == cli._MANIFEST_VERSION
+        assert manifest["config_fingerprint"] == "abc123"
+        assert manifest["files"] == registry
+        # `known` snapshots every non-ignored file on disk at stamp time.
+        assert "databricks.yaml" in manifest["known"]
+
+    def test_manifest_retires_legacy_marker(self, tmp_path: Path) -> None:
+        d = tmp_path / "base" / "agent" / "app"
+        d.mkdir(parents=True)
+        (d / cli._STAGING_MARKER).write_text("old-fp")
+        cli._write_staging_manifest(
+            d, is_default=True, fingerprint="new-fp", registry={}
+        )
+        assert not (d / cli._STAGING_MARKER).exists()
+        assert (d / cli._STAGING_MANIFEST).exists()
+
+    def test_malformed_manifest_files_does_not_crash(self, tmp_path: Path) -> None:
+        """A manifest whose `files` is a non-dict must not raise on detection."""
+        d = tmp_path / "base" / "agent" / "app"
+        d.mkdir(parents=True)
+        (d / cli._STAGING_MANIFEST).write_text(
+            "version: 1\nconfig_fingerprint: fp\nfiles:\n  - a\n  - b\n"
+        )
+        # `files` is a list, not a dict -> treated as empty, no AttributeError.
+        assert cli._staging_dir_has_local_edits(d) is False
+        assert cli._staged_config_is_stale(d, "fp") is False
 
 
 @pytest.mark.unit
@@ -287,7 +412,9 @@ class TestStagedConfigStaleness:
     def _marked(self, tmp_path: Path, fingerprint: str) -> Path:
         d = tmp_path / "base" / "agent" / "app"
         d.mkdir(parents=True)
-        cli._write_staging_marker(d, is_default=True, fingerprint=fingerprint)
+        cli._write_staging_manifest(
+            d, is_default=True, fingerprint=fingerprint, registry={}
+        )
         return d
 
     def test_matching_fingerprint_not_stale(self, tmp_path: Path) -> None:
@@ -298,15 +425,23 @@ class TestStagedConfigStaleness:
         d = self._marked(tmp_path, "fp-1")
         assert cli._staged_config_is_stale(d, "fp-2") is True
 
-    def test_missing_marker_not_stale(self, tmp_path: Path) -> None:
+    def test_missing_manifest_not_stale(self, tmp_path: Path) -> None:
         d = tmp_path / "base" / "agent" / "app"
-        d.mkdir(parents=True)  # no marker (legacy / -o dir)
+        d.mkdir(parents=True)  # no manifest (legacy / -o dir)
         assert cli._staged_config_is_stale(d, "fp-1") is False
 
-    def test_empty_marker_not_stale(self, tmp_path: Path) -> None:
-        # A workflow bundle stamps an empty marker; never treat it as stale.
+    def test_empty_fingerprint_not_stale(self, tmp_path: Path) -> None:
+        # A workflow bundle stamps an empty fingerprint; never treat it as stale.
         d = self._marked(tmp_path, "")
         assert cli._staged_config_is_stale(d, "fp-1") is False
+
+    def test_legacy_marker_fingerprint_fallback(self, tmp_path: Path) -> None:
+        # A pre-manifest dir still exposes its fingerprint via the legacy marker.
+        d = tmp_path / "base" / "agent" / "app"
+        d.mkdir(parents=True)
+        (d / cli._STAGING_MARKER).write_text("legacy-fp")
+        assert cli._staged_config_is_stale(d, "legacy-fp") is False
+        assert cli._staged_config_is_stale(d, "other-fp") is True
 
 
 @pytest.mark.unit
@@ -742,16 +877,22 @@ class TestDeployRestagesOnConfigDrift:
     ) -> bool:
         """Drive `agent deploy` against a pre-staged dir. Returns True if re-staged.
 
-        ``marker_fingerprint`` seeds the staged marker: None omits it (legacy
-        dir), "" is a workflow-style empty marker, a string is a recorded hash.
-        ``has_edits`` simulates hand-edits; ``overwrite`` passes --overwrite.
+        ``marker_fingerprint`` seeds the staged manifest's config_fingerprint:
+        None omits the manifest (legacy dir), "" is a workflow-style empty
+        fingerprint, a string is a recorded hash. ``has_edits`` simulates
+        hand-edits; ``overwrite`` passes --overwrite.
         """
         cfg = self._write_config(tmp_path)
         staged = tmp_path / "staged" / "agent" / "test_app"
         staged.mkdir(parents=True)
         (staged / "databricks.yaml").write_text("bundle: {}\n")
         if marker_fingerprint is not None:
-            (staged / cli._STAGING_MARKER).write_text(marker_fingerprint)
+            cli._write_staging_manifest(
+                staged,
+                is_default=True,
+                fingerprint=marker_fingerprint,
+                registry={},
+            )
 
         restaged: dict[str, bool] = {}
         monkeypatch.setattr(cli, "_apply_profile_context", lambda p: None)
@@ -774,7 +915,7 @@ class TestDeployRestagesOnConfigDrift:
         cli.handle_agent_command(opts)
         return restaged.get("staged", False)
 
-    def test_restages_when_marker_fingerprint_differs(
+    def test_restages_when_manifest_fingerprint_differs(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         # A fingerprint that cannot match the current config -> stale -> re-stage.
@@ -801,10 +942,10 @@ class TestDeployRestagesOnConfigDrift:
             is False
         )
 
-    def test_deploys_in_place_when_marker_absent(
+    def test_deploys_in_place_when_manifest_absent(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        # Legacy staged dir with no marker -> no recorded fingerprint -> in place.
+        # Staged dir with no manifest -> no recorded fingerprint -> in place.
         assert self._run_deploy(tmp_path, monkeypatch, marker_fingerprint=None) is False
 
     def test_stale_with_edits_deploys_in_place(

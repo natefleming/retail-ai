@@ -40,6 +40,7 @@ from dao_ai._locking import generate_bundle_lock
 from dao_ai.apps.bundle import (
     _GITIGNORE_CONTENT,
     _GITIGNORE_DEV_CONTENT,
+    _sha256_file,
     _strip_parameters_block,
     generate_databricks_yaml,
     generate_resources_app_yaml,
@@ -62,7 +63,7 @@ def write_mcp_bundle(
     *,
     overwrite: bool = False,
     development: bool = False,
-) -> None:
+) -> dict[str, str]:
     """Write an MCP-server deploy bundle into ``output_dir``.
 
     Requires ``config.app.name`` (used as both the Databricks App name and
@@ -72,6 +73,12 @@ def write_mcp_bundle(
     When ``development=True``, builds the local dao-ai wheel and bundles it
     into ``output_dir/dist/``; the generated requirements.txt then installs
     from that wheel instead of pulling ``dao-ai[mcp]`` from PyPI.
+
+    Returns the staging registry: ``{relative_posix_path: sha256}`` for the
+    files dao-ai *generated* (databricks.yaml, resources/app.yml, pyproject.toml,
+    uv.lock, scaffold, README.md). User code (the rendered config, the stub
+    package, code_paths, src/<pkg>, dist wheel) is excluded so hand-edits to it
+    never trip edit-detection. The caller stamps this into ``.dao-ai-manifest.yaml``.
     """
     if config.app is None or not config.app.name:
         raise ValueError(
@@ -99,14 +106,26 @@ def write_mcp_bundle(
     skipped: list[str] = []
     # User code (src/ + code_paths + source config) preserved as-is.
     preserved: list[str] = []
+    # Content hashes of the files dao-ai generated, keyed by output-dir-relative
+    # POSIX path. User-code writes pass register=False so hand-edits to them never
+    # trip edit-detection.
+    registry: dict[str, str] = {}
 
-    def _write(path: Path, content: str) -> None:
+    def _register(path: Path) -> None:
+        if path.exists():
+            registry[path.relative_to(output_dir).as_posix()] = _sha256_file(path)
+
+    def _write(path: Path, content: str, *, register: bool = True) -> None:
         if path.exists() and not overwrite:
             skipped.append(str(path.relative_to(output_dir)))
+            if register:
+                _register(path)
             return
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(content)
         written.append(str(path.relative_to(output_dir)))
+        if register:
+            _register(path)
 
     # Reuse the shared bundle helpers so the App + experiment + resource
     # bindings match ``generate-agent`` byte-for-byte. MCP disables the
@@ -175,9 +194,10 @@ def write_mcp_bundle(
     )
 
     # Stub package so uv can build the local project when locking (the
-    # pyproject declares ``packages = ["src/<pkg>"]``).
+    # pyproject declares ``packages = ["src/<pkg>"]``). User code: not registered
+    # so a real package the user drops here can be edited freely.
     package_name = app_name.replace("-", "_")
-    _write(output_dir / "src" / package_name / "__init__.py", "")
+    _write(output_dir / "src" / package_name / "__init__.py", "", register=False)
 
     _write(
         output_dir / ".gitignore",
@@ -191,6 +211,7 @@ def write_mcp_bundle(
     # locks the full ``dao-ai[mcp]`` public-PyPI closure.
     generate_bundle_lock(output_dir)
     written.append("uv.lock")
+    _register(output_dir / "uv.lock")
 
     config_dest = output_dir / config_filename
     if source_config_path is not None and (
@@ -202,9 +223,11 @@ def write_mcp_bundle(
     else:
         rendered: str | None = config._rendered_yaml
         if rendered is not None:
-            _write(config_dest, _strip_parameters_block(rendered))
+            _write(config_dest, _strip_parameters_block(rendered), register=False)
         elif source_config_path is not None:
-            _write(config_dest, Path(source_config_path).read_text())
+            _write(
+                config_dest, Path(source_config_path).read_text(), register=False
+            )
         else:
             logger.warning("mcp.generate.no_source_config — skipping config copy")
 
@@ -273,6 +296,8 @@ def write_mcp_bundle(
     print("  # Apps' build phase installs deps via `uv sync --locked` from")
     print("  # pyproject.toml + uv.lock (portable, public-CDN URLs).")
     print()
+
+    return registry
 
 
 def _derive_app_name(config: AppConfig) -> str:
