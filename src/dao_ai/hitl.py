@@ -327,12 +327,12 @@ async def _record_hitl_non_executions(
             ),
             decision=decision_type if isinstance(decision_type, str) else None,
             decision_detail=decision_detail,
-            approver_sub=(
-                stash_entry.approver_sub if stash_entry is not None else None
-            ) or approver_sub,
+            approver_sub=(stash_entry.approver_sub if stash_entry is not None else None)
+            or approver_sub,
             confirmed_via=(
                 stash_entry.confirmed_via if stash_entry is not None else None
-            ) or "chat_ui",
+            )
+            or "chat_ui",
             nonce=stash_entry.nonce if stash_entry is not None else None,
             nonce_exp=stash_entry.nonce_exp if stash_entry is not None else None,
             execution_status=ExecutionStatus.NOT_EXECUTED_REJECTED,
@@ -363,9 +363,7 @@ async def _record_hitl_non_executions(
         try:
             from dao_ai.audit import dispatch_audit_receipt_notification
 
-            await dispatch_audit_receipt_notification(
-                receipt, config=runtime_config
-            )
+            await dispatch_audit_receipt_notification(receipt, config=runtime_config)
         except Exception as exc:  # noqa: BLE001
             logger.debug(
                 "Failed to dispatch HITL non-execution receipt notification",
@@ -391,5 +389,3 @@ def _thread_id_from_config(runtime_config: dict[str, Any]) -> str:
         if isinstance(candidate, str) and candidate:
             return candidate
     return "unknown-thread"
-
-

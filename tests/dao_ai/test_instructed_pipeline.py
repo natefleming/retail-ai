@@ -62,9 +62,7 @@ def instructed_cfg(
     decomposition: DecompositionModel,
     columns: list[ColumnInfo],
 ) -> InstructedRetrieverModel:
-    return InstructedRetrieverModel(
-        columns=columns, decomposition=decomposition
-    )
+    return InstructedRetrieverModel(columns=columns, decomposition=decomposition)
 
 
 def _docs(*ids: str) -> list[Document]:
@@ -120,9 +118,7 @@ class TestDecideMode:
     ) -> None:
         rc = RouterModel(model=llm, default_mode="standard", auto_bypass=True)
         with (
-            patch(
-                "dao_ai.tools.instructed_pipeline._get_cached_llm"
-            ) as mock_llm,
+            patch("dao_ai.tools.instructed_pipeline._get_cached_llm") as mock_llm,
             patch(
                 "dao_ai.tools.instructed_pipeline.route_query",
                 return_value="instructed",
@@ -144,9 +140,7 @@ class TestDecideMode:
     ) -> None:
         rc = RouterModel(model=llm, default_mode="instructed", auto_bypass=False)
         with (
-            patch(
-                "dao_ai.tools.instructed_pipeline._get_cached_llm"
-            ) as mock_llm,
+            patch("dao_ai.tools.instructed_pipeline._get_cached_llm") as mock_llm,
             patch(
                 "dao_ai.tools.instructed_pipeline.route_query",
                 side_effect=RuntimeError("boom"),
@@ -197,12 +191,8 @@ class TestInstructedMode:
             return _docs(f"result_for_{q}")
 
         with (
-            patch(
-                "dao_ai.tools.instructed_pipeline._get_cached_llm"
-            ) as mock_llm,
-            patch(
-                "dao_ai.tools.instructed_pipeline.decompose_query"
-            ) as mock_decompose,
+            patch("dao_ai.tools.instructed_pipeline._get_cached_llm") as mock_llm,
+            patch("dao_ai.tools.instructed_pipeline.decompose_query") as mock_decompose,
         ):
             mock_llm.return_value = MagicMock()
             mock_decompose.return_value = [
@@ -248,12 +238,8 @@ class TestInstructedMode:
             return _docs("ok")
 
         with (
-            patch(
-                "dao_ai.tools.instructed_pipeline._get_cached_llm"
-            ) as mock_llm,
-            patch(
-                "dao_ai.tools.instructed_pipeline.decompose_query"
-            ) as mock_decompose,
+            patch("dao_ai.tools.instructed_pipeline._get_cached_llm") as mock_llm,
+            patch("dao_ai.tools.instructed_pipeline.decompose_query") as mock_decompose,
         ):
             mock_llm.return_value = MagicMock()
             mock_decompose.return_value = [
@@ -289,12 +275,8 @@ class TestInstructedMode:
             return _docs("ok")
 
         with (
-            patch(
-                "dao_ai.tools.instructed_pipeline._get_cached_llm"
-            ) as mock_llm,
-            patch(
-                "dao_ai.tools.instructed_pipeline.decompose_query"
-            ) as mock_decompose,
+            patch("dao_ai.tools.instructed_pipeline._get_cached_llm") as mock_llm,
+            patch("dao_ai.tools.instructed_pipeline.decompose_query") as mock_decompose,
         ):
             mock_llm.return_value = MagicMock()
             mock_decompose.return_value = [
@@ -330,12 +312,8 @@ class TestInstructedMode:
             return _docs("fallback")
 
         with (
-            patch(
-                "dao_ai.tools.instructed_pipeline._get_cached_llm"
-            ) as mock_llm,
-            patch(
-                "dao_ai.tools.instructed_pipeline.decompose_query", return_value=[]
-            ),
+            patch("dao_ai.tools.instructed_pipeline._get_cached_llm") as mock_llm,
+            patch("dao_ai.tools.instructed_pipeline.decompose_query", return_value=[]),
         ):
             mock_llm.return_value = MagicMock()
             docs = execute_instructed_pipeline(
@@ -362,9 +340,7 @@ class TestInstructedMode:
             return _docs("fallback")
 
         with (
-            patch(
-                "dao_ai.tools.instructed_pipeline._get_cached_llm"
-            ) as mock_llm,
+            patch("dao_ai.tools.instructed_pipeline._get_cached_llm") as mock_llm,
             patch(
                 "dao_ai.tools.instructed_pipeline.decompose_query",
                 side_effect=RuntimeError("LLM down"),
@@ -395,15 +371,9 @@ class TestInstructedMode:
             return _docs("x")
 
         with (
-            patch(
-                "dao_ai.tools.instructed_pipeline._get_cached_llm"
-            ) as mock_llm,
-            patch(
-                "dao_ai.tools.instructed_pipeline.decompose_query"
-            ) as mock_decompose,
-            patch(
-                "dao_ai.tools.instructed_pipeline.rrf_merge", return_value=[]
-            ),
+            patch("dao_ai.tools.instructed_pipeline._get_cached_llm") as mock_llm,
+            patch("dao_ai.tools.instructed_pipeline.decompose_query") as mock_decompose,
+            patch("dao_ai.tools.instructed_pipeline.rrf_merge", return_value=[]),
         ):
             mock_llm.return_value = MagicMock()
             mock_decompose.return_value = [
@@ -433,9 +403,7 @@ class TestFlashRankPosition:
             return _docs("a", "b", "c")
 
         fake_ranker = MagicMock(name="Ranker")
-        with patch(
-            "dao_ai.tools.vector_search.rerank_documents"
-        ) as mock_rerank:
+        with patch("dao_ai.tools.vector_search.rerank_documents") as mock_rerank:
             mock_rerank.return_value = _docs("c", "b", "a")
             docs = execute_instructed_pipeline(
                 run_search=run_search,
@@ -460,9 +428,7 @@ class TestFlashRankPosition:
         def run_search(q: str, f: dict[str, Any]) -> list[Document]:
             return _docs("a")
 
-        with patch(
-            "dao_ai.tools.vector_search.rerank_documents"
-        ) as mock_rerank:
+        with patch("dao_ai.tools.vector_search.rerank_documents") as mock_rerank:
             execute_instructed_pipeline(
                 run_search=run_search,
                 query="q",
@@ -516,12 +482,8 @@ class TestInstructionRerank:
             return _docs("a")
 
         with (
-            patch(
-                "dao_ai.tools.instructed_pipeline._get_cached_llm"
-            ) as mock_llm,
-            patch(
-                "dao_ai.tools.instructed_pipeline.decompose_query", return_value=[]
-            ),
+            patch("dao_ai.tools.instructed_pipeline._get_cached_llm") as mock_llm,
+            patch("dao_ai.tools.instructed_pipeline.decompose_query", return_value=[]),
             patch(
                 "dao_ai.tools.instructed_pipeline.instruction_aware_rerank",
                 return_value=_docs("rerank_a"),
@@ -576,15 +538,9 @@ class TestVerifierRetryLoop:
 
         verifier = VerifierModel(model=llm, on_failure="retry", max_retries=3)
         with (
-            patch(
-                "dao_ai.tools.instructed_pipeline._get_cached_llm"
-            ) as mock_llm,
-            patch(
-                "dao_ai.tools.instructed_pipeline.decompose_query", return_value=[]
-            ),
-            patch(
-                "dao_ai.tools.instructed_pipeline.verify_results"
-            ) as mock_verify,
+            patch("dao_ai.tools.instructed_pipeline._get_cached_llm") as mock_llm,
+            patch("dao_ai.tools.instructed_pipeline.decompose_query", return_value=[]),
+            patch("dao_ai.tools.instructed_pipeline.verify_results") as mock_verify,
         ):
             mock_llm.return_value = MagicMock()
             mock_verify.return_value = VerificationResult(passed=True, confidence=0.9)
@@ -606,12 +562,8 @@ class TestVerifierRetryLoop:
         verifier = VerifierModel(model=llm, on_failure="warn", max_retries=3)
         vr = VerificationResult(passed=False, confidence=0.3, feedback="too broad")
         with (
-            patch(
-                "dao_ai.tools.instructed_pipeline._get_cached_llm"
-            ) as mock_llm,
-            patch(
-                "dao_ai.tools.instructed_pipeline.decompose_query", return_value=[]
-            ),
+            patch("dao_ai.tools.instructed_pipeline._get_cached_llm") as mock_llm,
+            patch("dao_ai.tools.instructed_pipeline.decompose_query", return_value=[]),
             patch(
                 "dao_ai.tools.instructed_pipeline.verify_results", return_value=vr
             ) as mock_verify,
@@ -640,17 +592,15 @@ class TestVerifierRetryLoop:
 
         verifier = VerifierModel(model=llm, on_failure="retry", max_retries=3)
         results = [
-            VerificationResult(passed=False, confidence=0.3, feedback="add brand filter"),
+            VerificationResult(
+                passed=False, confidence=0.3, feedback="add brand filter"
+            ),
             VerificationResult(passed=True, confidence=0.9),
         ]
 
         with (
-            patch(
-                "dao_ai.tools.instructed_pipeline._get_cached_llm"
-            ) as mock_llm,
-            patch(
-                "dao_ai.tools.instructed_pipeline.decompose_query"
-            ) as mock_decompose,
+            patch("dao_ai.tools.instructed_pipeline._get_cached_llm") as mock_llm,
+            patch("dao_ai.tools.instructed_pipeline.decompose_query") as mock_decompose,
             patch(
                 "dao_ai.tools.instructed_pipeline.verify_results", side_effect=results
             ) as mock_verify,
@@ -679,12 +629,8 @@ class TestVerifierRetryLoop:
         vr = VerificationResult(passed=False, confidence=0.2, feedback="still bad")
 
         with (
-            patch(
-                "dao_ai.tools.instructed_pipeline._get_cached_llm"
-            ) as mock_llm,
-            patch(
-                "dao_ai.tools.instructed_pipeline.decompose_query"
-            ) as mock_decompose,
+            patch("dao_ai.tools.instructed_pipeline._get_cached_llm") as mock_llm,
+            patch("dao_ai.tools.instructed_pipeline.decompose_query") as mock_decompose,
             patch(
                 "dao_ai.tools.instructed_pipeline.verify_results", return_value=vr
             ) as mock_verify,
@@ -718,9 +664,7 @@ class TestVerifierRetryLoop:
         vr = VerificationResult(passed=False, confidence=0.4)
 
         with (
-            patch(
-                "dao_ai.tools.instructed_pipeline._get_cached_llm"
-            ) as mock_llm,
+            patch("dao_ai.tools.instructed_pipeline._get_cached_llm") as mock_llm,
             patch(
                 "dao_ai.tools.instructed_pipeline.verify_results", return_value=vr
             ) as mock_verify,

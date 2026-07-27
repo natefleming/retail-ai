@@ -6,7 +6,9 @@
 # installed package importable in the cells below.
 import glob
 
-_dao_ai_dep = next(iter(sorted(glob.glob("../dist/dao_ai-*.whl"), reverse=True)), "dao-ai")
+_dao_ai_dep = next(
+    iter(sorted(glob.glob("../dist/dao_ai-*.whl"), reverse=True)), "dao-ai"
+)
 
 # MAGIC %uv pip install --quiet {_dao_ai_dep}
 # MAGIC %restart_python
@@ -27,8 +29,9 @@ print(f"mlflow=={version('mlflow')}")
 
 # COMMAND ----------
 
-from typing import Sequence
 import os
+from typing import Sequence
+
 
 def find_yaml_files_os_walk(base_path: str) -> Sequence[str]:
     # Tolerate a missing/non-dir base path: when the pipeline runs from a
@@ -44,26 +47,25 @@ def find_yaml_files_os_walk(base_path: str) -> Sequence[str]:
                 yaml_files.append(os.path.join(root, file))
     return sorted(yaml_files)
 
+
 # COMMAND ----------
 
 dbutils.widgets.text(name="config-path", defaultValue="")
 
 config_files: Sequence[str] = find_yaml_files_os_walk("../config")
-dbutils.widgets.dropdown(name="config-paths", choices=config_files, defaultValue=next(iter(config_files), ""))
+dbutils.widgets.dropdown(
+    name="config-paths", choices=config_files, defaultValue=next(iter(config_files), "")
+)
 
-config_path: str = dbutils.widgets.get("config-path") or dbutils.widgets.get("config-paths")
+config_path: str = dbutils.widgets.get("config-path") or dbutils.widgets.get(
+    "config-paths"
+)
 print(config_path)
 
 # COMMAND ----------
 
-import dao_ai.providers
-import dao_ai.providers.base
-import dao_ai.providers.databricks
-import dao_ai.memory.postgres
-import dao_ai.memory.databricks
 
 # COMMAND ----------
-
 # DBTITLE 1,Load Application Config
 from dao_ai.config import AppConfig, EvaluationModel
 from dao_ai.logging import configure_logging
@@ -90,10 +92,14 @@ _eval_custom_inputs: dict[str, Any] = evaluation.custom_inputs or {}
 _input_example_custom_inputs: dict[str, Any] = (
     getattr(config.app.input_example, "custom_inputs", None) or {}
 )
-custom_inputs: dict[str, Any] = _eval_custom_inputs or _input_example_custom_inputs or {}
+custom_inputs: dict[str, Any] = (
+    _eval_custom_inputs or _input_example_custom_inputs or {}
+)
 _custom_inputs_source: str = (
-    "evaluation" if _eval_custom_inputs
-    else "input_example" if _input_example_custom_inputs
+    "evaluation"
+    if _eval_custom_inputs
+    else "input_example"
+    if _input_example_custom_inputs
     else "empty"
 )
 
@@ -106,6 +112,7 @@ print(f"Custom inputs (source={_custom_inputs_source}): {custom_inputs}")
 import mlflow
 from mlflow import MlflowClient
 from mlflow.entities.model_registry.model_version import ModelVersion
+
 from dao_ai.models import get_latest_model_version
 
 mlflow.set_registry_uri("databricks-uc")
@@ -118,7 +125,9 @@ mlflow_client: MlflowClient = MlflowClient()
 registered_model_name: str = config.app.registered_model.full_name
 latest_version: int = get_latest_model_version(registered_model_name)
 model_uri: str = f"models:/{registered_model_name}/{latest_version}"
-model_version: ModelVersion = mlflow_client.get_model_version(registered_model_name, str(latest_version))
+model_version: ModelVersion = mlflow_client.get_model_version(
+    registered_model_name, str(latest_version)
+)
 
 print(f"Registered model: {registered_model_name}")
 print(f"Latest version:   {latest_version}")
@@ -139,7 +148,9 @@ print(f"Model ID:         {model_version.model_id}")
 # predict_fn below pins those singletons to a single loop for the whole run.
 from typing import Literal
 
-dbutils.widgets.dropdown(name="agent-source", defaultValue="registry", choices=["registry", "config"])
+dbutils.widgets.dropdown(
+    name="agent-source", defaultValue="registry", choices=["registry", "config"]
+)
 agent_source: Literal["registry", "config"] = dbutils.widgets.get("agent-source")  # type: ignore[assignment]
 
 if agent_source == "registry":
@@ -209,14 +220,16 @@ def predict_fn(messages: list[dict[str, Any]]) -> dict[str, Any]:
     response: ResponsesAgentResponse = future.result(timeout=300)
     return response.model_dump()
 
+
 # COMMAND ----------
 
 # DBTITLE 1,Load and Prepare Evaluation Data
 import pandas as pd
+
 from dao_ai.evaluation import (
-    prepare_eval_dataframe,
     build_scorers,
     create_or_get_eval_dataset,
+    prepare_eval_dataframe,
     prepare_eval_results_for_display,
 )
 
@@ -231,6 +244,7 @@ display(eval_df)
 
 # DBTITLE 1,Run Evaluation
 from datetime import datetime
+
 from mlflow.models.evaluation import EvaluationResult
 
 scorers = build_scorers(config.evaluation)
@@ -285,6 +299,11 @@ if eval_results is not None:
     if not eval_results_df.empty:
         display(eval_results_df.head(100))
     else:
-        print("No detailed results table available. Available tables:", list(eval_results.tables.keys()))
+        print(
+            "No detailed results table available. Available tables:",
+            list(eval_results.tables.keys()),
+        )
 else:
-    print("Evaluation results not available. Check the MLflow run for logged metrics and traces.")
+    print(
+        "Evaluation results not available. Check the MLflow run for logged metrics and traces."
+    )

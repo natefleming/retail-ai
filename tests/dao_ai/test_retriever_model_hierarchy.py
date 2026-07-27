@@ -29,7 +29,6 @@ from dao_ai.config import (
     SchemaModel,
 )
 
-
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
@@ -112,7 +111,9 @@ class TestDiscriminator:
     def test_unknown_type_rejected(self) -> None:
         adapter = self._adapter()
         with pytest.raises(ValidationError):
-            adapter.validate_python({"type": "not_a_real_retriever", **_ai_search_dict()})
+            adapter.validate_python(
+                {"type": "not_a_real_retriever", **_ai_search_dict()}
+            )
 
     def test_lakebase_shape_without_type_field_dispatches_wrong(self) -> None:
         """If someone writes lakebase shape but forgets `type: lakebase_search`,

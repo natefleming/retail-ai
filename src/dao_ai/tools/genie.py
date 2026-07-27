@@ -458,9 +458,7 @@ def _create_simple_genie_tool(
 
     tool_name: str = name if name is not None else "genie_tool"
     tool_description: str = _build_tool_description(description, verbatim)
-    question_desc: str = (
-        _QUESTION_ARG_VERBATIM if verbatim else _QUESTION_ARG_DEFAULT
-    )
+    question_desc: str = _QUESTION_ARG_VERBATIM if verbatim else _QUESTION_ARG_DEFAULT
 
     _cached_genie_service: GenieServiceBase | None = None
 
@@ -585,9 +583,7 @@ def _create_genie_toolkit_impl(
 
     tool_name: str = name if name is not None else "genie_tool"
     tool_description: str = _build_tool_description(description, verbatim)
-    question_desc: str = (
-        _QUESTION_ARG_VERBATIM if verbatim else _QUESTION_ARG_DEFAULT
-    )
+    question_desc: str = _QUESTION_ARG_VERBATIM if verbatim else _QUESTION_ARG_DEFAULT
 
     # ---- Shared service stack (one LRU, one closure) ----
 

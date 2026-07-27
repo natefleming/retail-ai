@@ -30,8 +30,6 @@ from typing import (
 import yaml
 
 if TYPE_CHECKING:
-    from a2a.types import SecurityScheme
-
     from dao_ai.audit import LakebaseAuditSink
     from dao_ai.genie.cache.context_aware.optimization import (
         ContextAwareCacheEvalDataset,
@@ -9263,6 +9261,7 @@ class A2AModel(BaseModel):
         # SecurityScheme instances against the discriminated union.
         adapter: TypeAdapter = TypeAdapter(SecurityScheme)
         return {key: adapter.validate_python(scheme) for key, scheme in value.items()}
+
     default_input_modes: list[str] = Field(
         default_factory=lambda: ["text/plain", "application/json"],
         description="Default supported input MIME types on the Agent Card.",

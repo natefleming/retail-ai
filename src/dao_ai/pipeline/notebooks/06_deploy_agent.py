@@ -6,15 +6,18 @@
 # installed package importable in the cells below.
 import glob
 
-_dao_ai_dep = next(iter(sorted(glob.glob("../dist/dao_ai-*.whl"), reverse=True)), "dao-ai")
+_dao_ai_dep = next(
+    iter(sorted(glob.glob("../dist/dao_ai-*.whl"), reverse=True)), "dao-ai"
+)
 
 # MAGIC %uv pip install --quiet {_dao_ai_dep}
 # MAGIC %restart_python
 
 # COMMAND ----------
 
-from typing import Sequence
 import os
+from typing import Sequence
+
 
 def find_yaml_files_os_walk(base_path: str) -> Sequence[str]:
     # Tolerate a missing/non-dir base path: when the pipeline runs from a
@@ -22,15 +25,16 @@ def find_yaml_files_os_walk(base_path: str) -> Sequence[str]:
     # `../config` discovery dropdown is optional. Return [] instead of raising.
     if not os.path.isdir(base_path):
         return []
-    
+
     yaml_files = []
-    
+
     for root, dirs, files in os.walk(base_path):
         for file in files:
-            if file.lower().endswith(('.yaml', '.yml')):
+            if file.lower().endswith((".yaml", ".yml")):
                 yaml_files.append(os.path.join(root, file))
-    
+
     return sorted(yaml_files)
+
 
 # COMMAND ----------
 
@@ -47,7 +51,9 @@ dbutils.widgets.dropdown(
 )
 
 config_files: Sequence[str] = find_yaml_files_os_walk("../config")
-dbutils.widgets.dropdown(name="config-paths", choices=config_files, defaultValue=next(iter(config_files), ""))
+dbutils.widgets.dropdown(
+    name="config-paths", choices=config_files, defaultValue=next(iter(config_files), "")
+)
 
 config_path: str | None = dbutils.widgets.get("config-path") or None
 project_path: str = dbutils.widgets.get("config-paths") or None
@@ -74,17 +80,10 @@ print(f"mlflow=={version('mlflow')}")
 
 # COMMAND ----------
 
-import dao_ai.providers
-import dao_ai.providers.base
-import dao_ai.providers.databricks
-
 # COMMAND ----------
-
 # MAGIC %load_ext autoreload
 # MAGIC %autoreload 2
-
 # COMMAND ----------
-
 from dotenv import find_dotenv, load_dotenv
 
 _ = load_dotenv(find_dotenv())
@@ -92,13 +91,16 @@ _ = load_dotenv(find_dotenv())
 # COMMAND ----------
 
 import nest_asyncio
+
 nest_asyncio.apply()
 
 # COMMAND ----------
 
 from dao_ai.config import AppConfig, ServingMode
 
-config_path: str = dbutils.widgets.get("config-path") or dbutils.widgets.get("config-paths")
+config_path: str = dbutils.widgets.get("config-path") or dbutils.widgets.get(
+    "config-paths"
+)
 mode_str: str | None = dbutils.widgets.get("mode") or None
 
 # Source selection tri-state forwarded by `dao-ai generate-workflow` via the

@@ -195,9 +195,7 @@ def test_progress_callback_dispatches_via_callback_manager():
 
     fake_config = {"callbacks": [MagicMock()]}
     with (
-        patch(
-            "dao_ai.tools.mcp_callbacks.ensure_config", return_value=fake_config
-        ),
+        patch("dao_ai.tools.mcp_callbacks.ensure_config", return_value=fake_config),
         patch(
             "dao_ai.tools.mcp_callbacks.adispatch_custom_event",
             new_callable=AsyncMock,

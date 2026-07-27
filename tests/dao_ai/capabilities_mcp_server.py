@@ -13,7 +13,6 @@ from __future__ import annotations
 from typing import Any
 
 from mcp.server.fastmcp import Context, FastMCP
-from mcp.types import ResourceLink
 
 
 def build_server(name: str = "capabilities_probe") -> FastMCP:

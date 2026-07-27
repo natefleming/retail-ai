@@ -6,8 +6,8 @@ import pytest
 from conftest import add_databricks_resource_attrs
 
 from dao_ai.config import (
-    RerankParametersModel,
     AiSearchRetrieverModel,
+    RerankParametersModel,
     SchemaModel,
     TableModel,
     VectorStoreModel,
@@ -93,7 +93,9 @@ class TestRetrieverModelWithReranker:
         vector_store = create_mock_vector_store()
 
         rerank_config = RerankParametersModel(model="ms-marco-MiniLM-L-6-v2", top_n=3)
-        retriever = AiSearchRetrieverModel(vector_store=vector_store, rerank=rerank_config)
+        retriever = AiSearchRetrieverModel(
+            vector_store=vector_store, rerank=rerank_config
+        )
 
         assert isinstance(retriever.rerank, RerankParametersModel)
         assert retriever.rerank.model == "ms-marco-MiniLM-L-6-v2"

@@ -56,7 +56,9 @@ def test_own_tool_chain_stays_adjacent_no_bridge_between() -> None:
                 f"expected ToolMessage after own AIMessage(tool_calls); "
                 f"got {type(next_msg).__name__}"
             )
-            expected_ids = {tc.get("id") for tc in msg.tool_calls if isinstance(tc, dict)}
+            expected_ids = {
+                tc.get("id") for tc in msg.tool_calls if isinstance(tc, dict)
+            }
             assert next_msg.tool_call_id in expected_ids
 
 
@@ -93,13 +95,14 @@ def test_own_ai_tool_tail_no_bridge_synthetic_result_inserted_instead() -> None:
     assert filtered[-1].name == "__orphan_placeholder__"
     # AND no HumanMessage bridge should have been inserted between the
     # AIMessage and its synthetic ToolMessage.
-    ai_idx = next(i for i, m in enumerate(filtered) if isinstance(m, AIMessage) and m.tool_calls)
+    ai_idx = next(
+        i for i, m in enumerate(filtered) if isinstance(m, AIMessage) and m.tool_calls
+    )
     assert isinstance(filtered[ai_idx + 1], ToolMessage), (
         "synthetic ToolMessage must sit immediately after its parent AIMessage"
     )
     assert not any(
-        isinstance(m, HumanMessage) and m.name == "__filter_bridge__"
-        for m in filtered
+        isinstance(m, HumanMessage) and m.name == "__filter_bridge__" for m in filtered
     ), "no bridge should be inserted for an own tool_call orphan"
 
 
@@ -131,7 +134,11 @@ def test_orphan_tool_call_gets_synthetic_placeholder() -> None:
             content="",
             name="supervisor",
             tool_calls=[
-                {"id": "orphan-call", "name": "search_memory", "args": {"query": "credit"}},
+                {
+                    "id": "orphan-call",
+                    "name": "search_memory",
+                    "args": {"query": "credit"},
+                },
                 {"id": "handoff-call", "name": "handoff_to_credit_limit", "args": {}},
             ],
         ),
@@ -141,8 +148,7 @@ def test_orphan_tool_call_gets_synthetic_placeholder() -> None:
 
     # Find the AIMessage — its tool_calls must all have adjacent ToolMessages.
     ai_index = next(
-        i for i, m in enumerate(filtered)
-        if isinstance(m, AIMessage) and m.tool_calls
+        i for i, m in enumerate(filtered) if isinstance(m, AIMessage) and m.tool_calls
     )
     following = filtered[ai_index + 1 :]
     tool_ids_seen = {m.tool_call_id for m in following if isinstance(m, ToolMessage)}
@@ -154,7 +160,8 @@ def test_orphan_tool_call_gets_synthetic_placeholder() -> None:
 
     # And the synthetic placeholder must be tagged so ops can spot it.
     placeholder = next(
-        m for m in filtered
+        m
+        for m in filtered
         if isinstance(m, ToolMessage) and m.tool_call_id == "orphan-call"
     )
     assert placeholder.name == "__orphan_placeholder__"
@@ -181,7 +188,9 @@ def test_orphan_placeholders_stay_adjacent_to_parent_ai() -> None:
     filtered = filter_messages_for_agent(messages, current_agent_name="supervisor")
 
     # Sequence must be [AIMessage, ToolMessage(a), ToolMessage(b)] with no gaps.
-    ai_idx = next(i for i, m in enumerate(filtered) if isinstance(m, AIMessage) and m.tool_calls)
+    ai_idx = next(
+        i for i, m in enumerate(filtered) if isinstance(m, AIMessage) and m.tool_calls
+    )
     assert isinstance(filtered[ai_idx + 1], ToolMessage)
     assert isinstance(filtered[ai_idx + 2], ToolMessage)
     tool_ids = {filtered[ai_idx + 1].tool_call_id, filtered[ai_idx + 2].tool_call_id}
@@ -197,13 +206,16 @@ def test_no_orphan_no_placeholder() -> None:
         AIMessage(
             content="",
             name="general",
-            tool_calls=[{"id": "own1", "name": "search_memory", "args": {"query": "x"}}],
+            tool_calls=[
+                {"id": "own1", "name": "search_memory", "args": {"query": "x"}}
+            ],
         ),
         ToolMessage(content="[]", tool_call_id="own1"),
     ]
     filtered = filter_messages_for_agent(messages, current_agent_name="general")
     placeholders = [
-        m for m in filtered
+        m
+        for m in filtered
         if isinstance(m, ToolMessage) and m.name == "__orphan_placeholder__"
     ]
     assert placeholders == [], f"unexpected placeholders: {placeholders}"

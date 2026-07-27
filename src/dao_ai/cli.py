@@ -10,8 +10,8 @@ import subprocess
 import sys
 import traceback
 from argparse import ArgumentParser, Namespace
-from pathlib import Path
 from collections.abc import Callable
+from pathlib import Path
 from typing import Any, Optional, Sequence
 
 from dotenv import find_dotenv, load_dotenv
@@ -484,7 +484,9 @@ def _add_noun_verb_parsers(
         verb_parser: ArgumentParser = verbs.add_parser(
             verb,
             help=verb_help,
-            description=_deploy_desc if verb == "deploy" else (
+            description=_deploy_desc
+            if verb == "deploy"
+            else (
                 f"{verb_help}. Acts on the staging dir written by "
                 f"`dao-ai {noun} generate` (or -o); errors if nothing is staged."
             ),
@@ -509,7 +511,6 @@ def _add_noun_verb_parsers(
 # per-config isolation is preserved regardless of the base.
 _BUNDLE_DIR_ENV_VAR = "DAO_AI_BUNDLE_DIR"
 _DEFAULT_BUNDLE_BASE = ".dao-ai/bundle"
-
 
 
 def _default_bundle_base() -> Path:
@@ -1422,7 +1423,10 @@ Examples:
     # --direct is only meaningful for the bundle-less SDK path (apps/mcp).
     # model_serving always deploys via the SDK, so pairing the two is a
     # contradiction — reject it here rather than silently ignoring --direct.
-    if getattr(options, "direct", False) and getattr(options, "mode", None) == "model_serving":
+    if (
+        getattr(options, "direct", False)
+        and getattr(options, "mode", None) == "model_serving"
+    ):
         parser.error(
             "--direct is not valid with --mode model_serving; "
             "model_serving always deploys via the SDK (no bundle)."
@@ -1944,9 +1948,7 @@ def handle_grant_trace_permissions_command(options: Namespace) -> None:
     if experiment_id is None:
         sys.exit(1)
 
-    _grant_trace_writes_to_app_sp(
-        config, experiment_id, sp_override=options.app_sp
-    )
+    _grant_trace_writes_to_app_sp(config, experiment_id, sp_override=options.app_sp)
 
 
 def _grant_trace_writes_to_app_sp(
@@ -2017,9 +2019,7 @@ def _grant_trace_writes_to_app_sp(
 
     table_prefix: str = _resolve_trace_table_prefix(
         config,
-        None
-        if config.app.trace_location.resolved_table_prefix
-        else experiment_id,
+        None if config.app.trace_location.resolved_table_prefix else experiment_id,
     )
     _grant_uc_trace_table_permissions_to_principal(
         principal=sp_id,
@@ -2093,8 +2093,7 @@ def _resolve_experiment_id_for_link(
                 break
     except Exception as e:  # noqa: BLE001
         print(
-            f"Could not look up bundle-declared experiment: "
-            f"{type(e).__name__}: {e}",
+            f"Could not look up bundle-declared experiment: {type(e).__name__}: {e}",
             file=sys.stderr,
         )
         return None
@@ -3456,7 +3455,9 @@ def _deploy_run_destroy_app_bundle(
         from dao_ai.config import ServingMode
 
         config: AppConfig = _load_app_config(options, what=what)
-        development: bool = resolve_use_local_source(getattr(options, "development", None))
+        development: bool = resolve_use_local_source(
+            getattr(options, "development", None)
+        )
         # Model Serving deploys a REGISTERED MLflow model, so log/register the
         # current config first (mirrors the workflow deploy notebook + the former
         # `dao-ai deploy` handler). Without this, deploy_model_serving_agent

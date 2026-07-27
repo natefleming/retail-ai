@@ -223,9 +223,7 @@ class AgentState(MessagesState, total=False):
     # target agent names from N parallel-handoff tools invoked in one LLM
     # turn. The source-agent wrapper reads this to build the fan-out
     # ``Send`` list, then clears it. See ``concat_parallel_dispatches``.
-    parallel_dispatches: NotRequired[
-        Annotated[list[str], concat_parallel_dispatches]
-    ]
+    parallel_dispatches: NotRequired[Annotated[list[str], concat_parallel_dispatches]]
 
 
 class Context(BaseModel):

@@ -56,9 +56,7 @@ class TestBuildTraceContextMeta:
     def test_traceparent_from_uc_uri_trace_id(self) -> None:
         # UC-backed trace ids arrive as a trace:/cat.schema.prefix/<hex> URI;
         # the OTel-native hex is the final hex run.
-        span = _span(
-            f"trace:/cat.schema.my_prefix/{_TRACE_HEX}", _SPAN_HEX
-        )
+        span = _span(f"trace:/cat.schema.my_prefix/{_TRACE_HEX}", _SPAN_HEX)
         with patch(
             "dao_ai.tools.mcp_trace_context.mlflow.get_current_active_span",
             return_value=span,

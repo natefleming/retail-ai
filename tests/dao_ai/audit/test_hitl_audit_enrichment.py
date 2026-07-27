@@ -60,12 +60,12 @@ class _FakeRuntime:
 
     def __init__(self, thread_id: str) -> None:
         self.context = _FakeContext(thread_id)
-        self.config: dict[str, Any] = {
-            "configurable": {"thread_id": thread_id}
-        }
+        self.config: dict[str, Any] = {"configurable": {"thread_id": thread_id}}
 
 
-def _build_middleware(monkeypatch: Any) -> tuple[AuditedHumanInTheLoopMiddleware, _FakeSink]:
+def _build_middleware(
+    monkeypatch: Any,
+) -> tuple[AuditedHumanInTheLoopMiddleware, _FakeSink]:
     """Wire an AuditedHumanInTheLoopMiddleware whose sink is a fake."""
     fake_sink = _FakeSink()
     monkeypatch.setattr(

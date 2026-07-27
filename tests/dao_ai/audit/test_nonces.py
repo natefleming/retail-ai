@@ -15,9 +15,7 @@ class _StubNonceSink:
     """In-memory implementation of NonceStore for tests."""
 
     def __init__(self) -> None:
-        self._records: dict[
-            str, tuple[str, str, datetime, datetime | None]
-        ] = {}
+        self._records: dict[str, tuple[str, str, datetime, datetime | None]] = {}
 
     async def record_nonce(
         self,
@@ -62,9 +60,7 @@ def test_issue_and_consume_happy_path() -> None:
         nonce, exp = await issuer.issue("thread-1", "call-1")
         assert nonce
         assert exp > datetime.now(timezone.utc)
-        await issuer.consume(
-            nonce=nonce, thread_id="thread-1", tool_call_id="call-1"
-        )
+        await issuer.consume(nonce=nonce, thread_id="thread-1", tool_call_id="call-1")
 
     asyncio.run(scenario())
 
@@ -74,9 +70,7 @@ def test_reuse_rejected() -> None:
         sink = _StubNonceSink()
         issuer = NonceIssuer(sink, ttl_seconds=300)
         nonce, _ = await issuer.issue("thread-1", "call-1")
-        await issuer.consume(
-            nonce=nonce, thread_id="thread-1", tool_call_id="call-1"
-        )
+        await issuer.consume(nonce=nonce, thread_id="thread-1", tool_call_id="call-1")
         with pytest.raises(AuditNonceError):
             await issuer.consume(
                 nonce=nonce, thread_id="thread-1", tool_call_id="call-1"

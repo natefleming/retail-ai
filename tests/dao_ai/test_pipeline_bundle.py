@@ -97,9 +97,7 @@ class _AppStub:
     ``config.app.pip_requirements``, and (in dev mode, via the extras resolver)
     ``config.app.a2a`` / ``config.app.orchestration``."""
 
-    def __init__(
-        self, name: str, pip_requirements: list[str] | None = None
-    ) -> None:
+    def __init__(self, name: str, pip_requirements: list[str] | None = None) -> None:
         self.name = name
         self.pip_requirements = pip_requirements or []
         # Resolver-touched attributes (dev-mode extras resolution).
@@ -166,7 +164,9 @@ class TestGeneratePipelineDatabricksYaml:
         doc = self._doc(development=False)
         # The dao_ai_dep variable exists and defaults to the version-pinned
         # PyPI spec so a raw ``bundle deploy`` (no CLI override) is reproducible.
-        assert doc["variables"]["dao_ai_dep"]["default"] == f"dao-ai=={dao_ai_version()}"
+        assert (
+            doc["variables"]["dao_ai_dep"]["default"] == f"dao-ai=={dao_ai_version()}"
+        )
         # The serverless environment installs exactly the dao_ai_dep dependency.
         env = doc["resources"]["jobs"]["deploy_job"]["environments"][0]
         assert env["spec"]["dependencies"] == ["${var.dao_ai_dep}"]
@@ -184,7 +184,9 @@ class TestGeneratePipelineDatabricksYaml:
         # bracket) on a local path.
         for dep in deps:
             if dep.endswith(".whl") or "dist/" in dep or dep == "${var.dao_ai_dep}":
-                assert "[" not in dep, f"wheel dep must be glob-safe (no extras): {dep!r}"
+                assert "[" not in dep, (
+                    f"wheel dep must be glob-safe (no extras): {dep!r}"
+                )
         # In development, the extra-feature package pins are present (glob-safe
         # PyPI specs like "a2a-sdk==..."). The stub config exercises no optional
         # features, so at minimum the core pins (e.g. mlflow) appear.
@@ -236,9 +238,7 @@ class TestReferencedAssetPaths:
     def test_volume_backed_ddl_ignored(self) -> None:
         """Volume references live on UC volumes and need no staging."""
         config = self._config(
-            datasets=[
-                DatasetModel(ddl=VolumeModel(name="c.s.v"), data=None)
-            ],
+            datasets=[DatasetModel(ddl=VolumeModel(name="c.s.v"), data=None)],
         )
         assert _referenced_asset_paths(config) == []
 
@@ -326,18 +326,14 @@ class TestWritePipelineBundle:
         "    ddl: {fn}\n"
     )
 
-    def test_stages_config_relative_assets_next_to_config(
-        self, tmp_path: Path
-    ) -> None:
+    def test_stages_config_relative_assets_next_to_config(self, tmp_path: Path) -> None:
         # Assets colocated with the config (config-relative bare paths).
         (tmp_path / "data").mkdir()
         (tmp_path / "functions").mkdir()
         (tmp_path / "data" / "seed.sql").write_text("SELECT 1;")
         (tmp_path / "functions" / "fn.sql").write_text("CREATE FUNCTION f();")
 
-        body = self._ASSET_CONFIG.format(
-            ddl="data/seed.sql", fn="functions/fn.sql"
-        )
+        body = self._ASSET_CONFIG.format(ddl="data/seed.sql", fn="functions/fn.sql")
         config = self._load(tmp_path, body)
         out = tmp_path / "bundle"
         write_pipeline_bundle(config, out)
@@ -457,14 +453,11 @@ class TestWritePipelineBundle:
         write_pipeline_bundle(config, out, overwrite=True)
         assert staged_config.read_text() != "SENTINEL"
 
-
     def test_two_configs_isolated_dirs_no_collision(self, tmp_path: Path) -> None:
         """Two different configs staged into their own dirs each get a
         databricks.yaml whose bundle name matches that config — no bleed-over."""
         cfg_a = _MINIMAL_CONFIG  # app.name: pipeline_test_app
-        cfg_b = _MINIMAL_CONFIG.replace(
-            "name: pipeline_test_app", "name: other_app"
-        )
+        cfg_b = _MINIMAL_CONFIG.replace("name: pipeline_test_app", "name: other_app")
         a = AppConfig.from_file(
             self._write(tmp_path, "a.yaml", cfg_a), initialize=False
         )

@@ -4,7 +4,7 @@ Mocks the DatabaseModel's execute_query + execute_many so tests exercise
 the batching / no-op / SQL-shape behavior without a live database.
 """
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 
@@ -85,8 +85,13 @@ class TestBackfillEmbeddings:
         assert em.call_count == 3
 
     def test_reads_qualified_schema_and_columns_from_config(self) -> None:
-        vs = _vs(schema_name="kb", table="docs", id_column="doc_id",
-                 content_column="body", embedding_column="vec")
+        vs = _vs(
+            schema_name="kb",
+            table="docs",
+            id_column="doc_id",
+            content_column="body",
+            embedding_column="vec",
+        )
         with (
             patch.object(DatabaseModel, "execute_query", return_value=[]) as eq,
             patch.object(DatabaseModel, "execute_many"),

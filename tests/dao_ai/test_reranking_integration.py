@@ -18,9 +18,9 @@ from databricks.sdk import WorkspaceClient
 from langchain_core.messages import ToolMessage
 
 from dao_ai.config import (
+    AiSearchRetrieverModel,
     IndexModel,
     RerankParametersModel,
-    AiSearchRetrieverModel,
     SchemaModel,
     SearchParametersModel,
     TableModel,

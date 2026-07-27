@@ -47,9 +47,7 @@ _CONFIG_TEMPLATE = textwrap.dedent(
 
 def _write_config(tmp_path: Path, code_paths: list[str]) -> AppConfig:
     block = "\n".join(f"    - {p}" for p in code_paths)
-    (tmp_path / "cfg.yaml").write_text(
-        _CONFIG_TEMPLATE.format(code_paths_block=block)
-    )
+    (tmp_path / "cfg.yaml").write_text(_CONFIG_TEMPLATE.format(code_paths_block=block))
     return AppConfig.from_file(str(tmp_path / "cfg.yaml"))
 
 
@@ -133,9 +131,7 @@ class TestCollectCodePaths:
         (tmp_path / "tools").mkdir()
         (tmp_path / "tools" / "a.py").write_text("x = 1\n")
         (tmp_path / "tools" / "b.py").write_text("x = 1\n")
-        config = _write_config(
-            tmp_path, ["tools/a.py", "tools/b.py", "tools/a.py"]
-        )
+        config = _write_config(tmp_path, ["tools/a.py", "tools/b.py", "tools/a.py"])
 
         collected = cp.collect_code_paths(config)
         assert [Path(p).name for p in collected] == ["a.py", "b.py"]
@@ -261,7 +257,7 @@ class TestDiscoverSrcPackages:
         (tmp_path / "src" / "foo").mkdir(parents=True)
         (tmp_path / "src" / "baz").mkdir()
         (tmp_path / "src" / "foo" / "bar.py").write_text("x = 1\n")  # namespace pkg
-        (tmp_path / "src" / "baz" / "__init__.py").write_text("")   # regular pkg
+        (tmp_path / "src" / "baz" / "__init__.py").write_text("")  # regular pkg
         config = _write_config_no_code_paths(tmp_path)
 
         names = [p.name for p in cp.discover_src_packages(config)]

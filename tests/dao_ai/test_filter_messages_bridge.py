@@ -79,9 +79,9 @@ def test_planner_handoff_shape_ends_with_non_ai_tail() -> None:
 
     filtered = filter_messages_for_agent(messages, current_agent_name="general")
 
-    assert not isinstance(
-        filtered[-1], AIMessage
-    ), f"tail must not be AIMessage; got {type(filtered[-1]).__name__}"
+    assert not isinstance(filtered[-1], AIMessage), (
+        f"tail must not be AIMessage; got {type(filtered[-1]).__name__}"
+    )
 
 
 @pytest.mark.unit
@@ -135,12 +135,16 @@ def test_no_bridge_appended_when_tail_is_already_human() -> None:
     ]
     filtered = filter_messages_for_agent(messages, current_agent_name="general")
     # Only original HumanMessages preserved — no extra bridge.
-    assert sum(
-        1 for m in filtered if isinstance(m, HumanMessage) and m.name != "__filter_bridge__"
-    ) == 2
+    assert (
+        sum(
+            1
+            for m in filtered
+            if isinstance(m, HumanMessage) and m.name != "__filter_bridge__"
+        )
+        == 2
+    )
     assert not any(
-        isinstance(m, HumanMessage) and m.name == "__filter_bridge__"
-        for m in filtered
+        isinstance(m, HumanMessage) and m.name == "__filter_bridge__" for m in filtered
     )
 
 
@@ -224,9 +228,7 @@ def test_article_invariant_last_message_is_not_assistant() -> None:
             AIMessage(
                 content="routing note",
                 name="planner",
-                tool_calls=[
-                    {"id": "call1", "name": "handoff_to_x", "args": {}}
-                ],
+                tool_calls=[{"id": "call1", "name": "handoff_to_x", "args": {}}],
             ),
         ],
         # (c) peer AIMessage with tool_calls only (no content) — filter drops entirely
@@ -235,9 +237,7 @@ def test_article_invariant_last_message_is_not_assistant() -> None:
             AIMessage(
                 content="",
                 name="planner",
-                tool_calls=[
-                    {"id": "call1", "name": "handoff_to_x", "args": {}}
-                ],
+                tool_calls=[{"id": "call1", "name": "handoff_to_x", "args": {}}],
             ),
         ],
     ]

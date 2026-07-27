@@ -15,9 +15,9 @@ from dao_ai.config import (
     IndexModel,
     SchemaModel,
     TableModel,
-    UnityCatalogFunctionSqlModel,
     VectorStoreModel,
 )
+from dao_ai.providers.databricks import DatabricksProvider
 
 
 def _stamp_extras_resolvable(mock_config: MagicMock) -> MagicMock:
@@ -64,7 +64,6 @@ def _stamp_extras_resolvable(mock_config: MagicMock) -> MagicMock:
     if sp is None or isinstance(sp, MagicMock):
         mock_config.app.service_principal = None
     return mock_config
-from dao_ai.providers.databricks import DatabricksProvider
 
 
 @pytest.mark.unit
@@ -867,9 +866,7 @@ def test_deploy_agent_routes_to_model_serving_explicitly():
         with patch.object(DatabricksProvider, "deploy_apps_agent") as mock_apps:
             provider = DatabricksProvider()
             _stamp_extras_resolvable(mock_config)
-            provider.deploy_agent(
-                config=mock_config, target=ServingMode.MODEL_SERVING
-            )
+            provider.deploy_agent(config=mock_config, target=ServingMode.MODEL_SERVING)
 
             mock_model_serving.assert_called_once_with(mock_config)
             mock_apps.assert_not_called()
@@ -907,11 +904,25 @@ def test_deploy_agent_routes_mcp(monkeypatch):
     from dao_ai.config import ServingMode
     from dao_ai.providers.databricks import DatabricksProvider
 
-    p = DatabricksProvider.__new__(DatabricksProvider)  # no __init__ / no WorkspaceClient
+    p = DatabricksProvider.__new__(
+        DatabricksProvider
+    )  # no __init__ / no WorkspaceClient
     calls = []
-    monkeypatch.setattr(p, "deploy_model_serving_agent", lambda c: calls.append("ms"), raising=False)
-    monkeypatch.setattr(p, "deploy_apps_agent", lambda c, development=None: calls.append("apps"), raising=False)
-    monkeypatch.setattr(p, "deploy_mcp_agent", lambda c, development=None: calls.append("mcp"), raising=False)
+    monkeypatch.setattr(
+        p, "deploy_model_serving_agent", lambda c: calls.append("ms"), raising=False
+    )
+    monkeypatch.setattr(
+        p,
+        "deploy_apps_agent",
+        lambda c, development=None: calls.append("apps"),
+        raising=False,
+    )
+    monkeypatch.setattr(
+        p,
+        "deploy_mcp_agent",
+        lambda c, development=None: calls.append("mcp"),
+        raising=False,
+    )
     p.deploy_agent(config=object(), target=ServingMode.MCP)
     assert calls == ["mcp"]
 
@@ -922,13 +933,17 @@ def test_deploy_mcp_agent_command_and_extras(monkeypatch):
     import dao_ai._extras as _extras
     from dao_ai.providers.databricks import DatabricksProvider
 
-    monkeypatch.setattr(_extras, "resolve_required_extras_or_all", lambda config, target="mcp": set())
+    monkeypatch.setattr(
+        _extras, "resolve_required_extras_or_all", lambda config, target="mcp": set()
+    )
 
     p = DatabricksProvider.__new__(DatabricksProvider)
     captured = {}
 
     def _fake_deploy_app(config, *, app_command, extras, include_chat_ui, development):
-        captured.update(app_command=app_command, extras=extras, include_chat_ui=include_chat_ui)
+        captured.update(
+            app_command=app_command, extras=extras, include_chat_ui=include_chat_ui
+        )
 
     monkeypatch.setattr(p, "_deploy_app", _fake_deploy_app, raising=False)
 
@@ -1347,6 +1362,7 @@ def test_serving_mode_enum_values():
 @pytest.mark.unit
 def test_serving_mode_members():
     from dao_ai.config import ServingMode
+
     assert {t.value for t in ServingMode} == {"model_serving", "apps", "mcp"}
     assert ServingMode("mcp") is ServingMode.MCP
     with pytest.raises(ValueError):

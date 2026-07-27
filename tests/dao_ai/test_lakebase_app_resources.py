@@ -543,9 +543,7 @@ def _mock_sdk_client(
 
     fake = MagicMock(spec=_WC)
     fake.postgres = _WC.postgres
-    monkeypatch.setattr(
-        DatabaseModel, "workspace_client", property(lambda self: fake)
-    )
+    monkeypatch.setattr(DatabaseModel, "workspace_client", property(lambda self: fake))
     return _WC.postgres
 
 
@@ -666,9 +664,7 @@ class TestResolveLakebaseDatabasePathPrecedence:
             ],
         )
 
-        result = _resolve_lakebase_database_path(
-            db, "projects/p/branches/main"
-        )
+        result = _resolve_lakebase_database_path(db, "projects/p/branches/main")
         assert result == "projects/p/branches/main/databases/actual-db"
 
     def test_5_sdk_failure_falls_back_to_database_id_default(
@@ -683,9 +679,7 @@ class TestResolveLakebaseDatabasePathPrecedence:
         from dao_ai.config import DatabaseModel
 
         db = DatabaseModel(project="commerce-swarm", branch="production")
-        _mock_sdk_client(
-            monkeypatch, RuntimeError("401 Unauthorized")
-        )
+        _mock_sdk_client(monkeypatch, RuntimeError("401 Unauthorized"))
 
         # loguru: capture WARNING via a dedicated sink.
         from loguru import logger as loguru_logger
@@ -725,9 +719,7 @@ class TestResolveLakebaseDatabasePathPrecedence:
         db = DatabaseModel(project="p", branch="main")
         _mock_sdk_client(monkeypatch, [])
 
-        result = _resolve_lakebase_database_path(
-            db, "projects/p/branches/main"
-        )
+        result = _resolve_lakebase_database_path(db, "projects/p/branches/main")
         assert result == "projects/p/branches/main/databases/databricks-postgres"
 
     def test_2_wins_over_3_explicit_database_id_beats_sdk(
@@ -746,7 +738,5 @@ class TestResolveLakebaseDatabasePathPrecedence:
         )
         _forbid_sdk(monkeypatch)  # Would blow up if the resolver called SDK.
 
-        result = _resolve_lakebase_database_path(
-            db, "projects/p/branches/main"
-        )
+        result = _resolve_lakebase_database_path(db, "projects/p/branches/main")
         assert result == "projects/p/branches/main/databases/user-override-id"

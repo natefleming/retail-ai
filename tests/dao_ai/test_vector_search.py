@@ -205,7 +205,9 @@ def test_vector_search_input_accepts_null_filters() -> None:
     """LLM may omit filters or pass null when no constraint applies."""
     assert VectorSearchInput.model_validate({"query": "no filters"}).filters is None
     assert (
-        VectorSearchInput.model_validate({"query": "explicit null", "filters": None}).filters
+        VectorSearchInput.model_validate(
+            {"query": "explicit null", "filters": None}
+        ).filters
         is None
     )
 
@@ -354,7 +356,9 @@ def _make_obo_vector_store_mock() -> Mock:
 
 
 @pytest.mark.unit
-def test_create_vector_search_tool_obo_passes_context_to_workspace_client_from() -> None:
+def test_create_vector_search_tool_obo_passes_context_to_workspace_client_from() -> (
+    None
+):
     """When on_behalf_of_user=True and the tool is invoked with a ToolRuntime
     carrying user headers, the factory must call
     vector_store.workspace_client_from(context) with THAT same Context — so
@@ -479,9 +483,14 @@ def _make_ambient_vector_store_mock(*, on_behalf_of_user: bool = False) -> Mock:
     return vs
 
 
-def _fake_wc(*, auth_type: str, host: str = "https://fevm.example.com",
-             client_id: Any = None, client_secret: Any = None,
-             bearer: str | None = None) -> MagicMock:
+def _fake_wc(
+    *,
+    auth_type: str,
+    host: str = "https://fevm.example.com",
+    client_id: Any = None,
+    client_secret: Any = None,
+    bearer: str | None = None,
+) -> MagicMock:
     """Build a WorkspaceClient mock whose .config exposes the auth_type shape
     the databricks-langchain library and _client_args_from_ambient_wc read."""
     wc = MagicMock(name=f"wc[{auth_type}]")
@@ -517,9 +526,11 @@ def _capture_client_args_and_invoke(
     retriever = AiSearchRetrieverModel(vector_store=vs_model)
 
     captured: dict[str, Any] = {}
-    with patch("dao_ai.tools.vector_search.DatabricksVectorSearch") as MockDVS, \
-        patch("dao_ai.tools.vector_search._vsc_for_refresh", return_value=None), \
-        patch("dao_ai.tools.vector_search._fetch_index_columns", return_value=None):
+    with (
+        patch("dao_ai.tools.vector_search.DatabricksVectorSearch") as MockDVS,
+        patch("dao_ai.tools.vector_search._vsc_for_refresh", return_value=None),
+        patch("dao_ai.tools.vector_search._fetch_index_columns", return_value=None),
+    ):
         # Build-time refresh is stubbed out; these tests exercise the
         # query-time auth-mode behavior, not schema hydration.
         vs_model.refresh = MagicMock(return_value=None)
@@ -529,6 +540,7 @@ def _capture_client_args_and_invoke(
             m = MagicMock()
             m.similarity_search.return_value = []
             return m
+
         MockDVS.side_effect = _capture
 
         tool = create_vector_search_tool(retriever=retriever)
@@ -546,7 +558,12 @@ def test_vs_mode1_ambient_app_sp_oauth_m2m(monkeypatch: pytest.MonkeyPatch) -> N
     empty/falsy) — the library reads config.client_id / .client_secret from
     the WorkspaceClient we hand it.
     """
-    for var in ("DATABRICKS_TOKEN", "DATABRICKS_CLIENT_ID", "DATABRICKS_CLIENT_SECRET", "DATABRICKS_HOST"):
+    for var in (
+        "DATABRICKS_TOKEN",
+        "DATABRICKS_CLIENT_ID",
+        "DATABRICKS_CLIENT_SECRET",
+        "DATABRICKS_HOST",
+    ):
         monkeypatch.delenv(var, raising=False)
 
     vs_model = _make_ambient_vector_store_mock()
@@ -573,7 +590,12 @@ def test_vs_mode2_ambient_serverless_user(monkeypatch: pytest.MonkeyPatch) -> No
     default}. The databricks-langchain library does NOT extract creds from
     these, so dao-ai must fill client_args from the runtime bearer.
     """
-    for var in ("DATABRICKS_TOKEN", "DATABRICKS_CLIENT_ID", "DATABRICKS_CLIENT_SECRET", "DATABRICKS_HOST"):
+    for var in (
+        "DATABRICKS_TOKEN",
+        "DATABRICKS_CLIENT_ID",
+        "DATABRICKS_CLIENT_SECRET",
+        "DATABRICKS_HOST",
+    ):
         monkeypatch.delenv(var, raising=False)
 
     vs_model = _make_ambient_vector_store_mock()
@@ -598,7 +620,12 @@ def test_vs_mode2_other_ambient_auth_types(monkeypatch: pytest.MonkeyPatch) -> N
     """Mode #2 variants: oauth-u2m and 'default' behave the same as
     databricks-cli — dao-ai must synthesize client_args from the bearer.
     """
-    for var in ("DATABRICKS_TOKEN", "DATABRICKS_CLIENT_ID", "DATABRICKS_CLIENT_SECRET", "DATABRICKS_HOST"):
+    for var in (
+        "DATABRICKS_TOKEN",
+        "DATABRICKS_CLIENT_ID",
+        "DATABRICKS_CLIENT_SECRET",
+        "DATABRICKS_HOST",
+    ):
         monkeypatch.delenv(var, raising=False)
 
     for auth_type in ("oauth-u2m", "default"):
@@ -620,7 +647,12 @@ def test_vs_mode3_obo_passes_none_client_args(monkeypatch: pytest.MonkeyPatch) -
     client_args=None so the library uses the forwarded-bearer WorkspaceClient
     directly instead of building a separate VectorSearchClient.
     """
-    for var in ("DATABRICKS_TOKEN", "DATABRICKS_CLIENT_ID", "DATABRICKS_CLIENT_SECRET", "DATABRICKS_HOST"):
+    for var in (
+        "DATABRICKS_TOKEN",
+        "DATABRICKS_CLIENT_ID",
+        "DATABRICKS_CLIENT_SECRET",
+        "DATABRICKS_HOST",
+    ):
         monkeypatch.delenv(var, raising=False)
 
     vs_model = _make_ambient_vector_store_mock(on_behalf_of_user=True)
@@ -666,8 +698,12 @@ def test_vs_mode4_explicit_sp_from_env(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("DATABRICKS_TOKEN", raising=False)
 
     vs_model = _make_ambient_vector_store_mock()
-    wc = _fake_wc(auth_type="oauth-m2m", client_id="wc-id", client_secret="wc-secret",
-                  bearer="ambient-should-be-ignored")
+    wc = _fake_wc(
+        auth_type="oauth-m2m",
+        client_id="wc-id",
+        client_secret="wc-secret",
+        bearer="ambient-should-be-ignored",
+    )
     kwargs = _capture_client_args_and_invoke(vs_model, wc)
 
     ca = kwargs.get("client_args") or {}
@@ -680,6 +716,7 @@ def test_vs_mode4_explicit_sp_from_env(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 # Direct unit tests of the helper — cheap and precise.
+
 
 @pytest.mark.unit
 def test_client_args_from_ambient_wc_returns_none_for_library_native() -> None:
@@ -744,7 +781,12 @@ def test_vs_mode3b_model_serving_obo(monkeypatch: pytest.MonkeyPatch) -> None:
     """OBO on Model Serving path: WC auth_type is model_serving_user_credentials,
     dao-ai must pass client_args=None so the library's native branch fires.
     """
-    for var in ("DATABRICKS_TOKEN", "DATABRICKS_CLIENT_ID", "DATABRICKS_CLIENT_SECRET", "DATABRICKS_HOST"):
+    for var in (
+        "DATABRICKS_TOKEN",
+        "DATABRICKS_CLIENT_ID",
+        "DATABRICKS_CLIENT_SECRET",
+        "DATABRICKS_HOST",
+    ):
         monkeypatch.delenv(var, raising=False)
 
     vs_model = _make_ambient_vector_store_mock(on_behalf_of_user=True)
@@ -788,8 +830,15 @@ def test_client_args_from_ambient_wc_returns_none_for_basic_auth() -> None:
 
 
 @pytest.mark.unit
-def test_vs_default_auth_type_falls_back_to_bearer(monkeypatch: pytest.MonkeyPatch) -> None:
-    for var in ("DATABRICKS_TOKEN", "DATABRICKS_CLIENT_ID", "DATABRICKS_CLIENT_SECRET", "DATABRICKS_HOST"):
+def test_vs_default_auth_type_falls_back_to_bearer(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    for var in (
+        "DATABRICKS_TOKEN",
+        "DATABRICKS_CLIENT_ID",
+        "DATABRICKS_CLIENT_SECRET",
+        "DATABRICKS_HOST",
+    ):
         monkeypatch.delenv(var, raising=False)
 
     vs_model = _make_ambient_vector_store_mock()

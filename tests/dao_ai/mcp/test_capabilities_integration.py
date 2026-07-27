@@ -117,9 +117,7 @@ class _RecordingProgress:
         pass
 
     async def __call__(self, progress, total, message, context) -> None:
-        _RecordingProgress.events.append(
-            (progress, total, message, context.tool_name)
-        )
+        _RecordingProgress.events.append((progress, total, message, context.tool_name))
 
 
 class _RecordingStructured:
@@ -196,9 +194,9 @@ class TestProgressCapability:
             assert "completed 5" in str(result)
 
         asyncio.run(run())
-        assert (
-            len(_RecordingProgress.events) == 5
-        ), f"expected 5 progress events, got {len(_RecordingProgress.events)}: {_RecordingProgress.events}"
+        assert len(_RecordingProgress.events) == 5, (
+            f"expected 5 progress events, got {len(_RecordingProgress.events)}: {_RecordingProgress.events}"
+        )
         progresses = [e[0] for e in _RecordingProgress.events]
         assert progresses == [1.0, 2.0, 3.0, 4.0, 5.0]
         assert all(e[1] == 5.0 for e in _RecordingProgress.events)

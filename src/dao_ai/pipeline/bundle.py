@@ -57,19 +57,38 @@ _CLOUDS = ("azure", "aws", "gcp")
 # is (task_key, notebook, depends_on, extra_base_parameters).
 _PIPELINE_TASKS: tuple[tuple[str, str, tuple[str, ...], dict[str, str]], ...] = (
     ("ingest-and-transform", "01_ingest_and_transform.py", (), {}),
-    ("provision-vector-search", "02_provision_vector_search.py",
-     ("ingest-and-transform",), {}),
+    (
+        "provision-vector-search",
+        "02_provision_vector_search.py",
+        ("ingest-and-transform",),
+        {},
+    ),
     ("provision-lakebase", "03_provision_lakebase.py", (), {}),
-    ("unity-catalog-tools", "04_unity_catalog_tools.py",
-     ("provision-vector-search", "provision-lakebase"), {}),
+    (
+        "unity-catalog-tools",
+        "04_unity_catalog_tools.py",
+        ("provision-vector-search", "provision-lakebase"),
+        {},
+    ),
     ("provision-genie", "05_provision_genie.py", ("unity-catalog-tools",), {}),
-    ("deploy-agents", "06_deploy_agent.py", ("provision-genie",),
-     {"mode": "${var.mode}",
-      "development": "${var.development}"}),
-    ("generate-evaluation-data", "07_generate_evaluation_data.py",
-     ("provision-vector-search",), {}),
-    ("run-evaluation", "08_run_evaluation.py",
-     ("deploy-agents", "generate-evaluation-data"), {}),
+    (
+        "deploy-agents",
+        "06_deploy_agent.py",
+        ("provision-genie",),
+        {"mode": "${var.mode}", "development": "${var.development}"},
+    ),
+    (
+        "generate-evaluation-data",
+        "07_generate_evaluation_data.py",
+        ("provision-vector-search",),
+        {},
+    ),
+    (
+        "run-evaluation",
+        "08_run_evaluation.py",
+        ("deploy-agents", "generate-evaluation-data"),
+        {},
+    ),
 )
 
 

@@ -274,9 +274,7 @@ def test_hitl_involved_generated_column_semantics(
         audit_only = _build_receipt(thread_id="thread-D", hitl=False)
         await audit_sink.record(audit_only)
 
-        hitl_row = _build_receipt(
-            thread_id="thread-D", hitl=True, decision="approve"
-        )
+        hitl_row = _build_receipt(thread_id="thread-D", hitl=True, decision="approve")
         await audit_sink.record(hitl_row)
         return audit_only, hitl_row
 
@@ -294,8 +292,7 @@ def test_hitl_involved_generated_column_semantics(
             row = cur.fetchone()
             assert row is not None
             assert row[0] is False, (
-                f"audit-only rows must land hitl_involved=FALSE, "
-                f"got {row[0]!r}"
+                f"audit-only rows must land hitl_involved=FALSE, got {row[0]!r}"
             )
 
             cur.execute(

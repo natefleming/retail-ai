@@ -20,7 +20,6 @@ import pytest
 from dao_ai.config import (
     AiSearchIndexModel,
     AiSearchVectorStoreModel,
-    AppConfig,
     DatabaseModel,
     IndexModel,
     LakebaseVectorStoreModel,

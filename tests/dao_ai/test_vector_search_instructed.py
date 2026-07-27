@@ -12,12 +12,12 @@ from conftest import add_databricks_resource_attrs
 from langchain_core.documents import Document
 
 from dao_ai.config import (
+    AiSearchRetrieverModel,
     ColumnInfo,
     DecompositionModel,
     FilterItem,
     InstructedRetrieverModel,
     LLMModel,
-    AiSearchRetrieverModel,
     RouterModel,
     SearchQuery,
     VectorStoreModel,

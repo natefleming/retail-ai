@@ -219,5 +219,7 @@ class TestAuditModelYamlAnchorScenario:
         # Both audited tools resolve to the same table + database identity.
         assert fn_a.audit.table == fn_b.audit.table == "shared_receipts"
         assert (
-            fn_a.audit.database.project == fn_b.audit.database.project == "shared-lakebase"
+            fn_a.audit.database.project
+            == fn_b.audit.database.project
+            == "shared-lakebase"
         )

@@ -43,9 +43,7 @@ class OBOModelMiddleware(AgentMiddleware[AgentState, Context]):
     4. Swaps the model via ``request.override(model=...)``
     """
 
-    def __init__(
-        self, llm_model: InferenceEndpointModel | GenieAgentModel
-    ) -> None:
+    def __init__(self, llm_model: InferenceEndpointModel | GenieAgentModel) -> None:
         self.llm_model = llm_model
 
     def _create_obo_model(self, context: Context | None) -> LanguageModelLike:

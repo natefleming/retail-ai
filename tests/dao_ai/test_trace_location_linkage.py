@@ -40,9 +40,7 @@ class TestLinkExperimentTraceLocation:
         cfg.app = MagicMock()
         cfg.app.trace_location = None
 
-        with patch(
-            "dao_ai.providers.databricks.mlflow.set_experiment"
-        ) as set_exp:
+        with patch("dao_ai.providers.databricks.mlflow.set_experiment") as set_exp:
             link_experiment_trace_location(cfg, "exp1")
         set_exp.assert_not_called()
 
@@ -183,8 +181,9 @@ class TestLinkExperimentTraceLocation:
     def test_already_contains_traces_swallowed_as_fallback(self) -> None:
         """If the tag-check misses but MLflow says 'already contains traces',
         treat as idempotent — the linkage must already be in place."""
-        from dao_ai.providers.databricks import link_experiment_trace_location
         import mlflow
+
+        from dao_ai.providers.databricks import link_experiment_trace_location
 
         cfg = _cfg("cat", "sch")
         exp = _FakeExperiment(tags={})  # tag lookup says "not linked"

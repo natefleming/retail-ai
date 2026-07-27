@@ -109,9 +109,7 @@ def build_app(config: AppConfig) -> FastAPI:
     # is on, opt into the stateful transport; otherwise keep the stateless
     # default (needed for horizontal scaling on Databricks Apps without
     # sticky sessions).
-    caps = (
-        getattr(config.app, "mcp_server", None) if config.app is not None else None
-    )
+    caps = getattr(config.app, "mcp_server", None) if config.app is not None else None
     needs_stateful: bool = caps is not None and caps.progress
 
     # Keep FastMCP's default ``streamable_http_path="/mcp"`` and mount the

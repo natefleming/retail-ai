@@ -295,8 +295,7 @@ def create_query_audit_receipts_tool(audit: AuditConfigInput) -> BaseTool:
         )
         capped_limit: int = max(1, min(int(limit), 200))
         query: sql.Composed = sql.SQL(
-            "SELECT {cols} FROM {table} {where} "
-            "ORDER BY recorded_at DESC LIMIT %s"
+            "SELECT {cols} FROM {table} {where} ORDER BY recorded_at DESC LIMIT %s"
         ).format(
             cols=sql.SQL(", ").join(sql.Identifier(c) for c in _QUERY_SAFE_COLUMNS),
             table=sql.Identifier(receipts_table),
@@ -634,8 +633,7 @@ def create_summarize_audit_activity_tool(audit: AuditConfigInput) -> BaseTool:
 
                 await cur.execute(
                     sql.SQL(
-                        "SELECT COUNT(DISTINCT approver_sub) AS n "
-                        "FROM {table} {where}"
+                        "SELECT COUNT(DISTINCT approver_sub) AS n FROM {table} {where}"
                     ).format(table=table_id, where=where_with_approver_sql),
                     tuple(params),
                 )

@@ -97,9 +97,7 @@ class TestUvLockIsProtobuf5Coherent:
         )
 
     def test_protobuf_resolves_below_6(self) -> None:
-        protobufs = [
-            p for p in self._lock_packages() if p["name"] == "protobuf"
-        ]
+        protobufs = [p for p in self._lock_packages() if p["name"] == "protobuf"]
         assert protobufs, "protobuf missing from uv.lock"
         for p in protobufs:
             assert Version(p["version"]) < Version("6"), (

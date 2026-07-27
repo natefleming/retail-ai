@@ -84,9 +84,7 @@ def backfill_embeddings(
         return 0
 
     update_sql: str = (
-        f"UPDATE {qualified} "
-        f"SET {embedding_column} = %s::vector "
-        f"WHERE {id_column} = %s"
+        f"UPDATE {qualified} SET {embedding_column} = %s::vector WHERE {id_column} = %s"
     )
     total: int = 0
     for start in range(0, len(rows), batch_size):

@@ -93,13 +93,19 @@ class TestBuildMcpClient:
     def test_classic_path_when_capabilities_none(self) -> None:
         from dao_ai.tools import mcp as mcp_mod
 
-        with patch.object(mcp_mod, "MultiServerMCPClient") as mock_cls, patch.object(
-            mcp_mod, "_build_connection_config", return_value={"url": "x"}
+        with (
+            patch.object(mcp_mod, "MultiServerMCPClient") as mock_cls,
+            patch.object(
+                mcp_mod, "_build_connection_config", return_value={"url": "x"}
+            ),
         ):
             mcp_mod._build_mcp_client(self._make_fn(capabilities=None))
             _, kwargs = mock_cls.call_args
             assert "callbacks" not in kwargs or kwargs.get("callbacks") is None
-            assert "tool_interceptors" not in kwargs or kwargs.get("tool_interceptors") is None
+            assert (
+                "tool_interceptors" not in kwargs
+                or kwargs.get("tool_interceptors") is None
+            )
             assert kwargs["handle_tool_errors"] is False
 
     def test_capabilities_path_attaches_callbacks_and_interceptors(self) -> None:
@@ -111,8 +117,11 @@ class TestBuildMcpClient:
             structured_output=True,
         )
 
-        with patch.object(mcp_mod, "MultiServerMCPClient") as mock_cls, patch.object(
-            mcp_mod, "_build_connection_config", return_value={"url": "x"}
+        with (
+            patch.object(mcp_mod, "MultiServerMCPClient") as mock_cls,
+            patch.object(
+                mcp_mod, "_build_connection_config", return_value={"url": "x"}
+            ),
         ):
             mcp_mod._build_mcp_client(self._make_fn(capabilities=caps))
             args, kwargs = mock_cls.call_args
@@ -130,8 +139,11 @@ class TestBuildMcpClient:
         from dao_ai.tools import mcp as mcp_mod
 
         caps = McpCapabilitiesModel(progress=True, structured_output=False)
-        with patch.object(mcp_mod, "MultiServerMCPClient") as mock_cls, patch.object(
-            mcp_mod, "_build_connection_config", return_value={"url": "x"}
+        with (
+            patch.object(mcp_mod, "MultiServerMCPClient") as mock_cls,
+            patch.object(
+                mcp_mod, "_build_connection_config", return_value={"url": "x"}
+            ),
         ):
             mcp_mod._build_mcp_client(self._make_fn(capabilities=caps))
             _, kwargs = mock_cls.call_args
@@ -142,8 +154,11 @@ class TestBuildMcpClient:
         from dao_ai.tools import mcp as mcp_mod
 
         caps = McpCapabilitiesModel(structured_output=True)
-        with patch.object(mcp_mod, "MultiServerMCPClient") as mock_cls, patch.object(
-            mcp_mod, "_build_connection_config", return_value={"url": "x"}
+        with (
+            patch.object(mcp_mod, "MultiServerMCPClient") as mock_cls,
+            patch.object(
+                mcp_mod, "_build_connection_config", return_value={"url": "x"}
+            ),
         ):
             mcp_mod._build_mcp_client(self._make_fn(capabilities=caps))
             _, kwargs = mock_cls.call_args
@@ -190,8 +205,9 @@ class TestClientRoutingCallsites:
     def test_acreate_tool_wrapper_uses_build_mcp_client(self) -> None:
         """The wrapper produced by acreate_mcp_tools() must route through
         _build_mcp_client on invocation, threading context + capabilities."""
-        from dao_ai.tools import mcp as mcp_mod
         from mcp.types import Tool
+
+        from dao_ai.tools import mcp as mcp_mod
 
         # Skip discovery — return one fake Tool so a wrapper is built.
         fake_tool = Tool(
@@ -204,9 +220,7 @@ class TestClientRoutingCallsites:
         # kwargs so we don't need to track SDK signature changes.
         class _FakeSession:
             async def call_tool(self, name, args, **_kwargs):
-                return CallToolResult(
-                    content=[TextContent(type="text", text="ok")]
-                )
+                return CallToolResult(content=[TextContent(type="text", text="ok")])
 
         class _FakeCtx:
             async def __aenter__(self_inner):
@@ -222,12 +236,14 @@ class TestClientRoutingCallsites:
         fn = self._make_fn(capabilities=caps)
 
         async def _run() -> str:
-            with patch.object(
-                mcp_mod, "_afetch_tools_from_server", return_value=[fake_tool]
-            ), patch.object(
-                mcp_mod, "_build_mcp_client", return_value=fake_client
-            ) as mock_build, patch.object(
-                mcp_mod, "set_resource_attributes"
+            with (
+                patch.object(
+                    mcp_mod, "_afetch_tools_from_server", return_value=[fake_tool]
+                ),
+                patch.object(
+                    mcp_mod, "_build_mcp_client", return_value=fake_client
+                ) as mock_build,
+                patch.object(mcp_mod, "set_resource_attributes"),
             ):
                 tools = await mcp_mod.acreate_mcp_tools(fn)
                 assert len(tools) == 1
@@ -363,9 +379,7 @@ class TestResumeValueMapping:
 class TestStructuredOutputInterceptor:
     def test_resource_link_expanded_to_span_event(self) -> None:
         span = MagicMock()
-        request = MCPToolCallRequest(
-            name="tool_a", args={}, server_name="server_a"
-        )
+        request = MCPToolCallRequest(name="tool_a", args={}, server_name="server_a")
         result = CallToolResult(
             content=[
                 TextContent(type="text", text="hello"),

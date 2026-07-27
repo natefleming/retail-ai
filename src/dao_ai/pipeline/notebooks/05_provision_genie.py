@@ -6,7 +6,9 @@
 # installed package importable in the cells below.
 import glob
 
-_dao_ai_dep = next(iter(sorted(glob.glob("../dist/dao_ai-*.whl"), reverse=True)), "dao-ai")
+_dao_ai_dep = next(
+    iter(sorted(glob.glob("../dist/dao_ai-*.whl"), reverse=True)), "dao-ai"
+)
 
 # MAGIC %uv pip install --quiet {_dao_ai_dep}
 # MAGIC %restart_python
@@ -27,8 +29,8 @@ print(f"mlflow=={version('mlflow')}")
 
 # COMMAND ----------
 
-from typing import Sequence
 import os
+from typing import Sequence
 
 
 def find_yaml_files_os_walk(base_path: str) -> Sequence[str]:
@@ -83,6 +85,7 @@ _ = load_dotenv(find_dotenv())
 # deploy-agents can inject it at config load time.
 
 import json
+
 from dao_ai.config import (
     AppConfig,
     GenieRoomModel,
@@ -113,10 +116,9 @@ if config.resources is not None and config.resources.genie_rooms:
         # room's configuration changes (e.g., new warehouse, new table
         # sources), delete the existing space first or rename the room
         # title so provision-genie creates a fresh one.
-        existing: GenieRoomModel | None = (
-            GenieRoomModel.from_space_id(value_of(room.space_id), w=room.workspace_client)
-            or GenieRoomModel.from_name(value_of(room.name), w=room.workspace_client)
-        )
+        existing: GenieRoomModel | None = GenieRoomModel.from_space_id(
+            value_of(room.space_id), w=room.workspace_client
+        ) or GenieRoomModel.from_name(value_of(room.name), w=room.workspace_client)
         if existing is not None:
             room.space_id = existing.space_id
             print(f"[{room_key}] reusing existing space {room.space_id}")

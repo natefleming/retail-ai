@@ -29,7 +29,6 @@ from dao_ai.config import (
     SearchParametersModel,
 )
 
-
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
@@ -115,18 +114,14 @@ class TestRerankConfig:
         r = LakebaseRetrieverModel(vector_store=vector_store, rerank=False)
         assert r.rerank is False
 
-    def test_rerank_none_default(
-        self, vector_store: LakebaseVectorStoreModel
-    ) -> None:
+    def test_rerank_none_default(self, vector_store: LakebaseVectorStoreModel) -> None:
         r = LakebaseRetrieverModel(vector_store=vector_store)
         assert r.rerank is None
 
     def test_explicit_rerank_params_pass_through(
         self, vector_store: LakebaseVectorStoreModel
     ) -> None:
-        params = RerankParametersModel(
-            model="ms-marco-TinyBERT-L-2-v2", top_n=3
-        )
+        params = RerankParametersModel(model="ms-marco-TinyBERT-L-2-v2", top_n=3)
         r = LakebaseRetrieverModel(vector_store=vector_store, rerank=params)
         assert r.rerank is params
         assert r.rerank.model == "ms-marco-TinyBERT-L-2-v2"
@@ -361,9 +356,7 @@ class TestRerankEndToEnd:
         from dao_ai.retrievers.lakebase import LakebaseRetriever
         from dao_ai.tools import create_lakebase_search_tool
 
-        rows = [
-            {"id": "d1", "passage": "hello", "category": "a", "_distance": 0.1}
-        ]
+        rows = [{"id": "d1", "passage": "hello", "category": "a", "_distance": 0.1}]
         pool = _MockPool(rows)
 
         retriever = LakebaseRetrieverModel(vector_store=vector_store, rerank=True)

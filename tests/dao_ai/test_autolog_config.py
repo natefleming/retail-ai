@@ -64,9 +64,7 @@ class TestAutologCallSite:
             and isinstance(node.func.value, ast.Attribute)
             and node.func.value.attr == "langchain"
         ]
-        assert autolog_calls, (
-            f"{module_name} did not call mlflow.langchain.autolog"
-        )
+        assert autolog_calls, f"{module_name} did not call mlflow.langchain.autolog"
         inline_kwargs = [
             kw
             for call in autolog_calls
@@ -75,9 +73,7 @@ class TestAutologCallSite:
             and isinstance(kw.value, ast.Constant)
             and kw.value.value is True
         ]
-        assert inline_kwargs, (
-            f"{module_name} must call autolog(run_tracer_inline=True)"
-        )
+        assert inline_kwargs, f"{module_name} must call autolog(run_tracer_inline=True)"
 
 
 # ---------------------------------------------------------------------------

@@ -98,9 +98,7 @@ class TestDeployAppsUploadsCodePaths:
         cfg_path.write_text(_CONFIG)
         return AppConfig.from_file(str(cfg_path))
 
-    def test_upload_planner_walks_and_uploads_each_file(
-        self, tmp_path: Path
-    ) -> None:
+    def test_upload_planner_walks_and_uploads_each_file(self, tmp_path: Path) -> None:
         from unittest.mock import MagicMock
 
         from dao_ai.providers.databricks import DatabricksProvider
@@ -112,8 +110,7 @@ class TestDeployAppsUploadsCodePaths:
         provider._upload_code_paths(config, source_path)
 
         upload_paths = [
-            c.kwargs["path"]
-            for c in provider.w.workspace.upload.call_args_list
+            c.kwargs["path"] for c in provider.w.workspace.upload.call_args_list
         ]
         assert upload_paths == [f"{source_path}/tools/custom_tool.py"]
         # Parent dir created before upload.

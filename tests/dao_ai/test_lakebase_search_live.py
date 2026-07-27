@@ -67,18 +67,78 @@ EMBEDDING_DIM = 1024  # matches databricks-gte-large-en
 
 
 SEED_DOCS: list[dict[str, Any]] = [
-    {"id": "d01", "category": "auth",     "priority": 1, "passage": "To reset your password, go to Settings then Security and click 'Reset password'."},
-    {"id": "d02", "category": "auth",     "priority": 2, "passage": "Enable multi-factor authentication (MFA) from your account security page."},
-    {"id": "d03", "category": "billing",  "priority": 3, "passage": "Invoices are issued on the first of each month for the previous billing cycle."},
-    {"id": "d04", "category": "billing",  "priority": 1, "passage": "You can update your payment method under Billing then Payment methods."},
-    {"id": "d05", "category": "shipping", "priority": 2, "passage": "Standard shipping takes 3-5 business days within the continental US."},
-    {"id": "d06", "category": "shipping", "priority": 3, "passage": "International orders may incur customs duties calculated at checkout."},
-    {"id": "d07", "category": "returns",  "priority": 1, "passage": "Returns are accepted within 30 days of delivery with a valid receipt."},
-    {"id": "d08", "category": "returns",  "priority": 2, "passage": "Refunds are processed to the original payment method within 7 business days."},
-    {"id": "d09", "category": "auth",     "priority": 3, "passage": "If you forgot your username, contact support with the email on file."},
-    {"id": "d10", "category": "shipping", "priority": 1, "passage": "Track your package status from the Orders page in your account."},
-    {"id": "d11", "category": "billing",  "priority": 2, "passage": "Late payments incur a 2% monthly finance charge after 30 days overdue."},
-    {"id": "d12", "category": "auth",     "priority": 1, "passage": "Password reset links expire after 24 hours for security reasons."},
+    {
+        "id": "d01",
+        "category": "auth",
+        "priority": 1,
+        "passage": "To reset your password, go to Settings then Security and click 'Reset password'.",
+    },
+    {
+        "id": "d02",
+        "category": "auth",
+        "priority": 2,
+        "passage": "Enable multi-factor authentication (MFA) from your account security page.",
+    },
+    {
+        "id": "d03",
+        "category": "billing",
+        "priority": 3,
+        "passage": "Invoices are issued on the first of each month for the previous billing cycle.",
+    },
+    {
+        "id": "d04",
+        "category": "billing",
+        "priority": 1,
+        "passage": "You can update your payment method under Billing then Payment methods.",
+    },
+    {
+        "id": "d05",
+        "category": "shipping",
+        "priority": 2,
+        "passage": "Standard shipping takes 3-5 business days within the continental US.",
+    },
+    {
+        "id": "d06",
+        "category": "shipping",
+        "priority": 3,
+        "passage": "International orders may incur customs duties calculated at checkout.",
+    },
+    {
+        "id": "d07",
+        "category": "returns",
+        "priority": 1,
+        "passage": "Returns are accepted within 30 days of delivery with a valid receipt.",
+    },
+    {
+        "id": "d08",
+        "category": "returns",
+        "priority": 2,
+        "passage": "Refunds are processed to the original payment method within 7 business days.",
+    },
+    {
+        "id": "d09",
+        "category": "auth",
+        "priority": 3,
+        "passage": "If you forgot your username, contact support with the email on file.",
+    },
+    {
+        "id": "d10",
+        "category": "shipping",
+        "priority": 1,
+        "passage": "Track your package status from the Orders page in your account.",
+    },
+    {
+        "id": "d11",
+        "category": "billing",
+        "priority": 2,
+        "passage": "Late payments incur a 2% monthly finance charge after 30 days overdue.",
+    },
+    {
+        "id": "d12",
+        "category": "auth",
+        "priority": 1,
+        "passage": "Password reset links expire after 24 hours for security reasons.",
+    },
 ]
 
 
@@ -144,9 +204,9 @@ def seeded_table(database: DatabaseModel) -> None:
                 ).format(sql.Identifier(SCHEMA), sql.Identifier(TABLE))
             )
             cur.execute(
-                sql.SQL("SELECT COUNT(*) AS n FROM {}.{} WHERE priority IS NOT NULL").format(
-                    sql.Identifier(SCHEMA), sql.Identifier(TABLE)
-                )
+                sql.SQL(
+                    "SELECT COUNT(*) AS n FROM {}.{} WHERE priority IS NOT NULL"
+                ).format(sql.Identifier(SCHEMA), sql.Identifier(TABLE))
             )
             existing = int(cur.fetchone()["n"])
 
@@ -167,7 +227,13 @@ def seeded_table(database: DatabaseModel) -> None:
                             "passage = EXCLUDED.passage, "
                             "embedding = EXCLUDED.embedding"
                         ).format(sql.Identifier(SCHEMA), sql.Identifier(TABLE)),
-                        (doc["id"], doc["category"], doc["priority"], doc["passage"], vec),
+                        (
+                            doc["id"],
+                            doc["category"],
+                            doc["priority"],
+                            doc["passage"],
+                            vec,
+                        ),
                     )
 
     with pool.connection() as conn:
@@ -312,9 +378,7 @@ class TestFilters:
         assert docs
         assert all(d.metadata["category"] == "billing" for d in docs)
 
-    def test_in_via_list_value(
-        self, vector_store: LakebaseVectorStoreModel
-    ) -> None:
+    def test_in_via_list_value(self, vector_store: LakebaseVectorStoreModel) -> None:
         docs = _retriever(
             vector_store,
             "ANN",
@@ -348,9 +412,7 @@ class TestFilters:
         assert docs
         assert all(d.metadata["priority"] >= 2 for d in docs)
 
-    def test_comparison_less_than(
-        self, vector_store: LakebaseVectorStoreModel
-    ) -> None:
+    def test_comparison_less_than(self, vector_store: LakebaseVectorStoreModel) -> None:
         docs = _retriever(
             vector_store,
             "ANN",
@@ -586,9 +648,7 @@ class TestRerank:
         retriever = LakebaseRetrieverModel(
             vector_store=vector_store,
             rerank=True,  # default FlashRank model
-            search_parameters=SearchParametersModel(
-                query_type="ANN", num_results=10
-            ),
+            search_parameters=SearchParametersModel(query_type="ANN", num_results=10),
         )
         tool = create_lakebase_search_tool(retriever=retriever)
         raw = tool.invoke({"query": "how do I reset my password?"})
@@ -597,19 +657,13 @@ class TestRerank:
         for d in parsed:
             assert "reranker_score" in d["metadata"], d["metadata"]
 
-    def test_top_n_truncates(
-        self, vector_store: LakebaseVectorStoreModel
-    ) -> None:
+    def test_top_n_truncates(self, vector_store: LakebaseVectorStoreModel) -> None:
         from dao_ai.config import RerankParametersModel
 
         retriever = LakebaseRetrieverModel(
             vector_store=vector_store,
-            rerank=RerankParametersModel(
-                model="ms-marco-MiniLM-L-12-v2", top_n=3
-            ),
-            search_parameters=SearchParametersModel(
-                query_type="ANN", num_results=10
-            ),
+            rerank=RerankParametersModel(model="ms-marco-MiniLM-L-12-v2", top_n=3),
+            search_parameters=SearchParametersModel(query_type="ANN", num_results=10),
         )
         tool = create_lakebase_search_tool(retriever=retriever)
         raw = tool.invoke({"query": "password"})
@@ -622,9 +676,7 @@ class TestRerank:
         retriever = LakebaseRetrieverModel(
             vector_store=vector_store,
             rerank=True,
-            search_parameters=SearchParametersModel(
-                query_type="ANN", num_results=10
-            ),
+            search_parameters=SearchParametersModel(query_type="ANN", num_results=10),
         )
         tool = create_lakebase_search_tool(retriever=retriever)
         raw = tool.invoke({"query": "password reset"})
@@ -643,9 +695,7 @@ class TestRerank:
         retriever = LakebaseRetrieverModel(
             vector_store=vector_store,
             rerank=True,
-            search_parameters=SearchParametersModel(
-                query_type="ANN", num_results=10
-            ),
+            search_parameters=SearchParametersModel(query_type="ANN", num_results=10),
         )
         tool = create_lakebase_search_tool(retriever=retriever)
         raw = tool.invoke({"query": "how do I reset my password?"})
@@ -663,9 +713,7 @@ class TestRerank:
         retriever = LakebaseRetrieverModel(
             vector_store=vector_store,
             rerank=True,
-            search_parameters=SearchParametersModel(
-                query_type="BM25", num_results=5
-            ),
+            search_parameters=SearchParametersModel(query_type="BM25", num_results=5),
         )
         tool = create_lakebase_search_tool(retriever=retriever)
         raw = tool.invoke({"query": "password reset"})
@@ -680,9 +728,7 @@ class TestRerank:
         retriever = LakebaseRetrieverModel(
             vector_store=vector_store,
             rerank=True,
-            search_parameters=SearchParametersModel(
-                query_type="HYBRID", num_results=5
-            ),
+            search_parameters=SearchParametersModel(query_type="HYBRID", num_results=5),
         )
         tool = create_lakebase_search_tool(retriever=retriever)
         raw = tool.invoke({"query": "reset my forgotten password"})
@@ -700,9 +746,7 @@ class TestRerank:
         retriever = LakebaseRetrieverModel(
             vector_store=vector_store,
             rerank=True,
-            search_parameters=SearchParametersModel(
-                query_type="ANN", num_results=5
-            ),
+            search_parameters=SearchParametersModel(query_type="ANN", num_results=5),
         )
         tool = create_lakebase_search_tool(retriever=retriever)
         raw = tool.invoke({"query": "password"})

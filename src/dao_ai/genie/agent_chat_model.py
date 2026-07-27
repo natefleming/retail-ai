@@ -45,7 +45,6 @@ together (see ``GenieAgentModel.chat_model_for_workspace_client``).
 from __future__ import annotations
 
 import json
-from textwrap import dedent
 from typing import Any, AsyncIterator, Iterator, Optional
 
 import httpx
@@ -84,7 +83,9 @@ class GenieAgentError(RuntimeError):
     or a non-2xx HTTP status."""
 
 
-def _parse_sse_lines(lines: list[str]) -> Iterator[tuple[Optional[str], dict[str, Any]]]:
+def _parse_sse_lines(
+    lines: list[str],
+) -> Iterator[tuple[Optional[str], dict[str, Any]]]:
     """Yield ``(event, data)`` pairs from buffered SSE lines.
 
     Parses the standard ``event:`` / ``data:`` line format; a blank line
@@ -129,7 +130,9 @@ def _format_function_call_block(item: dict[str, Any]) -> str:
     elif isinstance(arguments_raw, dict):
         arguments = arguments_raw
 
-    title: Optional[str] = arguments.get("title") if isinstance(arguments, dict) else None
+    title: Optional[str] = (
+        arguments.get("title") if isinstance(arguments, dict) else None
+    )
     sql: Optional[str] = arguments.get("sql") if isinstance(arguments, dict) else None
 
     if name == "execute_sql" and sql:
@@ -179,14 +182,18 @@ class _StreamState:
         self.terminal_status: Optional[str] = None
         self.terminal_error: Optional[str] = None
 
-    def handle(self, event_type: Optional[str], payload: dict[str, Any]) -> Optional[str]:
+    def handle(
+        self, event_type: Optional[str], payload: dict[str, Any]
+    ) -> Optional[str]:
         """Process one event. Returns text to stream, or ``None``."""
         self.event_count += 1
         kind: str = event_type or payload.get("type") or ""
 
         if kind == "response.created":
             response_obj: dict[str, Any] = payload.get("response") or {}
-            self.conversation_id = response_obj.get("conversation_id") or self.conversation_id
+            self.conversation_id = (
+                response_obj.get("conversation_id") or self.conversation_id
+            )
             self.response_id = response_obj.get("id") or self.response_id
             return None
 
@@ -208,7 +215,9 @@ class _StreamState:
 
         if kind in {"response.completed", "response.failed"}:
             response_obj = payload.get("response") or {}
-            self.conversation_id = response_obj.get("conversation_id") or self.conversation_id
+            self.conversation_id = (
+                response_obj.get("conversation_id") or self.conversation_id
+            )
             self.response_id = response_obj.get("id") or self.response_id
             self.terminal_status = response_obj.get("status") or kind
             error: Optional[dict[str, Any]] = response_obj.get("error")
@@ -248,7 +257,8 @@ def _latest_human_text(messages: list[BaseMessage]) -> str:
                 parts: list[str] = [
                     block.get("text", "")
                     for block in content
-                    if isinstance(block, dict) and block.get("type") in {"text", "input_text"}
+                    if isinstance(block, dict)
+                    and block.get("type") in {"text", "input_text"}
                 ]
                 return "\n".join(p for p in parts if p)
     raise GenieAgentError("GenieAgentChatModel: no HumanMessage found in the input.")
@@ -428,7 +438,9 @@ class GenieAgentChatModel(BaseChatModel):
             state.handle(event_type, payload)
         self._set_span_attributes(state)
         state.raise_on_error()
-        return ChatResult(generations=[ChatGeneration(message=self._final_message(state))])
+        return ChatResult(
+            generations=[ChatGeneration(message=self._final_message(state))]
+        )
 
     # -- sync path (aggregating) ---------------------------------------
 
@@ -458,4 +470,6 @@ class GenieAgentChatModel(BaseChatModel):
             state.handle(event_type, payload)
         self._set_span_attributes(state)
         state.raise_on_error()
-        return ChatResult(generations=[ChatGeneration(message=self._final_message(state))])
+        return ChatResult(
+            generations=[ChatGeneration(message=self._final_message(state))]
+        )
