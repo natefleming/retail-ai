@@ -2758,10 +2758,14 @@ def _handle_mcp_inspect(options: Namespace) -> None:
 
         # Tool listing. Only MCP servers expose a tool list; a plain dao-ai
         # agent App has no /mcp tool-listing route, so surface that as guidance
-        # rather than an opaque hard error.
+        # rather than an opaque hard error. Silence the dao_ai.tools.mcp logger
+        # for this call — it logs-and-reraises at ERROR, which would duplicate
+        # the guidance below with a noisy traceback line. Restored in `finally`.
         try:
+            logger.disable("dao_ai.tools.mcp")
             tools = list_mcp_tools(function, apply_filters=False)
         except Exception as e:
+            logger.enable("dao_ai.tools.mcp")
             logger.debug(traceback.format_exc())
             print(
                 "\n   ⚠️  Could not list tools — this endpoint did not respond as "
@@ -2772,6 +2776,8 @@ def _handle_mcp_inspect(options: Namespace) -> None:
             )
             print(f"\n{'=' * 80}\n")
             sys.exit(1)
+        finally:
+            logger.enable("dao_ai.tools.mcp")
 
         print(f"\n   Available Tools: {len(tools)}\n")
         for tool in sorted(tools, key=lambda t: t.name):
