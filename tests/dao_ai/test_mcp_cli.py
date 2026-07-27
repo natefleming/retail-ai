@@ -14,6 +14,7 @@ from dao_ai.cli import (
     _handle_mcp_call,
     _handle_mcp_inspect,
     _mcp_function_from_args,
+    _root_cause,
 )
 from dao_ai.config import McpFunctionModel
 
@@ -175,3 +176,25 @@ class TestHandleMcpInspect:
         assert exc.value.code == 1
         out = capsys.readouterr().out
         assert "did not respond as an MCP server" in out
+
+
+@pytest.mark.unit
+class TestRootCause:
+    """_root_cause drills through ExceptionGroup / cause chains to the leaf."""
+
+    def test_plain_exception(self) -> None:
+        assert _root_cause(ValueError("boom")) == "ValueError: boom"
+
+    def test_unwraps_nested_task_groups(self) -> None:
+        leaf = RuntimeError("Session terminated")
+        inner = ExceptionGroup("unhandled errors in a TaskGroup", [leaf])
+        outer = ExceptionGroup("unhandled errors in a TaskGroup", [inner])
+        wrapper = RuntimeError("Failed to list MCP tools ...")
+        wrapper.__cause__ = outer
+        assert _root_cause(wrapper) == "RuntimeError: Session terminated"
+
+    def test_follows_cause_chain(self) -> None:
+        root = ConnectionError("connection refused")
+        top = RuntimeError("wrapper")
+        top.__cause__ = root
+        assert _root_cause(top) == "ConnectionError: connection refused"

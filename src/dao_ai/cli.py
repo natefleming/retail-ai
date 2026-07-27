@@ -2707,6 +2707,31 @@ def _mcp_function_from_args(options: Namespace) -> "McpFunctionModel":
     return McpFunctionModel(url=options.url)
 
 
+def _root_cause(exc: BaseException) -> str:
+    """Return the innermost, user-meaningful message from a wrapped exception.
+
+    MCP connection failures surface as nested TaskGroup ``ExceptionGroup``s
+    wrapping the real error (e.g. ``McpError: Session terminated``). The default
+    ``str(exc)`` yields the useless ``"unhandled errors in a TaskGroup (1
+    sub-exception)"``; this drills through ExceptionGroups and ``__cause__``/
+    ``__context__`` chains to the leaf message.
+    """
+    seen: set[int] = set()
+    cur: BaseException | None = exc
+    while cur is not None and id(cur) not in seen:
+        seen.add(id(cur))
+        group = getattr(cur, "exceptions", None)
+        if group:  # ExceptionGroup / TaskGroup — descend into the first child
+            cur = group[0]
+            continue
+        nxt = cur.__cause__ or cur.__context__
+        if nxt is None:
+            break
+        cur = nxt
+    msg = str(cur).strip() if cur is not None else str(exc).strip()
+    return f"{type(cur).__name__}: {msg}" if msg else type(cur).__name__
+
+
 def _handle_mcp_inspect(options: Namespace) -> None:
     """Connect to a live MCP server and show its health + available tools.
 
@@ -2772,7 +2797,7 @@ def _handle_mcp_inspect(options: Namespace) -> None:
                 "an MCP server.\n   If this is a dao-ai agent App (not an MCP "
                 "server), inspect it via its\n   agent API instead; only "
                 "`agent --mode mcp` deployments expose MCP tools.\n"
-                f"\n   Detail: {e}"
+                f"\n   Detail: {_root_cause(e)}"
             )
             print(f"\n{'=' * 80}\n")
             sys.exit(1)
@@ -2799,7 +2824,7 @@ def _handle_mcp_inspect(options: Namespace) -> None:
     except Exception as e:
         logger.error(f"Failed to inspect MCP server: {e}")
         logger.debug(traceback.format_exc())
-        print(f"\n❌ Error: {e}")
+        print(f"\n❌ Error: {_root_cause(e)}")
         sys.exit(1)
 
 
@@ -2834,7 +2859,7 @@ def _handle_mcp_call(options: Namespace) -> None:
     except Exception as e:
         logger.error(f"Failed to call MCP tool '{options.tool}': {e}")
         logger.debug(traceback.format_exc())
-        print(f"\n❌ Error: {e}")
+        print(f"\n❌ Error: {_root_cause(e)}")
         sys.exit(1)
 
 
