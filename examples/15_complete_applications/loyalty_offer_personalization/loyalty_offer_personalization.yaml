@@ -15,8 +15,9 @@
 #               1 vector retriever over the offer catalog, 1 Genie room.
 # Memory:       Lakebase checkpointer + namespaced store + memory extraction
 #               on the existing retail-consumer-goods Lakebase project.
-# Deployment:   Same config deploys to Model Serving and Databricks Apps via
-#               `dao-ai generate-workflow ... --deployment-target both --deploy --run`.
+# Deployment:   Same config deploys to Model Serving and Databricks Apps — run
+#               `dao-ai workflow up ... --mode model_serving` and
+#               `dao-ai workflow up ... --mode apps` (one command per target).
 # AI Gateway:   All chat-completion endpoints route through the gateway.
 
 # =============================================================================

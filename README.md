@@ -153,7 +153,7 @@ dao-ai version
 You should see output that starts with a version line, e.g.:
 
 ```
-dao-ai 0.1.104
+dao-ai 0.2.4
   Published: True
   Python:    3.11.x   (or 3.12.x — whichever `uv venv` picked in Step 3)
   Platform:  ...
@@ -166,6 +166,24 @@ dao-ai 0.1.104
 ```
 
 If you see a version number and a dependency list, dao-ai is installed correctly. Continue to "Your First Agent" below.
+
+**Optional feature extras.** A plain `uv pip install dao-ai` is all you need to
+build and deploy agents. Some features pull in heavier dependency trees that are
+gated behind extras so the base install stays lean — install only the ones your
+config uses (the deploy path auto-selects the right extras into generated bundles;
+at runtime a missing extra raises a friendly `install dao-ai[<extra>]` error):
+
+| Extra | Adds | Install |
+|-------|------|---------|
+| `mcp` | FastAPI + Uvicorn for the MCP-server App | `uv pip install "dao-ai[mcp]"` |
+| `a2a` | Google Agent2Agent (A2A) protocol endpoints | `uv pip install "dao-ai[a2a]"` |
+| `rerank` | FlashRank reranking for AI Search / RAG | `uv pip install "dao-ai[rerank]"` |
+| `deepagents` | Deep Agent orchestration (todo, filesystem, sub-agents, skills) | `uv pip install "dao-ai[deepagents]"` |
+| `memory` | Long-term memory via langmem | `uv pip install "dao-ai[memory]"` |
+| `search` | Web search tool | `uv pip install "dao-ai[search]"` |
+| `excel` | Excel (`.xlsx`) file support via openpyxl | `uv pip install "dao-ai[excel]"` |
+| `databricks` | `databricks-connect` for local Model Serving deploys | `uv pip install "dao-ai[databricks]"` |
+| `all` | Every runtime feature extra above | `uv pip install "dao-ai[all]"` |
 
 **Option 2: For developers familiar with Git**
 
@@ -243,7 +261,7 @@ app:
 
 **💡 What's happening here?**
 - `schemas`: Points to your Unity Catalog location (where the agent will be registered)
-- `resources`: Defines the AI model (Llama 3.3 70B in this case)
+- `resources`: Defines the AI model (`databricks-gpt-5-4-mini` in this case)
 - `agents`: Describes your assistant agent and its behavior
 - `app`: Configures how the agent is deployed and orchestrated
 
@@ -287,32 +305,35 @@ config.deploy_agent()
 **Option B: Using the CLI** (one command)
 
 ```bash
-dao-ai workflow generate --deploy --run -c config/my_agent.yaml
+dao-ai agent up -c config/my_agent.yaml
 ```
 
 This single command:
 1. Validates your configuration
 2. Packages the agent
 3. Deploys it to Databricks
-4. Creates a serving endpoint
+4. Starts the deployed agent
 
 **Deploying to a specific workspace:**
 
 ```bash
 # Deploy to AWS workspace
-dao-ai workflow generate --deploy --run -c config/my_agent.yaml --profile aws-field-eng
+dao-ai agent up -c config/my_agent.yaml --profile aws-field-eng
 
 # Deploy to Azure workspace
-dao-ai workflow generate --deploy --run -c config/my_agent.yaml --profile azure-retail
+dao-ai agent up -c config/my_agent.yaml --profile azure-retail
 ```
 
-> The bundle generators are **verb-under-noun** commands —
-> `dao-ai <agent|workflow> <generate|deploy|run|destroy>`. `generate` stages
-> the bundle (and can one-shot `--deploy`/`--run`); `deploy`/`run`/`destroy` act
-> on the already-staged bundle without regenerating. Use `--mode mcp` on the
-> `agent` noun to generate/deploy the MCP-server App instead. The old flat
-> `generate-agent`, `generate-mcp`, `generate-workflow`, and `dao-ai mcp` commands
-> have been removed — see the [migration table](docs/cli-reference.md#migration-from-pre-v2-cli).
+> The bundle commands are **verb-under-noun** — `dao-ai <agent|workflow> <up|generate|deploy|run|destroy>`.
+> `up` is the one-command path: generate (if needed) → deploy → run. The granular
+> primitives act on the staged bundle: `generate` stages it (inspect / hand-edit),
+> `deploy` pushes it (`agent deploy` auto-generates if nothing is staged;
+> `workflow deploy` requires a prior `generate`/`up`), `run` starts it, and
+> `destroy` tears it down. Use `--mode mcp` on the `agent` noun to build the
+> MCP-server App instead, or `--mode model_serving` to deploy to a Model Serving
+> endpoint. The old flat `generate-agent`, `generate-mcp`, `generate-workflow`, and
+> `dao-ai mcp` commands — and the one-shot `generate --deploy/--run` flags — have been
+> removed. See the [migration table](docs/cli-reference.md#migration-from-pre-v2-cli).
 
 **Step 5: Interact with your agent**
 
@@ -457,15 +478,15 @@ dao-ai schema > schemas/model_config_schema.json
 # Visualize agent workflow
 dao-ai graph -c config/my_config.yaml -o workflow.png
 
-# Deploy with Databricks Asset Bundles
-dao-ai workflow generate --deploy --run -c config/my_config.yaml
+# Generate + deploy + start a Databricks Apps bundle in one command
+dao-ai agent up -c config/my_config.yaml -p <profile>
+
+# Provision backing infra (Vector Search, Lakebase, Genie…) then deploy the agent
+dao-ai workflow up -c config/my_config.yaml
 
 # Deploy to a specific workspace (multi-cloud support)
-dao-ai workflow generate --deploy -c config/my_config.yaml --profile aws-field-eng
-dao-ai workflow generate --deploy -c config/my_config.yaml --profile azure-retail
-
-# Generate + deploy + start a Databricks Apps bundle in one step
-dao-ai agent generate -c config/my_config.yaml --deploy --run -p <profile>
+dao-ai agent up -c config/my_config.yaml --profile aws-field-eng
+dao-ai agent up -c config/my_config.yaml --profile azure-retail
 
 # Re-deploy the already-staged bundle without regenerating (retry a transient failure)
 dao-ai agent deploy -c config/my_config.yaml -p <profile>
@@ -481,18 +502,19 @@ dao-ai parameters list -c config/my_config.yaml --param catalog=nfleming
 
 `dao-ai agent generate` produces a deploy-ready Databricks Apps bundle: `databricks.yaml`, the app resource YAML (with the agent's UC resource wiring), a `pyproject.toml`, a portable `uv.lock`, and a copy of your config. The Apps build phase installs dependencies by running `uv sync --locked --no-dev` from the pyproject + lock (no `requirements.txt` — it would take precedence and force the slower pip path). The lock's internal-mirror URLs are rewritten to the public CDN so it resolves from Apps containers.
 
-The simplest path is the one-step deploy (generate + `bundle deploy` + trace-link/grant + `bundle run`):
+The simplest path is `up` (generate + `bundle deploy` + trace-link/grant + `bundle run`):
 
 ```bash
-dao-ai agent generate -c config/my_config.yaml --deploy --run -p <profile>
+dao-ai agent up -c config/my_config.yaml -p <profile>
 ```
 
-Or generate first, optionally hand-edit the staged files, then ship exactly what's on disk with the strict `deploy` verb (no regeneration):
+Or generate first, optionally hand-edit the staged files, then ship exactly what's on disk with the `deploy` verb, and start it with `run`:
 
 ```bash
 dao-ai agent generate -c config/my_config.yaml -o ./my-bundle
 # (optionally hand-edit ./my-bundle)
-dao-ai agent deploy --run -c config/my_config.yaml -o ./my-bundle -p <profile>
+dao-ai agent deploy -c config/my_config.yaml -o ./my-bundle -p <profile>
+dao-ai agent run    -c config/my_config.yaml -o ./my-bundle -p <profile>
 
 # ...or drive the bundle by hand
 cd ./my-bundle
@@ -537,17 +559,17 @@ DAO AI supports deploying to Azure, AWS, and GCP workspaces with automatic cloud
 
 ```bash
 # Deploy to AWS workspace
-dao-ai workflow generate --deploy -c config/my_config.yaml --profile aws-prod
+dao-ai workflow up -c config/my_config.yaml --profile aws-prod
 
 # Deploy to Azure workspace
-dao-ai workflow generate --deploy -c config/my_config.yaml --profile azure-prod
+dao-ai workflow up -c config/my_config.yaml --profile azure-prod
 
 # Deploy to GCP workspace
-dao-ai workflow generate --deploy -c config/my_config.yaml --profile gcp-prod
+dao-ai workflow up -c config/my_config.yaml --profile gcp-prod
 ```
 
 The CLI automatically:
-- Detects the cloud provider from your profile's workspace URL
+- Detects the cloud provider from your profile's workspace URL (pass `--cloud {aws|azure|gcp}` if it can't be detected)
 - Selects appropriate compute node types for each cloud
 - Creates isolated deployment state per profile
 
@@ -559,8 +581,8 @@ The CLI automatically:
 
 - **Documentation**: [docs/](docs/)
 - **Examples**: [examples/](examples/)
-- **Issues**: [GitHub Issues](https://github.com/your-org/dao-ai/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/your-org/dao-ai/discussions)
+- **Issues**: [GitHub Issues](https://github.com/natefleming/dao-ai/issues)
+- **Discussions**: [GitHub Discussions](https://github.com/natefleming/dao-ai/discussions)
 
 ---
 

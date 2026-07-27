@@ -243,7 +243,7 @@ MLflow UI) works unmodified. See `filters_and_traces.yaml` for a
 dao-ai validate -c examples/21_lakebase_search/hybrid_rrf.yaml
 
 # Deploy as a Databricks App bundle.
-dao-ai generate-agent -c examples/21_lakebase_search/hybrid_rrf.yaml \
+dao-ai agent generate -c examples/21_lakebase_search/hybrid_rrf.yaml \
   -o /tmp/lakebase-agent --overwrite --development -p <profile>
 cd /tmp/lakebase-agent
 databricks bundle deploy --target dev -p <profile>

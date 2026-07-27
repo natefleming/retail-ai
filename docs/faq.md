@@ -135,10 +135,10 @@ Yes! Use different configuration files for each environment:
 
 ```bash
 # Development
-dao-ai workflow generate --deploy -c config/dev.yaml --profile dev
+dao-ai workflow up -c config/dev.yaml --profile dev
 
 # Production
-dao-ai workflow generate --deploy -c config/prod.yaml --profile prod
+dao-ai workflow up -c config/prod.yaml --profile prod
 ```
 
 **Learn more:** [`docs/cli-reference.md`](cli-reference.md) · [`docs/configuration-reference.md`](configuration-reference.md) (parameters + variables lifecycle)
@@ -164,14 +164,14 @@ variables:
       - env: MY_API_KEY
 ```
 
-**Learn more:** [`docs/configuration-reference.md`](configuration-reference.md#variables) · [`examples/01_getting_started/`](../examples/01_getting_started/)
+**Learn more:** [`docs/configuration-reference.md`](configuration-reference.md#dynamic-configuration-with-anyvariable) · [`examples/01_getting_started/`](../examples/01_getting_started/)
 
 ### How do I update a deployed agent?
 
 Simply redeploy with the updated configuration:
 
 ```bash
-dao-ai workflow generate --deploy --run -c config/my_config.yaml
+dao-ai workflow up -c config/my_config.yaml
 ```
 
 This will update the existing deployment.
@@ -185,21 +185,22 @@ Two paths, both driven by the same YAML — pick whichever fits your workflow.
 **Path 1 — one-call Python (what every workshop lab uses):**
 
 ```python
-from dao_ai.config import AppConfig, DeploymentTarget
+from dao_ai.config import AppConfig, ServingMode
 
 config = AppConfig.from_file("config/my_agent.yaml", params={...})
-config.deploy_agent(target=DeploymentTarget.APPS)
+config.deploy_agent(target=ServingMode.APPS)
 print(f"Deployed app: {config.app.name}")
 ```
 
-`deploy_agent(target=APPS)` generates the Asset Bundle, uploads source + `requirements.txt`, deploys the app, waits for compute ACTIVE, and (if `app.trace_location:` is set) grants the App SP the OTEL-table permissions.  See [Lab 1 — Your First DAO-AI Agent](https://github.com/natefleming/dao-ai-workshop/tree/main/L100-foundations/lab-01-first-agent) for the shortest working example.
+`deploy_agent(target=ServingMode.APPS)` generates the Asset Bundle, uploads source + `pyproject.toml` + `uv.lock` (the Apps build phase runs `uv sync --locked --no-dev`), deploys the app, waits for compute ACTIVE, and (if `app.trace_location:` is set) grants the App SP the OTEL-table permissions.  See [Lab 1 — Your First DAO-AI Agent](https://github.com/natefleming/dao-ai-workshop/tree/main/L100-foundations/lab-01-first-agent) for the shortest working example.
 
 **Path 2 — `dao-ai agent generate` (Asset Bundle you can inspect / edit / check into Git):**
 
 ```bash
 dao-ai agent generate -c config/my_agent.yaml -o ./my-bundle
 # Optionally hand-edit ./my-bundle, then ship exactly what's on disk (no regeneration):
-dao-ai agent deploy --run -c config/my_agent.yaml -o ./my-bundle
+dao-ai agent deploy -c config/my_agent.yaml -o ./my-bundle
+dao-ai agent run    -c config/my_agent.yaml -o ./my-bundle
 # ...or drive the bundle manually
 cd my-bundle
 databricks bundle deploy
@@ -789,7 +790,7 @@ dao-ai grants the required privileges automatically at deploy time (see `_grant_
 - `USE_SCHEMA` on the target schema
 - `SELECT` + `MODIFY` on each of the four OTEL tables
 
-**Gotcha:** the *deployer* (the person running `deploy_agent(...)` or `dao-ai workflow generate --deploy`) must hold `MANAGE` on the target UC schema for those grants to succeed. If the deployer doesn't have `MANAGE`, ask a metastore admin to run once:
+**Gotcha:** the *deployer* (the person running `deploy_agent(...)` or `dao-ai workflow up`) must hold `MANAGE` on the target UC schema for those grants to succeed. If the deployer doesn't have `MANAGE`, ask a metastore admin to run once:
 
 ```sql
 GRANT USE_CATALOG ON CATALOG <catalog> TO `<endpoint-sp-client-id>`;

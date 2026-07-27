@@ -283,12 +283,12 @@ The `recommendation` handler treats memorized **dietary restrictions as hard con
 
 ### 5. Data provisioning + Vector Search sync
 
-When you run `dao-ai generate-workflow --deploy --run`, this five-stage DAG executes inside a Databricks Job. Stages 2–4 populate UC; stage 5 deploys the App that uses them.
+When you run `dao-ai workflow up`, this five-stage DAG executes inside a Databricks Job. Stages 2–4 populate UC; stage 5 deploys the App that uses them.
 
 ```mermaid
 %%{init: {'theme': 'base', 'themeVariables': { 'primaryColor': '#1565c0', 'fontSize': '13px'}}}%%
 flowchart TB
-    subgraph Deploy["⚙️ dao-ai generate-workflow --deploy --run"]
+    subgraph Deploy["⚙️ dao-ai workflow up"]
         direction TB
         Provision["1️⃣ provision-lakebase<br/>creates commerce-swarm project<br/>autoscaling_min_cu: 0"]
         IngestTransform["2️⃣ ingest-and-transform<br/>runs each dataset:<br/>DDL → CREATE TABLE<br/>data → INSERT VALUES"]
@@ -517,10 +517,10 @@ DATABRICKS_CONFIG_PROFILE=fevm uv run dao-ai validate \
   -c examples/15_complete_applications/commerce/commerce_swarm.yaml
 
 # Deploy + provision everything in one shot
-uv run dao-ai generate-workflow --deploy --run \
+uv run dao-ai workflow up \
   -c examples/15_complete_applications/commerce/commerce_swarm.yaml \
   -p fevm \
-  --deployment-target apps
+  --mode apps
 ```
 
 The deploy executes the 5-stage DAG shown in section 5 above:

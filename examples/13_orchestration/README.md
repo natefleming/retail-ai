@@ -537,7 +537,7 @@ dao-ai chat -c examples/13_orchestration/deep_agent_pattern.yaml
 dao-ai graph -c examples/13_orchestration/supervisor_pattern.yaml -o graph.png
 
 # Generate a Databricks Asset Bundle for a deep_agent app
-dao-ai generate-agent -c examples/13_orchestration/deep_agent_with_skills.yaml
+dao-ai agent generate -c examples/13_orchestration/deep_agent_with_skills.yaml
 ```
 
 ## Prerequisites

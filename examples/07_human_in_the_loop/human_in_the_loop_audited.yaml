@@ -162,7 +162,7 @@ app:
   endpoint_name: hitl_audited_demo
 
   # trace_location must be set for MLflow OTEL span attributes to land in UC.
-  # Run `dao-ai link-trace-destination` between `bundle deploy` and
+  # Run `dao-ai trace link` between `bundle deploy` and
   # `bundle run` to link the experiment to the tables below.
   trace_location:
     schema: *audit_schema
@@ -191,10 +191,10 @@ app:
 # =============================================================================
 #
 # 1. Deploy to Databricks Apps (recommended for OBO capture):
-#      uv run dao-ai generate-agent --overwrite --development \
+#      uv run dao-ai agent generate --overwrite --development \
 #        -c examples/07_human_in_the_loop/human_in_the_loop_audited.yaml
 #      databricks bundle deploy -p <profile>
-#      uv run dao-ai link-trace-destination \
+#      uv run dao-ai trace link \
 #        -c examples/07_human_in_the_loop/human_in_the_loop_audited.yaml \
 #        -p <profile>
 #      databricks bundle run <app_name> -p <profile>

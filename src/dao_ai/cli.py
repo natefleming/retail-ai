@@ -238,7 +238,9 @@ def _global_parent_parser() -> ArgumentParser:
         "--profile",
         type=str,
         default=argparse.SUPPRESS,
-        help="The Databricks CLI profile to use (accepted at any level).",
+        help="The Databricks CLI profile to use (accepted at any level). When "
+        "set, ambient DATABRICKS_* env vars (shell or .env) are cleared for this "
+        "process so the profile is authoritative.",
     )
     p.add_argument(
         "-v",
@@ -331,7 +333,8 @@ def _add_workflow_target_args(parser: ArgumentParser) -> None:
         "--cloud",
         type=str,
         choices=["azure", "aws", "gcp"],
-        help="Cloud provider (auto-detected from workspace URL if not specified)",
+        help="Cloud provider. Auto-detected from the workspace URL; required only "
+        "if detection fails.",
     )
 
 
@@ -1415,6 +1418,15 @@ Examples:
     # so options.mode is always the canonical ServingMode value downstream.
     if getattr(options, "mode", None) is not None:
         options.mode = _normalize_mode(options.mode)
+
+    # --direct is only meaningful for the bundle-less SDK path (apps/mcp).
+    # model_serving always deploys via the SDK, so pairing the two is a
+    # contradiction — reject it here rather than silently ignoring --direct.
+    if getattr(options, "direct", False) and getattr(options, "mode", None) == "model_serving":
+        parser.error(
+            "--direct is not valid with --mode model_serving; "
+            "model_serving always deploys via the SDK (no bundle)."
+        )
 
     # Generate a new thread_id UUID if not provided (only for chat command)
     if hasattr(options, "thread_id") and options.thread_id is None:
@@ -2762,7 +2774,8 @@ def run_databricks_command(
         profile: Optional Databricks CLI profile name
         config: Optional path to the configuration file
         target: Optional bundle target name (if not provided, auto-generated from app name and cloud)
-        cloud: Optional cloud provider ('azure', 'aws', 'gcp'). Auto-detected if not specified.
+        cloud: Optional cloud provider ('azure', 'aws', 'gcp'). Auto-detected
+            from the workspace URL; required only if detection fails.
         dry_run: If True, print the command without executing
         mode: Optional agent serving mode ('model_serving', 'apps', or 'mcp').
             Passed to the deploy notebook via bundle variable.
@@ -2812,14 +2825,29 @@ def run_databricks_command(
         sys.exit(1)
     normalized_name: str = normalize_name(app_config.app.name) if app_config else None
 
-    # Auto-detect cloud provider if not specified (used for target selection)
+    # Auto-detect cloud provider if not specified (used for target selection).
+    # On a real run, if detection fails, stop and ask the operator to pass
+    # --cloud rather than silently guessing a cloud (a wrong guess targets the
+    # wrong node types / bundle target and produces a confusing downstream
+    # failure). Under --dry-run we still want to render the preview even without
+    # workspace auth, so fall back to a visible placeholder instead of exiting.
     if not cloud:
         cloud = detect_cloud_provider(profile)
         if cloud:
             logger.info(f"Auto-detected cloud provider: {cloud}")
+        elif dry_run:
+            logger.warning(
+                "Could not detect the cloud provider from the workspace URL. "
+                "A real run requires --cloud {aws|azure|gcp}; using a placeholder "
+                "for this dry-run preview."
+            )
+            cloud = "<cloud>"
         else:
-            logger.warning("Could not detect cloud provider. Defaulting to 'azure'.")
-            cloud = "azure"
+            logger.error(
+                "Could not detect the cloud provider from the workspace URL. "
+                "Re-run with --cloud {aws|azure|gcp} to specify it explicitly."
+            )
+            sys.exit(1)
 
     # Stage a self-contained pipeline bundle from the installed dao-ai wheel's
     # packaged assets (databricks.yaml, notebooks, requirements.txt) plus the
@@ -3410,7 +3438,8 @@ def _deploy_run_destroy_app_bundle(
        is irrelevant for an endpoint (it serves once READY).
     2. ``up --direct`` (or any direct=True): call
        ``config.deploy_agent(target=ServingMode(mode))`` via SDK (no bundle on
-       disk). ``--direct`` + ``--mode model_serving`` is handled by Route 1.
+       disk). ``mode`` here is apps|mcp — ``--direct`` + ``--mode model_serving``
+       is rejected at parse time (see :func:`parse_args`).
     3. Bundle path: if ``databricks.yaml`` is absent AND ``deploy=True``,
        auto-stage via :func:`_stage_app_bundle` (CDK/SAM norm), then deploy.
        If already staged, deploy in-place (preserves hand-edits). ``run`` /
@@ -3436,7 +3465,7 @@ def _deploy_run_destroy_app_bundle(
         config.deploy_agent(target=ServingMode.MODEL_SERVING, development=development)
         return
 
-    # --- Route 2: --direct (SDK path for apps/mcp; model_serving is a no-op alias) ---
+    # --- Route 2: --direct (SDK path for apps/mcp; model_serving rejected at parse) ---
     if deploy and direct:
         from dao_ai.config import ServingMode
 

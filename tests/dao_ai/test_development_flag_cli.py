@@ -93,6 +93,17 @@ class TestNounVerbParsing:
         opts = parse_args(["agent", "up", "-c", "c.yaml", "--direct"])
         assert opts.direct is True
 
+    def test_up_verb_rejects_direct_with_model_serving(self) -> None:
+        # --direct is meaningless with model_serving (which always deploys via the
+        # SDK); the combo is rejected at parse time rather than silently ignored.
+        with pytest.raises(SystemExit):
+            parse_args(["agent", "up", "-c", "c.yaml", "--direct", "--mode", "model_serving"])
+
+    def test_up_verb_rejects_direct_with_model_serving_alias(self) -> None:
+        # The `ms` alias normalizes to model_serving before the check runs.
+        with pytest.raises(SystemExit):
+            parse_args(["agent", "up", "-c", "c.yaml", "--direct", "-m", "ms"])
+
     @pytest.mark.parametrize(
         "argv",
         [
