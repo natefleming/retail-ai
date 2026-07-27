@@ -3260,6 +3260,16 @@ class AiSearchVectorStoreModel(IsDatabricksResource, ManagedResource):
     def as_index(self, vsc: VectorSearchClient | None = None) -> VectorSearchIndex:
         from dao_ai.providers.databricks import DatabricksProvider
 
+        # Build an authenticated VectorSearchClient from this model's own
+        # workspace client when the caller didn't supply one — a bare
+        # ``VectorSearchClient()`` raises ``InvalidInputException`` under SP /
+        # ambient CLI-profile auth. Same ambient-auth extraction the runtime
+        # retrieval path uses (``_vsc_for_refresh`` → ``_client_args_from_ambient_wc``).
+        if vsc is None:
+            from dao_ai.tools.vector_search import _vsc_for_refresh
+
+            vsc = _vsc_for_refresh(self)
+
         provider: DatabricksProvider = DatabricksProvider(vsc=vsc)
         index: VectorSearchIndex = provider.get_vector_index(self)
         return index
