@@ -53,7 +53,7 @@ if TYPE_CHECKING:
     from langgraph.prebuilt import ToolRuntime
 
     from dao_ai.config import AuditModel, ToolModel
-    from dao_ai.state import AgentState, Context
+    from dao_ai.state import Context
 
 
 __all__ = [
@@ -132,17 +132,13 @@ class AuditStash:
             cls._entries[(thread_id, tool_call_id)] = entry
 
     @classmethod
-    def take(
-        cls, thread_id: str, tool_call_id: str
-    ) -> Optional[AuditStashEntry]:
+    def take(cls, thread_id: str, tool_call_id: str) -> Optional[AuditStashEntry]:
         """Retrieve and remove the stash entry — single-use, mirrors nonce lifecycle."""
         with cls._lock:
             return cls._entries.pop((thread_id, tool_call_id), None)
 
     @classmethod
-    def find_thread_id_by_tool_call_id(
-        cls, tool_call_id: str
-    ) -> Optional[str]:
+    def find_thread_id_by_tool_call_id(cls, tool_call_id: str) -> Optional[str]:
         """
         Return the ``thread_id`` under which ``tool_call_id`` was stashed,
         or ``None`` if no matching entry exists.
@@ -153,7 +149,7 @@ class AuditStash:
         locate the stash entry when it only has the tool_call_id in hand.
         """
         with cls._lock:
-            for (thread_id, existing_id) in cls._entries:
+            for thread_id, existing_id in cls._entries:
                 if existing_id == tool_call_id:
                     return thread_id
         return None
@@ -200,9 +196,7 @@ def put_stash(thread_id: str, tool_call_id: str, entry: AuditStashEntry) -> None
     AuditStash.put(thread_id, tool_call_id, entry)
 
 
-def take_stash(
-    thread_id: str, tool_call_id: str
-) -> Optional[AuditStashEntry]:
+def take_stash(thread_id: str, tool_call_id: str) -> Optional[AuditStashEntry]:
     """Public helper for tests to consume a stash entry directly."""
     return AuditStash.take(thread_id, tool_call_id)
 
@@ -488,12 +482,10 @@ async def _record_execution_receipt(
         displayed_summary=stash.displayed_summary if stash is not None else None,
         decision=stash.decision if stash is not None else None,
         decision_detail=stash.decision_detail if stash is not None else None,
-        approver_sub=(
-            stash.approver_sub if stash is not None else None
-        ) or (context.user_id if stash is not None else None),
-        approver_email=(
-            stash.approver_email if stash is not None else None
-        ) or (approver_email if stash is not None else None),
+        approver_sub=(stash.approver_sub if stash is not None else None)
+        or (context.user_id if stash is not None else None),
+        approver_email=(stash.approver_email if stash is not None else None)
+        or (approver_email if stash is not None else None),
         confirmed_via=stash.confirmed_via if stash is not None else None,
         obo_access_token=obo_token,
         obo_token_exp=obo_exp,

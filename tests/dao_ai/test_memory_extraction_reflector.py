@@ -131,4 +131,6 @@ def test_filter_matches_partial_span_for_run_id_variants(_fresh_loggers: None) -
         "Span for run_id 019f... not found (retrying).",
     ]:
         record = _emit("mlflow.utils.autologging_utils", msg)
-        assert _passes_all_filters("mlflow.utils.autologging_utils", record) is False, msg
+        assert _passes_all_filters("mlflow.utils.autologging_utils", record) is False, (
+            msg
+        )

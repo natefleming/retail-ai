@@ -141,9 +141,7 @@ class TestHandleCommand:
         ):
             ac.from_file.return_value = cfg
             handle_link_trace_destination_command(
-                Namespace(
-                    config="cfg.yaml", profile=None, experiment_id=None, var=None
-                )
+                Namespace(config="cfg.yaml", profile=None, experiment_id=None, var=None)
             )
         assert "nothing to link" in capsys.readouterr().err
 
@@ -156,9 +154,7 @@ class TestHandleCommand:
         with (
             patch("dao_ai.cli._apply_profile_context"),
             patch("dao_ai.cli.AppConfig") as ac,
-            patch(
-                "dao_ai.cli._resolve_experiment_id_for_link", return_value=None
-            ),
+            patch("dao_ai.cli._resolve_experiment_id_for_link", return_value=None),
         ):
             ac.from_file.return_value = cfg
             with pytest.raises(SystemExit) as exc:
@@ -181,9 +177,7 @@ class TestHandleCommand:
         with (
             patch("dao_ai.cli._apply_profile_context"),
             patch("dao_ai.cli.AppConfig") as ac,
-            patch(
-                "dao_ai.cli._resolve_experiment_id_for_link", return_value="exp42"
-            ),
+            patch("dao_ai.cli._resolve_experiment_id_for_link", return_value="exp42"),
             patch(
                 "dao_ai.providers.databricks._link_experiment_trace_location"
             ) as link,
@@ -214,9 +208,7 @@ class TestHandleCommand:
         with (
             patch("dao_ai.cli._apply_profile_context"),
             patch("dao_ai.cli.AppConfig") as ac,
-            patch(
-                "dao_ai.cli._resolve_experiment_id_for_link", return_value="exp42"
-            ),
+            patch("dao_ai.cli._resolve_experiment_id_for_link", return_value="exp42"),
             patch(
                 "dao_ai.providers.databricks._link_experiment_trace_location",
                 side_effect=RuntimeError("warehouse timeout"),

@@ -97,7 +97,9 @@ class TestNounVerbParsing:
         # --direct is meaningless with model_serving (which always deploys via the
         # SDK); the combo is rejected at parse time rather than silently ignored.
         with pytest.raises(SystemExit):
-            parse_args(["agent", "up", "-c", "c.yaml", "--direct", "--mode", "model_serving"])
+            parse_args(
+                ["agent", "up", "-c", "c.yaml", "--direct", "--mode", "model_serving"]
+            )
 
     def test_up_verb_rejects_direct_with_model_serving_alias(self) -> None:
         # The `ms` alias normalizes to model_serving before the check runs.
@@ -126,9 +128,7 @@ class TestDefaultBundleDir:
     """Default bundle dir: $DAO_AI_BUNDLE_DIR base or `.dao-ai/bundle`, then
     `<kind>/<app>` appended (per-app isolation)."""
 
-    def test_default_base_when_env_unset(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_default_base_when_env_unset(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.delenv("DAO_AI_BUNDLE_DIR", raising=False)
         assert cli._default_bundle_dir("agent", "my_app") == Path(
             ".dao-ai/bundle/agent/my_app"
@@ -148,9 +148,7 @@ class TestDefaultBundleDir:
     ) -> None:
         monkeypatch.setenv("DAO_AI_BUNDLE_DIR", "artifacts")
         for kind in ("workflow", "agent", "mcp"):
-            assert cli._default_bundle_dir(kind, "app") == Path(
-                f"artifacts/{kind}/app"
-            )
+            assert cli._default_bundle_dir(kind, "app") == Path(f"artifacts/{kind}/app")
 
     def test_clean_guard_respects_env_base(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -222,9 +220,7 @@ class TestEditSafety:
         monkeypatch.setenv("DAO_AI_BUNDLE_DIR", str(tmp_path / "base"))
         d = self._staged(tmp_path)
         (d / "app.yaml").write_text("edited\n")
-        cli._clean_default_staging_dir(
-            d, is_default=True, overwrite=True, noun="agent"
-        )
+        cli._clean_default_staging_dir(d, is_default=True, overwrite=True, noun="agent")
         assert not d.exists()
 
     def test_missing_marker_treated_as_edited(
@@ -490,7 +486,9 @@ def _app_config(*, trace: bool) -> AppConfig:
 class TestModeChoices:
     def test_deploy_accepts_all_three(self) -> None:
         for m in ("model_serving", "apps", "mcp"):
-            assert parse_args(["agent", "deploy", "-c", "c.yaml", "--mode", m]).mode == m
+            assert (
+                parse_args(["agent", "deploy", "-c", "c.yaml", "--mode", m]).mode == m
+            )
 
     def test_generate_rejects_model_serving(self) -> None:
         with pytest.raises(SystemExit):
@@ -498,13 +496,17 @@ class TestModeChoices:
 
     def test_generate_accepts_apps_and_mcp(self) -> None:
         for m in ("apps", "mcp"):
-            assert parse_args(["agent", "generate", "-c", "c.yaml", "--mode", m]).mode == m
+            assert (
+                parse_args(["agent", "generate", "-c", "c.yaml", "--mode", m]).mode == m
+            )
 
     def test_mode_defaults_to_apps(self) -> None:
         assert parse_args(["agent", "deploy", "-c", "c.yaml"]).mode == "apps"
 
     def test_short_alias_m(self) -> None:
-        assert parse_args(["agent", "deploy", "-c", "c.yaml", "-m", "mcp"]).mode == "mcp"
+        assert (
+            parse_args(["agent", "deploy", "-c", "c.yaml", "-m", "mcp"]).mode == "mcp"
+        )
 
     @pytest.mark.parametrize("alias", ["ms", "model-serving", "model_serving"])
     def test_model_serving_aliases_normalize_on_deploy(self, alias: str) -> None:
@@ -640,7 +642,16 @@ class TestAgentModeWriterSelection:
 
         cfg = self._write_config(tmp_path)
         opts = parse_args(
-            ["agent", "generate", "-c", str(cfg), "-o", str(tmp_path / "out"), "--mode", "mcp"]
+            [
+                "agent",
+                "generate",
+                "-c",
+                str(cfg),
+                "-o",
+                str(tmp_path / "out"),
+                "--mode",
+                "mcp",
+            ]
         )
         cli.handle_agent_command(opts)
 
@@ -694,11 +705,11 @@ class TestAgentModeWriterSelection:
 
         monkeypatch.setattr(cli, "_apply_profile_context", lambda p: None)
 
-        with patch.object(cli, "_resolve_bundle_dir", side_effect=mock_resolve_bundle_dir):
+        with patch.object(
+            cli, "_resolve_bundle_dir", side_effect=mock_resolve_bundle_dir
+        ):
             with patch.object(cli, "deploy_app_bundle"):
-                opts = parse_args(
-                    ["agent", "deploy", "-c", str(cfg), "--mode", "mcp"]
-                )
+                opts = parse_args(["agent", "deploy", "-c", str(cfg), "--mode", "mcp"])
                 cli.handle_agent_command(opts)
 
         assert "mcp" in resolved_bundle_dirs, (
@@ -746,9 +757,7 @@ class TestDeployRestagesOnConfigDrift:
         monkeypatch.setattr(
             cli, "_resolve_bundle_dir", lambda kind, config, output_dir: (staged, True)
         )
-        monkeypatch.setattr(
-            cli, "_staging_dir_has_local_edits", lambda d: has_edits
-        )
+        monkeypatch.setattr(cli, "_staging_dir_has_local_edits", lambda d: has_edits)
         monkeypatch.setattr(cli, "deploy_app_bundle", lambda *a, **k: None)
         monkeypatch.setattr(AppConfig, "_resolve_all_resources", lambda self: None)
         monkeypatch.setattr(
@@ -795,9 +804,7 @@ class TestDeployRestagesOnConfigDrift:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         # Legacy staged dir with no marker -> no recorded fingerprint -> in place.
-        assert (
-            self._run_deploy(tmp_path, monkeypatch, marker_fingerprint=None) is False
-        )
+        assert self._run_deploy(tmp_path, monkeypatch, marker_fingerprint=None) is False
 
     def test_stale_with_edits_deploys_in_place(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -984,9 +991,7 @@ class TestDeployLinks:
             cli._print_app_link("my-app")  # must not raise
         assert "databricksapps" not in capsys.readouterr().out
 
-    def test_endpoint_link_printed(
-        self, capsys: pytest.CaptureFixture[str]
-    ) -> None:
+    def test_endpoint_link_printed(self, capsys: pytest.CaptureFixture[str]) -> None:
         class _Cfg:
             host = "https://ws.cloud.databricks.com/"
 
@@ -1012,9 +1017,7 @@ class TestDeployLinks:
         import subprocess as _sp
 
         summary = {
-            "resources": {
-                "jobs": {"deploy_job": {"url": "https://ws/jobs/42?w=1"}}
-            }
+            "resources": {"jobs": {"deploy_job": {"url": "https://ws/jobs/42?w=1"}}}
         }
 
         class _R:
@@ -1146,7 +1149,9 @@ class TestDeployAutoGenerate:
             import pathlib
 
             pathlib.Path(str(bundle_dir)).mkdir(parents=True, exist_ok=True)
-            (pathlib.Path(str(bundle_dir)) / "databricks.yaml").write_text("bundle: {}\n")
+            (pathlib.Path(str(bundle_dir)) / "databricks.yaml").write_text(
+                "bundle: {}\n"
+            )
 
         monkeypatch.setattr(cli, "_apply_profile_context", lambda p: None)
         monkeypatch.setattr(
@@ -1205,9 +1210,10 @@ class TestDeployAutoGenerate:
             "dao_ai.config.AppConfig.deploy_agent",
             fake_deploy_agent,
         )
-        with patch.object(cli, "deploy_app_bundle") as dep, patch.object(
-            cli, "_exec_bundle_command"
-        ) as exec_cmd:
+        with (
+            patch.object(cli, "deploy_app_bundle") as dep,
+            patch.object(cli, "_exec_bundle_command") as exec_cmd,
+        ):
             opts = parse_args(["agent", "up", "-c", str(cfg), "--direct"])
             cli.handle_agent_command(opts)
 
@@ -1245,7 +1251,9 @@ class TestDeployAutoGenerate:
         monkeypatch.setattr("dao_ai.config.AppConfig.create_agent", fake_create_agent)
         monkeypatch.setattr("dao_ai.config.AppConfig.deploy_agent", fake_deploy_agent)
         with patch.object(cli, "deploy_app_bundle") as dep:
-            opts = parse_args(["agent", "deploy", "-c", str(cfg), "--mode", "model_serving"])
+            opts = parse_args(
+                ["agent", "deploy", "-c", str(cfg), "--mode", "model_serving"]
+            )
             cli.handle_agent_command(opts)
 
         from dao_ai.config import ServingMode
@@ -1272,7 +1280,9 @@ class TestDeployAutoGenerate:
         """`agent run` on an empty dir must still error (auto-generate is deploy-only)."""
         cfg = self._write_cfg(tmp_path)
         monkeypatch.setattr(cli, "_apply_profile_context", lambda p: None)
-        opts = parse_args(["agent", "run", "-c", str(cfg), "-o", str(tmp_path / "nope")])
+        opts = parse_args(
+            ["agent", "run", "-c", str(cfg), "-o", str(tmp_path / "nope")]
+        )
         with pytest.raises(SystemExit) as exc:
             cli.handle_agent_command(opts)
         assert exc.value.code == 1
@@ -1290,7 +1300,9 @@ class TestDeployAutoGenerate:
             import pathlib
 
             pathlib.Path(str(bundle_dir)).mkdir(parents=True, exist_ok=True)
-            (pathlib.Path(str(bundle_dir)) / "databricks.yaml").write_text("bundle: {}\n")
+            (pathlib.Path(str(bundle_dir)) / "databricks.yaml").write_text(
+                "bundle: {}\n"
+            )
 
         def track_resolve(self_config: object) -> None:
             resolve_calls.append("called")
@@ -1308,9 +1320,9 @@ class TestDeployAutoGenerate:
             opts = parse_args(["agent", "deploy", "-c", str(cfg), "-o", str(out)])
             cli.handle_agent_command(opts)
 
-        assert resolve_calls == [
-            "called"
-        ], "auto-generate path must call _resolve_all_resources"
+        assert resolve_calls == ["called"], (
+            "auto-generate path must call _resolve_all_resources"
+        )
 
     def test_deploy_inplace_does_not_call_resolve_all_resources(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -1335,9 +1347,9 @@ class TestDeployAutoGenerate:
             opts = parse_args(["agent", "deploy", "-c", str(cfg), "-o", str(out)])
             cli.handle_agent_command(opts)
 
-        assert (
-            resolve_calls == []
-        ), "in-place deploy path must NOT call _resolve_all_resources"
+        assert resolve_calls == [], (
+            "in-place deploy path must NOT call _resolve_all_resources"
+        )
 
     def test_up_deploys_and_runs(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -1357,7 +1369,9 @@ class TestDeployAutoGenerate:
 
         dep.assert_called_once()
         call_kwargs = dep.call_args.kwargs
-        assert call_kwargs["deploy"] is True, "up must call deploy_app_bundle(deploy=True)"
+        assert call_kwargs["deploy"] is True, (
+            "up must call deploy_app_bundle(deploy=True)"
+        )
         assert call_kwargs["run"] is True, "up must call deploy_app_bundle(run=True)"
 
 
@@ -1411,7 +1425,16 @@ class TestTraceNoun:
 
     def test_trace_link_optional_flags(self) -> None:
         o = parse_args(
-            ["trace", "link", "-c", "c.yaml", "--experiment-id", "9999", "--app-sp", "uuid-1"]
+            [
+                "trace",
+                "link",
+                "-c",
+                "c.yaml",
+                "--experiment-id",
+                "9999",
+                "--app-sp",
+                "uuid-1",
+            ]
         )
         assert o.experiment_id == "9999"
         assert o.app_sp == "uuid-1"
@@ -1424,7 +1447,16 @@ class TestTraceNoun:
 
     def test_trace_grant_optional_flags(self) -> None:
         o = parse_args(
-            ["trace", "grant", "-c", "c.yaml", "--experiment-id", "8888", "--app-sp", "uuid-2"]
+            [
+                "trace",
+                "grant",
+                "-c",
+                "c.yaml",
+                "--experiment-id",
+                "8888",
+                "--app-sp",
+                "uuid-2",
+            ]
         )
         assert o.experiment_id == "8888"
         assert o.app_sp == "uuid-2"

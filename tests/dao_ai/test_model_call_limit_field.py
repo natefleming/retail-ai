@@ -135,7 +135,9 @@ class TestAgentCallLimitWiring:
         assert limit_mws[0].run_limit == 6
 
     @patch("dao_ai.nodes.create_agent")
-    def test_agent_node_no_model_call_limit_when_not_configured(self, mock_create_agent):
+    def test_agent_node_no_model_call_limit_when_not_configured(
+        self, mock_create_agent
+    ):
         from dao_ai.nodes import create_agent_node
 
         mock_compiled_agent = MagicMock()

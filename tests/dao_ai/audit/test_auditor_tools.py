@@ -84,9 +84,7 @@ class TestBuildWindowClauses:
         assert len(params) == 1
 
     def test_thread_id_and_tool_name(self) -> None:
-        clauses, params = _build_window_clauses(
-            thread_id="t-1", tool_name="refund"
-        )
+        clauses, params = _build_window_clauses(thread_id="t-1", tool_name="refund")
         assert "thread_id = %s" in clauses
         assert "tool_name = %s" in clauses
         assert params == ["t-1", "refund"]

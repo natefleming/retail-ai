@@ -167,11 +167,7 @@ def filter_messages_for_agent(
             # non-internal (customer-facing) agents. Internal agents can
             # still see each other's outputs — a planner needs to read a
             # supervisor's intent classification to route.
-            if (
-                not is_own
-                and msg.name in _internal
-                and not _current_is_internal
-            ):
+            if not is_own and msg.name in _internal and not _current_is_internal:
                 continue
             if msg.tool_calls:
                 if is_own:
@@ -256,11 +252,7 @@ def filter_messages_for_agent(
     # ``tool_result`` and provoke Claude's ``tool_use ids were found
     # without tool_result blocks immediately after`` 400 (a different
     # constraint from the prefill one, but same class of error).
-    if (
-        filtered
-        and isinstance(filtered[-1], AIMessage)
-        and not filtered[-1].tool_calls
-    ):
+    if filtered and isinstance(filtered[-1], AIMessage) and not filtered[-1].tool_calls:
         bridge_target: str = current_agent_name or "next agent"
         # Content matters — Claude interprets the last user message
         # as "what the user just asked." A cryptic "[filter bridge to X]"
@@ -287,9 +279,7 @@ def filter_messages_for_agent(
                 f"Continue this pipeline as {bridge_target}. "
                 f"Do your job based on the prior agents' work above."
             )
-        filtered.append(
-            HumanMessage(content=bridge_content, name="__filter_bridge__")
-        )
+        filtered.append(HumanMessage(content=bridge_content, name="__filter_bridge__"))
     return filtered
 
 

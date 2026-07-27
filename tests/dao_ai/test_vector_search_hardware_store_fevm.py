@@ -27,8 +27,8 @@ import pytest
 from pydantic import ValidationError
 
 from dao_ai.config import (
-    IndexModel,
     AiSearchRetrieverModel,
+    IndexModel,
     SchemaModel,
     SearchParametersModel,
     VectorSearchEndpoint,
@@ -231,13 +231,11 @@ class TestHardwareStoreDynamicSchema:
         )
         tool = create_vector_search_tool(retriever=retriever, name="hw_search")
 
-        enum = (
-            tool.args_schema.model_json_schema()["$defs"]["DynamicFilterItem"][
-                "properties"
-            ]["key"]["enum"]
-        )
+        enum = tool.args_schema.model_json_schema()["$defs"]["DynamicFilterItem"][
+            "properties"
+        ]["key"]["enum"]
         assert "product_name" in enum
         assert "brand_name" in enum
-        assert not any(
-            k.startswith("nonexistent_column_xyz") for k in enum
-        ), f"bogus YAML column leaked into enum: {enum!r}"
+        assert not any(k.startswith("nonexistent_column_xyz") for k in enum), (
+            f"bogus YAML column leaked into enum: {enum!r}"
+        )

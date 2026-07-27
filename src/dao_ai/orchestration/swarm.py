@@ -244,9 +244,7 @@ def _handoffs_for_agent(
             target_ref, config.app.agents
         )
         if handoff_to_agent is None:
-            logger.warning(
-                "Handoff agent not found in configuration", agent=agent.name
-            )
+            logger.warning("Handoff agent not found in configuration", agent=agent.name)
             continue
 
         # Skip self-referencing handoffs (deterministic self-ref is a

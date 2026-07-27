@@ -6,7 +6,9 @@
 # installed package importable in the cells below.
 import glob
 
-_dao_ai_dep = next(iter(sorted(glob.glob("../dist/dao_ai-*.whl"), reverse=True)), "dao-ai")
+_dao_ai_dep = next(
+    iter(sorted(glob.glob("../dist/dao_ai-*.whl"), reverse=True)), "dao-ai"
+)
 
 # MAGIC %uv pip install --quiet {_dao_ai_dep}
 # MAGIC %restart_python
@@ -27,8 +29,9 @@ print(f"mlflow=={version('mlflow')}")
 
 # COMMAND ----------
 
-from typing import Sequence
 import os
+from typing import Sequence
+
 
 def find_yaml_files_os_walk(base_path: str) -> Sequence[str]:
     # Tolerate a missing/non-dir base path: when the pipeline runs from a
@@ -36,22 +39,25 @@ def find_yaml_files_os_walk(base_path: str) -> Sequence[str]:
     # `../config` discovery dropdown is optional. Return [] instead of raising.
     if not os.path.isdir(base_path):
         return []
-    
+
     yaml_files = []
-    
+
     for root, dirs, files in os.walk(base_path):
         for file in files:
-            if file.lower().endswith(('.yaml', '.yml')):
+            if file.lower().endswith((".yaml", ".yml")):
                 yaml_files.append(os.path.join(root, file))
-    
+
     return sorted(yaml_files)
+
 
 # COMMAND ----------
 
 dbutils.widgets.text(name="config-path", defaultValue="")
 
 config_files: Sequence[str] = find_yaml_files_os_walk("../config")
-dbutils.widgets.dropdown(name="config-paths", choices=config_files, defaultValue=next(iter(config_files), ""))
+dbutils.widgets.dropdown(
+    name="config-paths", choices=config_files, defaultValue=next(iter(config_files), "")
+)
 
 config_path: str | None = dbutils.widgets.get("config-path") or None
 project_path: str = dbutils.widgets.get("config-paths") or None
@@ -74,46 +80,44 @@ config: AppConfig = AppConfig.from_file(path=config_path)
 
 # COMMAND ----------
 
-from typing import Any, Dict, Optional, List
 
-from mlflow.models import ModelConfig
-from dao_ai.config import AppConfig, VectorStoreModel, EvaluationModel
-from pyspark.sql import DataFrame, Column
-import pyspark.sql.functions as F
 import pandas as pd
-from pyspark.sql import DataFrame
+import pyspark.sql.functions as F
 from databricks.agents.evals import generate_evals_df
+from pyspark.sql import Column, DataFrame
 
-
+from dao_ai.config import AppConfig, EvaluationModel, VectorStoreModel
 
 evaluation: EvaluationModel = config.evaluation
 
 if not evaluation:
-  dbutils.notebook.exit("Missing evaluation configuration")
+    dbutils.notebook.exit("Missing evaluation configuration")
 
 if evaluation.replace:
-  spark.sql(f"DROP TABLE IF EXISTS `{evaluation.table.full_name}`")
+    spark.sql(f"DROP TABLE IF EXISTS `{evaluation.table.full_name}`")
 elif evaluation.table.exists():
-  print(f"Table already exists, skipping generation: {evaluation.table.full_name}")
-  dbutils.notebook.exit(f"Table already exists: {evaluation.table.full_name}")
+    print(f"Table already exists, skipping generation: {evaluation.table.full_name}")
+    dbutils.notebook.exit(f"Table already exists: {evaluation.table.full_name}")
 
 for _, vector_store in config.resources.vector_stores.items():
-  vector_store: VectorStoreModel    
+    vector_store: VectorStoreModel
 
-  doc_uri: Column = F.col(vector_store.doc_uri) if vector_store.doc_uri else F.lit("source")
-  parsed_docs_df: DataFrame = (
-    spark.table(vector_store.source_table.full_name)
-    .withColumn("id", F.col(vector_store.primary_key))
-    .withColumn("content", F.col(vector_store.embedding_source_column))
-    .withColumn("doc_uri", doc_uri)
-  )
-  parsed_docs_pdf: pd.DataFrame = parsed_docs_df.toPandas()
+    doc_uri: Column = (
+        F.col(vector_store.doc_uri) if vector_store.doc_uri else F.lit("source")
+    )
+    parsed_docs_df: DataFrame = (
+        spark.table(vector_store.source_table.full_name)
+        .withColumn("id", F.col(vector_store.primary_key))
+        .withColumn("content", F.col(vector_store.embedding_source_column))
+        .withColumn("doc_uri", doc_uri)
+    )
+    parsed_docs_pdf: pd.DataFrame = parsed_docs_df.toPandas()
 
-  display(parsed_docs_pdf)
+    display(parsed_docs_pdf)
 
-  agent_description: str = evaluation.agent_description
-  if not agent_description:
-      agent_description = """
+    agent_description: str = evaluation.agent_description
+    if not agent_description:
+        agent_description = """
   A general-purpose chatbot AI agent is designed to engage in natural conversations 
   across diverse topics and tasks, drawing from broad knowledge to answer questions, 
   assist with writing, solve problems, and provide explanations while maintaining 
@@ -122,9 +126,9 @@ for _, vector_store in config.resources.vector_stores.items():
   adjusting its communication style and level of detail based on user needs.
       """
 
-  question_guidelines: str = evaluation.question_guidelines
-  if not question_guidelines:
-      question_guidelines = f"""
+    question_guidelines: str = evaluation.question_guidelines
+    if not question_guidelines:
+        question_guidelines = """
 # User personas
 - A curious individual seeking information or explanations
 - A student looking for homework help or learning assistance  
@@ -144,17 +148,15 @@ for _, vector_store in config.resources.vector_stores.items():
 - Tone can vary from casual chat to formal assistance
   """
 
-  evals_pdf: pd.DataFrame = generate_evals_df(
-      docs=parsed_docs_pdf[
-          :500
-      ],  
-      num_evals=evaluation.num_evals, 
-      agent_description=agent_description,
-      question_guidelines=question_guidelines,
-  )
+    evals_pdf: pd.DataFrame = generate_evals_df(
+        docs=parsed_docs_pdf[:500],
+        num_evals=evaluation.num_evals,
+        agent_description=agent_description,
+        question_guidelines=question_guidelines,
+    )
 
-  evals_df: DataFrame = spark.createDataFrame(evals_pdf)
+    evals_df: DataFrame = spark.createDataFrame(evals_pdf)
 
-  evals_df.write.mode("append").saveAsTable(evaluation.table.full_name)
+    evals_df.write.mode("append").saveAsTable(evaluation.table.full_name)
 
-  display(spark.table(evaluation.table.full_name))
+    display(spark.table(evaluation.table.full_name))

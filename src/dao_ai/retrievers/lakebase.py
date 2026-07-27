@@ -74,9 +74,7 @@ class LakebaseRetriever(BaseRetriever):
 
     def model_post_init(self, __context: Any) -> None:
         metadata = self.vector_store.metadata_columns or []
-        self._allowed_filter_cols = frozenset(
-            [*metadata, self.vector_store.id_column]
-        )
+        self._allowed_filter_cols = frozenset([*metadata, self.vector_store.id_column])
 
     # ------------------------------------------------------------------
     # LangChain BaseRetriever interface
@@ -155,9 +153,14 @@ class LakebaseRetriever(BaseRetriever):
             sql.Identifier(self.vector_store.table),
         )
 
-    def _select_columns(self, extra: list[sql.Composable] | None = None) -> sql.Composed:
+    def _select_columns(
+        self, extra: list[sql.Composable] | None = None
+    ) -> sql.Composed:
         vs = self.vector_store
-        cols: list[sql.Composable] = [sql.Identifier(vs.id_column), sql.Identifier(vs.content_column)]
+        cols: list[sql.Composable] = [
+            sql.Identifier(vs.id_column),
+            sql.Identifier(vs.content_column),
+        ]
         cols.extend(sql.Identifier(c) for c in (vs.metadata_columns or []))
         if extra:
             cols.extend(extra)
@@ -175,9 +178,7 @@ class LakebaseRetriever(BaseRetriever):
                 return key[: -len(suffix)], suffix
         return key, ""
 
-    def _build_where(
-        self, filters: dict[str, Any]
-    ) -> tuple[sql.Composable, list[Any]]:
+    def _build_where(self, filters: dict[str, Any]) -> tuple[sql.Composable, list[Any]]:
         """Translate a suffix-keyed filter dict into a WHERE fragment + params.
 
         Keys use ai_search's operator-suffix convention (``"col LIKE"``,

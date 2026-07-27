@@ -84,9 +84,7 @@ class TestCoerceBoolean:
         assert coerce_filter_values({"active": "TRUE"}, self.cols) == {"active": True}
 
     def test_false_string(self) -> None:
-        assert coerce_filter_values({"active": "false"}, self.cols) == {
-            "active": False
-        }
+        assert coerce_filter_values({"active": "false"}, self.cols) == {"active": False}
 
     def test_numeric_string(self) -> None:
         assert coerce_filter_values({"active": "1"}, self.cols) == {"active": True}
@@ -138,9 +136,9 @@ class TestCoercePassthroughs:
 
     def test_array_untouched(self) -> None:
         cols = [ColumnInfo(name="tags", type="array")]
-        assert coerce_filter_values(
-            {"tags": ["cordless", "brushless"]}, cols
-        ) == {"tags": ["cordless", "brushless"]}
+        assert coerce_filter_values({"tags": ["cordless", "brushless"]}, cols) == {
+            "tags": ["cordless", "brushless"]
+        }
 
     def test_unknown_column_passes_through(self) -> None:
         cols = [ColumnInfo(name="brand", type="string")]

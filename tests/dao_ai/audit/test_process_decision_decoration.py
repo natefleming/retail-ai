@@ -9,7 +9,7 @@ fields.
 
 from __future__ import annotations
 
-from typing import Any, Optional
+from typing import Any
 
 from dao_ai.audit import AuditSinkManager, args_hash_of
 from dao_ai.config import (
@@ -52,13 +52,12 @@ def _build_middleware(monkeypatch: Any) -> AuditedHumanInTheLoopMiddleware:
     )
     audit_cfg = AuditModel(database=DatabaseModel(project="test-lake"))
     hitl_cfg = HumanInTheLoopModel(
-        review_prompt="Approve?", allowed_decisions=["approve", "edit", "reject", "respond"]
+        review_prompt="Approve?",
+        allowed_decisions=["approve", "edit", "reject", "respond"],
     )
     return AuditedHumanInTheLoopMiddleware(
         interrupt_on={
-            "refund": {
-                "allowed_decisions": ["approve", "edit", "reject", "respond"]
-            }
+            "refund": {"allowed_decisions": ["approve", "edit", "reject", "respond"]}
         },
         audited_tools={"refund": audit_cfg},
         hitl_configs={"refund": hitl_cfg},
@@ -155,9 +154,7 @@ def test_process_decision_respond_captures_synthetic_reply(monkeypatch: Any) -> 
     entry = AuditStash.take("t-1", tool_call_id)
     assert entry is not None
     assert entry.decision == "respond"
-    assert entry.decision_detail == {
-        "message": "Reviewer answered on behalf of tool."
-    }
+    assert entry.decision_detail == {"message": "Reviewer answered on behalf of tool."}
 
 
 def test_process_decision_unaudited_tool_is_noop(monkeypatch: Any) -> None:
@@ -168,7 +165,12 @@ def test_process_decision_unaudited_tool_is_noop(monkeypatch: Any) -> None:
 
     middleware._process_decision(
         {"type": "approve"},
-        {"name": "not_audited_tool", "args": {}, "id": tool_call_id, "type": "tool_call"},  # type: ignore[arg-type]
+        {
+            "name": "not_audited_tool",
+            "args": {},
+            "id": tool_call_id,
+            "type": "tool_call",
+        },  # type: ignore[arg-type]
         _interrupt_config(),
     )
     # No stash entry was ever placed for a non-audited tool.
@@ -185,8 +187,7 @@ def test_thread_id_from_stash_recovers_thread(monkeypatch: Any) -> None:
         == "thread-alpha"
     )
     assert (
-        AuditedHumanInTheLoopMiddleware._thread_id_from_stash("call-B")
-        == "thread-beta"
+        AuditedHumanInTheLoopMiddleware._thread_id_from_stash("call-B") == "thread-beta"
     )
     assert (
         AuditedHumanInTheLoopMiddleware._thread_id_from_stash("call-missing")

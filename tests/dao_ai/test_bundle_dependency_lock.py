@@ -102,7 +102,9 @@ class TestGenerateBundleLock:
         seen: dict[str, bool] = {}
 
         def _run(cmd, cwd=None, capture_output=None, text=None, check=None):
-            seen["stub"] = (Path(cwd) / "src" / "_daoai_lockstub" / "__init__.py").exists()
+            seen["stub"] = (
+                Path(cwd) / "src" / "_daoai_lockstub" / "__init__.py"
+            ).exists()
             (Path(cwd) / "uv.lock").write_text("# stub lock\n")
 
             class _R:
@@ -114,7 +116,7 @@ class TestGenerateBundleLock:
         monkeypatch.setattr(_locking.subprocess, "run", _run)
         pyproject = (
             '[project]\nname = "x"\n'
-            '[tool.hatch.build.targets.wheel]\n'
+            "[tool.hatch.build.targets.wheel]\n"
             'packages = ["src"]\nsources = ["src"]\n'
         )
         _locking.render_portable_lock(pyproject)
@@ -125,7 +127,7 @@ class TestGenerateBundleLock:
 
         (tmp_path / "pyproject.toml").write_text("[project]\nname='x'\n")
         poisoned = (
-            'wheels = [{ url = '
+            "wheels = [{ url = "
             '"https://pypi-proxy.dev.databricks.com/packages/aa/bb/x.whl" }]\n'
         )
         monkeypatch.setattr(
@@ -186,8 +188,7 @@ class TestDevLocalVersion:
     def _write_pyproject(self, tmp_path, version: str) -> "object":
         p = tmp_path / "pyproject.toml"
         p.write_text(
-            f'[project]\nname = "dao-ai"\nversion = "{version}"\n'
-            'description = "x"\n'
+            f'[project]\nname = "dao-ai"\nversion = "{version}"\ndescription = "x"\n'
         )
         return p
 

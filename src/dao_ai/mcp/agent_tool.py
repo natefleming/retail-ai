@@ -50,11 +50,11 @@ import time
 from collections.abc import Mapping
 from typing import Any, Optional
 
+import mlflow
 from loguru import logger
 from mcp.server.fastmcp import Context, FastMCP
 from mcp.shared.context import RequestContext
 from mcp.types import CallToolResult, RequestParams, TextContent
-import mlflow
 from mlflow.types.responses import ResponsesAgentRequest, ResponsesAgentResponse
 from pydantic import BaseModel, Field
 
@@ -485,9 +485,7 @@ def register_agent_as_tool(mcp: FastMCP, config: AppConfig) -> str:
             obo_token_fingerprint=(
                 _token_fingerprint(obo_token) if obo_present else None
             ),
-            obo_token_subject=(
-                _token_subject(obo_token) if obo_present else None
-            ),
+            obo_token_subject=(_token_subject(obo_token) if obo_present else None),
             header_count=len(headers),
             # ``meta`` | ``header`` | None → None means no conversation id
             # was supplied on either transport channel and the agent will
@@ -524,7 +522,9 @@ def register_agent_as_tool(mcp: FastMCP, config: AppConfig) -> str:
         heartbeat_task: asyncio.Task[None] | None = None
         if progress_enabled:
             try:
-                await ctx.report_progress(progress=0.0, total=100.0, message="agent_start")
+                await ctx.report_progress(
+                    progress=0.0, total=100.0, message="agent_start"
+                )
             except Exception as _exc:
                 # Progress channel failures must not fail the tool call —
                 # log at debug so operators can surface if needed.
@@ -533,9 +533,7 @@ def register_agent_as_tool(mcp: FastMCP, config: AppConfig) -> str:
                     tool_name=tool_name,
                     error=str(_exc),
                 )
-            heartbeat_task = asyncio.create_task(
-                _heartbeat_progress(ctx, tool_name)
-            )
+            heartbeat_task = asyncio.create_task(_heartbeat_progress(ctx, tool_name))
         # SEP-414: when the caller supplied W3C trace context on the inbound
         # _meta, wrap apredict in an explicit MCP-boundary span and stamp the
         # context onto it. The span (and its attributes) export atomically with

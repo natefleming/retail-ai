@@ -41,7 +41,6 @@ from dao_ai.config import (
     SwarmModel,
 )
 
-
 # =============================================================================
 # HandoffRouteModel per-entry shape
 # =============================================================================
@@ -168,9 +167,7 @@ class TestSwarmParallelCohortValidators:
             SwarmModel(
                 handoffs={
                     "source": [
-                        HandoffRouteModel(
-                            agents=["source", "worker_b"], join="synth"
-                        ),
+                        HandoffRouteModel(agents=["source", "worker_b"], join="synth"),
                     ]
                 }
             )
@@ -188,20 +185,14 @@ class TestSwarmParallelCohortValidators:
             )
 
     def test_sibling_in_two_cohorts_with_different_joins_rejected(self) -> None:
-        with pytest.raises(
-            ValueError, match="different join targets"
-        ):
+        with pytest.raises(ValueError, match="different join targets"):
             SwarmModel(
                 handoffs={
                     "source_1": [
-                        HandoffRouteModel(
-                            agents=["shared", "worker_a"], join="join_1"
-                        ),
+                        HandoffRouteModel(agents=["shared", "worker_a"], join="join_1"),
                     ],
                     "source_2": [
-                        HandoffRouteModel(
-                            agents=["shared", "worker_b"], join="join_2"
-                        ),
+                        HandoffRouteModel(agents=["shared", "worker_b"], join="join_2"),
                     ],
                 }
             )
@@ -268,7 +259,9 @@ class TestSwarmCohortCycleDetection:
             SwarmModel(
                 handoffs={
                     "source": [
-                        HandoffRouteModel(agents=["worker_a", "worker_b"], join="synth"),
+                        HandoffRouteModel(
+                            agents=["worker_a", "worker_b"], join="synth"
+                        ),
                     ],
                     "synth": ["source"],
                 }
@@ -366,7 +359,11 @@ class TestHandoffsForAgentCohort:
         result = _handoffs_for_agent(agents[0], config)
         tool_names = sorted(t.name for t in result.tools)
         # Two cohort tools (worker_a, synth) + one peer tool (escalation).
-        assert tool_names == ["handoff_to_escalation", "handoff_to_synth", "handoff_to_worker_a"]
+        assert tool_names == [
+            "handoff_to_escalation",
+            "handoff_to_synth",
+            "handoff_to_worker_a",
+        ]
         assert set(result.parallel_targets) == {"worker_a", "synth"}
         assert result.parallel_join == "escalation"
 

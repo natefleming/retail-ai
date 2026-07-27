@@ -38,8 +38,8 @@ from langchain_core.messages import ToolCall as LCToolCall
 from langchain_core.messages import ToolMessage
 
 from dao_ai.config import (
-    IndexModel,
     AiSearchRetrieverModel,
+    IndexModel,
     SchemaModel,
     SearchParametersModel,
     VectorSearchEndpoint,
@@ -205,7 +205,7 @@ class TestVectorSearchFevmExplicitAuthMode4:
         headers = wc.config.authenticate() or {}
         bearer = headers.get("Authorization", "")
         assert bearer.startswith("Bearer "), f"can't get bearer: {bearer!r}"
-        token = bearer[len("Bearer "):]
+        token = bearer[len("Bearer ") :]
         monkeypatch.setenv("DATABRICKS_TOKEN", token)
         monkeypatch.setenv("DATABRICKS_HOST", wc.config.host)
         return token
@@ -288,17 +288,24 @@ class TestDynamicSchemaHydration:
         # Live products index columns (see commerce_swarm data DDL):
         # product_id, sku, product_name, brand, category, subcategory,
         # description, price, is_b2b_only.
-        for c in ("product_id", "product_name", "brand", "category", "price", "is_b2b_only"):
+        for c in (
+            "product_id",
+            "product_name",
+            "brand",
+            "category",
+            "price",
+            "is_b2b_only",
+        ):
             assert c in enum, f"missing column {c!r} in {enum}"
         # Every column gets every operator suffix — no type-aware
         # narrowing. Databricks VS rejects invalid combinations at query
         # time (matches upstream databricks-langchain).
         assert "product_name LIKE" in enum
-        assert "product_name >" in enum      # ordering allowed on any col
+        assert "product_name >" in enum  # ordering allowed on any col
         assert "price <=" in enum
-        assert "price LIKE" in enum          # LIKE allowed on any col
+        assert "price LIKE" in enum  # LIKE allowed on any col
         assert "is_b2b_only NOT" in enum
-        assert "is_b2b_only <" in enum       # ordering allowed on any col
+        assert "is_b2b_only <" in enum  # ordering allowed on any col
         # Regression key still absent (LLM cannot emit ``name`` — real
         # column is ``product_name``).
         assert not any(k.startswith("name ") or k == "name" for k in enum), enum

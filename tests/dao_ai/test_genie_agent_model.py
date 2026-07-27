@@ -28,14 +28,19 @@ from unittest.mock import MagicMock
 
 import httpx
 import pytest
+from langchain_core.messages import AIMessage, HumanMessage
 
-from dao_ai.config import AgentModel, GenieAgentModel, GenieRoomModel, InferenceEndpointModel
+from dao_ai.config import (
+    AgentModel,
+    GenieAgentModel,
+    GenieRoomModel,
+    InferenceEndpointModel,
+)
 from dao_ai.genie.agent_chat_model import (
     CONVERSATION_ID_METADATA_KEY,
     GenieAgentChatModel,
     GenieAgentError,
 )
-from langchain_core.messages import AIMessage, HumanMessage
 
 AGENT_ID: str = "01f05dd06c421ad6b522bf7a517cf6d2"
 HOST: str = "https://example.cloud.databricks.com"
@@ -59,7 +64,13 @@ def _happy_events(conversation_id: str = "conv-1") -> list[tuple[str, dict[str, 
     return [
         (
             "response.created",
-            {"response": {"id": "resp-1", "conversation_id": conversation_id, "status": "in_progress"}},
+            {
+                "response": {
+                    "id": "resp-1",
+                    "conversation_id": conversation_id,
+                    "status": "in_progress",
+                }
+            },
         ),
         (
             "response.output_item.done",
@@ -69,22 +80,48 @@ def _happy_events(conversation_id: str = "conv-1") -> list[tuple[str, dict[str, 
                     "type": "function_call",
                     "name": "execute_sql",
                     "arguments": json.dumps(
-                        {"title": "Store count", "sql": "SELECT state, COUNT(*) FROM stores GROUP BY state"}
+                        {
+                            "title": "Store count",
+                            "sql": "SELECT state, COUNT(*) FROM stores GROUP BY state",
+                        }
                     ),
                 }
             },
         ),
         (
             "response.output_item.done",
-            {"item": {"id": "out-a", "type": "function_call_output", "output": "| state | count |\n|---|---|\n| CA | 42 |\n"}},
+            {
+                "item": {
+                    "id": "out-a",
+                    "type": "function_call_output",
+                    "output": "| state | count |\n|---|---|\n| CA | 42 |\n",
+                }
+            },
         ),
         (
             "response.output_item.done",
-            {"item": {"id": "msg-a", "type": "message", "content": [{"type": "output_text", "text": "California leads with 42 stores."}]}},
+            {
+                "item": {
+                    "id": "msg-a",
+                    "type": "message",
+                    "content": [
+                        {
+                            "type": "output_text",
+                            "text": "California leads with 42 stores.",
+                        }
+                    ],
+                }
+            },
         ),
         (
             "response.completed",
-            {"response": {"id": "resp-1", "conversation_id": conversation_id, "status": "completed"}},
+            {
+                "response": {
+                    "id": "resp-1",
+                    "conversation_id": conversation_id,
+                    "status": "completed",
+                }
+            },
         ),
     ]
 
@@ -162,11 +199,16 @@ class TestStreaming:
         assert result.response_metadata[CONVERSATION_ID_METADATA_KEY] == "conv-1"
         # Request shape: single user turn, no conversation_id on first turn.
         assert record["url"].endswith(f"/api/2.0/genie/agents/{AGENT_ID}/responses")
-        assert record["body"]["input"][0]["content"][0]["text"] == "How many stores by state?"
+        assert (
+            record["body"]["input"][0]["content"][0]["text"]
+            == "How many stores by state?"
+        )
         assert "conversation_id" not in record["body"]
         assert record["auth"] == "Bearer stub-token"
 
-    def test_astream_yields_chunks_in_order(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_astream_yields_chunks_in_order(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         model = _model_with_transport(
             lambda req: httpx.Response(200, content=_sse(_happy_events())),
             monkeypatch,
@@ -181,7 +223,11 @@ class TestStreaming:
         chunks = asyncio.run(_collect())
         joined = "".join(chunks)
         # SQL precedes table precedes narrative.
-        assert joined.index("```sql") < joined.index("| state | count |") < joined.index("California leads")
+        assert (
+            joined.index("```sql")
+            < joined.index("| state | count |")
+            < joined.index("California leads")
+        )
 
     def test_astream_final_chunk_carries_conversation_id(
         self, monkeypatch: pytest.MonkeyPatch
@@ -207,7 +253,9 @@ class TestStreaming:
 
 
 class TestConversationIdField:
-    def test_conversation_id_field_sent_in_body(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_conversation_id_field_sent_in_body(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         record: dict[str, Any] = {}
         model = _model_with_transport(
             lambda req: httpx.Response(200, content=_sse(_happy_events("conv-2"))),
@@ -221,7 +269,9 @@ class TestConversationIdField:
                 HumanMessage("first"),
                 AIMessage(
                     "prev answer",
-                    response_metadata={CONVERSATION_ID_METADATA_KEY: "ignored-metadata"},
+                    response_metadata={
+                        CONVERSATION_ID_METADATA_KEY: "ignored-metadata"
+                    },
                 ),
                 HumanMessage("follow-up"),
             ]
@@ -230,7 +280,9 @@ class TestConversationIdField:
         # Latest human turn is the one sent.
         assert record["body"]["input"][0]["content"][0]["text"] == "follow-up"
 
-    def test_no_conversation_id_omits_field(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_no_conversation_id_omits_field(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         record: dict[str, Any] = {}
         model = _model_with_transport(
             lambda req: httpx.Response(200, content=_sse(_happy_events())),
@@ -242,7 +294,10 @@ class TestConversationIdField:
         model.invoke(
             [
                 AIMessage(
-                    "prev", response_metadata={CONVERSATION_ID_METADATA_KEY: "should-not-be-used"}
+                    "prev",
+                    response_metadata={
+                        CONVERSATION_ID_METADATA_KEY: "should-not-be-used"
+                    },
                 ),
                 HumanMessage("q"),
             ]
@@ -258,7 +313,9 @@ class TestConversationIdField:
 class TestErrors:
     def test_http_error_raises(self, monkeypatch: pytest.MonkeyPatch) -> None:
         model = _model_with_transport(
-            lambda req: httpx.Response(404, content=b'{"error_code":"FEATURE_DISABLED"}'),
+            lambda req: httpx.Response(
+                404, content=b'{"error_code":"FEATURE_DISABLED"}'
+            ),
             monkeypatch,
         )
         with pytest.raises(GenieAgentError, match="404"):
@@ -266,10 +323,29 @@ class TestErrors:
 
     def test_response_failed_raises(self, monkeypatch: pytest.MonkeyPatch) -> None:
         events = [
-            ("response.created", {"response": {"id": "r", "conversation_id": "c", "status": "in_progress"}}),
+            (
+                "response.created",
+                {
+                    "response": {
+                        "id": "r",
+                        "conversation_id": "c",
+                        "status": "in_progress",
+                    }
+                },
+            ),
             (
                 "response.failed",
-                {"response": {"id": "r", "conversation_id": "c", "status": "failed", "error": {"code": "sql_execution_error", "message": "Table not found"}}},
+                {
+                    "response": {
+                        "id": "r",
+                        "conversation_id": "c",
+                        "status": "failed",
+                        "error": {
+                            "code": "sql_execution_error",
+                            "message": "Table not found",
+                        },
+                    }
+                },
             ),
         ]
         model = _model_with_transport(
@@ -308,18 +384,28 @@ class TestConfigModel:
         assert m.name == AGENT_ID
 
     def test_obo_delegates_to_room(self) -> None:
-        m = GenieAgentModel(genie_room=GenieRoomModel(space_id=AGENT_ID, on_behalf_of_user=True))
+        m = GenieAgentModel(
+            genie_room=GenieRoomModel(space_id=AGENT_ID, on_behalf_of_user=True)
+        )
         assert m.on_behalf_of_user is True
 
     def test_parses_through_agent_model_union(self) -> None:
         agent = AgentModel.model_validate(
-            {"name": "genie_specialist", "model": {"genie_room": {"agent_id": AGENT_ID}}, "tools": []}
+            {
+                "name": "genie_specialist",
+                "model": {"genie_room": {"agent_id": AGENT_ID}},
+                "tools": [],
+            }
         )
         assert isinstance(agent.model, GenieAgentModel)
 
     def test_serving_endpoint_still_parses(self) -> None:
         agent = AgentModel.model_validate(
-            {"name": "normal", "model": {"name": "databricks-claude-sonnet-4"}, "tools": []}
+            {
+                "name": "normal",
+                "model": {"name": "databricks-claude-sonnet-4"},
+                "tools": [],
+            }
         )
         assert isinstance(agent.model, InferenceEndpointModel)
 
@@ -354,7 +440,9 @@ class TestConfigModel:
         assert isinstance(agent.model, GenieAgentModel)
         assert agent.model.timeout_seconds == 600
 
-    def test_unresolvable_agent_id_raises(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_unresolvable_agent_id_raises(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         # A name-only room (no space_id) with no env fallback cannot resolve
         # an agent_id without a live lookup.
         monkeypatch.delenv("DATABRICKS_GENIE_SPACE_ID", raising=False)
@@ -374,10 +462,16 @@ class TestGenieRoomRegistrationValidator:
 
         cfg = {
             "agents": {
-                "g": {"name": "g", "model": {"genie_room": {"agent_id": AGENT_ID}}, "tools": []}
+                "g": {
+                    "name": "g",
+                    "model": {"genie_room": {"agent_id": AGENT_ID}},
+                    "tools": [],
+                }
             }
         }
-        with pytest.raises(ValueError, match="not registered under resources.genie_rooms"):
+        with pytest.raises(
+            ValueError, match="not registered under resources.genie_rooms"
+        ):
             AppConfig(**cfg)
 
     def test_registered_room_passes(self) -> None:
@@ -386,7 +480,11 @@ class TestGenieRoomRegistrationValidator:
         cfg = {
             "resources": {"genie_rooms": {"retail": {"agent_id": AGENT_ID}}},
             "agents": {
-                "g": {"name": "g", "model": {"genie_room": {"agent_id": AGENT_ID}}, "tools": []}
+                "g": {
+                    "name": "g",
+                    "model": {"genie_room": {"agent_id": AGENT_ID}},
+                    "tools": [],
+                }
             },
         }
         # Should not raise.
@@ -397,7 +495,11 @@ class TestGenieRoomRegistrationValidator:
 
         cfg = {
             "agents": {
-                "x": {"name": "x", "model": {"name": "databricks-claude-sonnet-4"}, "tools": []}
+                "x": {
+                    "name": "x",
+                    "model": {"name": "databricks-claude-sonnet-4"},
+                    "tools": [],
+                }
             }
         }
         # A non-Genie model is never subject to the genie_rooms check.

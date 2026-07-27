@@ -18,12 +18,10 @@ from langchain_core.documents import Document
 from langchain_core.tools import StructuredTool
 from loguru import logger
 from mlflow.entities import SpanType
-from psycopg import sql
 from psycopg.rows import dict_row
 from pydantic import BaseModel, Field, create_model
 
 from dao_ai.config import (
-    ColumnInfo,
     FilterItem,
     LakebaseRetrieverModel,
     LakebaseVectorStoreModel,
@@ -37,7 +35,6 @@ from dao_ai.tools.vector_search import (
     build_flashrank_ranker,
     rerank_documents,
 )
-
 
 # Rough map from Postgres ``information_schema.columns.data_type`` values
 # to the labels ``ColumnInfo.type`` uses. Anything we can't classify falls
@@ -306,9 +303,7 @@ def create_lakebase_search_tool(
         if _is_array_type(type_str):
             operator_overrides[col_name] = [""]
 
-    schema_cls = _build_lakebase_search_input_model(
-        columns, operator_overrides or None
-    )
+    schema_cls = _build_lakebase_search_input_model(columns, operator_overrides or None)
 
     logger.debug(
         "Lakebase search columns resolved",

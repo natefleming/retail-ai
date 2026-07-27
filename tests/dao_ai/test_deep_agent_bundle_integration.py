@@ -93,7 +93,10 @@ class TestBundleShipsSkills:
         ).exists()
 
     def test_local_skill_copied_when_cwd_is_not_config_dir(
-        self, project_root_with_skills: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+        self,
+        project_root_with_skills: Path,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """Regression: skills are colocated with the config and must be found at
         bundle time even when the CLI runs from a CWD that is NOT the config's

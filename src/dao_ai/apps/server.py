@@ -255,8 +255,12 @@ def _run_gunicorn_preload(port: int, workers: int) -> None:
     from gunicorn.app.base import BaseApplication
     from loguru import logger
 
-    def _post_fork(_server: Any, worker: Any) -> None:  # pragma: no cover — runtime hook
-        logger.info("gunicorn worker forked | pid={} worker={}", os.getpid(), worker.pid)
+    def _post_fork(
+        _server: Any, worker: Any
+    ) -> None:  # pragma: no cover — runtime hook
+        logger.info(
+            "gunicorn worker forked | pid={} worker={}", os.getpid(), worker.pid
+        )
 
     class _DaoAiGunicornApp(BaseApplication):
         def load_config(self) -> None:

@@ -53,6 +53,7 @@ from dao_ai.config import (
     DatabaseModel,
     DatabricksAppModel,
     DatasetModel,
+    ExperimentModel,
     FunctionModel,
     GenieEntitlement,
     GenieRoomModel,
@@ -340,9 +341,7 @@ def _source_table_delta_uuid(source_table_full_name: str) -> str | None:
         spark = SparkSession.getActiveSession()
         if spark is None:
             return None
-        row = spark.sql(
-            f"DESCRIBE DETAIL {source_table_full_name}"
-        ).select("id").head()
+        row = spark.sql(f"DESCRIBE DETAIL {source_table_full_name}").select("id").head()
         return row["id"] if row is not None else None
     except Exception as exc:  # noqa: BLE001
         logger.debug(
@@ -455,9 +454,7 @@ def _wait_until_index_absent(
     )
 
 
-def link_experiment_trace_location(
-    config: AppConfig, experiment_id: str
-) -> None:
+def link_experiment_trace_location(config: AppConfig, experiment_id: str) -> None:
     """Link an MLflow experiment to its UC trace location.
 
     Wraps ``mlflow.set_experiment(experiment_id=..., trace_location=
@@ -832,11 +829,7 @@ def _grant_uc_trace_table_permissions_to_principal(
             w.api_client.do(
                 "PATCH",
                 f"/api/2.1/unity-catalog/permissions/{securable_type}/{full_name}",
-                body={
-                    "changes": [
-                        {"principal": principal, "add": list(privileges)}
-                    ]
-                },
+                body={"changes": [{"principal": principal, "add": list(privileges)}]},
             )
             logger.debug(
                 "Granted UC privileges for trace persistence",
@@ -872,9 +865,7 @@ def _grant_uc_trace_table_permissions_to_principal(
     )
 
 
-def _resolve_trace_table_prefix(
-    config: AppConfig, experiment_id: Optional[str]
-) -> str:
+def _resolve_trace_table_prefix(config: AppConfig, experiment_id: Optional[str]) -> str:
     """Return the table prefix MLflow uses for OTEL trace tables.
 
     Mirrors ``mlflow.set_experiment(trace_location=UnityCatalog(
@@ -1589,8 +1580,7 @@ class DatabricksProvider(ServiceProvider):
                     )
             except Exception as e:
                 logger.warning(
-                    "Failed to grant trace-persistence privileges to Model "
-                    "Serving SP",
+                    "Failed to grant trace-persistence privileges to Model Serving SP",
                     endpoint_name=endpoint_name,
                     error=str(e),
                 )
@@ -1684,9 +1674,7 @@ class DatabricksProvider(ServiceProvider):
                 source_path=source_path,
             )
 
-    def _upload_dir_files(
-        self, src: "Path", dest: str, source_path: str
-    ) -> int:
+    def _upload_dir_files(self, src: "Path", dest: str, source_path: str) -> int:
         """Upload one staging pair's files under ``source_path`` (workspace).
 
         ``workspace.upload`` has no recursive form, so directories are walked
@@ -2397,7 +2385,10 @@ class DatabricksProvider(ServiceProvider):
         self._deploy_app(
             config,
             app_command=["python", "-m", "dao_ai.mcp.server"],
-            extras={"mcp", *expand_all(resolve_required_extras_or_all(config, target="mcp"))},
+            extras={
+                "mcp",
+                *expand_all(resolve_required_extras_or_all(config, target="mcp")),
+            },
             include_chat_ui=False,
             development=development,
         )
@@ -2439,9 +2430,7 @@ class DatabricksProvider(ServiceProvider):
             catalog_info = self.w.catalogs.create(name=schema.catalog_name)
         return catalog_info
 
-    def create_experiment(
-        self, experiment: "ExperimentModel"
-    ) -> Experiment:
+    def create_experiment(self, experiment: ExperimentModel) -> Experiment:
         """Resolve an ``ExperimentModel`` to a live MLflow ``Experiment``,
         creating the experiment if only ``name`` was provided and it does
         not exist yet.
@@ -2791,9 +2780,12 @@ class DatabricksProvider(ServiceProvider):
             try:
                 import inspect
 
-                if "custom_tags" in inspect.signature(
-                    self.vsc.create_delta_sync_index_and_wait
-                ).parameters:
+                if (
+                    "custom_tags"
+                    in inspect.signature(
+                        self.vsc.create_delta_sync_index_and_wait
+                    ).parameters
+                ):
                     create_kwargs["custom_tags"] = {
                         _index_source_uuid_key(): source_uuid
                     }

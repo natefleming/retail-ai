@@ -1861,9 +1861,7 @@ def test_appconfig_no_registered_model_no_config_time_error():
         """
     )
 
-    with tempfile.NamedTemporaryFile(
-        mode="w", suffix=".yaml", delete=False
-    ) as fh:
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as fh:
         fh.write(yaml_text)
         tmp_path = Path(fh.name)
 

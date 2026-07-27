@@ -29,10 +29,10 @@ import pytest
 from pydantic import ValidationError
 
 from dao_ai.config import (
+    AiSearchRetrieverModel,
     ColumnInfo,
     FilterItem,
     IndexModel,
-    AiSearchRetrieverModel,
     SchemaModel,
     VectorSearchEndpoint,
     VectorStoreModel,
@@ -49,7 +49,6 @@ from dao_ai.tools.vector_search import (
     _vector_column_names_from_describe,
     create_vector_search_tool,
 )
-
 
 PRODUCTS_COLUMNS = [
     "product_id",
@@ -231,25 +230,23 @@ class TestFactoryColumnHydration:
         payload = _describe_payload()
 
         original_refresh = VectorStoreModel.refresh
-        with patch(
-            "dao_ai.tools.vector_search._vsc_for_refresh", return_value=None
-        ), patch(
-            "dao_ai.tools.vector_search._fetch_index_columns", return_value=None
-        ), patch.object(
-            VectorStoreModel,
-            "refresh",
-            autospec=True,
-            side_effect=lambda self, **kw: original_refresh(self, details=payload),
-        ) as mocked_refresh:
+        with (
+            patch("dao_ai.tools.vector_search._vsc_for_refresh", return_value=None),
+            patch("dao_ai.tools.vector_search._fetch_index_columns", return_value=None),
+            patch.object(
+                VectorStoreModel,
+                "refresh",
+                autospec=True,
+                side_effect=lambda self, **kw: original_refresh(self, details=payload),
+            ) as mocked_refresh,
+        ):
             retriever = AiSearchRetrieverModel(vector_store=vs)
             tool = create_vector_search_tool(retriever=retriever, name="product_search")
 
         mocked_refresh.assert_called_once()
-        enum = (
-            tool.args_schema.model_json_schema()["$defs"]["DynamicFilterItem"][
-                "properties"
-            ]["key"]["enum"]
-        )
+        enum = tool.args_schema.model_json_schema()["$defs"]["DynamicFilterItem"][
+            "properties"
+        ]["key"]["enum"]
         # Every discovered column is in the enum (permissive operators —
         # types are not fetched from the source table anymore).
         assert "product_name" in enum
@@ -270,24 +267,22 @@ class TestFactoryColumnHydration:
         )
         payload = _describe_payload()
         original_refresh = VectorStoreModel.refresh
-        with patch.object(
-            VectorStoreModel,
-            "refresh",
-            autospec=True,
-            side_effect=lambda self, **kw: original_refresh(self, details=payload),
-        ) as mocked_refresh, patch(
-            "dao_ai.tools.vector_search._vsc_for_refresh", return_value=None
-        ), patch(
-            "dao_ai.tools.vector_search._fetch_index_columns", return_value=None
+        with (
+            patch.object(
+                VectorStoreModel,
+                "refresh",
+                autospec=True,
+                side_effect=lambda self, **kw: original_refresh(self, details=payload),
+            ) as mocked_refresh,
+            patch("dao_ai.tools.vector_search._vsc_for_refresh", return_value=None),
+            patch("dao_ai.tools.vector_search._fetch_index_columns", return_value=None),
         ):
             tool = create_vector_search_tool(retriever=retriever, name="product_search")
 
         mocked_refresh.assert_called_once()
-        enum = (
-            tool.args_schema.model_json_schema()["$defs"]["DynamicFilterItem"][
-                "properties"
-            ]["key"]["enum"]
-        )
+        enum = tool.args_schema.model_json_schema()["$defs"]["DynamicFilterItem"][
+            "properties"
+        ]["key"]["enum"]
         assert "product_id" in enum and "price" in enum
         # Everything outside the declared subset is absent:
         assert "sku" not in enum and "category" not in enum
@@ -303,20 +298,16 @@ class TestFactoryColumnHydration:
             vector_store=vs,
             columns=["product_id", "product_name", "nonexistent_col_xyz"],
         )
-        with patch(
-            "dao_ai.tools.vector_search._vsc_for_refresh", return_value=None
-        ), patch(
-            "dao_ai.tools.vector_search._fetch_index_columns", return_value=None
-        ), patch.object(VectorStoreModel, "refresh", autospec=True):
-            tool = create_vector_search_tool(
-                retriever=retriever, name="product_search"
-            )
+        with (
+            patch("dao_ai.tools.vector_search._vsc_for_refresh", return_value=None),
+            patch("dao_ai.tools.vector_search._fetch_index_columns", return_value=None),
+            patch.object(VectorStoreModel, "refresh", autospec=True),
+        ):
+            tool = create_vector_search_tool(retriever=retriever, name="product_search")
 
-        enum = (
-            tool.args_schema.model_json_schema()["$defs"]["DynamicFilterItem"][
-                "properties"
-            ]["key"]["enum"]
-        )
+        enum = tool.args_schema.model_json_schema()["$defs"]["DynamicFilterItem"][
+            "properties"
+        ]["key"]["enum"]
         assert "product_id" in enum
         assert "product_name" in enum
         # All three declared cols get every operator suffix — no drift
@@ -345,13 +336,15 @@ class TestFactoryColumnHydration:
         fake_index_table.columns = [col]
         wc_spy.tables.get.return_value = fake_index_table
 
-        with patch(
-            "dao_ai.tools.vector_search._vsc_for_refresh", return_value=None
-        ), patch.object(VectorStoreModel, "refresh", autospec=True), patch.object(
-            VectorStoreModel,
-            "workspace_client_from",
-            autospec=True,
-            return_value=wc_spy,
+        with (
+            patch("dao_ai.tools.vector_search._vsc_for_refresh", return_value=None),
+            patch.object(VectorStoreModel, "refresh", autospec=True),
+            patch.object(
+                VectorStoreModel,
+                "workspace_client_from",
+                autospec=True,
+                return_value=wc_spy,
+            ),
         ):
             create_vector_search_tool(retriever=retriever, name="product_search")
 
@@ -371,15 +364,15 @@ class TestFactoryColumnHydration:
         pre-change free-form ``FilterItem`` schema."""
         vs = self._make_vs(with_columns=False)
         retriever = AiSearchRetrieverModel(vector_store=vs)
-        with patch(
-            "dao_ai.tools.vector_search._vsc_for_refresh", return_value=None
-        ), patch.object(
-            VectorStoreModel,
-            "refresh",
-            autospec=True,
-            side_effect=RuntimeError("describe unauthorized"),
-        ), patch(
-            "dao_ai.tools.vector_search._fetch_index_columns", return_value=None
+        with (
+            patch("dao_ai.tools.vector_search._vsc_for_refresh", return_value=None),
+            patch.object(
+                VectorStoreModel,
+                "refresh",
+                autospec=True,
+                side_effect=RuntimeError("describe unauthorized"),
+            ),
+            patch("dao_ai.tools.vector_search._fetch_index_columns", return_value=None),
         ):
             tool = create_vector_search_tool(retriever=retriever, name="product_search")
 
@@ -397,23 +390,21 @@ class TestFactoryColumnHydration:
         retriever = AiSearchRetrieverModel(
             vector_store=vs, columns=["product_id", "product_name"]
         )
-        with patch(
-            "dao_ai.tools.vector_search._vsc_for_refresh", return_value=None
-        ), patch.object(
-            VectorStoreModel,
-            "refresh",
-            autospec=True,
-            side_effect=RuntimeError("describe unauthorized"),
-        ), patch(
-            "dao_ai.tools.vector_search._fetch_index_columns", return_value=None
+        with (
+            patch("dao_ai.tools.vector_search._vsc_for_refresh", return_value=None),
+            patch.object(
+                VectorStoreModel,
+                "refresh",
+                autospec=True,
+                side_effect=RuntimeError("describe unauthorized"),
+            ),
+            patch("dao_ai.tools.vector_search._fetch_index_columns", return_value=None),
         ):
             tool = create_vector_search_tool(retriever=retriever, name="product_search")
 
-        enum = (
-            tool.args_schema.model_json_schema()["$defs"]["DynamicFilterItem"][
-                "properties"
-            ]["key"]["enum"]
-        )
+        enum = tool.args_schema.model_json_schema()["$defs"]["DynamicFilterItem"][
+            "properties"
+        ]["key"]["enum"]
         assert "product_id" in enum and "product_name" in enum
 
 
@@ -452,7 +443,9 @@ class TestVectorColumnStripping:
     def test_none_or_missing_details_returns_empty(self) -> None:
         assert _vector_column_names_from_describe(None) == set()
         assert _vector_column_names_from_describe({}) == set()
-        assert _vector_column_names_from_describe({"delta_sync_index_spec": {}}) == set()
+        assert (
+            _vector_column_names_from_describe({"delta_sync_index_spec": {}}) == set()
+        )
 
     def test_direct_access_managed_embedding_vector_names(self) -> None:
         """Direct-Access indexes carry the source list under
@@ -636,9 +629,7 @@ class TestFilterValueShapes:
     """
 
     def _model(self):
-        return _build_vector_search_input_model(
-            ["sku", "price", "is_b2b_only"]
-        )
+        return _build_vector_search_input_model(["sku", "price", "is_b2b_only"])
 
     def test_string_scalar(self) -> None:
         m = self._model()(query="x", filters=[{"key": "sku", "value": "FRZ-001"}])
@@ -658,9 +649,7 @@ class TestFilterValueShapes:
 
     def test_array_in_style(self) -> None:
         # ``value: [a, b, c]`` is the IN-style filter — matches any of.
-        m = self._model()(
-            query="x", filters=[{"key": "sku", "value": ["A", "B", "C"]}]
-        )
+        m = self._model()(query="x", filters=[{"key": "sku", "value": ["A", "B", "C"]}])
         assert m.filters[0].value == ["A", "B", "C"]
 
     def test_null_value_rejected(self) -> None:
@@ -713,7 +702,9 @@ class TestScaleAndSpecialColumnNames:
         # ``Literal[*keys]`` collapses duplicates. The enum should not
         # ship the same key twice.
         M = _build_vector_search_input_model(["a", "a", "b"])
-        enum = M.model_json_schema()["$defs"]["DynamicFilterItem"]["properties"]["key"]["enum"]
+        enum = M.model_json_schema()["$defs"]["DynamicFilterItem"]["properties"]["key"][
+            "enum"
+        ]
         assert enum.count("a") == 1
         assert enum.count("b") == 1
 
@@ -727,10 +718,18 @@ class TestScaleAndSpecialColumnNames:
     def test_single_column_index(self) -> None:
         # Trivial happy path with just one column — all 8 suffixes.
         M = _build_vector_search_input_model(["only"])
-        enum = M.model_json_schema()["$defs"]["DynamicFilterItem"]["properties"]["key"]["enum"]
+        enum = M.model_json_schema()["$defs"]["DynamicFilterItem"]["properties"]["key"][
+            "enum"
+        ]
         assert set(enum) == {
-            "only", "only NOT", "only <", "only <=",
-            "only >", "only >=", "only LIKE", "only NOT LIKE",
+            "only",
+            "only NOT",
+            "only <",
+            "only <=",
+            "only >",
+            "only >=",
+            "only LIKE",
+            "only NOT LIKE",
         }
 
 
@@ -749,19 +748,13 @@ class TestFactoryEntryShapes:
         payload = self._describe()
         original_refresh = VectorStoreModel.refresh
         return (
-            patch(
-                "dao_ai.tools.vector_search._vsc_for_refresh", return_value=None
-            ),
-            patch(
-                "dao_ai.tools.vector_search._fetch_index_columns", return_value=None
-            ),
+            patch("dao_ai.tools.vector_search._vsc_for_refresh", return_value=None),
+            patch("dao_ai.tools.vector_search._fetch_index_columns", return_value=None),
             patch.object(
                 VectorStoreModel,
                 "refresh",
                 autospec=True,
-                side_effect=lambda self, **kw: original_refresh(
-                    self, details=payload
-                ),
+                side_effect=lambda self, **kw: original_refresh(self, details=payload),
             ),
         )
 
@@ -781,9 +774,9 @@ class TestFactoryEntryShapes:
         vs = self._bare_vs()
         with self._patches()[0], self._patches()[1], self._patches()[2]:
             tool = create_vector_search_tool(vector_store=vs, name="via_vs")
-        enum = tool.args_schema.model_json_schema()["$defs"][
-            "DynamicFilterItem"
-        ]["properties"]["key"]["enum"]
+        enum = tool.args_schema.model_json_schema()["$defs"]["DynamicFilterItem"][
+            "properties"
+        ]["key"]["enum"]
         assert "product_name" in enum
 
     def test_missing_index_raises_at_model_level(self) -> None:
@@ -791,9 +784,7 @@ class TestFactoryEntryShapes:
         # a store without either ``index`` or ``source_table``. Guarantees
         # we can't accidentally build a tool without an index.
         with pytest.raises(ValidationError, match="index"):
-            VectorStoreModel(
-                endpoint=VectorSearchEndpoint(name="dbdemos_vs_endpoint")
-            )
+            VectorStoreModel(endpoint=VectorSearchEndpoint(name="dbdemos_vs_endpoint"))
 
     def test_neither_retriever_nor_vector_store_raises(self) -> None:
         with pytest.raises(ValueError):
@@ -832,22 +823,20 @@ class TestBackwardCompatibility:
         retriever = AiSearchRetrieverModel(vector_store=vs, columns=PRODUCTS_COLUMNS)
         payload = _describe_payload()
         original_refresh = VectorStoreModel.refresh
-        with patch(
-            "dao_ai.tools.vector_search._vsc_for_refresh", return_value=None
-        ), patch(
-            "dao_ai.tools.vector_search._fetch_index_columns", return_value=None
-        ), patch.object(
-            VectorStoreModel,
-            "refresh",
-            autospec=True,
-            side_effect=lambda self, **kw: original_refresh(self, details=payload),
+        with (
+            patch("dao_ai.tools.vector_search._vsc_for_refresh", return_value=None),
+            patch("dao_ai.tools.vector_search._fetch_index_columns", return_value=None),
+            patch.object(
+                VectorStoreModel,
+                "refresh",
+                autospec=True,
+                side_effect=lambda self, **kw: original_refresh(self, details=payload),
+            ),
         ):
-            tool = create_vector_search_tool(
-                retriever=retriever, name="product_search"
-            )
-        enum = tool.args_schema.model_json_schema()["$defs"][
-            "DynamicFilterItem"
-        ]["properties"]["key"]["enum"]
+            tool = create_vector_search_tool(retriever=retriever, name="product_search")
+        enum = tool.args_schema.model_json_schema()["$defs"]["DynamicFilterItem"][
+            "properties"
+        ]["key"]["enum"]
         # Regression key not present:
         assert "name NOT LIKE" not in enum
         # Every declared column is present:
@@ -861,15 +850,15 @@ class TestBackwardCompatibility:
         narrows to the declared columns, blocking hallucinated keys."""
         vs = self._bare_vs_no_source()
         retriever = AiSearchRetrieverModel(vector_store=vs, columns=["a", "b"])
-        with patch(
-            "dao_ai.tools.vector_search._vsc_for_refresh", return_value=None
-        ), patch(
-            "dao_ai.tools.vector_search._fetch_index_columns", return_value=None
-        ), patch.object(VectorStoreModel, "refresh", autospec=True):
+        with (
+            patch("dao_ai.tools.vector_search._vsc_for_refresh", return_value=None),
+            patch("dao_ai.tools.vector_search._fetch_index_columns", return_value=None),
+            patch.object(VectorStoreModel, "refresh", autospec=True),
+        ):
             tool = create_vector_search_tool(retriever=retriever, name="t")
-        enum = tool.args_schema.model_json_schema()["$defs"][
-            "DynamicFilterItem"
-        ]["properties"]["key"]["enum"]
+        enum = tool.args_schema.model_json_schema()["$defs"]["DynamicFilterItem"][
+            "properties"
+        ]["key"]["enum"]
         # Every column always gets all 8 operator suffixes.
         assert len(enum) == 16
         assert "a LIKE" in enum and "a >=" in enum and "b NOT" in enum
@@ -913,15 +902,19 @@ class TestMcpAdapterEntryPoint:
         original_refresh = VectorStoreModel.refresh
 
         def _build(args: dict) -> Any:
-            with patch(
-                "dao_ai.tools.vector_search._vsc_for_refresh", return_value=None
-            ), patch(
-                "dao_ai.tools.vector_search._fetch_index_columns", return_value=None
-            ), patch.object(
-                VectorStoreModel,
-                "refresh",
-                autospec=True,
-                side_effect=lambda self, **kw: original_refresh(self, details=payload),
+            with (
+                patch("dao_ai.tools.vector_search._vsc_for_refresh", return_value=None),
+                patch(
+                    "dao_ai.tools.vector_search._fetch_index_columns", return_value=None
+                ),
+                patch.object(
+                    VectorStoreModel,
+                    "refresh",
+                    autospec=True,
+                    side_effect=lambda self, **kw: original_refresh(
+                        self, details=payload
+                    ),
+                ),
             ):
                 return create_vector_search_tool(**args)
 
@@ -949,9 +942,7 @@ class TestIndexScopedTypeLookup:
     authoritative source as the columns, never the source table.
     """
 
-    def _wc_with_index_table(
-        self, cols_and_types: list[tuple[str, str]]
-    ) -> MagicMock:
+    def _wc_with_index_table(self, cols_and_types: list[tuple[str, str]]) -> MagicMock:
         wc = MagicMock()
         table = MagicMock()
         fake_cols: list[MagicMock] = []
@@ -980,32 +971,30 @@ class TestIndexScopedTypeLookup:
             endpoint=VectorSearchEndpoint(name="dbdemos_vs_endpoint"),
         )
         retriever = AiSearchRetrieverModel(vector_store=vs)
-        with patch(
-            "dao_ai.tools.vector_search._vsc_for_refresh", return_value=None
-        ), patch(
-            "dao_ai.tools.vector_search._fetch_index_columns",
-            return_value=[
-                ("product_id", "bigint", None),
-                ("product_name", "string", "Full product name"),
-                ("price", "double", None),
-                ("is_b2b_only", "boolean", None),
-            ],
-        ), patch.object(VectorStoreModel, "refresh", autospec=True):
-            tool = create_vector_search_tool(
-                retriever=retriever, name="product_search"
-            )
-        enum = (
-            tool.args_schema.model_json_schema()["$defs"]["DynamicFilterItem"][
-                "properties"
-            ]["key"]["enum"]
-        )
+        with (
+            patch("dao_ai.tools.vector_search._vsc_for_refresh", return_value=None),
+            patch(
+                "dao_ai.tools.vector_search._fetch_index_columns",
+                return_value=[
+                    ("product_id", "bigint", None),
+                    ("product_name", "string", "Full product name"),
+                    ("price", "double", None),
+                    ("is_b2b_only", "boolean", None),
+                ],
+            ),
+            patch.object(VectorStoreModel, "refresh", autospec=True),
+        ):
+            tool = create_vector_search_tool(retriever=retriever, name="product_search")
+        enum = tool.args_schema.model_json_schema()["$defs"]["DynamicFilterItem"][
+            "properties"
+        ]["key"]["enum"]
         # 4 discovered columns × 8 suffixes = 32.
         assert len(enum) == 32
         # All suffixes valid for every column — no type-aware narrowing.
         assert "product_name LIKE" in enum
-        assert "product_name >=" in enum        # string with ordering — allowed now
-        assert "price LIKE" in enum             # numeric with LIKE — allowed now
-        assert "is_b2b_only <" in enum          # bool with ordering — allowed now
+        assert "product_name >=" in enum  # string with ordering — allowed now
+        assert "price LIKE" in enum  # numeric with LIKE — allowed now
+        assert "is_b2b_only <" in enum  # bool with ordering — allowed now
         # Hallucinated column still rejected (this is the regression):
         assert "name NOT LIKE" not in enum
         # Description enrichment (product_name has a UC comment):
@@ -1027,11 +1016,11 @@ class TestIndexScopedTypeLookup:
         )
         retriever = AiSearchRetrieverModel(vector_store=vs)
 
-        with patch(
-            "dao_ai.tools.vector_search._vsc_for_refresh", return_value=None
-        ), patch(
-            "dao_ai.tools.vector_search._fetch_index_columns", return_value=None
-        ), patch.object(VectorStoreModel, "refresh", autospec=True):
+        with (
+            patch("dao_ai.tools.vector_search._vsc_for_refresh", return_value=None),
+            patch("dao_ai.tools.vector_search._fetch_index_columns", return_value=None),
+            patch.object(VectorStoreModel, "refresh", autospec=True),
+        ):
             tool = create_vector_search_tool(retriever=retriever, name="t")
 
         schema = tool.args_schema.model_json_schema()
@@ -1193,11 +1182,11 @@ class TestHandDeclaredColumnInfoInFactory:
             ],
         )
         fetch_mock = MagicMock(return_value=None)
-        with patch(
-            "dao_ai.tools.vector_search._vsc_for_refresh", return_value=None
-        ), patch(
-            "dao_ai.tools.vector_search._fetch_index_columns", fetch_mock
-        ), patch.object(VectorStoreModel, "refresh", autospec=True):
+        with (
+            patch("dao_ai.tools.vector_search._vsc_for_refresh", return_value=None),
+            patch("dao_ai.tools.vector_search._fetch_index_columns", fetch_mock),
+            patch.object(VectorStoreModel, "refresh", autospec=True),
+        ):
             create_vector_search_tool(retriever=retriever, name="t")
         # The factory must NOT have called _fetch_index_columns in
         # hand-declared mode.
@@ -1216,15 +1205,15 @@ class TestHandDeclaredColumnInfoInFactory:
                 ColumnInfo(name="price", type="number"),  # defaults
             ],
         )
-        with patch(
-            "dao_ai.tools.vector_search._vsc_for_refresh", return_value=None
-        ), patch(
-            "dao_ai.tools.vector_search._fetch_index_columns", return_value=None
-        ), patch.object(VectorStoreModel, "refresh", autospec=True):
+        with (
+            patch("dao_ai.tools.vector_search._vsc_for_refresh", return_value=None),
+            patch("dao_ai.tools.vector_search._fetch_index_columns", return_value=None),
+            patch.object(VectorStoreModel, "refresh", autospec=True),
+        ):
             tool = create_vector_search_tool(retriever=retriever, name="t")
-        enum = tool.args_schema.model_json_schema()["$defs"][
-            "DynamicFilterItem"
-        ]["properties"]["key"]["enum"]
+        enum = tool.args_schema.model_json_schema()["$defs"]["DynamicFilterItem"][
+            "properties"
+        ]["key"]["enum"]
         # brand is hand-locked to 2 ops; price falls to the per-type
         # numeric default (equality + NOT + comparisons, no LIKE).
         assert "brand" in enum and "brand LIKE" in enum
@@ -1240,15 +1229,15 @@ class TestHandDeclaredColumnInfoInFactory:
             vector_store=vs,
             columns=[ColumnInfo(name="brand", type="string")],
         )
-        with patch(
-            "dao_ai.tools.vector_search._vsc_for_refresh", return_value=None
-        ), patch(
-            "dao_ai.tools.vector_search._fetch_index_columns", return_value=None
-        ), patch.object(VectorStoreModel, "refresh", autospec=True):
+        with (
+            patch("dao_ai.tools.vector_search._vsc_for_refresh", return_value=None),
+            patch("dao_ai.tools.vector_search._fetch_index_columns", return_value=None),
+            patch.object(VectorStoreModel, "refresh", autospec=True),
+        ):
             tool = create_vector_search_tool(retriever=retriever, name="t")
-        enum = tool.args_schema.model_json_schema()["$defs"][
-            "DynamicFilterItem"
-        ]["properties"]["key"]["enum"]
+        enum = tool.args_schema.model_json_schema()["$defs"]["DynamicFilterItem"][
+            "properties"
+        ]["key"]["enum"]
         # All 8 suffixes for brand.
         assert len(enum) == 8
 
@@ -1264,11 +1253,11 @@ class TestHandDeclaredColumnInfoInFactory:
                 ),
             ],
         )
-        with patch(
-            "dao_ai.tools.vector_search._vsc_for_refresh", return_value=None
-        ), patch(
-            "dao_ai.tools.vector_search._fetch_index_columns", return_value=None
-        ), patch.object(VectorStoreModel, "refresh", autospec=True):
+        with (
+            patch("dao_ai.tools.vector_search._vsc_for_refresh", return_value=None),
+            patch("dao_ai.tools.vector_search._fetch_index_columns", return_value=None),
+            patch.object(VectorStoreModel, "refresh", autospec=True),
+        ):
             tool = create_vector_search_tool(retriever=retriever, name="t")
         assert "Brand — MILWAUKEE, DEWALT, MAKITA" in tool.description
         assert "- brand (STRING)" in tool.description
@@ -1283,15 +1272,15 @@ class TestHandDeclaredColumnInfoInFactory:
                 "sku",
             ],
         )
-        with patch(
-            "dao_ai.tools.vector_search._vsc_for_refresh", return_value=None
-        ), patch(
-            "dao_ai.tools.vector_search._fetch_index_columns", return_value=None
-        ), patch.object(VectorStoreModel, "refresh", autospec=True):
+        with (
+            patch("dao_ai.tools.vector_search._vsc_for_refresh", return_value=None),
+            patch("dao_ai.tools.vector_search._fetch_index_columns", return_value=None),
+            patch.object(VectorStoreModel, "refresh", autospec=True),
+        ):
             tool = create_vector_search_tool(retriever=retriever, name="t")
-        enum = tool.args_schema.model_json_schema()["$defs"][
-            "DynamicFilterItem"
-        ]["properties"]["key"]["enum"]
+        enum = tool.args_schema.model_json_schema()["$defs"]["DynamicFilterItem"][
+            "properties"
+        ]["key"]["enum"]
         # brand → 2 ops; product_id + sku → 8 ops each = 18 total.
         assert len(enum) == 18
         assert "brand LIKE" in enum and "brand NOT" not in enum
@@ -1301,26 +1290,26 @@ class TestHandDeclaredColumnInfoInFactory:
         """Mode B: bare-string columns declared → UC call is still made
         best-effort for description enrichment (types + comments)."""
         vs = self._bare_vs()
-        retriever = AiSearchRetrieverModel(
-            vector_store=vs, columns=["brand", "price"]
-        )
-        with patch(
-            "dao_ai.tools.vector_search._vsc_for_refresh", return_value=None
-        ), patch(
-            "dao_ai.tools.vector_search._fetch_index_columns",
-            return_value=[
-                ("brand", "STRING", "Brand — Milwaukee, DeWalt, ..."),
-                ("price", "INT64", None),
-            ],
-        ) as fetch_mock, patch.object(VectorStoreModel, "refresh", autospec=True):
+        retriever = AiSearchRetrieverModel(vector_store=vs, columns=["brand", "price"])
+        with (
+            patch("dao_ai.tools.vector_search._vsc_for_refresh", return_value=None),
+            patch(
+                "dao_ai.tools.vector_search._fetch_index_columns",
+                return_value=[
+                    ("brand", "STRING", "Brand — Milwaukee, DeWalt, ..."),
+                    ("price", "INT64", None),
+                ],
+            ) as fetch_mock,
+            patch.object(VectorStoreModel, "refresh", autospec=True),
+        ):
             tool = create_vector_search_tool(retriever=retriever, name="t")
         # UC call happened (for description enrichment)
         fetch_mock.assert_called_once()
         # But the enum is built from declared names + all 8 suffixes each
         # — no type-aware narrowing.
-        enum = tool.args_schema.model_json_schema()["$defs"][
-            "DynamicFilterItem"
-        ]["properties"]["key"]["enum"]
+        enum = tool.args_schema.model_json_schema()["$defs"]["DynamicFilterItem"][
+            "properties"
+        ]["key"]["enum"]
         assert len(enum) == 16
         assert "price LIKE" in enum  # numeric can LIKE — no narrowing
         # Description enrichment came through
@@ -1351,8 +1340,17 @@ class TestIsArrayType:
         assert _is_array_type("ARRAY") is True
 
     def test_scalars_return_false(self) -> None:
-        for t in ("string", "STRING", "int", "bigint", "double", "boolean",
-                  "timestamp", "date", "decimal(10,2)"):
+        for t in (
+            "string",
+            "STRING",
+            "int",
+            "bigint",
+            "double",
+            "boolean",
+            "timestamp",
+            "date",
+            "decimal(10,2)",
+        ):
             assert _is_array_type(t) is False, t
 
     def test_empty_or_none_returns_false(self) -> None:
@@ -1386,21 +1384,28 @@ class TestArrayColumnInFactory:
                 ColumnInfo(name="brand", type="string"),
             ],
         )
-        with patch(
-            "dao_ai.tools.vector_search._vsc_for_refresh", return_value=None
-        ), patch(
-            "dao_ai.tools.vector_search._fetch_index_columns", return_value=None
-        ), patch.object(VectorStoreModel, "refresh", autospec=True):
+        with (
+            patch("dao_ai.tools.vector_search._vsc_for_refresh", return_value=None),
+            patch("dao_ai.tools.vector_search._fetch_index_columns", return_value=None),
+            patch.object(VectorStoreModel, "refresh", autospec=True),
+        ):
             tool = create_vector_search_tool(retriever=retriever, name="t")
-        enum = tool.args_schema.model_json_schema()["$defs"][
-            "DynamicFilterItem"
-        ]["properties"]["key"]["enum"]
+        enum = tool.args_schema.model_json_schema()["$defs"]["DynamicFilterItem"][
+            "properties"
+        ]["key"]["enum"]
         # tags: 1 suffix. brand: 8 suffixes. Total = 9.
         assert len(enum) == 9
         assert "tags" in enum
         # None of the disallowed suffixes appear for the array column:
-        for bad in ("tags NOT", "tags <", "tags <=", "tags >",
-                    "tags >=", "tags LIKE", "tags NOT LIKE"):
+        for bad in (
+            "tags NOT",
+            "tags <",
+            "tags <=",
+            "tags >",
+            "tags >=",
+            "tags LIKE",
+            "tags NOT LIKE",
+        ):
             assert bad not in enum, f"array column got bad suffix: {bad}"
         # brand still gets the standard set:
         assert "brand LIKE" in enum and "brand NOT" in enum
@@ -1414,15 +1419,15 @@ class TestArrayColumnInFactory:
                 ColumnInfo(name="tags", type="array", operators=["", "NOT"]),
             ],
         )
-        with patch(
-            "dao_ai.tools.vector_search._vsc_for_refresh", return_value=None
-        ), patch(
-            "dao_ai.tools.vector_search._fetch_index_columns", return_value=None
-        ), patch.object(VectorStoreModel, "refresh", autospec=True):
+        with (
+            patch("dao_ai.tools.vector_search._vsc_for_refresh", return_value=None),
+            patch("dao_ai.tools.vector_search._fetch_index_columns", return_value=None),
+            patch.object(VectorStoreModel, "refresh", autospec=True),
+        ):
             tool = create_vector_search_tool(retriever=retriever, name="t")
-        enum = tool.args_schema.model_json_schema()["$defs"][
-            "DynamicFilterItem"
-        ]["properties"]["key"]["enum"]
+        enum = tool.args_schema.model_json_schema()["$defs"]["DynamicFilterItem"][
+            "properties"
+        ]["key"]["enum"]
         # User asked for equality + NOT — honored.
         assert set(enum) == {"tags", "tags NOT"}
 
@@ -1431,16 +1436,18 @@ class TestArrayColumnInFactory:
         array column → factory adds equality-only override."""
         vs = self._bare_vs()
         retriever = AiSearchRetrieverModel(vector_store=vs)
-        with patch(
-            "dao_ai.tools.vector_search._vsc_for_refresh", return_value=None
-        ), patch(
-            "dao_ai.tools.vector_search._fetch_index_columns",
-            return_value=[("tags", "array<string>", "Product tags")],
-        ), patch.object(VectorStoreModel, "refresh", autospec=True):
+        with (
+            patch("dao_ai.tools.vector_search._vsc_for_refresh", return_value=None),
+            patch(
+                "dao_ai.tools.vector_search._fetch_index_columns",
+                return_value=[("tags", "array<string>", "Product tags")],
+            ),
+            patch.object(VectorStoreModel, "refresh", autospec=True),
+        ):
             tool = create_vector_search_tool(retriever=retriever, name="t")
-        key_schema = tool.args_schema.model_json_schema()["$defs"][
-            "DynamicFilterItem"
-        ]["properties"]["key"]
+        key_schema = tool.args_schema.model_json_schema()["$defs"]["DynamicFilterItem"][
+            "properties"
+        ]["key"]
         # Pydantic renders a single-value Literal as ``const`` (not ``enum``).
         # Either shape is fine as long as the value is exactly "tags".
         assert key_schema.get("const") == "tags" or key_schema.get("enum") == ["tags"]
@@ -1450,20 +1457,22 @@ class TestArrayColumnInFactory:
         columns keep full 8 suffixes."""
         vs = self._bare_vs()
         retriever = AiSearchRetrieverModel(vector_store=vs)
-        with patch(
-            "dao_ai.tools.vector_search._vsc_for_refresh", return_value=None
-        ), patch(
-            "dao_ai.tools.vector_search._fetch_index_columns",
-            return_value=[
-                ("tags", "array<string>", None),
-                ("price", "double", None),
-                ("sku", "string", None),
-            ],
-        ), patch.object(VectorStoreModel, "refresh", autospec=True):
+        with (
+            patch("dao_ai.tools.vector_search._vsc_for_refresh", return_value=None),
+            patch(
+                "dao_ai.tools.vector_search._fetch_index_columns",
+                return_value=[
+                    ("tags", "array<string>", None),
+                    ("price", "double", None),
+                    ("sku", "string", None),
+                ],
+            ),
+            patch.object(VectorStoreModel, "refresh", autospec=True),
+        ):
             tool = create_vector_search_tool(retriever=retriever, name="t")
-        enum = tool.args_schema.model_json_schema()["$defs"][
-            "DynamicFilterItem"
-        ]["properties"]["key"]["enum"]
+        enum = tool.args_schema.model_json_schema()["$defs"]["DynamicFilterItem"][
+            "properties"
+        ]["key"]["enum"]
         # tags: 1 + price: 8 + sku: 8 = 17.
         assert len(enum) == 17
         assert "tags" in enum
@@ -1480,11 +1489,11 @@ class TestArrayColumnInFactory:
                 ColumnInfo(name="tags", type="array", description="Product tags"),
             ],
         )
-        with patch(
-            "dao_ai.tools.vector_search._vsc_for_refresh", return_value=None
-        ), patch(
-            "dao_ai.tools.vector_search._fetch_index_columns", return_value=None
-        ), patch.object(VectorStoreModel, "refresh", autospec=True):
+        with (
+            patch("dao_ai.tools.vector_search._vsc_for_refresh", return_value=None),
+            patch("dao_ai.tools.vector_search._fetch_index_columns", return_value=None),
+            patch.object(VectorStoreModel, "refresh", autospec=True),
+        ):
             tool = create_vector_search_tool(retriever=retriever, name="t")
         assert "- tags (ARRAY)" in tool.description
         assert "Array columns match via element containment" in tool.description
@@ -1512,9 +1521,7 @@ class TestArrayInColumnsDescription:
     def test_array_hint_detects_uc_style_type_strings(self) -> None:
         # UC Tables API returns type_text like "array<string>"; the
         # description hint should still fire.
-        block = _build_columns_description(
-            ["tags"], {"tags": "array<string>"}, {}
-        )
+        block = _build_columns_description(["tags"], {"tags": "array<string>"}, {})
         assert "Array columns match via element containment" in block
 
 
@@ -1557,17 +1564,17 @@ class TestFactoryToolNameShadowing:
             vector_store=vs,
             columns=["product_id", "sku", "description"],  # last col = 'description'
         )
-        with patch(
-            "dao_ai.tools.vector_search._vsc_for_refresh", return_value=None
-        ), patch.object(
-            VectorStoreModel, "refresh", autospec=True, return_value=None
-        ), patch(
-            "dao_ai.tools.vector_search._fetch_index_columns",
-            return_value=[
-                ("product_id", "STRING", None),
-                ("sku", "STRING", "SKU column"),
-                ("description", "STRING", "Product description"),
-            ],
+        with (
+            patch("dao_ai.tools.vector_search._vsc_for_refresh", return_value=None),
+            patch.object(VectorStoreModel, "refresh", autospec=True, return_value=None),
+            patch(
+                "dao_ai.tools.vector_search._fetch_index_columns",
+                return_value=[
+                    ("product_id", "STRING", None),
+                    ("sku", "STRING", "SKU column"),
+                    ("description", "STRING", "Product description"),
+                ],
+            ),
         ):
             tool = create_vector_search_tool(
                 retriever=retriever, name="product_vector_search_tool"
@@ -1582,16 +1589,16 @@ class TestFactoryToolNameShadowing:
         """
         vs = self._make_vs()
         retriever = AiSearchRetrieverModel(vector_store=vs)  # no declared columns
-        with patch(
-            "dao_ai.tools.vector_search._vsc_for_refresh", return_value=None
-        ), patch.object(
-            VectorStoreModel, "refresh", autospec=True, return_value=None
-        ), patch(
-            "dao_ai.tools.vector_search._fetch_index_columns",
-            return_value=[
-                ("product_id", "STRING", None),
-                ("description", "STRING", None),  # last col
-            ],
+        with (
+            patch("dao_ai.tools.vector_search._vsc_for_refresh", return_value=None),
+            patch.object(VectorStoreModel, "refresh", autospec=True, return_value=None),
+            patch(
+                "dao_ai.tools.vector_search._fetch_index_columns",
+                return_value=[
+                    ("product_id", "STRING", None),
+                    ("description", "STRING", None),  # last col
+                ],
+            ),
         ):
             tool = create_vector_search_tool(retriever=retriever, name="my_tool")
         assert tool.name == "my_tool"
@@ -1610,12 +1617,10 @@ class TestFactoryToolNameShadowing:
                 ColumnInfo(name="brand", type="string"),
             ],
         )
-        with patch(
-            "dao_ai.tools.vector_search._vsc_for_refresh", return_value=None
-        ), patch.object(
-            VectorStoreModel, "refresh", autospec=True, return_value=None
-        ), patch(
-            "dao_ai.tools.vector_search._fetch_index_columns", return_value=None
+        with (
+            patch("dao_ai.tools.vector_search._vsc_for_refresh", return_value=None),
+            patch.object(VectorStoreModel, "refresh", autospec=True, return_value=None),
+            patch("dao_ai.tools.vector_search._fetch_index_columns", return_value=None),
         ):
             tool = create_vector_search_tool(retriever=retriever, name="my_tool")
         assert tool.name == "my_tool"

@@ -62,9 +62,7 @@ class TestBuildReceiptNotification:
         assert envelope["execution_status"] == "ok"
 
     def test_hitl_approve_execution(self) -> None:
-        envelope = build_receipt_notification(
-            _receipt(decision="approve", hitl=True)
-        )
+        envelope = build_receipt_notification(_receipt(decision="approve", hitl=True))
         assert envelope["hitl_involved"] is True
         assert envelope["decision"] == "approve"
         assert envelope["approver_sub"] == "alice@example.com"
@@ -97,9 +95,7 @@ class TestBuildReceiptNotification:
             "this_hash",
             "displayed_summary",
         ):
-            assert forbidden not in envelope, (
-                f"envelope must not carry {forbidden}"
-            )
+            assert forbidden not in envelope, f"envelope must not carry {forbidden}"
 
 
 class TestDispatchAuditReceiptNotification:
@@ -107,13 +103,9 @@ class TestDispatchAuditReceiptNotification:
 
     def test_no_config_is_noop(self) -> None:
         # Should complete without raising.
-        asyncio.run(
-            dispatch_audit_receipt_notification(_receipt(), config=None)
-        )
+        asyncio.run(dispatch_audit_receipt_notification(_receipt(), config=None))
 
     def test_config_without_callbacks_is_noop(self) -> None:
         asyncio.run(
-            dispatch_audit_receipt_notification(
-                _receipt(), config={"configurable": {}}
-            )
+            dispatch_audit_receipt_notification(_receipt(), config={"configurable": {}})
         )

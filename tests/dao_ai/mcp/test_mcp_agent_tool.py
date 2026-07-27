@@ -44,7 +44,11 @@ class _StubAgent:
                     "type": "message",
                     "role": "assistant",
                     "content": [
-                        {"type": "output_text", "text": self.reply_text, "annotations": []}
+                        {
+                            "type": "output_text",
+                            "text": self.reply_text,
+                            "annotations": [],
+                        }
                     ],
                 }
             ]
@@ -80,9 +84,7 @@ def _list_tools(mcp: FastMCP) -> list[Any]:
     return asyncio.run(mcp.list_tools())
 
 
-def _call_tool(
-    mcp: FastMCP, name: str, arguments: dict[str, Any]
-) -> Any:
+def _call_tool(mcp: FastMCP, name: str, arguments: dict[str, Any]) -> Any:
     return asyncio.run(mcp.call_tool(name, arguments))
 
 
@@ -262,9 +264,12 @@ def test_invoke_agent_string_input_is_wrapped_and_headers_forwarded() -> None:
     register_agent_as_tool(mcp, config)  # type: ignore[arg-type]
 
     fake_headers = {"x-forwarded-access-token": "abc123", "x-request-id": "r1"}
-    with patch(
-        "dao_ai.mcp.agent_tool.current_request_headers", return_value=fake_headers
-    ), patch("dao_ai.mcp.agent_tool.current_request_id", return_value="r1"):
+    with (
+        patch(
+            "dao_ai.mcp.agent_tool.current_request_headers", return_value=fake_headers
+        ),
+        patch("dao_ai.mcp.agent_tool.current_request_id", return_value="r1"),
+    ):
         result = _call_tool(mcp, "mcp_dao_ai_test", {"input": "hello"})
 
     assert agent.last_request is not None
@@ -295,10 +300,13 @@ def test_invoke_agent_reports_obo_absent_when_no_forwarded_token() -> None:
     config = _StubConfig(agent=_StubAgent())
     register_agent_as_tool(mcp, config)  # type: ignore[arg-type]
 
-    with patch(
-        "dao_ai.mcp.agent_tool.current_request_headers",
-        return_value={"x-request-id": "r2"},
-    ), patch("dao_ai.mcp.agent_tool.current_request_id", return_value="r2"):
+    with (
+        patch(
+            "dao_ai.mcp.agent_tool.current_request_headers",
+            return_value={"x-request-id": "r2"},
+        ),
+        patch("dao_ai.mcp.agent_tool.current_request_id", return_value="r2"),
+    ):
         result = _call_tool(mcp, "mcp_dao_ai_test", {"input": "hi"})
 
     assert result.meta is not None
@@ -346,7 +354,11 @@ class _StubAgentWithTrace(_StubAgent):
                     "type": "message",
                     "role": "assistant",
                     "content": [
-                        {"type": "output_text", "text": self.reply_text, "annotations": []}
+                        {
+                            "type": "output_text",
+                            "text": self.reply_text,
+                            "annotations": [],
+                        }
                     ],
                 }
             ],
@@ -413,8 +425,9 @@ def test_invoke_agent_returns_structured_content_with_trace_id() -> None:
     config = _StubConfig(agent=agent)
     register_agent_as_tool(mcp, config)  # type: ignore[arg-type]
 
-    with patch("dao_ai.mcp.agent_tool.current_request_headers", return_value={}), patch(
-        "dao_ai.mcp.agent_tool.current_request_id", return_value="req-1"
+    with (
+        patch("dao_ai.mcp.agent_tool.current_request_headers", return_value={}),
+        patch("dao_ai.mcp.agent_tool.current_request_id", return_value="req-1"),
     ):
         result = _call_tool(mcp, "mcp_dao_ai_test", {"input": "hi"})
 
@@ -453,10 +466,13 @@ def test_invoke_agent_header_flows_into_custom_inputs_and_echoes() -> None:
     config = _StubConfig(agent=agent)
     register_agent_as_tool(mcp, config)  # type: ignore[arg-type]
 
-    with patch(
-        "dao_ai.mcp.agent_tool.current_request_headers",
-        return_value={"x-databricks-conversation-id": "hdr-999"},
-    ), patch("dao_ai.mcp.agent_tool.current_request_id", return_value="req-c3"):
+    with (
+        patch(
+            "dao_ai.mcp.agent_tool.current_request_headers",
+            return_value={"x-databricks-conversation-id": "hdr-999"},
+        ),
+        patch("dao_ai.mcp.agent_tool.current_request_id", return_value="req-c3"),
+    ):
         result = _call_tool(mcp, "mcp_dao_ai_test", {"input": "hi"})
 
     assert agent.last_request is not None
@@ -506,8 +522,9 @@ def test_invoke_agent_echoes_server_generated_id_when_none_supplied() -> None:
     config = _StubConfig(agent=agent)
     register_agent_as_tool(mcp, config)  # type: ignore[arg-type]
 
-    with patch("dao_ai.mcp.agent_tool.current_request_headers", return_value={}), patch(
-        "dao_ai.mcp.agent_tool.current_request_id", return_value="req-c5"
+    with (
+        patch("dao_ai.mcp.agent_tool.current_request_headers", return_value={}),
+        patch("dao_ai.mcp.agent_tool.current_request_id", return_value="req-c5"),
     ):
         result = _call_tool(mcp, "mcp_dao_ai_test", {"input": "hi"})
 
@@ -532,8 +549,9 @@ def test_invoke_agent_surfaces_error_via_is_error_flag() -> None:
     config = _StubConfig(agent=_FailingAgent())
     register_agent_as_tool(mcp, config)  # type: ignore[arg-type]
 
-    with patch("dao_ai.mcp.agent_tool.current_request_headers", return_value={}), patch(
-        "dao_ai.mcp.agent_tool.current_request_id", return_value="req-err"
+    with (
+        patch("dao_ai.mcp.agent_tool.current_request_headers", return_value={}),
+        patch("dao_ai.mcp.agent_tool.current_request_id", return_value="req-err"),
     ):
         result = _call_tool(mcp, "mcp_dao_ai_test", {"input": "boom"})
 

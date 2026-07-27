@@ -17,13 +17,12 @@ LangChain's ``@tool`` decorator introspects live annotations to inject
 
 import json
 import os
-from concurrent.futures import ThreadPoolExecutor
-from typing import TYPE_CHECKING, Annotated, Any, Literal, Optional
+from typing import TYPE_CHECKING, Any, Literal, Optional
 
 import mlflow
-from databricks.sdk import WorkspaceClient
 from databricks.ai_search.client import VectorSearchClient
 from databricks.ai_search.reranker import DatabricksReranker
+from databricks.sdk import WorkspaceClient
 from databricks_langchain import DatabricksVectorSearch
 from langchain.tools import ToolRuntime, tool
 from langchain_core.documents import Document
@@ -32,44 +31,29 @@ from loguru import logger
 from mlflow.entities import SpanType
 from pydantic import BaseModel, ConfigDict, Field, create_model
 
-from dao_ai._tracing import in_caller_context
 from dao_ai.config import (
+    AiSearchRetrieverModel,
     ColumnInfo,
     DecompositionModel,
     FilterItem,
     InstructedRetrieverModel,
     InstructionAwareRerankModel,
     RerankParametersModel,
-    AiSearchRetrieverModel,
     RouterModel,
     SearchParametersModel,
-    SearchQuery,
     VectorStoreModel,
     VerifierModel,
     value_of,
 )
 from dao_ai.state import Context
-from dao_ai.tools.instructed_retriever import (
-    _get_cached_llm,
-    decompose_query,
-    rrf_merge,
-)
-from dao_ai.tools.instruction_reranker import instruction_aware_rerank
-from dao_ai.tools.router import route_query
 from dao_ai.tools.tracing import (
-    ATTR_ROUTER_BYPASSED,
-    ATTR_ROUTER_FALLBACK,
-    ATTR_ROUTER_MODE,
-    ATTR_VERIFIER_OUTCOME,
-    ATTR_VERIFIER_RETRIES,
     ResourceInfo,
     set_resource_attributes,
 )
-from dao_ai.tools.verifier import add_verification_metadata, verify_results
 from dao_ai.utils import is_in_model_serving, normalize_host
 
 if TYPE_CHECKING:
-    from flashrank import Ranker, RerankRequest
+    from flashrank import Ranker
 
 
 # auth_type values that the databricks-langchain library (as of 0.20.0) extracts
@@ -142,7 +126,7 @@ def _client_args_from_ambient_wc(wc: WorkspaceClient) -> dict[str, Any] | None:
             return None
         return {
             "workspace_url": normalize_host(host),
-            "personal_access_token": bearer[len("Bearer "):],
+            "personal_access_token": bearer[len("Bearer ") :],
         }
     except Exception as e:
         logger.warning("dao_ai.vector_search.ambient_auth.exception", error=str(e))
@@ -358,8 +342,7 @@ def _fetch_index_columns(
         cols = getattr(table, "columns", None) or []
     except Exception as e:  # noqa: BLE001
         logger.debug(
-            "UC Tables lookup on VS index failed; "
-            "column auto-discovery unavailable",
+            "UC Tables lookup on VS index failed; column auto-discovery unavailable",
             index=vector_store.index.full_name,
             error=f"{type(e).__name__}: {e}",
         )
@@ -865,9 +848,7 @@ def create_ai_search_tool(
     # No source-table fallback — matches upstream. Users with permission
     # asymmetries (SP has source-table grants but not index-UC-entity
     # grants) should hand-declare via ``ColumnInfo``.
-    declared_items: list[Any] = list(
-        retriever.columns or vector_store.columns or []
-    )
+    declared_items: list[Any] = list(retriever.columns or vector_store.columns or [])
     (
         declared_names,
         declared_types,
@@ -920,7 +901,10 @@ def create_ai_search_tool(
             for col_name in declared_names:
                 if col_name not in description_types and col_name in uc_type_map:
                     description_types[col_name] = uc_type_map[col_name]
-                if col_name not in description_descriptions and col_name in uc_comment_map:
+                if (
+                    col_name not in description_descriptions
+                    and col_name in uc_comment_map
+                ):
                     description_descriptions[col_name] = uc_comment_map[col_name]
     else:
         # Mode C — nothing declared. Discover via UC.
@@ -954,7 +938,9 @@ def create_ai_search_tool(
     logger.debug(
         "Vector Search columns resolved",
         index=index_name,
-        mode="hand-declared" if any_hand_declared else ("declared" if declared_names else "discovered"),
+        mode="hand-declared"
+        if any_hand_declared
+        else ("declared" if declared_names else "discovered"),
         columns=columns,
         have_types=bool(description_types),
         have_operator_overrides=bool(operator_overrides),

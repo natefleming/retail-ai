@@ -128,7 +128,9 @@ class TestOboExtraction:
             .rstrip(b"=")
             .decode()
         )
-        signature: str = base64.urlsafe_b64encode(b"fake-signature").rstrip(b"=").decode()
+        signature: str = (
+            base64.urlsafe_b64encode(b"fake-signature").rstrip(b"=").decode()
+        )
         return f"{header}.{payload}.{signature}"
 
     def test_extract_evidence_populated_when_header_present(self) -> None:
@@ -150,16 +152,12 @@ class TestOboExtraction:
 
     def test_extract_evidence_lowercase_header_key(self) -> None:
         token: str = self._make_jwt()
-        raw, _exp, _sub = _extract_obo_evidence(
-            {"x-forwarded-access-token": token}
-        )
+        raw, _exp, _sub = _extract_obo_evidence({"x-forwarded-access-token": token})
         assert raw == token
 
     def test_extract_evidence_malformed_jwt(self) -> None:
         """Non-JWT string is retained verbatim but no claims are extracted."""
-        raw, exp, sub = _extract_obo_evidence(
-            {"X-Forwarded-Access-Token": "not-a-jwt"}
-        )
+        raw, exp, sub = _extract_obo_evidence({"X-Forwarded-Access-Token": "not-a-jwt"})
         # Even a malformed token is preserved verbatim — never fabricate,
         # but never drop the caller-provided value either.
         assert raw == "not-a-jwt"

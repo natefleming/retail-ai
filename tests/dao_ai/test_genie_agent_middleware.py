@@ -38,10 +38,14 @@ def _middleware(monkeypatch: Any) -> tuple[GenieAgentMiddleware, dict[str, Any]]
     # Stub OBO client resolution + the per-request model build so we don't hit
     # the network or need a real WorkspaceClient.
     monkeypatch.setattr(
-        GenieRoomModel, "workspace_client_from", lambda self, ctx, *, strict=False: MagicMock()
+        GenieRoomModel,
+        "workspace_client_from",
+        lambda self, ctx, *, strict=False: MagicMock(),
     )
 
-    def _fake_build(self: GenieAgentModel, ws: Any, *, conversation_id: str | None = None) -> Any:
+    def _fake_build(
+        self: GenieAgentModel, ws: Any, *, conversation_id: str | None = None
+    ) -> Any:
         built["conversation_id"] = conversation_id
         return MagicMock(name="GenieAgentChatModel")
 
@@ -59,7 +63,9 @@ def _request(session: SessionState | None) -> MagicMock:
 
 def _handler_returning(conversation_id: str | None):
     def _handler(_req: Any) -> ModelResponse:
-        meta = {CONVERSATION_ID_METADATA_KEY: conversation_id} if conversation_id else {}
+        meta = (
+            {CONVERSATION_ID_METADATA_KEY: conversation_id} if conversation_id else {}
+        )
         return ModelResponse(result=[AIMessage("answer", response_metadata=meta)])
 
     return _handler
@@ -127,10 +133,18 @@ class TestAsync:
 
         async def _ahandler(_req: Any) -> ModelResponse:
             return ModelResponse(
-                result=[AIMessage("a", response_metadata={CONVERSATION_ID_METADATA_KEY: "conv-next"})]
+                result=[
+                    AIMessage(
+                        "a",
+                        response_metadata={CONVERSATION_ID_METADATA_KEY: "conv-next"},
+                    )
+                ]
             )
 
         result = asyncio.run(mw.awrap_model_call(request, _ahandler))
         assert built["conversation_id"] == "conv-prior"
         assert isinstance(result, ExtendedModelResponse)
-        assert result.command.update["session"].genie.get_conversation_id(AGENT_ID) == "conv-next"
+        assert (
+            result.command.update["session"].genie.get_conversation_id(AGENT_ID)
+            == "conv-next"
+        )

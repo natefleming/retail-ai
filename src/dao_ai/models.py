@@ -3,7 +3,6 @@ import json
 import uuid
 from os import PathLike
 from pathlib import Path
-from uuid import UUID
 from typing import (
     TYPE_CHECKING,
     Any,
@@ -14,6 +13,7 @@ from typing import (
     Sequence,
     Union,
 )
+from uuid import UUID
 
 import mlflow
 from databricks_langchain import ChatDatabricks
@@ -1361,8 +1361,7 @@ class LanggraphResponsesAgent(ResponsesAgent):
                     return
                 channel = data.get("channel")
                 if not isinstance(channel, str) or not (
-                    channel.startswith("mcp.")
-                    or channel.startswith("dao_ai.audit.")
+                    channel.startswith("mcp.") or channel.startswith("dao_ai.audit.")
                 ):
                     return
                 await self._queue.put(data)
@@ -1374,9 +1373,7 @@ class LanggraphResponsesAgent(ResponsesAgent):
             existing_callbacks = [existing_callbacks]
         custom_inputs["callbacks"] = [*existing_callbacks, _mcp_collector]
 
-        async def _drain_mcp_queue() -> (
-            AsyncGenerator[ResponsesAgentStreamEvent, None]
-        ):
+        async def _drain_mcp_queue() -> AsyncGenerator[ResponsesAgentStreamEvent, None]:
             nonlocal mcp_event_seq
             while not mcp_event_queue.empty():
                 envelope = mcp_event_queue.get_nowait()

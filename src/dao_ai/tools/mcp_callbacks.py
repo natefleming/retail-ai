@@ -37,7 +37,7 @@ proven end-to-end by langchain-core's own test
 
 from __future__ import annotations
 
-from typing import Any, Literal
+from typing import Any, Literal, Optional
 
 import mlflow
 from langchain_core.callbacks import adispatch_custom_event

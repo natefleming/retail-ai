@@ -16,14 +16,13 @@ from __future__ import annotations
 import json
 from contextlib import contextmanager
 from typing import Any
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 from pydantic import ValidationError
 
 from dao_ai.config import (
     ColumnInfo,
-    FilterItem,
     FunctionType,
     InferenceEndpointModel,
     LakebaseRetrieverModel,
@@ -32,7 +31,6 @@ from dao_ai.config import (
     SearchParametersModel,
     ToolModel,
 )
-
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -155,9 +153,7 @@ class TestSqlBuilders:
         "metric,expected_op",
         [("cosine", "<=>"), ("l2", "<->"), ("ip", "<#>")],
     )
-    def test_ann_sql_uses_correct_operator(
-        self, metric: str, expected_op: str
-    ) -> None:
+    def test_ann_sql_uses_correct_operator(self, metric: str, expected_op: str) -> None:
         vs = LakebaseVectorStoreModel(**_vs_dict(distance_metric=metric))
         r = self._make(vs)
         stmt, params = r._build_ann_sql({}, k=5)
@@ -219,9 +215,7 @@ class TestSqlBuilders:
         assert '"category" = %s' in rendered
         assert params == ["faq"]
 
-    def test_where_scalar_not(
-        self, vector_store: LakebaseVectorStoreModel
-    ) -> None:
+    def test_where_scalar_not(self, vector_store: LakebaseVectorStoreModel) -> None:
         r = self._make(vector_store)
         clause, params = r._build_where({"category NOT": "faq"})
         rendered = clause.as_string(None)
@@ -233,7 +227,7 @@ class TestSqlBuilders:
     ) -> None:
         r = self._make(vector_store)
         clause, params = r._build_where({"category": ["faq", "howto"]})
-        assert '= ANY(%s)' in clause.as_string(None)
+        assert "= ANY(%s)" in clause.as_string(None)
         assert params == [["faq", "howto"]]
 
     def test_where_not_in_via_list_value(
@@ -678,7 +672,8 @@ class TestFactory:
         assert tool.args_schema is LakebaseSearchInput
 
     def test_factory_column_info_operator_narrowing(
-        self, database_model_dict: dict[str, Any] | None = None,
+        self,
+        database_model_dict: dict[str, Any] | None = None,
     ) -> None:
         """Hand-declared ColumnInfo with a narrower operator list is honored
         end-to-end. Reaches the schema builder as an operator override so

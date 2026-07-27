@@ -141,7 +141,7 @@ def test_rejection_tap_writes_receipt_for_audited_hitl_tool(monkeypatch: Any) ->
 
     # Seed the AuditStash as the interrupt-time middleware would — this is
     # what the reject-path tap now looks up via take_by_tool_name.
-    from datetime import datetime, timedelta, timezone
+    from datetime import timedelta
 
     from dao_ai.middleware.audit_receipt import AuditStash, AuditStashEntry
 
@@ -163,9 +163,7 @@ def test_rejection_tap_writes_receipt_for_audited_hitl_tool(monkeypatch: Any) ->
             graph=graph,  # type: ignore[arg-type]
             messages=[],
             custom_inputs={
-                "decisions": [
-                    {"type": "reject", "message": "Not authorised."}
-                ]
+                "decisions": [{"type": "reject", "message": "Not authorised."}]
             },
             runtime_config=runtime_config,
             tool_models=tool_models,
@@ -222,9 +220,7 @@ def test_rejection_tap_ignores_non_audited_tool(monkeypatch: Any) -> None:
         await decide_graph_turn(
             graph=graph,  # type: ignore[arg-type]
             messages=[],
-            custom_inputs={
-                "decisions": [{"type": "reject", "message": "Nope."}]
-            },
+            custom_inputs={"decisions": [{"type": "reject", "message": "Nope."}]},
             runtime_config=runtime_config,
             tool_models=tool_models,
         )
@@ -262,9 +258,7 @@ def test_rejection_tap_ignores_non_reject_decisions(monkeypatch: Any) -> None:
         await decide_graph_turn(
             graph=graph,  # type: ignore[arg-type]
             messages=[],
-            custom_inputs={
-                "decisions": [{"type": "approve"}]
-            },
+            custom_inputs={"decisions": [{"type": "approve"}]},
             runtime_config=runtime_config,
             tool_models=tool_models,
         )

@@ -37,8 +37,6 @@ from langgraph.runtime import Runtime
 from loguru import logger
 
 from dao_ai.audit import (
-    AuditSinkManager,
-    LakebaseAuditSink,
     args_hash_of,
     canonical_jcs,
 )
@@ -148,7 +146,9 @@ class AuditedHumanInTheLoopMiddleware(HumanInTheLoopMiddleware):
         entry: Optional[AuditStashEntry] = AuditStash.take(thread_id, tool_call_id)
         if entry is None:
             return
-        decision_type: Any = decision.get("type") if isinstance(decision, dict) else None
+        decision_type: Any = (
+            decision.get("type") if isinstance(decision, dict) else None
+        )
         if isinstance(decision_type, str):
             entry.decision = decision_type
         # Copy every field except ``type`` into decision_detail so the
@@ -180,9 +180,7 @@ class AuditedHumanInTheLoopMiddleware(HumanInTheLoopMiddleware):
         encapsulated lookup. Returns ``"unknown-thread"`` when no entry
         matches (e.g. process restart between interrupt and resume).
         """
-        found: Optional[str] = AuditStash.find_thread_id_by_tool_call_id(
-            tool_call_id
-        )
+        found: Optional[str] = AuditStash.find_thread_id_by_tool_call_id(tool_call_id)
         return found if found is not None else "unknown-thread"
 
     # ------------------------------------------------------------------

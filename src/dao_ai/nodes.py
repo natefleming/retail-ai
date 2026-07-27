@@ -35,11 +35,11 @@ from dao_ai.middleware.guardrails import GuardrailMiddleware
 from dao_ai.middleware.human_in_the_loop import (
     create_hitl_middleware_from_tool_models,
 )
-from dao_ai.middleware.summarization import (
-    create_summarization_middleware,
-)
 from dao_ai.middleware.model_call_limit import (
     create_model_call_limit_middleware,
+)
+from dao_ai.middleware.summarization import (
+    create_summarization_middleware,
 )
 from dao_ai.middleware.tool_call_limit import (
     create_tool_call_limit_middlewares_from_tool_models,

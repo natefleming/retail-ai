@@ -1,7 +1,6 @@
 # Apply nest_asyncio FIRST before any other imports
 # This allows dao-ai's async/sync patterns to work in Model Serving
 # where there may already be an event loop running (e.g., notebook context)
-import os  # noqa: E402
 import time  # noqa: E402
 
 import nest_asyncio

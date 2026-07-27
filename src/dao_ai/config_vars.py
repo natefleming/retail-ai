@@ -132,6 +132,7 @@ def _in_any_span(pos: int, spans: list[tuple[int, int]]) -> bool:
             return False
     return False
 
+
 _SUPPORTED_WORKSPACE_PATHS: frozenset[str] = frozenset(
     {
         "host",

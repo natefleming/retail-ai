@@ -689,9 +689,7 @@ def generate_resources_app_yaml(
 def _write_file(path: Path, content: str, overwrite: bool) -> bool:
     """Write content to a file, respecting overwrite. Returns True if written."""
     if path.exists() and not overwrite:
-        print(
-            f"  WARNING: Skipping {path.name} (already exists; use --overwrite)"
-        )
+        print(f"  WARNING: Skipping {path.name} (already exists; use --overwrite)")
         return False
     path.write_text(content)
     logger.info(f"Wrote {path.name}")
@@ -796,9 +794,7 @@ def write_bundle(
         if dest.resolve() == Path(source_config).resolve():
             preserved.append(config_filename)
         elif dest.exists() and not overwrite:
-            print(
-                f"  WARNING: Skipping {config_filename} (exists; use --overwrite)"
-            )
+            print(f"  WARNING: Skipping {config_filename} (exists; use --overwrite)")
             skipped.append(config_filename)
         else:
             # Prefer the rendered YAML (with ${param.NAME} already substituted

@@ -6,18 +6,18 @@ from unittest.mock import Mock, patch
 
 import pytest
 
-# The live Genie space this test exercises. Overridable via env so the test
-# isn't brittle to workspace drift (the default may be deleted/rotated in FEVM).
-GENIE_SPACE_ID: str = os.getenv(
-    "DAO_AI_TEST_GENIE_SPACE_ID", "01f0c482e842191587af6a40ad4044d8"
-)
-
 from dao_ai.config import (
     DatabaseModel,
     GenieContextAwareCacheParametersModel,
     WarehouseModel,
 )
 from dao_ai.genie.cache import PostgresContextAwareGenieService
+
+# The live Genie space this test exercises. Overridable via env so the test
+# isn't brittle to workspace drift (the default may be deleted/rotated in FEVM).
+GENIE_SPACE_ID: str = os.getenv(
+    "DAO_AI_TEST_GENIE_SPACE_ID", "01f0c482e842191587af6a40ad4044d8"
+)
 
 
 def _sql_to_str(query: Any) -> str:

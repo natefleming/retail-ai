@@ -129,10 +129,10 @@ class TestExecuteQuery:
             "dao_ai.memory.postgres.PostgresPoolManager.get_pool",
             return_value=pool,
         ):
-            rows = _db().execute_query("SELECT id FROM t WHERE id = %s", parameters=(7,))
-        cur.execute.assert_called_once_with(
-            "SELECT id FROM t WHERE id = %s", (7,)
-        )
+            rows = _db().execute_query(
+                "SELECT id FROM t WHERE id = %s", parameters=(7,)
+            )
+        cur.execute.assert_called_once_with("SELECT id FROM t WHERE id = %s", (7,))
         assert rows == [{"id": 7}]
 
 
@@ -225,9 +225,7 @@ class TestProvision:
         # Only lakebase_vector — no lakebase_text without tsvector_column
         assert any("CREATE EXTENSION IF NOT EXISTS lakebase_vector" in s for s in stmts)
         assert not any("lakebase_text" in s for s in stmts)
-        assert any(
-            "CREATE TABLE IF NOT EXISTS public.kb_articles" in s for s in stmts
-        )
+        assert any("CREATE TABLE IF NOT EXISTS public.kb_articles" in s for s in stmts)
         assert any("id text PRIMARY KEY" in s for s in stmts)
         assert any("passage text NOT NULL" in s for s in stmts)
         assert any("embedding vector(1024)" in s for s in stmts)
@@ -309,7 +307,9 @@ class TestProvision:
         ):
             _vs(schema_name="dao_ai_kb").provision(dimension=1024)
         stmts = [c.args[0] for c in cur.execute.call_args_list]
-        assert any("CREATE TABLE IF NOT EXISTS dao_ai_kb.kb_articles" in s for s in stmts)
+        assert any(
+            "CREATE TABLE IF NOT EXISTS dao_ai_kb.kb_articles" in s for s in stmts
+        )
 
     def test_bad_dimension_raises(self) -> None:
         with pytest.raises(ValueError, match="positive int"):

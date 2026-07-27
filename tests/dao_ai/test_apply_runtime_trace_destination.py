@@ -12,7 +12,6 @@ trace server rejects a bare table name with ``Invalid full table name``.
 from __future__ import annotations
 
 import pytest
-
 from mlflow.tracing.provider import _MLFLOW_TRACE_USER_DESTINATION
 from mlflow.tracing.utils import get_active_spans_table_name
 

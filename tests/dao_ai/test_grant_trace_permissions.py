@@ -51,9 +51,7 @@ def test_helper_grants_all_documented_privileges() -> None:
     assert body["changes"] == [{"principal": "sp-uuid", "add": ["USE_CATALOG"]}]
     # Schema
     body = calls[1].kwargs["body"]
-    assert (
-        calls[1].args[1] == "/api/2.1/unity-catalog/permissions/schema/cat.sch"
-    )
+    assert calls[1].args[1] == "/api/2.1/unity-catalog/permissions/schema/cat.sch"
     assert body["changes"] == [{"principal": "sp-uuid", "add": ["USE_SCHEMA"]}]
     # Tables
     table_calls = calls[2:]

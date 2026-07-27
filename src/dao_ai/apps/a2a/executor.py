@@ -75,11 +75,7 @@ class A2AAgentExecutor(AgentExecutor):
     @property
     def _tool_models(self) -> list["ToolModel"]:
         """Flattened tool_models across every agent — used by the HITL audit tap."""
-        return [
-            tool
-            for agent in self.config.agents.values()
-            for tool in agent.tools
-        ]
+        return [tool for agent in self.config.agents.values() for tool in agent.tools]
 
     async def execute(self, context: RequestContext, event_queue: EventQueue) -> None:
         task_id = context.task_id

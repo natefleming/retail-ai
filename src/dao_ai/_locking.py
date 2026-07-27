@@ -74,9 +74,7 @@ def generate_bundle_lock(bundle_dir: Path) -> None:
         raise RuntimeError(f"uv lock did not produce {lock_path}")
 
     original = lock_path.read_text()
-    rewritten = original.replace(
-        f"https://{_MIRROR_HOST}/", f"https://{_PUBLIC_HOST}/"
-    )
+    rewritten = original.replace(f"https://{_MIRROR_HOST}/", f"https://{_PUBLIC_HOST}/")
     if rewritten != original:
         lock_path.write_text(rewritten)
         logger.info(

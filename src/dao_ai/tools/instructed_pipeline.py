@@ -19,13 +19,14 @@ embedding, and any other retriever-specific state.
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
-from typing import Any, Callable, Literal, Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Callable, Literal, Optional
 
 import mlflow
 from langchain_core.documents import Document
 from loguru import logger
 from mlflow.entities import SpanType
 
+from dao_ai._tracing import in_caller_context
 from dao_ai.config import (
     ColumnInfo,
     DecompositionModel,
@@ -36,7 +37,6 @@ from dao_ai.config import (
     SearchQuery,
     VerifierModel,
 )
-from dao_ai._tracing import in_caller_context
 from dao_ai.tools.instructed_retriever import (
     _get_cached_llm,
     decompose_query,
@@ -195,7 +195,11 @@ def _normalize_filter_values(
             normalized[key] = value.upper() if case == "uppercase" else value.lower()
         elif isinstance(value, list):
             normalized[key] = [
-                v.upper() if case == "uppercase" else v.lower() if isinstance(v, str) else v
+                v.upper()
+                if case == "uppercase"
+                else v.lower()
+                if isinstance(v, str)
+                else v
                 for v in value
             ]
         else:
@@ -248,9 +252,7 @@ def _execute_instructed_search(
         )
 
         if not subqueries:
-            logger.warning(
-                "Query decomposition returned no subqueries, using original"
-            )
+            logger.warning("Query decomposition returned no subqueries, using original")
             return run_search(query, base_filters)
 
         normalized_base_filters = _normalize_filter_values(
@@ -263,9 +265,7 @@ def _execute_instructed_search(
             if sq.filters:
                 for item in sq.filters:
                     sq_filters_dict[item.key] = item.value
-            sq_filters_dict = coerce_filter_values(
-                sq_filters_dict, instructed_columns
-            )
+            sq_filters_dict = coerce_filter_values(sq_filters_dict, instructed_columns)
             sq_filters = _normalize_filter_values(
                 sq_filters_dict, decomposition_config.normalize_filter_case
             )

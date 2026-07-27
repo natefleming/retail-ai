@@ -41,7 +41,11 @@ def _app(**kwargs) -> AppModel:
     kwargs.setdefault("name", "my-app")
     kwargs.setdefault(
         "agents",
-        [AgentModel(name="ag", model=InferenceEndpointModel(name="databricks-gpt-oss-120b"))],
+        [
+            AgentModel(
+                name="ag", model=InferenceEndpointModel(name="databricks-gpt-oss-120b")
+            )
+        ],
     )
     return AppModel(**kwargs)
 
@@ -124,7 +128,9 @@ def test_flashrank_columns_only_does_not_trigger() -> None:
 
 @pytest.mark.unit
 def test_flashrank_model_triggers() -> None:
-    retriever = _retriever(rerank=RerankParametersModel(model="ms-marco-MiniLM-L-12-v2"))
+    retriever = _retriever(
+        rerank=RerankParametersModel(model="ms-marco-MiniLM-L-12-v2")
+    )
     assert _extras._retriever_needs_flashrank(retriever) is True
 
 
@@ -164,7 +170,9 @@ def test_memory_checkpointer_only_is_core() -> None:
 
 @pytest.mark.unit
 def test_memory_store_triggers_langmem() -> None:
-    assert _extras._memory_needs_langmem(MemoryModel(store=StoreModel(name="s"))) is True
+    assert (
+        _extras._memory_needs_langmem(MemoryModel(store=StoreModel(name="s"))) is True
+    )
 
 
 @pytest.mark.unit
@@ -175,7 +183,9 @@ def test_memory_none() -> None:
 # ---------------------------------------------------------------------------
 # resolve_required_extras — real AppConfig, target awareness
 # ---------------------------------------------------------------------------
-def _config(*, tools=None, middleware=None, memory=None, datasets=None, app=None) -> AppConfig:
+def _config(
+    *, tools=None, middleware=None, memory=None, datasets=None, app=None
+) -> AppConfig:
     """Build a minimal real AppConfig for the resolver."""
     return AppConfig(
         tools=tools or {},
@@ -242,7 +252,9 @@ def test_deep_agent_orchestration_triggers_deepagents() -> None:
         orchestration=OrchestrationModel(deep_agent=DeepAgentModel()),
     )
     cfg = _config(app=app)
-    assert _extras.resolve_required_extras(cfg, target="model_serving") == {"deepagents"}
+    assert _extras.resolve_required_extras(cfg, target="model_serving") == {
+        "deepagents"
+    }
 
 
 @pytest.mark.unit
@@ -252,7 +264,9 @@ def test_deepagents_middleware_fqn_triggers_deepagents() -> None:
         middleware={"m": MiddlewareModel(name=fqn)},
         app=_app(a2a=A2AModel(enabled=False)),
     )
-    assert _extras.resolve_required_extras(cfg, target="model_serving") == {"deepagents"}
+    assert _extras.resolve_required_extras(cfg, target="model_serving") == {
+        "deepagents"
+    }
 
 
 @pytest.mark.unit
@@ -319,9 +333,7 @@ def test_import_dao_ai_tools_does_not_eagerly_import_optional_packages() -> None
     result = subprocess.run(
         [sys.executable, "-c", code], capture_output=True, text=True, check=True
     )
-    leaked_line = [
-        ln for ln in result.stdout.splitlines() if ln.startswith("LEAKED:")
-    ]
+    leaked_line = [ln for ln in result.stdout.splitlines() if ln.startswith("LEAKED:")]
     assert leaked_line, f"probe produced no LEAKED line; stdout={result.stdout!r}"
     leaked = leaked_line[0].removeprefix("LEAKED:").strip()
     assert leaked == "", (
@@ -366,9 +378,7 @@ class TestExtrasPermutationMatrix:
         cfg = _config(app=_app())  # a2a defaults enabled
         for t in ("apps", "mcp", "pipeline"):
             assert "a2a" in _extras.resolve_required_extras(cfg, target=t), t
-        assert "a2a" not in _extras.resolve_required_extras(
-            cfg, target="model_serving"
-        )
+        assert "a2a" not in _extras.resolve_required_extras(cfg, target="model_serving")
 
     def test_search_plus_rerank_union_all_targets(self) -> None:
         tools = {**self._search_tool(), **self._reranking_retriever_tool()}
