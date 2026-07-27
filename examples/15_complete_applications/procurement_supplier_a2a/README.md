@@ -87,7 +87,7 @@ don't clobber each other.
 cd <repo root>
 
 # Generate the supplier bundle.
-uv run dao-ai generate-agent \
+uv run dao-ai agent generate \
   -c examples/15_complete_applications/procurement_supplier_a2a/supplier.yaml \
   -o ../output-supplier-a2a \
   -p fevm
@@ -112,7 +112,7 @@ curl -sf "$SUPPLIER_URL/.well-known/agent-card.json" \
 
 ```bash
 # Generate the procurement bundle into a separate output dir.
-uv run dao-ai generate-agent \
+uv run dao-ai agent generate \
   -c examples/15_complete_applications/procurement_supplier_a2a/procurement.yaml \
   -o ../output-procurement-a2a \
   -p fevm
@@ -382,18 +382,18 @@ uv run dao-ai chat \
   -c examples/15_complete_applications/procurement_supplier_a2a/procurement.yaml
 ```
 
-For deploy iteration on either app, re-run `generate-agent` against
+For deploy iteration on either app, re-run `agent generate` against
 the same output directory and redeploy:
 
 ```bash
 # Supplier:
-uv run dao-ai generate-agent \
+uv run dao-ai agent generate \
   -c examples/15_complete_applications/procurement_supplier_a2a/supplier.yaml \
   -o ../output-supplier-a2a -p fevm
 (cd ../output-supplier-a2a && databricks bundle deploy --target dev -p fevm)
 
 # Procurement:
-uv run dao-ai generate-agent \
+uv run dao-ai agent generate \
   -c examples/15_complete_applications/procurement_supplier_a2a/procurement.yaml \
   -o ../output-procurement-a2a -p fevm
 (cd ../output-procurement-a2a && databricks bundle deploy --target dev -p fevm)

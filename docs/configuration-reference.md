@@ -899,7 +899,7 @@ At load time, `${var.secret_scope}` and `${var.client_id_secret_key}` are text-s
 Override at deploy time:
 
 ```bash
-dao-ai workflow generate --deploy -c dao_ai.yaml --param secret_scope=prod_dao_ai --param client_id_secret_key=PROD_SP_CLIENT_ID
+dao-ai workflow up -c dao_ai.yaml --param secret_scope=prod_dao_ai --param client_id_secret_key=PROD_SP_CLIENT_ID
 ```
 
 **What this does NOT do:** You cannot substitute a parameter for an _entire_ typed mapping - only for string fields inside one. This works:
@@ -1248,7 +1248,7 @@ include_tools: ["execute_query", "list_tables"]  # Only these 2
 ### See Also
 
 - Full examples: [`examples/02_mcp/filtered_mcp.yaml`](../examples/02_mcp/filtered_mcp.yaml)
-- MCP documentation: [`examples/02_mcp/README.md`](../examples/02_mcp/README.md#mcp-tool-filtering)
+- MCP documentation: [`examples/02_mcp/README.md`](../examples/02_mcp/README.md#pattern-4-filtered-mcp-tool-selection)
 
 ---
 

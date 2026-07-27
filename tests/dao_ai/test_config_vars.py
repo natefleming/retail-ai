@@ -1743,6 +1743,81 @@ def test_cli_run_databricks_command_forwards_vars_to_databricks_cli(
 
 
 @pytest.mark.unit
+def test_run_databricks_command_hard_fails_when_cloud_undetectable(
+    parameterised_config_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A real run must stop (exit 1) when the cloud can't be auto-detected and
+    no --cloud was passed, rather than silently guessing a cloud."""
+    from dao_ai import cli
+
+    monkeypatch.setattr(cli, "_apply_profile_context", lambda profile: None)
+    monkeypatch.setattr(cli, "detect_cloud_provider", lambda profile: None)
+
+    import dao_ai.pipeline.bundle as _pb
+
+    monkeypatch.setattr(_pb, "write_pipeline_bundle", lambda *a, **k: None)
+
+    # The bundle executor must never be reached — the cloud gate should exit first.
+    def _fail_exec(*_a: object, **_k: object) -> None:  # pragma: no cover
+        raise AssertionError("bundle command should not run when cloud is undetectable")
+
+    monkeypatch.setattr(cli, "_exec_bundle_command", _fail_exec)
+
+    with pytest.raises(SystemExit) as exc:
+        cli.run_databricks_command(
+            ["bundle", "deploy"],
+            config=str(parameterised_config_path),
+            config_vars={"module_id": "09", "catalog": "nfleming"},
+            cloud=None,
+            dry_run=False,
+            development=False,
+        )
+    assert exc.value.code == 1
+
+
+@pytest.mark.unit
+def test_run_databricks_command_dry_run_survives_undetectable_cloud(
+    parameterised_config_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """--dry-run must still render its preview when the cloud can't be detected,
+    falling back to a visible placeholder in the bundle target instead of
+    exiting (real runs still hard-fail — see the sibling test)."""
+    from dao_ai import cli
+
+    monkeypatch.setattr(cli, "_apply_profile_context", lambda profile: None)
+    monkeypatch.setattr(cli, "detect_cloud_provider", lambda profile: None)
+
+    import dao_ai.pipeline.bundle as _pb
+
+    monkeypatch.setattr(_pb, "write_pipeline_bundle", lambda *a, **k: None)
+
+    # Spy on the bundle executor to capture the resolved --target (which carries
+    # the cloud) without spawning a real databricks subprocess.
+    captured: dict[str, object] = {}
+
+    def _spy_exec(command, *, profile, target, cwd, extra_vars=None, dry_run=False):
+        captured["target"] = target
+        captured["dry_run"] = dry_run
+
+    monkeypatch.setattr(cli, "_exec_bundle_command", _spy_exec)
+
+    # Should NOT raise SystemExit.
+    cli.run_databricks_command(
+        ["bundle", "deploy"],
+        config=str(parameterised_config_path),
+        config_vars={"module_id": "09", "catalog": "nfleming"},
+        cloud=None,
+        dry_run=True,
+        development=False,
+    )
+
+    # The auto-generated target falls back to the placeholder cloud
+    # (`<app>-<cloud>`) so the dry-run preview still renders.
+    assert captured["dry_run"] is True
+    assert "<cloud>" in str(captured["target"])
+
+
+@pytest.mark.unit
 def test_appconfig_has_no_deployment_target_field():
     from dao_ai.config import AppModel
 

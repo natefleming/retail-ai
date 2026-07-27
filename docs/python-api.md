@@ -130,25 +130,27 @@ config.resources.vector_stores["my_lakebase_store"].provision(dimension=1024)
 ## Packaging and Deployment
 
 ```python
-from dao_ai.config import AppConfig, DeploymentTarget
+from dao_ai.config import AppConfig, ServingMode
 
 config = AppConfig.from_file("config/my_agent.yaml")
 
 # Package the agent as an MLflow model
-config.create_agent(
-    additional_pip_reqs=["custom-package==1.0.0"],
-    additional_code_paths=["./my_modules"]
-)
+config.create_agent()
 
 # Deploy to Databricks Model Serving (default)
 config.deploy_agent()
 
 # Deploy directly to Databricks Apps (no asset bundle needed)
-config.deploy_agent(target=DeploymentTarget.APPS)
+config.deploy_agent(target=ServingMode.APPS)
 
 # Deploy to MCP server (Apps with MCP entrypoint)
-config.deploy_agent(target=DeploymentTarget.MCP)
+config.deploy_agent(target=ServingMode.MCP)
 ```
+
+> Extra pip packages and custom code paths are declared on the config, not passed
+> to `create_agent()`: set `app.pip_requirements: [...]` and `app.code_paths: [...]`
+> in your YAML (or on the `AppConfig` object) and they are threaded into the
+> generated bundle / logged model automatically.
 
 ### Apps deployment and chat UI
 
@@ -160,8 +162,8 @@ additional tools are needed on your development machine.
 
 All three deploy flows converge on the same runtime behavior:
 
-- `config.deploy_agent(target=DeploymentTarget.APPS)` (programmatic)
-- `dao-ai workflow generate --deploy --run --mode apps` (CLI, runs a notebook that calls `deploy_agent`)
+- `config.deploy_agent(target=ServingMode.APPS)` (programmatic)
+- `dao-ai agent up --mode apps` (CLI — generate → deploy → run in one command)
 - `dao-ai agent generate` + `databricks bundle deploy` (standalone bundle)
 
 Set `app.enable_chat_proxy: false` in your config to deploy without the chat

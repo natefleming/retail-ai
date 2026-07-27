@@ -38,9 +38,9 @@ in the committed `uv.lock` without re-resolving. Keep it that way:
     `uv sync --frozen`.
 - **`make check-lock`** fails if `uv.lock` references the mirror host; it runs as
   part of `make check` and in the publish CI workflow.
-- **`--development` builds are unaffected.** `dao-ai generate-agent/generate-mcp
-  --development` build a local wheel via `uv build --wheel`, which doesn't read or
-  modify `uv.lock`. Frozen installs work even on a mirror-bound laptop because they
+- **`--development` builds are unaffected.** `dao-ai agent generate --development`
+  (add `--mode mcp` for the MCP-server bundle) builds a local wheel via
+  `uv build --wheel`, which doesn't read or modify `uv.lock`. Frozen installs work even on a mirror-bound laptop because they
   fetch pinned artifacts from the public CDN (`files.pythonhosted.org`) rather than
   querying the index API.
 

@@ -5,7 +5,7 @@ that exercises the full capability surface.
 
 ## Files
 
-* [`../../examples/20_a2a_protocol/a2a_minimal.yaml`](../../examples/20_a2a_protocol/a2a_minimal.yaml)
+* [`../a2a_minimal.yaml`](../a2a_minimal.yaml)
   — Minimal agent config (no Unity Catalog tables / Vector Search / Genie
   required). Foundation Model API only.
 * [`client.py`](client.py) — End-to-end A2A client that fetches the Agent
@@ -16,10 +16,9 @@ that exercises the full capability surface.
 
 ```bash
 # Deploy the minimal agent to your fevm (or any) workspace.
-dao-ai generate-workflow \
+dao-ai agent up \
     -c examples/20_a2a_protocol/a2a_minimal.yaml \
-    --deploy --run \
-    --deployment-target apps \
+    --mode apps \
     --profile fevm
 
 # Find the app URL once deployment finishes.

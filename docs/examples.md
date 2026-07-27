@@ -26,9 +26,9 @@ Start at `01_getting_started` if you're new, or jump directly to the category th
 
 ### 🔧 Need Specific Tools?
 **Explore:**
-- [`02_mcp/`](../examples/02_mcp/) - Slack, JIRA, MCP integrations
+- [`02_mcp/`](../examples/02_mcp/) - JIRA, managed/external/custom MCP integrations
 - [`10_agent_integrations/`](../examples/10_agent_integrations/) - Agent Bricks, Kasal, external agent platforms
-- [`14_basic_tools/`](../examples/14_basic_tools/) - SQL execution and basic tool patterns
+- [`14_basic_tools/`](../examples/14_basic_tools/) - SQL execution, Slack, and basic tool patterns
 
 ### ⚡ Optimizing Performance?
 **Check out:**
@@ -82,12 +82,12 @@ dao-ai graph -c examples/04_genie/genie_basic.yaml -o genie.png
 
 ### Chat with an Agent
 ```bash
-dao-ai chat -c examples/02_tools/slack_integration.yaml
+dao-ai chat -c examples/14_basic_tools/slack_integration.yaml
 ```
 
 ### Deploy to Databricks
 ```bash
-dao-ai workflow generate --deploy --run -c examples/07_human_in_the_loop/human_in_the_loop.yaml
+dao-ai agent up -c examples/07_human_in_the_loop/human_in_the_loop.yaml
 ```
 
 ---
@@ -108,22 +108,19 @@ Foundation concepts for beginners.
 
 ---
 
-### 02. Tools [📖 README](../examples/02_tools/README.md)
+### 02. MCP [📖 README](../examples/02_mcp/README.md)
 
-Integrate with external services and Databricks capabilities.
+Integrate external services and Databricks capabilities via the Model Context Protocol.
 
 | Example | Description |
 |---------|-------------|
-| `slack_integration.yaml` | Slack messaging integration |
 | `custom_mcp.yaml` | Custom MCP integration (JIRA example) |
 | `managed_mcp.yaml` | Managed Model Context Protocol integration |
 | `external_mcp.yaml` | External MCP with Unity Catalog connections |
 | `filtered_mcp.yaml` | MCP tool filtering (security, performance, access control) |
-| `vector_search_with_reranking.yaml` | RAG with FlashRank reranking |
-| `genie_with_conversation_id.yaml` | Genie with conversation tracking |
 
 **Prerequisites:** Credentials for external services, Unity Catalog access  
-**Next:** Optimize with caching in `04_genie/`
+**Next:** Improve retrieval quality with reranking in `03_reranking/`
 
 ---
 
@@ -461,7 +458,7 @@ Each example is a starting point:
 2. **Modify** prompts, tools, and settings
 3. **Validate**: `dao-ai validate -c config/my_agent.yaml`
 4. **Test** locally: `dao-ai chat -c config/my_agent.yaml`
-5. **Deploy**: `dao-ai workflow generate --deploy -c config/my_agent.yaml`
+5. **Deploy**: `dao-ai agent up -c config/my_agent.yaml`
 
 For detailed guidance, see the README.md in each category directory.
 

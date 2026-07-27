@@ -306,7 +306,7 @@ dao-ai chat -c examples/15_complete_applications/sporting_goods_store/sporting_g
 dao-ai graph -c examples/15_complete_applications/sporting_goods_store/sporting_goods_store.yaml -o sporting_goods_architecture.png
 
 # Deploy to Databricks
-dao-ai generate-workflow --deploy -c examples/15_complete_applications/sporting_goods_store/sporting_goods_store.yaml
+dao-ai workflow up -c examples/15_complete_applications/sporting_goods_store/sporting_goods_store.yaml
 ```
 
 ### Sample Prompts
@@ -471,7 +471,7 @@ dao-ai chat -c examples/15_complete_applications/hardware_store/hardware_store.y
 dao-ai graph -c examples/15_complete_applications/hardware_store/hardware_store.yaml -o architecture.png
 
 # Deploy to Databricks
-dao-ai generate-workflow --deploy -c examples/15_complete_applications/hardware_store/hardware_store.yaml
+dao-ai workflow up -c examples/15_complete_applications/hardware_store/hardware_store.yaml
 ```
 
 ## Deployment Options

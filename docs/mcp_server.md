@@ -53,7 +53,7 @@ dao-ai agent generate \
   -p <profile>
 
 # 3. Deploy + run in one step (or drive databricks bundle by hand, below)
-dao-ai agent deploy --mode mcp --run -c my_agent.yaml -o ./my-agent-mcp -p <profile>
+dao-ai agent up --mode mcp -c my_agent.yaml -o ./my-agent-mcp -p <profile>
 
 # 3b. ...or drive the bundle manually
 cd my-agent-mcp
@@ -436,15 +436,16 @@ with **no code changes** in the agent config beyond the usual
 output/
 ├── databricks.yaml    # DAB with bundle.engine: direct; App + bound resources
 ├── resources/app.yml  # command: ["python", "-m", "dao_ai.mcp.server"]
-├── pyproject.toml     # dao-ai[mcp]
-├── requirements.txt   # dao-ai[mcp]  (Apps build phase installs from this)
+├── pyproject.toml     # dao-ai[mcp] (pinned ==<version>, or local-wheel redirect under --development)
+├── uv.lock            # portable lock; Apps build phase syncs from this
 ├── <your-config>.yaml # rendered with parameters: stripped
 └── README.md          # generated deploy snippet + exposed tool name
 ```
 
-The Apps build phase runs `pip install -r requirements.txt`, which
-installs `dao-ai[mcp]` (dao-ai plus the fastapi + uvicorn extras) from
-public PyPI. The runtime command `["python", "-m", "dao_ai.mcp.server"]`
+The Apps build phase runs `uv sync --locked --no-dev` from the `pyproject.toml` +
+`uv.lock`, which installs `dao-ai[mcp]` (dao-ai plus the fastapi + uvicorn extras).
+No `requirements.txt` is emitted — its presence would take precedence and force the
+slower pip path. The runtime command `["python", "-m", "dao_ai.mcp.server"]`
 launches the server via module invocation — no console script required.
 
 ### CLI flags
