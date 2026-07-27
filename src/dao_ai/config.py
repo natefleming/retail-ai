@@ -3238,32 +3238,14 @@ class AiSearchVectorStoreModel(IsDatabricksResource, ManagedResource):
             self.index = IndexModel(schema=self.source_table.schema_model, name=name)
         return self
 
-    @model_validator(mode="after")
-    def set_default_endpoint(self) -> Self:
-        # Only find/create endpoint in provisioning mode
-        if self.endpoint is None and self.source_table is not None:
-            from dao_ai.providers.databricks import (
-                DatabricksProvider,
-                with_available_indexes,
-            )
-
-            provider: DatabricksProvider = DatabricksProvider()
-            logger.debug("Finding endpoint for existing index...")
-            endpoint_name: str | None = provider.find_endpoint_for_index(self.index)
-            if endpoint_name is None:
-                logger.debug("Finding first endpoint with available indexes...")
-                endpoint_name = provider.find_vector_search_endpoint(
-                    with_available_indexes
-                )
-            if endpoint_name is None:
-                logger.debug("No endpoint found, creating a new name...")
-                endpoint_name = (
-                    f"{self.source_table.schema_model.catalog_name}_endpoint"
-                )
-            logger.debug(f"Using endpoint: {endpoint_name}")
-            self.endpoint = VectorSearchEndpoint(name=endpoint_name)
-
-        return self
+    # NOTE: endpoint auto-discovery is intentionally NOT done here. It used to
+    # live in a ``@model_validator(mode="after")``, but validators run at config
+    # PARSE time — which includes serving/MCP-server boot (``AppConfig.from_file``
+    # / ``initialize()``). Discovering the endpoint requires a
+    # ``VectorSearchClient``, whose bare constructor hard-requires explicit creds
+    # and crashes ambient serving auth. The endpoint is a PROVISIONING-only
+    # concern (the runtime retrieval path uses ``index.full_name`` and never
+    # reads ``endpoint``), so discovery is deferred to ``_create_new_index``.
 
     @property
     def api_scopes(self) -> Sequence[str]:
@@ -3277,6 +3259,16 @@ class AiSearchVectorStoreModel(IsDatabricksResource, ManagedResource):
 
     def as_index(self, vsc: VectorSearchClient | None = None) -> VectorSearchIndex:
         from dao_ai.providers.databricks import DatabricksProvider
+
+        # Build an authenticated VectorSearchClient from this model's own
+        # workspace client when the caller didn't supply one — a bare
+        # ``VectorSearchClient()`` raises ``InvalidInputException`` under SP /
+        # ambient CLI-profile auth. Same ambient-auth extraction the runtime
+        # retrieval path uses (``_vsc_for_refresh`` → ``_client_args_from_ambient_wc``).
+        if vsc is None:
+            from dao_ai.tools.vector_search import _vsc_for_refresh
+
+            vsc = _vsc_for_refresh(self)
 
         provider: DatabricksProvider = DatabricksProvider(vsc=vsc)
         index: VectorSearchIndex = provider.get_vector_index(self)
@@ -3408,6 +3400,25 @@ class AiSearchVectorStoreModel(IsDatabricksResource, ManagedResource):
         """
         from dao_ai.providers.databricks import DatabricksProvider
 
+        # Resolve provisioning-mode fields (e.g. primary_key) up front. Idempotent
+        # (guarded by ``self._resolved``) so this is a no-op when the config was
+        # already resolved during ``AppConfig.initialize()``. Endpoint discovery
+        # is NOT part of ``ensure_resolved`` — it happens in ``_create_new_index``
+        # so serving/MCP boot never builds a VectorSearchClient.
+        self.ensure_resolved()
+
+        # Build the VectorSearchClient from this model's own workspace client so
+        # provisioning (endpoint discovery + index create) authenticates under
+        # every auth mode — including ambient CLI-profile / Serverless-v5, where a
+        # bare ``VectorSearchClient()`` raises ``InvalidInputException``. Reuses
+        # the same ambient-auth extraction the runtime retrieval path uses
+        # (``_vsc_for_refresh`` → ``_client_args_from_ambient_wc``). A caller-
+        # supplied ``vsc`` still takes precedence.
+        if vsc is None:
+            from dao_ai.tools.vector_search import _vsc_for_refresh
+
+            vsc = _vsc_for_refresh(self)
+
         provider: DatabricksProvider = DatabricksProvider(vsc=vsc)
 
         if self.source_table is not None:
@@ -3432,13 +3443,36 @@ class AiSearchVectorStoreModel(IsDatabricksResource, ManagedResource):
             )
 
     def _create_new_index(self, provider: Any) -> None:
-        """Create a new vector search index from source table."""
+        """Create a new vector search index from source table.
+
+        Discovers the target endpoint on demand when one was not configured.
+        This is deliberately here (provisioning) rather than in a validator or
+        ``ensure_resolved`` so that serving/MCP-server boot — which parses and
+        resolves the config but never provisions — makes zero VectorSearch API
+        calls and never needs VectorSearch credentials.
+        """
         if self.embedding_source_column is None:
             raise ValueError("embedding_source_column is required for provisioning")
-        if self.endpoint is None:
-            raise ValueError("endpoint is required for provisioning")
         if self.index is None:
             raise ValueError("index is required for provisioning")
+
+        if self.endpoint is None:
+            from dao_ai.providers.databricks import with_available_indexes
+
+            logger.debug("Finding endpoint for existing index...")
+            endpoint_name: str | None = provider.find_endpoint_for_index(self.index)
+            if endpoint_name is None:
+                logger.debug("Finding first endpoint with available indexes...")
+                endpoint_name = provider.find_vector_search_endpoint(
+                    with_available_indexes
+                )
+            if endpoint_name is None:
+                logger.debug("No endpoint found, creating a new name...")
+                endpoint_name = (
+                    f"{self.source_table.schema_model.catalog_name}_endpoint"
+                )
+            logger.debug(f"Using endpoint: {endpoint_name}")
+            self.endpoint = VectorSearchEndpoint(name=endpoint_name)
 
         provider.create_vector_store(self)
 

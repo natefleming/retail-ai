@@ -2805,9 +2805,38 @@ class DatabricksProvider(ServiceProvider):
         self.vsc.create_delta_sync_index_and_wait(**create_kwargs)
         return self.vsc.get_index(endpoint_name, index_name)
 
-    def get_vector_index(self, vector_store: VectorStoreModel) -> None:
+    def get_vector_index(self, vector_store: VectorStoreModel) -> VectorSearchIndex:
+        # Endpoint discovery is deferred out of config parse (serving-safe). A
+        # caller can reach here with an unresolved endpoint — e.g. a retriever's
+        # deep-copied vector_store that never went through create(), which only
+        # populates the resources.vector_stores instance. Resolve on demand and
+        # stamp it so refresh()/subsequent calls are consistent, falling back to
+        # an endpoint-less lookup (the SDK's get_index accepts endpoint_name=None
+        # and resolves the index by full name alone).
+        endpoint_name: str | None = (
+            vector_store.endpoint.name if vector_store.endpoint is not None else None
+        )
+        if endpoint_name is None and vector_store.index is not None:
+            # Best-effort discovery. If it fails (e.g. an unauthenticated
+            # VectorSearchClient), fall through to the endpoint-less lookup
+            # rather than propagating — get_index resolves the index by full
+            # name alone.
+            try:
+                endpoint_name = self.find_endpoint_for_index(vector_store.index)
+            except Exception as e:  # noqa: BLE001
+                logger.debug(
+                    "Endpoint discovery failed; using endpoint-less index lookup",
+                    index_name=vector_store.index.full_name,
+                    error=f"{type(e).__name__}: {e}",
+                )
+                endpoint_name = None
+            if endpoint_name is not None:
+                from dao_ai.config import VectorSearchEndpoint
+
+                vector_store.endpoint = VectorSearchEndpoint(name=endpoint_name)
+
         index: VectorSearchIndex = self.vsc.get_index(
-            vector_store.endpoint.name, vector_store.index.full_name
+            endpoint_name, vector_store.index.full_name
         )
         return index
 
