@@ -11,6 +11,9 @@ parameters:
   schema:
     description: Schema within the catalog
     default: store_ops
+  genie_space_id:
+    description: Databricks Genie space ID
+    default: 01f05dd06c421ad6b522bf7a517cf6d2
 
 variables:
   client_id: &client_id
@@ -53,7 +56,7 @@ resources:
     retail_genie_room: &retail_genie_room
       name: "Retail AI Genie Room"                        # Human-readable name
       description: "A room for Genie agents to interact"  # Description
-      space_id: 01f05dd06c421ad6b522bf7a517cf6d2          # Databricks Genie space ID
+      space_id: ${var.genie_space_id}                    # Databricks Genie space ID
 
 prompts:
   # ---------------------------------------------------------------------------
