@@ -552,6 +552,47 @@ _MANIFEST_VERSION = 1
 # an older dao-ai and not yet re-staged; superseded by the manifest on re-stage.
 _STAGING_MARKER = ".dao-ai-generated"
 
+# Build noise ignored when snapshotting/scanning a staging dir for stray files —
+# mirrors the .gitignore dao-ai writes (see _GITIGNORE_CONTENT in apps/bundle.py)
+# plus the state files themselves. A path is ignored if any of its parts is a
+# listed dir, or its name matches a listed file / suffix. Keeps the manifest's
+# stray-file detection from flagging .venv/__pycache__/dist churn as user edits.
+_STAGING_IGNORED_DIRS: set[str] = {".venv", ".databricks", "dist", "__pycache__", ".vscode"}
+_STAGING_IGNORED_FILES: set[str] = {
+    "bundle_config_schema.json",
+    "dao_ai_schema.json",
+    _STAGING_MANIFEST,
+    _STAGING_MARKER,
+}
+
+
+def _is_ignored_staging_path(rel: Path) -> bool:
+    """True if a staging-dir-relative path is build noise, not user content."""
+    parts = rel.parts
+    if any(p in _STAGING_IGNORED_DIRS or p.endswith(".egg-info") for p in parts):
+        return True
+    name = rel.name
+    return name in _STAGING_IGNORED_FILES or name.endswith(".pyc")
+
+
+def _snapshot_staging_paths(bundle_dir: Path) -> list[str]:
+    """Sorted relative POSIX paths of every non-ignored file in a staging dir.
+
+    Called just before the manifest is written (i.e. after the writer has created
+    every generated + copied file), so the snapshot is the set of paths dao-ai
+    knows about. :func:`_staging_dir_has_local_edits` flags any later file absent
+    from this set as a user-added stray.
+    """
+    known: list[str] = []
+    for path in bundle_dir.rglob("*"):
+        if path.is_dir():
+            continue
+        rel = path.relative_to(bundle_dir)
+        if _is_ignored_staging_path(rel):
+            continue
+        known.append(rel.as_posix())
+    return sorted(known)
+
 
 def _read_staging_manifest(bundle_dir: Path) -> dict[str, Any] | None:
     """Load ``.dao-ai-manifest.yaml`` from a staging dir, or None if absent/unreadable."""
@@ -562,7 +603,7 @@ def _read_staging_manifest(bundle_dir: Path) -> dict[str, Any] | None:
         return None
     try:
         loaded: Any = yaml.safe_load(manifest_path.read_text())
-    except yaml.YAMLError:
+    except (yaml.YAMLError, OSError):
         return None
     return loaded if isinstance(loaded, dict) else None
 
@@ -607,8 +648,13 @@ def _write_staging_manifest(
       omits it (empty) since ``workflow up`` always re-stages.
     * ``files`` — the ``{relative_path: sha256}`` registry the writer returned,
       i.e. only the files dao-ai generated. :func:`_staging_dir_has_local_edits`
-      re-hashes these to detect hand-edits; files absent from the registry (user
-      code) are ignored, so editing them is always safe.
+      re-hashes these to detect hand-edits; editing a file NOT in ``files`` (user
+      code) is safe as long as it was present at generate time.
+    * ``known`` — the full set of non-ignored paths on disk right now (generated
+      files + copied user code). A later file absent from ``known`` is a
+      user-added stray, which :func:`_staging_dir_has_local_edits` also flags so a
+      re-generate never silently wipes it (build noise is excluded — see
+      :func:`_is_ignored_staging_path`).
 
     Retires the legacy ``.dao-ai-generated`` marker: if one is present from an
     older generate, it's removed so the two never disagree.
@@ -621,6 +667,7 @@ def _write_staging_manifest(
         "version": _MANIFEST_VERSION,
         "config_fingerprint": fingerprint,
         "files": dict(sorted((registry or {}).items())),
+        "known": _snapshot_staging_paths(bundle_dir),
     }
     (bundle_dir / _STAGING_MANIFEST).write_text(
         yaml.safe_dump(manifest, default_flow_style=False, sort_keys=False)
@@ -631,12 +678,18 @@ def _write_staging_manifest(
 
 
 def _staging_dir_has_local_edits(bundle_dir: Path) -> bool:
-    """True if a staging dir has hand-edited (or removed) dao-ai-generated files.
+    """True if a staging dir was hand-edited since its last generate.
 
-    Manifest present: re-hash each file the manifest recorded (the files dao-ai
-    generated). A recorded file that is now missing, or whose content hash no
-    longer matches, is a hand-edit → True. Files NOT in the manifest are user
-    code and are ignored — editing them is always safe.
+    Manifest present, an edit is any of:
+
+    * a recorded generated file (``files``) now missing or with a changed hash;
+    * a non-ignored file on disk that was NOT present at generate time (``known``)
+      — a user-added stray (e.g. a hand-dropped ``resources/jobs.yml``). Build
+      noise (``.venv``/``__pycache__``/``dist``/…) is excluded via
+      :func:`_is_ignored_staging_path` so it never counts.
+
+    Editing an existing NON-generated file (user code that was in ``known``) is
+    still safe — it isn't hashed and it isn't new.
 
     Legacy marker only (dir generated by an older dao-ai, no manifest yet): fall
     back to the mtime heuristic — any file newer than the marker counts as an
@@ -648,13 +701,28 @@ def _staging_dir_has_local_edits(bundle_dir: Path) -> bool:
     if manifest is not None:
         from dao_ai.apps.bundle import _sha256_file
 
-        files: dict[str, Any] = manifest.get("files") or {}
+        raw_files = manifest.get("files")
+        files: dict[str, Any] = raw_files if isinstance(raw_files, dict) else {}
         for rel, expected in files.items():
             path: Path = bundle_dir / rel
             if not path.exists():
                 return True
             if _sha256_file(path) != expected:
                 return True
+
+        raw_known = manifest.get("known")
+        # Older manifests (no ``known`` key) skip stray detection rather than
+        # flag every user file — conservative, and superseded on re-stage.
+        if isinstance(raw_known, list):
+            known: set[str] = set(raw_known)
+            for path in bundle_dir.rglob("*"):
+                if path.is_dir():
+                    continue
+                rel_path = path.relative_to(bundle_dir)
+                if _is_ignored_staging_path(rel_path):
+                    continue
+                if rel_path.as_posix() not in known:
+                    return True
         return False
 
     marker: Path = bundle_dir / _STAGING_MARKER
@@ -3721,7 +3789,7 @@ def _stage_app_bundle(
     bundle_dir: Path,
     *,
     is_default_dir: bool,
-    writer: Callable[..., None],
+    writer: Callable[..., dict[str, str]],
     development: bool,
     overwrite: bool,
     noun: str,
@@ -3910,7 +3978,7 @@ def _deploy_run_destroy_app_bundle(
                 )
             # Resolve resources so Genie room tables and warehouses can be discovered.
             config._resolve_all_resources()
-            writer: Callable[..., None] = _mode_writer(mode)
+            writer: Callable[..., dict[str, str]] = _mode_writer(mode)
             _stage_app_bundle(
                 config,
                 bundle_dir,
@@ -3971,8 +4039,12 @@ def _mode_bundle_kind(mode: str) -> str:
     return "mcp" if mode == "mcp" else "agent"
 
 
-def _mode_writer(mode: str) -> Callable[..., None]:
-    """Bundle writer function for the given serving mode."""
+def _mode_writer(mode: str) -> Callable[..., dict[str, str]]:
+    """Bundle writer function for the given serving mode.
+
+    Each writer stages the bundle and returns its ``{relative_path: sha256}``
+    registry of generated files (see :func:`_write_staging_manifest`).
+    """
     if mode == "mcp":
         from dao_ai.mcp.generate import write_mcp_bundle
 

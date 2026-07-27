@@ -200,7 +200,11 @@ class TestEditSafety:
         base = tmp_path / "base"
         d = base / "agent" / "app"
         d.mkdir(parents=True)
-        (d / "app.yaml").write_text("orig\n")
+        (d / "app.yaml").write_text("orig\n")  # generated (tracked in `files`)
+        (d / "src").mkdir()
+        (d / "src" / "mine.py").write_text("print('mine')\n")  # user code (in `known`)
+        # Only app.yaml is a generated file; src/mine.py is present at stamp time,
+        # so it lands in `known` (not `files`) and is safe to edit later.
         _stamp_manifest(d, files=["app.yaml"])
         return d
 
@@ -250,25 +254,53 @@ class TestEditSafety:
             )
         assert d.exists()
 
-    def test_user_code_edit_does_not_trigger(
+    def test_editing_existing_user_code_does_not_trigger(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """Editing files NOT in the manifest (user code) must never flag edits.
+        """Editing user code that existed at generate time must never flag edits.
 
-        The whole point of the per-file registry: only dao-ai-generated files are
-        tracked, so a user's hand-edits to src/, code_paths, or their config are
-        invisible to edit-detection and the dir regenerates cleanly.
+        Only dao-ai-generated files are hashed; a user's in-place edits to src/,
+        code_paths, or their config (present in ``known`` but not ``files``) are
+        invisible to edit-detection, so the dir regenerates cleanly.
         """
         monkeypatch.setenv("DAO_AI_BUNDLE_DIR", str(tmp_path / "base"))
-        d = self._staged(tmp_path)  # manifest tracks only app.yaml
-        (d / "src").mkdir()
-        (d / "src" / "mine.py").write_text("print('mine')\n")  # user code, untracked
+        d = self._staged(tmp_path)  # src/mine.py present at stamp time
+        (d / "src" / "mine.py").write_text("print('edited')\n")  # edit existing user code
         assert cli._staging_dir_has_local_edits(d) is False
-        # A clean (unedited-generated) dir is still wiped silently.
+        # A dir with no edited generated files + no strays is wiped silently.
         cli._clean_default_staging_dir(
             d, is_default=True, overwrite=False, noun="agent"
         )
         assert not d.exists()
+
+    def test_user_added_stray_file_triggers(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A NEW user file added after generate (e.g. a hand-dropped resources/
+        jobs.yml) must be protected — the dir must not be silently wiped."""
+        monkeypatch.setenv("DAO_AI_BUNDLE_DIR", str(tmp_path / "base"))
+        d = self._staged(tmp_path)
+        (d / "resources").mkdir()
+        (d / "resources" / "jobs.yml").write_text("resources: {}\n")  # stray, not in `known`
+        assert cli._staging_dir_has_local_edits(d) is True
+        with pytest.raises(SystemExit):
+            cli._clean_default_staging_dir(
+                d, is_default=True, overwrite=False, noun="agent"
+            )
+        assert d.exists(), "stray user file must be preserved"
+
+    def test_build_noise_not_treated_as_stray(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """__pycache__/.venv/dist churn appearing after generate is ignored."""
+        monkeypatch.setenv("DAO_AI_BUNDLE_DIR", str(tmp_path / "base"))
+        d = self._staged(tmp_path)
+        (d / "__pycache__").mkdir()
+        (d / "__pycache__" / "x.cpython-311.pyc").write_text("noise")
+        (d / "src" / "app.pyc").write_text("noise")
+        (d / "dist").mkdir()
+        (d / "dist" / "app-0.1.0.whl").write_text("noise")
+        assert cli._staging_dir_has_local_edits(d) is False
 
     def test_deleted_generated_file_triggers(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -348,6 +380,8 @@ class TestConfigFingerprint:
         assert manifest["version"] == cli._MANIFEST_VERSION
         assert manifest["config_fingerprint"] == "abc123"
         assert manifest["files"] == registry
+        # `known` snapshots every non-ignored file on disk at stamp time.
+        assert "databricks.yaml" in manifest["known"]
 
     def test_manifest_retires_legacy_marker(self, tmp_path: Path) -> None:
         d = tmp_path / "base" / "agent" / "app"
@@ -358,6 +392,17 @@ class TestConfigFingerprint:
         )
         assert not (d / cli._STAGING_MARKER).exists()
         assert (d / cli._STAGING_MANIFEST).exists()
+
+    def test_malformed_manifest_files_does_not_crash(self, tmp_path: Path) -> None:
+        """A manifest whose `files` is a non-dict must not raise on detection."""
+        d = tmp_path / "base" / "agent" / "app"
+        d.mkdir(parents=True)
+        (d / cli._STAGING_MANIFEST).write_text(
+            "version: 1\nconfig_fingerprint: fp\nfiles:\n  - a\n  - b\n"
+        )
+        # `files` is a list, not a dict -> treated as empty, no AttributeError.
+        assert cli._staging_dir_has_local_edits(d) is False
+        assert cli._staged_config_is_stale(d, "fp") is False
 
 
 @pytest.mark.unit

@@ -1052,6 +1052,7 @@ def write_bundle(
         # ``[tool.uv.sources]`` path and pins the full public-PyPI closure.
         generate_bundle_lock(output_dir)
         written.append("uv.lock")
+        _register(output_dir / "uv.lock")
     else:
         _track(
             output_dir / "pyproject.toml",
