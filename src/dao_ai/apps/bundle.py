@@ -372,7 +372,7 @@ def _build_app_block(
     Returns:
         (app_name, experiments_block, apps_block)
     """
-    app_name: str = config.app.name.lower().replace("_", "-")
+    app_name: str = config.app.app_resource_name
 
     enable_chat_proxy: bool = (
         config.app.enable_chat_proxy
@@ -730,7 +730,7 @@ def write_bundle(
         )
 
     output_dir.mkdir(parents=True, exist_ok=True)
-    app_name: str = config.app.name.lower().replace("_", "-")
+    app_name: str = config.app.app_resource_name
     written: list[str] = []
     skipped: list[str] = []
     # User code (src/ + code_paths + source config) that already existed at the

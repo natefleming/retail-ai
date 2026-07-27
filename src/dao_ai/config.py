@@ -9713,6 +9713,16 @@ class AppModel(BaseModel):
             self.endpoint_name = self.name
         return self
 
+    @property
+    def app_resource_name(self) -> str:
+        """Workspace Databricks App name derived from ``name``.
+
+        Lowercased with underscores replaced by hyphens. This is the name the
+        app is deployed under (see ``dao_ai.apps.bundle``); log retrieval and
+        any other App API call must use this form, not the raw ``name``.
+        """
+        return self.name.lower().replace("_", "-")
+
     @model_validator(mode="after")
     def set_default_agent(self) -> Self:
         # Only meaningful when agents are declared. Under deep_agent solo
