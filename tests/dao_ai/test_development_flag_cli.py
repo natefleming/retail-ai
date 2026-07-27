@@ -1378,11 +1378,18 @@ class TestDeployAutoGenerate:
 
 @pytest.mark.unit
 class TestToolsCommandRenamed:
-    """list-mcp-tools renamed to tools."""
+    """MCP tool listing now lives under `mcp tools`; older names are rejected."""
 
-    def test_tools_renamed(self) -> None:
-        """tools command parses successfully with the new name."""
-        assert parse_args(["tools", "-c", "c.yaml"]).command == "tools"
+    def test_mcp_tools_parses(self) -> None:
+        """`mcp tools` parses to (command=mcp, subcommand=tools)."""
+        o = parse_args(["mcp", "tools", "-c", "c.yaml"])
+        assert o.command == "mcp"
+        assert o.subcommand == "tools"
+
+    def test_top_level_tools_rejected(self) -> None:
+        """The interim top-level `tools` name is rejected (moved to `mcp tools`)."""
+        with pytest.raises(SystemExit):
+            parse_args(["tools", "-c", "c.yaml"])
 
     def test_list_mcp_tools_rejected(self) -> None:
         """Old list-mcp-tools name is rejected by the parser."""
