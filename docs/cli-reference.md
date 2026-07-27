@@ -579,29 +579,67 @@ dao-ai chat -c config/my_config.yaml
 dao-ai chat -c config/my_config.yaml --param catalog=nfleming --param module_id=09
 ```
 
-## List MCP Tools
+## MCP Utilities
 
-Discover and inspect tools available from MCP (Model Context Protocol) servers configured in your application.
+Inspect and test MCP (Model Context Protocol) servers and tools, grouped under
+the `dao-ai mcp` noun. There are two distinct surfaces, told apart by their
+flags:
 
-Use `dao-ai tools` (formerly `dao-ai list-mcp-tools`).
+- `-c/--config` → the MCP tools an agent **config** declares (what your agent sees)
+- `--url`/`--app` → a **live** MCP server (what a running server exposes)
 
-### Basic Usage
+> To **deploy** a dao-ai agent as an MCP server, use `agent --mode mcp`.
+> Deployment is intentionally not part of this noun.
 
-List all MCP tools with full descriptions and schemas:
+| Verb | Purpose |
+|---|---|
+| `dao-ai mcp tools`   | List the MCP tools an agent config declares (with filter status) |
+| `dao-ai mcp inspect` | Connect to a live MCP server and show its health + available tools |
+| `dao-ai mcp call`    | Invoke a single tool on a live MCP server and print the result |
+
+### `mcp tools` — inspect config-declared tools
+
+List all MCP tools declared in a config with full descriptions and schemas:
 
 ```bash
-dao-ai tools -c config/my_config.yaml
+dao-ai mcp tools -c config/my_config.yaml
 
 # With parameter overrides
-dao-ai tools -c config/my_config.yaml --param catalog=main
+dao-ai mcp tools -c config/my_config.yaml --param catalog=main
 ```
 
-### Show Only Filtered Tools
-
-Use `--apply-filters` to see only the tools that will actually be loaded (respecting `include_tools` and `exclude_tools` configuration):
+Use `--apply-filters` to see only the tools that will actually be loaded
+(respecting `include_tools` and `exclude_tools` configuration):
 
 ```bash
-dao-ai tools -c config/my_config.yaml --apply-filters
+dao-ai mcp tools -c config/my_config.yaml --apply-filters
+```
+
+### `mcp inspect` — introspect a live server
+
+Connect to a running MCP server and show its health (best-effort `/healthz`)
+plus the tools it exposes. Target any MCP server with `--url`, or a Databricks
+App (e.g. a dao-ai agent deployed via `agent --mode mcp`) with `--app`:
+
+```bash
+# A deployed dao-ai MCP App, resolved by name via the SDK
+dao-ai mcp inspect --app my-mcp-app -p fevm
+
+# Any MCP server URL
+dao-ai mcp inspect --url https://<host>/api/2.0/mcp/sql -p fevm
+```
+
+### `mcp call` — smoke-test a single tool
+
+Invoke one tool on a live MCP server and print its result — an end-to-end smoke
+test of a deployed server. Arguments are passed as a JSON object via `--args`:
+
+```bash
+dao-ai mcp call ask --app my-mcp-app --args '{"input": "hello"}' -p fevm
+
+dao-ai mcp call execute_sql \
+  --url https://<host>/api/2.0/mcp/sql \
+  --args '{"query": "SELECT 1"}' -p fevm
 ```
 
 ### What It Shows
@@ -830,18 +868,32 @@ dao-ai chat -c config/my_config.yaml [OPTIONS]
 
 Starts an interactive REPL session where you can chat with your agent locally.
 
-### List MCP Tools Options
+### MCP Utilities Options
 
 ```bash
-dao-ai tools -c config/my_config.yaml [OPTIONS]
+dao-ai mcp tools   -c config/my_config.yaml [OPTIONS]
+dao-ai mcp inspect (--url URL | --app NAME) [OPTIONS]
+dao-ai mcp call    TOOL (--url URL | --app NAME) [--args JSON] [OPTIONS]
 ```
+
+**`mcp tools`**
 
 | Option | Description |
 |--------|-------------|
 | `-c, --config FILE` | Path to configuration file (default: `./config/model_config.yaml`) |
 | `--apply-filters` | Only show tools that pass include/exclude filters (hide excluded tools) |
 
-Lists all available MCP tools with full descriptions and readable parameter schemas. Supports filtering to show only included tools.
+Lists all MCP tools declared in a config with full descriptions and readable parameter schemas. Supports filtering to show only included tools.
+
+**`mcp inspect`** / **`mcp call`**
+
+| Option | Description |
+|--------|-------------|
+| `--url URL` | Direct MCP server URL (e.g. `https://<host>/.../mcp`). Mutually exclusive with `--app`. |
+| `--app NAME` | Databricks App name; its `/mcp` endpoint is resolved via the SDK. Mutually exclusive with `--url`. |
+| `--args JSON` | (`call` only) JSON object of tool arguments (default: `{}`). |
+
+`inspect` and `call` connect to a **live** MCP server and require valid auth (a `-p/--profile` or ambient credentials).
 
 ---
 
@@ -950,7 +1002,7 @@ The deploy-model v2 release removed several commands and renamed others. Use thi
 | `dao-ai create-experiment ...` | `dao-ai trace create ...` |
 | `dao-ai link-trace-destination ...` | `dao-ai trace link ...` |
 | `dao-ai grant-trace-permissions ...` | `dao-ai trace grant ...` |
-| `dao-ai list-mcp-tools ...` | `dao-ai tools ...` |
+| `dao-ai list-mcp-tools ...` | `dao-ai mcp tools ...` |
 | `--deployment-target <mode>` flag | `--mode <mode>` flag |
 | `--deploy` / `--run` one-shot flags on `generate` | Removed — use the `up` verb |
 | `app.deployment_target:` config field | Removed — serving mode is chosen at deploy time via `--mode` (default `apps`) |

@@ -115,6 +115,7 @@ class TestNounVerbParsing:
             ["generate-workflow", "-c", "c.yaml"],
             ["generate-bundle", "-c", "c.yaml"],
             ["pipeline", "-c", "c.yaml"],
+            ["tools", "-c", "c.yaml"],  # moved to `mcp tools`
         ],
     )
     def test_removed_commands_rejected(self, argv: list[str]) -> None:
@@ -1377,11 +1378,18 @@ class TestDeployAutoGenerate:
 
 @pytest.mark.unit
 class TestToolsCommandRenamed:
-    """list-mcp-tools renamed to tools."""
+    """MCP tool listing now lives under `mcp tools`; older names are rejected."""
 
-    def test_tools_renamed(self) -> None:
-        """tools command parses successfully with the new name."""
-        assert parse_args(["tools", "-c", "c.yaml"]).command == "tools"
+    def test_mcp_tools_parses(self) -> None:
+        """`mcp tools` parses to (command=mcp, subcommand=tools)."""
+        o = parse_args(["mcp", "tools", "-c", "c.yaml"])
+        assert o.command == "mcp"
+        assert o.subcommand == "tools"
+
+    def test_top_level_tools_rejected(self) -> None:
+        """The interim top-level `tools` name is rejected (moved to `mcp tools`)."""
+        with pytest.raises(SystemExit):
+            parse_args(["tools", "-c", "c.yaml"])
 
     def test_list_mcp_tools_rejected(self) -> None:
         """Old list-mcp-tools name is rejected by the parser."""
@@ -1527,6 +1535,113 @@ class TestTraceNounDispatch:
     ) -> None:
         called = self._invoke(monkeypatch, ["trace", "grant", "-c", "c.yaml"])
         assert called == {"grant": 1}
+
+
+@pytest.mark.unit
+class TestMcpNoun:
+    """``dao-ai mcp tools|inspect|call`` — utilities noun; top-level `tools` is gone."""
+
+    def test_mcp_tools_parses(self) -> None:
+        o = parse_args(["mcp", "tools", "-c", "c.yaml"])
+        assert o.command == "mcp"
+        assert o.subcommand == "tools"
+        assert o.config == "c.yaml"
+        assert o.apply_filters is False
+
+    def test_mcp_tools_apply_filters(self) -> None:
+        o = parse_args(["mcp", "tools", "-c", "c.yaml", "--apply-filters"])
+        assert o.apply_filters is True
+
+    def test_mcp_tools_var_flag(self) -> None:
+        o = parse_args(["mcp", "tools", "-c", "c.yaml", "--var", "k=v"])
+        assert o.var == ["k=v"]
+
+    def test_mcp_inspect_url(self) -> None:
+        o = parse_args(["mcp", "inspect", "--url", "https://x/mcp"])
+        assert o.command == "mcp"
+        assert o.subcommand == "inspect"
+        assert o.url == "https://x/mcp"
+        assert o.app is None
+
+    def test_mcp_inspect_app(self) -> None:
+        o = parse_args(["mcp", "inspect", "--app", "my-app"])
+        assert o.app == "my-app"
+        assert o.url is None
+
+    def test_mcp_inspect_requires_target(self) -> None:
+        # --url/--app are a required mutually-exclusive group.
+        with pytest.raises(SystemExit):
+            parse_args(["mcp", "inspect"])
+
+    def test_mcp_inspect_rejects_both_targets(self) -> None:
+        with pytest.raises(SystemExit):
+            parse_args(["mcp", "inspect", "--url", "https://x/mcp", "--app", "a"])
+
+    def test_mcp_call_parses(self) -> None:
+        o = parse_args(
+            ["mcp", "call", "mytool", "--url", "https://x/mcp", "--args", '{"a":1}']
+        )
+        assert o.command == "mcp"
+        assert o.subcommand == "call"
+        assert o.tool == "mytool"
+        assert o.url == "https://x/mcp"
+        assert o.args == '{"a":1}'
+
+    def test_mcp_call_args_default(self) -> None:
+        o = parse_args(["mcp", "call", "mytool", "--app", "a"])
+        assert o.args == "{}"
+
+    def test_mcp_call_requires_target(self) -> None:
+        with pytest.raises(SystemExit):
+            parse_args(["mcp", "call", "mytool"])
+
+    def test_bare_mcp_requires_verb(self) -> None:
+        with pytest.raises(SystemExit):
+            parse_args(["mcp"])
+
+
+@pytest.mark.unit
+class TestMcpNounDispatch:
+    """main() routes ``mcp <verb>`` to the correct handler via handle_mcp_command."""
+
+    def _invoke(
+        self, monkeypatch: pytest.MonkeyPatch, argv: list[str]
+    ) -> dict[str, int]:
+        called: dict[str, int] = {}
+        monkeypatch.setattr(
+            cli,
+            "_handle_mcp_tools",
+            lambda o: called.update(tools=called.get("tools", 0) + 1),
+        )
+        monkeypatch.setattr(
+            cli,
+            "_handle_mcp_inspect",
+            lambda o: called.update(inspect=called.get("inspect", 0) + 1),
+        )
+        monkeypatch.setattr(
+            cli,
+            "_handle_mcp_call",
+            lambda o: called.update(call=called.get("call", 0) + 1),
+        )
+        monkeypatch.setattr(cli, "setup_logging", lambda v: None)
+        monkeypatch.setattr("sys.argv", ["dao-ai"] + argv)
+        cli.main()
+        return called
+
+    def test_mcp_tools_routes(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        assert self._invoke(monkeypatch, ["mcp", "tools", "-c", "c.yaml"]) == {
+            "tools": 1
+        }
+
+    def test_mcp_inspect_routes(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        assert self._invoke(monkeypatch, ["mcp", "inspect", "--app", "a"]) == {
+            "inspect": 1
+        }
+
+    def test_mcp_call_routes(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        assert self._invoke(monkeypatch, ["mcp", "call", "t", "--app", "a"]) == {
+            "call": 1
+        }
 
 
 @pytest.mark.unit

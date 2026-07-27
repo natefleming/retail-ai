@@ -899,3 +899,67 @@ def create_mcp_tools(
         return tool_wrapper
 
     return [_create_tool_wrapper(tool) for tool in mcp_tools]
+
+
+async def acall_mcp_tool(
+    function: McpFunctionModel,
+    tool_name: str,
+    args: dict[str, Any],
+) -> str:
+    """
+    Async version: invoke a single tool on an MCP server and return its text.
+
+    Goes through the same low-level session path the agent uses at runtime
+    (``_call_tool_with_capabilities``), so a one-shot call exercises the real
+    invocation code path — including per-call capabilities and W3C trace
+    context propagation — rather than building the full LangChain tool set.
+
+    Args:
+        function: The MCP function model configuration (source + auth).
+        tool_name: Name of the tool to invoke.
+        args: Arguments to pass to the tool.
+
+    Returns:
+        The concatenated text content of the tool result.
+
+    Raises:
+        RuntimeError: If connection to the MCP server fails.
+    """
+    logger.debug(
+        "Calling MCP tool", tool_name=tool_name, mcp_url=function.mcp_url, args=args
+    )
+
+    client: MultiServerMCPClient = _build_mcp_client(function)
+    async with client.session("mcp_function") as session:
+        result: CallToolResult = await _call_tool_with_capabilities(
+            function,
+            session,
+            tool_name,
+            args,
+            _resolve_meta(function.meta),
+        )
+        return _extract_text_content(result)
+
+
+def call_mcp_tool(
+    function: McpFunctionModel,
+    tool_name: str,
+    args: dict[str, Any],
+) -> str:
+    """
+    Sync wrapper: invoke a single tool on an MCP server and return its text.
+
+    For async contexts, use acall_mcp_tool() directly.
+
+    Args:
+        function: The MCP function model configuration (source + auth).
+        tool_name: Name of the tool to invoke.
+        args: Arguments to pass to the tool.
+
+    Returns:
+        The concatenated text content of the tool result.
+
+    Raises:
+        RuntimeError: If connection to the MCP server fails.
+    """
+    return asyncio.run(acall_mcp_tool(function, tool_name, args))
