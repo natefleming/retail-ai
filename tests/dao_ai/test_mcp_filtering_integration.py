@@ -1069,3 +1069,32 @@ class TestMCPMetaInjection:
 
         mock_session.call_tool.assert_called_once()
         assert mock_session.call_tool.call_args.kwargs.get("meta") is None
+
+
+class TestCallMcpTool:
+    """Tests for the single-tool invocation helper call_mcp_tool."""
+
+    @patch("dao_ai.tools.mcp.MultiServerMCPClient")
+    def test_call_mcp_tool_returns_text(self, mock_client_class, mock_mcp_tools):
+        """call_mcp_tool invokes the named tool and returns its text content."""
+        from mcp.types import CallToolResult, TextContent
+
+        from dao_ai.tools.mcp import call_mcp_tool
+
+        mock_client = _setup_mock_client(mock_client_class, mock_mcp_tools)
+        mock_session = mock_client.session.return_value.__aenter__.return_value
+        mock_session.call_tool = AsyncMock(
+            return_value=CallToolResult(
+                content=[TextContent(type="text", text="hello world")]
+            )
+        )
+
+        function = McpFunctionModel(type="mcp", url="http://test.com/mcp")
+        result = call_mcp_tool(function, "query_sales", {"q": "hi"})
+
+        assert result == "hello world"
+        mock_session.call_tool.assert_called_once()
+        # The tool name and args are forwarded to the session.
+        call_args = mock_session.call_tool.call_args
+        assert call_args.args[0] == "query_sales"
+        assert call_args.args[1] == {"q": "hi"}
