@@ -1171,21 +1171,24 @@ Examples:
     # Monitor command
     monitor_parser: ArgumentParser = subparsers.add_parser(
         "monitor",
-        help="Manage production monitoring for the deployed agent (scorers)",
+        help="Manage production monitoring for the deployed agent (scorers, logs)",
         description="""
 Manage production monitoring for the deployed agent.
 
-Currently exposes the `scorers` sub-group, which registers, inspects, and
-stops MLflow monitoring scorers that continuously evaluate production traces
-for quality, safety, and guideline compliance.
-
-Requires app.monitoring to be configured in the YAML config.
+Sub-groups:
+  scorers  Register, inspect, and stop MLflow monitoring scorers that
+           continuously evaluate production traces for quality, safety, and
+           guideline compliance. Requires app.monitoring in the YAML config.
+  logs     Fetch or stream runtime logs for the deployed agent (Databricks
+           Apps or Model Serving).
         """,
         epilog="""
 Examples:
   dao-ai monitor scorers enable -c config/model_config.yaml    # Register and start monitoring scorers
   dao-ai monitor scorers status -c config/model_config.yaml    # Show active scorers and sample rates
   dao-ai monitor scorers disable -c config/model_config.yaml   # Stop all monitoring scorers
+  dao-ai monitor logs -c config/model_config.yaml              # Last 200 lines of app logs
+  dao-ai monitor logs -c config/model_config.yaml --follow     # Stream app logs (apps only)
         """,
         formatter_class=argparse.RawDescriptionHelpFormatter,
         parents=[_GLOBAL],
@@ -1224,6 +1227,61 @@ Examples:
         choices=["enable", "status", "disable"],
         help="Scorers action: enable (register/start scorers), "
         "status (list active scorers), disable (stop all scorers)",
+    )
+
+    monitor_logs_parser: ArgumentParser = monitor_verbs.add_parser(
+        "logs",
+        help="Fetch or stream logs for the deployed agent (apps or model_serving)",
+        description="""
+Fetch or stream runtime logs for the deployed agent.
+
+Capability matrix:
+  apps           snapshot (--lines) AND streaming (--follow)   [via databricks CLI]
+  model_serving  snapshot only (--lines); --follow NOT supported [via Databricks SDK]
+
+Provide either -c/--config (to derive the app/endpoint name from the YAML) or
+--name (an explicit app/endpoint name), but not both.
+        """,
+        epilog="""
+Examples:
+  dao-ai monitor logs -c config/model_config.yaml                    # last 200 lines (apps, default)
+  dao-ai monitor logs -c config/model_config.yaml --lines 500        # last 500 lines
+  dao-ai monitor logs -c config/model_config.yaml --follow           # stream (apps only)
+  dao-ai monitor logs -c config/model_config.yaml -m model_serving   # model serving snapshot
+  dao-ai monitor logs --name my-app -p fevm                          # explicit app name
+        """,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        parents=[_GLOBAL],
+    )
+    monitor_logs_source = monitor_logs_parser.add_mutually_exclusive_group(
+        required=True
+    )
+    monitor_logs_source.add_argument(
+        "-c",
+        "--config",
+        type=str,
+        metavar="FILE",
+        help="Path to the model configuration file (derives the app/endpoint name)",
+    )
+    monitor_logs_source.add_argument(
+        "--name",
+        type=str,
+        metavar="NAME",
+        help="Explicit App name (apps) or endpoint name (model_serving), used "
+        "literally. Mutually exclusive with --config.",
+    )
+    _add_mode_argument(monitor_logs_parser, choices=["apps", "model_serving"])
+    monitor_logs_parser.add_argument(
+        "--lines",
+        type=int,
+        default=200,
+        metavar="N",
+        help="Number of trailing log lines to fetch (default: 200; 0 = all, apps only)",
+    )
+    monitor_logs_parser.add_argument(
+        "--follow",
+        action="store_true",
+        help="Stream logs continuously (apps only; not supported for model_serving)",
     )
 
     chat_parser: ArgumentParser = subparsers.add_parser(
@@ -1325,6 +1383,7 @@ Examples:
         graph_parser,
         list_mcp_parser,
         monitor_scorers_parser,
+        monitor_logs_parser,
         chat_parser,
         vars_parser,
     ):
@@ -2058,18 +2117,21 @@ def handle_graph_command(options: Namespace) -> None:
 
 
 def handle_monitor_command(options: Namespace) -> None:
-    """Dispatch `dao-ai monitor <scorers>`.
+    """Dispatch `dao-ai monitor <scorers|logs>`.
 
     ``scorers enable|status|disable`` manages MLflow production monitoring
-    scorers. (Runtime log/metrics sub-groups are intentionally absent: the
-    Databricks Apps platform exposes no logs or memory/CPU metrics API — see
-    the vault note ``dao-ai-monitor-observability-api-gap``.)
+    scorers. ``logs`` fetches or streams runtime logs for the deployed agent
+    (Databricks Apps via the ``databricks`` CLI, Model Serving via the SDK).
     """
-    from dao_ai.providers.databricks import DatabricksProvider
+    if options.subcommand == "logs":
+        _handle_monitor_logs(options)
+        return
 
     if options.subcommand != "scorers":
         logger.error(f"Unknown monitor sub-command: {options.subcommand}")
         sys.exit(1)
+
+    from dao_ai.providers.databricks import DatabricksProvider
 
     _apply_profile_context(options.profile)
     logger.debug(f"Loading configuration from {options.config}...")
@@ -2138,6 +2200,82 @@ def handle_monitor_command(options: Namespace) -> None:
         raise
     except Exception as e:
         logger.error(f"Monitor command failed: {e}")
+        sys.exit(1)
+
+
+def _handle_monitor_logs(options: Namespace) -> None:
+    """Fetch or stream logs for the deployed agent.
+
+    Resolves the app/endpoint name from ``--name`` (used literally) or
+    ``--config`` (derived from the YAML), then dispatches on ``--mode``:
+    ``apps`` streams via the ``databricks`` CLI; ``model_serving`` returns a
+    point-in-time snapshot via the Databricks SDK (``--follow`` unsupported).
+    """
+    if options.lines < 0:
+        logger.error(f"--lines must be >= 0 (got {options.lines}); 0 means all")
+        sys.exit(1)
+
+    # Make the profile authoritative before any SDK call (model_serving) and
+    # before the CLI subprocess (apps) inherits this process's environment:
+    # this strips ambient DATABRICKS_* vars a `.env`/shell may have injected so
+    # they can't hijack the child CLI even though we also pass it ``-p``.
+    _apply_profile_context(options.profile)
+
+    config: AppConfig | None = None
+    if options.config:
+        logger.debug(f"Loading configuration from {options.config}...")
+        try:
+            config = AppConfig.from_file(
+                options.config, params=_parse_var_args(options.var)
+            )
+        except ConfigVariableError as e:
+            _print_config_variable_error(e)
+            sys.exit(1)
+        if not config.app:
+            logger.error("app must be configured in the YAML to fetch logs")
+            sys.exit(1)
+
+    try:
+        from dao_ai.monitoring import fetch_model_serving_logs, stream_app_logs
+
+        if options.mode == "model_serving":
+            if options.follow:
+                logger.error(
+                    "--follow is not supported for mode=model_serving "
+                    "(snapshot only); omit --follow for the current snapshot"
+                )
+                sys.exit(1)
+            # endpoint_name defaults to app.name via set_default_endpoint_name;
+            # fall back explicitly so a partially-built config still resolves.
+            endpoint_name: str = options.name or (
+                config.app.endpoint_name or config.app.name
+            )
+            print(
+                fetch_model_serving_logs(
+                    endpoint_name=endpoint_name, lines=options.lines
+                )
+            )
+            sys.exit(0)
+
+        # apps mode
+        app_name: str = options.name or config.app.app_resource_name
+        sys.exit(
+            stream_app_logs(
+                app_name=app_name,
+                lines=options.lines,
+                follow=options.follow,
+                profile=options.profile,
+            )
+        )
+    except KeyboardInterrupt:
+        # Expected way to stop `--follow`; exit cleanly instead of dumping a
+        # traceback (KeyboardInterrupt is a BaseException, so it would escape
+        # the `except Exception` below and reach the un-guarded main()).
+        sys.exit(130)
+    except SystemExit:
+        raise
+    except Exception as e:
+        logger.error(f"Monitor logs command failed: {e}")
         sys.exit(1)
 
 

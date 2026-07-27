@@ -1669,7 +1669,7 @@ def test_cli_var_flag_appears_in_subparser_help(
     from dao_ai.cli import parse_args
 
     simple_help = (["validate"], ["graph"], ["chat"], ["vars"])
-    for argv in (*simple_help, ["monitor", "scorers"]):
+    for argv in (*simple_help, ["monitor", "scorers"], ["monitor", "logs"]):
         with pytest.raises(SystemExit):
             # --help triggers a clean SystemExit(0) after printing.
             parse_args([*argv, "--help"])

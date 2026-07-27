@@ -487,6 +487,55 @@ databricks apps restart <new-app-name> -p <profile>
 
 The **old** experiment stays linked to its original destination — Databricks does not allow un-linking. If you no longer need the old data, delete the experiment outright via `mlflow.delete_experiment(<old-id>)` (or the workspace UI). That's a soft-delete; a hard purge is a workspace cleanup job. The OTEL Delta tables the old experiment wrote to are not affected by experiment deletion — drop them separately if you want the storage back.
 
+## Monitor
+
+`dao-ai monitor` groups production observability for the deployed agent.
+
+### `dao-ai monitor scorers enable|status|disable`
+
+Register, inspect, or stop MLflow monitoring scorers that continuously evaluate
+production traces for quality, safety, and guideline compliance. Requires
+`app.monitoring` in the YAML config.
+
+```bash
+dao-ai monitor scorers enable  -c config/model_config.yaml   # register + start
+dao-ai monitor scorers status  -c config/model_config.yaml   # list active scorers
+dao-ai monitor scorers disable -c config/model_config.yaml   # stop all scorers
+```
+
+### `dao-ai monitor logs`
+
+Fetch or stream runtime logs for the deployed agent, to stdout. Provide either
+`-c/--config` (derives the app/endpoint name from the YAML) or `--name` (an
+explicit name, used literally) — the two are mutually exclusive.
+
+```bash
+# Databricks Apps (default mode) — last 200 lines, then last 500
+dao-ai monitor logs -c config/model_config.yaml
+dao-ai monitor logs -c config/model_config.yaml --lines 500
+
+# Stream continuously until Ctrl-C (apps only)
+dao-ai monitor logs -c config/model_config.yaml --follow
+
+# Model Serving snapshot (no streaming)
+dao-ai monitor logs -c config/model_config.yaml -m model_serving
+
+# Explicit name instead of a config file
+dao-ai monitor logs --name my-app -p fevm
+```
+
+**Capability matrix** — the two deployment targets expose logs differently:
+
+| Capability | `-m apps` (default) | `-m model_serving` |
+|---|---|---|
+| Snapshot (last N via `--lines`) | ✅ | ✅ |
+| Streaming (`--follow`) | ✅ | ❌ (snapshot only — `--follow` is rejected) |
+| Mechanism | `databricks apps logs` (CLI; requires the `databricks` CLI ≥ 1.3.0 on `PATH`) | Databricks SDK `serving_endpoints.logs` |
+
+The Apps path shells out to the `databricks` CLI because the Databricks Python
+SDK exposes no Apps-logs API; the CLI streams the app's `logz/stream` websocket.
+`--lines 0` fetches all buffered lines (apps only).
+
 ## Interactive Chat
 
 Start an interactive chat session with your agent:
