@@ -1972,12 +1972,11 @@ def test_vector_store_model_provisioning_mode():
     schema = SchemaModel(catalog_name="test_catalog", schema_name="test_schema")
     table = TableModel(schema=schema, name="test_table")
 
-    # Mock the DatabricksProvider to avoid actual API calls
-    # The import happens inside the validators, so we patch the providers module
+    # Mock the DatabricksProvider to avoid actual API calls during
+    # ensure_resolved (primary-key discovery uses the provider).
     with patch("dao_ai.providers.databricks.DatabricksProvider") as mock_provider_class:
         mock_provider = MagicMock()
         mock_provider.find_primary_key.return_value = ["id"]
-        mock_provider.find_endpoint_for_index.return_value = "test_endpoint"
         mock_provider_class.return_value = mock_provider
 
         vector_store = VectorStoreModel(
@@ -2000,9 +1999,43 @@ def test_vector_store_model_provisioning_mode():
         # Primary key should be auto-discovered
         assert vector_store.primary_key == "id"
 
-        # Endpoint should be auto-discovered in provisioning mode
-        assert vector_store.endpoint is not None
-        assert vector_store.endpoint.name == "test_endpoint"
+        # Endpoint discovery is deferred to create()/_create_new_index — it must
+        # NOT run during construction or ensure_resolved (that would build a
+        # VectorSearchClient at serving/parse time). It stays None until create().
+        assert vector_store.endpoint is None
+        mock_provider.find_endpoint_for_index.assert_not_called()
+        mock_provider.find_vector_search_endpoint.assert_not_called()
+
+
+@pytest.mark.unit
+def test_vector_store_provisioning_config_load_makes_no_vector_search_calls():
+    """Regression: parsing + resolving a provisioning config must not touch
+    Vector Search.
+
+    Endpoint discovery used to run in a model validator, building a
+    VectorSearchClient at config-parse time. On serving/MCP-server boot (which
+    parses and calls ensure_resolved but never provisions) that bare client has
+    no credentials and crashed with InvalidInputException. This locks in that
+    neither construction nor ensure_resolved performs endpoint discovery.
+    """
+    schema = SchemaModel(catalog_name="test_catalog", schema_name="test_schema")
+    table = TableModel(schema=schema, name="test_table")
+
+    with patch("dao_ai.providers.databricks.DatabricksProvider") as mock_provider_class:
+        mock_provider = MagicMock()
+        mock_provider.find_primary_key.return_value = ["id"]
+        mock_provider_class.return_value = mock_provider
+
+        vector_store = VectorStoreModel(
+            source_table=table,
+            embedding_source_column="description",
+        )
+        vector_store.ensure_resolved()
+
+        # Endpoint stays unresolved; no Vector Search endpoint lookups happened.
+        assert vector_store.endpoint is None
+        mock_provider.find_endpoint_for_index.assert_not_called()
+        mock_provider.find_vector_search_endpoint.assert_not_called()
 
 
 @pytest.mark.unit
@@ -2317,23 +2350,21 @@ def test_vector_store_create_provisions_new_index():
     table = TableModel(schema=schema, name="test_table")
 
     with patch("dao_ai.providers.databricks.DatabricksProvider") as mock_provider_class:
-        # Mock for validators - called multiple times during __init__
+        # Provider used by ensure_resolved() for primary-key discovery.
         mock_provider_for_primary_key = MagicMock()
         mock_provider_for_primary_key.find_primary_key.return_value = ["id"]
 
-        mock_provider_for_endpoint = MagicMock()
-        mock_provider_for_endpoint.find_endpoint_for_index.return_value = None
-        mock_provider_for_endpoint.find_vector_search_endpoint.return_value = (
+        # Provider built inside create(); endpoint discovery now happens here
+        # (deferred out of the validator), so it must stub the lookup methods.
+        mock_provider_for_create = MagicMock()
+        mock_provider_for_create.find_endpoint_for_index.return_value = None
+        mock_provider_for_create.find_vector_search_endpoint.return_value = (
             "test_endpoint"
         )
 
-        # Mock for create call
-        mock_provider_for_create = MagicMock()
-
-        # Return different instances for each DatabricksProvider() call
+        # One construction during ensure_resolved(), one inside create().
         mock_provider_class.side_effect = [
-            mock_provider_for_endpoint,  # set_default_endpoint validator (during __init__)
-            mock_provider_for_primary_key,  # set_default_primary_key (during ensure_resolved)
+            mock_provider_for_primary_key,  # ensure_resolved() primary-key discovery
             mock_provider_for_create,  # create() call
         ]
 
@@ -2343,8 +2374,12 @@ def test_vector_store_create_provisions_new_index():
         )
         vector_store.ensure_resolved()
 
-        # Call create() - this will use the third mock from side_effect
+        # Call create() - this will use the second mock from side_effect
         vector_store.create()
+
+        # Endpoint was auto-discovered inside create()/_create_new_index.
+        assert vector_store.endpoint is not None
+        assert vector_store.endpoint.name == "test_endpoint"
 
         # Should call create_vector_store
         mock_provider_for_create.create_vector_store.assert_called_once_with(
@@ -2386,18 +2421,20 @@ def test_vector_store_create_provisioning_requires_embedding_column():
 
 
 @pytest.mark.unit
-def test_vector_store_create_provisioning_requires_endpoint():
-    """Test VectorStoreModel._create_new_index() validates endpoint."""
+def test_vector_store_create_provisioning_auto_discovers_endpoint():
+    """_create_new_index() auto-discovers the endpoint when none is configured.
+
+    Endpoint discovery was moved out of the config validator (which ran at
+    serving/parse time) into provisioning. When endpoint is None, it now falls
+    back through find_endpoint_for_index -> find_vector_search_endpoint using the
+    provider passed by create().
+    """
     schema = SchemaModel(catalog_name="test_catalog", schema_name="test_schema")
     table = TableModel(schema=schema, name="test_table")
 
     with patch("dao_ai.providers.databricks.DatabricksProvider") as mock_provider_class:
         mock_provider_for_validators = MagicMock()
         mock_provider_for_validators.find_primary_key.return_value = ["id"]
-        mock_provider_for_validators.find_endpoint_for_index.return_value = None
-        mock_provider_for_validators.find_vector_search_endpoint.return_value = (
-            "test_endpoint"
-        )
         mock_provider_class.return_value = mock_provider_for_validators
 
         vector_store = VectorStoreModel(
@@ -2405,15 +2442,22 @@ def test_vector_store_create_provisioning_requires_endpoint():
             embedding_source_column="description",
         )
 
-        # Force None to test validation
-        vector_store.endpoint = None
+        # No endpoint configured (nor discovered at parse time — that's the fix).
+        assert vector_store.endpoint is None
 
+        # Provider handed to _create_new_index: first lookup misses, the
+        # available-indexes fallback resolves the endpoint.
         mock_provider = MagicMock()
+        mock_provider.find_endpoint_for_index.return_value = None
+        mock_provider.find_vector_search_endpoint.return_value = "discovered_endpoint"
 
-        with pytest.raises(ValueError) as exc_info:
-            vector_store._create_new_index(mock_provider)
+        vector_store._create_new_index(mock_provider)
 
-        assert "endpoint is required for provisioning" in str(exc_info.value)
+        assert vector_store.endpoint is not None
+        assert vector_store.endpoint.name == "discovered_endpoint"
+        mock_provider.find_endpoint_for_index.assert_called_once()
+        mock_provider.find_vector_search_endpoint.assert_called_once()
+        mock_provider.create_vector_store.assert_called_once_with(vector_store)
 
 
 @pytest.mark.unit
