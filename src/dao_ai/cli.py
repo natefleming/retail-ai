@@ -695,11 +695,11 @@ Getting started:
   dao-ai agent deploy  -c config.yaml -p fevm                   # push the bundle (auto-generates if unstaged); start with `run`
 
 Bring an agent up (generate → deploy → run):
-  dao-ai agent up -c config.yaml -p fevm                        # live agent (Apps, default --mode apps)
+  dao-ai agent up -c config.yaml -p fevm                       # live agent (Apps, default --mode apps)
   dao-ai agent up -c config.yaml --mode model_serving -p fevm  # deploy to a Model Serving endpoint
   dao-ai agent up -c config.yaml -m ms -p fevm                 # same, using the -m ms alias
   dao-ai agent up -c config.yaml --mode mcp -p fevm            # bring up an MCP server
-  dao-ai agent up -c config.yaml --direct -p fevm             # SDK fast-path (no bundle on disk)
+  dao-ai agent up -c config.yaml --direct -p fevm              # SDK fast-path (no bundle on disk)
   dao-ai -p fevm agent up -c config.yaml                       # -p accepted at the top level too
 
 Granular lifecycle (DAB-style primitives):
@@ -723,7 +723,9 @@ Production monitoring:
   dao-ai monitor scorers disable -c config.yaml -p fevm         # stop all monitoring scorers
 
 Inspect & utilities:
-  dao-ai tools      -c config.yaml                 # list MCP tools visible to agents
+  dao-ai mcp tools   -c config.yaml                # MCP tools the agent config sees
+  dao-ai mcp inspect --app my-mcp-app              # live MCP server: health + tool list
+  dao-ai mcp call    <tool> --app my-mcp-app --args '{...}'   # smoke-test one tool
   dao-ai validate   -c config.yaml                 # validate config syntax + semantics
   dao-ai parameters list -c config.yaml            # show declared parameters + resolved values
   dao-ai schema                                    # dump JSON schema for IDE validation
@@ -1136,10 +1138,39 @@ Examples:
         parents=[_GLOBAL],
     )
 
-    # List MCP tools command
-    list_mcp_parser: ArgumentParser = subparsers.add_parser(
+    # MCP noun: `dao-ai mcp <tools|inspect|call>` — MCP inspection/test utilities.
+    # NOTE: MCP *deployment* is NOT here — it lives on `agent --mode mcp`. This
+    # noun groups read-only/test utilities only.
+    mcp_parser: ArgumentParser = subparsers.add_parser(
+        "mcp",
+        help="Inspect and test MCP servers and tools (tools | inspect | call)",
+        description="""
+Inspect and test Model Context Protocol (MCP) servers and tools.
+
+Two distinct surfaces, told apart by their flags:
+  -c/--config  → the MCP tools an agent CONFIG declares (what your agent sees)
+  --url/--app  → a LIVE MCP server (what a running server exposes)
+
+To DEPLOY a dao-ai agent as an MCP server, use `agent --mode mcp` — deployment
+is intentionally not part of this noun.
+        """,
+        epilog="""
+Examples:
+  dao-ai mcp tools   -c config.yaml                # MCP tools the agent config sees
+  dao-ai mcp tools   -c config.yaml --apply-filters
+  dao-ai mcp inspect --app my-mcp-app -p fevm      # live server: health + tool list
+  dao-ai mcp inspect --url https://host/.../mcp
+  dao-ai mcp call    ask --app my-mcp-app --args '{"input":"hi"}' -p fevm
+        """,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        parents=[_GLOBAL],
+    )
+    mcp_verbs = mcp_parser.add_subparsers(dest="subcommand", required=True)
+
+    # mcp tools (was: top-level `tools`)
+    mcp_tools_parser: ArgumentParser = mcp_verbs.add_parser(
         "tools",
-        help="List MCP tools visible to agents in a configuration",
+        help="List the MCP tools an agent config declares (with filter status)",
         description="""
 List the MCP tools declared in a dao-ai config. Shows each tool's name,
 description, parameter schema, and include/exclude filter status. Useful for
@@ -1150,14 +1181,14 @@ excluded tools). Without it, all available tools are shown with filter status.
         """,
         epilog="""
 Examples:
-  dao-ai tools -c config.yaml                     # list all tools + filter status
-  dao-ai tools -c config.yaml --apply-filters     # only show tools that pass filters
-  dao-ai tools -c config.yaml -p fevm             # use a specific Databricks profile
+  dao-ai mcp tools -c config.yaml                 # list all tools + filter status
+  dao-ai mcp tools -c config.yaml --apply-filters # only show tools that pass filters
+  dao-ai mcp tools -c config.yaml -p fevm         # use a specific Databricks profile
         """,
         formatter_class=argparse.RawDescriptionHelpFormatter,
         parents=[_GLOBAL],
     )
-    list_mcp_parser.add_argument(
+    mcp_tools_parser.add_argument(
         "-c",
         "--config",
         type=str,
@@ -1166,10 +1197,85 @@ Examples:
         metavar="FILE",
         help="Path to the model configuration file (default: ./config/model_config.yaml)",
     )
-    list_mcp_parser.add_argument(
+    mcp_tools_parser.add_argument(
         "--apply-filters",
         action="store_true",
         help="Only show tools that pass include/exclude filters (hide excluded tools)",
+    )
+
+    # mcp inspect — connect to a live MCP server and list its health + tools
+    mcp_inspect_parser: ArgumentParser = mcp_verbs.add_parser(
+        "inspect",
+        help="Connect to a live MCP server and show its health + available tools",
+        description="""
+Connect to a live MCP server and show its health (best-effort /healthz) plus
+the tools it exposes. Point at any MCP server with --url, or at a Databricks App
+with --app (e.g. a dao-ai agent deployed via `agent --mode mcp`).
+        """,
+        epilog="""
+Examples:
+  dao-ai mcp inspect --app my-mcp-app -p fevm
+  dao-ai mcp inspect --url https://host/api/2.0/mcp/sql -p fevm
+        """,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        parents=[_GLOBAL],
+    )
+    _mcp_target_group = mcp_inspect_parser.add_mutually_exclusive_group(required=True)
+    _mcp_target_group.add_argument(
+        "--url",
+        type=str,
+        metavar="URL",
+        help="Direct MCP server URL (e.g. https://host/.../mcp).",
+    )
+    _mcp_target_group.add_argument(
+        "--app",
+        type=str,
+        metavar="NAME",
+        help="Databricks App name; its /mcp endpoint is resolved via the SDK.",
+    )
+
+    # mcp call — invoke a single tool on a live MCP server
+    mcp_call_parser: ArgumentParser = mcp_verbs.add_parser(
+        "call",
+        help="Invoke a single tool on a live MCP server and print the result",
+        description="""
+Invoke a single tool on a live MCP server and print its result. Smoke-tests a
+deployed MCP server end to end. Target the server with --url or --app.
+        """,
+        epilog="""
+Examples:
+  dao-ai mcp call ask --app my-mcp-app --args '{"input":"hello"}' -p fevm
+  dao-ai mcp call execute_sql --url https://host/api/2.0/mcp/sql \\
+      --args '{"query":"SELECT 1"}' -p fevm
+        """,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        parents=[_GLOBAL],
+    )
+    mcp_call_parser.add_argument(
+        "tool",
+        type=str,
+        metavar="TOOL",
+        help="Name of the tool to invoke.",
+    )
+    _mcp_call_target_group = mcp_call_parser.add_mutually_exclusive_group(required=True)
+    _mcp_call_target_group.add_argument(
+        "--url",
+        type=str,
+        metavar="URL",
+        help="Direct MCP server URL (e.g. https://host/.../mcp).",
+    )
+    _mcp_call_target_group.add_argument(
+        "--app",
+        type=str,
+        metavar="NAME",
+        help="Databricks App name; its /mcp endpoint is resolved via the SDK.",
+    )
+    mcp_call_parser.add_argument(
+        "--args",
+        type=str,
+        default="{}",
+        metavar="JSON",
+        help="JSON object of tool arguments (default: '{}').",
     )
 
     # Monitor command
@@ -1385,7 +1491,7 @@ Examples:
     for sub in (
         validation_parser,
         graph_parser,
-        list_mcp_parser,
+        mcp_tools_parser,
         monitor_scorers_parser,
         monitor_logs_parser,
         chat_parser,
@@ -2379,12 +2485,12 @@ def _format_schema_pretty(schema: dict[str, Any], indent: int = 0) -> str:
     return "\n".join(lines)
 
 
-def handle_list_mcp_tools_command(options: Namespace) -> None:
+def _handle_mcp_tools(options: Namespace) -> None:
     """
-    List available MCP tools from configuration.
+    List available MCP tools from configuration (``dao-ai mcp tools``).
 
-    Shows all MCP servers and their available tools, indicating which
-    are included/excluded based on filter configuration.
+    Shows all MCP servers declared in the config and their available tools,
+    indicating which are included/excluded based on filter configuration.
     """
     _apply_profile_context(options.profile)
     logger.debug(f"Listing MCP tools from configuration: {options.config}")
@@ -2581,6 +2687,126 @@ def handle_list_mcp_tools_command(options: Namespace) -> None:
         logger.debug(traceback.format_exc())
         print(f"\n❌ Error: {e}")
         sys.exit(1)
+
+
+def _mcp_function_from_args(options: Namespace) -> "McpFunctionModel":
+    """Build an in-memory McpFunctionModel from ``--url`` or ``--app``.
+
+    Used by the live-server verbs (``mcp inspect`` / ``mcp call``). The model's
+    ``mcp_url`` property resolves an ``--app`` name to its ``/mcp`` endpoint via
+    the SDK, and its inherited auth chain (OBO → SP → PAT → ambient) is reused
+    for the connection.
+    """
+    from dao_ai.config import DatabricksAppModel, McpFunctionModel
+
+    if getattr(options, "app", None):
+        return McpFunctionModel(app=DatabricksAppModel(name=options.app))
+    return McpFunctionModel(url=options.url)
+
+
+def _handle_mcp_inspect(options: Namespace) -> None:
+    """Connect to a live MCP server and show its health + available tools.
+
+    Accepts either ``--url`` (any MCP server) or ``--app`` (a Databricks App,
+    e.g. a dao-ai agent deployed with ``agent --mode mcp``). Health is
+    best-effort — arbitrary MCP servers need not expose ``/healthz``.
+    """
+    _apply_profile_context(options.profile)
+
+    try:
+        from dao_ai.tools.mcp import list_mcp_tools
+
+        function = _mcp_function_from_args(options)
+        mcp_url: str = function.mcp_url
+
+        print(f"\n{'=' * 80}")
+        print("MCP SERVER INSPECTION")
+        print(f"Server: {mcp_url}")
+        print(f"{'=' * 80}\n")
+
+        # Health is best-effort: only dao-ai MCP servers expose /healthz.
+        health_url = f"{mcp_url.rstrip('/').removesuffix('/mcp')}/healthz"
+        try:
+            import httpx
+
+            resp = httpx.get(health_url, timeout=10.0)
+            if resp.status_code == 200:
+                print(f"   Health: ✓ {resp.json()}")
+            else:
+                print(f"   Health: n/a (HTTP {resp.status_code})")
+        except Exception:
+            print("   Health: n/a (no /healthz endpoint)")
+
+        tools = list_mcp_tools(function, apply_filters=False)
+        print(f"\n   Available Tools: {len(tools)}\n")
+        for tool in sorted(tools, key=lambda t: t.name):
+            print(f"     • {tool.name}")
+            if tool.description:
+                print(f"       Description: {tool.description}")
+            if tool.input_schema:
+                print("       Parameters:")
+                pretty_schema = _format_schema_pretty(tool.input_schema, indent=0)
+                if pretty_schema:
+                    for line in pretty_schema.split("\n"):
+                        print(f"         {line}")
+                else:
+                    print("         (none)")
+
+        print(f"\n{'=' * 80}\n")
+        sys.exit(0)
+
+    except Exception as e:
+        logger.error(f"Failed to inspect MCP server: {e}")
+        logger.debug(traceback.format_exc())
+        print(f"\n❌ Error: {e}")
+        sys.exit(1)
+
+
+def _handle_mcp_call(options: Namespace) -> None:
+    """Invoke a single tool on a live MCP server and print the result.
+
+    Accepts either ``--url`` or ``--app`` plus a ``TOOL`` name and a JSON
+    ``--args`` object. Smoke-tests a deployed MCP server end to end.
+    """
+    _apply_profile_context(options.profile)
+
+    try:
+        args: dict[str, Any] = json.loads(options.args)
+    except json.JSONDecodeError as e:
+        print(f"\n❌ Error: --args must be a JSON object: {e}", file=sys.stderr)
+        sys.exit(1)
+    if not isinstance(args, dict):
+        print("\n❌ Error: --args must be a JSON object (e.g. '{\"q\": \"hi\"}')",
+              file=sys.stderr)
+        sys.exit(1)
+
+    try:
+        from dao_ai.tools.mcp import call_mcp_tool
+
+        function = _mcp_function_from_args(options)
+        result: str = call_mcp_tool(function, options.tool, args)
+        print(result)
+        sys.exit(0)
+
+    except Exception as e:
+        logger.error(f"Failed to call MCP tool '{options.tool}': {e}")
+        logger.debug(traceback.format_exc())
+        print(f"\n❌ Error: {e}")
+        sys.exit(1)
+
+
+def handle_mcp_command(options: Namespace) -> None:
+    """Dispatch ``dao-ai mcp <tools|inspect|call>`` to its handler."""
+    match options.subcommand:
+        case "tools":
+            _handle_mcp_tools(options)
+        case "inspect":
+            _handle_mcp_inspect(options)
+        case "call":
+            _handle_mcp_call(options)
+        case _:
+            logger.error(f"Unknown mcp sub-command: {options.subcommand}")
+            sys.exit(1)
 
 
 def handle_version_command(options: Namespace) -> None:
@@ -3761,8 +3987,8 @@ def main() -> None:
             handle_monitor_command(options)
         case "chat":
             handle_chat_command(options)
-        case "tools":
-            handle_list_mcp_tools_command(options)
+        case "mcp":
+            handle_mcp_command(options)
         case "parameters" | "vars":
             handle_vars_command(options)
         case _:
