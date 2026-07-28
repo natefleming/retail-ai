@@ -222,6 +222,123 @@ def test_pattern_does_not_match_unprefixed_or_spaced_tokens() -> None:
 
 
 @pytest.mark.unit
+def test_defer_leaves_ref_literal_and_not_missing() -> None:
+    """A deferred name survives as its ${var.X} literal and is never 'missing',
+    even declared with no default and no value (workflow provisioning path)."""
+    decls = {"genie_space_id": ParameterDeclarationModel(default="")}
+    rendered = substitute_params(
+        'space_id: "${var.genie_space_id}"',
+        declarations=decls,
+        defer={"genie_space_id"},
+    )
+    assert rendered == 'space_id: "${var.genie_space_id}"'
+
+
+@pytest.mark.unit
+def test_defer_no_default_no_value_does_not_raise() -> None:
+    """Deferred + declared with NO default + no value must NOT raise missing."""
+    decls = {"genie_space_id": ParameterDeclarationModel()}
+    rendered = substitute_params(
+        "id: ${var.genie_space_id}",
+        declarations=decls,
+        defer={"genie_space_id"},
+    )
+    assert rendered == "id: ${var.genie_space_id}"
+
+
+@pytest.mark.unit
+def test_defer_is_inert_when_none() -> None:
+    """defer=None must not change behavior for existing callers."""
+    decls = {"catalog": ParameterDeclarationModel(default="main")}
+    assert substitute_params("c: ${var.catalog}", declarations=decls) == "c: main"
+    assert (
+        substitute_params("c: ${var.catalog}", declarations=decls, defer=None)
+        == "c: main"
+    )
+
+
+@pytest.mark.unit
+def test_defer_only_affects_named_refs() -> None:
+    """Non-deferred refs still bake; only the deferred name is left literal."""
+    decls = {
+        "catalog": ParameterDeclarationModel(default="main"),
+        "genie_space_id": ParameterDeclarationModel(default=""),
+    }
+    rendered = substitute_params(
+        "cat: ${var.catalog}\nid: ${var.genie_space_id}",
+        declarations=decls,
+        defer={"genie_space_id"},
+    )
+    assert "cat: main" in rendered
+    assert "id: ${var.genie_space_id}" in rendered
+
+
+@pytest.mark.unit
+def test_provisioned_param_resolves_empty_when_unset() -> None:
+    """provisioned:true, no value, no default -> resolves to '' (not missing)."""
+    decls = {"gsid": ParameterDeclarationModel(provided=True)}
+    assert substitute_params("s: ${var.gsid}", declarations=decls) == "s: "
+
+
+@pytest.mark.unit
+def test_provisioned_param_uses_default_when_present() -> None:
+    """A default is an optional fallback for a provisioned param."""
+    decls = {"gsid": ParameterDeclarationModel(provided=True, default="fb")}
+    assert substitute_params("s: ${var.gsid}", declarations=decls) == "s: fb"
+
+
+@pytest.mark.unit
+def test_provisioned_param_uses_supplied_value() -> None:
+    decls = {"gsid": ParameterDeclarationModel(provided=True)}
+    assert (
+        substitute_params("s: ${var.gsid}", declarations=decls, cli_vars={"gsid": "R"})
+        == "s: R"
+    )
+
+
+@pytest.mark.unit
+def test_non_provisioned_no_default_still_raises() -> None:
+    """A plain required param (not provisioned) still raises when unset."""
+    decls = {"gsid": ParameterDeclarationModel()}
+    with pytest.raises(ConfigVariableError):
+        substitute_params("s: ${var.gsid}", declarations=decls)
+
+
+@pytest.mark.unit
+def test_retain_only_parameters_keeps_whitelist() -> None:
+    from dao_ai.apps.bundle import _retain_only_parameters
+
+    doc = (
+        "parameters:\n  a:\n    default: x\n  genie_space_id:\n    default: \"\"\n"
+        "resources:\n  r: 1\n"
+    )
+    out = _retain_only_parameters(doc, keep={"genie_space_id"})
+    assert "genie_space_id:" in out
+    # 'a' is dropped from the parameters block (but the resources key stays).
+    assert "  a:\n" not in out
+    assert "resources:" in out
+
+
+@pytest.mark.unit
+def test_retain_only_parameters_empty_keep_strips_block() -> None:
+    from dao_ai.apps.bundle import _retain_only_parameters, _strip_parameters_block
+
+    doc = "parameters:\n  a:\n    default: x\nresources:\n  r: 1\n"
+    # Empty keep behaves like a full strip.
+    assert _retain_only_parameters(doc, keep=set()) == _strip_parameters_block(doc)
+
+
+@pytest.mark.unit
+def test_retain_only_parameters_drops_block_when_none_kept() -> None:
+    from dao_ai.apps.bundle import _retain_only_parameters
+
+    doc = "parameters:\n  a:\n    default: x\nresources:\n  r: 1\n"
+    out = _retain_only_parameters(doc, keep={"not_present"})
+    assert "parameters:" not in out
+    assert "resources:" in out
+
+
+@pytest.mark.unit
 def test_var_prefix_alias_is_equivalent_to_param() -> None:
     """${var.NAME} and ${param.NAME} resolve identically."""
     decls = {"foo": ParameterDeclarationModel(default="d")}
@@ -296,7 +413,35 @@ def test_resolve_parameters_reports_sources_correctly() -> None:
     assert by_name["from_default"].value == "d"
     assert by_name["missing"].source == "MISSING"
     assert by_name["missing"].value is None
-    assert by_name["missing"].required is True
+
+
+@pytest.mark.unit
+def test_resolve_parameters_reports_provided() -> None:
+    """A `provided` param (no value) reports source='provided', not MISSING, and
+    is not load-time required; an operator value still wins."""
+    decls = {
+        "runtime": ParameterDeclarationModel(provided=True),
+        "runtime_supplied": ParameterDeclarationModel(provided=True),
+        "runtime_default": ParameterDeclarationModel(provided=True, default="fb"),
+    }
+    by_name = {
+        p.name: p
+        for p in resolve_parameters(
+            decls, cli_vars={"runtime_supplied": "given"}, env={}
+        )
+    }
+    # Unsupplied provided param: not missing, not required, flagged provided.
+    assert by_name["runtime"].source == "provided"
+    assert by_name["runtime"].value is None
+    assert by_name["runtime"].required is False
+    assert by_name["runtime"].provided is True
+    # Operator value wins over the provided placeholder.
+    assert by_name["runtime_supplied"].source == "--param"
+    assert by_name["runtime_supplied"].value == "given"
+    # A default fallback wins over the provided placeholder too.
+    assert by_name["runtime_default"].source == "default"
+    assert by_name["runtime_default"].value == "fb"
+    assert by_name["runtime_default"].provided is True
 
 
 class _FakeUser:
@@ -1689,24 +1834,31 @@ def test_cli_var_flag_appears_in_subparser_help(
 
 
 @pytest.mark.unit
-def test_cli_run_databricks_command_forwards_vars_to_databricks_cli(
-    parameterised_config_path: Path, monkeypatch: pytest.MonkeyPatch
+def test_cli_run_databricks_command_forwards_only_declared_vars(
+    parameterised_config_path: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """--var foo=bar must be appended to the underlying `databricks bundle …`."""
+    """A dao-ai --param is forwarded to `databricks bundle` as --var ONLY when the
+    staged databricks.yaml declares a matching bundle variable.
+
+    dao-ai config params are baked into the staged config; forwarding a param the
+    bundle doesn't declare makes `databricks bundle` hard-fail ("variable X has
+    not been defined"). So `module_id` (declared here) forwards; `undeclared_x`
+    (not a bundle var) must be dropped. Regression guard for the crash-fix.
+    """
     from dao_ai import cli
 
     captured: dict[str, list[str]] = {}
 
-    def _fake_run_command(cmd_args: list[str], **_: object) -> None:
-        captured["cmd"] = cmd_args
+    # Pre-staged bundle dir whose databricks.yaml declares module_id + catalog as
+    # bundle variables (but NOT undeclared_x). stage=False → use it in place.
+    out = tmp_path / "staged"
+    out.mkdir()
+    (out / "databricks.yaml").write_text(
+        "variables:\n  module_id:\n    description: d\n  catalog:\n    description: d\n"
+    )
 
     monkeypatch.setattr(cli, "_apply_profile_context", lambda profile: None)
     monkeypatch.setattr(cli, "detect_cloud_provider", lambda profile: "aws")
-    # Stub the staging-bundle write so the test exercises only the command
-    # assembly (the real write is covered by the pipeline bundle tests).
-    import dao_ai.pipeline.bundle as _pb
-
-    monkeypatch.setattr(_pb, "write_pipeline_bundle", lambda *a, **k: None)
 
     class _FakeStdout:
         def readline(self) -> str:
@@ -1730,16 +1882,17 @@ def test_cli_run_databricks_command_forwards_vars_to_databricks_cli(
     cli.run_databricks_command(
         ["bundle", "deploy"],
         config=str(parameterised_config_path),
-        config_vars={"module_id": "09", "catalog": "nfleming"},
-        # Published mode: the stubbed bundle-write stages no wheel, and this
-        # test only asserts --var forwarding, not local-wheel staging.
+        config_vars={"module_id": "09", "catalog": "nfleming", "undeclared_x": "z"},
+        output_dir=str(out),
         development=False,
+        stage=False,
     )
 
     cmd = captured["cmd"]
     cmd_str = " ".join(cmd)
     assert '--var="module_id=09"' in cmd_str
     assert '--var="catalog=nfleming"' in cmd_str
+    assert "undeclared_x" not in cmd_str
 
 
 @pytest.mark.unit

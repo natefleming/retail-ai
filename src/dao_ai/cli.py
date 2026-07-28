@@ -429,9 +429,14 @@ def _add_noun_verb_parsers(
             f"Bring the {noun} up: generate (if needed), deploy, and start it.\n\n"
             "For bundle modes (apps, mcp): stages the bundle when unstaged, runs\n"
             "`databricks bundle deploy`, links the trace destination, then runs\n"
-            "`databricks bundle run <app>`. Use `--direct` to skip the bundle\n"
-            "entirely and deploy via the SDK (apps/mcp only).\n\n"
-            "For --mode model_serving: registers then deploys the endpoint\n"
+            "`databricks bundle run <app>`."
+            + (
+                ""
+                if is_workflow
+                else " Use `--direct` to skip the bundle\n"
+                "entirely and deploy via the SDK (apps/mcp only)."
+            )
+            + "\n\nFor --mode model_serving: registers then deploys the endpoint\n"
             "(serving once READY; `run` is n/a for endpoints)."
         ),
         parents=parents,
@@ -441,15 +446,19 @@ def _add_noun_verb_parsers(
     if is_workflow:
         _add_workflow_target_args(up_parser)
     _add_mode_argument(up_parser, choices=["model_serving", "apps", "mcp"])
-    up_parser.add_argument(
-        "--direct",
-        action="store_true",
-        default=False,
-        help=(
-            "Deploy via the SDK directly (no DAB bundle on disk) — fast "
-            "iteration path for --mode apps|mcp. Inherently starts the app."
-        ),
-    )
+    # --direct (SDK, no DAB on disk) is agent-only: the workflow noun's whole
+    # purpose is running the provisioning JOB, which requires the DAB — there is
+    # no meaningful bundle-less path, so --direct would be a silent no-op.
+    if not is_workflow:
+        up_parser.add_argument(
+            "--direct",
+            action="store_true",
+            default=False,
+            help=(
+                "Deploy via the SDK directly (no DAB bundle on disk) — fast "
+                "iteration path for --mode apps|mcp. Inherently starts the app."
+            ),
+        )
 
     # --- generate: pure staging verb (no deploy/run) -------------------------
     generate_parser: ArgumentParser = verbs.add_parser(
@@ -1595,27 +1604,47 @@ Examples:
         aliases=["vars"],
         help="Inspect declared parameters in a configuration",
         description="""
-Inspect the declared parameters: block in a DAO AI config file.
+Inspect the declared `parameters:` block in a DAO AI config file.
 
-Shows each declared parameter, whether it is required, its declared default,
-and the value that would be substituted into the YAML for the current
-combination of --param overrides and process environment variables.
+Actions (the action word is optional; 'list' is the default):
+  list          Print every declared parameter as a table — required?, provided?,
+                default, resolved value, and where the value came from (--param,
+                env, default, provided, or MISSING).
+  get <name>    Print ONE parameter's resolved value to stdout (bare, no table),
+                so it is easy to capture in a shell:
+                  CATALOG=$(dao-ai parameters get catalog -c config.yaml)
+
+Resolution for each parameter: --param/--var  >  env var  >  declared default  >
+'provided' placeholder (empty, furnished at run time)  >  MISSING (required, unset).
 
 Use this to discover what knobs a config exposes before deploying or running it.
         """,
         epilog="""
 Examples:
-  dao-ai parameters list -c config/model_config.yaml
+  dao-ai parameters -c config/model_config.yaml            # 'list' is the default
   dao-ai parameters list -c config/retail.yaml --param catalog=nfleming
-  dao-ai vars list -c config/model_config.yaml             # legacy alias
+  dao-ai parameters get catalog -c config/retail.yaml      # print one resolved value
+  dao-ai vars -c config/model_config.yaml                  # legacy alias ('vars' == 'parameters')
         """,
         formatter_class=argparse.RawDescriptionHelpFormatter,
         parents=[_GLOBAL],
     )
     vars_parser.add_argument(
         "action",
-        choices=["list"],
-        help="Parameters action: 'list' prints declared parameters and resolved values.",
+        nargs="?",
+        default="list",
+        choices=["list", "get"],
+        help=(
+            "What to do (default: list). 'list' = table of all parameters; "
+            "'get <name>' = print one parameter's resolved value to stdout."
+        ),
+    )
+    vars_parser.add_argument(
+        "name",
+        nargs="?",
+        default=None,
+        metavar="NAME",
+        help="Parameter name to read. Required with 'get'; ignored by 'list'.",
     )
     vars_parser.add_argument(
         "-c",
@@ -1623,7 +1652,7 @@ Examples:
         type=str,
         required=True,
         metavar="FILE",
-        help="Path to the model configuration file to inspect.",
+        help="Path to the dao-ai config file whose parameters: block to inspect.",
     )
 
     # Add --param/--var to the non-bundle subcommands (bundle verbs get it from
@@ -3117,6 +3146,29 @@ def setup_logging(verbosity: int) -> None:
     configure_logging(level=level)
 
 
+def _declared_bundle_variables(bundle_dir: Path) -> set[str]:
+    """Names declared under ``variables:`` in a staged ``databricks.yaml``.
+
+    Used to decide which dao-ai ``--param`` overrides are safe to forward to
+    ``databricks bundle`` as ``--var``: only names the bundle actually declares.
+    Reading the staged file (rather than a hardcoded list) keeps the filter in
+    step with whatever :func:`generate_pipeline_databricks_yaml` emits. Returns an
+    empty set if the file is missing or unparseable — forward nothing rather than
+    risk an undeclared-variable failure.
+    """
+    import yaml
+
+    databricks_yaml: Path = bundle_dir / "databricks.yaml"
+    if not databricks_yaml.exists():
+        return set()
+    try:
+        doc: Any = yaml.safe_load(databricks_yaml.read_text())
+    except (yaml.YAMLError, OSError):
+        return set()
+    variables: Any = (doc or {}).get("variables") if isinstance(doc, dict) else None
+    return set(variables) if isinstance(variables, dict) else set()
+
+
 def _exec_bundle_command(
     command: list[str],
     *,
@@ -3393,11 +3445,16 @@ def run_databricks_command(
     if config_rel_to_notebooks:
         extra_vars.append(f'--var="config_path={config_rel_to_notebooks}"')
 
-    # Forward dao-ai parameter overrides to the asset-bundle layer too, so
-    # ${var.NAME} references inside databricks.yaml resolve from the same
-    # input values when the names overlap.
+    # Forward dao-ai parameter overrides to the asset-bundle layer ONLY for names
+    # that databricks.yaml actually declares as bundle variables. dao-ai params are
+    # already baked into the staged config (${var.NAME} substituted), so a param
+    # the bundle doesn't declare needs no --var — and passing one the bundle hasn't
+    # declared makes ``databricks bundle`` hard-fail ("variable X has not been
+    # defined"). Filtering to the overlap is what the original intent described.
+    declared_bundle_vars: set[str] = _declared_bundle_variables(staging_dir)
     for key, value in (config_vars or {}).items():
-        extra_vars.append(f'--var="{key}={value}"')
+        if key in declared_bundle_vars:
+            extra_vars.append(f'--var="{key}={value}"')
 
     # Add mode variable for notebooks.
     # Priority: CLI arg > default (model_serving)
@@ -3847,6 +3904,9 @@ def _generate_app_bundle(options: Namespace, *, kind: str, writer, what: str) ->
 
     # Resolve resources so Genie room tables and warehouses can be discovered.
     config._resolve_all_resources()
+    # apps/mcp has no provisioning step — fail loudly on any `provided` param
+    # that wasn't supplied and has no default, rather than ship a broken binding.
+    config.assert_provided_params_satisfied()
 
     bundle_dir, is_default_dir = _resolve_bundle_dir(kind, config, options.output_dir)
     _stage_app_bundle(
@@ -3902,6 +3962,10 @@ def _deploy_run_destroy_app_bundle(
         # current config first (mirrors the workflow deploy notebook + the former
         # `dao-ai deploy` handler). Without this, deploy_model_serving_agent
         # deploys a stale-or-nonexistent model version.
+        config._resolve_all_resources()
+        # model_serving has no provisioning step — fail loudly on any unsatisfied
+        # `provided` param (see docstring).
+        config.assert_provided_params_satisfied()
         config.create_agent(development=development)
         config.deploy_agent(target=ServingMode.MODEL_SERVING, development=development)
         return
@@ -3912,6 +3976,10 @@ def _deploy_run_destroy_app_bundle(
 
         config = _load_app_config(options, what=what)
         development = resolve_use_local_source(getattr(options, "development", None))
+        config._resolve_all_resources()
+        # apps/mcp (SDK direct) has no provisioning step — fail loudly on any
+        # unsatisfied `provided` param (see docstring).
+        config.assert_provided_params_satisfied()
         # Apps/MCP deploy directly from config + wheel (no MLflow model to
         # register — matches the former `if target != APPS: create_agent()`
         # gate). model_serving is handled by Route 1 above, so mode is apps|mcp here.
@@ -3978,6 +4046,9 @@ def _deploy_run_destroy_app_bundle(
                 )
             # Resolve resources so Genie room tables and warehouses can be discovered.
             config._resolve_all_resources()
+            # apps/mcp has no provisioning step — fail loudly on any unsatisfied
+            # `provided` param (see docstring).
+            config.assert_provided_params_satisfied()
             writer: Callable[..., dict[str, str]] = _mode_writer(mode)
             _stage_app_bundle(
                 config,
@@ -4134,6 +4205,45 @@ def handle_vars_command(options: Namespace) -> None:
         logger.error(f"Invalid 'parameters:' declaration in {options.config}: {e}")
         sys.exit(1)
 
+    if options.action == "get":
+        name: str | None = getattr(options, "name", None)
+        if not name:
+            logger.error(
+                "parameters get requires a NAME, e.g. "
+                "`dao-ai parameters get catalog -c <file>`."
+            )
+            sys.exit(2)
+        if name not in declarations:
+            declared = ", ".join(sorted(declarations)) or "(none)"
+            logger.error(
+                f"Parameter {name!r} is not declared in {options.config}. "
+                f"Declared parameters: {declared}."
+            )
+            sys.exit(1)
+        resolved_by_name = {
+            p.name: p for p in resolve_parameters(declarations, cli_vars=cli_vars)
+        }
+        param = resolved_by_name[name]
+        if param.value is None:
+            # Nothing to emit — exit non-zero so scripts don't capture "".
+            # Tailor the guidance to WHY it is unresolved.
+            if param.provided:
+                logger.error(
+                    f"Parameter {name!r} is declared `provided: true` — its value is "
+                    "furnished at run time (e.g. by a workflow provisioning task), so "
+                    "it has no value at inspection time. Pass --param "
+                    f"{name}=<value> to see a concrete value here."
+                )
+            else:
+                logger.error(
+                    f"Parameter {name!r} is required but unset. Supply it with "
+                    f"--param {name}=<value>, set its env var, or give it a default."
+                )
+            sys.exit(1)
+        # Bare value to stdout so it is capture-friendly: X=$(dao-ai parameters get X -c f)
+        print(param.value)
+        sys.exit(0)
+
     if options.action == "list":
         resolved = resolve_parameters(declarations, cli_vars=cli_vars)
 
@@ -4155,6 +4265,7 @@ def handle_vars_command(options: Namespace) -> None:
         header = (
             f"{'NAME':<{name_w}}  "
             f"{'REQUIRED':<8}  "
+            f"{'PROVIDED':<8}  "
             f"{'DEFAULT':<{default_w}}  "
             f"{'RESOLVED':<{value_w}}  "
             f"{'SOURCE':<{source_w}}  "
@@ -4167,6 +4278,7 @@ def handle_vars_command(options: Namespace) -> None:
             print(
                 f"{p.name:<{name_w}}  "
                 f"{('yes' if p.required else 'no'):<8}  "
+                f"{('yes' if p.provided else 'no'):<8}  "
                 f"{(p.default or '-'):<{default_w}}  "
                 f"{(p.value if p.value is not None else '-'):<{value_w}}  "
                 f"{p.source:<{source_w}}  "

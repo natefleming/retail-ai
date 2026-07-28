@@ -18,11 +18,11 @@ parameters:
     description: SQL Warehouse id used by Genie + provisioning. Override per workspace via --var.
     default: d58e5fb998498840
   merchandising_genie_space_id:
-    description: Genie space id for the merchandising analytics room, forwarded from the provision-genie task (taskValue). Leave empty for first deploy; the bundle deploy_job fills it in at runtime.
-    default: ""
+    description: Genie space id for the merchandising analytics room — provided at run time by the provision-genie task (taskValue). Supply --param to reuse an existing space.
+    provided: true
   sales_pricing_genie_space_id:
-    description: Genie space id for the sales & pricing analytics room, forwarded from the provision-genie task (taskValue). Leave empty for first deploy; the bundle deploy_job fills it in at runtime.
-    default: ""
+    description: Genie space id for the sales & pricing analytics room — provided at run time by the provision-genie task (taskValue). Supply --param to reuse an existing space.
+    provided: true
 
 # =============================================================================
 # Sporting Goods Store - Merchandiser 360

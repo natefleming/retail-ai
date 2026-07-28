@@ -33,8 +33,8 @@ parameters:
     description: SQL warehouse id for Genie space
     default: d58e5fb998498840  # FEVM "Serverless Starter Warehouse"
   genie_space_id:
-    description: Resolved by provision-genie task; empty on first deploy
-    default: ""
+    description: Genie space id — provided at run time by the provision-genie task.
+    provided: true
   genie_parent_path:
     description: Workspace folder for the Genie space
     default: /Users/${workspace.current_user.userName}

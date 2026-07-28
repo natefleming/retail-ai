@@ -38,12 +38,14 @@ from typing import Any
 from loguru import logger
 
 from dao_ai.apps.bundle import (
+    _retain_only_parameters,
     _sha256_file,
     _strip_parameters_block,
     _write_file,
     dump_bundle_yaml,
 )
 from dao_ai.config import AppConfig
+from dao_ai.config_vars import ParameterDeclarationModel, substitute_params
 from dao_ai.utils import dao_ai_version, normalize_name
 
 # Package location of the step notebooks shipped in the wheel.
@@ -445,6 +447,69 @@ def _bundle_label(file_out: Path, output_dir: Path) -> str:
         return str(file_out)
 
 
+def _deferred_provided_params(config: AppConfig) -> set[str]:
+    """Parameter names to LEAVE unresolved (``${var.X}``) in the staged config.
+
+    A parameter declared ``provided: true`` gets its value dynamically at run
+    time — e.g. ``05_provision_genie`` creates a Genie space and forwards its id
+    via taskValues keyed by the param name, which ``06_deploy_agent`` then injects
+    via ``AppConfig.from_file(task_values=...)``. For that to work the staged
+    config must keep the ``${var.X}`` reference (and its declaration) rather than
+    bake it.
+
+    A param is deferred only when the operator did NOT supply it on the CLI
+    (``--param``/``--var``): an operator-supplied value means "use this" — it bakes
+    to a literal and no run-time fill-in happens. Keying off the declaration flag
+    (not genie-room ``space_id`` inference) keeps this general: any ``provided``
+    param is deferred, whatever consumes it.
+    """
+    declarations = config._declarations or {}
+    if not declarations:
+        return set()
+    supplied: set[str] = config._operator_supplied_params or set()
+    return {
+        name
+        for name, decl in declarations.items()
+        if decl.provided and name not in supplied
+    }
+
+
+def _staged_config_text(config: AppConfig) -> str | None:
+    """The dao-ai config text to stage for a workflow bundle.
+
+    Default: the fully-substituted rendered YAML with the ``parameters:`` block
+    stripped (deployed job needs no ``--var``). When the config has
+    ``provided: true`` params to defer (see :func:`_deferred_provided_params`),
+    re-render the pre-substitution source leaving those refs in place and retain
+    ONLY their declarations, so ``05_provision_genie`` can provision and
+    ``06_deploy_agent`` can inject the forwarded id. Returns None if the config
+    was not loaded via ``AppConfig.from_file`` (no rendered text available).
+    """
+    rendered: str | None = config._rendered_yaml
+    if rendered is None:
+        return None
+
+    defer: set[str] = _deferred_provided_params(config)
+    if not defer:
+        return _strip_parameters_block(rendered)
+
+    # Re-render from the pre-substitution source with the deferred names left in
+    # place, then keep only the deferred declarations. Falls back to the plain
+    # rendered text if the config lacks the stashed pre-substitution inputs.
+    source_text: str | None = config._workspace_resolved_yaml
+    if source_text is None:
+        return _strip_parameters_block(rendered)
+    declarations: dict[str, ParameterDeclarationModel] = config._declarations or {}
+    deferred_render: str = substitute_params(
+        source_text,
+        declarations=declarations,
+        cli_vars=config._substitution_vars or None,
+        defer=defer,
+        source=config._source_config_path or "<config>",
+    )
+    return _retain_only_parameters(deferred_render, keep=defer)
+
+
 def write_pipeline_bundle(
     config: AppConfig,
     output_dir: Path,
@@ -543,9 +608,9 @@ def write_pipeline_bundle(
     elif config_dest.exists() and not overwrite:
         logger.info(f"Skipping {config_filename} (exists; use --overwrite)")
     else:
-        rendered: str | None = config._rendered_yaml
-        if rendered is not None:
-            config_dest.write_text(_strip_parameters_block(rendered))
+        staged_text: str | None = _staged_config_text(config)
+        if staged_text is not None:
+            config_dest.write_text(staged_text)
         elif source_config:
             shutil.copy2(source_config, config_dest)
         else:

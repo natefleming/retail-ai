@@ -10699,6 +10699,14 @@ class AppConfig(BaseModel):
     _rendered_yaml: str | None = None
     _substitution_vars: dict[str, str] | None = None
     _raw_yaml_dict: dict[str, Any] | None = None
+    # The ${workspace.*}-resolved but ${param/var}-UNsubstituted source text, the
+    # parsed parameter declarations, and the operator-supplied param names (CLI
+    # --param/--var only — NOT taskValues/env/defaults). The workflow staging path
+    # reuses these to re-render with a `defer` set (preserve unprovided Genie-room
+    # space_id refs) without re-reading the source file. See write_pipeline_bundle.
+    _workspace_resolved_yaml: str | None = None
+    _declarations: dict[str, ParameterDeclarationModel] | None = None
+    _operator_supplied_params: set[str] | None = None
     _initialized: bool = False
 
     @model_validator(mode="after")
@@ -10899,6 +10907,14 @@ class AppConfig(BaseModel):
         config._source_config_path = path
         config._rendered_yaml = rendered_text
         config._substitution_vars = dict(merged_params) if merged_params else None
+        # Preserve inputs the workflow staging path needs to re-render with a
+        # `defer` set (unprovided Genie-room space_id refs). operator_supplied is
+        # the CLI --param/--var subset only, distinct from merged_params (which
+        # also folds in taskValues) — the defer decision keys off what the
+        # operator explicitly passed, not resolved values/defaults.
+        config._workspace_resolved_yaml = workspace_resolved_text
+        config._declarations = declarations
+        config._operator_supplied_params = set(params.keys()) if params else set()
 
         # Stamp each provisioning model with the config's own directory so its
         # relative ``ddl``/``data`` paths resolve against the config location
@@ -10990,6 +11006,40 @@ class AppConfig(BaseModel):
                         _walk(value)
 
         _walk(self)
+
+    def assert_provided_params_satisfied(self) -> None:
+        """Guard non-workflow deploy paths against unsatisfied ``provided`` params.
+
+        A parameter declared ``provided: true`` is furnished dynamically at run
+        time (like a build tool's 'provided' dependency scope) — in dao-ai today
+        that is the ``workflow`` job's provisioning tasks forwarding values via
+        taskValues (e.g. a Genie space id), but the flag is generic and
+        independent of any consumer. The apps / mcp / model_serving deploy paths
+        have NO such run-time step, so a ``provided`` param that was neither
+        supplied by the operator (``--param``/``--var``) nor given a ``default``
+        fallback resolves to an empty placeholder and would silently deploy a
+        broken binding. Fail loudly instead.
+
+        No-op on the workflow path (which never calls this — it defers such params
+        for its run-time step). Params with a ``default`` or an operator value are
+        satisfied and pass. Independent of genie / any specific field.
+        """
+        declarations = self._declarations or {}
+        supplied: set[str] = self._operator_supplied_params or set()
+        unsatisfied: list[str] = [
+            name
+            for name, decl in declarations.items()
+            if decl.provided and decl.default is None and name not in supplied
+        ]
+        if unsatisfied:
+            joined = ", ".join(sorted(unsatisfied))
+            raise ValueError(
+                f"Parameter(s) declared `provided: true` have no value on a "
+                f"non-workflow deploy path: {joined}. These paths cannot furnish "
+                "values at run time. Supply each one (e.g. --param "
+                f"{sorted(unsatisfied)[0]}=<value>), give it a `default`, or run "
+                "`dao-ai workflow up` to provision it."
+            )
 
     def initialize(self) -> None:
         if self._initialized:

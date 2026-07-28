@@ -8100,6 +8100,12 @@
           "default": null,
           "description": "Default value if not provided at load time. Omit to make required.",
           "title": "Default"
+        },
+        "provided": {
+          "default": false,
+          "description": "When true, this parameter's value is supplied DYNAMICALLY at run time rather than at config-load time \u2014 analogous to a build tool's 'provided' dependency scope (furnished by the runtime environment). Most commonly it comes from an upstream job task's taskValues (e.g. a Genie space id created by the workflow's provision-genie task), but the flag is generic and independent of any consumer. At load time an unsupplied `provided` param resolves to an empty string (or its `default`, if given) instead of raising missing-required, so ${var.NAME} references load cleanly before the real value exists. The workflow staging path leaves such refs unresolved (see write_pipeline_bundle) so the run-time step can fill them in; non-workflow deploy paths (apps, mcp, model_serving) have no such step and reject an unsupplied, defaultless `provided` param rather than deploy a broken binding.",
+          "title": "Provided",
+          "type": "boolean"
         }
       },
       "title": "ParameterDeclarationModel",

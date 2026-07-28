@@ -675,3 +675,69 @@ class TestUnresolvedClientIdWarning:
             mock_ws.return_value = MagicMock()
             db.workspace_client
         mock_warning.assert_not_called()
+
+
+@pytest.mark.unit
+class TestAssertProvidedParamsSatisfied:
+    """Non-workflow deploy paths reject an unsatisfied `provided: true` param."""
+
+    _BASE = """
+parameters:
+  gsid:
+    provided: true
+{extra}
+resources:
+  models:
+    m: &m
+      name: databricks-claude-sonnet-4-5
+  genie_rooms:
+    room: &room
+      name: r
+      space_id: ${{var.gsid}}
+tools:
+  gt: &gt
+    name: genie
+    function:
+      type: genie
+      name: q
+      description: d
+      genie_room: *room
+agents:
+  a: &a
+    name: aa
+    description: aa
+    model: *m
+    tools: [*gt]
+    prompt: hi
+app:
+  name: provided_guardrail_test
+  agents: [*a]
+"""
+
+    def _cfg(self, tmp_path, extra: str = "", **from_file_kwargs):
+        p = tmp_path / "c.yaml"
+        p.write_text(self._BASE.format(extra=extra))
+        return AppConfig.from_file(str(p), initialize=False, **from_file_kwargs)
+
+    def test_unsatisfied_provided_param_raises(self, tmp_path) -> None:
+        cfg = self._cfg(tmp_path)  # provided, no default, not supplied
+        with pytest.raises(ValueError, match="provided"):
+            cfg.assert_provided_params_satisfied()
+
+    def test_operator_supplied_passes(self, tmp_path) -> None:
+        cfg = self._cfg(tmp_path, params={"gsid": "01fREAL"})
+        cfg.assert_provided_params_satisfied()  # no raise
+
+    def test_default_fallback_passes(self, tmp_path) -> None:
+        cfg = self._cfg(tmp_path, extra="    default: fallback")
+        cfg.assert_provided_params_satisfied()  # no raise
+
+    def test_no_provided_params_is_noop(self, tmp_path) -> None:
+        text = (
+            "resources:\n  models:\n    m: &m\n      name: databricks-claude-sonnet-4-5\n"
+            "agents:\n  a: &a\n    name: aa\n    description: aa\n    model: *m\n    prompt: hi\n"
+            "app:\n  name: no_provided\n  agents: [*a]\n"
+        )
+        p = tmp_path / "np.yaml"
+        p.write_text(text)
+        AppConfig.from_file(str(p), initialize=False).assert_provided_params_satisfied()

@@ -40,8 +40,8 @@ parameters:
     description: SQL Warehouse id used by Genie + provisioning. Override per workspace via --var.
     default: d58e5fb998498840
   genie_space_id:
-    description: Genie space id forwarded from the provision-genie task (taskValue). Leave empty for local runs; the bundle deploy_job fills it in at runtime.
-    default: ""
+    description: Genie space id — provided at run time by the provision-genie task (taskValue). Supply --param to reuse an existing space.
+    provided: true
 
 # =============================================================================
 # VARIABLES (shared secrets for the retail_consumer_goods service principal)

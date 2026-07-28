@@ -165,6 +165,25 @@ class ParameterDeclarationModel(BaseModel):
         default=None,
         description="Default value if not provided at load time. Omit to make required.",
     )
+    provided: bool = Field(
+        default=False,
+        description=(
+            "When true, this parameter's value is supplied DYNAMICALLY at run "
+            "time rather than at config-load time — analogous to a build tool's "
+            "'provided' dependency scope (furnished by the runtime environment). "
+            "Most commonly it comes from an upstream job task's taskValues (e.g. "
+            "a Genie space id created by the workflow's provision-genie task), "
+            "but the flag is generic and independent of any consumer. At load "
+            "time an unsupplied `provided` param resolves to an empty string "
+            "(or its `default`, if given) instead of raising missing-required, "
+            "so ${var.NAME} references load cleanly before the real value "
+            "exists. The workflow staging path leaves such refs unresolved (see "
+            "write_pipeline_bundle) so the run-time step can fill them in; "
+            "non-workflow deploy paths (apps, mcp, model_serving) have no such "
+            "step and reject an unsupplied, defaultless `provided` param rather "
+            "than deploy a broken binding."
+        ),
+    )
 
 
 class ConfigVariableError(ValueError):
@@ -234,6 +253,7 @@ class ResolvedParameter(BaseModel):
     required: bool
     default: Optional[str]
     description: Optional[str]
+    provided: bool = False
 
 
 def substitute_params(
@@ -242,6 +262,7 @@ def substitute_params(
     declarations: Optional[Mapping[str, ParameterDeclarationModel]] = None,
     cli_vars: Optional[Mapping[str, str]] = None,
     env: Optional[Mapping[str, str]] = None,
+    defer: Optional[set[str]] = None,
     source: str = "<string>",
 ) -> str:
     """Render ``${param.NAME}`` and ``${var.NAME}`` references to literal values.
@@ -251,10 +272,19 @@ def substitute_params(
     Raises :class:`ConfigVariableError` when references are undeclared
     (when ``declarations`` is provided) or when required references cannot
     be resolved.
+
+    ``defer`` names are left in place as their literal ``${var.NAME}`` reference
+    and never counted as missing — even when they have no value and no default.
+    Used only by the workflow staging path (see
+    :func:`dao_ai.pipeline.bundle.write_pipeline_bundle`) to preserve a Genie
+    room's ``space_id: ${var.X}`` binding so the provisioning notebook can detect
+    it via :func:`is_parameter` and create/forward the space at run time. Inert
+    (no behavior change) when ``None``.
     """
     decls: Mapping[str, ParameterDeclarationModel] = declarations or {}
     overrides: Mapping[str, str] = cli_vars or {}
     env_map: Mapping[str, str] = env if env is not None else os.environ
+    deferred: set[str] = defer or set()
 
     comment_spans: list[tuple[int, int]] = _yaml_comment_spans(text)
     references: set[str] = find_param_references(text)
@@ -271,6 +301,11 @@ def substitute_params(
             return match.group(0)
         name: str = match.group("name")
         inline_default: Optional[str] = match.group("default")
+        # Deferred names survive as their literal ${var.NAME} reference (the
+        # workflow provisioning path resolves them at run time) and are never
+        # counted missing, even with no value/default.
+        if name in deferred:
+            return match.group(0)
         if name in overrides:
             return str(overrides[name])
         env_name: str = _env_key(name)
@@ -281,6 +316,14 @@ def substitute_params(
             return decl.default
         if inline_default is not None:
             return inline_default
+        # A `provided` param whose value wasn't supplied and has no default is
+        # furnished dynamically at run time (e.g. from a provisioning task's
+        # taskValues), so at load time it resolves to an empty placeholder rather
+        # than a missing-required error. The empty string is not a sentinel — it
+        # is simply "no value yet"; downstream logic keys off the `provided`
+        # flag, never off the value being empty.
+        if decl is not None and decl.provided:
+            return ""
         # Only count declared references as "missing required". Undeclared
         # references are reported separately via `undeclared` so we never
         # double-count them in the error message.
@@ -325,6 +368,10 @@ def resolve_parameters(
         elif decl.default is not None:
             value = decl.default
             source = "default"
+        elif decl.provided:
+            # Furnished dynamically at run time (e.g. a provisioning task's
+            # taskValues), not at load time — not missing.
+            source = "provided"
         else:
             source = "MISSING"
 
@@ -333,9 +380,12 @@ def resolve_parameters(
                 name=name,
                 value=value,
                 source=source,
-                required=decl.default is None,
+                # A `provided` param is never load-time required (it's supplied
+                # at run time); a plain param with no default is required.
+                required=decl.default is None and not decl.provided,
                 default=decl.default,
                 description=decl.description,
+                provided=decl.provided,
             )
         )
     return results
