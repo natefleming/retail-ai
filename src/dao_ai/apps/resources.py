@@ -314,17 +314,22 @@ def _extract_table_resources(
     SELECT permission, which automatically grants USE CATALOG and USE SCHEMA.
     """
     resources: list[dict[str, Any]] = []
+    # Dict keys (e.g. genie-derived ``tbl_<long_table>`` or
+    # ``<room>_<full_name>``) can exceed the Databricks Apps 2–30 char
+    # resource-name limit; sanitize + uniquify so bundle deploy doesn't 400.
+    used_names: set[str] = set()
     for key, table in tables.items():
         if table.on_behalf_of_user:
             continue
+        name: str = _unique_resource_name(key, used_names)
         resource: dict[str, Any] = {
-            "name": key,
+            "name": name,
             "type": "table",
             "table_name": table.full_name,
             "permissions": [{"level": p} for p in DEFAULT_PERMISSIONS["table"]],
         }
         resources.append(resource)
-        logger.debug(f"Extracted table resource: {key} -> {table.full_name}")
+        logger.debug(f"Extracted table resource: {name} -> {table.full_name}")
     return resources
 
 
@@ -391,17 +396,20 @@ def _extract_function_resources(
     ``user_api_scopes``).
     """
     resources: list[dict[str, Any]] = []
+    # See _extract_table_resources: keys can exceed the 2–30 char limit.
+    used_names: set[str] = set()
     for key, func in functions.items():
         if func.on_behalf_of_user:
             continue
+        name: str = _unique_resource_name(key, used_names)
         resource: dict[str, Any] = {
-            "name": key,
+            "name": name,
             "type": "function",
             "function_name": func.full_name,
             "permissions": [{"level": p} for p in DEFAULT_PERMISSIONS["function"]],
         }
         resources.append(resource)
-        logger.debug(f"Extracted function resource: {key} -> {func.full_name}")
+        logger.debug(f"Extracted function resource: {name} -> {func.full_name}")
     return resources
 
 
@@ -902,6 +910,27 @@ def _sanitize_resource_name(name: str) -> str:
         sanitized = sanitized[:30]
 
     return sanitized
+
+
+def _unique_resource_name(base_name: str, used: set[str]) -> str:
+    """Sanitize ``base_name`` to the Databricks Apps 2–30 char rule and make
+    it unique against ``used`` (mutated in place with the returned name).
+
+    Truncation to 30 chars can collide two long names that share a prefix, so
+    on collision a numeric suffix is appended within the length budget.
+    """
+    sanitized = _sanitize_resource_name(base_name)
+    if sanitized not in used:
+        used.add(sanitized)
+        return sanitized
+    counter = 1
+    while True:
+        suffix = f"_{counter}"
+        candidate = sanitized[: 30 - len(suffix)] + suffix
+        if candidate not in used:
+            used.add(candidate)
+            return candidate
+        counter += 1
 
 
 def generate_sdk_resources(
