@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **BREAKING — Renamed the bundle staging-dir flag `-o/--output-dir` → `-s/--staging-dir`** on every bundle verb (`generate`/`up`/`deploy`/`run`/`destroy` across the `agent`, `workflow`, and `mcp` nouns). The flag never wrote a one-shot output — it names a persistent, reused staging directory (`deploy`/`run`/`destroy` act on the same dir without regenerating), and every other reference to it already used "bundle"/"staging" vocabulary (`DAO_AI_BUNDLE_DIR`, `_resolve_bundle_dir`). `-o` is now free for genuine output flags (`graph -o FILE`, `trace create -o FORMAT`). No alias is kept — update any scripts using `-o`/`--output-dir` on bundle verbs. The `DAO_AI_BUNDLE_DIR` env var and default `<base>/<kind>/<app>` layout are unchanged.
+
 ## [0.2.4] - 2026-07-23
 
 ### Changed

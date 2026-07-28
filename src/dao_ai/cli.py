@@ -256,12 +256,12 @@ def _global_parent_parser() -> ArgumentParser:
 
 
 def _add_bundle_common_args(parser: ArgumentParser, *, kind: str) -> None:
-    """Add the flags every bundle verb shares: -c/-o/-p/--dry-run/--param.
+    """Add the flags every bundle verb shares: -c/-s/-p/--dry-run/--param.
 
     Shared across ``generate``/``deploy``/``run``/``destroy`` for all three
     nouns (agent/mcp/workflow) so the config path, staging dir, profile, and
     dry-run switch are spelled identically everywhere. ``kind`` only customizes
-    the ``--output-dir`` help text (``<base>/<kind>/<app>``).
+    the ``--staging-dir`` help text (``<base>/<kind>/<app>``).
     """
     parser.add_argument(
         "-c",
@@ -272,8 +272,8 @@ def _add_bundle_common_args(parser: ArgumentParser, *, kind: str) -> None:
         help="Path to the dao-ai configuration file",
     )
     parser.add_argument(
-        "-o",
-        "--output-dir",
+        "-s",
+        "--staging-dir",
         type=str,
         default=None,
         metavar="DIR",
@@ -3247,7 +3247,7 @@ def run_databricks_command(
     mode: Optional[str] = None,
     development: bool | None = None,
     config_vars: Optional[dict[str, str]] = None,
-    output_dir: Optional[str] = None,
+    staging_dir: Optional[str] = None,
     overwrite: bool = False,
     stage: bool = True,
 ) -> None:
@@ -3273,7 +3273,7 @@ def run_databricks_command(
             ``databricks bundle`` command as ``--var name=value`` so the
             asset-bundle layer's own ``${var.NAME}`` substitution sees the same
             values when the names overlap.
-        output_dir: Directory to stage the bundle into. When ``None`` (default),
+        staging_dir: Directory to stage the bundle into. When ``None`` (default),
             a per-app dir ``.dao-ai/bundle/workflow/<app>`` is used so
             deploying multiple configs never collides on a shared staging dir.
         overwrite: Overwrite copied-in *content* (config, data/functions assets)
@@ -3338,15 +3338,15 @@ def run_databricks_command(
     # resolved config — no source checkout required. `bundle deploy/run/destroy`
     # then run with cwd == the staging dir.
     #
-    # When --output-dir is omitted, derive a PER-APP default under the shared
+    # When --staging-dir is omitted, derive a PER-APP default under the shared
     # `.dao-ai/bundle/workflow/<app>` namespace rather than a single shared dir.
     # The staging dir's contents (bundle name, targets, config) are app-specific,
     # so a shared default would let a second config's deploy fail against the
     # first config's stale databricks.yaml. A per-app default isolates each
     # bundle's DABs state and makes deploying many configs "just work".
-    is_default_dir: bool = output_dir is None
-    if output_dir is not None:
-        staging_dir = Path(output_dir).resolve()
+    is_default_dir: bool = staging_dir is None
+    if staging_dir is not None:
+        staging_dir = Path(staging_dir).resolve()
     elif normalized_name:
         staging_dir = _default_bundle_dir("workflow", app_config.app.name).resolve()
     else:
@@ -3400,7 +3400,7 @@ def run_databricks_command(
             logger.error(
                 f"No staged workflow bundle at {staging_dir}. "
                 f"Run `dao-ai workflow generate -c {config}"
-                f"{f' -o {output_dir}' if output_dir else ''}` first."
+                f"{f' -s {staging_dir}' if staging_dir else ''}` first."
             )
             sys.exit(1)
 
@@ -3594,7 +3594,7 @@ def _link_and_grant_trace(
 def deploy_app_bundle(
     config: AppConfig,
     *,
-    output_dir: Path,
+    staging_dir: Path,
     deploy: bool,
     run: bool,
     destroy: bool,
@@ -3611,7 +3611,7 @@ def deploy_app_bundle(
 
     Args:
         config: loaded AppConfig (for trace_location + app name).
-        output_dir: the staged bundle dir (``bundle`` commands run here).
+        staging_dir: the staged bundle dir (``bundle`` commands run here).
         deploy / run / destroy: which action(s) to perform.
         profile: Databricks CLI profile.
         dry_run: print instead of executing.
@@ -3626,7 +3626,7 @@ def deploy_app_bundle(
             ["bundle", "destroy", "--auto-approve"],
             profile=profile,
             target=target,
-            cwd=output_dir,
+            cwd=staging_dir,
             dry_run=dry_run,
         )
         return
@@ -3636,7 +3636,7 @@ def deploy_app_bundle(
             ["bundle", "deploy"],
             profile=profile,
             target=target,
-            cwd=output_dir,
+            cwd=staging_dir,
             dry_run=dry_run,
         )
         # Between deploy and run: link the trace destination + grant the App SP
@@ -3648,7 +3648,7 @@ def deploy_app_bundle(
             ["bundle", "run", app_name],
             profile=profile,
             target=target,
-            cwd=output_dir,
+            cwd=staging_dir,
             dry_run=dry_run,
         )
 
@@ -3719,7 +3719,7 @@ def _exec_workflow_verb(options: Namespace, command: list[str]) -> None:
         dry_run=options.dry_run,
         mode=getattr(options, "mode", None),
         config_vars=_parse_var_args(options.var),
-        output_dir=options.output_dir,
+        staging_dir=options.staging_dir,
         stage=False,
     )
 
@@ -3735,11 +3735,11 @@ def handle_generate_workflow_command(options: Namespace) -> None:
     mode: Optional[str] = getattr(options, "mode", None)
     development: bool | None = getattr(options, "development", None)
     config_vars: dict[str, str] = _parse_var_args(options.var)
-    output_dir: str | None = getattr(options, "output_dir", None)
+    staging_dir: str | None = getattr(options, "staging_dir", None)
     overwrite: bool = getattr(options, "overwrite", False)
 
     # Generate-only: stage the bundle so the user can inspect it or deploy
-    # manually (`cd <output-dir> && databricks bundle deploy ...`). Use
+    # manually (`cd <staging-dir> && databricks bundle deploy ...`). Use
     # `dao-ai workflow up` to generate → deploy → run in one command.
     logger.info("Staging DAO AI workflow bundle...")
     run_databricks_command(
@@ -3752,7 +3752,7 @@ def handle_generate_workflow_command(options: Namespace) -> None:
         mode=mode,
         development=development,
         config_vars=config_vars,
-        output_dir=output_dir,
+        staging_dir=staging_dir,
         overwrite=overwrite,
     )
 
@@ -3768,7 +3768,7 @@ def _handle_up_workflow_command(options: Namespace) -> None:
     mode: Optional[str] = getattr(options, "mode", None)
     development: bool | None = getattr(options, "development", None)
     config_vars: dict[str, str] = _parse_var_args(options.var)
-    output_dir: str | None = getattr(options, "output_dir", None)
+    staging_dir: str | None = getattr(options, "staging_dir", None)
     overwrite: bool = getattr(options, "overwrite", False)
 
     logger.info("Deploying DAO AI asset bundle...")
@@ -3782,7 +3782,7 @@ def _handle_up_workflow_command(options: Namespace) -> None:
         mode=mode,
         development=development,
         config_vars=config_vars,
-        output_dir=output_dir,
+        staging_dir=staging_dir,
         overwrite=overwrite,
     )
     logger.info("Running DAO AI provisioning workflow...")
@@ -3796,13 +3796,13 @@ def _handle_up_workflow_command(options: Namespace) -> None:
         mode=mode,
         development=development,
         config_vars=config_vars,
-        output_dir=output_dir,
+        staging_dir=staging_dir,
         overwrite=overwrite,
     )
 
 
 def _resolve_bundle_dir(
-    kind: str, config: AppConfig, output_dir: str | None
+    kind: str, config: AppConfig, staging_dir: str | None
 ) -> tuple[Path, bool]:
     """Resolve the staging dir for an App bundle, shared by generate + verbs.
 
@@ -3811,10 +3811,10 @@ def _resolve_bundle_dir(
     ``-o``. Both ``<noun> generate`` and the standalone ``deploy``/``run``/
     ``destroy`` verbs call this so they always agree on the same directory.
     """
-    is_default_dir: bool = output_dir is None
+    is_default_dir: bool = staging_dir is None
     bundle_dir: Path = (
-        Path(output_dir)
-        if output_dir is not None
+        Path(staging_dir)
+        if staging_dir is not None
         else _default_bundle_dir(kind, config.app.name)
     ).resolve()
     return bundle_dir, is_default_dir
@@ -3908,7 +3908,7 @@ def _generate_app_bundle(options: Namespace, *, kind: str, writer, what: str) ->
     # that wasn't supplied and has no default, rather than ship a broken binding.
     config.assert_provided_params_satisfied()
 
-    bundle_dir, is_default_dir = _resolve_bundle_dir(kind, config, options.output_dir)
+    bundle_dir, is_default_dir = _resolve_bundle_dir(kind, config, options.staging_dir)
     _stage_app_bundle(
         config,
         bundle_dir,
@@ -3991,7 +3991,7 @@ def _deploy_run_destroy_app_bundle(
 
     # --- Route 3: bundle path ---
     config = _load_app_config(options, what=what)
-    bundle_dir, is_default_dir = _resolve_bundle_dir(kind, config, options.output_dir)
+    bundle_dir, is_default_dir = _resolve_bundle_dir(kind, config, options.staging_dir)
     is_staged: bool = (bundle_dir / "databricks.yaml").exists()
 
     if not is_staged and not deploy:
@@ -3999,7 +3999,7 @@ def _deploy_run_destroy_app_bundle(
         logger.error(
             f"No staged {kind} bundle at {bundle_dir}. "
             f"Run `dao-ai {kind} generate -c {options.config}"
-            f"{f' -o {options.output_dir}' if options.output_dir else ''}` first."
+            f"{f' -s {options.staging_dir}' if options.staging_dir else ''}` first."
         )
         sys.exit(1)
 
@@ -4067,7 +4067,7 @@ def _deploy_run_destroy_app_bundle(
 
     deploy_app_bundle(
         config,
-        output_dir=bundle_dir,
+        staging_dir=bundle_dir,
         deploy=deploy,
         run=run,
         destroy=destroy,

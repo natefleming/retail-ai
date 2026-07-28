@@ -274,7 +274,7 @@ MCP server bundles use `dao-ai agent generate --mode mcp` (not a separate noun).
 All three generators (`agent`, `mcp`, `workflow`)
 resolve where to write the bundle in this order:
 
-1. `-o/--output-dir <dir>` — used verbatim.
+1. `-s/--staging-dir <dir>` — used verbatim.
 2. `DAO_AI_BUNDLE_DIR` env var — bundles land at `$DAO_AI_BUNDLE_DIR/<kind>/<app>`
    (`<kind>` is `agent`, `mcp`, or `workflow`). Set this for a central location,
    e.g. `export DAO_AI_BUNDLE_DIR=~/.dao-ai/bundle`.
@@ -820,7 +820,7 @@ the bundle only; `deploy` pushes the already-staged bundle (unlike `agent deploy
 | Option | Description | Verbs |
 |--------|-------------|-------|
 | `-c, --config FILE` | Path to the dao-ai configuration file (required) | all |
-| `-o, --output-dir DIR` | Bundle staging dir (default: `$DAO_AI_BUNDLE_DIR/workflow/<app>` or `./.dao-ai/bundle/workflow/<app>`) | all |
+| `-s, --staging-dir DIR` | Bundle staging dir (default: `$DAO_AI_BUNDLE_DIR/workflow/<app>` or `./.dao-ai/bundle/workflow/<app>`) | all |
 | `-p, --profile NAME` | Databricks CLI profile to use | all |
 | `--param KEY=VALUE` / `--var KEY=VALUE` | Config parameter overrides (repeatable) | all |
 | `--cloud {azure,aws,gcp}` | Cloud provider (auto-detected from the workspace URL; required only if detection fails) | all |
@@ -853,7 +853,7 @@ the bundle only; `deploy` pushes it (auto-generating if nothing is staged);
 | Option | Description | Verbs |
 |--------|-------------|-------|
 | `-c, --config FILE` | Path to the dao-ai configuration file (required) | all |
-| `-o, --output-dir DIR` | Output dir (default: `$DAO_AI_BUNDLE_DIR/<kind>/<app>` or `./.dao-ai/bundle/<kind>/<app>`, where `<kind>` is `agent` or `mcp`) | all |
+| `-s, --staging-dir DIR` | Bundle staging dir (default: `$DAO_AI_BUNDLE_DIR/<kind>/<app>` or `./.dao-ai/bundle/<kind>/<app>`, where `<kind>` is `agent` or `mcp`) | all |
 | `-p, --profile NAME` | Databricks profile for config loading and deploy | all |
 | `--param KEY=VALUE` / `--var KEY=VALUE` | Config parameter overrides (repeatable) | all |
 | `--mode {apps,mcp,model_serving}` | Serving target (default: `apps`; `ms`/`model-serving` accepted as aliases). `run`/`destroy` accept `apps`/`mcp` only. | all |

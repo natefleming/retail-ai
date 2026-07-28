@@ -59,19 +59,19 @@ _MCP_APP_COMMAND: list[str] = ["python", "-m", "dao_ai.mcp.server"]
 
 def write_mcp_bundle(
     config: AppConfig,
-    output_dir: Path,
+    staging_dir: Path,
     *,
     overwrite: bool = False,
     development: bool = False,
 ) -> dict[str, str]:
-    """Write an MCP-server deploy bundle into ``output_dir``.
+    """Write an MCP-server deploy bundle into ``staging_dir``.
 
     Requires ``config.app.name`` (used as both the Databricks App name and
     the single MCP tool's name) and encourages ``config.app.description``
     (surfaced as the tool description to MCP clients).
 
     When ``development=True``, builds the local dao-ai wheel and bundles it
-    into ``output_dir/dist/``; the generated requirements.txt then installs
+    into ``staging_dir/dist/``; the generated requirements.txt then installs
     from that wheel instead of pulling ``dao-ai[mcp]`` from PyPI.
 
     Returns the staging registry: ``{relative_posix_path: sha256}`` for the
@@ -93,7 +93,7 @@ def write_mcp_bundle(
             "description. Add `app.description` for a better client UX."
         )
 
-    output_dir.mkdir(parents=True, exist_ok=True)
+    staging_dir.mkdir(parents=True, exist_ok=True)
 
     app_name = _derive_app_name(config)
     tool_name = _slugify(str(config.app.name))
@@ -106,24 +106,24 @@ def write_mcp_bundle(
     skipped: list[str] = []
     # User code (src/ + code_paths + source config) preserved as-is.
     preserved: list[str] = []
-    # Content hashes of the files dao-ai generated, keyed by output-dir-relative
+    # Content hashes of the files dao-ai generated, keyed by staging-dir-relative
     # POSIX path. User-code writes pass register=False so hand-edits to them never
     # trip edit-detection.
     registry: dict[str, str] = {}
 
     def _register(path: Path) -> None:
         if path.exists():
-            registry[path.relative_to(output_dir).as_posix()] = _sha256_file(path)
+            registry[path.relative_to(staging_dir).as_posix()] = _sha256_file(path)
 
     def _write(path: Path, content: str, *, register: bool = True) -> None:
         if path.exists() and not overwrite:
-            skipped.append(str(path.relative_to(output_dir)))
+            skipped.append(str(path.relative_to(staging_dir)))
             if register:
                 _register(path)
             return
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(content)
-        written.append(str(path.relative_to(output_dir)))
+        written.append(str(path.relative_to(staging_dir)))
         if register:
             _register(path)
 
@@ -133,7 +133,7 @@ def write_mcp_bundle(
     # ``artifacts:`` block (MCP doesn't build a user wheel — it installs
     # ``dao-ai[mcp]`` from PyPI via requirements.txt).
     _write(
-        output_dir / "databricks.yaml",
+        staging_dir / "databricks.yaml",
         generate_databricks_yaml(
             config,
             development=development,
@@ -144,7 +144,7 @@ def write_mcp_bundle(
         ),
     )
 
-    resources_dir = output_dir / "resources"
+    resources_dir = staging_dir / "resources"
     resources_dir.mkdir(parents=True, exist_ok=True)
     _write(
         resources_dir / "app.yml",
@@ -158,7 +158,7 @@ def write_mcp_bundle(
 
     wheel_filename: str | None = None
     if development:
-        wheel_filename = _bundle_local_wheel(output_dir, written=written)
+        wheel_filename = _bundle_local_wheel(staging_dir, written=written)
 
     # The MCP server always needs the ``mcp`` extra (fastapi/uvicorn); merge in
     # whatever optional-feature extras the config exercises so ``uv sync``
@@ -184,7 +184,7 @@ def write_mcp_bundle(
     extra_deps: str = _format_extra_deps(user_pip_requirements)
 
     _write(
-        output_dir / "pyproject.toml",
+        staging_dir / "pyproject.toml",
         _render_pyproject(
             app_name=app_name,
             wheel_filename=wheel_filename,
@@ -197,23 +197,23 @@ def write_mcp_bundle(
     # pyproject declares ``packages = ["src/<pkg>"]``). User code: not registered
     # so a real package the user drops here can be edited freely.
     package_name = app_name.replace("-", "_")
-    _write(output_dir / "src" / package_name / "__init__.py", "", register=False)
+    _write(staging_dir / "src" / package_name / "__init__.py", "", register=False)
 
     _write(
-        output_dir / ".gitignore",
+        staging_dir / ".gitignore",
         _GITIGNORE_DEV_CONTENT if development else _GITIGNORE_CONTENT,
     )
-    _write(output_dir / ".python-version", "3.11\n")
+    _write(staging_dir / ".python-version", "3.11\n")
 
     # Generate the portable uv.lock (Apps runs ``uv sync --locked --no-dev``
     # from pyproject.toml + uv.lock; no requirements.txt). In dev mode the lock
     # references the bundled wheel via ``[tool.uv.sources]``; published mode
     # locks the full ``dao-ai[mcp]`` public-PyPI closure.
-    generate_bundle_lock(output_dir)
+    generate_bundle_lock(staging_dir)
     written.append("uv.lock")
-    _register(output_dir / "uv.lock")
+    _register(staging_dir / "uv.lock")
 
-    config_dest = output_dir / config_filename
+    config_dest = staging_dir / config_filename
     if source_config_path is not None and (
         config_dest.resolve() == Path(source_config_path).resolve()
     ):
@@ -243,7 +243,7 @@ def write_mcp_bundle(
 
     for src, code_dest in iter_code_path_stagings(config):
         for file_src, file_dest in walk_code_path_files(src, code_dest):
-            out = output_dir / file_dest
+            out = staging_dir / file_dest
             # User code is sacred: never overwrite; never copy onto itself.
             if file_src.resolve() == out.resolve() or out.exists():
                 preserved.append(file_dest)
@@ -258,7 +258,7 @@ def write_mcp_bundle(
         for file_src, file_dest in walk_code_path_files(
             pkg_dir, f"{_SRC_DIRNAME}/{pkg_dir.name}"
         ):
-            out = output_dir / file_dest
+            out = staging_dir / file_dest
             if file_src.resolve() == out.resolve() or out.exists():
                 preserved.append(file_dest)
                 continue
@@ -267,11 +267,11 @@ def write_mcp_bundle(
             written.append(file_dest)
 
     _write(
-        output_dir / "README.md",
+        staging_dir / "README.md",
         _render_readme(config, app_name=app_name, tool_name=tool_name),
     )
 
-    print(f"\nMCP bundle generated in {output_dir}/\n")
+    print(f"\nMCP bundle generated in {staging_dir}/\n")
     for name in written:
         print(f"  {name:<32s} (created)")
     for name in skipped:
@@ -281,7 +281,7 @@ def write_mcp_bundle(
 
     print(f"\nMCP tool exposed: {tool_name}")
     print("\nNext steps:")
-    print(f"  cd {output_dir}")
+    print(f"  cd {staging_dir}")
     print("  databricks bundle deploy --target dev")
     if config.app.trace_location:
         # Idempotent — safe on every deploy — but load-bearing on
@@ -331,8 +331,8 @@ def _render_pyproject(
     )
 
 
-def _bundle_local_wheel(output_dir: Path, *, written: list[str]) -> str:
-    """Build (or reuse) a local dao-ai wheel and copy it under ``output_dir/dist/``."""
+def _bundle_local_wheel(staging_dir: Path, *, written: list[str]) -> str:
+    """Build (or reuse) a local dao-ai wheel and copy it under ``staging_dir/dist/``."""
     project_root = Path(__file__).parents[3]
     source_dir = project_root / "src" / "dao_ai"
 
@@ -368,7 +368,7 @@ def _bundle_local_wheel(output_dir: Path, *, written: list[str]) -> str:
         raise RuntimeError(f"No wheel produced under {dist_src}")
     wheel_path = wheels[-1]
 
-    dist_dst = output_dir / "dist"
+    dist_dst = staging_dir / "dist"
     dist_dst.mkdir(parents=True, exist_ok=True)
     dst_path = dist_dst / wheel_path.name
     shutil.copy2(wheel_path, dst_path)

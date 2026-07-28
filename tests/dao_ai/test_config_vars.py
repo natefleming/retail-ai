@@ -1883,7 +1883,7 @@ def test_cli_run_databricks_command_forwards_only_declared_vars(
         ["bundle", "deploy"],
         config=str(parameterised_config_path),
         config_vars={"module_id": "09", "catalog": "nfleming", "undeclared_x": "z"},
-        output_dir=str(out),
+        staging_dir=str(out),
         development=False,
         stage=False,
     )
