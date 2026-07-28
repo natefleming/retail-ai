@@ -524,7 +524,7 @@ class TestPipelineEmitsDevelopmentVar:
         run_databricks_command(
             None,
             config=str(cfg),
-            output_dir=str(tmp_path / "out"),
+            staging_dir=str(tmp_path / "out"),
             # Published mode: the stubbed bundle-write stages no wheel; this
             # test asserts staging + no-exec, not local-wheel resolution.
             development=False,
@@ -563,7 +563,7 @@ class TestPipelineEmitsDevelopmentVar:
         run_databricks_command(
             ["bundle", "deploy"],
             config=str(cfg),
-            output_dir=str(out),
+            staging_dir=str(out),
             development=False,
             stage=False,
         )
@@ -590,7 +590,7 @@ class TestPipelineEmitsDevelopmentVar:
             run_databricks_command(
                 ["bundle", "deploy"],
                 config=str(cfg),
-                output_dir=str(tmp_path / "nonexistent"),
+                staging_dir=str(tmp_path / "nonexistent"),
                 development=False,
                 stage=False,
             )
@@ -642,7 +642,7 @@ class TestConfigVarsForwardedOnlyIfDeclared:
         run_databricks_command(
             ["bundle", "deploy"],
             config=str(cfg),
-            output_dir=str(out),
+            staging_dir=str(out),
             development=False,
             stage=False,
             config_vars=config_vars,
@@ -892,7 +892,7 @@ class TestAgentModeWriterSelection:
                 "generate",
                 "-c",
                 str(cfg),
-                "-o",
+                "-s",
                 str(tmp_path / "out"),
                 "--mode",
                 "mcp",
@@ -922,7 +922,7 @@ class TestAgentModeWriterSelection:
 
         cfg = self._write_config(tmp_path)
         opts = parse_args(
-            ["agent", "generate", "-c", str(cfg), "-o", str(tmp_path / "out")]
+            ["agent", "generate", "-c", str(cfg), "-s", str(tmp_path / "out")]
         )
         cli.handle_agent_command(opts)
 
@@ -939,14 +939,14 @@ class TestAgentModeWriterSelection:
         resolved_bundle_dirs: dict[str, tuple[str, Path]] = {}
 
         def mock_resolve_bundle_dir(
-            kind: str, config: object, output_dir: str | None
+            kind: str, config: object, staging_dir: str | None
         ) -> tuple[Path, bool]:
-            # Record: kind -> (output_dir passed in, resolved path)
+            # Record: kind -> (staging_dir passed in, resolved path)
             mcp_staging = tmp_path / "staged" / kind / "test_app"
             mcp_staging.mkdir(parents=True, exist_ok=True)
             (mcp_staging / "databricks.yaml").write_text("bundle: {}\n")
-            resolved_bundle_dirs[kind] = (output_dir or "default", mcp_staging)
-            return mcp_staging, output_dir is None
+            resolved_bundle_dirs[kind] = (staging_dir or "default", mcp_staging)
+            return mcp_staging, staging_dir is None
 
         monkeypatch.setattr(cli, "_apply_profile_context", lambda p: None)
 
@@ -1006,7 +1006,7 @@ class TestDeployRestagesOnConfigDrift:
         restaged: dict[str, bool] = {}
         monkeypatch.setattr(cli, "_apply_profile_context", lambda p: None)
         monkeypatch.setattr(
-            cli, "_resolve_bundle_dir", lambda kind, config, output_dir: (staged, True)
+            cli, "_resolve_bundle_dir", lambda kind, config, staging_dir: (staged, True)
         )
         monkeypatch.setattr(cli, "_staging_dir_has_local_edits", lambda d: has_edits)
         monkeypatch.setattr(cli, "deploy_app_bundle", lambda *a, **k: None)
@@ -1101,7 +1101,7 @@ class TestDeployAppBundle:
         ):
             deploy_app_bundle(
                 cfg,
-                output_dir=tmp_path,
+                staging_dir=tmp_path,
                 deploy=True,
                 run=True,
                 destroy=False,
@@ -1145,7 +1145,7 @@ class TestDeployAppBundle:
         ):
             deploy_app_bundle(
                 cfg,
-                output_dir=tmp_path,
+                staging_dir=tmp_path,
                 deploy=True,
                 run=True,
                 destroy=False,
@@ -1161,7 +1161,7 @@ class TestDeployAppBundle:
         ):
             deploy_app_bundle(
                 cfg,
-                output_dir=tmp_path,
+                staging_dir=tmp_path,
                 deploy=False,
                 run=False,
                 destroy=True,
@@ -1184,7 +1184,7 @@ class TestDeployAppBundle:
         ):
             deploy_app_bundle(
                 cfg,
-                output_dir=tmp_path,
+                staging_dir=tmp_path,
                 deploy=False,
                 run=True,
                 destroy=False,
@@ -1341,12 +1341,12 @@ class TestNounVerbDispatch:
             lambda *a, **k: wrote.setdefault("wrote", True),
         )
         with patch.object(cli, "deploy_app_bundle") as dep:
-            opts = parse_args(["agent", "deploy", "-c", str(cfg), "-o", str(out)])
+            opts = parse_args(["agent", "deploy", "-c", str(cfg), "-s", str(out)])
             cli.handle_agent_command(opts)
 
         assert "wrote" not in wrote, "deploy must not regenerate"
         dep.assert_called_once()
-        assert dep.call_args.kwargs["output_dir"] == out
+        assert dep.call_args.kwargs["staging_dir"] == out
         assert (out / "sentinel").read_text() == "keep\n"
 
     def test_deploy_verb_errors_when_not_staged(
@@ -1361,7 +1361,7 @@ class TestNounVerbDispatch:
         )
         monkeypatch.setattr(cli, "_apply_profile_context", lambda p: None)
         opts = parse_args(
-            ["agent", "deploy", "-c", str(cfg), "-o", str(tmp_path / "nope")]
+            ["agent", "deploy", "-c", str(cfg), "-s", str(tmp_path / "nope")]
         )
         with pytest.raises(SystemExit) as exc:
             cli.handle_agent_command(opts)
@@ -1410,7 +1410,7 @@ class TestDeployAutoGenerate:
             fake_writer,
         )
         with patch.object(cli, "deploy_app_bundle") as dep:
-            opts = parse_args(["agent", "deploy", "-c", str(cfg), "-o", str(out)])
+            opts = parse_args(["agent", "deploy", "-c", str(cfg), "-s", str(out)])
             cli.handle_agent_command(opts)
 
         assert wrote.get("called"), "writer must be called to auto-generate the bundle"
@@ -1434,7 +1434,7 @@ class TestDeployAutoGenerate:
             lambda *a, **k: wrote.setdefault("called", True),
         )
         with patch.object(cli, "deploy_app_bundle") as dep:
-            opts = parse_args(["agent", "deploy", "-c", str(cfg), "-o", str(out)])
+            opts = parse_args(["agent", "deploy", "-c", str(cfg), "-s", str(out)])
             cli.handle_agent_command(opts)
 
         assert not wrote, "deploy must NOT regenerate when already staged"
@@ -1596,7 +1596,7 @@ class TestDeployAutoGenerate:
         cfg = self._write_cfg(tmp_path)
         monkeypatch.setattr(cli, "_apply_profile_context", lambda p: None)
         opts = parse_args(
-            ["agent", "run", "-c", str(cfg), "-o", str(tmp_path / "nope")]
+            ["agent", "run", "-c", str(cfg), "-s", str(tmp_path / "nope")]
         )
         with pytest.raises(SystemExit) as exc:
             cli.handle_agent_command(opts)
@@ -1632,7 +1632,7 @@ class TestDeployAutoGenerate:
             track_resolve,
         )
         with patch.object(cli, "deploy_app_bundle"):
-            opts = parse_args(["agent", "deploy", "-c", str(cfg), "-o", str(out)])
+            opts = parse_args(["agent", "deploy", "-c", str(cfg), "-s", str(out)])
             cli.handle_agent_command(opts)
 
         assert resolve_calls == ["called"], (
@@ -1659,7 +1659,7 @@ class TestDeployAutoGenerate:
             track_resolve,
         )
         with patch.object(cli, "deploy_app_bundle"):
-            opts = parse_args(["agent", "deploy", "-c", str(cfg), "-o", str(out)])
+            opts = parse_args(["agent", "deploy", "-c", str(cfg), "-s", str(out)])
             cli.handle_agent_command(opts)
 
         assert resolve_calls == [], (
@@ -1678,7 +1678,7 @@ class TestDeployAutoGenerate:
         monkeypatch.setattr(cli, "_apply_profile_context", lambda p: None)
         with patch.object(cli, "deploy_app_bundle") as dep:
             opts = parse_args(
-                ["agent", "up", "-c", str(cfg), "-o", str(out), "--mode", "apps"]
+                ["agent", "up", "-c", str(cfg), "-s", str(out), "--mode", "apps"]
             )
             cli.handle_agent_command(opts)
 

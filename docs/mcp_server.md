@@ -49,11 +49,11 @@ pip install 'dao-ai[mcp]'
 dao-ai agent generate \
   --mode mcp \
   -c my_agent.yaml \
-  -o ./my-agent-mcp \
+  -s ./my-agent-mcp \
   -p <profile>
 
 # 3. Deploy + run in one step (or drive databricks bundle by hand, below)
-dao-ai agent up --mode mcp -c my_agent.yaml -o ./my-agent-mcp -p <profile>
+dao-ai agent up --mode mcp -c my_agent.yaml -s ./my-agent-mcp -p <profile>
 
 # 3b. ...or drive the bundle manually
 cd my-agent-mcp
@@ -453,7 +453,7 @@ launches the server via module invocation — no console script required.
 | Flag | Meaning |
 |---|---|
 | `-c / --config` | Path to your dao-ai config YAML. |
-| `-o / --output-dir` | Where to write the bundle. |
+| `-s / --staging-dir` | Where to write the bundle. |
 | `--overwrite` | Overwrite existing files in the output directory. |
 | `--development` | Build the local dao-ai wheel and bundle it under `output/dist/`; the generated pyproject installs from there. Use when dao-ai changes haven't shipped to PyPI yet. |
 | `-p / --profile` | Databricks CLI profile — drives `_resolve_all_resources` so generated bundle paths (e.g. Lakebase database IDs) come from the target workspace. Always pass this when your config references resources resolved at generate time. |

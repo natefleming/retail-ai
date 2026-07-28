@@ -511,10 +511,10 @@ dao-ai agent up -c config/my_config.yaml -p <profile>
 Or generate first, optionally hand-edit the staged files, then ship exactly what's on disk with the `deploy` verb, and start it with `run`:
 
 ```bash
-dao-ai agent generate -c config/my_config.yaml -o ./my-bundle
+dao-ai agent generate -c config/my_config.yaml -s ./my-bundle
 # (optionally hand-edit ./my-bundle)
-dao-ai agent deploy -c config/my_config.yaml -o ./my-bundle -p <profile>
-dao-ai agent run    -c config/my_config.yaml -o ./my-bundle -p <profile>
+dao-ai agent deploy -c config/my_config.yaml -s ./my-bundle -p <profile>
+dao-ai agent run    -c config/my_config.yaml -s ./my-bundle -p <profile>
 
 # ...or drive the bundle by hand
 cd ./my-bundle

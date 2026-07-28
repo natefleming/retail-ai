@@ -14,7 +14,7 @@ resolved against the config's own directory (see ``AppConfig.from_file`` /
 under ``config/`` and resolve identically when the notebook reloads the staged
 config::
 
-    <output_dir>/
+    <staging_dir>/
       databricks.yaml          # built programmatically (dict -> yaml.dump)
       notebooks/NN_*.py        # packaged step notebooks
       config/<name>.yaml       # the resolved dao-ai config
@@ -237,13 +237,13 @@ def generate_pipeline_databricks_yaml(config: AppConfig, development: bool) -> s
     return dump_bundle_yaml(bundle)
 
 
-def _materialize_notebooks(output_dir: Path, overwrite: bool) -> list[str]:
-    """Copy the packaged step notebooks into ``<output_dir>/notebooks/``.
+def _materialize_notebooks(staging_dir: Path, overwrite: bool) -> list[str]:
+    """Copy the packaged step notebooks into ``<staging_dir>/notebooks/``.
 
     Only the wired ``NN_*.py`` step notebooks are materialized; the package
     ``__init__.py`` marker is skipped.
     """
-    notebooks_dir = output_dir / "notebooks"
+    notebooks_dir = staging_dir / "notebooks"
     notebooks_dir.mkdir(parents=True, exist_ok=True)
 
     written: list[str] = []
@@ -311,7 +311,7 @@ def _asset_sync_globs(config: AppConfig) -> list[str]:
 
 def _stage_assets(
     config: AppConfig,
-    output_dir: Path,
+    staging_dir: Path,
     overwrite: bool,
 ) -> tuple[list[str], list[str]]:
     """Copy config-referenced data/functions files into the staging bundle.
@@ -320,8 +320,8 @@ def _stage_assets(
     ``data: data/products.snappy.parquet`` in
     ``.../hardware_store/hardware_store.yaml`` means
     ``.../hardware_store/data/products.snappy.parquet``. The config stages to
-    ``<output_dir>/config/<name>.yaml``, so we copy each asset to the same
-    path relative to that staged config (``<output_dir>/config/<rel>``); the
+    ``<staging_dir>/config/<name>.yaml``, so we copy each asset to the same
+    path relative to that staged config (``<staging_dir>/config/<rel>``); the
     provisioning notebook reloads the staged config and its
     :meth:`DatasetModel.resolve_asset_path` resolves the same relative path
     against the staged config's directory, finding the copy.
@@ -337,14 +337,14 @@ def _stage_assets(
         return [], []
 
     src_anchor = Path(source_config).resolve().parent
-    dest_anchor = (output_dir / "config").resolve()
+    dest_anchor = (staging_dir / "config").resolve()
     copied: list[str] = []
     missing: list[str] = []
 
     def _staged_label(dest: Path) -> str:
         """Bundle-relative label for the summary (e.g. ``config/foo/bar.sql``)."""
         try:
-            return str(dest.relative_to(output_dir))
+            return str(dest.relative_to(staging_dir))
         except ValueError:
             return str(dest)
 
@@ -355,7 +355,7 @@ def _stage_assets(
             missing.append(rel)
             continue
         if src == dest:
-            # Staging in place (output_dir is the source tree) — nothing to copy.
+            # Staging in place (staging_dir is the source tree) — nothing to copy.
             continue
         if dest.exists() and not overwrite:
             continue
@@ -368,7 +368,7 @@ def _stage_assets(
 
 def _stage_code_paths(
     config: AppConfig,
-    output_dir: Path,
+    staging_dir: Path,
 ) -> tuple[list[str], list[str]]:
     """Copy ``config.app.code_paths`` files into the staged bundle under ``config/``.
 
@@ -383,13 +383,13 @@ def _stage_code_paths(
     """
     from dao_ai.code_paths import iter_code_path_stagings, walk_code_path_files
 
-    dest_anchor = (output_dir / "config").resolve()
+    dest_anchor = (staging_dir / "config").resolve()
     copied: list[str] = []
     preserved: list[str] = []
     for src, dest in iter_code_path_stagings(config):
         for file_src, file_dest in walk_code_path_files(src, dest):
             file_out = (dest_anchor / file_dest).resolve()
-            label = _bundle_label(file_out, output_dir)
+            label = _bundle_label(file_out, staging_dir)
             if file_src == file_out or file_out.exists():
                 preserved.append(label)
                 continue
@@ -401,7 +401,7 @@ def _stage_code_paths(
 
 def _stage_src_packages(
     config: AppConfig,
-    output_dir: Path,
+    staging_dir: Path,
 ) -> tuple[list[str], list[str]]:
     """Copy colocated ``src/<pkg>`` packages into the staged bundle under ``config/src``.
 
@@ -421,7 +421,7 @@ def _stage_src_packages(
         walk_code_path_files,
     )
 
-    dest_anchor = (output_dir / "config").resolve()
+    dest_anchor = (staging_dir / "config").resolve()
     copied: list[str] = []
     preserved: list[str] = []
     for pkg_dir in discover_src_packages(config):
@@ -429,7 +429,7 @@ def _stage_src_packages(
             pkg_dir, f"{_SRC_DIRNAME}/{pkg_dir.name}"
         ):
             file_out = (dest_anchor / file_dest).resolve()
-            label = _bundle_label(file_out, output_dir)
+            label = _bundle_label(file_out, staging_dir)
             if file_src == file_out or file_out.exists():
                 preserved.append(label)
                 continue
@@ -439,10 +439,10 @@ def _stage_src_packages(
     return copied, preserved
 
 
-def _bundle_label(file_out: Path, output_dir: Path) -> str:
+def _bundle_label(file_out: Path, staging_dir: Path) -> str:
     """Bundle-relative label for the staging summary (best-effort)."""
     try:
-        return str(file_out.relative_to(output_dir))
+        return str(file_out.relative_to(staging_dir))
     except ValueError:
         return str(file_out)
 
@@ -512,14 +512,14 @@ def _staged_config_text(config: AppConfig) -> str | None:
 
 def write_pipeline_bundle(
     config: AppConfig,
-    output_dir: Path,
+    staging_dir: Path,
     overwrite: bool = False,
     development: bool = False,
 ) -> dict[str, str]:
     """Stage a deployable ``deploy_job`` bundle for ``dao-ai generate-workflow``.
 
     Materializes the packaged pipeline assets (``databricks.yaml`` template,
-    step notebooks) plus the resolved dao-ai config into ``output_dir``, so
+    step notebooks) plus the resolved dao-ai config into ``staging_dir``, so
     ``databricks bundle deploy/run`` can be invoked from there with no source
     checkout. dao-ai installs via the serverless env's ``dao_ai_dep`` dependency.
 
@@ -531,7 +531,7 @@ def write_pipeline_bundle(
     Args:
         config: The loaded dao-ai config (via ``AppConfig.from_file`` — the
             source path it records is what asset paths resolve against).
-        output_dir: Directory to stage the bundle into.
+        staging_dir: Directory to stage the bundle into.
         overwrite: Overwrite existing staged files.
         development: When True, stage the current build's dao-ai wheel under
             ``dist/`` so the step notebooks install *this* code rather than the
@@ -549,19 +549,19 @@ def write_pipeline_bundle(
             "Config must have an 'app' section to stage a pipeline bundle."
         )
 
-    output_dir = output_dir.resolve()
-    output_dir.mkdir(parents=True, exist_ok=True)
+    staging_dir = staging_dir.resolve()
+    staging_dir.mkdir(parents=True, exist_ok=True)
 
     written: list[str] = []
     # User code (src/ + code_paths + source config) left untouched.
     preserved_user_code: list[str] = []
     # Content hashes of the files dao-ai generated (databricks.yaml + notebooks),
-    # keyed by output-dir-relative POSIX path. The staged config and assets are
+    # keyed by staging-dir-relative POSIX path. The staged config and assets are
     # user-editable, so they're excluded.
     registry: dict[str, str] = {}
 
     def _register(rel: str) -> None:
-        path = output_dir / rel
+        path = staging_dir / rel
         if path.exists():
             registry[Path(rel).as_posix()] = _sha256_file(path)
 
@@ -577,7 +577,7 @@ def write_pipeline_bundle(
     # 1. databricks.yaml — built programmatically (dict -> YAML). Development
     #    mode adds the `dist/*.whl` sync include so the staged wheel uploads.
     _write_file(
-        output_dir / "databricks.yaml",
+        staging_dir / "databricks.yaml",
         generate_pipeline_databricks_yaml(config, development=development),
         overwrite=True,
     )
@@ -587,7 +587,7 @@ def write_pipeline_bundle(
     # 2. Step notebooks. (No requirements.txt: the serverless environment
     #    installs dao-ai — which pulls its own transitive deps — via the
     #    ``dao_ai_dep`` dependency, mirroring the Apps deploy paths.)
-    notebook_rels = _materialize_notebooks(output_dir, overwrite=True)
+    notebook_rels = _materialize_notebooks(staging_dir, overwrite=True)
     written.extend(notebook_rels)
     for rel in notebook_rels:
         _register(rel)
@@ -598,7 +598,7 @@ def write_pipeline_bundle(
     #    stripped) so the deployed job needs no --var arguments.
     source_config: str | None = config._source_config_path
     config_filename = Path(source_config).name if source_config else "dao_ai.yaml"
-    config_dir = output_dir / "config"
+    config_dir = staging_dir / "config"
     config_dir.mkdir(parents=True, exist_ok=True)
     config_dest = config_dir / config_filename
     if source_config and config_dest.resolve() == Path(source_config).resolve():
@@ -661,7 +661,7 @@ def write_pipeline_bundle(
                 "No local dao-ai wheel found for a --development pipeline "
                 "bundle. Build one first with `uv build --wheel`."
             )
-        dist_dir = output_dir / "dist"
+        dist_dir = staging_dir / "dist"
         dist_dir.mkdir(parents=True, exist_ok=True)
         dest_wheel = dist_dir / wheel_path.name
         for stale in dist_dir.glob("dao_ai-*.whl"):
@@ -675,20 +675,20 @@ def write_pipeline_bundle(
         )
 
     # 6. Config-referenced data/functions asset files.
-    copied, missing = _stage_assets(config, output_dir, overwrite)
+    copied, missing = _stage_assets(config, staging_dir, overwrite)
     written.extend(copied)
 
     # 6b. Custom code (app.code_paths + colocated src/) staged next to the config
     # so the deploy notebook's create_agent/deploy_agent find it. User code is
     # sacred — existing files are preserved, never overwritten.
-    cp_copied, cp_preserved = _stage_code_paths(config, output_dir)
-    src_copied, src_preserved = _stage_src_packages(config, output_dir)
+    cp_copied, cp_preserved = _stage_code_paths(config, staging_dir)
+    src_copied, src_preserved = _stage_src_packages(config, staging_dir)
     written.extend(cp_copied)
     written.extend(src_copied)
     preserved_user_code.extend(cp_preserved)
     preserved_user_code.extend(src_preserved)
 
-    print(f"\nPipeline bundle staged in {output_dir}/\n")
+    print(f"\nPipeline bundle staged in {staging_dir}/\n")
     for name in sorted(written):
         print(f"  {name}")
     for name in sorted(preserved_user_code):

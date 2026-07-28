@@ -197,10 +197,10 @@ print(f"Deployed app: {config.app.name}")
 **Path 2 — `dao-ai agent generate` (Asset Bundle you can inspect / edit / check into Git):**
 
 ```bash
-dao-ai agent generate -c config/my_agent.yaml -o ./my-bundle
+dao-ai agent generate -c config/my_agent.yaml -s ./my-bundle
 # Optionally hand-edit ./my-bundle, then ship exactly what's on disk (no regeneration):
-dao-ai agent deploy -c config/my_agent.yaml -o ./my-bundle
-dao-ai agent run    -c config/my_agent.yaml -o ./my-bundle
+dao-ai agent deploy -c config/my_agent.yaml -s ./my-bundle
+dao-ai agent run    -c config/my_agent.yaml -s ./my-bundle
 # ...or drive the bundle manually
 cd my-bundle
 databricks bundle deploy
@@ -762,7 +762,7 @@ app:
 **Deploy flow for Databricks Apps** (bundle path):
 
 ```bash
-dao-ai agent generate -c my_config.yaml -o ./bundle
+dao-ai agent generate -c my_config.yaml -s ./bundle
 cd ./bundle
 databricks bundle deploy --target dev -p <profile>
 dao-ai trace link -c ../my_config.yaml -p <profile>               # explicit link step

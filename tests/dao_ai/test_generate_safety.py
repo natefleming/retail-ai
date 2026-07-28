@@ -136,7 +136,7 @@ class TestUserCodeSacred:
         assert (out / "src" / "safe_app" / "__init__.py").read_text() == ""
 
     def test_in_place_copy_is_noop_not_error(self, tmp_path: Path) -> None:
-        # output_dir == config dir would normally be blocked by the CLI guard,
+        # staging_dir == config dir would normally be blocked by the CLI guard,
         # but write_bundle itself must not raise SameFileError on in-place files.
         cfg = _config_with_src(tmp_path)
         # Deploy into the config dir directly (bypassing the CLI guard).

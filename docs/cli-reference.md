@@ -144,7 +144,7 @@ dao-ai workflow up|generate|deploy|run|destroy  -c <cfg> [-p <profile>]
 **The granular lifecycle — `generate → deploy → run → destroy`:**
 
 - **`generate`** stages a bundle to disk (`<base>/<noun>/<app>`, where `<base>`
-  is `$DAO_AI_BUNDLE_DIR` or `./.dao-ai/bundle`, or `-o <dir>`) and does nothing
+  is `$DAO_AI_BUNDLE_DIR` or `./.dao-ai/bundle`, or `-s <dir>`) and does nothing
   else — inspect or hand-edit the staged files before shipping.
 - **`deploy`** pushes the bundle. For `agent`/`mcp`, `deploy` is
   `databricks bundle deploy`; when a staged bundle exists it deploys it in place
@@ -167,7 +167,7 @@ with just `dao-ai agent deploy -c <cfg> -p fevm` — no regeneration. To deploy
 **Edit safety.** Re-running `generate` into the **default** staging dir refuses
 to wipe it once it has local hand-edits (detected via the `.dao-ai-generated`
 marker file's mtime), unless you pass `--overwrite`. The error points you at
-`<noun> deploy` to ship the edits instead. A `-o <dir>` is never auto-wiped.
+`<noun> deploy` to ship the edits instead. A `-s <dir>` is never auto-wiped.
 The source-selection flags `--overwrite`, `--development`, and `--no-development`
 are on `up`, `generate`, and `deploy` (for `agent`/`mcp`, `deploy` can
 auto-generate; for `workflow` it acts on the already-staged bundle); `run` and
@@ -251,10 +251,10 @@ When the source config uses `${param.NAME}` / `${var.NAME}` parameters or `${wor
 ### Basic Usage
 
 ```bash
-dao-ai agent generate -c config/retail.yaml -o ./my-bundle
+dao-ai agent generate -c config/retail.yaml -s ./my-bundle
 
 # With parameter overrides baked into the generated bundle
-dao-ai agent generate -c config/retail.yaml -o ./my-bundle --param catalog=prod_catalog
+dao-ai agent generate -c config/retail.yaml -s ./my-bundle --param catalog=prod_catalog
 
 # Generate, deploy, and start the app in one command
 dao-ai agent up -c config/retail.yaml -p fevm
@@ -274,7 +274,7 @@ MCP server bundles use `dao-ai agent generate --mode mcp` (not a separate noun).
 All three generators (`agent`, `mcp`, `workflow`)
 resolve where to write the bundle in this order:
 
-1. `-o/--output-dir <dir>` — used verbatim.
+1. `-s/--staging-dir <dir>` — used verbatim.
 2. `DAO_AI_BUNDLE_DIR` env var — bundles land at `$DAO_AI_BUNDLE_DIR/<kind>/<app>`
    (`<kind>` is `agent`, `mcp`, or `workflow`). Set this for a central location,
    e.g. `export DAO_AI_BUNDLE_DIR=~/.dao-ai/bundle`.
@@ -387,17 +387,17 @@ dao-ai trace create --name /Shared/my-app/dao-ai-fresh -p <profile>
 If the output directory already contains generated files, they are skipped by default. Use `--overwrite` to overwrite:
 
 ```bash
-dao-ai agent generate -c config/retail.yaml -o ./my-bundle --overwrite
+dao-ai agent generate -c config/retail.yaml -s ./my-bundle --overwrite
 ```
 
-Re-running `generate` into the **default** staging dir (no `-o`) refuses to wipe it once it has local hand-edits (detected via the `.dao-ai-generated` marker's mtime) unless you pass `--overwrite`; the error points you at `dao-ai agent deploy` to ship the edits as-is. A `-o <dir>` is never auto-wiped. `--overwrite` is only valid on `generate`.
+Re-running `generate` into the **default** staging dir (no `-s`) refuses to wipe it once it has local hand-edits (detected via the `.dao-ai-generated` marker's mtime) unless you pass `--overwrite`; the error points you at `dao-ai agent deploy` to ship the edits as-is. A `-s <dir>` is never auto-wiped. `--overwrite` is only valid on `generate`.
 
 ### Using a Databricks Profile
 
 If your config references workspace resources (Genie rooms, warehouses, etc.), specify a profile so they can be resolved during generation:
 
 ```bash
-dao-ai agent generate -c config/retail.yaml -o ./my-bundle --profile my-workspace
+dao-ai agent generate -c config/retail.yaml -s ./my-bundle --profile my-workspace
 ```
 
 ### Development Mode
@@ -405,7 +405,7 @@ dao-ai agent generate -c config/retail.yaml -o ./my-bundle --profile my-workspac
 Use `--development` to bundle a local build of dao-ai instead of pulling from PyPI. This is useful when testing unreleased dao-ai changes in a deployed app.
 
 ```bash
-dao-ai agent generate -c config/retail.yaml -o ./my-bundle --development
+dao-ai agent generate -c config/retail.yaml -s ./my-bundle --development
 ```
 
 Development mode changes the generated bundle in several ways:
@@ -509,7 +509,7 @@ app:
 
 ```bash
 # 3. Deploy → link → run → restart.
-dao-ai agent generate -c my_config.yaml -o ./bundle --overwrite
+dao-ai agent generate -c my_config.yaml -s ./bundle --overwrite
 cd ./bundle
 databricks bundle deploy --target dev -p <profile>
 dao-ai trace link -c ../my_config.yaml -p <profile>
@@ -820,7 +820,7 @@ the bundle only; `deploy` pushes the already-staged bundle (unlike `agent deploy
 | Option | Description | Verbs |
 |--------|-------------|-------|
 | `-c, --config FILE` | Path to the dao-ai configuration file (required) | all |
-| `-o, --output-dir DIR` | Bundle staging dir (default: `$DAO_AI_BUNDLE_DIR/workflow/<app>` or `./.dao-ai/bundle/workflow/<app>`) | all |
+| `-s, --staging-dir DIR` | Bundle staging dir (default: `$DAO_AI_BUNDLE_DIR/workflow/<app>` or `./.dao-ai/bundle/workflow/<app>`) | all |
 | `-p, --profile NAME` | Databricks CLI profile to use | all |
 | `--param KEY=VALUE` / `--var KEY=VALUE` | Config parameter overrides (repeatable) | all |
 | `--cloud {azure,aws,gcp}` | Cloud provider (auto-detected from the workspace URL; required only if detection fails) | all |
@@ -853,7 +853,7 @@ the bundle only; `deploy` pushes it (auto-generating if nothing is staged);
 | Option | Description | Verbs |
 |--------|-------------|-------|
 | `-c, --config FILE` | Path to the dao-ai configuration file (required) | all |
-| `-o, --output-dir DIR` | Output dir (default: `$DAO_AI_BUNDLE_DIR/<kind>/<app>` or `./.dao-ai/bundle/<kind>/<app>`, where `<kind>` is `agent` or `mcp`) | all |
+| `-s, --staging-dir DIR` | Bundle staging dir (default: `$DAO_AI_BUNDLE_DIR/<kind>/<app>` or `./.dao-ai/bundle/<kind>/<app>`, where `<kind>` is `agent` or `mcp`) | all |
 | `-p, --profile NAME` | Databricks profile for config loading and deploy | all |
 | `--param KEY=VALUE` / `--var KEY=VALUE` | Config parameter overrides (repeatable) | all |
 | `--mode {apps,mcp,model_serving}` | Serving target (default: `apps`; `ms`/`model-serving` accepted as aliases). `run`/`destroy` accept `apps`/`mcp` only. | all |

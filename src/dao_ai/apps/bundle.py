@@ -754,7 +754,7 @@ def _write_file(path: Path, content: str, overwrite: bool) -> bool:
 
 def write_bundle(
     config: AppConfig,
-    output_dir: Path,
+    staging_dir: Path,
     overwrite: bool = False,
     development: bool = False,
 ) -> dict[str, str]:
@@ -771,7 +771,7 @@ def write_bundle(
     a ``pyproject.toml`` with ``name = "<app_name>"`` and would silently
     clobber the dao-ai project descriptor if the deployer accidentally ran
     ``generate-agent`` from inside a dao-ai checkout (the default
-    ``--output-dir`` is the CWD).
+    ``--staging-dir`` is the CWD).
 
     Returns the staging registry: ``{relative_posix_path: sha256}`` for the
     files dao-ai *generated* (databricks.yaml, resources/app.yml, pyproject.toml,
@@ -779,31 +779,31 @@ def write_bundle(
     skills, dist wheels) is deliberately excluded so hand-edits to it never trip
     edit-detection. The caller stamps this into ``.dao-ai-manifest.yaml``.
     """
-    resolved_output = output_dir.resolve()
+    resolved_output = staging_dir.resolve()
     if (resolved_output / "src" / "dao_ai" / "config.py").exists():
         raise ValueError(
             f"Refusing to write bundle into the dao-ai source repo "
             f"({resolved_output}). ``generate-agent`` would clobber the "
-            "dao-ai project's ``pyproject.toml``. Pass ``-o <path>`` to "
+            "dao-ai project's ``pyproject.toml``. Pass ``-s <path>`` to "
             "target a fresh directory, e.g. "
-            "``dao-ai generate-agent -c <config> -o ./bundle``."
+            "``dao-ai generate-agent -c <config> -s ./bundle``."
         )
 
-    output_dir.mkdir(parents=True, exist_ok=True)
+    staging_dir.mkdir(parents=True, exist_ok=True)
     app_name: str = config.app.app_resource_name
     written: list[str] = []
     skipped: list[str] = []
     # User code (src/ + code_paths + source config) that already existed at the
     # dest and was left untouched — never overwritten, even with --overwrite.
     preserved: list[str] = []
-    # Content hashes of the files dao-ai generated, keyed by output-dir-relative
+    # Content hashes of the files dao-ai generated, keyed by staging-dir-relative
     # POSIX path. Populated only at generated-scaffold write sites (see _track and
     # the uv.lock write); user-code copy sites deliberately omit themselves.
     registry: dict[str, str] = {}
 
     def _register(path: Path) -> None:
         if path.exists():
-            registry[path.relative_to(output_dir).as_posix()] = _sha256_file(path)
+            registry[path.relative_to(staging_dir).as_posix()] = _sha256_file(path)
 
     # Warn loudly when the bundle is being built without `trace_location`:
     # Databricks Apps containers cannot reach the artifact-storage host the
@@ -844,7 +844,7 @@ def write_bundle(
     # Databricks agent template pattern.  No pre-build needed here.
 
     _track(
-        output_dir / "databricks.yaml",
+        staging_dir / "databricks.yaml",
         generate_databricks_yaml(
             config, development=development, config_filename=config_filename
         ),
@@ -853,7 +853,7 @@ def write_bundle(
     # The App + experiment block lives in resources/app.yml so users can drop
     # sibling resources/*.yml files (jobs, pipelines, etc.) into the bundle
     # without conflicting with the regen-owned databricks.yaml.
-    resources_dir = output_dir / "resources"
+    resources_dir = staging_dir / "resources"
     resources_dir.mkdir(parents=True, exist_ok=True)
     _track(
         resources_dir / "app.yml",
@@ -861,7 +861,7 @@ def write_bundle(
     )
 
     if source_config:
-        dest = output_dir / config_filename
+        dest = staging_dir / config_filename
         # Never write over the user's ORIGINAL config (would strip their
         # parameters: block irreversibly). Belt-and-suspenders behind the
         # overlap hard-error in the CLI.
@@ -909,7 +909,7 @@ def write_bundle(
             # under skills/<basename>. The user can still reference the skill
             # via the rendered absolute path in the deployed config.
             rel = Path("skills") / src_dir.name
-        dest = output_dir / rel
+        dest = staging_dir / rel
         # In-place (output overlaps the skill source): never rmtree the user's
         # own skills dir. Belt-and-suspenders behind the overlap hard-error.
         if dest.resolve() == src_dir.resolve():
@@ -943,7 +943,7 @@ def write_bundle(
 
     for src, code_dest in iter_code_path_stagings(config):
         for file_src, file_dest in walk_code_path_files(src, code_dest):
-            out = output_dir / file_dest
+            out = staging_dir / file_dest
             # User code is sacred: never overwrite it (even with --overwrite),
             # and never copy a file onto itself when output overlaps the source.
             if file_src.resolve() == out.resolve():
@@ -963,7 +963,7 @@ def write_bundle(
         for file_src, file_dest in walk_code_path_files(
             pkg_dir, f"{_SRC_DIRNAME}/{pkg_dir.name}"
         ):
-            out = output_dir / file_dest
+            out = staging_dir / file_dest
             if file_src.resolve() == out.resolve():
                 preserved.append(file_dest)
                 continue
@@ -1055,7 +1055,7 @@ def write_bundle(
             logger.info("Using existing dev wheel", wheel=wheel_path.name)
 
         # Copy wheel into bundle's dist/ directory
-        dist_dir = output_dir / "dist"
+        dist_dir = staging_dir / "dist"
         dist_dir.mkdir(parents=True, exist_ok=True)
         dest_wheel = dist_dir / wheel_path.name
         shutil.copy2(wheel_path, dest_wheel)
@@ -1066,7 +1066,7 @@ def write_bundle(
         # requirement is redirected to the bundled local wheel via
         # ``[tool.uv.sources]`` so the generated uv.lock installs THIS code.
         _track(
-            output_dir / "pyproject.toml",
+            staging_dir / "pyproject.toml",
             _PYPROJECT_DEV_TEMPLATE.format(
                 name=app_name,
                 package_name=package_name,
@@ -1081,7 +1081,7 @@ def write_bundle(
         # ABSENT — never overwrite an existing __init__.py (the user may have a
         # real src/<app_name> package, copied by the src/ loop above), even with
         # --overwrite; clobbering it with an empty file would destroy their code.
-        stub_dir = output_dir / "src" / package_name
+        stub_dir = staging_dir / "src" / package_name
         stub_init = stub_dir / "__init__.py"
         if not stub_init.exists():
             stub_dir.mkdir(parents=True, exist_ok=True)
@@ -1093,12 +1093,12 @@ def write_bundle(
         # ``uv sync --locked --no-dev`` from pyproject.toml + uv.lock (no
         # requirements.txt). The lock references the bundled wheel via the
         # ``[tool.uv.sources]`` path and pins the full public-PyPI closure.
-        generate_bundle_lock(output_dir)
+        generate_bundle_lock(staging_dir)
         written.append("uv.lock")
-        _register(output_dir / "uv.lock")
+        _register(staging_dir / "uv.lock")
     else:
         _track(
-            output_dir / "pyproject.toml",
+            staging_dir / "pyproject.toml",
             _PYPROJECT_TEMPLATE.format(
                 name=app_name,
                 package_name=package_name,
@@ -1112,7 +1112,7 @@ def write_bundle(
         # Only scaffold when ABSENT — never overwrite an existing __init__.py
         # (the user may have a real src/<app_name> package, copied above), even
         # with --overwrite; clobbering it with an empty file destroys their code.
-        stub_dir = output_dir / "src" / package_name
+        stub_dir = staging_dir / "src" / package_name
         stub_init = stub_dir / "__init__.py"
         if not stub_init.exists():
             stub_dir.mkdir(parents=True, exist_ok=True)
@@ -1124,17 +1124,17 @@ def write_bundle(
         # ``uv sync --locked --no-dev`` from pyproject.toml + uv.lock (no
         # requirements.txt). The sole ``dao-ai>={ver}`` dep resolves the full
         # public-PyPI closure at lock time; the lock pins it.
-        generate_bundle_lock(output_dir)
+        generate_bundle_lock(staging_dir)
         written.append("uv.lock")
-        _register(output_dir / "uv.lock")
+        _register(staging_dir / "uv.lock")
 
     _track(
-        output_dir / ".gitignore",
+        staging_dir / ".gitignore",
         _GITIGNORE_DEV_CONTENT if development else _GITIGNORE_CONTENT,
     )
-    _track(output_dir / ".python-version", "3.11\n")
+    _track(staging_dir / ".python-version", "3.11\n")
 
-    print(f"\nBundle generated in {output_dir}/\n")
+    print(f"\nBundle generated in {staging_dir}/\n")
     for name in written:
         print(f"  {name:<20s} (created)")
     for name in skipped:
@@ -1149,7 +1149,7 @@ def write_bundle(
         )
 
     print("\nNext steps:")
-    print(f"  cd {output_dir}")
+    print(f"  cd {staging_dir}")
     print("  databricks bundle deploy --target dev")
     if config.app and config.app.trace_location:
         # Idempotent — safe on every deploy — but load-bearing on
