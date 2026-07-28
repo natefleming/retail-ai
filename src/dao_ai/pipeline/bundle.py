@@ -38,12 +38,14 @@ from typing import Any
 from loguru import logger
 
 from dao_ai.apps.bundle import (
+    _retain_only_parameters,
     _sha256_file,
     _strip_parameters_block,
     _write_file,
     dump_bundle_yaml,
 )
-from dao_ai.config import AppConfig
+from dao_ai.config import AppConfig, is_parameter, parameter_name
+from dao_ai.config_vars import ParameterDeclarationModel, substitute_params
 from dao_ai.utils import dao_ai_version, normalize_name
 
 # Package location of the step notebooks shipped in the wheel.
@@ -445,6 +447,71 @@ def _bundle_label(file_out: Path, output_dir: Path) -> str:
         return str(file_out)
 
 
+def _deferred_genie_space_params(config: AppConfig) -> set[str]:
+    """Genie-room ``space_id`` param names to LEAVE unresolved in the staged config.
+
+    A Genie room whose ``space_id`` is a ``${var.X}`` reference is a provisioning
+    candidate: ``05_provision_genie`` detects it via ``is_parameter(raw_space_id)``,
+    creates/reuses the space, and forwards the id via taskValues keyed by ``X``.
+    For that to work the staged config must keep the ``${var.X}`` reference (and
+    its declaration) rather than bake it.
+
+    We defer a param only when the operator did NOT supply it on the CLI
+    (``--param``/``--var``). An operator-supplied id means "reuse this space", so
+    it bakes to a literal and ``05`` skips provisioning — no deferral. Names come
+    from ``room.raw_space_id`` (the pre-substitution value), so a ``default: ""``
+    still defers-and-provisions when unprovided.
+    """
+    rooms = getattr(config.resources, "genie_rooms", None) if config.resources else None
+    if not rooms:
+        return set()
+    supplied: set[str] = config._operator_supplied_params or set()
+    deferred: set[str] = set()
+    for room in rooms.values():
+        raw = getattr(room, "raw_space_id", None)
+        if is_parameter(raw):
+            name = parameter_name(raw)
+            if name is not None and name not in supplied:
+                deferred.add(name)
+    return deferred
+
+
+def _staged_config_text(config: AppConfig) -> str | None:
+    """The dao-ai config text to stage for a workflow bundle.
+
+    Default: the fully-substituted rendered YAML with the ``parameters:`` block
+    stripped (deployed job needs no ``--var``). When the config has Genie-room
+    ``space_id`` params to defer (see :func:`_deferred_genie_space_params`),
+    re-render the pre-substitution source leaving those refs in place and retain
+    ONLY their declarations, so ``05_provision_genie`` can provision and
+    ``06_deploy_agent`` can inject the forwarded id. Returns None if the config
+    was not loaded via ``AppConfig.from_file`` (no rendered text available).
+    """
+    rendered: str | None = config._rendered_yaml
+    if rendered is None:
+        return None
+
+    defer: set[str] = _deferred_genie_space_params(config)
+    if not defer:
+        return _strip_parameters_block(rendered)
+
+    # Re-render from the pre-substitution source with the deferred names left in
+    # place, then keep only the deferred declarations. Falls back to the plain
+    # rendered text if the config lacks the stashed pre-substitution inputs.
+    source_text: str | None = config._workspace_resolved_yaml
+    if source_text is None:
+        return _strip_parameters_block(rendered)
+    declarations: dict[str, ParameterDeclarationModel] = config._declarations or {}
+    deferred_render: str = substitute_params(
+        source_text,
+        declarations=declarations,
+        cli_vars=config._substitution_vars or None,
+        defer=defer,
+        source=config._source_config_path or "<config>",
+    )
+    return _retain_only_parameters(deferred_render, keep=defer)
+
+
 def write_pipeline_bundle(
     config: AppConfig,
     output_dir: Path,
@@ -543,9 +610,9 @@ def write_pipeline_bundle(
     elif config_dest.exists() and not overwrite:
         logger.info(f"Skipping {config_filename} (exists; use --overwrite)")
     else:
-        rendered: str | None = config._rendered_yaml
-        if rendered is not None:
-            config_dest.write_text(_strip_parameters_block(rendered))
+        staged_text: str | None = _staged_config_text(config)
+        if staged_text is not None:
+            config_dest.write_text(staged_text)
         elif source_config:
             shutil.copy2(source_config, config_dest)
         else:

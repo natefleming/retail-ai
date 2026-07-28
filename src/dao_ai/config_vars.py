@@ -242,6 +242,7 @@ def substitute_params(
     declarations: Optional[Mapping[str, ParameterDeclarationModel]] = None,
     cli_vars: Optional[Mapping[str, str]] = None,
     env: Optional[Mapping[str, str]] = None,
+    defer: Optional[set[str]] = None,
     source: str = "<string>",
 ) -> str:
     """Render ``${param.NAME}`` and ``${var.NAME}`` references to literal values.
@@ -251,10 +252,19 @@ def substitute_params(
     Raises :class:`ConfigVariableError` when references are undeclared
     (when ``declarations`` is provided) or when required references cannot
     be resolved.
+
+    ``defer`` names are left in place as their literal ``${var.NAME}`` reference
+    and never counted as missing — even when they have no value and no default.
+    Used only by the workflow staging path (see
+    :func:`dao_ai.pipeline.bundle.write_pipeline_bundle`) to preserve a Genie
+    room's ``space_id: ${var.X}`` binding so the provisioning notebook can detect
+    it via :func:`is_parameter` and create/forward the space at run time. Inert
+    (no behavior change) when ``None``.
     """
     decls: Mapping[str, ParameterDeclarationModel] = declarations or {}
     overrides: Mapping[str, str] = cli_vars or {}
     env_map: Mapping[str, str] = env if env is not None else os.environ
+    deferred: set[str] = defer or set()
 
     comment_spans: list[tuple[int, int]] = _yaml_comment_spans(text)
     references: set[str] = find_param_references(text)
@@ -271,6 +281,11 @@ def substitute_params(
             return match.group(0)
         name: str = match.group("name")
         inline_default: Optional[str] = match.group("default")
+        # Deferred names survive as their literal ${var.NAME} reference (the
+        # workflow provisioning path resolves them at run time) and are never
+        # counted missing, even with no value/default.
+        if name in deferred:
+            return match.group(0)
         if name in overrides:
             return str(overrides[name])
         env_name: str = _env_key(name)

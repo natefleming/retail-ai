@@ -229,6 +229,49 @@ def _strip_parameters_block(rendered_yaml: str) -> str:
     return buf.getvalue()
 
 
+def _retain_only_parameters(rendered_yaml: str, keep: set[str]) -> str:
+    """Keep only ``keep`` names under the top-level ``parameters:`` block; drop
+    the rest (and the whole block if nothing remains). Preserves anchors,
+    comments, and key order via the same ruamel round-trip as
+    :func:`_strip_parameters_block`.
+
+    Used by the workflow staging path when a Genie room's ``space_id`` is bound
+    to a deferred ``${var.X}`` reference: the deferred params' declarations must
+    survive into the staged config so ``06_deploy_agent`` can probe them against
+    the provisioning task's taskValues (``AppConfig.from_file`` loops
+    ``for name in declarations``). All other declarations are dropped, matching
+    :func:`_strip_parameters_block`.
+    """
+    if not keep:
+        return _strip_parameters_block(rendered_yaml)
+
+    rt = YAML(typ="rt")
+    rt.preserve_quotes = True
+    rt.width = 4096
+
+    try:
+        data = rt.load(rendered_yaml)
+    except Exception as exc:
+        logger.warning(f"ruamel parse failed; emitting rendered YAML unchanged: {exc}")
+        return rendered_yaml
+
+    from collections.abc import MutableMapping
+
+    if not isinstance(data, MutableMapping):
+        return rendered_yaml
+
+    params = data.get("parameters")
+    if isinstance(params, MutableMapping):
+        for name in [k for k in params if k not in keep]:
+            del params[name]
+        if not params:
+            data.pop("parameters", None)
+
+    buf = io.StringIO()
+    rt.dump(data, buf)
+    return buf.getvalue()
+
+
 def _convert_single_resource(resource: dict[str, Any]) -> dict[str, Any] | None:
     """Convert a single flat app.yaml resource dict to bundle nested format."""
     resource_type: str = resource.get("type", "")

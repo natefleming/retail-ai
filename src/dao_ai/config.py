@@ -10699,6 +10699,14 @@ class AppConfig(BaseModel):
     _rendered_yaml: str | None = None
     _substitution_vars: dict[str, str] | None = None
     _raw_yaml_dict: dict[str, Any] | None = None
+    # The ${workspace.*}-resolved but ${param/var}-UNsubstituted source text, the
+    # parsed parameter declarations, and the operator-supplied param names (CLI
+    # --param/--var only — NOT taskValues/env/defaults). The workflow staging path
+    # reuses these to re-render with a `defer` set (preserve unprovided Genie-room
+    # space_id refs) without re-reading the source file. See write_pipeline_bundle.
+    _workspace_resolved_yaml: str | None = None
+    _declarations: dict[str, Any] | None = None
+    _operator_supplied_params: set[str] | None = None
     _initialized: bool = False
 
     @model_validator(mode="after")
@@ -10899,6 +10907,14 @@ class AppConfig(BaseModel):
         config._source_config_path = path
         config._rendered_yaml = rendered_text
         config._substitution_vars = dict(merged_params) if merged_params else None
+        # Preserve inputs the workflow staging path needs to re-render with a
+        # `defer` set (unprovided Genie-room space_id refs). operator_supplied is
+        # the CLI --param/--var subset only, distinct from merged_params (which
+        # also folds in taskValues) — the defer decision keys off what the
+        # operator explicitly passed, not resolved values/defaults.
+        config._workspace_resolved_yaml = workspace_resolved_text
+        config._declarations = declarations
+        config._operator_supplied_params = set(params.keys()) if params else set()
 
         # Stamp each provisioning model with the config's own directory so its
         # relative ``ddl``/``data`` paths resolve against the config location

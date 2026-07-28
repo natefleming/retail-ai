@@ -484,3 +484,85 @@ def test_materialize_notebooks_skips_init(tmp_path: Path) -> None:
     written = _materialize_notebooks(tmp_path, overwrite=True)
     assert all("__init__" not in w for w in written)
     assert len(written) == 8
+
+
+@pytest.mark.unit
+class TestGenieProvisioningStaging:
+    """Workflow staging must PRESERVE a Genie room's ``space_id: ${var.X}`` binding
+    (+ its declaration) when the operator did NOT supply X, so
+    05_provision_genie can provision and 06_deploy_agent can inject the id.
+    A supplied X bakes to a literal (reuse). Non-genie params always bake."""
+
+    _CFG = (
+        "parameters:\n"
+        "  catalog:\n    default: main\n"
+        "  genie_space_id:\n    description: provisioned by workflow\n    default: \"\"\n"
+        "schemas:\n  s: &s\n    catalog_name: ${var.catalog}\n    schema_name: dao_ai\n"
+        "resources:\n"
+        "  warehouses:\n    wh: &wh\n      name: Serverless Starter Warehouse\n"
+        "  genie_rooms:\n"
+        "    room: &room\n"
+        "      name: test room\n"
+        "      space_id: \"${var.genie_space_id}\"\n"
+        "      warehouse: *wh\n"
+        "  llms:\n    m: &m\n      name: databricks-test-llm\n"
+        "agents:\n  a: &a\n    name: a\n    description: a\n    model: *m\n    prompt: hi\n"
+        "app:\n  name: prov_test\n  agents:\n    - *a\n"
+    )
+
+    def _cfg(self, tmp_path: Path) -> Path:
+        p = tmp_path / "prov.yaml"
+        p.write_text(self._CFG)
+        return p
+
+    def _staged_text(self, tmp_path: Path, out_name: str, **from_file_kwargs) -> str:
+        cfg = AppConfig.from_file(str(self._cfg(tmp_path)), initialize=False, **from_file_kwargs)
+        out = tmp_path / out_name
+        write_pipeline_bundle(cfg, out)
+        return (out / "config" / "prov.yaml").read_text()
+
+    def test_unprovided_genie_param_ref_survives_staging(self, tmp_path: Path) -> None:
+        staged = self._staged_text(tmp_path, "omit")
+        # The ${var.genie_space_id} ref is preserved, and its declaration retained.
+        assert "${var.genie_space_id}" in staged
+        assert "genie_space_id:" in staged
+        # Non-genie params are baked; their decls stripped.
+        assert "${var.catalog}" not in staged
+        assert "catalog_name: main" in staged
+        assert "catalog:" not in staged.split("resources:")[0]
+
+    def test_supplied_genie_param_is_baked_no_provision(self, tmp_path: Path) -> None:
+        staged = self._staged_text(
+            tmp_path, "passid", params={"genie_space_id": "01fEXISTING"}
+        )
+        # Operator supplied it → baked to a literal, declaration stripped (reuse).
+        assert "${var.genie_space_id}" not in staged
+        assert "01fEXISTING" in staged
+        assert "parameters:" not in staged
+
+    def test_staged_provision_config_round_trips(self, tmp_path: Path) -> None:
+        """The staged (deferred) config reloads so 05's gate fires and 06 injects."""
+        from dao_ai.config import is_parameter, parameter_name, value_of
+
+        cfg = AppConfig.from_file(str(self._cfg(tmp_path)), initialize=False)
+        out = tmp_path / "rt"
+        write_pipeline_bundle(cfg, out)
+        staged_path = str(out / "config" / "prov.yaml")
+
+        # 05 gate
+        reloaded = AppConfig.from_file(staged_path, initialize=False)
+        room = list(reloaded.resources.genie_rooms.values())[0]
+        assert is_parameter(room.raw_space_id) is True
+        assert parameter_name(room.raw_space_id) == "genie_space_id"
+        assert not value_of(room.space_id)
+
+        # 06 injection via taskValues
+        class _FakeTV:
+            def get(self, taskKey, key, default="", debugValue=""):
+                return "PROVISIONED_123" if key == "genie_space_id" else default
+
+        injected = AppConfig.from_file(
+            staged_path, task_values=_FakeTV(), task_key="provision-genie", initialize=False
+        )
+        room2 = list(injected.resources.genie_rooms.values())[0]
+        assert value_of(room2.space_id) == "PROVISIONED_123"
