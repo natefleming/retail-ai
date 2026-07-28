@@ -8,6 +8,18 @@ parameters:
   param_name:
     description: string          # Human-readable description
     default: string | null       # Omit to make required
+    provided: bool               # default false. When true, the value is
+                                 # supplied DYNAMICALLY at run time (like a
+                                 # build tool's 'provided' dependency scope) —
+                                 # e.g. a Genie space id created by the workflow's
+                                 # provision-genie task and forwarded via
+                                 # taskValues. An unsupplied `provided` param
+                                 # resolves to "" at load time (or its `default`)
+                                 # instead of erroring, so ${var.NAME} refs load
+                                 # before the real value exists. apps/mcp/
+                                 # model_serving deploys (no provisioning step)
+                                 # reject an unsupplied, defaultless `provided`
+                                 # param rather than ship a broken binding.
 
 # Schema definitions for Unity Catalog
 schemas:

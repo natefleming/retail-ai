@@ -195,7 +195,7 @@ dao-ai workflow up -c config/my_config.yaml --param catalog=prod_catalog --param
 dao-ai workflow deploy -c config/my_config.yaml
 ```
 
-`--param` (and the `--var` alias) flags are forwarded to the underlying `databricks bundle ...` invocation as `--var`, so Databricks Asset Bundles' own `${var.NAME}` substitution sees the same values when the names overlap.
+`--param` (and the `--var` alias) values are baked into the staged config, and are **also** forwarded to the underlying `databricks bundle ...` invocation as `--var` **only for names the generated `databricks.yaml` actually declares as bundle variables** — so Databricks Asset Bundles' own `${var.NAME}` substitution sees the same values when the names overlap, without failing on a dao-ai-only parameter the bundle doesn't declare.
 
 ### Multi-Cloud Deployment
 
@@ -730,26 +730,32 @@ Schemas are displayed in a concise, readable format (53% smaller than JSON):
 Print every parameter declared in a config's `parameters:` block, its current resolved value, and where that value came from.
 
 ```bash
-dao-ai parameters list -c config/my_config.yaml
+dao-ai parameters -c config/my_config.yaml         # 'list' is the default action
 
-# With overrides to see how they resolve
+# Explicit (equivalent) + overrides to see how they resolve
 dao-ai parameters list -c dao_ai.yaml --param module_id=09
+
+# Print ONE parameter's resolved value as a bare line (script-friendly)
+CATALOG=$(dao-ai parameters get catalog -c config/my_config.yaml)
 ```
 
-`dao-ai vars` is kept as an alias for backward compatibility, and `--var` continues to work alongside `--param`.
+The action word is optional — `dao-ai parameters -c <file>` lists. `dao-ai vars` is kept as an alias, and `--var` works alongside `--param`.
 
 Sample output:
 
 ```
-NAME       REQUIRED  DEFAULT  RESOLVED  SOURCE   DESCRIPTION
-------------------------------------------------------------
-catalog    no        main     main      default  Unity Catalog catalog name
-module_id  yes       -        09        --param  Workshop module identifier
+NAME       REQUIRED  PROVIDED  DEFAULT  RESOLVED  SOURCE    DESCRIPTION
+----------------------------------------------------------------------
+catalog    no        no        main     main      default   Unity Catalog catalog name
+module_id  yes       no        -        09        --param   Workshop module identifier
+genie_id   no        yes       -        -         provided  Genie space id (provisioned at run time)
 ```
 
-Source values: `--param`, `env`, `default`, `inline-default`, `MISSING`.
+Source values: `--param`, `env`, `default`, `inline-default`, `provided`, `MISSING`. A `provided: true` parameter (see the [configuration reference](configuration-reference.md)) reports source `provided` when unsupplied — its value is furnished at run time (e.g. by a workflow provisioning task), so it is **not** flagged `MISSING` or required.
 
-Exit code is 1 if any required parameter is `MISSING`, 0 otherwise. This makes `parameters list` useful in CI pipelines to verify all overrides are wired up before deploying.
+`get <name>` prints the bare resolved value to stdout and exits non-zero (with a targeted message) when the name is undeclared, required-but-unset, or a `provided` param with no run-time value yet.
+
+Exit code for `list` is 1 if any required parameter is `MISSING`, 0 otherwise. This makes it useful in CI pipelines to verify all overrides are wired up before deploying.
 
 Any `${workspace.*}` references in a parameter's `default` are resolved before the table is rendered, so the listed `DEFAULT` reflects the live workspace user / host.
 
