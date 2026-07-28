@@ -892,8 +892,11 @@ def handle_interrupt_response(
     )
 
     if not model:
+        # Last-resort fallback when no model is threaded from config (e.g.
+        # callers outside the agent path). Prefer passing the deployment's
+        # configured model via the ``model`` arg — see LanggraphResponsesAgent.
         model = ChatDatabricks(
-            endpoint="databricks-claude-sonnet-4",
+            endpoint="databricks-claude-sonnet-4-5",
             temperature=0,
         )
 
@@ -1010,9 +1013,15 @@ class LanggraphResponsesAgent(ResponsesAgent):
         self,
         graph: CompiledStateGraph,
         tool_models: Sequence[ToolModel] | None = None,
+        interrupt_model: Optional[LanguageModelLike] = None,
     ) -> None:
         self.graph = graph
         self._tool_models: Sequence[ToolModel] = tuple(tool_models or ())
+        # LLM used to parse a user's natural-language HITL interrupt response.
+        # Threaded from the agent's configured model so the parser matches the
+        # deployment's model instead of a hardcoded (and potentially deprecated)
+        # endpoint. None falls back to handle_interrupt_response's default.
+        self._interrupt_model: Optional[LanguageModelLike] = interrupt_model
 
         # Stage-1 diagnostic (MS-trace-persistence investigation): log the
         # trace-relevant env-var snapshot at endpoint boot. This is the
@@ -1116,6 +1125,7 @@ class LanggraphResponsesAgent(ResponsesAgent):
                 runtime_config=custom_inputs,
                 session_input=session_input,
                 tool_models=self._tool_models,
+                interrupt_model=self._interrupt_model,
             )
 
             if turn.should_skip_graph:
@@ -1400,6 +1410,7 @@ class LanggraphResponsesAgent(ResponsesAgent):
                 runtime_config=custom_inputs,
                 session_input=session_input,
                 tool_models=self._tool_models,
+                interrupt_model=self._interrupt_model,
             )
 
             if turn.should_skip_graph:
@@ -2027,6 +2038,7 @@ def create_agent(graph: CompiledStateGraph) -> ChatAgent:
 def create_responses_agent(
     graph: CompiledStateGraph,
     tool_models: Sequence[ToolModel] | None = None,
+    interrupt_model: Optional[LanguageModelLike] = None,
 ) -> ResponsesAgent:
     """
     Create an MLflow-compatible ResponsesAgent from a LangGraph state machine.
@@ -2047,6 +2059,7 @@ def create_responses_agent(
     return LanggraphResponsesAgent(
         graph,
         tool_models=tool_models,
+        interrupt_model=interrupt_model,
     )
 
 

@@ -728,7 +728,7 @@ def generate_app_resources(config: AppConfig) -> list[dict[str, Any]]:
             {
                 "name": "default_llm",
                 "type": "serving-endpoint",
-                "serving_endpoint_name": "databricks-claude-sonnet-4",
+                "serving_endpoint_name": "databricks-claude-sonnet-4-5",
                 "permissions": [{"level": "CAN_QUERY"}]
             },
             ...

@@ -14,10 +14,13 @@ to duplicate ~75 lines of decision logic each; they now share
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Optional, Sequence
+from typing import TYPE_CHECKING, Any, Optional, Sequence
 
 from langchain_community.adapters.openai import convert_openai_messages
 from langchain_core.messages import BaseMessage
+
+if TYPE_CHECKING:
+    from langchain_core.language_models import LanguageModelLike
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.types import Command
 from loguru import logger
@@ -71,6 +74,7 @@ async def decide_graph_turn(
     runtime_config: dict[str, Any],
     session_input: Optional[dict[str, Any]] = None,
     tool_models: Optional[Sequence[ToolModel]] = None,
+    interrupt_model: Optional[LanguageModelLike] = None,
 ) -> GraphTurn:
     """Decide how to drive the next graph turn for a single request.
 
@@ -145,7 +149,7 @@ async def decide_graph_turn(
             parsed: dict[str, Any] = handle_interrupt_response(
                 snapshot=snapshot,
                 messages=message_objects,
-                model=None,
+                model=interrupt_model,
             )
             if not parsed.get("is_valid", False):
                 validation = parsed.get(
