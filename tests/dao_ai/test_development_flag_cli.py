@@ -1515,6 +1515,70 @@ class TestDeployAutoGenerate:
         assert deploy_agent_calls[0]["target"] == ServingMode.MODEL_SERVING
         dep.assert_not_called()
 
+    def _write_cfg_with_provided(self, tmp_path: Path) -> Path:
+        """A config whose genie room binds space_id to an unsupplied `provided` param."""
+        cfg = tmp_path / "prov.yaml"
+        cfg.write_text(
+            "parameters:\n"
+            "  gsid:\n    provided: true\n"
+            "resources:\n"
+            "  models:\n    m: &m\n      name: databricks-gpt-5-4-mini\n"
+            "  genie_rooms:\n"
+            "    room: &room\n      name: r\n      space_id: ${var.gsid}\n"
+            "tools:\n"
+            "  gt: &gt\n    name: genie\n    function:\n      type: genie\n"
+            "      name: q\n      description: d\n      genie_room: *room\n"
+            "agents:\n"
+            "  a: &a\n    name: aa\n    description: aa\n    model: *m\n"
+            "    tools: [*gt]\n    prompt: hi\n"
+            "app:\n  name: prov_guardrail_app\n  agents: [*a]\n"
+        )
+        return cfg
+
+    @pytest.mark.parametrize("argv_tail", [["--mode", "model_serving"], ["--direct"]])
+    def test_unsatisfied_provided_param_blocks_sdk_deploy(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, argv_tail: list[str]
+    ) -> None:
+        """model_serving + --direct deploys must hard-error (guardrail) on an
+        unsupplied `provided` param BEFORE calling create_agent/deploy_agent."""
+        cfg = self._write_cfg_with_provided(tmp_path)
+
+        called: list[str] = []
+        monkeypatch.setattr(cli, "_apply_profile_context", lambda p: None)
+        monkeypatch.setattr(AppConfig, "_resolve_all_resources", lambda self: None)
+        monkeypatch.setattr(
+            "dao_ai.config.AppConfig.create_agent",
+            lambda self, development=None: called.append("create"),
+        )
+        monkeypatch.setattr(
+            "dao_ai.config.AppConfig.deploy_agent",
+            lambda self, target=None, development=None: called.append("deploy"),
+        )
+
+        opts = parse_args(["agent", "up", "-c", str(cfg), *argv_tail])
+        with pytest.raises(ValueError, match="provided"):
+            cli.handle_agent_command(opts)
+        assert called == [], "guardrail must fire before create/deploy"
+
+    def test_supplied_provided_param_allows_sdk_deploy(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Supplying the `provided` param via --param satisfies the guardrail."""
+        cfg = self._write_cfg_with_provided(tmp_path)
+
+        called: list[str] = []
+        monkeypatch.setattr(cli, "_apply_profile_context", lambda p: None)
+        monkeypatch.setattr(AppConfig, "_resolve_all_resources", lambda self: None)
+        monkeypatch.setattr(
+            "dao_ai.config.AppConfig.deploy_agent",
+            lambda self, target=None, development=None: called.append("deploy"),
+        )
+        opts = parse_args(
+            ["agent", "up", "-c", str(cfg), "--direct", "--param", "gsid=01fREAL"]
+        )
+        cli.handle_agent_command(opts)
+        assert called == ["deploy"]
+
     def test_direct_flag_parses_on_up(self) -> None:
         """`--direct` is accepted on the `up` verb (moved from deploy)."""
         opts = parse_args(["agent", "up", "-c", "c.yaml", "--direct"])

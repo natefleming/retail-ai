@@ -470,7 +470,7 @@ def _deferred_provided_params(config: AppConfig) -> set[str]:
     return {
         name
         for name, decl in declarations.items()
-        if getattr(decl, "provided", False) and name not in supplied
+        if decl.provided and name not in supplied
     }
 
 

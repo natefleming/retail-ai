@@ -10705,7 +10705,7 @@ class AppConfig(BaseModel):
     # reuses these to re-render with a `defer` set (preserve unprovided Genie-room
     # space_id refs) without re-reading the source file. See write_pipeline_bundle.
     _workspace_resolved_yaml: str | None = None
-    _declarations: dict[str, Any] | None = None
+    _declarations: dict[str, ParameterDeclarationModel] | None = None
     _operator_supplied_params: set[str] | None = None
     _initialized: bool = False
 
@@ -11029,9 +11029,7 @@ class AppConfig(BaseModel):
         unsatisfied: list[str] = [
             name
             for name, decl in declarations.items()
-            if getattr(decl, "provided", False)
-            and decl.default is None
-            and name not in supplied
+            if decl.provided and decl.default is None and name not in supplied
         ]
         if unsatisfied:
             joined = ", ".join(sorted(unsatisfied))

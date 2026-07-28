@@ -3904,7 +3904,7 @@ def _generate_app_bundle(options: Namespace, *, kind: str, writer, what: str) ->
 
     # Resolve resources so Genie room tables and warehouses can be discovered.
     config._resolve_all_resources()
-    # apps/mcp has no provisioning step — fail loudly on any `provisioned` param
+    # apps/mcp has no provisioning step — fail loudly on any `provided` param
     # that wasn't supplied and has no default, rather than ship a broken binding.
     config.assert_provided_params_satisfied()
 
@@ -3964,7 +3964,7 @@ def _deploy_run_destroy_app_bundle(
         # deploys a stale-or-nonexistent model version.
         config._resolve_all_resources()
         # model_serving has no provisioning step — fail loudly on any unsatisfied
-        # `provisioned` param (see docstring).
+        # `provided` param (see docstring).
         config.assert_provided_params_satisfied()
         config.create_agent(development=development)
         config.deploy_agent(target=ServingMode.MODEL_SERVING, development=development)
@@ -3978,7 +3978,7 @@ def _deploy_run_destroy_app_bundle(
         development = resolve_use_local_source(getattr(options, "development", None))
         config._resolve_all_resources()
         # apps/mcp (SDK direct) has no provisioning step — fail loudly on any
-        # unsatisfied `provisioned` param (see docstring).
+        # unsatisfied `provided` param (see docstring).
         config.assert_provided_params_satisfied()
         # Apps/MCP deploy directly from config + wheel (no MLflow model to
         # register — matches the former `if target != APPS: create_agent()`
@@ -4047,7 +4047,7 @@ def _deploy_run_destroy_app_bundle(
             # Resolve resources so Genie room tables and warehouses can be discovered.
             config._resolve_all_resources()
             # apps/mcp has no provisioning step — fail loudly on any unsatisfied
-            # `provisioned` param (see docstring).
+            # `provided` param (see docstring).
             config.assert_provided_params_satisfied()
             writer: Callable[..., dict[str, str]] = _mode_writer(mode)
             _stage_app_bundle(
@@ -4220,8 +4220,10 @@ def handle_vars_command(options: Namespace) -> None:
                 f"Declared parameters: {declared}."
             )
             sys.exit(1)
-        resolved = {p.name: p for p in resolve_parameters(declarations, cli_vars=cli_vars)}
-        param = resolved[name]
+        resolved_by_name = {
+            p.name: p for p in resolve_parameters(declarations, cli_vars=cli_vars)
+        }
+        param = resolved_by_name[name]
         if param.value is None:
             # Nothing to emit — exit non-zero so scripts don't capture "".
             # Tailor the guidance to WHY it is unresolved.
