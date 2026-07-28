@@ -496,7 +496,7 @@ class TestGenieProvisioningStaging:
     _CFG = (
         "parameters:\n"
         "  catalog:\n    default: main\n"
-        "  genie_space_id:\n    description: provisioned by workflow\n    default: \"\"\n"
+        "  genie_space_id:\n    description: provisioned by workflow\n    provided: true\n"
         "schemas:\n  s: &s\n    catalog_name: ${var.catalog}\n    schema_name: dao_ai\n"
         "resources:\n"
         "  warehouses:\n    wh: &wh\n      name: Serverless Starter Warehouse\n"

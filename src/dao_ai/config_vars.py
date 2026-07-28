@@ -165,6 +165,25 @@ class ParameterDeclarationModel(BaseModel):
         default=None,
         description="Default value if not provided at load time. Omit to make required.",
     )
+    provided: bool = Field(
+        default=False,
+        description=(
+            "When true, this parameter's value is supplied DYNAMICALLY at run "
+            "time rather than at config-load time — analogous to a build tool's "
+            "'provided' dependency scope (furnished by the runtime environment). "
+            "Most commonly it comes from an upstream job task's taskValues (e.g. "
+            "a Genie space id created by the workflow's provision-genie task), "
+            "but the flag is generic and independent of any consumer. At load "
+            "time an unsupplied `provided` param resolves to an empty string "
+            "(or its `default`, if given) instead of raising missing-required, "
+            "so ${var.NAME} references load cleanly before the real value "
+            "exists. The workflow staging path leaves such refs unresolved (see "
+            "write_pipeline_bundle) so the run-time step can fill them in; "
+            "non-workflow deploy paths (apps, mcp, model_serving) have no such "
+            "step and reject an unsupplied, defaultless `provided` param rather "
+            "than deploy a broken binding."
+        ),
+    )
 
 
 class ConfigVariableError(ValueError):
@@ -296,6 +315,14 @@ def substitute_params(
             return decl.default
         if inline_default is not None:
             return inline_default
+        # A `provided` param whose value wasn't supplied and has no default is
+        # furnished dynamically at run time (e.g. from a provisioning task's
+        # taskValues), so at load time it resolves to an empty placeholder rather
+        # than a missing-required error. The empty string is not a sentinel — it
+        # is simply "no value yet"; downstream logic keys off the `provided`
+        # flag, never off the value being empty.
+        if decl is not None and decl.provided:
+            return ""
         # Only count declared references as "missing required". Undeclared
         # references are reported separately via `undeclared` so we never
         # double-count them in the error message.

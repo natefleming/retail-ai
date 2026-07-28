@@ -11007,6 +11007,42 @@ class AppConfig(BaseModel):
 
         _walk(self)
 
+    def assert_provided_params_satisfied(self) -> None:
+        """Guard non-workflow deploy paths against unsatisfied ``provided`` params.
+
+        A parameter declared ``provided: true`` is furnished dynamically at run
+        time (like a build tool's 'provided' dependency scope) — in dao-ai today
+        that is the ``workflow`` job's provisioning tasks forwarding values via
+        taskValues (e.g. a Genie space id), but the flag is generic and
+        independent of any consumer. The apps / mcp / model_serving deploy paths
+        have NO such run-time step, so a ``provided`` param that was neither
+        supplied by the operator (``--param``/``--var``) nor given a ``default``
+        fallback resolves to an empty placeholder and would silently deploy a
+        broken binding. Fail loudly instead.
+
+        No-op on the workflow path (which never calls this — it defers such params
+        for its run-time step). Params with a ``default`` or an operator value are
+        satisfied and pass. Independent of genie / any specific field.
+        """
+        declarations = self._declarations or {}
+        supplied: set[str] = self._operator_supplied_params or set()
+        unsatisfied: list[str] = [
+            name
+            for name, decl in declarations.items()
+            if getattr(decl, "provided", False)
+            and decl.default is None
+            and name not in supplied
+        ]
+        if unsatisfied:
+            joined = ", ".join(sorted(unsatisfied))
+            raise ValueError(
+                f"Parameter(s) declared `provided: true` have no value on a "
+                f"non-workflow deploy path: {joined}. These paths cannot furnish "
+                "values at run time. Supply each one (e.g. --param "
+                f"{sorted(unsatisfied)[0]}=<value>), give it a `default`, or run "
+                "`dao-ai workflow up` to provision it."
+            )
+
     def initialize(self) -> None:
         if self._initialized:
             return

@@ -274,6 +274,37 @@ def test_defer_only_affects_named_refs() -> None:
 
 
 @pytest.mark.unit
+def test_provisioned_param_resolves_empty_when_unset() -> None:
+    """provisioned:true, no value, no default -> resolves to '' (not missing)."""
+    decls = {"gsid": ParameterDeclarationModel(provided=True)}
+    assert substitute_params("s: ${var.gsid}", declarations=decls) == "s: "
+
+
+@pytest.mark.unit
+def test_provisioned_param_uses_default_when_present() -> None:
+    """A default is an optional fallback for a provisioned param."""
+    decls = {"gsid": ParameterDeclarationModel(provided=True, default="fb")}
+    assert substitute_params("s: ${var.gsid}", declarations=decls) == "s: fb"
+
+
+@pytest.mark.unit
+def test_provisioned_param_uses_supplied_value() -> None:
+    decls = {"gsid": ParameterDeclarationModel(provided=True)}
+    assert (
+        substitute_params("s: ${var.gsid}", declarations=decls, cli_vars={"gsid": "R"})
+        == "s: R"
+    )
+
+
+@pytest.mark.unit
+def test_non_provisioned_no_default_still_raises() -> None:
+    """A plain required param (not provisioned) still raises when unset."""
+    decls = {"gsid": ParameterDeclarationModel()}
+    with pytest.raises(ConfigVariableError):
+        substitute_params("s: ${var.gsid}", declarations=decls)
+
+
+@pytest.mark.unit
 def test_retain_only_parameters_keeps_whitelist() -> None:
     from dao_ai.apps.bundle import _retain_only_parameters
 

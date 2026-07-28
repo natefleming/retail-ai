@@ -44,7 +44,7 @@ from dao_ai.apps.bundle import (
     _write_file,
     dump_bundle_yaml,
 )
-from dao_ai.config import AppConfig, is_parameter, parameter_name
+from dao_ai.config import AppConfig
 from dao_ai.config_vars import ParameterDeclarationModel, substitute_params
 from dao_ai.utils import dao_ai_version, normalize_name
 
@@ -447,41 +447,39 @@ def _bundle_label(file_out: Path, output_dir: Path) -> str:
         return str(file_out)
 
 
-def _deferred_genie_space_params(config: AppConfig) -> set[str]:
-    """Genie-room ``space_id`` param names to LEAVE unresolved in the staged config.
+def _deferred_provided_params(config: AppConfig) -> set[str]:
+    """Parameter names to LEAVE unresolved (``${var.X}``) in the staged config.
 
-    A Genie room whose ``space_id`` is a ``${var.X}`` reference is a provisioning
-    candidate: ``05_provision_genie`` detects it via ``is_parameter(raw_space_id)``,
-    creates/reuses the space, and forwards the id via taskValues keyed by ``X``.
-    For that to work the staged config must keep the ``${var.X}`` reference (and
-    its declaration) rather than bake it.
+    A parameter declared ``provided: true`` gets its value dynamically at run
+    time — e.g. ``05_provision_genie`` creates a Genie space and forwards its id
+    via taskValues keyed by the param name, which ``06_deploy_agent`` then injects
+    via ``AppConfig.from_file(task_values=...)``. For that to work the staged
+    config must keep the ``${var.X}`` reference (and its declaration) rather than
+    bake it.
 
-    We defer a param only when the operator did NOT supply it on the CLI
-    (``--param``/``--var``). An operator-supplied id means "reuse this space", so
-    it bakes to a literal and ``05`` skips provisioning — no deferral. Names come
-    from ``room.raw_space_id`` (the pre-substitution value), so a ``default: ""``
-    still defers-and-provisions when unprovided.
+    A param is deferred only when the operator did NOT supply it on the CLI
+    (``--param``/``--var``): an operator-supplied value means "use this" — it bakes
+    to a literal and no run-time fill-in happens. Keying off the declaration flag
+    (not genie-room ``space_id`` inference) keeps this general: any ``provided``
+    param is deferred, whatever consumes it.
     """
-    rooms = getattr(config.resources, "genie_rooms", None) if config.resources else None
-    if not rooms:
+    declarations = config._declarations or {}
+    if not declarations:
         return set()
     supplied: set[str] = config._operator_supplied_params or set()
-    deferred: set[str] = set()
-    for room in rooms.values():
-        raw = getattr(room, "raw_space_id", None)
-        if is_parameter(raw):
-            name = parameter_name(raw)
-            if name is not None and name not in supplied:
-                deferred.add(name)
-    return deferred
+    return {
+        name
+        for name, decl in declarations.items()
+        if getattr(decl, "provided", False) and name not in supplied
+    }
 
 
 def _staged_config_text(config: AppConfig) -> str | None:
     """The dao-ai config text to stage for a workflow bundle.
 
     Default: the fully-substituted rendered YAML with the ``parameters:`` block
-    stripped (deployed job needs no ``--var``). When the config has Genie-room
-    ``space_id`` params to defer (see :func:`_deferred_genie_space_params`),
+    stripped (deployed job needs no ``--var``). When the config has
+    ``provided: true`` params to defer (see :func:`_deferred_provided_params`),
     re-render the pre-substitution source leaving those refs in place and retain
     ONLY their declarations, so ``05_provision_genie`` can provision and
     ``06_deploy_agent`` can inject the forwarded id. Returns None if the config
@@ -491,7 +489,7 @@ def _staged_config_text(config: AppConfig) -> str | None:
     if rendered is None:
         return None
 
-    defer: set[str] = _deferred_genie_space_params(config)
+    defer: set[str] = _deferred_provided_params(config)
     if not defer:
         return _strip_parameters_block(rendered)
 

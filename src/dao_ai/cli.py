@@ -3884,6 +3884,9 @@ def _generate_app_bundle(options: Namespace, *, kind: str, writer, what: str) ->
 
     # Resolve resources so Genie room tables and warehouses can be discovered.
     config._resolve_all_resources()
+    # apps/mcp has no provisioning step — fail loudly on any `provisioned` param
+    # that wasn't supplied and has no default, rather than ship a broken binding.
+    config.assert_provided_params_satisfied()
 
     bundle_dir, is_default_dir = _resolve_bundle_dir(kind, config, options.output_dir)
     _stage_app_bundle(
@@ -3939,6 +3942,10 @@ def _deploy_run_destroy_app_bundle(
         # current config first (mirrors the workflow deploy notebook + the former
         # `dao-ai deploy` handler). Without this, deploy_model_serving_agent
         # deploys a stale-or-nonexistent model version.
+        config._resolve_all_resources()
+        # model_serving has no provisioning step — fail loudly on any unsatisfied
+        # `provisioned` param (see docstring).
+        config.assert_provided_params_satisfied()
         config.create_agent(development=development)
         config.deploy_agent(target=ServingMode.MODEL_SERVING, development=development)
         return
@@ -3949,6 +3956,10 @@ def _deploy_run_destroy_app_bundle(
 
         config = _load_app_config(options, what=what)
         development = resolve_use_local_source(getattr(options, "development", None))
+        config._resolve_all_resources()
+        # apps/mcp (SDK direct) has no provisioning step — fail loudly on any
+        # unsatisfied `provisioned` param (see docstring).
+        config.assert_provided_params_satisfied()
         # Apps/MCP deploy directly from config + wheel (no MLflow model to
         # register — matches the former `if target != APPS: create_agent()`
         # gate). model_serving is handled by Route 1 above, so mode is apps|mcp here.
@@ -4015,6 +4026,9 @@ def _deploy_run_destroy_app_bundle(
                 )
             # Resolve resources so Genie room tables and warehouses can be discovered.
             config._resolve_all_resources()
+            # apps/mcp has no provisioning step — fail loudly on any unsatisfied
+            # `provisioned` param (see docstring).
+            config.assert_provided_params_satisfied()
             writer: Callable[..., dict[str, str]] = _mode_writer(mode)
             _stage_app_bundle(
                 config,
