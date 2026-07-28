@@ -253,6 +253,7 @@ class ResolvedParameter(BaseModel):
     required: bool
     default: Optional[str]
     description: Optional[str]
+    provided: bool = False
 
 
 def substitute_params(
@@ -367,6 +368,10 @@ def resolve_parameters(
         elif decl.default is not None:
             value = decl.default
             source = "default"
+        elif decl.provided:
+            # Furnished dynamically at run time (e.g. a provisioning task's
+            # taskValues), not at load time — not missing.
+            source = "provided"
         else:
             source = "MISSING"
 
@@ -375,9 +380,12 @@ def resolve_parameters(
                 name=name,
                 value=value,
                 source=source,
-                required=decl.default is None,
+                # A `provided` param is never load-time required (it's supplied
+                # at run time); a plain param with no default is required.
+                required=decl.default is None and not decl.provided,
                 default=decl.default,
                 description=decl.description,
+                provided=decl.provided,
             )
         )
     return results

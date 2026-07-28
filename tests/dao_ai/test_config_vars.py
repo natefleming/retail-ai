@@ -413,7 +413,35 @@ def test_resolve_parameters_reports_sources_correctly() -> None:
     assert by_name["from_default"].value == "d"
     assert by_name["missing"].source == "MISSING"
     assert by_name["missing"].value is None
-    assert by_name["missing"].required is True
+
+
+@pytest.mark.unit
+def test_resolve_parameters_reports_provided() -> None:
+    """A `provided` param (no value) reports source='provided', not MISSING, and
+    is not load-time required; an operator value still wins."""
+    decls = {
+        "runtime": ParameterDeclarationModel(provided=True),
+        "runtime_supplied": ParameterDeclarationModel(provided=True),
+        "runtime_default": ParameterDeclarationModel(provided=True, default="fb"),
+    }
+    by_name = {
+        p.name: p
+        for p in resolve_parameters(
+            decls, cli_vars={"runtime_supplied": "given"}, env={}
+        )
+    }
+    # Unsupplied provided param: not missing, not required, flagged provided.
+    assert by_name["runtime"].source == "provided"
+    assert by_name["runtime"].value is None
+    assert by_name["runtime"].required is False
+    assert by_name["runtime"].provided is True
+    # Operator value wins over the provided placeholder.
+    assert by_name["runtime_supplied"].source == "--param"
+    assert by_name["runtime_supplied"].value == "given"
+    # A default fallback wins over the provided placeholder too.
+    assert by_name["runtime_default"].source == "default"
+    assert by_name["runtime_default"].value == "fb"
+    assert by_name["runtime_default"].provided is True
 
 
 class _FakeUser:

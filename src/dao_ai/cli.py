@@ -4206,6 +4206,7 @@ def handle_vars_command(options: Namespace) -> None:
         header = (
             f"{'NAME':<{name_w}}  "
             f"{'REQUIRED':<8}  "
+            f"{'PROVIDED':<8}  "
             f"{'DEFAULT':<{default_w}}  "
             f"{'RESOLVED':<{value_w}}  "
             f"{'SOURCE':<{source_w}}  "
@@ -4218,6 +4219,7 @@ def handle_vars_command(options: Namespace) -> None:
             print(
                 f"{p.name:<{name_w}}  "
                 f"{('yes' if p.required else 'no'):<8}  "
+                f"{('yes' if p.provided else 'no'):<8}  "
                 f"{(p.default or '-'):<{default_w}}  "
                 f"{(p.value if p.value is not None else '-'):<{value_w}}  "
                 f"{p.source:<{source_w}}  "
