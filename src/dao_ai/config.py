@@ -9644,10 +9644,31 @@ class AppModel(BaseModel):
             )
 
         if self.trace_location is not None:
-            self.environment_vars.setdefault(
-                "MLFLOW_TRACING_SQL_WAREHOUSE_ID",
-                self.trace_location.warehouse_id,
-            )
+            # ``warehouse_id`` is None here when the warehouse is given by NAME
+            # — name→id resolution is deferred to WarehouseModel.ensure_resolved()
+            # (a live API call we must not force at config-load, or offline
+            # ``generate`` breaks). Injecting None poisons environment_vars: the
+            # schema re-validation inside the Model Serving pyfunc rejects a None
+            # value. Only set the var when the id is already concrete; a
+            # name-based warehouse therefore requires pinning ``warehouse_id``
+            # for Model Serving trace routing (Apps/local resolve it at runtime).
+            warehouse_id: Optional[str] = self.trace_location.warehouse_id
+            if warehouse_id:
+                self.environment_vars.setdefault(
+                    "MLFLOW_TRACING_SQL_WAREHOUSE_ID",
+                    warehouse_id,
+                )
+            else:
+                # Expected for a name-based warehouse (id resolves later);
+                # fine for Apps/local, but Model Serving needs the id in the
+                # endpoint env for trace routing. Log so a missing-MS-traces
+                # investigation isn't left guessing.
+                logger.debug(
+                    "trace_location warehouse id not yet resolved at "
+                    "config-load; skipping MLFLOW_TRACING_SQL_WAREHOUSE_ID "
+                    "env injection. Pin trace_location.warehouse_id (not "
+                    "name) for Model Serving trace routing.",
+                )
         return self
 
     @model_validator(mode="after")
