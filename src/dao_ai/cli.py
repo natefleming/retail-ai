@@ -3344,9 +3344,10 @@ def run_databricks_command(
     # so a shared default would let a second config's deploy fail against the
     # first config's stale databricks.yaml. A per-app default isolates each
     # bundle's DABs state and makes deploying many configs "just work".
-    is_default_dir: bool = staging_dir is None
-    if staging_dir is not None:
-        staging_dir = Path(staging_dir).resolve()
+    staging_dir_arg: Optional[str] = staging_dir
+    is_default_dir: bool = staging_dir_arg is None
+    if staging_dir_arg is not None:
+        staging_dir = Path(staging_dir_arg).resolve()
     elif normalized_name:
         staging_dir = _default_bundle_dir("workflow", app_config.app.name).resolve()
     else:
@@ -3400,7 +3401,7 @@ def run_databricks_command(
             logger.error(
                 f"No staged workflow bundle at {staging_dir}. "
                 f"Run `dao-ai workflow generate -c {config}"
-                f"{f' -s {staging_dir}' if staging_dir else ''}` first."
+                f"{f' -s {staging_dir_arg}' if staging_dir_arg else ''}` first."
             )
             sys.exit(1)
 

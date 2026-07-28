@@ -49,11 +49,11 @@ pip install 'dao-ai[mcp]'
 dao-ai agent generate \
   --mode mcp \
   -c my_agent.yaml \
-  -o ./my-agent-mcp \
+  -s ./my-agent-mcp \
   -p <profile>
 
 # 3. Deploy + run in one step (or drive databricks bundle by hand, below)
-dao-ai agent up --mode mcp -c my_agent.yaml -o ./my-agent-mcp -p <profile>
+dao-ai agent up --mode mcp -c my_agent.yaml -s ./my-agent-mcp -p <profile>
 
 # 3b. ...or drive the bundle manually
 cd my-agent-mcp

@@ -144,7 +144,7 @@ dao-ai workflow up|generate|deploy|run|destroy  -c <cfg> [-p <profile>]
 **The granular lifecycle — `generate → deploy → run → destroy`:**
 
 - **`generate`** stages a bundle to disk (`<base>/<noun>/<app>`, where `<base>`
-  is `$DAO_AI_BUNDLE_DIR` or `./.dao-ai/bundle`, or `-o <dir>`) and does nothing
+  is `$DAO_AI_BUNDLE_DIR` or `./.dao-ai/bundle`, or `-s <dir>`) and does nothing
   else — inspect or hand-edit the staged files before shipping.
 - **`deploy`** pushes the bundle. For `agent`/`mcp`, `deploy` is
   `databricks bundle deploy`; when a staged bundle exists it deploys it in place
@@ -167,7 +167,7 @@ with just `dao-ai agent deploy -c <cfg> -p fevm` — no regeneration. To deploy
 **Edit safety.** Re-running `generate` into the **default** staging dir refuses
 to wipe it once it has local hand-edits (detected via the `.dao-ai-generated`
 marker file's mtime), unless you pass `--overwrite`. The error points you at
-`<noun> deploy` to ship the edits instead. A `-o <dir>` is never auto-wiped.
+`<noun> deploy` to ship the edits instead. A `-s <dir>` is never auto-wiped.
 The source-selection flags `--overwrite`, `--development`, and `--no-development`
 are on `up`, `generate`, and `deploy` (for `agent`/`mcp`, `deploy` can
 auto-generate; for `workflow` it acts on the already-staged bundle); `run` and
@@ -251,10 +251,10 @@ When the source config uses `${param.NAME}` / `${var.NAME}` parameters or `${wor
 ### Basic Usage
 
 ```bash
-dao-ai agent generate -c config/retail.yaml -o ./my-bundle
+dao-ai agent generate -c config/retail.yaml -s ./my-bundle
 
 # With parameter overrides baked into the generated bundle
-dao-ai agent generate -c config/retail.yaml -o ./my-bundle --param catalog=prod_catalog
+dao-ai agent generate -c config/retail.yaml -s ./my-bundle --param catalog=prod_catalog
 
 # Generate, deploy, and start the app in one command
 dao-ai agent up -c config/retail.yaml -p fevm
@@ -387,17 +387,17 @@ dao-ai trace create --name /Shared/my-app/dao-ai-fresh -p <profile>
 If the output directory already contains generated files, they are skipped by default. Use `--overwrite` to overwrite:
 
 ```bash
-dao-ai agent generate -c config/retail.yaml -o ./my-bundle --overwrite
+dao-ai agent generate -c config/retail.yaml -s ./my-bundle --overwrite
 ```
 
-Re-running `generate` into the **default** staging dir (no `-o`) refuses to wipe it once it has local hand-edits (detected via the `.dao-ai-generated` marker's mtime) unless you pass `--overwrite`; the error points you at `dao-ai agent deploy` to ship the edits as-is. A `-o <dir>` is never auto-wiped. `--overwrite` is only valid on `generate`.
+Re-running `generate` into the **default** staging dir (no `-s`) refuses to wipe it once it has local hand-edits (detected via the `.dao-ai-generated` marker's mtime) unless you pass `--overwrite`; the error points you at `dao-ai agent deploy` to ship the edits as-is. A `-s <dir>` is never auto-wiped. `--overwrite` is only valid on `generate`.
 
 ### Using a Databricks Profile
 
 If your config references workspace resources (Genie rooms, warehouses, etc.), specify a profile so they can be resolved during generation:
 
 ```bash
-dao-ai agent generate -c config/retail.yaml -o ./my-bundle --profile my-workspace
+dao-ai agent generate -c config/retail.yaml -s ./my-bundle --profile my-workspace
 ```
 
 ### Development Mode
@@ -405,7 +405,7 @@ dao-ai agent generate -c config/retail.yaml -o ./my-bundle --profile my-workspac
 Use `--development` to bundle a local build of dao-ai instead of pulling from PyPI. This is useful when testing unreleased dao-ai changes in a deployed app.
 
 ```bash
-dao-ai agent generate -c config/retail.yaml -o ./my-bundle --development
+dao-ai agent generate -c config/retail.yaml -s ./my-bundle --development
 ```
 
 Development mode changes the generated bundle in several ways:
@@ -509,7 +509,7 @@ app:
 
 ```bash
 # 3. Deploy → link → run → restart.
-dao-ai agent generate -c my_config.yaml -o ./bundle --overwrite
+dao-ai agent generate -c my_config.yaml -s ./bundle --overwrite
 cd ./bundle
 databricks bundle deploy --target dev -p <profile>
 dao-ai trace link -c ../my_config.yaml -p <profile>

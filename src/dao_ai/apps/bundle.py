@@ -784,9 +784,9 @@ def write_bundle(
         raise ValueError(
             f"Refusing to write bundle into the dao-ai source repo "
             f"({resolved_output}). ``generate-agent`` would clobber the "
-            "dao-ai project's ``pyproject.toml``. Pass ``-o <path>`` to "
+            "dao-ai project's ``pyproject.toml``. Pass ``-s <path>`` to "
             "target a fresh directory, e.g. "
-            "``dao-ai generate-agent -c <config> -o ./bundle``."
+            "``dao-ai generate-agent -c <config> -s ./bundle``."
         )
 
     staging_dir.mkdir(parents=True, exist_ok=True)
