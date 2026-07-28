@@ -1579,6 +1579,35 @@ class GenieRelationshipType(str, Enum):
     MANY_TO_MANY = "MANY_TO_MANY"
 
 
+_RELATIONSHIP_MARKER_PREFIX = "FROM_RELATIONSHIP_TYPE_"
+_RELATIONSHIP_MARKER_RE = re.compile(r"--rt=([A-Z_]+)--")
+
+
+def _relationship_marker(relationship_type: Any) -> str:
+    """Encode a join's cardinality the way Genie's export proto expects.
+
+    ``instructions.join_specs[].sql`` must carry exactly two elements: the
+    join condition, then this marker. Posting the condition on its own is
+    rejected with ``Failed to parse export proto: <condition> (of class
+    java.lang.String)``, so an undeclared cardinality still has to say so.
+    """
+    value = getattr(relationship_type, "value", relationship_type) or "UNSPECIFIED"
+    return f"--rt={_RELATIONSHIP_MARKER_PREFIX}{value}--"
+
+
+def _relationship_type_from_marker(marker: str) -> "GenieRelationshipType | None":
+    """Decode a ``--rt=…--`` marker, or ``None`` if it carries no cardinality."""
+    match = _RELATIONSHIP_MARKER_RE.search(marker or "")
+    if not match:
+        return None
+    try:
+        return GenieRelationshipType(
+            match.group(1).removeprefix(_RELATIONSHIP_MARKER_PREFIX)
+        )
+    except ValueError:
+        return None
+
+
 class GenieJoinSpec(BaseModel):
     """A trusted join relationship between two Genie data sources."""
 
@@ -2277,14 +2306,18 @@ class GenieRoomModel(IsDatabricksResource, ManagedResource):
             join_payload: list[dict[str, Any]] = []
             for spec in self.join_specs:
                 left: dict[str, str] = {"identifier": spec.left.full_name}
+                if spec.left_alias:
+                    left["alias"] = spec.left_alias
                 right: dict[str, str] = {"identifier": spec.right.full_name}
+                if spec.right_alias:
+                    right["alias"] = spec.right_alias
                 entry: dict[str, Any] = {
                     "id": _stable_id(
                         "join_spec", spec.left.full_name, spec.right.full_name, spec.sql
                     ),
                     "left": left,
                     "right": right,
-                    "sql": [spec.sql],
+                    "sql": [spec.sql, _relationship_marker(spec.relationship_type)],
                 }
                 if spec.comment:
                     entry["comment"] = [spec.comment]
@@ -2565,14 +2598,21 @@ class GenieRoomModel(IsDatabricksResource, ManagedResource):
 
     @staticmethod
     def _join_spec_from_payload(entry: dict[str, Any]) -> "GenieJoinSpec":
-        sql_text: str = _unwrap_text(entry.get("sql")) or ""
-        relationship_type: GenieRelationshipType | None = None
+        sql_parts: list[str] = entry.get("sql") or []
+        if isinstance(sql_parts, str):
+            sql_parts = [sql_parts]
+        sql_text: str = sql_parts[0] if sql_parts else ""
+        # Current export format keeps the cardinality marker in its own
+        # element; spaces written by older builds append it to the condition.
+        relationship_type: GenieRelationshipType | None = (
+            _relationship_type_from_marker(sql_parts[-1])
+            if len(sql_parts) > 1
+            else None
+        )
         rt_match = re.search(r"\s*--rt=([A-Z_]+)--\s*$", sql_text)
         if rt_match:
-            try:
-                relationship_type = GenieRelationshipType(rt_match.group(1))
-            except ValueError:
-                relationship_type = None
+            if relationship_type is None:
+                relationship_type = _relationship_type_from_marker(rt_match.group(0))
             sql_text = sql_text[: rt_match.start()].rstrip()
         left = entry.get("left") or {}
         right = entry.get("right") or {}

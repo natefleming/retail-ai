@@ -180,19 +180,61 @@ class TestBuildSerializedSpace:
         assert mv["identifier"] == "cat.sch.daily_sales_mv"
         assert mv["description"] == ["Daily sales."]
 
-    def test_join_spec_encodes_relationship_type_in_sql(
+    def test_join_spec_sql_carries_condition_then_relationship_marker(
         self, fully_configured_room: GenieRoomModel
     ):
-        # As of serialized_space v2, the build path emits left/right
-        # identifiers + sql + comment but no longer encodes
-        # relationship_type. The parser (_join_spec_from_payload) still
-        # tolerates a trailing ``--rt=...--`` marker in case the live
-        # space carries one, but the build side no longer produces it.
+        # Genie's export proto wants exactly two elements in ``sql``: the
+        # join condition, then a ``--rt=FROM_RELATIONSHIP_TYPE_…--`` marker.
+        # Sending the condition alone is rejected with "Failed to parse
+        # export proto: <condition> (of class java.lang.String)".
         payload = fully_configured_room._build_serialized_space()
         join = payload["instructions"]["join_specs"][0]
         assert join["left"]["identifier"] == "cat.sch.orders"
         assert join["right"]["identifier"] == "cat.sch.products"
-        assert join["sql"][0] == "orders.product_id = products.product_id"
+        assert join["sql"] == [
+            "orders.product_id = products.product_id",
+            "--rt=FROM_RELATIONSHIP_TYPE_MANY_TO_ONE--",
+        ]
+
+    def test_join_spec_without_relationship_type_marks_it_unspecified(
+        self, schema: SchemaModel, warehouse: WarehouseModel
+    ):
+        # The marker is mandatory even when the config declares no
+        # cardinality, so an undeclared relationship still has to post one.
+        room = GenieRoomModel(
+            name="X",
+            warehouse=warehouse,
+            join_specs=[
+                GenieJoinSpec(
+                    left=TableModel(schema=schema, name="orders"),
+                    right=TableModel(schema=schema, name="products"),
+                    sql="orders.product_id = products.product_id",
+                )
+            ],
+        )
+        join = room._build_serialized_space()["instructions"]["join_specs"][0]
+        assert join["sql"][1] == "--rt=FROM_RELATIONSHIP_TYPE_UNSPECIFIED--"
+
+    def test_join_spec_emits_declared_aliases(
+        self, schema: SchemaModel, warehouse: WarehouseModel
+    ):
+        room = GenieRoomModel(
+            name="X",
+            warehouse=warehouse,
+            join_specs=[
+                GenieJoinSpec(
+                    left=TableModel(schema=schema, name="orders"),
+                    left_alias="o",
+                    right=TableModel(schema=schema, name="products"),
+                    right_alias="p",
+                    sql="`o`.`product_id` = `p`.`product_id`",
+                    relationship_type=GenieRelationshipType.MANY_TO_ONE,
+                )
+            ],
+        )
+        join = room._build_serialized_space()["instructions"]["join_specs"][0]
+        assert join["left"]["alias"] == "o"
+        assert join["right"]["alias"] == "p"
 
     def test_sql_function_uses_full_uc_identifier(
         self, fully_configured_room: GenieRoomModel
@@ -577,11 +619,10 @@ class TestRefresh:
             "Always join orders to products via product_id."
         ]
         assert fresh.example_sqls[0].usage_guidance == "Use when asked about ranking."
-        # NOTE: relationship_type is not round-tripped through the current
-        # build/refresh cycle (the build side stopped emitting the
-        # ``--rt=…--`` suffix). Asserting only the SQL body here keeps
-        # the rest of the section coverage honest.
         assert fresh.join_specs[0].sql == "orders.product_id = products.product_id"
+        assert (
+            fresh.join_specs[0].relationship_type == GenieRelationshipType.MANY_TO_ONE
+        )
         assert fresh.sql_filters[0].display_name == "Active products"
         assert fresh.benchmarks[0].question == "How many orders were placed yesterday?"
 
@@ -651,22 +692,51 @@ class TestRefresh:
         assert room.table_sources[0].table.full_name == "cat.sch.products"
         assert room.text_instructions == ["hi"]
 
-    @pytest.mark.xfail(
-        reason=(
-            "relationship_type is intentionally not round-tripped through "
-            "the current build/refresh cycle. The parser "
-            "(_join_spec_from_payload) still understands a trailing "
-            "``--rt=…--`` marker for compatibility with live spaces that "
-            "carry it, but the build side no longer emits the marker. "
-            "Restore round-tripping by re-emitting the suffix in "
-            "_build_serialized_space if relationship_type semantics "
-            "matter on the live space."
-        ),
-        strict=False,
-    )
+    def test_join_spec_parses_marker_from_the_second_sql_element(self):
+        entry = {
+            "id": "abc",
+            "left": {"identifier": "cat.sch.orders", "alias": "o"},
+            "right": {"identifier": "cat.sch.products"},
+            "sql": [
+                "`o`.`product_id` = `products`.`product_id`",
+                "--rt=FROM_RELATIONSHIP_TYPE_ONE_TO_MANY--",
+            ],
+        }
+        spec = GenieRoomModel._join_spec_from_payload(entry)
+        assert spec.sql == "`o`.`product_id` = `products`.`product_id`"
+        assert spec.relationship_type == GenieRelationshipType.ONE_TO_MANY
+        assert spec.left_alias == "o"
+
+    def test_unspecified_marker_parses_back_to_no_relationship_type(self):
+        entry = {
+            "id": "abc",
+            "left": {"identifier": "cat.sch.orders"},
+            "right": {"identifier": "cat.sch.products"},
+            "sql": [
+                "orders.product_id = products.product_id",
+                "--rt=FROM_RELATIONSHIP_TYPE_UNSPECIFIED--",
+            ],
+        }
+        spec = GenieRoomModel._join_spec_from_payload(entry)
+        assert spec.relationship_type is None
+        assert spec.sql == "orders.product_id = products.product_id"
+
+    def test_join_spec_parses_legacy_inline_marker(self):
+        # Spaces provisioned by older builds carry the marker appended to
+        # the condition itself; keep decoding those.
+        entry = {
+            "id": "abc",
+            "left": {"identifier": "cat.sch.orders"},
+            "right": {"identifier": "cat.sch.products"},
+            "sql": ["orders.product_id = products.product_id --rt=MANY_TO_ONE--"],
+        }
+        spec = GenieRoomModel._join_spec_from_payload(entry)
+        assert spec.sql == "orders.product_id = products.product_id"
+        assert spec.relationship_type == GenieRelationshipType.MANY_TO_ONE
+
     def test_refresh_relationship_type_round_trip(self):
         # Build a join with each relationship type, refresh, assert the
-        # suffix encoding decodes back to the enum value.
+        # marker encoding decodes back to the enum value.
         for rt in GenieRelationshipType:
             schema = SchemaModel(catalog_name="cat", schema_name="sch")
             orig = GenieRoomModel(
