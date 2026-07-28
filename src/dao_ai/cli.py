@@ -429,9 +429,14 @@ def _add_noun_verb_parsers(
             f"Bring the {noun} up: generate (if needed), deploy, and start it.\n\n"
             "For bundle modes (apps, mcp): stages the bundle when unstaged, runs\n"
             "`databricks bundle deploy`, links the trace destination, then runs\n"
-            "`databricks bundle run <app>`. Use `--direct` to skip the bundle\n"
-            "entirely and deploy via the SDK (apps/mcp only).\n\n"
-            "For --mode model_serving: registers then deploys the endpoint\n"
+            "`databricks bundle run <app>`."
+            + (
+                ""
+                if is_workflow
+                else " Use `--direct` to skip the bundle\n"
+                "entirely and deploy via the SDK (apps/mcp only)."
+            )
+            + "\n\nFor --mode model_serving: registers then deploys the endpoint\n"
             "(serving once READY; `run` is n/a for endpoints)."
         ),
         parents=parents,
@@ -441,15 +446,19 @@ def _add_noun_verb_parsers(
     if is_workflow:
         _add_workflow_target_args(up_parser)
     _add_mode_argument(up_parser, choices=["model_serving", "apps", "mcp"])
-    up_parser.add_argument(
-        "--direct",
-        action="store_true",
-        default=False,
-        help=(
-            "Deploy via the SDK directly (no DAB bundle on disk) — fast "
-            "iteration path for --mode apps|mcp. Inherently starts the app."
-        ),
-    )
+    # --direct (SDK, no DAB on disk) is agent-only: the workflow noun's whole
+    # purpose is running the provisioning JOB, which requires the DAB — there is
+    # no meaningful bundle-less path, so --direct would be a silent no-op.
+    if not is_workflow:
+        up_parser.add_argument(
+            "--direct",
+            action="store_true",
+            default=False,
+            help=(
+                "Deploy via the SDK directly (no DAB bundle on disk) — fast "
+                "iteration path for --mode apps|mcp. Inherently starts the app."
+            ),
+        )
 
     # --- generate: pure staging verb (no deploy/run) -------------------------
     generate_parser: ArgumentParser = verbs.add_parser(

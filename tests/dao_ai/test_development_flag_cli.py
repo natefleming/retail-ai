@@ -110,6 +110,13 @@ class TestNounVerbParsing:
         opts = parse_args(["agent", "up", "-c", "c.yaml", "--direct"])
         assert opts.direct is True
 
+    def test_workflow_up_rejects_direct(self) -> None:
+        # --direct is agent-only: workflow up runs the provisioning DAB job, which
+        # requires the bundle, so a bundle-less SDK path is meaningless. The flag
+        # is not registered on the workflow noun (was a silent no-op before).
+        with pytest.raises(SystemExit):
+            parse_args(["workflow", "up", "-c", "c.yaml", "--direct"])
+
     def test_up_verb_rejects_direct_with_model_serving(self) -> None:
         # --direct is meaningless with model_serving (which always deploys via the
         # SDK); the combo is rejected at parse time rather than silently ignored.
