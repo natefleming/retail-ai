@@ -3117,6 +3117,29 @@ def setup_logging(verbosity: int) -> None:
     configure_logging(level=level)
 
 
+def _declared_bundle_variables(bundle_dir: Path) -> set[str]:
+    """Names declared under ``variables:`` in a staged ``databricks.yaml``.
+
+    Used to decide which dao-ai ``--param`` overrides are safe to forward to
+    ``databricks bundle`` as ``--var``: only names the bundle actually declares.
+    Reading the staged file (rather than a hardcoded list) keeps the filter in
+    step with whatever :func:`generate_pipeline_databricks_yaml` emits. Returns an
+    empty set if the file is missing or unparseable — forward nothing rather than
+    risk an undeclared-variable failure.
+    """
+    import yaml
+
+    databricks_yaml: Path = bundle_dir / "databricks.yaml"
+    if not databricks_yaml.exists():
+        return set()
+    try:
+        doc: Any = yaml.safe_load(databricks_yaml.read_text())
+    except (yaml.YAMLError, OSError):
+        return set()
+    variables: Any = (doc or {}).get("variables") if isinstance(doc, dict) else None
+    return set(variables) if isinstance(variables, dict) else set()
+
+
 def _exec_bundle_command(
     command: list[str],
     *,
@@ -3393,11 +3416,16 @@ def run_databricks_command(
     if config_rel_to_notebooks:
         extra_vars.append(f'--var="config_path={config_rel_to_notebooks}"')
 
-    # Forward dao-ai parameter overrides to the asset-bundle layer too, so
-    # ${var.NAME} references inside databricks.yaml resolve from the same
-    # input values when the names overlap.
+    # Forward dao-ai parameter overrides to the asset-bundle layer ONLY for names
+    # that databricks.yaml actually declares as bundle variables. dao-ai params are
+    # already baked into the staged config (${var.NAME} substituted), so a param
+    # the bundle doesn't declare needs no --var — and passing one the bundle hasn't
+    # declared makes ``databricks bundle`` hard-fail ("variable X has not been
+    # defined"). Filtering to the overlap is what the original intent described.
+    declared_bundle_vars: set[str] = _declared_bundle_variables(staging_dir)
     for key, value in (config_vars or {}).items():
-        extra_vars.append(f'--var="{key}={value}"')
+        if key in declared_bundle_vars:
+            extra_vars.append(f'--var="{key}={value}"')
 
     # Add mode variable for notebooks.
     # Priority: CLI arg > default (model_serving)

@@ -591,6 +591,108 @@ class TestPipelineEmitsDevelopmentVar:
 
 
 @pytest.mark.unit
+class TestConfigVarsForwardedOnlyIfDeclared:
+    """Regression: a dao-ai --param is forwarded to `databricks bundle` as --var
+    ONLY when the staged databricks.yaml declares a matching bundle variable.
+
+    A dao-ai config parameter (e.g. genie_space_id) is baked into the staged
+    config, not declared as a bundle variable — forwarding it made
+    `databricks bundle deploy` hard-fail "variable X has not been defined".
+    """
+
+    _CFG = (
+        "resources:\n  models:\n    m: &m\n      name: databricks-gpt-5-4-mini\n"
+        "agents:\n  g: &g\n    name: g\n    description: d\n    model: *m\n"
+        "    prompt: p\n"
+        "app:\n  name: stage_only_app\n  agents:\n    - *g\n"
+    )
+
+    def _run_and_capture(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        *,
+        declared_vars: list[str],
+        config_vars: dict[str, str],
+    ) -> list[str]:
+        cfg = tmp_path / "c.yaml"
+        cfg.write_text(self._CFG)
+        out = tmp_path / "out"
+        out.mkdir()
+        # Pre-staged bundle whose databricks.yaml declares `declared_vars`.
+        variables_block = "".join(f"  {name}:\n    description: d\n" for name in declared_vars)
+        (out / "databricks.yaml").write_text(f"variables:\n{variables_block}")
+
+        captured: dict[str, list[str]] = {}
+
+        def _fake_exec(command, *, extra_vars=None, **kwargs):
+            captured["extra_vars"] = extra_vars or []
+
+        monkeypatch.setattr(cli, "_apply_profile_context", lambda p: None)
+        monkeypatch.setattr(cli, "detect_cloud_provider", lambda p: "aws")
+        monkeypatch.setattr(cli, "_exec_bundle_command", _fake_exec)
+
+        run_databricks_command(
+            ["bundle", "deploy"],
+            config=str(cfg),
+            output_dir=str(out),
+            development=False,
+            stage=False,
+            config_vars=config_vars,
+        )
+        return captured["extra_vars"]
+
+    def test_undeclared_param_not_forwarded(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        extra = self._run_and_capture(
+            tmp_path,
+            monkeypatch,
+            declared_vars=["config_path", "mode", "development", "dao_ai_dep"],
+            config_vars={"genie_space_id": "01f153"},
+        )
+        joined = " ".join(extra)
+        assert "genie_space_id" not in joined, (
+            "an undeclared dao-ai param must NOT be forwarded as a bundle --var"
+        )
+
+    def test_declared_param_is_forwarded(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        extra = self._run_and_capture(
+            tmp_path,
+            monkeypatch,
+            declared_vars=["config_path", "mode", "development", "dao_ai_dep", "catalog"],
+            config_vars={"catalog": "main", "genie_space_id": "01f153"},
+        )
+        joined = " ".join(extra)
+        assert '--var="catalog=main"' in joined, "a declared overlap must be forwarded"
+        assert "genie_space_id" not in joined, "the undeclared one is still dropped"
+
+
+@pytest.mark.unit
+class TestDeclaredBundleVariables:
+    """_declared_bundle_variables reads the staged databricks.yaml safely."""
+
+    def test_reads_declared_names(self, tmp_path: Path) -> None:
+        (tmp_path / "databricks.yaml").write_text(
+            "variables:\n  a:\n    description: x\n  b:\n    default: y\n"
+        )
+        assert cli._declared_bundle_variables(tmp_path) == {"a", "b"}
+
+    def test_missing_file_returns_empty(self, tmp_path: Path) -> None:
+        assert cli._declared_bundle_variables(tmp_path) == set()
+
+    def test_no_variables_block_returns_empty(self, tmp_path: Path) -> None:
+        (tmp_path / "databricks.yaml").write_text("bundle:\n  name: x\n")
+        assert cli._declared_bundle_variables(tmp_path) == set()
+
+    def test_malformed_yaml_returns_empty(self, tmp_path: Path) -> None:
+        (tmp_path / "databricks.yaml").write_text("variables: [not, a, mapping\n")
+        assert cli._declared_bundle_variables(tmp_path) == set()
+
+
+@pytest.mark.unit
 class TestGenerateIsStageOnly:
     """``generate`` is now a pure staging verb — ``--deploy``/``--run``/``--destroy``
     are rejected by the parser (use ``up`` for orchestration).
