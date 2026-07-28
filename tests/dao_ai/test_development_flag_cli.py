@@ -1941,3 +1941,34 @@ class TestGlobalProfileVerbose:
     def test_verbose_after_workflow_subcommand(self) -> None:
         o = parse_args(["workflow", "deploy", "-c", "c.yaml", "-v"])
         assert o.verbose >= 1
+
+
+@pytest.mark.unit
+class TestParametersSubcommand:
+    """`dao-ai parameters` (alias `vars`): action defaults to list; get takes a name."""
+
+    def test_bare_defaults_to_list(self) -> None:
+        o = parse_args(["parameters", "-c", "c.yaml"])
+        assert o.action == "list"
+        assert o.name is None
+
+    def test_explicit_list_backcompat(self) -> None:
+        o = parse_args(["parameters", "list", "-c", "c.yaml"])
+        assert o.action == "list"
+
+    def test_vars_alias_bare(self) -> None:
+        o = parse_args(["vars", "-c", "c.yaml"])
+        assert o.action == "list"
+
+    def test_get_with_name(self) -> None:
+        o = parse_args(["parameters", "get", "catalog", "-c", "c.yaml"])
+        assert o.action == "get"
+        assert o.name == "catalog"
+
+    def test_invalid_action_rejected(self) -> None:
+        with pytest.raises(SystemExit):
+            parse_args(["parameters", "bogus", "-c", "c.yaml"])
+
+    def test_config_still_required(self) -> None:
+        with pytest.raises(SystemExit):
+            parse_args(["parameters", "list"])

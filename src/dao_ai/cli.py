@@ -1604,27 +1604,47 @@ Examples:
         aliases=["vars"],
         help="Inspect declared parameters in a configuration",
         description="""
-Inspect the declared parameters: block in a DAO AI config file.
+Inspect the declared `parameters:` block in a DAO AI config file.
 
-Shows each declared parameter, whether it is required, its declared default,
-and the value that would be substituted into the YAML for the current
-combination of --param overrides and process environment variables.
+Actions (the action word is optional; 'list' is the default):
+  list          Print every declared parameter as a table — required?, provided?,
+                default, resolved value, and where the value came from (--param,
+                env, default, provided, or MISSING).
+  get <name>    Print ONE parameter's resolved value to stdout (bare, no table),
+                so it is easy to capture in a shell:
+                  CATALOG=$(dao-ai parameters get catalog -c config.yaml)
+
+Resolution for each parameter: --param/--var  >  env var  >  declared default  >
+'provided' placeholder (empty, furnished at run time)  >  MISSING (required, unset).
 
 Use this to discover what knobs a config exposes before deploying or running it.
         """,
         epilog="""
 Examples:
-  dao-ai parameters list -c config/model_config.yaml
+  dao-ai parameters -c config/model_config.yaml            # 'list' is the default
   dao-ai parameters list -c config/retail.yaml --param catalog=nfleming
-  dao-ai vars list -c config/model_config.yaml             # legacy alias
+  dao-ai parameters get catalog -c config/retail.yaml      # print one resolved value
+  dao-ai vars -c config/model_config.yaml                  # legacy alias ('vars' == 'parameters')
         """,
         formatter_class=argparse.RawDescriptionHelpFormatter,
         parents=[_GLOBAL],
     )
     vars_parser.add_argument(
         "action",
-        choices=["list"],
-        help="Parameters action: 'list' prints declared parameters and resolved values.",
+        nargs="?",
+        default="list",
+        choices=["list", "get"],
+        help=(
+            "What to do (default: list). 'list' = table of all parameters; "
+            "'get <name>' = print one parameter's resolved value to stdout."
+        ),
+    )
+    vars_parser.add_argument(
+        "name",
+        nargs="?",
+        default=None,
+        metavar="NAME",
+        help="Parameter name to read. Required with 'get'; ignored by 'list'.",
     )
     vars_parser.add_argument(
         "-c",
@@ -1632,7 +1652,7 @@ Examples:
         type=str,
         required=True,
         metavar="FILE",
-        help="Path to the model configuration file to inspect.",
+        help="Path to the dao-ai config file whose parameters: block to inspect.",
     )
 
     # Add --param/--var to the non-bundle subcommands (bundle verbs get it from
@@ -4184,6 +4204,43 @@ def handle_vars_command(options: Namespace) -> None:
     except Exception as e:
         logger.error(f"Invalid 'parameters:' declaration in {options.config}: {e}")
         sys.exit(1)
+
+    if options.action == "get":
+        name: str | None = getattr(options, "name", None)
+        if not name:
+            logger.error(
+                "parameters get requires a NAME, e.g. "
+                "`dao-ai parameters get catalog -c <file>`."
+            )
+            sys.exit(2)
+        if name not in declarations:
+            declared = ", ".join(sorted(declarations)) or "(none)"
+            logger.error(
+                f"Parameter {name!r} is not declared in {options.config}. "
+                f"Declared parameters: {declared}."
+            )
+            sys.exit(1)
+        resolved = {p.name: p for p in resolve_parameters(declarations, cli_vars=cli_vars)}
+        param = resolved[name]
+        if param.value is None:
+            # Nothing to emit — exit non-zero so scripts don't capture "".
+            # Tailor the guidance to WHY it is unresolved.
+            if param.provided:
+                logger.error(
+                    f"Parameter {name!r} is declared `provided: true` — its value is "
+                    "furnished at run time (e.g. by a workflow provisioning task), so "
+                    "it has no value at inspection time. Pass --param "
+                    f"{name}=<value> to see a concrete value here."
+                )
+            else:
+                logger.error(
+                    f"Parameter {name!r} is required but unset. Supply it with "
+                    f"--param {name}=<value>, set its env var, or give it a default."
+                )
+            sys.exit(1)
+        # Bare value to stdout so it is capture-friendly: X=$(dao-ai parameters get X -c f)
+        print(param.value)
+        sys.exit(0)
 
     if options.action == "list":
         resolved = resolve_parameters(declarations, cli_vars=cli_vars)
