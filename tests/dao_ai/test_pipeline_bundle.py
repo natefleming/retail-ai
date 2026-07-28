@@ -148,6 +148,12 @@ class TestGeneratePipelineDatabricksYaml:
         params = by_key["deploy-agents"]["notebook_task"]["base_parameters"]
         assert params["mode"] == "${var.mode}"
         assert params["development"] == "${var.development}"
+        # run-evaluation also forwards mode so it can pick the eval source
+        # (registry for model_serving, config for apps/mcp). Without this the
+        # eval task defaults to the registry and fails on apps-mode deploys,
+        # which register no model.
+        eval_params = by_key["run-evaluation"]["notebook_task"]["base_parameters"]
+        assert eval_params["mode"] == "${var.mode}"
 
     def test_development_includes_wheel_in_sync(self) -> None:
         assert "dist/*.whl" in self._doc(development=True)["sync"]["include"]
