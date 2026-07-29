@@ -443,7 +443,7 @@ Responses API–compatible kickoff / poll / cancel for agent runs that exceed th
 
 | Example | Description |
 |---------|-------------|
-| `deep_research.yaml` | Deep-research agent with `app.background` enabled, deployed to both Databricks Apps and Model Serving |
+| `background_research.yaml` | Deep-research agent with `app.background` enabled, deployed to both Databricks Apps and Model Serving |
 
 **Prerequisites:** Configured Lakebase project  
 **Use:** Deep research, multi-agent workflows, or any single inference that may take more than ~2–5 minutes
