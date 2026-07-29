@@ -31,7 +31,7 @@ flowchart TB
 
 | File | Description |
 |------|-------------|
-| [`prompt_registry.yaml`](./prompt_registry.yaml) | Reusable inline prompts referenced via YAML anchors |
+| [`reusable_prompts.yaml`](./reusable_prompts.yaml) | Reusable inline prompts referenced via YAML anchors |
 
 ## Configuration
 
@@ -90,10 +90,10 @@ Variables are filled at runtime from the request `Context` (see `make_prompt`).
 
 ```bash
 # Validate prompt configuration
-dao-ai validate -c examples/11_prompt_engineering/prompt_registry.yaml
+dao-ai validate -c examples/11_prompt_engineering/reusable_prompts.yaml
 
 # Run with the configured prompts
-dao-ai chat -c examples/11_prompt_engineering/prompt_registry.yaml
+dao-ai chat -c examples/11_prompt_engineering/reusable_prompts.yaml
 ```
 
 ## Best Practices
