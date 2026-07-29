@@ -120,7 +120,7 @@ tools:
   genie_tool: &genie_tool
     name: genie_tool
     function:
-      type: genie  # Tool type: factory function
+      type: genie  # First-class Genie tool
       name: genie_tool
       description: Answers questions about retail products and inventory
       genie_room: *retail_genie_room

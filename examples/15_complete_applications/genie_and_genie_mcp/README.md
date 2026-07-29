@@ -4,9 +4,9 @@
 
 | ✨ Feature | What this example shows |
 |---|---|
-| 🔀 **Two Genie transports, one space** | `employee_agent` uses `type: genie` (native factory tool); `inventory_agent` uses `type: mcp` against `…/api/2.0/mcp/genie/{space_id}`. Both resolve `retail_genie_room` (same `space_id`). |
+| 🔀 **Two Genie transports, one space** | `employee_agent` uses `type: genie` (native, in-process); `inventory_agent` uses `type: mcp` against `…/api/2.0/mcp/genie/{space_id}`. Both resolve `retail_genie_room` (same `space_id`). |
 | 👔 **Supervisor orchestration** | A single supervisor LLM routes each turn to one of two specialists based on their `handoff_prompt` descriptions. Hub-and-spoke, not a pipeline. |
-| 🛠️ **First-class `genie` tool** | The employee path is `type: genie` — typed fields, no boilerplate. Delegates to `dao_ai.tools.create_genie_tool`, talks to Genie over the Conversation API in-process using the deployed identity. |
+| 🛠️ **First-class `genie` tool** | The employee path is `type: genie` — typed fields, no boilerplate. Talks to Genie over the Conversation API in-process using the deployed identity. |
 | 🌐 **Managed Genie MCP** | The inventory path is `type: mcp` with a `genie_room` — dao-ai builds the managed MCP URL and calls Genie as an external MCP tool, authenticated with an explicit service principal. |
 | 🔑 **Explicit SP creds on the MCP leg only** | `genie_mcp` wires `client_id` / `client_secret` / `workspace_host` from the `retail_consumer_goods` secret scope. The `genie` tool leg needs none — it rides the serving/App identity. |
 | 🧩 **Config-only, no assets to provision** | No `data/` or `functions/` dir. The Genie space and its underlying tables are **prerequisites**, not created by deploy. `dao-ai agent up` just registers + serves. |
@@ -64,7 +64,7 @@ Both legs answer the *same kind of question* against the *same Genie space*. Wha
 | | 🛠️ `genie_tool` (employee_agent) | 🌐 `genie_mcp` (inventory_agent) |
 |---|---|---|
 | **YAML type** | `function.type: genie` | `function.type: mcp` |
-| **How dao-ai wires it** | `dao_ai.tools.create_genie_tool(genie_room=…)` — a typed first-class tool | Builds `https://{host}/api/2.0/mcp/genie/{space_id}` and registers it as an MCP tool |
+| **How dao-ai wires it** | First-class `type: genie` with a `genie_room` | Builds `https://{host}/api/2.0/mcp/genie/{space_id}` and registers it as an MCP tool |
 | **Where it runs** | In-process inside the agent; Genie **Conversation API** | Out-of-process call to Databricks' **managed Genie MCP server** |
 | **Auth** | Deployed identity (App / serving SP); no creds in config | Explicit service principal — `client_id` / `client_secret` / `workspace_host` from the `retail_consumer_goods` secret scope |
 | **Extra config** | Just `genie_room` | `genie_room` **+** three secret-backed credentials |
