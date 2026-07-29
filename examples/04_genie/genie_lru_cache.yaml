@@ -12,6 +12,12 @@ parameters:
   schema:
     description: Schema within the catalog
     default: quick_serve_restaurant
+  llm:
+    description: Chat/reasoning serving endpoint for agent models
+    default: databricks-claude-sonnet-5
+  warehouse_id:
+    description: Databricks SQL warehouse ID
+    default: 148ccb90800933a1
 
 schemas:
 
@@ -23,7 +29,7 @@ resources:
   models:
     # Primary LLM for general tasks
     default_llm: &default_llm
-      name: databricks-claude-sonnet-4
+      name: ${var.llm}
       temperature: 0.1                              # Low temperature for consistent responses
       max_tokens: 8192                              # Maximum tokens per response
       on_behalf_of_user: false
@@ -33,7 +39,7 @@ resources:
     shared_endpoint_warehouse: &shared_endpoint_warehouse
       name: "Shared Endpoint Warehouse"             # Human-readable name
       description: "A warehouse for shared endpoints"  # Description
-      warehouse_id: 148ccb90800933a1                # Databricks warehouse ID
+      warehouse_id: ${var.warehouse_id}                # Databricks warehouse ID
       on_behalf_of_user: false
 
   genie_rooms:

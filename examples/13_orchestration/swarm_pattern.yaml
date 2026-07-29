@@ -10,6 +10,14 @@
 # Use case: When agents need to collaborate and hand off fluidly
 
 # =============================================================================
+# PARAMETERS
+# =============================================================================
+parameters:
+  llm:
+    description: Chat/reasoning serving endpoint for the swarm agents
+    default: databricks-claude-sonnet-5
+
+# =============================================================================
 # VARIABLES
 # =============================================================================
 variables:
@@ -22,7 +30,7 @@ variables:
 resources:
   models:
     default_llm: &default_llm
-      name: databricks-claude-sonnet-4
+      name: ${var.llm}
       temperature: 0.1
       max_tokens: 4096
 

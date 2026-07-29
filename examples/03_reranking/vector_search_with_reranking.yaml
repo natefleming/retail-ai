@@ -11,6 +11,12 @@ parameters:
   schema:
     description: Schema within the catalog
     default: hardware_store
+  llm:
+    description: Chat/reasoning serving endpoint for general tasks
+    default: databricks-claude-sonnet-5
+  embedding_model:
+    description: Embedding serving endpoint for vector search
+    default: databricks-gte-large-en
 
 schemas:
   retail_schema: &retail_schema
@@ -21,12 +27,12 @@ resources:
   models:
     # Primary LLM for general tasks
     default_llm: &default_llm
-      name: databricks-claude-sonnet-4             # Databricks serving endpoint name
+      name: ${var.llm}                              # Databricks serving endpoint name
       temperature: 0.1                              # Low temperature for consistent responses
       max_tokens: 8192                              # Maximum tokens per response
 
     embedding_model: &embedding_model
-      name: databricks-gte-large-en                 # Text embedding model
+      name: ${var.embedding_model}                  # Text embedding model
 
   vector_stores:
     # Product information vector store for similarity search

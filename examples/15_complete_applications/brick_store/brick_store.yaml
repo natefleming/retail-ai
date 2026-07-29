@@ -11,6 +11,24 @@ parameters:
   schema:
     description: Schema within the catalog
     default: store_ops
+  llm:
+    description: Primary chat/reasoning + tool-calling serving endpoint for the agents
+    default: databricks-claude-sonnet-4-5
+  fast_llm:
+    description: Fast serving endpoint for supervisor routing, decomposition, and lightweight calls
+    default: databricks-gpt-5-4-mini
+  embedding_model:
+    description: Embedding serving endpoint for vector search and memory
+    default: databricks-gte-large-en
+  genie_space_id:
+    description: Genie space id for the Brick Store Operations Genie room
+    default: 01f14b11e9dd164483458833e7aa840e
+  warehouse_id:
+    description: SQL warehouse id for Genie and caching workloads
+    default: 4b9b953939869799
+  lakebase_project:
+    description: Lakebase Postgres project name for agent memory
+    default: retail-consumer-goods
   genie_parent_path:
     description: Workspace folder for the Genie space (path under /Users/<user>/)
     default: "/Users/${workspace.current_user.userName}/genie"
@@ -80,39 +98,39 @@ resources:
   # ---------------------------------------------------------------------------
   models:
     fast_llm: &fast_llm
-      name: databricks-gpt-5-4-mini
+      name: ${var.fast_llm}
       temperature: 0.1
       max_tokens: 4096
       on_behalf_of_user: true
 
     supervisor_llm: &supervisor_llm
-      name: databricks-gpt-5-4-mini
+      name: ${var.fast_llm}
       temperature: 0.1
       max_tokens: 1024
       on_behalf_of_user: true
 
     tool_calling_llm: &tool_calling_llm
-      name: databricks-claude-sonnet-4-5
+      name: ${var.llm}
       temperature: 0.1
       max_tokens: 4096
       on_behalf_of_user: true
       fallbacks:
-      - databricks-claude-sonnet-4-5
+      - ${var.llm}
 
     judge_llm: &judge_llm
-      name: databricks-claude-sonnet-4-5
+      name: ${var.llm}
       temperature: 0.5
       max_tokens: 8192
       on_behalf_of_user: true
 
     decomposition_llm: &decomposition_llm
-      name: databricks-gpt-5-4-mini
+      name: ${var.fast_llm}
       temperature: 0.0
       max_tokens: 1024
       on_behalf_of_user: true
 
     embedding_model: &embedding_model
-      name: databricks-gte-large-en
+      name: ${var.embedding_model}
       on_behalf_of_user: true
 
   # ---------------------------------------------------------------------------
@@ -178,7 +196,7 @@ resources:
     brickstore_warehouse: &brickstore_warehouse
       name: "Shared Unity Catalog Serverless"
       description: "Shared serverless warehouse for brick_store demo workloads"
-      warehouse_id: 4b9b953939869799
+      warehouse_id: ${var.warehouse_id}
       on_behalf_of_user: true
 
   # ---------------------------------------------------------------------------
@@ -194,7 +212,7 @@ resources:
       # space_id is populated by GenieRoomModel.create() during initial
       # provisioning. With it set, subsequent deploys reference the existing
       # space (update mode) instead of creating a new one.
-      space_id: 01f14b11e9dd164483458833e7aa840e
+      space_id: ${var.genie_space_id}
       on_behalf_of_user: true
       parent_path: "${var.genie_parent_path}"
       warehouse: *brickstore_warehouse
@@ -328,7 +346,7 @@ resources:
   databases:
     retail_database: &retail_database
       name: "retail-consumer-goods"
-      project: "retail-consumer-goods"
+      project: "${var.lakebase_project}"
       description: "Lakebase Postgres for agent memory checkpoints and namespaced store"
       client_id: *client_id
       client_secret: *client_secret

@@ -11,6 +11,9 @@ parameters:
   schema:
     description: Schema within the catalog
     default: hardware_store
+  llm:
+    description: Chat/reasoning serving endpoint used by the agent
+    default: databricks-claude-sonnet-5
 
 # Example configuration demonstrating the Vega-Lite visualization tool
 # This tool generates portable Vega-Lite JSON specs from structured data.
@@ -25,7 +28,7 @@ resources:
   # Define the LLM for the agent
   models:
     default_llm: &default_llm
-      name: databricks-claude-sonnet-4  # Databricks serving endpoint name
+      name: ${var.llm}  # Databricks serving endpoint name
 
   # Define the warehouse to execute SQL against
   warehouses:

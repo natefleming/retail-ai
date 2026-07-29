@@ -11,6 +11,9 @@ parameters:
   schema:
     description: Schema within the catalog
     default: hardware_store
+  llm:
+    description: Chat/reasoning serving endpoint used by the agents
+    default: databricks-claude-sonnet-5
 
 # =============================================================================
 # On-Behalf-Of (OBO) User Authentication Example
@@ -44,7 +47,7 @@ schemas:
 resources:
   models:
     default_llm: &default_llm
-      name: databricks-claude-sonnet-4
+      name: ${var.llm}
       temperature: 0.7
       max_tokens: 4096
       # Enable OBO for LLM requests

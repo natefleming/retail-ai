@@ -1,26 +1,49 @@
 # yaml-language-server: $schema=../../../schemas/model_config_schema.json
 
 
+# =============================================================================
+# PARAMETERS
+# =============================================================================
+parameters:
+  catalog:
+    description: Unity Catalog catalog name
+    default: retail_consumer_goods
+  schema:
+    description: Schema within the catalog
+    default: quick_serve_restaurant
+  registered_model_catalog:
+    description: Unity Catalog catalog where the model is registered
+    default: nfleming
+  registered_model_schema:
+    description: Schema where the model is registered
+    default: retail_ai
+  llm:
+    description: Chat/reasoning serving endpoint for agent models
+    default: databricks-claude-sonnet-5
+  fallback_llm:
+    description: Fallback chat serving endpoint
+    default: databricks-claude-sonnet-5
+
 schemas:
   retail_schema: &retail_schema
-    catalog_name: nfleming                    # Unity Catalog name
-    schema_name: retail_ai                    # Schema within the catalog
+    catalog_name: ${var.registered_model_catalog}                    # Unity Catalog name
+    schema_name: ${var.registered_model_schema}                    # Schema within the catalog
 
   quick_serve_retaurant_schema: &quick_serve_retaurant_schema
-    catalog_name: retail_consumer_goods                    # Unity Catalog name
-    schema_name: quick_serve_restaurant                    # Schema within the catalog
+    catalog_name: ${var.catalog}                    # Unity Catalog name
+    schema_name: ${var.schema}                    # Schema within the catalog
 
 resources:
   models:
     # Primary LLM for general tasks
     default_llm: &default_llm
-      name: databricks-claude-3-7-sonnet # Databricks serving endpoint name
+      name: ${var.llm} # Databricks serving endpoint name
       temperature: 0.1                              # Low temperature for consistent responses
       max_tokens: 8192                              # Maximum tokens per response
       on_behalf_of_user: false
       fallbacks:                                  # Fallback LLMs in case of issues
-      - databricks-claude-sonnet-4
-      - databricks-claude-sonnet-4
+      - ${var.fallback_llm}
+      - ${var.fallback_llm}
 
   databases:
     # PostgreSQL database for agent memory and checkpoints

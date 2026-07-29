@@ -11,6 +11,12 @@ parameters:
   schema:
     description: Schema within the catalog
     default: default
+  llm:
+    description: Chat/reasoning serving endpoint for agent models
+    default: databricks-claude-sonnet-5
+  lakebase_project:
+    description: Lakebase (PostgreSQL) project name
+    default: my-lakebase-project
 
 # =============================================================================
 # Lakebase Persistence Example
@@ -44,13 +50,13 @@ schemas:
 resources:
   models:
     default_llm: &default_llm
-      name: databricks-claude-sonnet-4
+      name: ${var.llm}
       temperature: 0.7
       max_tokens: 4096
 
     # Optional: Separate model for summarization (more cost-effective)
     summary_llm:
-      name: databricks-claude-sonnet-4
+      name: ${var.llm}
       temperature: 0.1
       max_tokens: 512
 
@@ -59,7 +65,7 @@ resources:
   # ---------------------------------------------------------------------------
   databases:
     lakebase_db: &lakebase_db
-      project: "my-lakebase-project"         # Autoscaling Lakebase project name
+      project: ${var.lakebase_project}         # Autoscaling Lakebase project name
       description: "Databricks Lakebase for conversation persistence"
 
 # =============================================================================

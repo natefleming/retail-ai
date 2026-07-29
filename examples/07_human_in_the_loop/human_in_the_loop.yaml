@@ -26,6 +26,20 @@
   # - Composite: { type: composite, options: [${VAR1}, ${VAR2}, default] }
   # - Primitives: Just use the value directly
 
+parameters:
+  catalog:
+    description: Unity Catalog catalog name
+    default: nfleming
+  schema:
+    description: Schema within the catalog
+    default: retail_ai
+  llm:
+    description: Chat/reasoning serving endpoint used by the agents
+    default: databricks-claude-sonnet-5
+  lakebase_project:
+    description: Lakebase project backing the HITL checkpointer and store
+    default: retail-consumer-goods
+
 variables:
   client_id: &client_id
     options:
@@ -40,19 +54,19 @@ variables:
 
 schemas:
   retail_schema: &retail_schema
-    catalog_name: nfleming                    
-    schema_name: retail_ai                    
+    catalog_name: ${var.catalog}
+    schema_name: ${var.schema}
 
 resources:
   models:
     default_llm: &default_llm
-      name: databricks-claude-sonnet-4 
+      name: ${var.llm}
       temperature: 0.1
       max_tokens: 8192
 
   databases:
     lakebase_db: &lakebase_db
-      project: retail-consumer-goods
+      project: ${var.lakebase_project}
       client_id: *client_id
       client_secret: *client_secret
 
@@ -164,7 +178,7 @@ app:
   
   orchestration:
     swarm:
-      default_agent: *main_agent
+      default_agent: *admin_agent
 
     memory: *memory  # CRITICAL: Memory with checkpointer required for HITL
   

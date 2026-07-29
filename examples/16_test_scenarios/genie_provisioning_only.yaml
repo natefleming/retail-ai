@@ -38,6 +38,9 @@ parameters:
   genie_parent_path:
     description: Workspace folder for the Genie space
     default: /Users/${workspace.current_user.userName}
+  llm:
+    description: Chat/reasoning serving endpoint registered for deploy-agents
+    default: databricks-claude-sonnet-4-5
 
 schemas:
   loyalty_schema: &loyalty_schema
@@ -48,7 +51,7 @@ resources:
   # A minimum-viable LLM resource so deploy-agents has something to register.
   models:
     default_llm: &default_llm
-      name: databricks-claude-sonnet-4-5
+      name: ${var.llm}
       ai_gateway: true
 
   warehouses:

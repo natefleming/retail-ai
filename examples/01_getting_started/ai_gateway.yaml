@@ -25,6 +25,15 @@ parameters:
   schema:
     description: Schema within the catalog
     default: hardware_store
+  # Model endpoints are parameterized so defaults are overridable per
+  # environment (e.g. --param llm=databricks-claude-sonnet-5) without editing
+  # the config. Defaults track current GA Foundation Model API endpoints.
+  llm:
+    description: Chat/reasoning serving endpoint (AI Gateway routed).
+    default: databricks-claude-opus-4-6
+  fallback_llm:
+    description: Fallback chat serving endpoint.
+    default: databricks-claude-sonnet-5
 
 schemas:
   retail_schema: &retail_schema
@@ -35,14 +44,14 @@ resources:
   models:
     # New path — Foundation Model served via AI Gateway.
     gateway_llm: &gateway_llm
-      name: databricks-claude-opus-4-6
+      name: ${var.llm}
       ai_gateway: true
       temperature: 0.1
       max_tokens: 1024
 
     # Legacy path — same workspace, no flag, unchanged behavior.
     legacy_llm: &legacy_llm
-      name: databricks-claude-sonnet-4
+      name: ${var.fallback_llm}
       temperature: 0.1
       max_tokens: 1024
 
@@ -50,12 +59,12 @@ resources:
     # Both ChatOpenAI and ChatDatabricks are LangChain Runnables, so
     # with_fallbacks composes them without further configuration.
     resilient_llm: &resilient_llm
-      name: databricks-claude-opus-4-6
+      name: ${var.llm}
       ai_gateway: true
       temperature: 0.1
       max_tokens: 1024
       fallbacks:
-      - databricks-claude-sonnet-4
+      - ${var.fallback_llm}
 
 agents:
   gateway_agent: &gateway_agent

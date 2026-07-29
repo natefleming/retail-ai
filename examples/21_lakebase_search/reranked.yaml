@@ -16,6 +16,10 @@
 # a specific model + top_n.
 
 parameters:
+  llm:
+    default: databricks-claude-sonnet-4-5
+  embedding_model:
+    default: databricks-gte-large-en
   lakebase_project:
     default: my-lakebase-project
   schema_name:
@@ -51,7 +55,7 @@ variables:
 resources:
   models:
     default_llm: &default_llm
-      name: databricks-claude-sonnet-4-5
+      name: ${var.llm}
 
   databases:
     kb_lakebase: &kb_lakebase
@@ -69,7 +73,7 @@ resources:
       content_column: passage
       embedding_column: embedding
       tsvector_column: passage_tsv
-      embedding_model: databricks-gte-large-en
+      embedding_model: ${var.embedding_model}
       metadata_columns: [category, priority]
 
     # Same table, narrower metadata surface for the ANN-only variant.
@@ -81,7 +85,7 @@ resources:
       content_column: passage
       embedding_column: embedding
       tsvector_column: passage_tsv
-      embedding_model: databricks-gte-large-en
+      embedding_model: ${var.embedding_model}
       metadata_columns: [category]
 
 retrievers:

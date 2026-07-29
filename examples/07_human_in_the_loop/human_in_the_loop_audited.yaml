@@ -20,12 +20,21 @@
 #                            fail-closed on args-hash drift at execution time.
 
 parameters:
+  catalog:
+    description: Unity Catalog catalog name
+    default: retail_consumer_goods
+  schema:
+    description: Schema within the catalog
+    default: audit_demo
   # Model endpoint is parameterized so the default can be overridden per
   # environment (e.g. --param llm=databricks-claude-sonnet-5) without editing
   # the config. Default tracks a current GA Foundation Model API endpoint.
   llm:
     description: Chat/reasoning serving endpoint for the audit admin agent.
     default: databricks-claude-sonnet-4-5
+  lakebase_project:
+    description: Lakebase project hosting the HITL checkpointer and audit receipts
+    default: retail-consumer-goods-audit
 
 variables:
   client_id: &client_id
@@ -41,8 +50,8 @@ variables:
 
 schemas:
   audit_schema: &audit_schema
-    catalog_name: retail_consumer_goods
-    schema_name: audit_demo
+    catalog_name: ${var.catalog}
+    schema_name: ${var.schema}
 
 resources:
   warehouses:
@@ -59,7 +68,7 @@ resources:
   databases:
     # Single Lakebase — hosts the HITL checkpointer AND the audit receipts.
     audit_db: &audit_db
-      project: retail-consumer-goods-audit
+      project: ${var.lakebase_project}
       autoscaling_min_cu: 0
       autoscaling_max_cu: 4
       client_id: *client_id

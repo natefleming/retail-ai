@@ -11,6 +11,30 @@ parameters:
   schema:
     description: Schema within the catalog
     default: sporting_goods_store
+  llm:
+    description: Chat/reasoning serving endpoint for tool-calling and judge tasks
+    default: databricks-claude-sonnet-4-5
+  fast_llm:
+    description: Fast chat serving endpoint for supervisor, decomposition, and query tasks
+    default: databricks-gpt-5-4-mini
+  fallback_llm:
+    description: Fallback chat serving endpoint when the primary llm is unavailable
+    default: databricks-claude-sonnet-4-6
+  embedding_model:
+    description: Embedding serving endpoint for vector search and memory store
+    default: databricks-gte-large-en
+  warehouse_id:
+    description: SQL Warehouse id used by Genie + provisioning. Override per workspace via --var.
+    default: 4b9b953939869799
+  merchandising_genie_space_id:
+    description: Genie space id for the merchandising analytics room
+    default: 01f124c2646f1ed4846cae3f8b36df02
+  sales_pricing_genie_space_id:
+    description: Genie space id for the sales & pricing analytics room
+    default: 01f124c2690f1dcb93a15057c2a74339
+  lakebase_project:
+    description: Lakebase project name reused for agent memory + checkpointer
+    default: retail-consumer-goods
 
 # =============================================================================
 # Sporting Goods Store - Merchandiser 360
@@ -70,38 +94,38 @@ resources:
   # ---------------------------------------------------------------------------
   models:
     fast_llm: &fast_llm
-      name: databricks-gpt-5-4-mini
+      name: ${var.fast_llm}
       temperature: 0.1
       max_tokens: 4096
       on_behalf_of_user: true
 
     supervisor_llm: &supervisor_llm
-      name: databricks-gpt-5-4-mini
+      name: ${var.fast_llm}
       temperature: 0.1
       max_tokens: 1024
       on_behalf_of_user: true
 
     tool_calling_llm: &tool_calling_llm
-      name: databricks-claude-sonnet-4-5
+      name: ${var.llm}
       temperature: 0.1
       max_tokens: 4096
       on_behalf_of_user: true
       fallbacks:
-      - databricks-claude-sonnet-4-6
+      - ${var.fallback_llm}
 
     judge_llm: &judge_llm
-      name: databricks-claude-sonnet-4-5
+      name: ${var.llm}
       temperature: 0.5
       max_tokens: 8192
 
     decomposition_llm: &decomposition_llm
-      name: databricks-gpt-5-4-mini
+      name: ${var.fast_llm}
       temperature: 0.0
       max_tokens: 1024
       on_behalf_of_user: true
 
     embedding_model: &embedding_model
-      name: databricks-gte-large-en
+      name: ${var.embedding_model}
 
   # ---------------------------------------------------------------------------
   # VECTOR STORES
@@ -145,7 +169,7 @@ resources:
     shared_warehouse: &shared_warehouse
       # name: "Shared Endpoint"
       name: "Shared Unity Catalog Serverless"
-      warehouse_id: 4b9b953939869799
+      warehouse_id: ${var.warehouse_id}
       on_behalf_of_user: false
 
   # ---------------------------------------------------------------------------
@@ -156,13 +180,13 @@ resources:
       name: "Merchandising Analytics - Sporting Goods"
       description: "Genie room for merchandising analytics including assortment planning, demand forecasting, purchase order tracking, category performance, and seasonal trend analysis"
       on_behalf_of_user: false
-      space_id: 01f124c2646f1ed4846cae3f8b36df02
+      space_id: ${var.merchandising_genie_space_id}
 
     sales_pricing_room: &sales_pricing_room
       name: "Sales and Pricing Analytics - Sporting Goods"
       description: "Genie room for sales performance analysis, pricing strategy, margin analytics, promotional effectiveness, and revenue tracking across stores and channels"
       on_behalf_of_user: false
-      space_id: 01f124c2690f1dcb93a15057c2a74339
+      space_id: ${var.sales_pricing_genie_space_id}
 
   # ---------------------------------------------------------------------------
   # FUNCTIONS
@@ -183,7 +207,7 @@ resources:
   databases:
     retail_database: &retail_database
       name: "retail-consumer-goods"
-      project: "retail-consumer-goods"  # Autoscaling Lakebase project name
+      project: "${var.lakebase_project}"  # Autoscaling Lakebase project name
       description: "Databricks Lakebase for agent memory and checkpoints"
       client_id: *client_id
       client_secret: *client_secret
