@@ -2619,10 +2619,24 @@ def _handle_sp_provision(options, config, sp, WorkspaceClient) -> None:
     print(f"{verb} service principal: {result.display_name}")
     print(f"  client_id: {result.client_id}")
     if result.stored:
-        print(f"  secret stored in scope: {result.stored_scope} (not printed)")
+        print(f"  secret stored in scope '{result.stored_scope}' (value hidden):")
+        print(f"    {result.stored_client_id_key}     = <client id>")
+        print(f"    {result.stored_client_secret_key} = <client secret>")
     if result.grant_plan is not None:
-        print(f"  granted {len(result.grant_plan.grants)} resource(s)")
+        _print_grants(result.grant_plan, applied=True)
     print("\n✓ Service principal is ready for this config.")
+
+
+def _print_grants(plan, *, applied: bool) -> None:
+    """Print a readable list of the grants in a plan (secret-free)."""
+    header = "grants applied" if applied else "grants (dry-run — nothing applied)"
+    print(f"  {header} ({len(plan.grants)}):")
+    if not plan.grants:
+        print("    (no grantable resources found in config)")
+        return
+    for g in plan.grants:
+        target = f"{g.securable_type} {g.target}" if g.securable_type else g.target
+        print(f"    [{g.kind}] {target} -> {', '.join(g.privileges)}")
 
 
 def _handle_sp_create(options, config, sp, WorkspaceClient) -> None:
@@ -2707,14 +2721,8 @@ def _handle_sp_grant(options, config, sp, WorkspaceClient) -> None:
     w = WorkspaceClient()
     plan = sp.grant(w, principal=principal, config=config, dry_run=options.dry_run)
 
-    header = "Would grant" if options.dry_run else "Granted"
-    print(f"{header} to principal {plan.principal}:")
-    if not plan.grants:
-        print("  (no grantable resources found in config)")
-        return
-    for g in plan.grants:
-        target = f"{g.securable_type}:{g.target}" if g.securable_type else g.target
-        print(f"  [{g.kind}] {target} -> {', '.join(g.privileges)}")
+    print(f"principal {plan.principal}")
+    _print_grants(plan, applied=not options.dry_run)
 
 
 def _empty_config() -> "AppConfig":

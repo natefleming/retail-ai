@@ -363,6 +363,53 @@ def test_provision_no_store_no_grant_flags() -> None:
     w.api_client.do.assert_not_called()
 
 
+def test_resolve_secret_target_from_variables_block() -> None:
+    """Configs that wire creds via top-level `variables:` (no service_principals)."""
+    from dao_ai.config import CompositeVariableModel, SecretVariableModel
+
+    config = AppConfig(
+        variables={
+            "client_id": CompositeVariableModel(
+                options=[SecretVariableModel(scope="rcg", secret="RETAIL_AI_CLIENT_ID")]
+            ),
+            "client_secret": CompositeVariableModel(
+                options=[SecretVariableModel(scope="rcg", secret="RETAIL_AI_CLIENT_SECRET")]
+            ),
+        }
+    )
+    scope, cid_key, csec_key = resolve_secret_target(config)
+    assert scope == "rcg"
+    assert cid_key == "RETAIL_AI_CLIENT_ID"
+    assert csec_key == "RETAIL_AI_CLIENT_SECRET"
+
+
+def test_resolve_secret_target_from_environment_vars() -> None:
+    """Configs that only reference secrets via app.environment_vars {{secrets/...}}."""
+    from dao_ai.config import AgentModel, AppModel, InferenceEndpointModel
+
+    config = AppConfig(
+        app=AppModel(
+            name="hw",
+            agents=[
+                AgentModel(
+                    name="a",
+                    description="d",
+                    model=InferenceEndpointModel(name="databricks-gpt-5-4-mini"),
+                )
+            ],
+            environment_vars={
+                "RETAIL_AI_DATABRICKS_CLIENT_ID": "{{secrets/rcg/RETAIL_AI_DATABRICKS_CLIENT_ID}}",
+                "RETAIL_AI_DATABRICKS_CLIENT_SECRET": "{{secrets/rcg/RETAIL_AI_DATABRICKS_CLIENT_SECRET}}",
+                "DATABRICKS_HOST": "https://example.databricks.com",
+            },
+        )
+    )
+    scope, cid_key, csec_key = resolve_secret_target(config)
+    assert scope == "rcg"
+    assert cid_key == "RETAIL_AI_DATABRICKS_CLIENT_ID"  # not the _SECRET one
+    assert csec_key == "RETAIL_AI_DATABRICKS_CLIENT_SECRET"
+
+
 def test_resolve_secret_target_override_wins() -> None:
     config = AppConfig(
         service_principals={

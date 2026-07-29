@@ -183,6 +183,8 @@ class ProvisionResult:
     client_id: str
     reused: bool
     stored_scope: Optional[str] = None
+    stored_client_id_key: Optional[str] = None
+    stored_client_secret_key: Optional[str] = None
     stored: bool = False
     grant_plan: Optional["GrantPlan"] = None
 
@@ -246,6 +248,8 @@ def provision(
             client_secret=created.client_secret,
         )
         result.stored_scope = resolved_scope
+        result.stored_client_id_key = cid_key
+        result.stored_client_secret_key = csec_key
         result.stored = True
 
     if do_grant:
@@ -541,25 +545,87 @@ def resolve_secret_target(
 ) -> tuple[Optional[str], str, str]:
     """Resolve (scope, client_id_key, client_secret_key) for ``store``.
 
-    Prefers explicit overrides, then introspects the config's service-principal
-    ``client_id`` / ``client_secret`` variables for their secret scope + key.
+    Prefers explicit overrides, then discovers the secret scope + key names the
+    config actually reads its credentials from, checking three places in order:
+
+    1. ``service_principals`` block (``client_id`` / ``client_secret`` vars),
+    2. top-level ``variables`` named ``client_id`` / ``client_secret``,
+    3. ``app.environment_vars`` entries pointing at ``{{secrets/scope/KEY}}``
+       (the ``RETAIL_AI_DATABRICKS_CLIENT_ID`` / ``_SECRET`` pattern).
+
+    This matters because most configs wire credentials via ``variables`` /
+    ``environment_vars`` rather than a ``service_principals`` block — resolving
+    only the latter would store the secret under generic key names the agent
+    never reads.
     """
     scope = scope_override
     client_id_key = client_id_key_override
     client_secret_key = client_secret_key_override
 
-    if not (scope and client_id_key and client_secret_key):
+    def _merge(cid_ref: object, csec_ref: object) -> None:
+        nonlocal scope, client_id_key, client_secret_key
+        cid_scope, cid_key = _secret_ref(cid_ref)
+        csec_scope, csec_key = _secret_ref(csec_ref)
+        scope = scope or cid_scope or csec_scope
+        client_id_key = client_id_key or cid_key
+        client_secret_key = client_secret_key or csec_key
+
+    def _done() -> bool:
+        return bool(scope and client_id_key and client_secret_key)
+
+    # 1. service_principals block
+    if not _done():
         sp: "ServicePrincipalModel"
         for sp in config.service_principals.values():
-            cid_scope, cid_key = _secret_ref(sp.client_id)
-            csec_scope, csec_key = _secret_ref(sp.client_secret)
-            scope = scope or cid_scope or csec_scope
-            client_id_key = client_id_key or cid_key
-            client_secret_key = client_secret_key or csec_key
-            if scope and client_id_key and client_secret_key:
+            _merge(sp.client_id, sp.client_secret)
+            if _done():
                 break
 
+    # 2. top-level variables named client_id / client_secret
+    if not _done():
+        _merge(config.variables.get("client_id"), config.variables.get("client_secret"))
+
+    # 3. app.environment_vars pointing at {{secrets/scope/KEY}}
+    if not _done() and config.app is not None:
+        env_vars = config.app.environment_vars or {}
+        cid_scope, cid_key = _secret_ref_from_env(env_vars, "CLIENT_ID")
+        csec_scope, csec_key = _secret_ref_from_env(env_vars, "CLIENT_SECRET")
+        scope = scope or cid_scope or csec_scope
+        client_id_key = client_id_key or cid_key
+        client_secret_key = client_secret_key or csec_key
+
     return scope, client_id_key or "sp-client-id", client_secret_key or "sp-client-secret"
+
+
+_SECRET_REF_RE = re.compile(r"\{\{secrets/(?P<scope>[^/]+)/(?P<key>[^}]+)\}\}")
+
+
+def _secret_ref_from_env(
+    env_vars: dict, needle: str
+) -> tuple[Optional[str], Optional[str]]:
+    """Find a ``{{secrets/scope/KEY}}`` env-var value whose KEY contains ``needle``.
+
+    ``needle`` is ``CLIENT_ID`` or ``CLIENT_SECRET`` — matched case-insensitively
+    against the resolved secret key (not the env var name), so
+    ``RETAIL_AI_DATABRICKS_CLIENT_ID`` is picked for ``CLIENT_ID``. Guards against
+    ``CLIENT_ID`` also matching ``CLIENT_SECRET`` by requiring the key NOT contain
+    ``SECRET`` when looking for the id.
+    """
+    want_secret = needle == "CLIENT_SECRET"
+    for value in env_vars.values():
+        if not isinstance(value, str):
+            continue
+        m = _SECRET_REF_RE.search(value)
+        if not m:
+            continue
+        key = m.group("key")
+        key_upper = key.upper()
+        has_secret = "SECRET" in key_upper
+        if want_secret and has_secret:
+            return m.group("scope"), key
+        if not want_secret and "CLIENT_ID" in key_upper and not has_secret:
+            return m.group("scope"), key
+    return None, None
 
 
 def _secret_ref(value: object) -> tuple[Optional[str], Optional[str]]:
