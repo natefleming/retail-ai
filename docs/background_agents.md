@@ -619,7 +619,7 @@ sessions discarded automatically
 
 ## See also
 
-- Example config: `examples/19_background_agents/background_research.yaml`
+- Example config: `examples/18_background_agents/background_research.yaml`
 - Full demo notebook: `notebooks/15_background_agents_demo.py`
 - Implementation:
   - `src/dao_ai/background/agent.py` — wrapper + background loop

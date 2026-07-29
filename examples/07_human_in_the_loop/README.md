@@ -268,7 +268,7 @@ graph TB
 
 - **05_memory/** - Persist approval state
 - **08_guardrails/** - Combine with quality controls
-- **15_complete_applications/** - Production HITL patterns
+- **99_complete_applications/** - Production HITL patterns
 
 ## Related Documentation
 

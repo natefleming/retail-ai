@@ -379,7 +379,7 @@ See [`deepagents_middleware.yaml`](./deepagents_middleware.yaml) for a complete 
 
 - **08_guardrails/** - Combine with quality controls
 - **13_orchestration/** - Apply to multi-agent systems
-- **15_complete_applications/** - Production middleware patterns
+- **99_complete_applications/** - Production middleware patterns
 
 ## Related Documentation
 

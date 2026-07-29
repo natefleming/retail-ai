@@ -383,7 +383,7 @@ graph TB
 
 - **02_mcp/** - External tool integration
 - **07_human_in_the_loop/** - Add approval workflows
-- **15_complete_applications/** - See tools in production
+- **99_complete_applications/** - See tools in production
 
 ## Related Documentation
 

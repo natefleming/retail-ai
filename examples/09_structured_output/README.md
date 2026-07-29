@@ -276,7 +276,7 @@ graph TB
 
 - **08_guardrails/** - Combine with quality checks
 - **14_basic_tools/** - Use with tool outputs
-- **15_complete_applications/** - Production patterns
+- **99_complete_applications/** - Production patterns
 
 ## Related Documentation
 

@@ -558,7 +558,7 @@ dao-ai agent generate -c examples/13_orchestration/deep_agent_with_skills.yaml
 ## Next Steps
 
 - **12_middleware/** - Add cross-cutting concerns
-- **15_complete_applications/** - See orchestration in production
+- **99_complete_applications/** - See orchestration in production
 
 ## Related Documentation
 

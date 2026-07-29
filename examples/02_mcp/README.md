@@ -77,6 +77,7 @@ flowchart TB
 | [`external_mcp.yaml`](./external_mcp.yaml) | 🔗 External | UC Connection-based MCP (GitHub example) |
 | [`custom_mcp.yaml`](./custom_mcp.yaml) | 🛠️ Custom URL | Self-hosted MCP App (JIRA example) |
 | [`filtered_mcp.yaml`](./filtered_mcp.yaml) | 🔒 Filtered | Tool filtering with include/exclude patterns |
+| [`meta_mcp.yaml`](./meta_mcp.yaml) | 🧬 Meta | Workspace-wide Genie MCP (`genie: true`) + per-server `_meta` parameters |
 
 ---
 

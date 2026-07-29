@@ -127,7 +127,7 @@ tools:
       #           app: *remote_dao_ai_app
       #           # ``endpoint``, ``auth``, ``auth_type`` all auto-derived.
       #
-      # See ``examples/15_complete_applications/procurement_supplier_a2a/``
+      # See ``examples/99_complete_applications/procurement_supplier_a2a/``
       # for a full procurement <-> supplier walkthrough.
       #
       # --- Card path overrides -----------------------------------------

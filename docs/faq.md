@@ -310,7 +310,7 @@ resources:
 
 See [Lab 20 — A2A: HITL + OBO](https://github.com/natefleming/dao-ai-workshop/tree/main/L300-advanced/lab-20-a2a-hitl-obo) for the canonical end-to-end demonstration (approve/edit/reject over A2A with OBO). [Lab 10 — Human in the Loop](https://github.com/natefleming/dao-ai-workshop/tree/main/L200-real-agents/lab-10-hitl) covers the standalone HITL primitive that OBO commonly runs alongside.
 
-**Learn more:** [`docs/a2a_protocol.md`](a2a_protocol.md) · [`examples/06_on_behalf_of_user/`](../examples/06_on_behalf_of_user/) · [`examples/07_human_in_the_loop/`](../examples/07_human_in_the_loop/) · [`examples/20_a2a_protocol/a2a_hitl_obo.yaml`](../examples/20_a2a_protocol/a2a_hitl_obo.yaml)
+**Learn more:** [`docs/a2a_protocol.md`](a2a_protocol.md) · [`examples/06_on_behalf_of_user/`](../examples/06_on_behalf_of_user/) · [`examples/07_human_in_the_loop/`](../examples/07_human_in_the_loop/) · [`examples/19_a2a_protocol/a2a_hitl_obo.yaml`](../examples/19_a2a_protocol/a2a_hitl_obo.yaml)
 
 ### How do I add human-in-the-loop approval to my tool calls?
 
@@ -336,7 +336,7 @@ tools:
 
 See [Lab 10 — Human in the Loop](https://github.com/natefleming/dao-ai-workshop/tree/main/L200-real-agents/lab-10-hitl) for the standalone primitive and [Lab 20 — A2A: HITL + OBO](https://github.com/natefleming/dao-ai-workshop/tree/main/L300-advanced/lab-20-a2a-hitl-obo) for HITL over the A2A protocol (approve/edit/reject via DataPart resume, SSE streaming).
 
-**Learn more:** [`examples/07_human_in_the_loop/`](../examples/07_human_in_the_loop/) · [`examples/20_a2a_protocol/a2a_hitl_obo.yaml`](../examples/20_a2a_protocol/a2a_hitl_obo.yaml) · [`docs/a2a_protocol.md`](a2a_protocol.md)
+**Learn more:** [`examples/07_human_in_the_loop/`](../examples/07_human_in_the_loop/) · [`examples/19_a2a_protocol/a2a_hitl_obo.yaml`](../examples/19_a2a_protocol/a2a_hitl_obo.yaml) · [`docs/a2a_protocol.md`](a2a_protocol.md)
 
 ### How do I use Genie with dao-ai?
 
@@ -366,7 +366,7 @@ agents:
 
 Create the Genie Space in the workspace UI first and copy its ID from the URL. See [Lab 3 — NL Analytics with Genie](https://github.com/natefleming/dao-ai-workshop/tree/main/L100-foundations/lab-03-genie) for the walkthrough, [Lab 12 — Genie Context-Aware Caching](https://github.com/natefleming/dao-ai-workshop/tree/main/L300-advanced/lab-12-genie-caching) for layering L1/L2 cache over the same tool, and [Lab 16 — Declarative Genie Space Provisioning](https://github.com/natefleming/dao-ai-workshop/tree/main/L300-advanced/lab-16-genie-provisioning) for provisioning the Space itself from YAML instead of the UI.
 
-**Learn more:** [`docs/genie_context_aware_cache_prompt_history.md`](genie_context_aware_cache_prompt_history.md) · [`examples/04_genie/`](../examples/04_genie/) (basic, context-aware cache, threshold optimization) · [`examples/16_test_scenarios/genie_provisioning_only.yaml`](../examples/16_test_scenarios/genie_provisioning_only.yaml)
+**Learn more:** [`docs/genie_context_aware_cache_prompt_history.md`](genie_context_aware_cache_prompt_history.md) · [`examples/04_genie/`](../examples/04_genie/) (basic, context-aware cache, threshold optimization)
 
 ### How do I use Unity AI Gateway?
 
@@ -386,9 +386,9 @@ resources:
 - `ai_gateway: true` is incompatible with `use_responses_api: true` on the same resource (the AI Gateway path exposes chat-completions only). dao-ai raises a validation error if both are set.
 - OBO (`on_behalf_of_user: true`) + `ai_gateway: true` is permitted but relatively new — verify end-to-end trace propagation in your workspace before shipping.
 
-Canonical example: [`examples/01_getting_started/ai_gateway.yaml`](../examples/01_getting_started/ai_gateway.yaml). Also used across `examples/15_complete_applications/commerce/`.
+Canonical example: [`examples/01_getting_started/ai_gateway.yaml`](../examples/01_getting_started/ai_gateway.yaml). Also used across `examples/99_complete_applications/commerce/`.
 
-**Learn more:** [`docs/key-capabilities.md`](key-capabilities.md) · [`examples/15_complete_applications/commerce/commerce_supervisor.yaml`](../examples/15_complete_applications/commerce/commerce_supervisor.yaml)
+**Learn more:** [`docs/key-capabilities.md`](key-capabilities.md) · [`examples/99_complete_applications/commerce/commerce_supervisor.yaml`](../examples/99_complete_applications/commerce/commerce_supervisor.yaml)
 
 ### How do I define reusable prompts?
 
@@ -482,7 +482,7 @@ orchestration:
 
 See [Lab 9 — Multi-agent Orchestration](https://github.com/natefleming/dao-ai-workshop/tree/main/L200-real-agents/lab-09-orchestration) for supervisor + swarm side by side, [Lab 17 — Deep Agent Orchestration](https://github.com/natefleming/dao-ai-workshop/tree/main/L300-advanced/lab-17-deep-agents) for the planning + Skills pattern, and [Lab 18 — Skills-only Deep Agent](https://github.com/natefleming/dao-ai-workshop/tree/main/L300-advanced/lab-18-skills-only-deep-agent) for the minimum-viable deep agent (zero sub-agents, one Skill).
 
-**Learn more:** [`docs/key-capabilities.md`](key-capabilities.md) · [`docs/architecture.md`](architecture.md) · [`examples/13_orchestration/`](../examples/13_orchestration/) (deep-agent patterns) · [`examples/15_complete_applications/commerce/`](../examples/15_complete_applications/commerce/) and [`commerce_swarm/`](../examples/15_complete_applications/commerce/)
+**Learn more:** [`docs/key-capabilities.md`](key-capabilities.md) · [`docs/architecture.md`](architecture.md) · [`examples/13_orchestration/`](../examples/13_orchestration/) (deep-agent patterns) · [`examples/99_complete_applications/commerce/`](../examples/99_complete_applications/commerce/) and [`commerce_swarm/`](../examples/99_complete_applications/commerce/)
 
 ### How do I orchestrate a parallel fan-out pattern?
 
@@ -660,7 +660,7 @@ Reference the retriever from an `agents:` block (`agents.<name>.retrievers: [*kb
 
 For filter-heavy queries (*"Milwaukee power tools under $100"*), layer an **instructed retriever** on top: query decomposition into structured filters + a residual semantic query, then LLM-based rerank with natural-language instructions. See [Lab 6 — Knowledge-base Retrieval with AI Search](https://github.com/natefleming/dao-ai-workshop/tree/main/L200-real-agents/lab-06-vector-search) for the base pattern and [Lab 11 — Instructed Retrieval](https://github.com/natefleming/dao-ai-workshop/tree/main/L300-advanced/lab-11-instructed-retrieval) for the filter-decomposition variant.
 
-**Learn more:** [`docs/key-capabilities.md`](key-capabilities.md) · [`examples/03_reranking/`](../examples/03_reranking/) · [`examples/16_instructed_retriever/`](../examples/16_instructed_retriever/)
+**Learn more:** [`docs/key-capabilities.md`](key-capabilities.md) · [`examples/03_reranking/`](../examples/03_reranking/) · [`examples/15_instructed_retriever/`](../examples/15_instructed_retriever/)
 
 ### How do I use Lakebase Postgres as the retrieval backend instead of AI Search?
 
@@ -712,7 +712,7 @@ backfill_embeddings(retriever.vector_store)
 
 When to reach for `lakebase_search`: your source of truth already lives in Postgres, you want hybrid ANN + BM25 in a single call without a separate vector index, or you want to share auth + connection pooling with existing Lakebase workloads. The retriever exposes the same `filters:` and `rerank:` shape `ai_search` uses, so agent code doesn't change when you switch backends.
 
-**Learn more:** [`examples/21_lakebase_search/`](../examples/21_lakebase_search/) · [Lab 11 — Lakebase Search Retrieval](https://github.com/natefleming/dao-ai-workshop/tree/main/L200-real-agents/lab-11-lakebase-search)
+**Learn more:** [`examples/20_lakebase_search/`](../examples/20_lakebase_search/) · [Lab 11 — Lakebase Search Retrieval](https://github.com/natefleming/dao-ai-workshop/tree/main/L200-real-agents/lab-11-lakebase-search)
 
 ### How do I run long-running tasks?
 
@@ -738,7 +738,7 @@ Clients then use any OpenAI-compatible SDK against the deployed app's `/response
 
 See [Lab 15 — Background Agents](https://github.com/natefleming/dao-ai-workshop/tree/main/L300-advanced/lab-15-background) for the runnable walkthrough.
 
-**Learn more:** [`docs/background_agents.md`](background_agents.md) · [`examples/19_background_agents/background_research.yaml`](../examples/19_background_agents/background_research.yaml) · [`examples/20_a2a_protocol/a2a_background.yaml`](../examples/20_a2a_protocol/a2a_background.yaml) (background over A2A)
+**Learn more:** [`docs/background_agents.md`](background_agents.md) · [`examples/18_background_agents/background_research.yaml`](../examples/18_background_agents/background_research.yaml) · [`examples/19_a2a_protocol/a2a_background.yaml`](../examples/19_a2a_protocol/a2a_background.yaml) (background over A2A)
 
 ---
 
@@ -778,7 +778,7 @@ The `dao-ai trace link` step is idempotent — safe on every deploy — but load
 
 See [Lab 24 — UC OTEL Trace Tables](https://github.com/natefleming/dao-ai-workshop/tree/main/L300-advanced/lab-24-uc-trace-location) for the walkthrough. **Note:** in-process notebook usage of the same config additionally needs `mlflow.langchain.autolog(run_tracer_inline=True)` + `dao_ai.logging.suppress_autolog_context_warnings()` — the deploy runtime does both automatically at boot, but the notebook flow must do them explicitly.
 
-**Learn more:** [`docs/configuration-reference.md`](configuration-reference.md) · [`examples/15_complete_applications/hardware_store/hardware_store.yaml`](../examples/15_complete_applications/hardware_store/hardware_store.yaml)
+**Learn more:** [`docs/configuration-reference.md`](configuration-reference.md) · [`examples/99_complete_applications/hardware_store/hardware_store.yaml`](../examples/99_complete_applications/hardware_store/hardware_store.yaml)
 
 ### What extra permissions does Model Serving need for `trace_location`?
 
@@ -818,7 +818,7 @@ app:
 
 Precedence: `id` wins if both are set. When the whole `experiment:` block is omitted, dao-ai auto-creates `/Users/<deployer_email>/<app.name>` — fine for solo development but not what you want if a team shares one experiment (or if the experiment is pre-provisioned by an admin with tighter ACLs).
 
-The canonical worked example is [`examples/15_complete_applications/hardware_store/hardware_store.yaml`](../examples/15_complete_applications/hardware_store/hardware_store.yaml).
+The canonical worked example is [`examples/99_complete_applications/hardware_store/hardware_store.yaml`](../examples/99_complete_applications/hardware_store/hardware_store.yaml).
 
 **Learn more:** [`docs/configuration-reference.md`](configuration-reference.md)
 
