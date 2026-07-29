@@ -11,6 +11,15 @@ parameters:
   schema:
     description: Schema within the catalog
     default: hardware_store
+  # Model endpoints are parameterized so defaults are overridable per
+  # environment (e.g. --param llm=databricks-claude-sonnet-5) without editing
+  # the config. Defaults track current GA Foundation Model API endpoints.
+  llm:
+    description: Chat/reasoning serving endpoint (agents, tool-calling, judge).
+    default: databricks-claude-sonnet-4-5
+  embedding_model:
+    description: Text embedding serving endpoint for vector search.
+    default: databricks-gte-large-en
 
 # =============================================================================
 # Multi-Agent AI Orchestration Framework Configuration
@@ -41,25 +50,25 @@ resources:
   models:
     # Primary LLM for general tasks
     default_llm:
-      name: databricks-claude-sonnet-4-5  # Databricks serving endpoint name
+      name: ${var.llm}                              # serving endpoint (override via --param llm=...)
       temperature: 0.1                              # Low temperature for consistent responses
       max_tokens: 8192                              # Maximum tokens per response
 
     # LLM optimized for tool calling and function execution
     tool_calling_llm: &tool_calling_llm
-      name: databricks-claude-sonnet-4-5
+      name: ${var.llm}
       temperature: 0.1
       max_tokens: 8192
 
     # LLM for evaluating and judging responses (guardrails)
     judge_llm: &judge_llm
-      name: databricks-claude-sonnet-4-5
+      name: ${var.llm}
       temperature: 0.5                              # Higher temperature for diverse judgments
       max_tokens: 8192
 
     # Embedding model for vector search and semantic similarity
     embedding_model: &embedding_model
-      name: databricks-gte-large-en                 # Text embedding model
+      name: ${var.embedding_model}                  # override via --param embedding_model=...
 
   # ---------------------------------------------------------------------------
   # VECTOR STORES

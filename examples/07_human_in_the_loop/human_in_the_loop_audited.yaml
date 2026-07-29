@@ -19,6 +19,14 @@
 #   - HITL + Audit         → interrupt fires, receipt on approve/reject/edit,
 #                            fail-closed on args-hash drift at execution time.
 
+parameters:
+  # Model endpoint is parameterized so the default can be overridden per
+  # environment (e.g. --param llm=databricks-claude-sonnet-5) without editing
+  # the config. Default tracks a current GA Foundation Model API endpoint.
+  llm:
+    description: Chat/reasoning serving endpoint for the audit admin agent.
+    default: databricks-claude-sonnet-4-5
+
 variables:
   client_id: &client_id
     options:
@@ -43,7 +51,7 @@ resources:
 
   models:
     default_llm: &default_llm
-      name: databricks-claude-sonnet-4
+      name: ${var.llm}                              # override via --param llm=...
       ai_gateway: true
       temperature: 0.1
       max_tokens: 8192
