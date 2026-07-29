@@ -320,28 +320,57 @@ def test_provision_end_to_end_stores_and_grants() -> None:
     assert w.api_client.do.called
 
 
-def test_provision_derives_scope_when_no_sp_block() -> None:
-    from dao_ai.config import AgentModel, InferenceEndpointModel
+def _appmodel_no_sp(name: str = "my-agent"):
+    from dao_ai.config import AgentModel, AppModel, InferenceEndpointModel
+
+    return AppModel(
+        name=name,
+        agents=[
+            AgentModel(
+                name="a",
+                description="d",
+                model=InferenceEndpointModel(name="databricks-gpt-5-4-mini"),
+            )
+        ],
+    )
+
+
+def test_provision_without_sp_block_requires_explicit_keys() -> None:
+    """No service_principals block + no key overrides → error, never guess keys."""
+    import pytest
 
     w = MagicMock()
     w.service_principals.list.return_value = []
     w.service_principals.create.return_value = MagicMock(id="9", application_id=PRINCIPAL)
     w.service_principal_secrets_proxy.create.return_value = MagicMock(secret="x")
 
-    config = AppConfig(
-        app=AppModel(
-            name="my-agent",
-            agents=[
-                AgentModel(
-                    name="a",
-                    description="d",
-                    model=InferenceEndpointModel(name="databricks-gpt-5-4-mini"),
-                )
-            ],
-        )
+    config = AppConfig(app=_appmodel_no_sp())
+    with pytest.raises(ValueError, match="which secret keys"):
+        provision(w, config=config, display_name="my-sp")
+    # fail-fast: validated before creating anything, so no orphaned SP
+    w.service_principals.create.assert_not_called()
+
+
+def test_provision_without_sp_block_succeeds_with_explicit_keys() -> None:
+    """Explicit --scope/--*-key overrides make provision work on any config."""
+    w = MagicMock()
+    w.service_principals.list.return_value = []
+    w.service_principals.create.return_value = MagicMock(id="9", application_id=PRINCIPAL)
+    w.service_principal_secrets_proxy.create.return_value = MagicMock(secret="x")
+
+    config = AppConfig(app=_appmodel_no_sp())
+    result = provision(
+        w,
+        config=config,
+        display_name="my-sp",
+        scope="my-scope",
+        client_id_key="CID",
+        client_secret_key="CSEC",
     )
-    result = provision(w, config=config, display_name="my-sp")
-    assert result.stored_scope == "my-agent"  # derived from app name
+    assert result.stored is True
+    assert result.stored_scope == "my-scope"
+    put = {c.kwargs["key"] for c in w.secrets.put_secret.call_args_list}
+    assert put == {"CID", "CSEC"}
 
 
 def test_provision_no_store_no_grant_flags() -> None:
@@ -383,8 +412,8 @@ def test_resolve_secret_target_from_variables_block() -> None:
     assert csec_key == "RETAIL_AI_CLIENT_SECRET"
 
 
-def test_resolve_secret_target_from_environment_vars() -> None:
-    """Configs that only reference secrets via app.environment_vars {{secrets/...}}."""
+def test_resolve_secret_target_does_not_guess_from_environment_vars() -> None:
+    """environment_vars is NOT string-matched to infer keys — that would be a guess."""
     from dao_ai.config import AgentModel, AppModel, InferenceEndpointModel
 
     config = AppConfig(
@@ -400,14 +429,13 @@ def test_resolve_secret_target_from_environment_vars() -> None:
             environment_vars={
                 "RETAIL_AI_DATABRICKS_CLIENT_ID": "{{secrets/rcg/RETAIL_AI_DATABRICKS_CLIENT_ID}}",
                 "RETAIL_AI_DATABRICKS_CLIENT_SECRET": "{{secrets/rcg/RETAIL_AI_DATABRICKS_CLIENT_SECRET}}",
-                "DATABRICKS_HOST": "https://example.databricks.com",
             },
         )
     )
+    # No service_principals block and no client_id/client_secret variables → unresolved.
     scope, cid_key, csec_key = resolve_secret_target(config)
-    assert scope == "rcg"
-    assert cid_key == "RETAIL_AI_DATABRICKS_CLIENT_ID"  # not the _SECRET one
-    assert csec_key == "RETAIL_AI_DATABRICKS_CLIENT_SECRET"
+    assert cid_key is None
+    assert csec_key is None
 
 
 def test_resolve_secret_target_override_wins() -> None:

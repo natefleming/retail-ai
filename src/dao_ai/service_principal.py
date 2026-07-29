@@ -217,15 +217,17 @@ def provision(
         lifetime: Optional OAuth secret lifetime.
         do_store: Write the credentials to the secret scope (default True).
         do_grant: Grant the SP the config's resources (default True).
+
+    Raises:
+        ValueError: if ``do_store`` is set but the secret scope/keys cannot be
+            resolved. Validated BEFORE creating the service principal so a
+            misconfigured call never leaves an orphaned SP behind.
     """
-    created = create(w, display_name=display_name, lifetime=lifetime)
-
-    result = ProvisionResult(
-        display_name=created.display_name,
-        client_id=created.client_id,
-        reused=created.reused,
-    )
-
+    # Resolve + validate the store target up front — before we create anything —
+    # so an unresolvable config fails fast without orphaning a service principal.
+    resolved_scope: Optional[str] = None
+    cid_key: Optional[str] = None
+    csec_key: Optional[str] = None
     if do_store:
         resolved_scope, cid_key, csec_key = resolve_secret_target(
             config,
@@ -239,6 +241,24 @@ def provision(
                 "Cannot determine a secret scope to store credentials. "
                 "Pass --scope, or add a service_principals block to the config."
             )
+        if not (cid_key and csec_key):
+            raise ValueError(
+                "Cannot determine which secret keys to store the credentials under. "
+                "The config has no service_principals block or client_id/client_secret "
+                "variables to infer them from. Pass --client-id-key and "
+                "--client-secret-key (the keys your config reads its credentials from)."
+            )
+
+    created = create(w, display_name=display_name, lifetime=lifetime)
+
+    result = ProvisionResult(
+        display_name=created.display_name,
+        client_id=created.client_id,
+        reused=created.reused,
+    )
+
+    if do_store:
+        assert resolved_scope and cid_key and csec_key  # validated above
         store(
             w,
             scope=resolved_scope,
@@ -542,21 +562,23 @@ def resolve_secret_target(
     scope_override: Optional[str] = None,
     client_id_key_override: Optional[str] = None,
     client_secret_key_override: Optional[str] = None,
-) -> tuple[Optional[str], str, str]:
+) -> tuple[Optional[str], Optional[str], Optional[str]]:
     """Resolve (scope, client_id_key, client_secret_key) for ``store``.
 
     Prefers explicit overrides, then discovers the secret scope + key names the
-    config actually reads its credentials from, checking three places in order:
+    config actually reads its credentials from, checking two *structural* sources
+    (where the credential's role is unambiguous) in order:
 
-    1. ``service_principals`` block (``client_id`` / ``client_secret`` vars),
-    2. top-level ``variables`` named ``client_id`` / ``client_secret``,
-    3. ``app.environment_vars`` entries pointing at ``{{secrets/scope/KEY}}``
-       (the ``RETAIL_AI_DATABRICKS_CLIENT_ID`` / ``_SECRET`` pattern).
+    1. ``service_principals`` block — its ``client_id`` / ``client_secret`` vars.
+    2. top-level ``variables`` named ``client_id`` / ``client_secret``.
 
-    This matters because most configs wire credentials via ``variables`` /
-    ``environment_vars`` rather than a ``service_principals`` block — resolving
-    only the latter would store the secret under generic key names the agent
-    never reads.
+    We deliberately do NOT try to infer keys from ``app.environment_vars`` by
+    string-matching names like ``*_CLIENT_ID`` — that's a guess, not a fact, and a
+    wrong guess would store the secret under keys the agent never reads. When
+    neither structural source resolves a key, ``None`` is returned for it and the
+    caller must supply ``--client-id-key`` / ``--client-secret-key`` / ``--scope``.
+
+    Returns ``None`` for any component that could not be resolved (no fallbacks).
     """
     scope = scope_override
     client_id_key = client_id_key_override
@@ -573,7 +595,7 @@ def resolve_secret_target(
     def _done() -> bool:
         return bool(scope and client_id_key and client_secret_key)
 
-    # 1. service_principals block
+    # 1. service_principals block (structural — role known by binding)
     if not _done():
         sp: "ServicePrincipalModel"
         for sp in config.service_principals.values():
@@ -581,51 +603,11 @@ def resolve_secret_target(
             if _done():
                 break
 
-    # 2. top-level variables named client_id / client_secret
+    # 2. top-level variables named client_id / client_secret (structural — role known by name)
     if not _done():
         _merge(config.variables.get("client_id"), config.variables.get("client_secret"))
 
-    # 3. app.environment_vars pointing at {{secrets/scope/KEY}}
-    if not _done() and config.app is not None:
-        env_vars = config.app.environment_vars or {}
-        cid_scope, cid_key = _secret_ref_from_env(env_vars, "CLIENT_ID")
-        csec_scope, csec_key = _secret_ref_from_env(env_vars, "CLIENT_SECRET")
-        scope = scope or cid_scope or csec_scope
-        client_id_key = client_id_key or cid_key
-        client_secret_key = client_secret_key or csec_key
-
-    return scope, client_id_key or "sp-client-id", client_secret_key or "sp-client-secret"
-
-
-_SECRET_REF_RE = re.compile(r"\{\{secrets/(?P<scope>[^/]+)/(?P<key>[^}]+)\}\}")
-
-
-def _secret_ref_from_env(
-    env_vars: dict, needle: str
-) -> tuple[Optional[str], Optional[str]]:
-    """Find a ``{{secrets/scope/KEY}}`` env-var value whose KEY contains ``needle``.
-
-    ``needle`` is ``CLIENT_ID`` or ``CLIENT_SECRET`` — matched case-insensitively
-    against the resolved secret key (not the env var name), so
-    ``RETAIL_AI_DATABRICKS_CLIENT_ID`` is picked for ``CLIENT_ID``. Guards against
-    ``CLIENT_ID`` also matching ``CLIENT_SECRET`` by requiring the key NOT contain
-    ``SECRET`` when looking for the id.
-    """
-    want_secret = needle == "CLIENT_SECRET"
-    for value in env_vars.values():
-        if not isinstance(value, str):
-            continue
-        m = _SECRET_REF_RE.search(value)
-        if not m:
-            continue
-        key = m.group("key")
-        key_upper = key.upper()
-        has_secret = "SECRET" in key_upper
-        if want_secret and has_secret:
-            return m.group("scope"), key
-        if not want_secret and "CLIENT_ID" in key_upper and not has_secret:
-            return m.group("scope"), key
-    return None, None
+    return scope, client_id_key, client_secret_key
 
 
 def _secret_ref(value: object) -> tuple[Optional[str], Optional[str]]:

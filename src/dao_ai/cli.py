@@ -2684,10 +2684,19 @@ def _handle_sp_store(options, config, sp, WorkspaceClient) -> None:
         client_id_key_override=options.client_id_key,
         client_secret_key_override=options.client_secret_key,
     )
+    missing: list[str] = []
     if not scope:
+        missing.append("--scope")
+    if not cid_key:
+        missing.append("--client-id-key")
+    if not csec_key:
+        missing.append("--client-secret-key")
+    if missing:
         logger.error(
-            "No secret scope. Pass --scope, or -c a config whose service_principals "
-            "reference a secret scope."
+            "Cannot determine where to store the credentials: the config has no "
+            "service_principals block or client_id/client_secret variables to infer "
+            f"{', '.join(missing)} from. Pass them explicitly (they must match the "
+            "scope/keys your config reads its credentials from)."
         )
         sys.exit(1)
 
