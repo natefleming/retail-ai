@@ -14,8 +14,14 @@
 # MAGIC ### Client note
 # MAGIC The app exposes OpenAI Responses API–compatible routes under `/v1`
 # MAGIC (`POST /v1/responses`, `GET /v1/responses/{id}`, `POST /v1/responses/{id}/cancel`).
-# MAGIC We resolve the app's URL + an OAuth token *from the app name* via the
-# MAGIC Databricks SDK, then point the stock `OpenAI` client at `{app_url}/v1`.
+# MAGIC We resolve the app's URL from the app name via the Databricks SDK, then point
+# MAGIC the stock `OpenAI` client at `{app_url}/v1`.
+# MAGIC
+# MAGIC > **Auth:** the Databricks Apps front door only accepts an OAuth access token
+# MAGIC > *audience-scoped to the app's `oauth2_app_client_id`*. The notebook's ambient
+# MAGIC > credential is not app-scoped and gets a bare `401`, so we exchange the notebook
+# MAGIC > token for an app-scoped one via `POST {host}/oidc/v1/token` (token-exchange
+# MAGIC > grant). See Databricks docs: *dev-tools/databricks-apps/connect-local*.
 # MAGIC
 # MAGIC > The `databricks-openai` `DatabricksOpenAI` client with `model="apps/<name>"`
 # MAGIC > routes `responses.create` to the app, but its base URL omits the `/v1`
@@ -91,13 +97,45 @@ else:
 
 import time
 
+import requests
 from databricks.sdk import WorkspaceClient
 from openai import OpenAI, Stream
 from openai.types.responses import Response, ResponseStreamEvent
 
 w = WorkspaceClient()
-app_url: str = w.apps.get(app_name).url.rstrip("/")
-token: str = w.config.authenticate()["Authorization"].removeprefix("Bearer ")
+app = w.apps.get(app_name)
+app_url: str = app.url.rstrip("/")
+
+# The Databricks Apps front door (*.databricksapps.com) only accepts an OAuth
+# access token that is audience-scoped to the app's client id. The notebook's
+# ambient credential is NOT scoped to the app, so we exchange it for an
+# app-scoped token via /oidc/v1/token (the documented Apps auth recipe).
+app_client_id: str | None = app.oauth2_app_client_id
+if not app_client_id:
+    raise RuntimeError(
+        f"App {app_name!r} has no oauth2_app_client_id; cannot mint an "
+        "app-scoped token. Ensure the app is fully deployed."
+    )
+
+host: str = w.config.host.rstrip("/")
+notebook_token: str = (
+    dbutils.notebook.entry_point.getDbutils()
+    .notebook()
+    .getContext()
+    .apiToken()
+    .get()
+)
+token: str = requests.post(
+    f"{host}/oidc/v1/token",
+    data={
+        "grant_type": "urn:ietf:params:oauth:grant-type:token-exchange",
+        "subject_token": notebook_token,
+        "subject_token_type": "urn:databricks:params:oauth:token-type:personal-access-token",
+        "requested_token_type": "urn:ietf:params:oauth:token-type:access_token",
+        "scope": "all-apis",
+        "audience": app_client_id,
+    },
+).json()["access_token"]
 
 client = OpenAI(base_url=f"{app_url}/v1", api_key=token)
 print("App URL:", app_url)
@@ -202,26 +240,24 @@ for event in retrieve_stream:
 # COMMAND ----------
 
 # MAGIC %md
-# MAGIC ## 4. Stream the agent's output (`DatabricksOpenAI`)
+# MAGIC ## 4. Stream the agent's output
 # MAGIC
-# MAGIC The `OpenAI(/v1)` client above is best for the background lifecycle
-# MAGIC (kickoff/poll/cancel). To stream the agent's **output** as it is produced,
-# MAGIC use `DatabricksOpenAI` with `model="apps/<app-name>"` — it resolves the app
-# MAGIC by name (OAuth) and streams the synchronous run's events. We accumulate
-# MAGIC `output_text.delta` events (token deltas) and fall back to the text on a
-# MAGIC final `output_item.done` event for agents that emit output in one piece.
+# MAGIC The same `OpenAI(/v1)` client streams the agent's **output** as it is
+# MAGIC produced — pass `stream=True` with `background=False` so the run executes
+# MAGIC synchronously and emits token deltas (rather than a single background
+# MAGIC status event). We accumulate `output_text.delta` events (token deltas) and
+# MAGIC fall back to the text on a final `output_item.done` event for agents that
+# MAGIC emit output in one piece.
 
 # COMMAND ----------
 
-from databricks_openai import DatabricksOpenAI
 from openai.types.responses import ResponseOutputMessage
 
-dbx_client = DatabricksOpenAI(workspace_client=w)
-
-stream: Stream[ResponseStreamEvent] = dbx_client.responses.create(
-    model=f"apps/{app_name}",
+stream: Stream[ResponseStreamEvent] = client.responses.create(
+    model=app_name,
     input=messages("Give me 3 quick tips for using Databricks Lakebase."),
     stream=True,
+    background=False,
     extra_body=custom_inputs("nb_bg_stream_output_1"),
 )
 
