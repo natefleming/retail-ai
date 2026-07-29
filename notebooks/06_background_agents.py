@@ -221,21 +221,40 @@ print(f"retrieve-after-cancel: status={after.status}")
 
 # COMMAND ----------
 
-kickoff = client.responses.create(
+from openai.types.responses import ResponseOutputMessage
+
+kickoff: Response = client.responses.create(
     model=app_name,
     input=messages("List 10 things Databricks Lakebase is good for."),
     background=True,
     extra_body=custom_inputs("nb_bg_stream_1"),
 )
-response_id = kickoff.id
+response_id: str = kickoff.id
 print(f"kickoff id={response_id}")
 
-event: ResponseStreamEvent
 retrieve_stream: Stream[ResponseStreamEvent] = client.responses.retrieve(
     response_id, stream=True, starting_after=0
 )
+
+streamed_text: str = ""
+saw_delta: bool = False
+event: ResponseStreamEvent
 for event in retrieve_stream:
     print(f"  event: {event.type}")
+    if event.type == "response.output_text.delta":
+        streamed_text += event.delta
+        saw_delta = True
+    elif (
+        not saw_delta
+        and event.type == "response.output_item.done"
+        and isinstance(event.item, ResponseOutputMessage)
+    ):
+        # Fallback for agents that emit output in one piece (no token deltas).
+        for part in event.item.content:
+            if part.type == "output_text":
+                streamed_text += part.text
+
+print(f"\nstreamed output:\n{streamed_text}")
 
 # COMMAND ----------
 
@@ -262,12 +281,19 @@ stream: Stream[ResponseStreamEvent] = client.responses.create(
 )
 
 streamed_text: str = ""
+saw_delta: bool = False
 event: ResponseStreamEvent
 for event in stream:
     print(f"  event: {event.type}")
     if event.type == "response.output_text.delta":
         streamed_text += event.delta
-    elif event.type == "response.output_item.done" and isinstance(event.item, ResponseOutputMessage):
+        saw_delta = True
+    elif (
+        not saw_delta
+        and event.type == "response.output_item.done"
+        and isinstance(event.item, ResponseOutputMessage)
+    ):
+        # Fallback for agents that emit output in one piece (no token deltas).
         for part in event.item.content:
             if part.type == "output_text":
                 streamed_text += part.text
