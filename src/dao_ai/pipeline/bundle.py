@@ -90,7 +90,7 @@ _PIPELINE_TASKS: tuple[tuple[str, str, tuple[str, ...], dict[str, str]], ...] = 
         "run-evaluation",
         "08_run_evaluation.py",
         ("deploy-agents", "generate-evaluation-data"),
-        {},
+        {"mode": "${var.mode}"},
     ),
 )
 

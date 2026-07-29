@@ -8057,6 +8057,18 @@
           ],
           "title": "Output Mode",
           "type": "string"
+        },
+        "interrupt_model": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/InferenceEndpointModel"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "LLM used to parse a user's natural-language Human-in-the-Loop interrupt response (approve/reject/edit) into structured decisions. When unset, dao-ai derives it from the router: the supervisor's model, else the swarm default agent's model, else the first declared agent's model. Set this to pin a specific endpoint for interrupt parsing (e.g. a cheaper/faster model). The resolved choice and its source are logged at build time."
         }
       },
       "title": "OrchestrationModel",
@@ -8982,7 +8994,7 @@
               "type": "boolean"
             }
           ],
-          "description": "Model Serving endpoint to call. Accepts either an endpoint name string (sugar) or a full InferenceEndpointModel with temperature / max_tokens / ai_gateway / on_behalf_of_user. For a UC-registered agent endpoint or a Knowledge Assistant this is the endpoint name (e.g., 'ka-customer-reviews', 'hardware_store_dao'). For FMAPI it's the foundation model endpoint name (e.g., 'databricks-claude-sonnet-4').",
+          "description": "Model Serving endpoint to call. Accepts either an endpoint name string (sugar) or a full InferenceEndpointModel with temperature / max_tokens / ai_gateway / on_behalf_of_user. For a UC-registered agent endpoint or a Knowledge Assistant this is the endpoint name (e.g., 'ka-customer-reviews', 'hardware_store_dao'). For FMAPI it's the foundation model endpoint name (e.g., 'databricks-claude-sonnet-4-5').",
           "title": "Endpoint"
         },
         "api": {

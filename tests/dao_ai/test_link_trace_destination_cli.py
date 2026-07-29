@@ -228,3 +228,65 @@ class TestHandleCommand:
         err = capsys.readouterr().err
         assert "warehouse timeout" in err
         assert "exp42" in err
+
+
+@pytest.mark.unit
+class TestGrantTraceWritesAppSpName:
+    """Regression: the App SP must be resolved by the *deployed* app name
+    (``app_resource_name``, hyphenated), not the raw ``app.name`` (underscored).
+
+    Passing the raw name to ``apps.get`` raises NotFound and the grant is
+    silently skipped, so traces never persist despite ``trace_location`` set.
+    """
+
+    def _cfg(self) -> MagicMock:
+        cfg = _cfg_with_trace(app_name="my_app")
+        # app_resource_name is a real property on AppModel: lower + _ -> -.
+        cfg.app.app_resource_name = "my-app"
+        cfg.app.manage_permissions = True
+        return cfg
+
+    def test_apps_get_uses_hyphenated_resource_name(self) -> None:
+        from dao_ai.cli import _grant_trace_writes_to_app_sp
+
+        cfg = self._cfg()
+        with (
+            patch("databricks.sdk.WorkspaceClient") as wc,
+            patch(
+                "dao_ai.providers.databricks."
+                "_grant_experiment_permissions_to_principal"
+            ),
+            patch(
+                "dao_ai.providers.databricks."
+                "_grant_uc_trace_table_permissions_to_principal"
+            ),
+            patch("dao_ai.providers.databricks._resolve_trace_table_prefix"),
+        ):
+            app = MagicMock()
+            app.service_principal_client_id = "sp-123"
+            wc.return_value.apps.get.return_value = app
+
+            _grant_trace_writes_to_app_sp(cfg, "exp42", sp_override=None)
+
+            # The lookup must use the hyphenated deployed name, never the raw
+            # underscored config name.
+            wc.return_value.apps.get.assert_called_once_with(name="my-app")
+
+    def test_override_skips_apps_get(self) -> None:
+        from dao_ai.cli import _grant_trace_writes_to_app_sp
+
+        cfg = self._cfg()
+        with (
+            patch("databricks.sdk.WorkspaceClient") as wc,
+            patch(
+                "dao_ai.providers.databricks."
+                "_grant_experiment_permissions_to_principal"
+            ),
+            patch(
+                "dao_ai.providers.databricks."
+                "_grant_uc_trace_table_permissions_to_principal"
+            ),
+            patch("dao_ai.providers.databricks._resolve_trace_table_prefix"),
+        ):
+            _grant_trace_writes_to_app_sp(cfg, "exp42", sp_override="sp-explicit")
+            wc.return_value.apps.get.assert_not_called()

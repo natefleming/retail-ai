@@ -284,6 +284,20 @@ class CompositeVariableModel(BaseModel, HasValue):
             value = value_of(v)
             if value is not None:
                 return value
+        # All declared sources (secret scopes, env vars, ...) resolved to None,
+        # so we fall back to default_value. This is a common silent-misconfig
+        # trap: e.g. a `--direct` deploy where the container's env/scope isn't
+        # populated falls back to a stale hardcoded default (a dead genie
+        # space_id). Warn when a non-None default is actually used so the
+        # fallback is visible instead of failing mysteriously downstream.
+        if self.default_value is not None:
+            logger.warning(
+                "Composite variable resolved to its default_value — all "
+                "declared sources (scope/env) returned None. Using default; "
+                "verify the intended source is populated in this environment.",
+                default_value=self.default_value,
+                option_kinds=[type(v).__name__ for v in self.options],
+            )
         return self.default_value
 
 
@@ -6205,13 +6219,32 @@ class McpFunctionModel(BaseFunctionModel, IsDatabricksResource):
     def api_scopes(self) -> Sequence[str]:
         """API scopes for an MCP connection.
 
-        OBO emission derives ``mcp.*`` companion scopes from the underlying
-        platform scope (see apps/resources.py:API_SCOPE_TO_USER_SCOPES), so
-        the resource itself just declares ``serving.serving-endpoints``.
+        Sub-type aware: each managed-MCP endpoint kind declares the native
+        platform scope for the resource it fronts, and OBO emission derives the
+        ``mcp.*`` companion scope from it (see
+        apps/resources.py:API_SCOPE_TO_USER_SCOPES). Without this an OBO MCP
+        tool contributes no usable user-API scope and OBO calls to the endpoint
+        are under-scoped.
+
+        Mapping (mirrors :meth:`mcp_url`):
+          - genie_room / genie      → ``dashboards.genie``      (→ genie, mcp.genie)
+          - sql / functions         → ``sql.warehouses``        (→ sql, mcp.functions)
+          - vector_search           → ``vectorsearch.vector-search-indexes``
+                                                                (→ vector-search, mcp.vectorsearch)
+          - connection              → ``catalog.connections``   (→ catalog.connections, mcp.external)
+          - url / app (opaque)      → ``serving.serving-endpoints`` (best-effort default)
         """
-        return [
-            "serving.serving-endpoints",
-        ]
+        if self.genie_room is not None or self.genie:
+            return ["dashboards.genie"]
+        if self.sql or self.functions is not None:
+            return ["sql.warehouses"]
+        if self.vector_search is not None:
+            return ["vectorsearch.vector-search-indexes"]
+        if self.connection is not None:
+            return ["catalog.connections"]
+        # Direct url / Databricks App MCP: endpoint kind is opaque here, so fall
+        # back to the generic serving scope.
+        return ["serving.serving-endpoints"]
 
     def as_resources(self) -> Sequence[DatabricksResource]:
         """MCP functions don't declare static resources."""
@@ -6920,7 +6953,7 @@ class ServingEndpointToolModel(BaseFunctionModel):
             "For a UC-registered agent endpoint or a Knowledge Assistant "
             "this is the endpoint name (e.g., 'ka-customer-reviews', "
             "'hardware_store_dao'). For FMAPI it's the foundation model "
-            "endpoint name (e.g., 'databricks-claude-sonnet-4')."
+            "endpoint name (e.g., 'databricks-claude-sonnet-4-5')."
         ),
     )
     api: Optional[Literal["responses", "completions"]] = Field(
@@ -7819,7 +7852,7 @@ class AgentModel(BaseModel):
 
             model: *retail_genie_room          # bare room  → GenieAgentModel
             model: {genie_room: *room, timeout_seconds: 600}  # explicit wrapper
-            model: {name: databricks-claude-sonnet-4}         # LLM (untouched)
+            model: {name: databricks-claude-sonnet-4-5}       # LLM (untouched)
 
         Coercion is by shape, not by smart-union guessing:
 
@@ -8600,6 +8633,18 @@ class OrchestrationModel(BaseModel):
             "app via ``orchestration.output_mode: full_history`` when cross-"
             "agent tool context is required and the worker-side message-"
             "assembly path is known to be clean."
+        ),
+    )
+    interrupt_model: Optional[InferenceEndpointModel] = Field(
+        default=None,
+        description=(
+            "LLM used to parse a user's natural-language Human-in-the-Loop "
+            "interrupt response (approve/reject/edit) into structured "
+            "decisions. When unset, dao-ai derives it from the router: the "
+            "supervisor's model, else the swarm default agent's model, else "
+            "the first declared agent's model. Set this to pin a specific "
+            "endpoint for interrupt parsing (e.g. a cheaper/faster model). "
+            "The resolved choice and its source are logged at build time."
         ),
     )
 
@@ -9644,10 +9689,31 @@ class AppModel(BaseModel):
             )
 
         if self.trace_location is not None:
-            self.environment_vars.setdefault(
-                "MLFLOW_TRACING_SQL_WAREHOUSE_ID",
-                self.trace_location.warehouse_id,
-            )
+            # ``warehouse_id`` is None here when the warehouse is given by NAME
+            # — name→id resolution is deferred to WarehouseModel.ensure_resolved()
+            # (a live API call we must not force at config-load, or offline
+            # ``generate`` breaks). Injecting None poisons environment_vars: the
+            # schema re-validation inside the Model Serving pyfunc rejects a None
+            # value. Only set the var when the id is already concrete; a
+            # name-based warehouse therefore requires pinning ``warehouse_id``
+            # for Model Serving trace routing (Apps/local resolve it at runtime).
+            warehouse_id: Optional[str] = self.trace_location.warehouse_id
+            if warehouse_id:
+                self.environment_vars.setdefault(
+                    "MLFLOW_TRACING_SQL_WAREHOUSE_ID",
+                    warehouse_id,
+                )
+            else:
+                # Expected for a name-based warehouse (id resolves later);
+                # fine for Apps/local, but Model Serving needs the id in the
+                # endpoint env for trace routing. Log so a missing-MS-traces
+                # investigation isn't left guessing.
+                logger.debug(
+                    "trace_location warehouse id not yet resolved at "
+                    "config-load; skipping MLFLOW_TRACING_SQL_WAREHOUSE_ID "
+                    "env injection. Pin trace_location.warehouse_id (not "
+                    "name) for Model Serving trace routing.",
+                )
         return self
 
     @model_validator(mode="after")
@@ -11282,6 +11348,71 @@ class AppConfig(BaseModel):
         app: ChatModel = create_agent(graph)
         return app
 
+    def interrupt_parser_model(self) -> Optional[LanguageModelLike]:
+        """Chat model used to parse a user's natural-language HITL interrupt
+        response (approve/reject/edit) into structured decisions.
+
+        Resolution order (first match wins), so the parser matches the
+        deployment's model rather than a hardcoded (possibly deprecated)
+        endpoint:
+
+          1. explicit ``orchestration.interrupt_model``
+          2. supervisor router model (``orchestration.supervisor.model``)
+          3. swarm default agent's model
+          4. first declared agent's model
+          5. None → ``handle_interrupt_response`` falls back to its own GA default
+
+        The resolved endpoint and its source are logged so operators can see
+        which model is parsing interrupts and why.
+        """
+        orch = self.app.orchestration if self.app else None
+
+        # 1. Explicit override.
+        if orch is not None and orch.interrupt_model is not None:
+            logger.info(
+                "HITL interrupt parser model resolved",
+                source="orchestration.interrupt_model",
+                endpoint=orch.interrupt_model.name,
+            )
+            return orch.interrupt_model.as_chat_model()
+
+        # 2. Supervisor router model.
+        if orch is not None and orch.supervisor is not None:
+            logger.info(
+                "HITL interrupt parser model resolved",
+                source="orchestration.supervisor.model",
+                endpoint=orch.supervisor.model.name,
+            )
+            return orch.supervisor.model.as_chat_model()
+
+        agents: list[AgentModel] = list(self.agents.values())
+        if not agents:
+            logger.info(
+                "HITL interrupt parser model unresolved — no agents declared; "
+                "handle_interrupt_response will use its GA fallback",
+                source="fallback",
+            )
+            return None
+
+        # 3. Swarm default agent, else 4. first declared agent.
+        default_agent: AgentModel = agents[0]
+        source: str = "agents[0].model"
+        if orch is not None and orch.swarm and isinstance(
+            orch.swarm.default_agent, AgentModel
+        ):
+            default_agent = orch.swarm.default_agent
+            source = "orchestration.swarm.default_agent.model"
+        # ``model`` is InferenceEndpointModel | GenieAgentModel; only the former
+        # exposes ``name``. Genie-backed agents have no endpoint name.
+        endpoint = getattr(default_agent.model, "name", "<genie-agent>")
+        logger.info(
+            "HITL interrupt parser model resolved",
+            source=source,
+            agent=default_agent.name,
+            endpoint=endpoint,
+        )
+        return default_agent.model.as_chat_model()
+
     def as_responses_agent(self) -> ResponsesAgent:
         from dao_ai.models import create_responses_agent
 
@@ -11292,6 +11423,7 @@ class AppConfig(BaseModel):
         app: ResponsesAgent = create_responses_agent(
             graph,
             tool_models=tool_models,
+            interrupt_model=self.interrupt_parser_model(),
         )
 
         background = self.app.background if self.app else None

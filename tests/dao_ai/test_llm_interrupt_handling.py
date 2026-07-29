@@ -422,3 +422,77 @@ class TestHandleInterruptResponse:
         assert "validation_message" in result
         assert len(result["decisions"]) == 0
         assert "No user message found" in result["validation_message"]
+
+
+class TestInterruptParserModelSource:
+    """Regression (F8): the parser must use the threaded (configured) model
+    and only fall back to a non-deprecated GA endpoint when none is provided.
+    """
+
+    def _snapshot(self):
+        snapshot = MagicMock(spec=StateSnapshot)
+        interrupt = MagicMock(spec=Interrupt)
+        interrupt.value = {
+            "action_requests": [{"name": "send_email", "args": {}}],
+            "review_configs": [
+                {
+                    "action_name": "send_email",
+                    "allowed_decisions": ["approve", "reject"],
+                }
+            ],
+        }
+        snapshot.interrupts = (interrupt,)
+        return snapshot
+
+    @patch("dao_ai.models.ChatDatabricks")
+    def test_threaded_model_is_used_and_no_chatdatabricks_constructed(
+        self, mock_chat
+    ):
+        """When a model is passed, the parser must NOT construct its own
+        ChatDatabricks (which would ignore the deployment's configured model).
+        """
+
+        class MockDecisions(BaseModel):
+            is_valid: bool = True
+            validation_message: str | None = None
+            decision_1: str = "approve"
+
+        threaded = MagicMock()
+        structured = MagicMock()
+        structured.invoke.return_value = MockDecisions()
+        threaded.with_structured_output.return_value = structured
+
+        handle_interrupt_response(
+            snapshot=self._snapshot(),
+            messages=[HumanMessage(content="approve it")],
+            model=threaded,
+        )
+
+        threaded.with_structured_output.assert_called_once()
+        mock_chat.assert_not_called()
+
+    @patch("dao_ai.models.ChatDatabricks")
+    def test_fallback_uses_non_deprecated_ga_model(self, mock_chat):
+        """With no model threaded, the last-resort fallback must not pin the
+        deprecated ``databricks-claude-sonnet-4`` endpoint.
+        """
+
+        class MockDecisions(BaseModel):
+            is_valid: bool = True
+            validation_message: str | None = None
+            decision_1: str = "approve"
+
+        structured = MagicMock()
+        structured.invoke.return_value = MockDecisions()
+        mock_chat.return_value.with_structured_output.return_value = structured
+
+        handle_interrupt_response(
+            snapshot=self._snapshot(),
+            messages=[HumanMessage(content="approve it")],
+            model=None,
+        )
+
+        mock_chat.assert_called_once()
+        endpoint = mock_chat.call_args.kwargs.get("endpoint")
+        assert endpoint == "databricks-claude-sonnet-4-5"
+        assert endpoint != "databricks-claude-sonnet-4"

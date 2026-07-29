@@ -108,57 +108,98 @@ print(f"Custom inputs (source={_custom_inputs_source}): {custom_inputs}")
 
 # COMMAND ----------
 
-# DBTITLE 1,Resolve UC Model Version
+# DBTITLE 1,Build Shared Agent — source derived from serving mode
+#
+# The eval source is driven by the same ``mode`` the deploy task used, not a
+# free-standing knob — only ``model_serving`` logs/registers an MLflow model
+# (see 06_deploy_agent.py), so only it can be evaluated from the UC registry:
+#
+#   - model_serving → "registry": load the deployed UC artifact via
+#     ``mlflow.pyfunc.load_model`` — the most honest eval (test what shipped).
+#   - apps / mcp    → "config":   build the agent in-process from the YAML via
+#     ``AppConfig.as_responses_agent()``. These modes register no model, so
+#     there is no artifact to load; the app itself also builds from config at
+#     runtime, so this evaluates equivalent code.
+#
+# ``apps + registry`` / ``mcp + registry`` are unrepresentable here by design —
+# that invalid combination was the source of RESOURCE_DOES_NOT_EXIST failures
+# when eval defaulted to the registry regardless of deploy mode.
+#
+# Both paths reach the same LanggraphResponsesAgent with the same async
+# singletons (Lakebase checkpointer, langgraph saver). autolog with
+# run_tracer_inline matches the Apps handler (src/dao_ai/apps/handlers.py:52)
+# so child spans (LLM, tool, retriever) are complete on the config path too.
 import mlflow
-from mlflow import MlflowClient
-from mlflow.entities.model_registry.model_version import ModelVersion
 
-from dao_ai.models import get_latest_model_version
+from dao_ai.config import ServingMode
 
 mlflow.set_registry_uri("databricks-uc")
-# Match the Apps handler (src/dao_ai/apps/handlers.py:52) so config-mode runs
-# produce complete child spans (LLM, tool, retriever). Idempotent for the
-# registry path where pyfunc-load already wires it.
 mlflow.langchain.autolog(run_tracer_inline=True)
-mlflow_client: MlflowClient = MlflowClient()
-
-registered_model_name: str = config.app.registered_model.full_name
-latest_version: int = get_latest_model_version(registered_model_name)
-model_uri: str = f"models:/{registered_model_name}/{latest_version}"
-model_version: ModelVersion = mlflow_client.get_model_version(
-    registered_model_name, str(latest_version)
-)
-
-print(f"Registered model: {registered_model_name}")
-print(f"Latest version:   {latest_version}")
-print(f"Model ID:         {model_version.model_id}")
-
-# COMMAND ----------
-
-# DBTITLE 1,Build Shared Agent — UC Registry (default) or Local Config
-#
-# Two supported eval sources:
-#   - "registry" loads the actual UC-registered artifact via mlflow.pyfunc.load_model.
-#     Most honest eval (you test what's deployed). Requires a successful deploy first.
-#   - "config" builds in-process from the local YAML via AppConfig.as_responses_agent().
-#     Fast iteration on the YAML without redeploying.
-#
-# Both paths reach the same LanggraphResponsesAgent code with the same async
-# singletons (Lakebase checkpointer, langgraph saver). The persistent-loop
-# predict_fn below pins those singletons to a single loop for the whole run.
-from typing import Literal
 
 dbutils.widgets.dropdown(
-    name="agent-source", defaultValue="registry", choices=["registry", "config"]
+    name="mode", choices=["", "model_serving", "apps", "mcp"], defaultValue=""
 )
-agent_source: Literal["registry", "config"] = dbutils.widgets.get("agent-source")  # type: ignore[assignment]
+mode_str: str = dbutils.widgets.get("mode") or ServingMode.APPS.value
+mode: ServingMode = ServingMode(mode_str)
 
-if agent_source == "registry":
+# Downstream cells need three values regardless of source:
+#   experiment_id — where the eval run + traces land
+#   version_label — run-name suffix
+#   eval_model_id — mlflow.genai.evaluate model_id (None on the config path;
+#                   there is no logged model version to attribute to)
+mlflow_client: "MlflowClient"  # noqa: F821 - set in both branches below
+experiment_id: str
+version_label: str
+eval_model_id: str | None
+
+if mode == ServingMode.MODEL_SERVING:
+    from mlflow import MlflowClient
+    from mlflow.entities.model_registry.model_version import ModelVersion
+
+    from dao_ai.models import get_latest_model_version
+
+    registered_model_name: str = config.app.registered_model.full_name
+    latest_version: int = get_latest_model_version(registered_model_name)
+    model_uri: str = f"models:/{registered_model_name}/{latest_version}"
+    mlflow_client = MlflowClient()
+    model_version: ModelVersion = mlflow_client.get_model_version(
+        registered_model_name, str(latest_version)
+    )
+    print(f"Registered model: {registered_model_name}")
+    print(f"Latest version:   {latest_version}")
+    print(f"Model ID:         {model_version.model_id}")
     app: Any = mlflow.pyfunc.load_model(model_uri)
+    agent_source = "registry"
+    experiment_id = mlflow_client.get_run(model_version.run_id).info.experiment_id
+    version_label = f"v{latest_version}"
+    eval_model_id = model_version.model_id
 else:
-    app = config.as_responses_agent()
+    from mlflow import MlflowClient
 
-print(f"Agent source: {agent_source}")
+    app = config.as_responses_agent()
+    agent_source = "config"
+    mlflow_client = MlflowClient()
+    # No registered model on the apps/mcp path — resolve the experiment the
+    # app writes to: its configured MLflow experiment if set, else the
+    # deploy-time bundle experiment ``/Users/<current-user>/<app_resource_name>``.
+    # ``set_experiment`` is get-or-create, so the eval run + traces always have
+    # a home even on the first apps deploy.
+    resolved: str | None = (
+        config.app.experiment.resolved_id
+        if config.app.experiment is not None
+        else None
+    )
+    if resolved:
+        experiment_id = resolved
+    else:
+        current_user: str = spark.sql("SELECT current_user()").collect()[0][0]
+        experiment_name: str = f"/Users/{current_user}/{config.app.app_resource_name}"
+        experiment_id = mlflow.set_experiment(experiment_name).experiment_id
+    version_label = "config"
+    eval_model_id = None
+
+print(f"Serving mode: {mode.value} → agent source: {agent_source}")
+print(f"Experiment ID:    {experiment_id}")
 
 # COMMAND ----------
 
@@ -250,35 +291,36 @@ from mlflow.models.evaluation import EvaluationResult
 scorers = build_scorers(config.evaluation)
 print(f"Scorers: {[getattr(s, 'name', type(s).__name__) for s in scorers]}")
 
-model_run = mlflow_client.get_run(model_version.run_id)
-mlflow.set_experiment(experiment_id=model_run.info.experiment_id)
+mlflow.set_experiment(experiment_id=experiment_id)
 
 eval_dataset = create_or_get_eval_dataset(
     name=f"{payload_table}_dataset",
-    experiment_id=model_run.info.experiment_id,
+    experiment_id=experiment_id,
     source_df=eval_df,
     replace=evaluation.replace,
 )
 
-experiment = mlflow.get_experiment(model_run.info.experiment_id)
+experiment = mlflow.get_experiment(experiment_id)
 print(f"Dataset name:      {eval_dataset.name}")
 print(f"Dataset ID:        {eval_dataset.dataset_id}")
 print(f"Dataset records:   {len(eval_dataset.to_df())} rows")
 print(f"Experiment name:   {experiment.name}")
-print(f"Experiment ID:     {model_run.info.experiment_id}")
+print(f"Experiment ID:     {experiment_id}")
 
 run_tags: dict[str, str] = {k: str(v) for k, v in (config.app.tags or {}).items()}
 run_tags["run_type"] = "evaluation"
-run_name: str = f"{config.app.name}_evaluation_v{latest_version}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+run_name: str = f"{config.app.name}_evaluation_{version_label}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
 
 print(f"Starting evaluation: {len(eval_df)} rows, {len(scorers)} scorers")
 
 with mlflow.start_run(run_name=run_name, tags=run_tags) as run:
     try:
+        # model_id is None on the apps/mcp (config) path — there is no logged
+        # model version to attribute the eval to; genai.evaluate accepts None.
         eval_results: EvaluationResult | None = mlflow.genai.evaluate(
             data=eval_dataset,
             predict_fn=predict_fn,
-            model_id=model_version.model_id,
+            model_id=eval_model_id,
             scorers=scorers,
         )
         print(f"Evaluation completed. Run ID: {run.info.run_id}")

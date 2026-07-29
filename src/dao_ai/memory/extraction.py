@@ -17,7 +17,7 @@ Usage::
     from dao_ai.memory.extraction import create_extraction_manager
 
     manager, executor = create_extraction_manager(
-        model="databricks-claude-sonnet-4",
+        model="databricks-claude-sonnet-4-5",
         store=store,
         namespace=("memory", "{user_id}"),
         schemas=["user_profile", "preference"],

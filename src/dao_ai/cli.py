@@ -1108,7 +1108,7 @@ Notes:
         help=(
             "Service principal client_id (UUID) of the Databricks App runtime "
             "identity to grant experiment CAN_EDIT and UC OTEL table SELECT+MODIFY. "
-            "When omitted, auto-resolved via ``apps.get(config.app.name)`` — pass "
+            "When omitted, auto-resolved via ``apps.get(config.app.app_resource_name)`` — pass "
             "explicitly to override or to grant a non-default principal. "
             "Set ``app.manage_permissions: false`` in the config to skip grants "
             "entirely (admin-provisioned scenarios)."
@@ -1143,7 +1143,7 @@ Experiment resolution order matches ``dao-ai trace link``:
 
 App SP resolution:
   1. ``--app-sp`` flag (explicit)
-  2. ``apps.get(config.app.name).service_principal_client_id``
+  2. ``apps.get(config.app.app_resource_name).service_principal_client_id``
 
 No-op when ``config.app.trace_location`` is not set.
         """,
@@ -1178,7 +1178,7 @@ Examples:
         metavar="CLIENT_ID",
         help=(
             "Service principal client_id (UUID) to grant. When omitted, "
-            "auto-resolved via ``apps.get(config.app.name)``."
+            "auto-resolved via ``apps.get(config.app.app_resource_name)``."
         ),
     )
     _add_var_argument(trace_grant_parser)
@@ -2242,7 +2242,7 @@ def _grant_trace_writes_to_app_sp(
 
     Resolution order for the App SP:
       1. ``sp_override`` (``--app-sp`` flag).
-      2. ``apps.get(config.app.name).service_principal_client_id``.
+      2. ``apps.get(config.app.app_resource_name).service_principal_client_id``.
 
     Both grant calls WARN-and-continue on failure inside the provider
     helpers, so a deployer without GRANT rights sees diagnostics but the
@@ -2259,16 +2259,20 @@ def _grant_trace_writes_to_app_sp(
         return
 
     sp_id: Optional[str] = sp_override
+    # The deployed Databricks App is named ``app_resource_name`` (lowercased,
+    # underscores → hyphens), NOT the raw ``app.name``. ``apps.get`` must use
+    # that form or it raises NotFound and the grant is silently skipped.
+    app_name: str = config.app.app_resource_name
     if not sp_id:
         try:
             from databricks.sdk import WorkspaceClient
 
             w = WorkspaceClient()
-            app = w.apps.get(name=config.app.name)
+            app = w.apps.get(name=app_name)
             sp_id = app.service_principal_client_id or app.service_principal_id
         except Exception as e:  # noqa: BLE001
             print(
-                f"Could not resolve App SP via apps.get({config.app.name!r}): "
+                f"Could not resolve App SP via apps.get({app_name!r}): "
                 f"{type(e).__name__}: {e}. "
                 "Deploy the app first (``databricks bundle deploy``) or pass "
                 "``--app-sp <CLIENT_ID>`` explicitly.",
@@ -2278,7 +2282,7 @@ def _grant_trace_writes_to_app_sp(
 
     if not sp_id:
         print(
-            f"App {config.app.name!r} has no service_principal_client_id — "
+            f"App {app_name!r} has no service_principal_client_id — "
             "pass ``--app-sp <CLIENT_ID>`` explicitly.",
             file=sys.stderr,
         )

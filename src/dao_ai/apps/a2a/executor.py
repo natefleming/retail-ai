@@ -46,6 +46,8 @@ from dao_ai.hitl import decide_graph_turn
 from dao_ai.state import Context as DaoContext
 
 if TYPE_CHECKING:
+    from langchain_core.language_models import LanguageModelLike
+
     from dao_ai.config import AppConfig, ToolModel
 
 
@@ -76,6 +78,13 @@ class A2AAgentExecutor(AgentExecutor):
     def _tool_models(self) -> list["ToolModel"]:
         """Flattened tool_models across every agent — used by the HITL audit tap."""
         return [tool for agent in self.config.agents.values() for tool in agent.tools]
+
+    @property
+    def _interrupt_model(self) -> Optional["LanguageModelLike"]:
+        """Model used to parse HITL interrupt responses — the configured
+        default agent's model, so the parser matches the deployment instead of
+        a hardcoded endpoint. None when no agents are declared."""
+        return self.config.interrupt_parser_model()
 
     async def execute(self, context: RequestContext, event_queue: EventQueue) -> None:
         task_id = context.task_id
@@ -125,6 +134,7 @@ class A2AAgentExecutor(AgentExecutor):
                 custom_inputs=custom_inputs,
                 runtime_config=runtime_config,
                 tool_models=self._tool_models,
+                interrupt_model=self._interrupt_model,
             )
 
             if turn.should_skip_graph:
