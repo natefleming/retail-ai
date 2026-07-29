@@ -1545,6 +1545,99 @@ Examples:
         help="Stream logs continuously (apps only; not supported for model_serving)",
     )
 
+    # -------------------------------------------------------------------------
+    # service-principal (alias: sp) — create | grant | store
+    # -------------------------------------------------------------------------
+    sp_parser: ArgumentParser = subparsers.add_parser(
+        "service-principal",
+        aliases=["sp"],
+        help="Create a service principal, grant it config resources, store its secret",
+        description="""
+Manage the service principal a dao-ai agent runs as.
+
+Sub-commands:
+  create  Create (or reuse) a workspace service principal and mint an OAuth
+          secret. Prints the client id + one-time secret.
+  store   Write the client id / secret into a Databricks secret scope.
+  grant   Grant the service principal the read/execute privileges an agent
+          needs on every resource declared in the config (catalog, schema,
+          table, function, vector index, warehouse, genie room, ...).
+
+All three read the config (-c) for defaults; explicit flags override.
+        """,
+        epilog="""
+Examples:
+  dao-ai sp create -c config/model_config.yaml                      # name derived from app.name
+  dao-ai sp create -c config/model_config.yaml --name my-agent-sp   # explicit name
+  dao-ai sp store  -c config/model_config.yaml --client-id ID --client-secret SECRET
+  dao-ai sp grant  -c config/model_config.yaml                      # principal from config
+  dao-ai sp grant  -c config/model_config.yaml --dry-run            # print grants, apply nothing
+        """,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        parents=[_GLOBAL],
+    )
+    sp_verbs = sp_parser.add_subparsers(dest="subcommand", required=True)
+
+    # create
+    sp_create_parser: ArgumentParser = sp_verbs.add_parser(
+        "create",
+        help="Create (or reuse) a service principal and mint an OAuth secret",
+        parents=[_GLOBAL],
+    )
+    sp_create_parser.add_argument(
+        "-c", "--config", type=str, metavar="FILE",
+        help="Config file; app.name provides the default service-principal name",
+    )
+    sp_create_parser.add_argument(
+        "--name", type=str, default=None,
+        help="Service-principal display name (default: <app.name>-sp)",
+    )
+    sp_create_parser.add_argument(
+        "--lifetime", type=str, default=None,
+        help="OAuth secret lifetime (e.g. 7776000s); default is the workspace maximum",
+    )
+    sp_create_parser.add_argument(
+        "--json", action="store_true", help="Emit the result as JSON",
+    )
+    _add_var_argument(sp_create_parser)
+
+    # store
+    sp_store_parser: ArgumentParser = sp_verbs.add_parser(
+        "store",
+        help="Write the service-principal client id / secret to a Databricks secret scope",
+        parents=[_GLOBAL],
+    )
+    sp_store_parser.add_argument(
+        "-c", "--config", type=str, metavar="FILE",
+        help="Config file; its service_principals block provides default scope + key names",
+    )
+    sp_store_parser.add_argument("--client-id", type=str, required=True, help="Service-principal application (client) id")
+    sp_store_parser.add_argument("--client-secret", type=str, required=True, help="Service-principal OAuth client secret")
+    sp_store_parser.add_argument("--scope", type=str, default=None, help="Secret scope (default: from config)")
+    sp_store_parser.add_argument("--client-id-key", type=str, default=None, help="Secret key for the client id (default: from config)")
+    sp_store_parser.add_argument("--client-secret-key", type=str, default=None, help="Secret key for the client secret (default: from config)")
+    _add_var_argument(sp_store_parser)
+
+    # grant
+    sp_grant_parser: ArgumentParser = sp_verbs.add_parser(
+        "grant",
+        help="Grant the service principal read/execute access to all config resources",
+        parents=[_GLOBAL],
+    )
+    sp_grant_parser.add_argument(
+        "-c", "--config", type=str, required=True, metavar="FILE",
+        help="Config file whose resources are granted to the service principal",
+    )
+    sp_grant_parser.add_argument(
+        "--principal", "--client-id", dest="principal", type=str, default=None,
+        help="Grantee client id (default: config service_principals.client_id)",
+    )
+    sp_grant_parser.add_argument(
+        "--dry-run", action="store_true",
+        help="Print the grants that would be applied without applying them",
+    )
+    _add_var_argument(sp_grant_parser)
+
     chat_parser: ArgumentParser = subparsers.add_parser(
         "chat",
         help="Interactive chat with the DAO AI system",
@@ -2406,6 +2499,148 @@ def handle_graph_command(options: Namespace) -> None:
         sys.exit(1)
     app = create_dao_ai_graph(config)
     save_image(app, options.output)
+
+
+def _load_sp_config(options: Namespace) -> "AppConfig | None":
+    """Load the config for a service-principal command (``-c`` optional).
+
+    Uses ``initialize=False`` — SP commands only read declared resources /
+    service_principals, they don't need the graph materialized.
+    """
+    config_path = getattr(options, "config", None)
+    if not config_path:
+        return None
+    try:
+        return AppConfig.from_file(
+            config_path,
+            params=_parse_var_args(getattr(options, "var", None)),
+            initialize=False,
+        )
+    except ConfigVariableError as e:
+        _print_config_variable_error(e)
+        sys.exit(1)
+
+
+def handle_service_principal_command(options: Namespace) -> None:
+    """Dispatch ``dao-ai service-principal <create|store|grant>``."""
+    from databricks.sdk import WorkspaceClient
+
+    from dao_ai import service_principal as sp
+
+    _apply_profile_context(getattr(options, "profile", None))
+    config = _load_sp_config(options)
+
+    match options.subcommand:
+        case "create":
+            _handle_sp_create(options, config, sp, WorkspaceClient)
+        case "store":
+            _handle_sp_store(options, config, sp, WorkspaceClient)
+        case "grant":
+            _handle_sp_grant(options, config, sp, WorkspaceClient)
+        case _:
+            logger.error(f"Unknown service-principal sub-command: {options.subcommand}")
+            sys.exit(1)
+
+
+def _handle_sp_create(options, config, sp, WorkspaceClient) -> None:
+    display_name: Optional[str] = options.name
+    if not display_name:
+        if config is not None and config.app is not None and config.app.name:
+            display_name = f"{config.app.name}-sp"
+        else:
+            logger.error(
+                "No service-principal name. Pass --name, or -c a config with an app.name."
+            )
+            sys.exit(1)
+
+    w = WorkspaceClient()
+    result = sp.create(w, display_name=display_name, lifetime=options.lifetime)
+
+    if options.json:
+        print(
+            json.dumps(
+                {
+                    "display_name": result.display_name,
+                    "client_id": result.client_id,
+                    "client_secret": result.client_secret,
+                    "reused": result.reused,
+                },
+                indent=2,
+            )
+        )
+        return
+
+    verb = "Reused" if result.reused else "Created"
+    print(f"{verb} service principal: {result.display_name}")
+    print(f"  client_id:     {result.client_id}")
+    print(f"  client_secret: {result.client_secret}")
+    print("\n⚠️  The client secret is shown only once — copy it now.")
+    print("\nStore it in a secret scope with:")
+    print(
+        f"  dao-ai sp store -c <config> "
+        f"--client-id {result.client_id} --client-secret <secret>"
+    )
+
+
+def _handle_sp_store(options, config, sp, WorkspaceClient) -> None:
+    scope, cid_key, csec_key = sp.resolve_secret_target(
+        config if config is not None else _empty_config(),
+        scope_override=options.scope,
+        client_id_key_override=options.client_id_key,
+        client_secret_key_override=options.client_secret_key,
+    )
+    if not scope:
+        logger.error(
+            "No secret scope. Pass --scope, or -c a config whose service_principals "
+            "reference a secret scope."
+        )
+        sys.exit(1)
+
+    w = WorkspaceClient()
+    sp.store(
+        w,
+        scope=scope,
+        client_id_key=cid_key,
+        client_secret_key=csec_key,
+        client_id=options.client_id,
+        client_secret=options.client_secret,
+    )
+    print(f"Stored credentials in scope '{scope}':")
+    print(f"  {cid_key}   = <client id>")
+    print(f"  {csec_key} = <client secret>")
+
+
+def _handle_sp_grant(options, config, sp, WorkspaceClient) -> None:
+    if config is None:
+        logger.error("grant requires -c/--config.")
+        sys.exit(1)
+
+    principal = sp.resolve_principal_from_config(config, override=options.principal)
+    if not principal:
+        logger.error(
+            "No grantee. Pass --principal <client-id>, or -c a config whose "
+            "service_principals define a client_id."
+        )
+        sys.exit(1)
+
+    w = WorkspaceClient()
+    plan = sp.grant(w, principal=principal, config=config, dry_run=options.dry_run)
+
+    header = "Would grant" if options.dry_run else "Granted"
+    print(f"{header} to principal {plan.principal}:")
+    if not plan.grants:
+        print("  (no grantable resources found in config)")
+        return
+    for g in plan.grants:
+        target = f"{g.securable_type}:{g.target}" if g.securable_type else g.target
+        print(f"  [{g.kind}] {target} -> {', '.join(g.privileges)}")
+
+
+def _empty_config() -> "AppConfig":
+    """A minimal AppConfig so resolve_secret_target can run without a -c file."""
+    from dao_ai.config import AppConfig
+
+    return AppConfig()
 
 
 def handle_monitor_command(options: Namespace) -> None:
@@ -4320,6 +4555,8 @@ def main() -> None:
             handle_workflow_command(options)
         case "monitor":
             handle_monitor_command(options)
+        case "service-principal" | "sp":
+            handle_service_principal_command(options)
         case "chat":
             handle_chat_command(options)
         case "mcp":
