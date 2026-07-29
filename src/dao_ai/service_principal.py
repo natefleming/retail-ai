@@ -171,6 +171,90 @@ def _ensure_scope(w: "WorkspaceClient", scope: str) -> None:
 
 
 # =============================================================================
+# provision — one-shot create + store + grant
+# =============================================================================
+
+
+@dataclass
+class ProvisionResult:
+    """Outcome of :func:`provision`. The secret is deliberately NOT included."""
+
+    display_name: str
+    client_id: str
+    reused: bool
+    stored_scope: Optional[str] = None
+    stored: bool = False
+    grant_plan: Optional["GrantPlan"] = None
+
+
+def provision(
+    w: "WorkspaceClient",
+    *,
+    config: "AppConfig",
+    display_name: str,
+    scope: Optional[str] = None,
+    client_id_key: Optional[str] = None,
+    client_secret_key: Optional[str] = None,
+    lifetime: Optional[str] = None,
+    do_store: bool = True,
+    do_grant: bool = True,
+) -> ProvisionResult:
+    """Create an SP, store its secret, and grant it the config's resources — one shot.
+
+    The freshly-minted client secret is written straight to the secret scope and is
+    never returned or printed. This is the recommended path to make a config's
+    declared service principal usable end-to-end.
+
+    Args:
+        w: Workspace client (profile already applied by the caller).
+        config: The AppConfig being provisioned for.
+        display_name: Service-principal display name.
+        scope / client_id_key / client_secret_key: Secret target. Resolved from the
+            config's service_principals block when omitted; scope falls back to a
+            name derived from the config (see :func:`default_scope_from_config`).
+        lifetime: Optional OAuth secret lifetime.
+        do_store: Write the credentials to the secret scope (default True).
+        do_grant: Grant the SP the config's resources (default True).
+    """
+    created = create(w, display_name=display_name, lifetime=lifetime)
+
+    result = ProvisionResult(
+        display_name=created.display_name,
+        client_id=created.client_id,
+        reused=created.reused,
+    )
+
+    if do_store:
+        resolved_scope, cid_key, csec_key = resolve_secret_target(
+            config,
+            scope_override=scope,
+            client_id_key_override=client_id_key,
+            client_secret_key_override=client_secret_key,
+        )
+        resolved_scope = resolved_scope or default_scope_from_config(config)
+        if not resolved_scope:
+            raise ValueError(
+                "Cannot determine a secret scope to store credentials. "
+                "Pass --scope, or add a service_principals block to the config."
+            )
+        store(
+            w,
+            scope=resolved_scope,
+            client_id_key=cid_key,
+            client_secret_key=csec_key,
+            client_id=created.client_id,
+            client_secret=created.client_secret,
+        )
+        result.stored_scope = resolved_scope
+        result.stored = True
+
+    if do_grant:
+        result.grant_plan = grant(w, principal=created.client_id, config=config)
+
+    return result
+
+
+# =============================================================================
 # grant
 # =============================================================================
 
@@ -494,4 +578,17 @@ def _secret_ref(value: object) -> tuple[Optional[str], Optional[str]]:
             if isinstance(option, SecretVariableModel):
                 return option.scope, option.secret
     return None, None
-    return None, None
+
+
+def default_scope_from_config(config: "AppConfig") -> Optional[str]:
+    """Derive a fallback secret scope when the config has no service_principals block.
+
+    Prefers the app name, then the first schema's catalog — so ``provision`` works
+    on configs that never declared a service principal.
+    """
+    if config.app is not None and config.app.name:
+        return config.app.name
+    for schema in config.schemas.values():
+        if schema.catalog_name:
+            return str(schema.catalog_name)
+    return None

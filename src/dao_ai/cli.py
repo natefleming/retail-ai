@@ -1556,21 +1556,24 @@ Examples:
 Manage the service principal a dao-ai agent runs as.
 
 Sub-commands:
-  create  Create (or reuse) a workspace service principal and mint an OAuth
-          secret. Prints the client id + one-time secret.
-  store   Write the client id / secret into a Databricks secret scope.
-  grant   Grant the service principal the read/execute privileges an agent
-          needs on every resource declared in the config (catalog, schema,
-          table, function, vector index, warehouse, genie room, ...).
+  provision  One shot: create the SP, store its secret to the config's scope,
+             and grant it every resource in the config. The secret is never
+             printed. This is the easiest way to make a config runnable.
+  create     Create (or reuse) a workspace service principal and mint an OAuth
+             secret. Prints the client id + one-time secret.
+  store      Write the client id / secret into a Databricks secret scope.
+  grant      Grant the service principal the read/execute privileges an agent
+             needs on every resource declared in the config (catalog, schema,
+             table, function, vector index, warehouse, genie room, ...).
 
-All three read the config (-c) for defaults; explicit flags override.
+All read the config (-c) for defaults; explicit flags override.
         """,
         epilog="""
 Examples:
-  dao-ai sp create -c config/model_config.yaml                      # name derived from app.name
-  dao-ai sp create -c config/model_config.yaml --name my-agent-sp   # explicit name
+  dao-ai sp provision -c config/model_config.yaml                   # create + store + grant, one step
+  dao-ai sp provision -c config/model_config.yaml --no-grant        # just create + store the secret
+  dao-ai sp create -c config/model_config.yaml --name my-agent-sp   # granular: create only
   dao-ai sp store  -c config/model_config.yaml --client-id ID --client-secret SECRET
-  dao-ai sp grant  -c config/model_config.yaml                      # principal from config
   dao-ai sp grant  -c config/model_config.yaml --dry-run            # print grants, apply nothing
         """,
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -1637,6 +1640,39 @@ Examples:
         help="Print the grants that would be applied without applying them",
     )
     _add_var_argument(sp_grant_parser)
+
+    # provision — one-shot create + store + grant
+    sp_provision_parser: ArgumentParser = sp_verbs.add_parser(
+        "provision",
+        help="One shot: create the SP, store its secret, and grant it all config resources",
+        description="""
+Provision a service principal for a dao-ai config in a single step:
+create (or reuse) the SP, mint an OAuth secret, write it to the config's secret
+scope, and grant the SP read/execute access to every resource in the config.
+
+The client secret is written straight to the secret scope and is never printed.
+        """,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        parents=[_GLOBAL],
+    )
+    sp_provision_parser.add_argument(
+        "-c", "--config", type=str, required=True, metavar="FILE",
+        help="Config to provision the service principal for",
+    )
+    sp_provision_parser.add_argument(
+        "--name", type=str, default=None,
+        help="Service-principal display name (default: <app.name>-sp)",
+    )
+    sp_provision_parser.add_argument(
+        "--scope", type=str, default=None,
+        help="Secret scope for the credentials (default: from config, else app name)",
+    )
+    sp_provision_parser.add_argument("--client-id-key", type=str, default=None, help="Secret key for the client id (default: from config)")
+    sp_provision_parser.add_argument("--client-secret-key", type=str, default=None, help="Secret key for the client secret (default: from config)")
+    sp_provision_parser.add_argument("--lifetime", type=str, default=None, help="OAuth secret lifetime (e.g. 7776000s)")
+    sp_provision_parser.add_argument("--no-store", action="store_true", help="Skip writing the secret to a scope (print it instead)")
+    sp_provision_parser.add_argument("--no-grant", action="store_true", help="Skip granting the config's resources")
+    _add_var_argument(sp_provision_parser)
 
     chat_parser: ArgumentParser = subparsers.add_parser(
         "chat",
@@ -2531,6 +2567,8 @@ def handle_service_principal_command(options: Namespace) -> None:
     config = _load_sp_config(options)
 
     match options.subcommand:
+        case "provision":
+            _handle_sp_provision(options, config, sp, WorkspaceClient)
         case "create":
             _handle_sp_create(options, config, sp, WorkspaceClient)
         case "store":
@@ -2542,16 +2580,53 @@ def handle_service_principal_command(options: Namespace) -> None:
             sys.exit(1)
 
 
+def _sp_display_name(options, config) -> str:
+    """Resolve the SP display name: --name, else <app.name>-sp, else error."""
+    if getattr(options, "name", None):
+        return options.name
+    if config is not None and config.app is not None and config.app.name:
+        return f"{config.app.name}-sp"
+    logger.error(
+        "No service-principal name. Pass --name, or -c a config with an app.name."
+    )
+    sys.exit(1)
+
+
+def _handle_sp_provision(options, config, sp, WorkspaceClient) -> None:
+    if config is None:
+        logger.error("provision requires -c/--config.")
+        sys.exit(1)
+
+    display_name = _sp_display_name(options, config)
+    w = WorkspaceClient()
+    try:
+        result = sp.provision(
+            w,
+            config=config,
+            display_name=display_name,
+            scope=options.scope,
+            client_id_key=options.client_id_key,
+            client_secret_key=options.client_secret_key,
+            lifetime=options.lifetime,
+            do_store=not options.no_store,
+            do_grant=not options.no_grant,
+        )
+    except ValueError as e:
+        logger.error(str(e))
+        sys.exit(1)
+
+    verb = "Reused" if result.reused else "Created"
+    print(f"{verb} service principal: {result.display_name}")
+    print(f"  client_id: {result.client_id}")
+    if result.stored:
+        print(f"  secret stored in scope: {result.stored_scope} (not printed)")
+    if result.grant_plan is not None:
+        print(f"  granted {len(result.grant_plan.grants)} resource(s)")
+    print("\n✓ Service principal is ready for this config.")
+
+
 def _handle_sp_create(options, config, sp, WorkspaceClient) -> None:
-    display_name: Optional[str] = options.name
-    if not display_name:
-        if config is not None and config.app is not None and config.app.name:
-            display_name = f"{config.app.name}-sp"
-        else:
-            logger.error(
-                "No service-principal name. Pass --name, or -c a config with an app.name."
-            )
-            sys.exit(1)
+    display_name = _sp_display_name(options, config)
 
     w = WorkspaceClient()
     result = sp.create(w, display_name=display_name, lifetime=options.lifetime)
@@ -2575,10 +2650,16 @@ def _handle_sp_create(options, config, sp, WorkspaceClient) -> None:
     print(f"  client_id:     {result.client_id}")
     print(f"  client_secret: {result.client_secret}")
     print("\n⚠️  The client secret is shown only once — copy it now.")
+    cfg = getattr(options, "config", None) or "<config>"
     print("\nStore it in a secret scope with:")
     print(
-        f"  dao-ai sp store -c <config> "
+        f"  dao-ai sp store -c {cfg} "
         f"--client-id {result.client_id} --client-secret <secret>"
+    )
+    print(
+        "\nTip: `dao-ai sp provision -c "
+        f"{cfg}` does create + store + grant in one step "
+        "(and never prints the secret)."
     )
 
 

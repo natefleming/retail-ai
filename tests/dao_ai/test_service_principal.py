@@ -21,7 +21,9 @@ from dao_ai.config import (
 from dao_ai.service_principal import (
     build_grant_plan,
     create,
+    default_scope_from_config,
     grant,
+    provision,
     resolve_principal_from_config,
     resolve_secret_target,
     store,
@@ -260,6 +262,105 @@ def test_resolve_secret_target_reads_scope_from_config() -> None:
     assert scope == "myscope"
     assert cid_key == "CID"
     assert csec_key == "CSEC"
+
+
+def test_default_scope_prefers_app_name() -> None:
+    from dao_ai.config import AgentModel, InferenceEndpointModel
+
+    config = AppConfig(
+        app=AppModel(
+            name="my-agent",
+            agents=[
+                AgentModel(
+                    name="a",
+                    description="d",
+                    model=InferenceEndpointModel(name="databricks-gpt-5-4-mini"),
+                )
+            ],
+        )
+    )
+    assert default_scope_from_config(config) == "my-agent"
+
+
+def test_default_scope_falls_back_to_catalog() -> None:
+    config = AppConfig(schemas={"s": _schema()})
+    assert default_scope_from_config(config) == "cat"
+
+
+# =============================================================================
+# provision — one-shot create + store + grant
+# =============================================================================
+
+
+def test_provision_end_to_end_stores_and_grants() -> None:
+    w = MagicMock()
+    w.service_principals.list.return_value = []
+    w.service_principals.create.return_value = MagicMock(id="9", application_id=PRINCIPAL)
+    w.service_principal_secrets_proxy.create.return_value = MagicMock(secret="s3cr3t")
+
+    config = AppConfig(
+        schemas={"s": _schema()},
+        service_principals={
+            "sp": ServicePrincipalModel(
+                client_id=SecretVariableModel(scope="myscope", secret="CID"),
+                client_secret=SecretVariableModel(scope="myscope", secret="CSEC"),
+            )
+        },
+    )
+    result = provision(w, config=config, display_name="my-sp")
+
+    # secret written to the config's scope, never surfaced on the result
+    assert result.stored is True
+    assert result.stored_scope == "myscope"
+    assert not hasattr(result, "client_secret")
+    put_keys = {c.kwargs["key"] for c in w.secrets.put_secret.call_args_list}
+    assert put_keys == {"CID", "CSEC"}
+    # granted the schema (UC PATCH issued)
+    assert result.grant_plan is not None and result.grant_plan.grants
+    assert w.api_client.do.called
+
+
+def test_provision_derives_scope_when_no_sp_block() -> None:
+    from dao_ai.config import AgentModel, InferenceEndpointModel
+
+    w = MagicMock()
+    w.service_principals.list.return_value = []
+    w.service_principals.create.return_value = MagicMock(id="9", application_id=PRINCIPAL)
+    w.service_principal_secrets_proxy.create.return_value = MagicMock(secret="x")
+
+    config = AppConfig(
+        app=AppModel(
+            name="my-agent",
+            agents=[
+                AgentModel(
+                    name="a",
+                    description="d",
+                    model=InferenceEndpointModel(name="databricks-gpt-5-4-mini"),
+                )
+            ],
+        )
+    )
+    result = provision(w, config=config, display_name="my-sp")
+    assert result.stored_scope == "my-agent"  # derived from app name
+
+
+def test_provision_no_store_no_grant_flags() -> None:
+    w = MagicMock()
+    w.service_principals.list.return_value = []
+    w.service_principals.create.return_value = MagicMock(id="9", application_id=PRINCIPAL)
+    w.service_principal_secrets_proxy.create.return_value = MagicMock(secret="x")
+
+    result = provision(
+        w,
+        config=AppConfig(schemas={"s": _schema()}),
+        display_name="my-sp",
+        do_store=False,
+        do_grant=False,
+    )
+    assert result.stored is False
+    assert result.grant_plan is None
+    w.secrets.put_secret.assert_not_called()
+    w.api_client.do.assert_not_called()
 
 
 def test_resolve_secret_target_override_wins() -> None:
