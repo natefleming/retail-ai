@@ -1,3 +1,9 @@
+---
+layout: home
+title: Home
+nav_order: 0
+---
+
 # DAO: Declarative Agent Orchestration
 
 **Production-grade AI agents defined in YAML, powered by LangGraph, deployed on Databricks.**
@@ -21,23 +27,23 @@ agents:
 
 ## Getting started
 
-- [**Why DAO?**](why-dao.md) — what DAO is and how it compares to other platforms.
-- [**Architecture**](architecture.md) — how DAO works under the hood.
-- [**Key Capabilities**](key-capabilities.md) — 20 features for production agents.
+- [**Why DAO?**](docs/why-dao.md) — what DAO is and how it compares to other platforms.
+- [**Architecture**](docs/architecture.md) — how DAO works under the hood.
+- [**Key Capabilities**](docs/key-capabilities.md) — 20 features for production agents.
 
 ## Reference
 
-- [**Configuration Reference**](configuration-reference.md) — the complete YAML schema.
-- [**CLI Reference**](cli-reference.md) — the `dao-ai` command-line interface.
-- [**Python API**](python-api.md) — programmatic usage and customization.
+- [**Configuration Reference**](docs/configuration-reference.md) — the complete YAML schema.
+- [**CLI Reference**](docs/cli-reference.md) — the `dao-ai` command-line interface.
+- [**Python API**](docs/python-api.md) — programmatic usage and customization.
 
 ## Guides
 
-- [**Examples**](examples.md) — ready-to-use example configurations.
-- [**MCP Server**](mcp_server.md) — expose a dao-ai agent as a single MCP tool.
-- [**A2A Protocol**](a2a_protocol.md) — Google Agent2Agent endpoints on every Apps deployment.
-- [**Background Agents**](background_agents.md) — kickoff / poll / cancel for multi-minute runs.
-- [**Auditable Tool Invocations**](audit.md) — tamper-evident approval receipts and audit-trail queries.
+- [**Examples**](docs/examples.md) — ready-to-use example configurations.
+- [**MCP Server**](docs/mcp_server.md) — expose a dao-ai agent as a single MCP tool.
+- [**A2A Protocol**](docs/a2a_protocol.md) — Google Agent2Agent endpoints on every Apps deployment.
+- [**Background Agents**](docs/background_agents.md) — kickoff / poll / cancel for multi-minute runs.
+- [**Auditable Tool Invocations**](docs/audit.md) — tamper-evident approval receipts and audit-trail queries.
 
 ## Visual configuration studio
 

@@ -96,11 +96,6 @@ dev = [
     "mypy>=1.19.1",
     "pre-commit>=4.5.1",
 ]
-docs = [
-    "mkdocs>=1.6.1",
-    "mkdocs-material>=9.7.1",
-    "mkdocstrings[python]>=1.0.0",
-]
 test = [
     "pytest>=9.0.2",
     "pytest-cov>=7.0.0",
@@ -159,11 +154,6 @@ dev = [
     "pre-commit>=4.5.1",
     "pytest-timeout>=2.4.0",
 ]
-docs = [
-    "mkdocs>=1.6.1",
-    "mkdocs-material>=9.7.1", 
-    "mkdocstrings[python]>=1.0.0",
-]
 test = [
     "pytest>=9.0.2",
     "pytest-cov>=7.0.0",
@@ -207,7 +197,6 @@ excel = [
 # dependencies].all for `dao-ai[all]`).
 all = [
     { include-group = "dev" },
-    { include-group = "docs" },
     { include-group = "test" },
 ]
 

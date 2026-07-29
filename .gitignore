@@ -292,3 +292,11 @@ chat-ui.tar.gz
 
 # Isaac local tool state
 .isaac/
+
+# Jekyll / Just the Docs documentation site build artifacts
+_site/
+_site_src/
+.jekyll-cache/
+.jekyll-metadata
+.bundle/
+vendor/

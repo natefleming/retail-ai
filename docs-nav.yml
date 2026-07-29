@@ -1,0 +1,43 @@
+# Sidebar order + titles for the Just the Docs site.
+#
+# The build-time injection script (scripts/build-docs-site.py) reads this file
+# to stamp `nav_order` and `title` front matter onto copies of docs/*.md at
+# build time — the source docs/*.md files stay pristine (no front matter).
+#
+# `nav_order` is derived from position in `order` (top = 1). `titles` overrides
+# the sidebar label for pages whose H1 is too long/verbose for a nav entry;
+# any file not listed in `titles` uses its first H1 as the title.
+
+order:
+  - why-dao.md
+  - architecture.md
+  - key-capabilities.md
+  - configuration-reference.md
+  - cli-reference.md
+  - python-api.md
+  - examples.md
+  - mcp_server.md
+  - mcp-callbacks.md
+  - a2a_protocol.md
+  - background_agents.md
+  - audit.md
+  - lakebase.md
+  - mlflow-tracing.md
+  - genie_context_aware_cache_prompt_history.md
+  - faq.md
+  - contributing.md
+
+titles:
+  key-capabilities.md: "Key Capabilities"
+  examples.md: "Examples"
+  configuration-reference.md: "Configuration Reference"
+  cli-reference.md: "CLI Reference"
+  mcp_server.md: "MCP Server"
+  mcp-callbacks.md: "MCP Callbacks"
+  a2a_protocol.md: "A2A Protocol"
+  audit.md: "Auditable Tool Invocations"
+  lakebase.md: "Lakebase"
+  mlflow-tracing.md: "MLflow Tracing"
+  genie_context_aware_cache_prompt_history.md: "Genie Context-Aware Cache"
+  faq.md: "FAQ"
+  contributing.md: "Contributing"

@@ -1,0 +1,91 @@
+title: dao-ai
+description: >-
+  Declarative Agent Orchestration — production-grade multi-agent AI systems
+  defined in YAML, deployed on Databricks.
+theme: just-the-docs
+
+# Project site served at https://natefleming.github.io/dao-ai
+url: https://natefleming.github.io
+baseurl: /dao-ai
+
+# The build-time injection script (scripts/build-docs-site.py) assembles a
+# staging tree containing this config, the root index.md, and front-matter'd
+# copies of docs/*.md. Jekyll builds from that staging directory.
+
+# Markdown: GitHub-flavored via kramdown, with automatic heading IDs so
+# in-page anchors (e.g. configuration-reference.md#parameters) resolve.
+markdown: kramdown
+kramdown:
+  input: GFM
+  auto_ids: true
+
+# Client-side search (no external service). Adds the top-of-page search box
+# with the "/" and Cmd/Ctrl-K focus shortcut.
+search_enabled: true
+search:
+  heading_level: 3
+  previews: 3
+  preview_words_before: 5
+  preview_words_after: 10
+  tokenizer_separator: /[\s/]+/
+  rel_url: true
+  button: true
+  focus_shortcut_key: 'k'
+
+# Mermaid diagrams — pinned to a stable 9.x (audit.md, background_agents.md,
+# genie_context_aware_cache_prompt_history.md use ```mermaid fences).
+mermaid:
+  version: "9.1.7"
+
+# Light/dark: default light; Just the Docs renders a built-in theme toggle.
+color_scheme: light
+
+# "Copy" button on every code fence (needs HTTPS at runtime — Pages is HTTPS).
+enable_copy_code_button: true
+
+# Heading anchor links on hover.
+heading_anchors: true
+
+# Top-right auxiliary links.
+aux_links:
+  "GitHub":
+    - "https://github.com/natefleming/dao-ai"
+aux_links_new_tab: true
+
+# "Edit this page on GitHub" — points back at the pristine source in docs/.
+gh_edit_link: true
+gh_edit_link_text: "Edit this page on GitHub"
+gh_edit_repository: "https://github.com/natefleming/dao-ai"
+gh_edit_branch: "main"
+gh_edit_view_mode: "tree"
+
+# Callouts (used by any {: .note } / {: .warning } markers if added later).
+callouts:
+  note:
+    title: Note
+    color: blue
+  warning:
+    title: Warning
+    color: red
+  tip:
+    title: Tip
+    color: green
+
+# The front-matter'd docs live under docs/ in the staging tree; the source
+# docs H1s already provide page titles.
+plugins:
+  - jekyll-relative-links   # rewrites ](foo.md) links to their page URLs
+  - jekyll-seo-tag
+
+# jekyll-relative-links needs collections/pages processing left on.
+relative_links:
+  enabled: true
+  collections: false
+
+# Don't let Jekyll try to build these if they appear in the staging tree.
+exclude:
+  - Gemfile
+  - Gemfile.lock
+  - scripts/
+  - vendor/
+  - .bundle/
