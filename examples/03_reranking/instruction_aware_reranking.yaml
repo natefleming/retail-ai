@@ -40,7 +40,6 @@ resources:
     # Primary LLM for agent reasoning
     default_llm: &default_llm
       name: ${var.llm}
-      temperature: 0.1
       max_tokens: 8192
 
     # Fast LLM for instruction-aware reranking (minimize latency)

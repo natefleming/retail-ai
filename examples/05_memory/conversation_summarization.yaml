@@ -59,7 +59,6 @@ resources:
     # Primary LLM for conversation
     default_llm: &default_llm
       name: ${var.llm}
-      temperature: 0.7                             # Moderate temperature for natural conversation
       max_tokens: 4096
 
     # Fast LLM for summarization (use smaller/faster model for efficiency)

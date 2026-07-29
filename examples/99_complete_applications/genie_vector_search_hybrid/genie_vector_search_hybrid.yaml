@@ -34,7 +34,6 @@ resources:
     # Primary LLM for general tasks
     default_llm: &default_llm
       name: ${var.llm}  # Databricks serving endpoint name
-      temperature: 0.1                              # Low temperature for consistent responses
       max_tokens: 8192                              # Maximum tokens per response
 
     embedding_model: &embedding_model
