@@ -240,10 +240,10 @@ streamed_text: str = ""
 saw_delta: bool = False
 event: ResponseStreamEvent
 for event in retrieve_stream:
-    print(f"  event: {event.type}")
     if event.type == "response.output_text.delta":
         streamed_text += event.delta
         saw_delta = True
+        print(event.delta, end="", flush=True)  # render tokens as they arrive
     elif (
         not saw_delta
         and event.type == "response.output_item.done"
@@ -253,8 +253,9 @@ for event in retrieve_stream:
         for part in event.item.content:
             if part.type == "output_text":
                 streamed_text += part.text
+                print(part.text, end="", flush=True)
 
-print(f"\nstreamed output:\n{streamed_text}")
+print()  # trailing newline after the streamed output
 
 # COMMAND ----------
 
@@ -284,10 +285,10 @@ streamed_text: str = ""
 saw_delta: bool = False
 event: ResponseStreamEvent
 for event in stream:
-    print(f"  event: {event.type}")
     if event.type == "response.output_text.delta":
         streamed_text += event.delta
         saw_delta = True
+        print(event.delta, end="", flush=True)  # render tokens as they arrive
     elif (
         not saw_delta
         and event.type == "response.output_item.done"
@@ -297,5 +298,6 @@ for event in stream:
         for part in event.item.content:
             if part.type == "output_text":
                 streamed_text += part.text
+                print(part.text, end="", flush=True)
 
-print(f"\nstreamed output:\n{streamed_text}")
+print()  # trailing newline after the streamed output
