@@ -103,21 +103,18 @@ resources:
     fast_llm: &fast_llm
       name: ${var.llm}
       ai_gateway: true
-      temperature: 0.1
       max_tokens: 8192
 
     # Reasoning-heavy LLM for recommendation (history + memory synthesis)
     reasoning_llm: &reasoning_llm
       name: ${var.llm}
       ai_gateway: true
-      temperature: 0.2
       max_tokens: 8192
 
     # Tool-calling LLM (alias to fast_llm — Claude Sonnet 4.6 has strong tool-call fidelity)
     tool_calling_llm: &tool_calling_llm
       name: ${var.llm}
       ai_gateway: true
-      temperature: 0.1
       max_tokens: 8192
       fallbacks:
       - ${var.fallback_llm}
@@ -126,14 +123,12 @@ resources:
     extraction_llm: &extraction_llm
       name: ${var.llm}
       ai_gateway: true
-      temperature: 0.1
       max_tokens: 4096
 
     # Judge LLM for evaluation runs
     judge_llm: &judge_llm
       name: ${var.llm}
       ai_gateway: true
-      temperature: 0.5
       max_tokens: 8192
 
     # Embedding model for Vector Search + memory store semantic recall

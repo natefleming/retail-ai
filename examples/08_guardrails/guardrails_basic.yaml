@@ -57,14 +57,12 @@ resources:
     #   - Higher temperature values (increases variability)
     default_llm: &default_llm
       name: ${var.llm}
-      temperature: 0.7
       max_tokens: 4096
 
     # LLM optimized for judging/evaluating responses
     # Often uses higher temperature for diverse evaluation
     judge_llm: &judge_llm
       name: ${var.llm}
-      temperature: 0.3                        # Lower temp for consistent evaluation
       max_tokens: 2048
 
 # =============================================================================

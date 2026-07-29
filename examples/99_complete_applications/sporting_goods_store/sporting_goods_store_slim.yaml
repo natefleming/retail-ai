@@ -110,7 +110,6 @@ resources:
 
     tool_calling_llm: &tool_calling_llm
       name: ${var.llm}
-      temperature: 0.1
       max_tokens: 4096
       on_behalf_of_user: true
       fallbacks:
@@ -118,7 +117,6 @@ resources:
 
     judge_llm: &judge_llm
       name: ${var.llm}
-      temperature: 0.5
       max_tokens: 8192
 
     decomposition_llm: &decomposition_llm

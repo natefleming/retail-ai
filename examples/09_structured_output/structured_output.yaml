@@ -27,7 +27,6 @@ resources:
   models:
     default_llm: &default_llm
       name: ${var.llm}
-      temperature: 0.0
 
 agents:
   contact_extractor: &contact_extractor

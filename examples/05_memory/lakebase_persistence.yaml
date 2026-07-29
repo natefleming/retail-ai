@@ -51,13 +51,11 @@ resources:
   models:
     default_llm: &default_llm
       name: ${var.llm}
-      temperature: 0.7
       max_tokens: 4096
 
     # Optional: Separate model for summarization (more cost-effective)
     summary_llm:
       name: ${var.llm}
-      temperature: 0.1
       max_tokens: 512
 
   # ---------------------------------------------------------------------------

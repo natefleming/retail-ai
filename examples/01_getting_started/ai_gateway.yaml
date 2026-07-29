@@ -52,7 +52,6 @@ resources:
     # Legacy path — same workspace, no flag, unchanged behavior.
     legacy_llm: &legacy_llm
       name: ${var.fallback_llm}
-      temperature: 0.1
       max_tokens: 1024
 
     # Mixed-mode fallbacks: AI Gateway primary with legacy fallback.

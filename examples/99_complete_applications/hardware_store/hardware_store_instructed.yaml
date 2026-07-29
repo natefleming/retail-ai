@@ -58,13 +58,11 @@ resources:
     # Primary LLM for agent reasoning
     default_llm:
       name: ${var.llm}
-      temperature: 0.1
       max_tokens: 8192
 
     # LLM optimized for tool calling
     tool_calling_llm: &tool_calling_llm
       name: ${var.llm}
-      temperature: 0.1
       max_tokens: 8192
       fallbacks:
       - ${var.fallback_llm}
@@ -78,7 +76,6 @@ resources:
     # LLM for evaluating responses
     judge_llm: &judge_llm
       name: ${var.llm}
-      temperature: 0.5
       max_tokens: 8192
 
     # Embedding model for vector search

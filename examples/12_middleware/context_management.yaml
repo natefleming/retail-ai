@@ -42,7 +42,6 @@ resources:
   models:
     default_llm: &default_llm
       name: ${var.llm}
-      temperature: 0.1
       max_tokens: 4096
 
   genie_rooms:
