@@ -43,9 +43,11 @@ from dao_ai.config import (
     GenieRoomModel,
     IndexModel,
     LLMModel,
+    McpFunctionModel,
     ResourcesModel,
     SchemaModel,
     TableModel,
+    ToolModel,
     VectorStoreModel,
     VolumeModel,
     WarehouseModel,
@@ -383,3 +385,90 @@ class TestSportingGoodsConfigPartition:
             assert name in names_in_resources, (
                 f"non-OBO resource '{name}' missing from app.yaml resources"
             )
+
+
+@pytest.mark.unit
+class TestMcpFunctionApiScopes:
+    """McpFunctionModel.api_scopes must be sub-type aware so OBO MCP tools map
+    to the correct ``mcp.*`` companion scope."""
+
+    def test_genie_room_scope(self) -> None:
+        fn = McpFunctionModel(genie_room=GenieRoomModel(name="g", space_id="01fABC"))
+        assert list(fn.api_scopes) == ["dashboards.genie"]
+
+    def test_genie_all_scope(self) -> None:
+        assert list(McpFunctionModel(genie=True).api_scopes) == ["dashboards.genie"]
+
+    def test_sql_scope(self) -> None:
+        assert list(McpFunctionModel(sql=True).api_scopes) == ["sql.warehouses"]
+
+    def test_functions_scope(self) -> None:
+        fn = McpFunctionModel(functions=SchemaModel(catalog_name="c", schema_name="s"))
+        assert list(fn.api_scopes) == ["sql.warehouses"]
+
+    def test_vector_search_scope(self) -> None:
+        fn = McpFunctionModel(
+            vector_search=VectorStoreModel(index=IndexModel(name="c.s.idx"))
+        )
+        assert list(fn.api_scopes) == ["vectorsearch.vector-search-indexes"]
+
+    def test_connection_scope(self) -> None:
+        fn = McpFunctionModel(connection=ConnectionModel(name="conn"))
+        assert list(fn.api_scopes) == ["catalog.connections"]
+
+    def test_opaque_url_falls_back_to_serving(self) -> None:
+        fn = McpFunctionModel(url="https://host/mcp")
+        assert list(fn.api_scopes) == ["serving.serving-endpoints"]
+
+
+@pytest.mark.unit
+class TestMcpToolObOUserScopes:
+    """generate_user_api_scopes collects OBO scopes ONLY from *resourceless* MCP
+    tool functions (workspace-wide genie / serverless sql / direct url) — those
+    front no registerable resource, so the tool is the only place OBO can be
+    expressed. An MCP tool that references a declarable resource must carry OBO
+    on the registered resource (single source of truth), so an OBO flag on such
+    a tool is NOT honored here."""
+
+    def _agent_cfg(self, tool: ToolModel, name: str) -> AppConfig:
+        agent = AgentModel(
+            name="a", model=LLMModel(name="databricks-gpt-5-4-mini"), tools=[tool]
+        )
+        return AppConfig(
+            resources=ResourcesModel(),
+            tools={tool.name: tool},
+            agents={"a": agent},
+            app=AppModel(name=name, agents=[agent]),
+        )
+
+    def test_resourceless_genie_true_obo_emits_scopes(self) -> None:
+        # genie: true (workspace-wide) has no resource object to declare OBO on,
+        # so the tool-level flag is the only source — it MUST emit.
+        fn = McpFunctionModel(genie=True, on_behalf_of_user=True)
+        cfg = self._agent_cfg(ToolModel(name="genie_all", function=fn), "rl-genie")
+        scopes = generate_user_api_scopes(cfg)
+        assert "genie" in scopes and "mcp.genie" in scopes
+
+    def test_resourceless_sql_true_obo_emits_scopes(self) -> None:
+        fn = McpFunctionModel(sql=True, on_behalf_of_user=True)
+        cfg = self._agent_cfg(ToolModel(name="sql_mcp", function=fn), "rl-sql")
+        scopes = generate_user_api_scopes(cfg)
+        assert "sql" in scopes and "mcp.functions" in scopes
+
+    def test_obo_on_tool_referencing_resource_is_not_honored(self) -> None:
+        # OBO placed on a tool that references a declarable genie_room must NOT
+        # emit here — it belongs on the registered resource. (The resource is
+        # not registered in this config, so nothing should surface.)
+        fn = McpFunctionModel(
+            genie_room=GenieRoomModel(name="g", space_id="01fABC"),
+            on_behalf_of_user=True,
+        )
+        cfg = self._agent_cfg(ToolModel(name="genie_mcp", function=fn), "tool-obo")
+        scopes = generate_user_api_scopes(cfg)
+        assert "genie" not in scopes and "mcp.genie" not in scopes
+
+    def test_non_obo_resourceless_emits_nothing(self) -> None:
+        fn = McpFunctionModel(genie=True, on_behalf_of_user=False)
+        cfg = self._agent_cfg(ToolModel(name="genie_all", function=fn), "rl-nonobo")
+        scopes = generate_user_api_scopes(cfg)
+        assert "genie" not in scopes and "mcp.genie" not in scopes

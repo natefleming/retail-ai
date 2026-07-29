@@ -63,6 +63,7 @@ from dao_ai.config import (
     GenieRoomModel,
     InferenceEndpointModel,
     IsDatabricksResource,
+    McpFunctionModel,
     SecretVariableModel,
     TableModel,
     TraceLocationModel,
@@ -849,6 +850,32 @@ def generate_user_api_scopes(config: AppConfig) -> list[str]:
     for table in config.resources.tables.values():
         if table.on_behalf_of_user:
             obo_resources.append(table)
+
+    # RESOURCELESS MCP tools carry OBO on the function because there is no
+    # resource object to declare it on: the workspace-wide Genie MCP server
+    # (``genie: true``), the serverless DBSQL MCP server (``sql: true``), and a
+    # direct ``url`` server all front no registerable resource. Their OBO
+    # ``mcp.*`` scope can only come from the tool function, so scan those here.
+    #
+    # An MCP tool that references a *declarable* resource (genie_room,
+    # vector_search, connection, app, functions) is deliberately NOT scanned:
+    # OBO for those belongs on the registered resource in ``config.resources.*``
+    # (matching the fail-fast single-source-of-truth model used elsewhere), and
+    # is already collected by the resource loops above. Honoring OBO on the tool
+    # in that case would silently paper over a misplaced flag.
+    for tool in config.tools.values():
+        function = tool.function
+        if not isinstance(function, McpFunctionModel):
+            continue
+        if not function.on_behalf_of_user:
+            continue
+        is_resourceless: bool = (
+            function.genie is True
+            or function.sql is True
+            or function.url is not None
+        )
+        if is_resourceless:
+            obo_resources.append(function)
 
     # Collect api_scopes from all OBO resources and map to user_api_scopes
     for resource in obo_resources:

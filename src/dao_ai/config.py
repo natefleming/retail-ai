@@ -284,6 +284,20 @@ class CompositeVariableModel(BaseModel, HasValue):
             value = value_of(v)
             if value is not None:
                 return value
+        # All declared sources (secret scopes, env vars, ...) resolved to None,
+        # so we fall back to default_value. This is a common silent-misconfig
+        # trap: e.g. a `--direct` deploy where the container's env/scope isn't
+        # populated falls back to a stale hardcoded default (a dead genie
+        # space_id). Warn when a non-None default is actually used so the
+        # fallback is visible instead of failing mysteriously downstream.
+        if self.default_value is not None:
+            logger.warning(
+                "Composite variable resolved to its default_value — all "
+                "declared sources (scope/env) returned None. Using default; "
+                "verify the intended source is populated in this environment.",
+                default_value=self.default_value,
+                option_kinds=[type(v).__name__ for v in self.options],
+            )
         return self.default_value
 
 
@@ -6205,13 +6219,32 @@ class McpFunctionModel(BaseFunctionModel, IsDatabricksResource):
     def api_scopes(self) -> Sequence[str]:
         """API scopes for an MCP connection.
 
-        OBO emission derives ``mcp.*`` companion scopes from the underlying
-        platform scope (see apps/resources.py:API_SCOPE_TO_USER_SCOPES), so
-        the resource itself just declares ``serving.serving-endpoints``.
+        Sub-type aware: each managed-MCP endpoint kind declares the native
+        platform scope for the resource it fronts, and OBO emission derives the
+        ``mcp.*`` companion scope from it (see
+        apps/resources.py:API_SCOPE_TO_USER_SCOPES). Without this an OBO MCP
+        tool contributes no usable user-API scope and OBO calls to the endpoint
+        are under-scoped.
+
+        Mapping (mirrors :meth:`mcp_url`):
+          - genie_room / genie      → ``dashboards.genie``      (→ genie, mcp.genie)
+          - sql / functions         → ``sql.warehouses``        (→ sql, mcp.functions)
+          - vector_search           → ``vectorsearch.vector-search-indexes``
+                                                                (→ vector-search, mcp.vectorsearch)
+          - connection              → ``catalog.connections``   (→ catalog.connections, mcp.external)
+          - url / app (opaque)      → ``serving.serving-endpoints`` (best-effort default)
         """
-        return [
-            "serving.serving-endpoints",
-        ]
+        if self.genie_room is not None or self.genie:
+            return ["dashboards.genie"]
+        if self.sql or self.functions is not None:
+            return ["sql.warehouses"]
+        if self.vector_search is not None:
+            return ["vectorsearch.vector-search-indexes"]
+        if self.connection is not None:
+            return ["catalog.connections"]
+        # Direct url / Databricks App MCP: endpoint kind is opaque here, so fall
+        # back to the generic serving scope.
+        return ["serving.serving-endpoints"]
 
     def as_resources(self) -> Sequence[DatabricksResource]:
         """MCP functions don't declare static resources."""
