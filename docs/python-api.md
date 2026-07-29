@@ -101,7 +101,7 @@ tools = config.find_tools()
 vector_stores = config.resources.vector_stores
 
 # Access other resources
-llms = config.resources.llms
+models = config.resources.models  # `.llms` is a deprecated alias
 warehouses = config.resources.warehouses
 databases = config.resources.databases
 ```
@@ -339,7 +339,7 @@ positive = traces[has_pos]
 ```
 
 For SQL-side analysis, see
-[`notebooks/07_feedback_demo.py`](../notebooks/07_feedback_demo.py) — it
+[`notebooks/07_feedback_demo.py`](https://github.com/natefleming/dao-ai/blob/main/notebooks/07_feedback_demo.py) — it
 registers `mlflow.search_traces` results as a Spark temp view and
 demonstrates `LATERAL VIEW EXPLODE(assessments)` queries for daily
 up/down volume and feedback-by-trace.
@@ -349,6 +349,6 @@ up/down volume and feedback-by-trace.
 ## Navigation
 
 - [← Previous: CLI Reference](cli-reference.md)
-- [↑ Back to Documentation Index](../README.md#-documentation)
+- [↑ Back to Documentation Index](https://github.com/natefleming/dao-ai/blob/main/README.md#-documentation)
 - [Next: FAQ →](faq.md)
 

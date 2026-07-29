@@ -20,7 +20,7 @@ verification research captured in the vault
 2. [Config](#config)
 3. [Call flow diagrams](#call-flow-diagrams)
 4. [Receipt schema](#receipt-schema)
-5. [MLflow span attributes](#mlflow-span-attributes)
+5. [MLflow span attributes](#mlflow-span-attributes-events)
 6. [`AuditToolkit` — self-service audit queries for agents](#audittoolkit)
 7. [Sensitive data handling](#sensitive-data-handling)
 8. [Deployment](#deployment)

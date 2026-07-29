@@ -166,6 +166,6 @@ tools:
 
 ## Navigation
 
-- [↑ Back to Documentation Index](../README.md#-documentation)
+- [↑ Back to Documentation Index](https://github.com/natefleming/dao-ai/blob/main/README.md#-documentation)
 - [Next: Architecture →](architecture.md)
 

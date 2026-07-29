@@ -176,7 +176,7 @@ Example:
 
 ```yaml
 resources:
-  llms:
+  models:
     default_llm: &default_llm
       name: databricks-gpt-5-4-mini
       temperature: 0.7
@@ -339,5 +339,5 @@ Thank you for contributing to DAO! 🎉
 ## Navigation
 
 - [← Previous: FAQ](faq.md)
-- [↑ Back to Documentation Index](../README.md#-documentation)
+- [↑ Back to Documentation Index](https://github.com/natefleming/dao-ai/blob/main/README.md#-documentation)
 

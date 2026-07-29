@@ -437,7 +437,7 @@ The `dao-ai trace` group manages MLflow experiments and UC trace destinations.
 
 ### `dao-ai trace link`
 
-`dao-ai trace link` attaches an MLflow experiment to its Unity Catalog trace destination declared under `app.trace_location`. Run it as an explicit step **between** `databricks bundle deploy` and `databricks bundle run` — see the [background above](#linking-the-uc-trace-destination--run-dao-ai-trace-link-between-deploy-and-run) for why the app's runtime attempt is unreliable.
+`dao-ai trace link` attaches an MLflow experiment to its Unity Catalog trace destination declared under `app.trace_location`. Run it as an explicit step **between** `databricks bundle deploy` and `databricks bundle run` — see the [background above](#linking-the-uc-trace-destination-run-dao-ai-trace-link-between-deploy-and-run) for why the app's runtime attempt is unreliable.
 
 ```bash
 databricks bundle deploy --target dev -p <profile>
@@ -1020,6 +1020,6 @@ The deploy-model v2 release removed several commands and renamed others. Use thi
 ## Navigation
 
 - [← Previous: Examples](examples.md)
-- [↑ Back to Documentation Index](../README.md#-documentation)
+- [↑ Back to Documentation Index](https://github.com/natefleming/dao-ai/blob/main/README.md#-documentation)
 - [Next: Python API →](python-api.md)
 

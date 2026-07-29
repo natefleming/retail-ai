@@ -215,8 +215,8 @@ Cache parameter field renames on `type: genie`:
 **Supported resources:**
 ```yaml
 resources:
-  # LLMs - use caller's permissions for model access
-  llms:
+  # Models - use caller's permissions for model access
+  models:
     claude: &claude
       name: databricks-claude-3-7-sonnet
       on_behalf_of_user: true      # Inherits caller's model access
@@ -455,7 +455,7 @@ genie_tool:
 
 *(AI Search is the current Databricks name; older docs and configs may still call it Vector Search — dao-ai accepts both.)*
 
-> **`lakebase_search` parity (Stage 2, PR A):** the same `rerank` field with identical semantics is now available on `LakebaseRetrieverModel`. Set `rerank: true` for the default FlashRank model or provide a full `RerankParametersModel` — applies uniformly to the retriever's ANN, BM25, or HYBRID output. See [examples/20_lakebase_search/reranked.yaml](../examples/20_lakebase_search/reranked.yaml).
+> **`lakebase_search` parity (Stage 2, PR A):** the same `rerank` field with identical semantics is now available on `LakebaseRetrieverModel`. Set `rerank: true` for the default FlashRank model or provide a full `RerankParametersModel` — applies uniformly to the retriever's ANN, BM25, or HYBRID output. See [examples/20_lakebase_search/reranked.yaml](https://github.com/natefleming/dao-ai/blob/main/examples/20_lakebase_search/reranked.yaml).
 
 **The problem:** AI Search (semantic similarity) is fast but sometimes returns loosely related results. It's like a librarian who quickly grabs 50 books that *might* be relevant.
 
@@ -527,7 +527,7 @@ rerank:
 > → parallel search → RRF merge → instruction rerank → verifier retry loop)
 > is shared via `dao_ai.tools.instructed_pipeline` — both retrievers pass a
 > backend adapter callable. See
-> [examples/20_lakebase_search/instructed.yaml](../examples/20_lakebase_search/instructed.yaml).
+> [examples/20_lakebase_search/instructed.yaml](https://github.com/natefleming/dao-ai/blob/main/examples/20_lakebase_search/instructed.yaml).
 
 **The problem:** Standard AI Search ignores metadata constraints entirely. When a user asks "Milwaukee power drills under $200 from last month", semantic similarity alone can't enforce brand, price, or recency constraints. Queries with multiple intents or exclusions ("cordless tools excluding DeWalt") fare even worse.
 
@@ -648,7 +648,7 @@ instructed:
 
 **Fallback behavior:** If decomposition fails (LLM error, parsing error), the system automatically falls back to standard single-query search, ensuring robustness in production.
 
-**Example configurations:** See [`examples/15_instructed_retriever/`](../examples/15_instructed_retriever/) for complete working examples including basic instructed retrieval and the full pipeline with router and verifier.
+**Example configurations:** See [`examples/15_instructed_retriever/`](https://github.com/natefleming/dao-ai/tree/main/examples/15_instructed_retriever/) for complete working examples including basic instructed retrieval and the full pipeline with router and verifier.
 
 ## 6. Human-in-the-Loop Approvals
 
@@ -1557,8 +1557,8 @@ agents:
 6. **Security first**: Mask PII and sensitive data in logs
 
 **Example configurations:**
-- See [`examples/12_middleware/`](../examples/12_middleware/) for complete examples
-- See [`examples/99_complete_applications/hardware_store/hardware_store.yaml`](../examples/99_complete_applications/hardware_store/hardware_store.yaml) for production usage
+- See [`examples/12_middleware/`](https://github.com/natefleming/dao-ai/tree/main/examples/12_middleware/) for complete examples
+- See [`examples/99_complete_applications/hardware_store/hardware_store.yaml`](https://github.com/natefleming/dao-ai/blob/main/examples/99_complete_applications/hardware_store/hardware_store.yaml) for production usage
 
 ---
 
@@ -1719,7 +1719,7 @@ schemas:
     schema_name: agents
 
 resources:
-  llms:
+  models:
     default_llm: &default_llm
       name: databricks-claude-sonnet-4
       temperature: 0.1
@@ -1900,8 +1900,8 @@ middleware:
 | Production file storage on Databricks | `create_filesystem_middleware` with `backend_type: volume` |
 
 **Example configurations:**
-- See [`examples/12_middleware/deepagents_middleware.yaml`](../examples/12_middleware/deepagents_middleware.yaml) for a complete example
-- See [`examples/12_middleware/README.md`](../examples/12_middleware/README.md) for all middleware examples
+- See [`examples/12_middleware/deepagents_middleware.yaml`](https://github.com/natefleming/dao-ai/blob/main/examples/12_middleware/deepagents_middleware.yaml) for a complete example
+- See [`examples/12_middleware/README.md`](https://github.com/natefleming/dao-ai/blob/main/examples/12_middleware/README.md) for all middleware examples
 
 ### Deep Agent Orchestration (alternative to middleware)
 
@@ -1944,7 +1944,7 @@ app:
   agent that already participates in a swarm or supervisor graph.
 
 The two are mutually exclusive for a given graph — you don't need both at
-once. See [`examples/13_orchestration/deep_agent_*.yaml`](../examples/13_orchestration/) for working examples and the full pattern comparison.
+once. See [`examples/13_orchestration/deep_agent_*.yaml`](https://github.com/natefleming/dao-ai/tree/main/examples/13_orchestration/) for working examples and the full pattern comparison.
 
 ---
 
@@ -2006,7 +2006,7 @@ Each visualization in `custom_outputs.visualizations` has this shape:
 The client matches `message_id` to the response output item `id` and renders
 the spec using [vega-embed](https://github.com/vega/vega-embed).
 
-**Example configuration:** See [`examples/17_visualization/`](../examples/17_visualization/)
+**Example configuration:** See [`examples/17_visualization/`](https://github.com/natefleming/dao-ai/tree/main/examples/17_visualization/)
 
 ---
 
@@ -2075,7 +2075,7 @@ for architecture diagrams, Lakebase schema, streaming retrieve + cursor
 resumption, cancel semantics, connection-pool OAuth refresh, and the
 end-to-end demo notebook.
 
-**Example configuration:** See [`examples/18_background_agents/`](../examples/18_background_agents/)
+**Example configuration:** See [`examples/18_background_agents/`](https://github.com/natefleming/dao-ai/tree/main/examples/18_background_agents/)
 
 ---
 
@@ -2125,8 +2125,8 @@ app:
   the wire mappings, configuration surface, HITL/OBO semantics, task
   store selection, and scope of v0.3 compliance.
 
-**Example:** [`examples/19_a2a_protocol/a2a_minimal.yaml`](../examples/19_a2a_protocol/a2a_minimal.yaml)
-is a deploy-ready, dependency-free A2A agent; [`examples/19_a2a_protocol/client/client.py`](../examples/19_a2a_protocol/client/client.py)
+**Example:** [`examples/19_a2a_protocol/a2a_minimal.yaml`](https://github.com/natefleming/dao-ai/blob/main/examples/19_a2a_protocol/a2a_minimal.yaml)
+is a deploy-ready, dependency-free A2A agent; [`examples/19_a2a_protocol/client/client.py`](https://github.com/natefleming/dao-ai/blob/main/examples/19_a2a_protocol/client/client.py)
 is an end-to-end Python A2A client that exercises agent card, message/send,
 message/stream, and HITL resume.
 
@@ -2139,6 +2139,6 @@ message/stream, and HITL resume.
 ## Navigation
 
 - [← Previous: Architecture](architecture.md)
-- [↑ Back to Documentation Index](../README.md#-documentation)
+- [↑ Back to Documentation Index](https://github.com/natefleming/dao-ai/blob/main/README.md#-documentation)
 - [Next: Configuration Reference →](configuration-reference.md)
 

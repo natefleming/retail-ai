@@ -1,0 +1,110 @@
+site_name: dao-ai
+site_description: Declarative Agent Orchestration — production-grade multi-agent AI systems defined in YAML, deployed on Databricks.
+site_author: Nate Fleming
+site_url: https://natefleming.github.io/dao-ai
+
+# Repository
+repo_name: natefleming/dao-ai
+repo_url: https://github.com/natefleming/dao-ai
+edit_uri: edit/main/docs/
+
+# Configuration
+theme:
+  name: material
+  palette:
+    # Palette toggle for light mode
+    - scheme: default
+      primary: black
+      accent: red
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    # Palette toggle for dark mode
+    - scheme: slate
+      primary: black
+      accent: red
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  features:
+    - navigation.tabs
+    - navigation.sections
+    - navigation.top
+    - navigation.instant
+    - navigation.tracking
+    - search.highlight
+    - search.share
+    - search.suggest
+    - toc.follow
+    - content.code.copy
+    - content.code.annotate
+    - content.action.edit
+  icon:
+    repo: fontawesome/brands/github
+
+# Extensions
+markdown_extensions:
+  - pymdownx.highlight:
+      anchor_linenums: true
+      line_spans: __span
+      pygments_lang_class: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.tasklist:
+      custom_checkbox: true
+  - admonition
+  - pymdownx.details
+  - pymdownx.emoji:
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
+  - attr_list
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
+
+# Empty per-application stub dirs not yet wired into the nav
+exclude_docs: |
+  hardware_store/
+  quick_serve_restaurant/
+
+# Plugins
+plugins:
+  - search
+
+# Navigation
+nav:
+  - Home: index.md
+  - Concepts:
+    - Why DAO?: why-dao.md
+    - Architecture: architecture.md
+    - Key Capabilities: key-capabilities.md
+  - Reference:
+    - Configuration Reference: configuration-reference.md
+    - CLI Reference: cli-reference.md
+    - Python API: python-api.md
+  - Guides:
+    - Examples: examples.md
+    - MCP Server: mcp_server.md
+    - MCP Callbacks: mcp-callbacks.md
+    - A2A Protocol: a2a_protocol.md
+    - Background Agents: background_agents.md
+    - Auditable Tool Invocations: audit.md
+    - Lakebase: lakebase.md
+    - MLflow Tracing: mlflow-tracing.md
+    - Genie Context-Aware Cache: genie_context_aware_cache_prompt_history.md
+  - FAQ: faq.md
+  - Contributing: contributing.md
+
+# Extra
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/natefleming/dao-ai
