@@ -24,10 +24,15 @@
 # also persist the A2A task store via ``a2a.task_store.database``
 # (see a2a_background.yaml).
 
+parameters:
+  llm:
+    description: Chat/reasoning serving endpoint used by the agent
+    default: databricks-gpt-5-4-mini
+
 resources:
   models:
     default_llm: &default_llm
-      name: databricks-gpt-5-4-mini
+      name: ${var.llm}
       # Route inference through the calling user's token. Verified end-to-
       # end via A2A by inspecting the MLflow trace and the app logs.
       on_behalf_of_user: true

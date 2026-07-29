@@ -14,15 +14,29 @@
 #   DAO_AI_CATALOG        - UC catalog for MLflow model registration (default: main)
 #   DAO_AI_SCHEMA         - UC schema for MLflow model registration (default: default)
 
+# =============================================================================
+# PARAMETERS
+# =============================================================================
+parameters:
+  catalog:
+    description: Unity Catalog catalog name
+    default: retail_consumer_goods
+  schema:
+    description: Schema within the catalog
+    default: dao_ai_mcp_meta_test
+  llm:
+    description: Chat/reasoning serving endpoint for the agent.
+    default: databricks-claude-sonnet-5
+
 schemas:
   registry_schema: &registry_schema
-    catalog_name: retail_consumer_goods
-    schema_name: dao_ai_mcp_meta_test
+    catalog_name: ${var.catalog}
+    schema_name: ${var.schema}
 
 resources:
   models:
     default_llm: &default_llm
-      name: databricks-claude-sonnet-4
+      name: ${var.llm}
 
 tools:
   # Feature 1: workspace-wide Genie MCP (the new `genie: true` field)

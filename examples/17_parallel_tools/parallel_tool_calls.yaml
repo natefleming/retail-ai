@@ -10,6 +10,9 @@ parameters:
   schema:
     description: Schema within the catalog
     default: default
+  llm:
+    description: Chat/reasoning serving endpoint used by the agent
+    default: databricks-claude-sonnet-5
 
 #
 # Test configuration for parallel tool calling observability
@@ -23,7 +26,7 @@ parameters:
 resources:
   models:
     default_llm: &default_llm
-      name: databricks-claude-sonnet-4
+      name: ${var.llm}
       temperature: 0.1
 
 tools:

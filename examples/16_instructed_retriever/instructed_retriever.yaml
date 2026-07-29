@@ -11,6 +11,15 @@ parameters:
   schema:
     description: Schema within the catalog
     default: hardware_store
+  llm:
+    description: Chat/reasoning serving endpoint for agent reasoning
+    default: databricks-claude-sonnet-4-5
+  decomposition_llm:
+    description: Fast chat serving endpoint for query decomposition and reranking
+    default: databricks-claude-haiku-4-5
+  embedding_model:
+    description: Embedding serving endpoint for vector search
+    default: databricks-gte-large-en
 
 schemas:
   retail_schema: &retail_schema
@@ -21,18 +30,18 @@ resources:
   models:
     # Primary LLM for agent reasoning
     default_llm: &default_llm
-      name: databricks-claude-sonnet-4-5
+      name: ${var.llm}
       temperature: 0.1
       max_tokens: 8192
 
     # Fast LLM for query decomposition (smaller model = lower latency)
     decomposition_llm: &decomposition_llm
-      name: databricks-claude-haiku-4-5
+      name: ${var.decomposition_llm}
       temperature: 0.0
       max_tokens: 1024
 
     embedding_model: &embedding_model
-      name: databricks-gte-large-en
+      name: ${var.embedding_model}
 
   vector_stores:
     products_vector_store: &products_vector_store

@@ -11,6 +11,12 @@ parameters:
   schema:
     description: Schema within the catalog
     default: hardware_store
+  llm:
+    description: Chat/reasoning serving endpoint used by the agent
+    default: databricks-claude-sonnet-5
+  lakebase_project:
+    description: Lakebase project backing the checkpointer + long-running responses store
+    default: retail-consumer-goods
 
 # =============================================================================
 # Long-Running Agent Example — Deep Research (aws-field-eng / retail-consumer-goods)
@@ -54,14 +60,14 @@ schemas:
 resources:
   models:
     default_llm: &default_llm
-      name: databricks-claude-sonnet-4
+      name: ${var.llm}
       temperature: 0.3
       max_tokens: 2048
 
   databases:
     retail_database: &retail_database
       name: "Retail and Consumer Goods Database"
-      project: "retail-consumer-goods"
+      project: ${var.lakebase_project}
       description: "Lakebase for checkpointer + long-running responses"
       client_id: *client_id
       client_secret: *client_secret

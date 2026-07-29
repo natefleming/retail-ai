@@ -11,6 +11,9 @@ parameters:
   schema:
     description: Schema within the catalog
     default: retail_ai
+  llm:
+    description: Chat/reasoning serving endpoint used by the agents and guardrail judges
+    default: databricks-claude-sonnet-5
 
 # =============================================================================
 # Guardrails Configuration Example
@@ -53,14 +56,14 @@ resources:
     #   - databricks-claude-sonnet-4 (more likely to make mistakes)
     #   - Higher temperature values (increases variability)
     default_llm: &default_llm
-      name: databricks-claude-3-7-sonnet
+      name: ${var.llm}
       temperature: 0.7
       max_tokens: 4096
 
     # LLM optimized for judging/evaluating responses
     # Often uses higher temperature for diverse evaluation
     judge_llm: &judge_llm
-      name: databricks-claude-3-7-sonnet
+      name: ${var.llm}
       temperature: 0.3                        # Lower temp for consistent evaluation
       max_tokens: 2048
 
@@ -214,14 +217,14 @@ middleware:
   veracity_middleware: &veracity_middleware
     name: dao_ai.middleware.create_veracity_guardrail_middleware
     args:
-      model: "databricks:/databricks-claude-3-7-sonnet"
+      model: "databricks:/${var.llm}"
       num_retries: 2
 
   # Relevance check - ensures responses address the user's actual query.
   relevance_middleware: &relevance_middleware
     name: dao_ai.middleware.create_relevance_guardrail_middleware
     args:
-      model: "databricks:/databricks-claude-3-7-sonnet"
+      model: "databricks:/${var.llm}"
       num_retries: 2
 
   # Tone check - validates tone against a preset profile.
@@ -229,14 +232,14 @@ middleware:
   tone_middleware:
     name: dao_ai.middleware.create_tone_guardrail_middleware
     args:
-      model: "databricks:/databricks-claude-3-7-sonnet"
+      model: "databricks:/${var.llm}"
       tone: professional
 
   # Conciseness check - hybrid deterministic length + LLM verbosity check.
   conciseness_middleware: &conciseness_middleware
     name: dao_ai.middleware.create_conciseness_guardrail_middleware
     args:
-      model: "databricks:/databricks-claude-3-7-sonnet"
+      model: "databricks:/${var.llm}"
       max_length: 2000
       min_length: 50
       check_verbosity: true

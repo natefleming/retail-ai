@@ -42,6 +42,18 @@ parameters:
   genie_space_id:
     description: Genie space id — provided at run time by the provision-genie task (taskValue). Supply --param to reuse an existing space.
     provided: true
+  llm:
+    description: Chat/reasoning serving endpoint for tool-calling agents
+    default: databricks-claude-sonnet-4-5
+  fast_llm:
+    description: Fast chat serving endpoint for supervisor, decomposition, and query tasks
+    default: databricks-gpt-5-4-mini
+  fallback_llm:
+    description: Fallback chat serving endpoint when the primary llm is unavailable
+    default: databricks-claude-sonnet-4-6
+  embedding_model:
+    description: Embedding serving endpoint for vector search and memory store
+    default: databricks-gte-large-en
 
 # =============================================================================
 # VARIABLES (shared secrets for the retail_consumer_goods service principal)
@@ -99,21 +111,21 @@ resources:
   # judge, decomposition) references one of these via YAML anchor.
   models:
     fast_llm: &fast_llm
-      name: databricks-gpt-5-4-mini
+      name: ${var.fast_llm}
       ai_gateway: true
       temperature: 0.1
       max_tokens: 4096
 
     tool_calling_llm: &tool_calling_llm
-      name: databricks-claude-sonnet-4-5
+      name: ${var.llm}
       ai_gateway: true
       temperature: 0.1
       max_tokens: 4096
       fallbacks:
-      - databricks-claude-sonnet-4-6
+      - ${var.fallback_llm}
 
     embedding_model: &embedding_model
-      name: databricks-gte-large-en
+      name: ${var.embedding_model}
       on_behalf_of_user: true
 
   # Role aliases — share the underlying endpoint definitions above so we

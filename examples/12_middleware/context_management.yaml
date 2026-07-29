@@ -10,6 +10,9 @@ parameters:
   schema:
     description: Schema within the catalog
     default: quick_serve_restaurant
+  llm:
+    description: Chat/reasoning serving endpoint for the agents
+    default: databricks-claude-sonnet-5
 
 #
 # Example: Context Editing Middleware
@@ -38,7 +41,7 @@ schemas:
 resources:
   models:
     default_llm: &default_llm
-      name: databricks-claude-sonnet-4
+      name: ${var.llm}
       temperature: 0.1
       max_tokens: 4096
 

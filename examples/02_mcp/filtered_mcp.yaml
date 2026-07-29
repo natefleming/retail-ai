@@ -10,6 +10,9 @@ parameters:
   schema:
     description: Schema within the catalog
     default: hardware_store
+  llm:
+    description: Chat/reasoning serving endpoint for the agents.
+    default: databricks-claude-sonnet-5
 
 #
 # Example: Filtering MCP Server Tools
@@ -70,7 +73,7 @@ schemas:
 resources:
   models:
     default_llm: &default_llm
-      name: databricks-claude-sonnet-4
+      name: ${var.llm}
       temperature: 0.1
 
 # =============================================================================
@@ -321,7 +324,7 @@ app:
     - *functions_agent                    # Functions agent
   orchestration:                          # Agent orchestration configuration
     swarm:                                # Supervisor orchestration pattern
-      default_agent: *general_agent       # Default agent for routing
+      default_agent: *safe_sql_agent      # Default agent for routing
 
 # =============================================================================
 # USAGE NOTES

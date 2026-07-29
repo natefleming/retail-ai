@@ -11,6 +11,9 @@ parameters:
   schema:
     description: Schema within the catalog
     default: retail_consumer_goods
+  llm:
+    description: Chat/reasoning serving endpoint for the agent.
+    default: databricks-claude-sonnet-5
 
 variables:
   client_id: &client_id
@@ -42,7 +45,7 @@ resources:
   models:
     default_llm: &default_llm
                                                  # Default LLM configuration
-      name: databricks-claude-3-7-sonnet        # Databricks serving endpoint name
+      name: ${var.llm}                          # Databricks serving endpoint name
 
 tools:
   jira_mcp: &jira_mcp

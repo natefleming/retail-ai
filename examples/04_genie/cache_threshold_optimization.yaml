@@ -10,6 +10,18 @@ parameters:
   schema:
     description: Schema within the catalog
     default: quick_serve_restaurant
+  llm:
+    description: Judge serving endpoint for semantic equivalence evaluation
+    default: databricks-gpt-5-4-mini
+  embedding_model:
+    description: Embedding serving endpoint for generating embeddings
+    default: databricks-gte-large-en
+  warehouse_id:
+    description: SQL Warehouse id used by the context-aware cache
+    default: 148ccb90800933a1
+  lakebase_project:
+    description: Lakebase project name for the context-aware cache database
+    default: retail-consumer-goods
 
 #
 # Example configuration for context-aware cache threshold optimization.
@@ -39,22 +51,22 @@ resources:
     # Judge model for semantic equivalence evaluation
     # Used when expected_match is not provided for an entry
     judge_model: &judge_model
-      name: databricks-gpt-5-4-mini
+      name: ${var.llm}
       temperature: 0.0  # Low temperature for consistent judgments
       max_tokens: 10    # Only need "MATCH" or "NO_MATCH"
 
     # Embedding model for generating embeddings
     embedding_model: &embedding_model
-      name: databricks-gte-large-en
+      name: ${var.embedding_model}
 
   warehouses:
     shared_endpoint_warehouse: &shared_endpoint_warehouse
       name: "Shared Endpoint Warehouse"
-      warehouse_id: 148ccb90800933a1
+      warehouse_id: ${var.warehouse_id}
 
   databases:
     context_aware_cache_db: &context_aware_cache_db
-      project: "retail-consumer-goods"
+      project: ${var.lakebase_project}
 
 
 # =============================================================================

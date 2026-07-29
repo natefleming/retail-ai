@@ -10,6 +10,12 @@ parameters:
   schema:
     description: Schema within the catalog
     default: quick_serve_restaurant
+  llm:
+    description: Chat/reasoning serving endpoint for general tasks
+    default: databricks-claude-sonnet-5
+  embedding_model:
+    description: Embedding serving endpoint for context-aware similarity search
+    default: databricks-gte-large-en
   warehouse_id:
     description: SQL Warehouse id used by the Genie cache to re-execute cached SQL.
     default: 148ccb90800933a1
@@ -42,14 +48,14 @@ resources:
   models:
     # Primary LLM for general tasks
     default_llm: &default_llm
-      name: databricks-claude-sonnet-4
+      name: ${var.llm}
       temperature: 0.1                              # Low temperature for consistent responses
       max_tokens: 8192                              # Maximum tokens per response
       on_behalf_of_user: false
 
     # Embedding model for context-aware similarity search
     embedding_model: &embedding_model
-      name: databricks-gte-large-en                 # Text embedding model
+      name: ${var.embedding_model}                  # Text embedding model
       on_behalf_of_user: false
 
   warehouses:

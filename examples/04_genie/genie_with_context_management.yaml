@@ -12,16 +12,30 @@
 # Uses the aws-field-eng Databricks CLI profile:
 #   export DATABRICKS_CONFIG_PROFILE=aws-field-eng
 
+# =============================================================================
+# PARAMETERS
+# =============================================================================
+parameters:
+  llm:
+    description: Chat/reasoning serving endpoint for agent models
+    default: databricks-claude-sonnet-4-5
+  summarization_llm:
+    description: Serving endpoint used for conversation summarization
+    default: databricks-gpt-5-4-mini
+  genie_space_id:
+    description: Databricks Genie space ID
+    default: 01f124c2690f1dcb93a15057c2a74339
+
 resources:
   models:
     default_llm: &default_llm
-      name: databricks-claude-sonnet-4-5
+      name: ${var.llm}
       temperature: 0.1
       max_tokens: 8192
       on_behalf_of_user: false
 
     summarization_llm: &summarization_llm
-      name: databricks-gpt-5-4-mini
+      name: ${var.summarization_llm}
       temperature: 0.1
       max_tokens: 1024
 
@@ -29,7 +43,7 @@ resources:
     genie_room: &genie_room
       name: "Sales and Pricing Analytics - Sporting Goods"
       description: "Genie room for sales performance analysis, pricing strategy, margin analytics, promotional effectiveness, and revenue tracking across stores and channels"
-      space_id: 01f124c2690f1dcb93a15057c2a74339
+      space_id: ${var.genie_space_id}
 
 tools:
   genie_tool: &genie_tool

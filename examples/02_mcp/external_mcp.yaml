@@ -11,6 +11,9 @@ parameters:
   schema:
     description: Schema within the catalog
     default: retail_ai
+  llm:
+    description: Chat/reasoning serving endpoint for the agent.
+    default: databricks-claude-sonnet-5
 
 schemas:
   retail_schema: &retail_schema
@@ -22,7 +25,7 @@ resources:
   models:
     default_llm: &default_llm
                                                  # Default LLM configuration
-      name: databricks-claude-sonnet-4           # Databricks serving endpoint name
+      name: ${var.llm}                           # Databricks serving endpoint name
   connections:
     github_connection: &github_connection
                                                  # UC Connection for GitHub

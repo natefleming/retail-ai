@@ -11,6 +11,18 @@ parameters:
   schema:
     description: Schema within the catalog
     default: hardware_store
+  llm:
+    description: Chat/reasoning serving endpoint for agent models
+    default: databricks-claude-sonnet-5
+  summarization_llm:
+    description: Serving endpoint used for conversation summarization
+    default: databricks-meta-llama-3-1-8b-instruct
+  embedding_model:
+    description: Embedding serving endpoint for semantic memory
+    default: databricks-gte-large-en
+  lakebase_project:
+    description: Lakebase (PostgreSQL) project name
+    default: retail-consumer-goods
 
 # =============================================================================
 # Conversation Summarization Example
@@ -46,19 +58,19 @@ resources:
   models:
     # Primary LLM for conversation
     default_llm: &default_llm
-      name: databricks-claude-sonnet-4
+      name: ${var.llm}
       temperature: 0.7                             # Moderate temperature for natural conversation
       max_tokens: 4096
 
     # Fast LLM for summarization (use smaller/faster model for efficiency)
     summarization_llm: &summarization_llm
-      name: databricks-meta-llama-3-1-8b-instruct
+      name: ${var.summarization_llm}
       temperature: 0.1                             # Low temperature for consistent summaries
       max_tokens: 512
 
     # Embedding model for semantic memory (optional, for store)
     embedding_model: &embedding_model
-      name: databricks-gte-large-en
+      name: ${var.embedding_model}
       on_behalf_of_user: False
 
   # ---------------------------------------------------------------------------
@@ -68,7 +80,7 @@ resources:
   # This enables conversation state to be saved and restored across sessions
   databases:
     lakehouse_database: &lakehouse_database
-      project: "retail-consumer-goods"
+      project: ${var.lakebase_project}
       description: "PostgreSQL database for conversation checkpoints and memory"
 
 # =============================================================================
@@ -145,7 +157,7 @@ app:
   orchestration:
     memory: *memory
     swarm:
-      default_agent: *main_agent
+      default_agent: *conversational_agent
 
   # ---------------------------------------------------------------------------
   # CHAT HISTORY / SUMMARIZATION CONFIGURATION

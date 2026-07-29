@@ -16,16 +16,24 @@
 # the LLM layer, see the per-resource ``on_behalf_of_user: true`` on
 # ``default_llm``.
 
+parameters:
+  llm:
+    description: Chat/reasoning serving endpoint used by the agent
+    default: databricks-gpt-5-4-mini
+  lakebase_project:
+    description: Lakebase project backing the A2A task store + checkpointer
+    default: dao-ai-a2a-demo
+
 resources:
   models:
     default_llm: &default_llm
-      name: databricks-gpt-5-4-mini
+      name: ${var.llm}
       on_behalf_of_user: true
 
   databases:
     a2a_demo_db: &a2a_demo_db
       name: dao-ai-a2a-demo
-      project: dao-ai-a2a-demo
+      project: ${var.lakebase_project}
       description: Lakebase project for A2A task persistence + LangGraph checkpointer.
 
 tools:

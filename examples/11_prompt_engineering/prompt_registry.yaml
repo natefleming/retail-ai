@@ -11,6 +11,18 @@ parameters:
   schema:
     description: Schema within the catalog
     default: hardware_store
+  llm:
+    description: Chat/reasoning serving endpoint for tool-calling agents
+    default: databricks-claude-sonnet-5
+  fallback_llm:
+    description: Fallback chat serving endpoint if the primary LLM fails
+    default: databricks-claude-sonnet-5
+  judge_llm:
+    description: Serving endpoint used for evaluation/judging (guardrails)
+    default: databricks-claude-sonnet-5
+  embedding_model:
+    description: Embedding serving endpoint for vector search
+    default: databricks-gte-large-en
 
 # =============================================================================
 # Multi-Agent AI Orchestration Framework Configuration
@@ -55,22 +67,22 @@ resources:
 
     # LLM optimized for tool calling and function execution
     tool_calling_llm: &tool_calling_llm
-      name: databricks-claude-3-7-sonnet
+      name: ${var.llm}
       temperature: 0.1
       max_tokens: 8192
       fallbacks:                                     # Fallback models if primary fails
-      - databricks-claude-sonnet-4
+      - ${var.fallback_llm}
 
 
     # LLM for evaluating and judging responses (guardrails)
     judge_llm: &judge_llm
-      name: databricks-claude-3-7-sonnet
+      name: ${var.judge_llm}
       temperature: 0.5                              # Higher temperature for diverse judgments
       max_tokens: 8192
 
     # Embedding model for vector search and semantic similarity
     embedding_model: &embedding_model
-      name: databricks-gte-large-en                 # Text embedding model
+      name: ${var.embedding_model}                 # Text embedding model
 
   # ---------------------------------------------------------------------------
   # VECTOR STORES
