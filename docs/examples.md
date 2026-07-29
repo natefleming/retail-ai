@@ -246,7 +246,7 @@ Define reusable prompts as first-class config objects and share them across agen
 
 | Example | Description |
 |---------|-------------|
-| `prompt_registry.yaml` | Reusable inline prompts referenced via YAML anchors |
+| `reusable_prompts.yaml` | Reusable inline prompts referenced via YAML anchors |
 
 **Prerequisites:** None  
 **Next:** Add validation and monitoring in `12_middleware/`

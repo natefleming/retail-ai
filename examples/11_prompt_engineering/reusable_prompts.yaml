@@ -25,22 +25,25 @@ parameters:
     default: databricks-gte-large-en
 
 # =============================================================================
-# Multi-Agent AI Orchestration Framework Configuration
-# =============================================================================
-# This configuration file demonstrates the complete setup for a multi-agent system
-# including schemas, resources, tools, agents, and orchestration patterns.
-#
 # FEATURE: Reusable Prompts
-# ================================================
-# This example showcases how to define reusable prompts as first-class config
-# objects. Key benefits:
+# =============================================================================
+# Prompts are first-class config objects: declare a prompt once in the
+# `prompts:` block and reference it from any number of agents (and guardrails
+# or supervisors) via a YAML anchor. The template text lives inline in the
+# config — there is no external prompt-registry round-trip.
 #
-# 1. Define Once, Reuse Everywhere: Declare a prompt as a YAML anchor and
-#    reference it from any number of agents.
-# 2. Centralized Management: Keep prompt text in one place in the config.
-# 3. Readability: Keep long prompt bodies out of the agent definitions.
+# Key benefits:
+#   1. Define once, reuse everywhere — reference a prompt by anchor (*name).
+#   2. Centralized management — prompt text lives in one place.
+#   3. Readability — keep long prompt bodies out of the agent definitions.
 #
-# See the "PROMPTS CONFIGURATION" section below for detailed examples.
+# A prompt supports: name (label used in logs/traces), template (with optional
+# {variable} placeholders filled from the request Context at runtime),
+# description, an optional Unity Catalog `schema` qualifier (label only), and
+# tags. See the "PROMPTS CONFIGURATION" section below for worked examples.
+#
+# This example wires the prompts into a small supervisor-routed multi-agent
+# hardware-store assistant so the pattern is shown in a realistic setting.
 # =============================================================================
 
 # =============================================================================
@@ -159,22 +162,6 @@ resources:
     find_store_inventory_by_sku: &find_store_inventory_by_sku
       schema: *retail_schema
       name: find_store_inventory_by_sku             # Store-specific SKU inventory lookup
-
-
-
-
-
-
-      # Optional: Additional PostgreSQL connection parameters
-      # Uncomment and modify as needed for your specific setup
-      # connection_kwargs:                            # Additional connection parameters
-      #   autocommit: True                            # Enable autocommit mode
-      #   prepare_threshold: 0                        # Disable prepared statements
-      #   sslmode: require                            # Require SSL connection
-      #   connect_timeout: 10                         # Connection timeout in seconds
-      # Optional: Connection pool configuration
-      # max_pool_size: 20                             # Maximum connections in pool
-      # timeout: 5                                    # Connection timeout in seconds
 
 # =============================================================================
 # RETRIEVERS CONFIGURATION
@@ -674,25 +661,16 @@ prompts:
 
 
 # ==============================================================================
-# AGENTS CONFIGURATION  
+# AGENTS CONFIGURATION
 # ==============================================================================
-# Agents can use prompts in two ways:
-# 1. Inline prompt strings (traditional approach - shown below)
-# 2. Prompt references (new approach - using prompts defined above)
+# An agent's `prompt:` field accepts either an inline string or a reference to
+# a prompt defined in the `prompts:` block above (via YAML anchor). Every agent
+# below uses a reference — e.g. `prompt: *general_prompt` — which is the
+# recommended pattern:
 #
-# To use a prompt reference, replace the inline prompt with:
-#   prompt: *general_prompt
-#
-# Example:
-#   general:
-#     name: general
-#     model: *tool_calling_llm
-#     prompt: *general_prompt  # References the prompt from the prompts section
-#
-# Benefits of using prompt references:
-# - Centralized prompt management
-# - Define a prompt once and reuse it across multiple agents
-# - Keep long prompt bodies out of the agent definitions
+# - Centralized prompt management — edit the text in one place.
+# - Define a prompt once and reuse it across multiple agents.
+# - Keep long prompt bodies out of the agent definitions.
 # ==============================================================================
 
 agents:
@@ -809,14 +787,14 @@ agents:
 # and agent orchestration patterns for the multi-agent system
 
 app:
-  name: prompt_registry_dao                      # Application name  
+  name: reusable_prompts_dao                      # Application name
   description: "Multi-agent system for retail customer service and product assistance"
   log_level: TRACE                                   # Logging level for the application
   registered_model:                                 # MLflow registered model configuration
     schema: *retail_schema
                                                     # Schema where model will be registered
-    name: prompt_registry_dao
-  endpoint_name: hardware_store_supervisor_dao                    # Model serving endpoint name
+    name: reusable_prompts_dao
+  endpoint_name: reusable_prompts_dao                    # Model serving endpoint name
   tags:                                             # Tags for resource organization
     business: rcg                                   # Business unit identifier
     streaming: true                                 # Indicates streaming capabilities
@@ -834,7 +812,6 @@ app:
   - *general
                                                     # General purpose agent
   orchestration:                                    # Agent orchestration configuration
-    #memory: *memory                                 # Reference to memory configuration
     supervisor:                                     # Supervisor orchestration pattern
       model: *tool_calling_llm
                                                     # LLM for routing decisions
