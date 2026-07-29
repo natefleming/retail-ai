@@ -18,14 +18,14 @@ from typing import TYPE_CHECKING, Any, Optional, Sequence
 
 from langchain_community.adapters.openai import convert_openai_messages
 from langchain_core.messages import BaseMessage
-
-if TYPE_CHECKING:
-    from langchain_core.language_models import LanguageModelLike
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.types import Command
 from loguru import logger
 
 from dao_ai.config import AuditModel, BaseFunctionModel, ToolModel
+
+if TYPE_CHECKING:
+    from langchain_core.language_models import LanguageModelLike
 
 
 @dataclass
