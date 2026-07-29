@@ -66,6 +66,17 @@ def test_app_config_should_shutdown(config: AppConfig) -> None:
 
 
 @pytest.mark.unit
+def test_app_less_config_initialize_and_shutdown_are_guarded() -> None:
+    """``app`` is Optional (e.g. an ``optimizations``-only config). initialize()
+    and shutdown() must guard ``self.app`` — before the guard they raised
+    AttributeError on ``self.app.{initialization,shutdown}_hooks``."""
+    cfg = AppConfig.model_construct(app=None)
+    # Neither should raise despite app being None.
+    cfg.initialize()
+    cfg.shutdown()
+
+
+@pytest.mark.unit
 def test_mcp_function_model_validate_bearer_header_preserves_existing_prefix() -> None:
     """Test that validate_bearer_header preserves existing 'Bearer ' prefix."""
     mcp_function = McpFunctionModel(

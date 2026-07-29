@@ -11159,21 +11159,32 @@ class AppConfig(BaseModel):
 
         self._resolve_all_resources()
 
-        logger.debug("Calling initialization hooks...")
-        initialization_functions: Sequence[Callable[..., Any]] = create_hooks(
-            self.app.initialization_hooks
-        )
-        for initialization_function in initialization_functions:
-            logger.debug(
-                f"Running initialization hook: {initialization_function.__name__}"
+        # ``app`` is Optional — app-less configs (e.g. an ``optimizations``-only
+        # config for cache-threshold tuning) have no initialization hooks. Guard
+        # like the log_level check above; without this, from_file() on such a
+        # config raises AttributeError on ``self.app.initialization_hooks``.
+        if self.app is not None:
+            logger.debug("Calling initialization hooks...")
+            initialization_functions: Sequence[Callable[..., Any]] = create_hooks(
+                self.app.initialization_hooks
             )
-            initialization_function(self)
+            for initialization_function in initialization_functions:
+                logger.debug(
+                    f"Running initialization hook: {initialization_function.__name__}"
+                )
+                initialization_function(self)
 
         self._initialized = True
         atexit.register(self.shutdown)
 
     def shutdown(self) -> None:
         from dao_ai.hooks.core import create_hooks
+
+        # ``app`` is Optional — app-less configs have no shutdown hooks. Guard
+        # to match initialize(); otherwise shutdown() (called from from_file)
+        # raises AttributeError on ``self.app.shutdown_hooks``.
+        if self.app is None:
+            return
 
         logger.debug("Calling shutdown hooks...")
         shutdown_functions: Sequence[Callable[..., Any]] = create_hooks(
