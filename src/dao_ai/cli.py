@@ -2628,15 +2628,27 @@ def _handle_sp_provision(options, config, sp, WorkspaceClient) -> None:
 
 
 def _print_grants(plan, *, applied: bool) -> None:
-    """Print a readable list of the grants in a plan (secret-free)."""
-    header = "grants applied" if applied else "grants (dry-run — nothing applied)"
-    print(f"  {header} ({len(plan.grants)}):")
+    """Print a readable list of the grants in a plan (secret-free).
+
+    When ``applied`` (real run), reports each grant's success and a failure count;
+    otherwise labels the list as a dry-run plan.
+    """
+    if not applied:
+        print(f"  grants (dry-run — nothing applied) ({len(plan.grants)}):")
+    else:
+        failed = sum(1 for g in plan.grants if g.applied is False)
+        ok = sum(1 for g in plan.grants if g.applied is True)
+        suffix = f"{ok} applied" + (f", {failed} failed" if failed else "")
+        print(f"  grants ({suffix}):")
     if not plan.grants:
         print("    (no grantable resources found in config)")
         return
     for g in plan.grants:
         target = f"{g.securable_type} {g.target}" if g.securable_type else g.target
-        print(f"    [{g.kind}] {target} -> {', '.join(g.privileges)}")
+        status = ""
+        if applied and g.applied is False:
+            status = "  ✗ FAILED"
+        print(f"    [{g.kind}] {target} -> {', '.join(g.privileges)}{status}")
 
 
 def _handle_sp_create(options, config, sp, WorkspaceClient) -> None:

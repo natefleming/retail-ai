@@ -158,13 +158,97 @@ def test_grant_applies_uc_patch_for_schema() -> None:
     assert schema_body["add"] == ["USE_SCHEMA", "SELECT", "EXECUTE"]
 
 
-def test_grant_continues_after_a_failure() -> None:
+def test_grant_continues_after_a_failure_and_tracks_status() -> None:
     w = MagicMock()
     # First PATCH raises; the walk should warn-and-continue to the rest.
     w.api_client.do.side_effect = [RuntimeError("no GRANT rights"), None, None, None]
     config = AppConfig(schemas={"s": _schema()})
-    grant(w, principal=PRINCIPAL, config=config, dry_run=False)
+    plan = grant(w, principal=PRINCIPAL, config=config, dry_run=False)
     assert w.api_client.do.call_count >= 2  # did not abort on the first failure
+    # per-grant status is tracked: the first is failed, later ones applied
+    assert plan.grants[0].applied is False
+    assert plan.grants[0].error
+    assert any(g.applied is True for g in plan.grants[1:])
+
+
+def test_grant_warehouse_uses_additive_update_not_set() -> None:
+    """set_permissions REPLACES the whole ACL — grant must use update_permissions."""
+    from dao_ai.config import ResourcesModel, WarehouseModel
+
+    w = MagicMock()
+    config = AppConfig(
+        resources=ResourcesModel(warehouses={"w": WarehouseModel(warehouse_id="wh-1")})
+    )
+    grant(w, principal=PRINCIPAL, config=config, dry_run=False)
+    w.warehouses.update_permissions.assert_called_once()
+    w.warehouses.set_permissions.assert_not_called()  # never the destructive variant
+
+
+def test_grant_genie_uses_additive_update_not_set() -> None:
+    from dao_ai.config import GenieRoomModel, ResourcesModel
+
+    w = MagicMock()
+    config = AppConfig(
+        resources=ResourcesModel(
+            genie_rooms={"g": GenieRoomModel(space_id="01f0space")}
+        )
+    )
+    grant(w, principal=PRINCIPAL, config=config, dry_run=False)
+    w.permissions.update.assert_called_once()
+    w.permissions.set.assert_not_called()
+
+
+def test_grant_serving_endpoint_uses_resolved_id_and_additive_update() -> None:
+    from dao_ai.config import AgentModel, AppModel, InferenceEndpointModel
+
+    w = MagicMock()
+    # get(name=...) returns an endpoint whose id differs from its name
+    w.serving_endpoints.get.return_value = MagicMock(id="ep-internal-id")
+    config = AppConfig(
+        app=AppModel(
+            name="my-agent",
+            endpoint_name="my_agent_ep",
+            agents=[
+                AgentModel(
+                    name="a",
+                    description="d",
+                    model=InferenceEndpointModel(name="databricks-gpt-5-4-mini"),
+                )
+            ],
+        )
+    )
+    grant(w, principal=PRINCIPAL, config=config, dry_run=False)
+    w.serving_endpoints.set_permissions.assert_not_called()
+    w.serving_endpoints.update_permissions.assert_called_once()
+    # keyed on the resolved id, not the endpoint name
+    assert w.serving_endpoints.update_permissions.call_args.kwargs["serving_endpoint_id"] == "ep-internal-id"
+
+
+def test_grant_serving_endpoint_skips_when_endpoint_absent() -> None:
+    """The serving grant is best-effort: if the endpoint isn't deployed, skip it
+    (no update_permissions) rather than erroring — AppModel always populates
+    endpoint_name (defaulting from name), so existence is checked at apply time."""
+    from dao_ai.config import AgentModel, AppModel, InferenceEndpointModel
+
+    w = MagicMock()
+    w.serving_endpoints.get.side_effect = RuntimeError("RESOURCE_DOES_NOT_EXIST")
+    config = AppConfig(
+        app=AppModel(
+            name="apps-only",
+            agents=[
+                AgentModel(
+                    name="a",
+                    description="d",
+                    model=InferenceEndpointModel(name="databricks-gpt-5-4-mini"),
+                )
+            ],
+        )
+    )
+    plan = grant(w, principal=PRINCIPAL, config=config, dry_run=False)
+    # planned, but not applied (endpoint absent) — and never the destructive set
+    assert any(g.kind == "serving_endpoint" for g in plan.grants)
+    w.serving_endpoints.update_permissions.assert_not_called()
+    w.serving_endpoints.set_permissions.assert_not_called()
 
 
 # =============================================================================

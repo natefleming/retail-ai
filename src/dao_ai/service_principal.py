@@ -291,6 +291,10 @@ class Grant:
     target: str  # full name / id
     privileges: Sequence[str]
     securable_type: Optional[str] = None  # for kind == "uc"
+    # Set during apply (not dry-run): True if applied, False if it errored,
+    # None if not attempted (dry-run).
+    applied: Optional[bool] = None
+    error: Optional[str] = None
 
 
 @dataclass
@@ -378,9 +382,14 @@ def build_grant_plan(config: "AppConfig", principal: str) -> GrantPlan:
             plan.grants.append(
                 Grant("experiment", str(value_of(app.experiment.name)), ["CAN_EDIT"])
             )
-        endpoint: Optional[str] = app.endpoint_name or app.name
-        if endpoint:
-            plan.grants.append(Grant("serving_endpoint", endpoint, ["CAN_QUERY"]))
+        # AppModel always populates endpoint_name (defaulting from app.name), so
+        # this grant is planned for every app. It's best-effort: _grant_serving_endpoint
+        # resolves the endpoint by name and skips (no-op) if it isn't deployed, so
+        # Apps-only configs don't error — they simply have nothing to grant here.
+        if app.endpoint_name:
+            plan.grants.append(
+                Grant("serving_endpoint", app.endpoint_name, ["CAN_QUERY"])
+            )
 
     return plan
 
@@ -411,10 +420,13 @@ def grant(
             elif g.kind == "genie":
                 _grant_genie(w, principal, g.target)
             elif g.kind == "experiment":
-                _grant_experiment(principal, g.target)
+                _grant_experiment(w, principal, g.target)
             elif g.kind == "serving_endpoint":
-                _grant_serving_endpoint(principal, g.target)
+                _grant_serving_endpoint(w, principal, g.target)
+            g.applied = True
         except Exception as e:  # noqa: BLE001 — warn-and-continue per resource
+            g.applied = False
+            g.error = str(e)
             logger.warning(
                 "Grant failed — verify the calling identity has GRANT rights",
                 kind=g.kind,
@@ -453,13 +465,17 @@ def _grant_uc(
 
 
 def _grant_warehouse(w: "WorkspaceClient", principal: str, warehouse_id: str) -> None:
-    """Grant CAN_USE on a SQL warehouse to the service principal."""
+    """Grant CAN_USE on a SQL warehouse to the service principal.
+
+    Uses ``update_permissions`` (additive) — NOT ``set_permissions``, which
+    replaces the entire ACL and would strip every other principal's access.
+    """
     from databricks.sdk.service.sql import (
         WarehouseAccessControlRequest,
         WarehousePermissionLevel,
     )
 
-    w.warehouses.set_permissions(
+    w.warehouses.update_permissions(
         warehouse_id=warehouse_id,
         access_control_list=[
             WarehouseAccessControlRequest(
@@ -472,7 +488,11 @@ def _grant_warehouse(w: "WorkspaceClient", principal: str, warehouse_id: str) ->
 
 
 def _grant_genie(w: "WorkspaceClient", principal: str, space_id: str) -> None:
-    """Grant CAN_RUN on a Genie space to the service principal."""
+    """Grant CAN_RUN on a Genie space to the service principal.
+
+    Uses ``permissions.update`` (additive), not ``permissions.set`` (which
+    replaces the whole ACL).
+    """
     from databricks.sdk.service.iam import (
         AccessControlRequest,
         PermissionLevel,
@@ -486,7 +506,7 @@ def _grant_genie(w: "WorkspaceClient", principal: str, space_id: str) -> None:
     else:
         kwargs["group_name"] = principal
 
-    w.permissions.set(
+    w.permissions.update(
         request_object_type="genie",
         request_object_id=space_id,
         access_control_list=[AccessControlRequest(**kwargs)],
@@ -494,38 +514,38 @@ def _grant_genie(w: "WorkspaceClient", principal: str, space_id: str) -> None:
     logger.info("Granted genie CAN_RUN", principal=principal, space_id=space_id)
 
 
-def _grant_experiment(principal: str, experiment_name: str) -> None:
+def _grant_experiment(w: "WorkspaceClient", principal: str, experiment_name: str) -> None:
     """Grant CAN_EDIT on an MLflow experiment (reuses the provider helper)."""
-    from databricks.sdk import WorkspaceClient
-
     from dao_ai.providers.databricks import (
         _grant_experiment_permissions_to_principal,
     )
 
-    w = WorkspaceClient()
     experiment = w.experiments.get_by_name(experiment_name)
     exp_id = experiment.experiment.experiment_id if experiment.experiment else None
     if exp_id:
         _grant_experiment_permissions_to_principal(principal, exp_id)
 
 
-def _grant_serving_endpoint(principal: str, endpoint_name: str) -> None:
-    """Grant CAN_QUERY on a Model Serving endpoint (best-effort; skip if absent)."""
-    from databricks.sdk import WorkspaceClient
+def _grant_serving_endpoint(w: "WorkspaceClient", principal: str, endpoint_name: str) -> None:
+    """Grant CAN_QUERY on a Model Serving endpoint (best-effort; skip if absent).
+
+    Uses ``update_permissions`` (additive), and resolves the endpoint's id from
+    its name (``set/update_permissions`` key on the id, not the name).
+    """
     from databricks.sdk.service.serving import (
         ServingEndpointAccessControlRequest,
         ServingEndpointPermissionLevel,
     )
 
-    w = WorkspaceClient()
     try:
-        w.serving_endpoints.get(name=endpoint_name)
+        endpoint = w.serving_endpoints.get(name=endpoint_name)
     except Exception:  # noqa: BLE001 — endpoint not deployed yet; skip quietly
         logger.debug("Serving endpoint not found; skipping grant", endpoint=endpoint_name)
         return
 
-    w.serving_endpoints.set_permissions(
-        serving_endpoint_id=endpoint_name,
+    endpoint_id = endpoint.id or endpoint_name
+    w.serving_endpoints.update_permissions(
+        serving_endpoint_id=endpoint_id,
         access_control_list=[
             ServingEndpointAccessControlRequest(
                 service_principal_name=principal,
