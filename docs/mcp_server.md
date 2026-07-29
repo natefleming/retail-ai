@@ -33,7 +33,7 @@ function calls run as the caller, not as the App's service principal.
 > **Migrating from an older release?** The MCP server was rewritten to
 > an agent-as-tool model in PR #154 (one MCP tool per app instead of
 > per-tool fan-out). See the "agent-as-tool refactor" entry in
-> [`CHANGELOG.md`](../CHANGELOG.md) for the full set of removed modules
+> [`CHANGELOG.md`](https://github.com/natefleming/dao-ai/blob/main/CHANGELOG.md) for the full set of removed modules
 > (`dao_ai.mcp.service`, `dao_ai.mcp.adapters/`, `AppModel.mcp_only`)
 > and the requirement that `config.app.name` is now mandatory.
 

@@ -236,7 +236,7 @@ schemas:
     schema_name: my_schema          # Replace with your schema name
 
 resources:
-  llms:
+  models:
     default_llm: &default_llm
       name: databricks-gpt-5-4-mini  # The AI model to use
 

@@ -1012,8 +1012,8 @@ shared connection pool.
 **Governance** — because `type: sql` inherits the base tool model, it composes with
 `human_in_the_loop:` and `audit:` (e.g. gate a mutating `UPDATE`/`DELETE` behind
 human approval with a signed audit receipt). See
-[`examples/99_complete_applications/hardware_store/hardware_store_lakebase.yaml`](../examples/99_complete_applications/hardware_store/hardware_store_lakebase.yaml)
-and [`examples/14_basic_tools/sql_tool_example.yaml`](../examples/14_basic_tools/sql_tool_example.yaml).
+[`examples/99_complete_applications/hardware_store/hardware_store_lakebase.yaml`](https://github.com/natefleming/dao-ai/blob/main/examples/99_complete_applications/hardware_store/hardware_store_lakebase.yaml)
+and [`examples/14_basic_tools/sql_tool_example.yaml`](https://github.com/natefleming/dao-ai/blob/main/examples/14_basic_tools/sql_tool_example.yaml).
 
 ## First-Class Agent Tools
 
@@ -1092,14 +1092,14 @@ tools:
 
 ### `type: a2a` — call an external A2A agent
 
-See [`examples/99_complete_applications/procurement_supplier_a2a/README.md`](../examples/99_complete_applications/procurement_supplier_a2a/README.md) for the full A2A protocol example. Available since v0.1.80.
+See [`examples/99_complete_applications/procurement_supplier_a2a/README.md`](https://github.com/natefleming/dao-ai/blob/main/examples/99_complete_applications/procurement_supplier_a2a/README.md) for the full A2A protocol example. Available since v0.1.80.
 
 ### See Also
 
-- [`examples/10_agent_integrations/app_first_class.yaml`](../examples/10_agent_integrations/app_first_class.yaml)
-- [`examples/10_agent_integrations/serving_endpoint_first_class.yaml`](../examples/10_agent_integrations/serving_endpoint_first_class.yaml)
-- [`examples/10_agent_integrations/README.md`](../examples/10_agent_integrations/README.md) — routing matrix and migration notes
-- [`examples/99_complete_applications/procurement_supplier_a2a/`](../examples/99_complete_applications/procurement_supplier_a2a/) — end-to-end A2A example
+- [`examples/10_agent_integrations/app_first_class.yaml`](https://github.com/natefleming/dao-ai/blob/main/examples/10_agent_integrations/app_first_class.yaml)
+- [`examples/10_agent_integrations/serving_endpoint_first_class.yaml`](https://github.com/natefleming/dao-ai/blob/main/examples/10_agent_integrations/serving_endpoint_first_class.yaml)
+- [`examples/10_agent_integrations/README.md`](https://github.com/natefleming/dao-ai/blob/main/examples/10_agent_integrations/README.md) — routing matrix and migration notes
+- [`examples/99_complete_applications/procurement_supplier_a2a/`](https://github.com/natefleming/dao-ai/tree/main/examples/99_complete_applications/procurement_supplier_a2a/) — end-to-end A2A example
 
 ---
 
@@ -1167,8 +1167,8 @@ environment (it is on Apps/MS deploys).
 
 ### See Also
 
-- [`examples/10_agent_integrations/genie_agent_model.yaml`](../examples/10_agent_integrations/genie_agent_model.yaml)
-- [`examples/10_agent_integrations/genie_agent_model_obo.yaml`](../examples/10_agent_integrations/genie_agent_model_obo.yaml) — OBO + deployable App
+- [`examples/10_agent_integrations/genie_agent_model.yaml`](https://github.com/natefleming/dao-ai/blob/main/examples/10_agent_integrations/genie_agent_model.yaml)
+- [`examples/10_agent_integrations/genie_agent_model_obo.yaml`](https://github.com/natefleming/dao-ai/blob/main/examples/10_agent_integrations/genie_agent_model_obo.yaml) — OBO + deployable App
 
 ---
 
@@ -1259,8 +1259,8 @@ include_tools: ["execute_query", "list_tables"]  # Only these 2
 
 ### See Also
 
-- Full examples: [`examples/02_mcp/filtered_mcp.yaml`](../examples/02_mcp/filtered_mcp.yaml)
-- MCP documentation: [`examples/02_mcp/README.md`](../examples/02_mcp/README.md#pattern-4-filtered-mcp-tool-selection)
+- Full examples: [`examples/02_mcp/filtered_mcp.yaml`](https://github.com/natefleming/dao-ai/blob/main/examples/02_mcp/filtered_mcp.yaml)
+- MCP documentation: [`examples/02_mcp/README.md`](https://github.com/natefleming/dao-ai/blob/main/examples/02_mcp/README.md#pattern-4-filtered-mcp-tool-selection)
 
 ---
 
@@ -1390,14 +1390,14 @@ subagents:
 
 ### See Also
 
-- Full example: [`examples/12_middleware/deepagents_middleware.yaml`](../examples/12_middleware/deepagents_middleware.yaml)
-- Middleware examples: [`examples/12_middleware/README.md`](../examples/12_middleware/README.md)
+- Full example: [`examples/12_middleware/deepagents_middleware.yaml`](https://github.com/natefleming/dao-ai/blob/main/examples/12_middleware/deepagents_middleware.yaml)
+- Middleware examples: [`examples/12_middleware/README.md`](https://github.com/natefleming/dao-ai/blob/main/examples/12_middleware/README.md)
 
 ---
 
 ## Navigation
 
 - [← Previous: Key Capabilities](key-capabilities.md)
-- [↑ Back to Documentation Index](../README.md#-documentation)
+- [↑ Back to Documentation Index](https://github.com/natefleming/dao-ai/blob/main/README.md#-documentation)
 - [Next: Examples →](examples.md)
 

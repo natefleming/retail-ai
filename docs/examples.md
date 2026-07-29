@@ -21,50 +21,50 @@ Start at `01_getting_started` if you're new, or jump directly to the category th
 
 ### 🆕 New to DAO AI?
 **Start here:**
-- [`01_getting_started/minimal.yaml`](../examples/01_getting_started/minimal.yaml) - Simplest possible agent
-- [`04_genie/genie_basic.yaml`](../examples/04_genie/genie_basic.yaml) - Natural language to SQL
+- [`01_getting_started/minimal.yaml`](https://github.com/natefleming/dao-ai/blob/main/examples/01_getting_started/minimal.yaml) - Simplest possible agent
+- [`04_genie/genie_basic.yaml`](https://github.com/natefleming/dao-ai/blob/main/examples/04_genie/genie_basic.yaml) - Natural language to SQL
 
 ### 🔧 Need Specific Tools?
 **Explore:**
-- [`02_mcp/`](../examples/02_mcp/) - JIRA, managed/external/custom MCP integrations
-- [`10_agent_integrations/`](../examples/10_agent_integrations/) - Agent Bricks, Kasal, external agent platforms
-- [`14_basic_tools/`](../examples/14_basic_tools/) - SQL execution, Slack, and basic tool patterns
+- [`02_mcp/`](https://github.com/natefleming/dao-ai/tree/main/examples/02_mcp/) - JIRA, managed/external/custom MCP integrations
+- [`10_agent_integrations/`](https://github.com/natefleming/dao-ai/tree/main/examples/10_agent_integrations/) - Agent Bricks, Kasal, external agent platforms
+- [`14_basic_tools/`](https://github.com/natefleming/dao-ai/tree/main/examples/14_basic_tools/) - SQL execution, Slack, and basic tool patterns
 
 ### ⚡ Optimizing Performance?
 **Check out:**
-- [`04_genie/`](../examples/04_genie/) - LRU and semantic caching strategies
+- [`04_genie/`](https://github.com/natefleming/dao-ai/tree/main/examples/04_genie/) - LRU and semantic caching strategies
 
 ### 💾 Managing State?
 **See:**
-- [`05_memory/`](../examples/05_memory/) - Conversation history and persistence
+- [`05_memory/`](https://github.com/natefleming/dao-ai/tree/main/examples/05_memory/) - Conversation history and persistence
 
 ### 🛡️ Production Ready?
 **Essential patterns:**
-- [`06_on_behalf_of_user/`](../examples/06_on_behalf_of_user/) - User-level authentication and access control
-- [`07_human_in_the_loop/`](../examples/07_human_in_the_loop/) - Approval workflows
-- [`08_guardrails/`](../examples/08_guardrails/) - Safety and compliance
-- [`09_structured_output/`](../examples/09_structured_output/) - Enforce JSON schemas
-- [`11_prompt_engineering/`](../examples/11_prompt_engineering/) - Prompt management and optimization
+- [`06_on_behalf_of_user/`](https://github.com/natefleming/dao-ai/tree/main/examples/06_on_behalf_of_user/) - User-level authentication and access control
+- [`07_human_in_the_loop/`](https://github.com/natefleming/dao-ai/tree/main/examples/07_human_in_the_loop/) - Approval workflows
+- [`08_guardrails/`](https://github.com/natefleming/dao-ai/tree/main/examples/08_guardrails/) - Safety and compliance
+- [`09_structured_output/`](https://github.com/natefleming/dao-ai/tree/main/examples/09_structured_output/) - Enforce JSON schemas
+- [`11_prompt_engineering/`](https://github.com/natefleming/dao-ai/tree/main/examples/11_prompt_engineering/) - Prompt management and optimization
 
 ### 🛡️ Need Validation & Monitoring?
 **Middleware patterns:**
-- [`12_middleware/`](../examples/12_middleware/) - Input validation, logging, performance monitoring
+- [`12_middleware/`](https://github.com/natefleming/dao-ai/tree/main/examples/12_middleware/) - Input validation, logging, performance monitoring
 
 ### 📊 Visualizations?
 **Charts and graphs:**
-- [`17_visualization/`](../examples/17_visualization/) - Vega-Lite chart generation via `custom_outputs`
+- [`17_visualization/`](https://github.com/natefleming/dao-ai/tree/main/examples/17_visualization/) - Vega-Lite chart generation via `custom_outputs`
 
 ### ⏱️ Background Tasks?
 **Background kickoff + poll/stream retrieval (deep research, multi-tool workflows):**
-- [`18_background_agents/`](../examples/18_background_agents/) - OpenAI Responses API–compatible `/v1/responses` on Apps + `background=true` on Model Serving, backed by Lakebase
+- [`18_background_agents/`](https://github.com/natefleming/dao-ai/tree/main/examples/18_background_agents/) - OpenAI Responses API–compatible `/v1/responses` on Apps + `background=true` on Model Serving, backed by Lakebase
 
 ### 🔎 Retrieval from Lakebase Postgres?
 **ANN / BM25 / hybrid RRF over a Lakebase table (as a sibling of `ai_search`):**
-- [`20_lakebase_search/`](../examples/20_lakebase_search/) - `type: lakebase_search` using the `lakebase_vector` + `lakebase_text` extensions, with filter-operator coverage and a UC OTEL `trace_location` example
+- [`20_lakebase_search/`](https://github.com/natefleming/dao-ai/tree/main/examples/20_lakebase_search/) - `type: lakebase_search` using the `lakebase_vector` + `lakebase_text` extensions, with filter-operator coverage and a UC OTEL `trace_location` example
 
 ### 🏗️ Complete Solutions?
 **Full applications:**
-- [`99_complete_applications/`](../examples/99_complete_applications/) - Executive assistant, research agent, reservation system
+- [`99_complete_applications/`](https://github.com/natefleming/dao-ai/tree/main/examples/99_complete_applications/) - Executive assistant, research agent, reservation system
 
 ---
 
@@ -94,7 +94,7 @@ dao-ai agent up -c examples/07_human_in_the_loop/human_in_the_loop.yaml
 
 ## 📂 Directory Guide
 
-### 01. Getting Started [📖 README](../examples/01_getting_started/README.md)
+### 01. Getting Started [📖 README](https://github.com/natefleming/dao-ai/blob/main/examples/01_getting_started/README.md)
 
 Foundation concepts for beginners.
 
@@ -108,7 +108,7 @@ Foundation concepts for beginners.
 
 ---
 
-### 02. MCP [📖 README](../examples/02_mcp/README.md)
+### 02. MCP [📖 README](https://github.com/natefleming/dao-ai/blob/main/examples/02_mcp/README.md)
 
 Integrate external services and Databricks capabilities via the Model Context Protocol.
 
@@ -124,7 +124,7 @@ Integrate external services and Databricks capabilities via the Model Context Pr
 
 ---
 
-### 03. Caching [📖 README](../examples/04_genie/README.md)
+### 03. Caching [📖 README](https://github.com/natefleming/dao-ai/blob/main/examples/04_genie/README.md)
 
 Improve performance and reduce costs through intelligent caching.
 
@@ -139,7 +139,7 @@ Improve performance and reduce costs through intelligent caching.
 
 ---
 
-### 05. Memory [📖 README](../examples/05_memory/README.md)
+### 05. Memory [📖 README](https://github.com/natefleming/dao-ai/blob/main/examples/05_memory/README.md)
 
 Persistent state management and long-term memory for multi-turn conversations.
 
@@ -157,7 +157,7 @@ All examples support the optional `extraction` config block for long-term memory
 
 ---
 
-### 06. On-Behalf-Of User [📖 README](../examples/06_on_behalf_of_user/README.md)
+### 06. On-Behalf-Of User [📖 README](https://github.com/natefleming/dao-ai/blob/main/examples/06_on_behalf_of_user/README.md)
 
 User-level authentication and access control with Unity Catalog.
 
@@ -170,7 +170,7 @@ User-level authentication and access control with Unity Catalog.
 
 ---
 
-### 07. Human-in-the-Loop [📖 README](../examples/07_human_in_the_loop/README.md)
+### 07. Human-in-the-Loop [📖 README](https://github.com/natefleming/dao-ai/blob/main/examples/07_human_in_the_loop/README.md)
 
 Approval workflows for sensitive operations.
 
@@ -183,7 +183,7 @@ Approval workflows for sensitive operations.
 
 ---
 
-### 08. Guardrails [📖 README](../examples/08_guardrails/README.md)
+### 08. Guardrails [📖 README](https://github.com/natefleming/dao-ai/blob/main/examples/08_guardrails/README.md)
 
 Automated safety and validation using MLflow judges (`mlflow.genai.judges.make_judge`). The prompt determines the evaluation type -- tone, completeness, veracity/groundedness, or any custom criteria. Tool context from the conversation is automatically extracted for veracity checks.
 
@@ -197,7 +197,7 @@ Automated safety and validation using MLflow judges (`mlflow.genai.judges.make_j
 
 ---
 
-### 09. Structured Output [📖 README](../examples/09_structured_output/README.md)
+### 09. Structured Output [📖 README](https://github.com/natefleming/dao-ai/blob/main/examples/09_structured_output/README.md)
 
 Enforce response format with JSON schema.
 
@@ -210,7 +210,7 @@ Enforce response format with JSON schema.
 
 ---
 
-### 10. Agent Integrations [📖 README](../examples/10_agent_integrations/README.md)
+### 10. Agent Integrations [📖 README](https://github.com/natefleming/dao-ai/blob/main/examples/10_agent_integrations/README.md)
 
 Call another agent as a tool using the first-class `type: app`, `type: serving_endpoint`, and `type: a2a` function types.
 
@@ -240,7 +240,7 @@ Call another agent as a tool using the first-class `type: app`, `type: serving_e
 
 ---
 
-### 11. Prompt Engineering [📖 README](../examples/11_prompt_engineering/README.md)
+### 11. Prompt Engineering [📖 README](https://github.com/natefleming/dao-ai/blob/main/examples/11_prompt_engineering/README.md)
 
 Define reusable prompts as first-class config objects and share them across agents.
 
@@ -326,7 +326,7 @@ enterprise_coordinator:
 
 ---
 
-### 12. Middleware [📖 README](../examples/12_middleware/README.md)
+### 12. Middleware [📖 README](https://github.com/natefleming/dao-ai/blob/main/examples/12_middleware/README.md)
 
 Cross-cutting concerns for production agents: validation, logging, monitoring, limits, retries, and privacy.
 
@@ -372,14 +372,14 @@ agents:
 ```
 
 **Real-World Example:**  
-The hardware store application uses store number validation to ensure users provide their store location for inventory lookups. See [`99_complete_applications/hardware_store/hardware_store.yaml`](../examples/99_complete_applications/hardware_store/hardware_store.yaml).
+The hardware store application uses store number validation to ensure users provide their store location for inventory lookups. See [`99_complete_applications/hardware_store/hardware_store.yaml`](https://github.com/natefleming/dao-ai/blob/main/examples/99_complete_applications/hardware_store/hardware_store.yaml).
 
 **Prerequisites:** Basic understanding of agents and prompts  
 **Next:** Learn multi-agent coordination in `13_orchestration/`
 
 ---
 
-### 13. Orchestration [📖 README](../examples/13_orchestration/README.md)
+### 13. Orchestration [📖 README](https://github.com/natefleming/dao-ai/blob/main/examples/13_orchestration/README.md)
 
 Multi-agent coordination patterns.
 
@@ -394,7 +394,7 @@ Multi-agent coordination patterns.
 
 ---
 
-### 14. Basic Tools [📖 README](../examples/14_basic_tools/README.md)
+### 14. Basic Tools [📖 README](https://github.com/natefleming/dao-ai/blob/main/examples/14_basic_tools/README.md)
 
 Simple tool integrations for SQL and data operations.
 
@@ -407,7 +407,7 @@ Simple tool integrations for SQL and data operations.
 
 ---
 
-### 15. Complete Applications [📖 README](../examples/99_complete_applications/README.md)
+### 15. Complete Applications [📖 README](https://github.com/natefleming/dao-ai/blob/main/examples/99_complete_applications/README.md)
 
 Full-featured, production-ready agent applications.
 
@@ -424,7 +424,7 @@ Full-featured, production-ready agent applications.
 
 ---
 
-### 18. Visualization [📖 README](../examples/17_visualization/README.md)
+### 18. Visualization [📖 README](https://github.com/natefleming/dao-ai/blob/main/examples/17_visualization/README.md)
 
 Generate Vega-Lite chart specs from structured data, delivered to clients via `custom_outputs.visualizations`.
 
@@ -481,6 +481,6 @@ See [Contributing Guide](contributing.md) for details.
 ## Navigation
 
 - [← Previous: Configuration Reference](configuration-reference.md)
-- [↑ Back to Documentation Index](../README.md#-documentation)
+- [↑ Back to Documentation Index](https://github.com/natefleming/dao-ai/blob/main/README.md#-documentation)
 - [Next: CLI Reference →](cli-reference.md)
 
