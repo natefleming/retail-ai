@@ -5,7 +5,7 @@ backed by a Lakebase instance so agents can exceed Model Serving's
 ~5 min worker-thread timeout and Databricks Apps' ~120 s proxy timeout.
 
 See ``docs/background_agents.md`` for the wire protocol and
-``examples/19_background_agents/deep_research.yaml`` for an
+``examples/19_background_agents/background_research.yaml`` for an
 end-to-end example.
 """
 

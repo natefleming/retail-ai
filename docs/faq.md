@@ -738,7 +738,7 @@ Clients then use any OpenAI-compatible SDK against the deployed app's `/response
 
 See [Lab 15 — Background Agents](https://github.com/natefleming/dao-ai-workshop/tree/main/L300-advanced/lab-15-background) for the runnable walkthrough.
 
-**Learn more:** [`docs/background_agents.md`](background_agents.md) · [`examples/19_background_agents/deep_research.yaml`](../examples/19_background_agents/deep_research.yaml) · [`examples/20_a2a_protocol/a2a_background.yaml`](../examples/20_a2a_protocol/a2a_background.yaml) (background over A2A)
+**Learn more:** [`docs/background_agents.md`](background_agents.md) · [`examples/19_background_agents/background_research.yaml`](../examples/19_background_agents/background_research.yaml) · [`examples/20_a2a_protocol/a2a_background.yaml`](../examples/20_a2a_protocol/a2a_background.yaml) (background over A2A)
 
 ---
 

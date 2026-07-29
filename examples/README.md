@@ -217,6 +217,38 @@ Or jump directly to the category that matches your current need.
 
 ---
 
+### [18. Visualization](18_visualization/)
+**Generate charts from structured data**
+- Portable Vega-Lite chart specs
+- Delivery via `custom_outputs.visualizations`
+- `message_id` tagging so the UI maps each chart to its response
+
+👉 Return renderable chart specs alongside the agent's text answer
+
+---
+
+### [19. Background Agents](19_background_agents/)
+**Long-running tasks with kickoff / poll / cancel**
+- OpenAI Responses-API-compatible `/v1/responses*` on Databricks Apps
+- `background=true` on Model Serving via `/invocations` + `custom_inputs`
+- `app.background` block backed by Lakebase for durable task state
+- Bounded runs (`max_duration_seconds`, `poll_interval_seconds`)
+
+👉 Kick off a slow agent, poll for the result, and cancel if needed
+
+---
+
+### [20. A2A Protocol](20_a2a_protocol/)
+**Agent-to-Agent interoperability (Google A2A)**
+- Minimal A2A-enabled agent + Agent Card
+- HITL + on-behalf-of-user identity forwarding over A2A
+- Lakebase-persisted A2A task store, sharing one pool with memory + background
+- Companion A2A `client/` for exercising the endpoints
+
+👉 Expose a dao-ai agent over the A2A protocol so other agents can call it
+
+---
+
 ### [21. Lakebase Search](21_lakebase_search/)
 **Retrieval over Databricks Lakebase Postgres**
 - ANN semantic search via `lakebase_vector` + `lakebase_ann`
@@ -309,11 +341,11 @@ dao-ai agent up -c examples/07_human_in_the_loop/human_in_the_loop.yaml
 
 ## 📖 Documentation
 
-- **[Main Documentation](../../docs/)** - Comprehensive guides
-- **[Configuration Reference](../../docs/configuration-reference.md)** - Complete YAML reference
-- **[Key Capabilities](../../docs/key-capabilities.md)** - Feature deep-dives
-- **[CLI Reference](../../docs/cli-reference.md)** - Command-line usage
-- **[FAQ](../../docs/faq.md)** - Common questions
+- **[Main Documentation](../docs/)** - Comprehensive guides
+- **[Configuration Reference](../docs/configuration-reference.md)** - Complete YAML reference
+- **[Key Capabilities](../docs/key-capabilities.md)** - Feature deep-dives
+- **[CLI Reference](../docs/cli-reference.md)** - Command-line usage
+- **[FAQ](../docs/faq.md)** - Common questions
 
 ---
 
@@ -357,10 +389,10 @@ Have an example to share? We'd love to see it!
 4. **Test thoroughly** with `dao-ai validate` and `dao-ai chat`
 5. **Update documentation**:
    - Add entry to the category's README.md
-   - Update [`docs/examples.md`](../../docs/examples.md)
+   - Update [`docs/examples.md`](../docs/examples.md)
 6. **Submit a pull request**
 
-See the [Contributing Guide](../../docs/contributing.md) for details.
+See the [Contributing Guide](../docs/contributing.md) for details.
 
 ---
 
@@ -413,9 +445,9 @@ Use MLflow to track agent performance and costs.
 
 ## 🆘 Getting Help
 
-- **Documentation**: [docs/](../../docs/)
-- **Examples Guide**: [docs/examples.md](../../docs/examples.md)
-- **FAQ**: [docs/faq.md](../../docs/faq.md)
+- **Documentation**: [docs/](../docs/)
+- **Examples Guide**: [docs/examples.md](../docs/examples.md)
+- **FAQ**: [docs/faq.md](../docs/faq.md)
 - **Issues**: [GitHub Issues](https://github.com/your-org/dao-ai/issues)
 - **Discussions**: [GitHub Discussions](https://github.com/your-org/dao-ai/discussions)
 

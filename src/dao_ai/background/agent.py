@@ -15,7 +15,7 @@ the same ``/invocations`` contract:
 If neither ``background`` nor ``operation`` is set, the call is delegated
 unchanged to the wrapped agent — the synchronous path is a passthrough.
 
-See ``examples/19_background_agents/deep_research.yaml`` for an
+See ``examples/19_background_agents/background_research.yaml`` for an
 end-to-end example.
 """
 
