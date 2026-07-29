@@ -11,6 +11,18 @@ parameters:
   schema:
     description: Schema within the catalog
     default: retail_ai
+  vector_search_endpoint:
+    description: Vector Search endpoint hosting the indexes for this app
+    default: dbdemos_vs_endpoint
+  llm:
+    description: Primary chat/tool-calling serving endpoint for both agents and the supervisor
+    default: databricks-claude-sonnet-5
+  embedding_model:
+    description: Text embedding serving endpoint for vector search
+    default: databricks-gte-large-en
+  genie_space_id:
+    description: Genie space id for the Retail AI Genie room
+    default: 01f01c91f1f414d59daaefd2b7ec82ea
 
 schemas:
   retail_schema: &retail_schema
@@ -21,12 +33,12 @@ resources:
   models:
     # Primary LLM for general tasks
     default_llm: &default_llm
-      name: databricks-claude-sonnet-4  # Databricks serving endpoint name
+      name: ${var.llm}  # Databricks serving endpoint name
       temperature: 0.1                              # Low temperature for consistent responses
       max_tokens: 8192                              # Maximum tokens per response
 
     embedding_model: &embedding_model
-      name: databricks-gte-large-en                 # Text embedding model
+      name: ${var.embedding_model}                  # Text embedding model
 
   vector_stores:
     # Product information vector store for similarity search
@@ -34,7 +46,7 @@ resources:
       embedding_model: *embedding_model
                                                     # Reference to embedding model above
       endpoint:                                     # Vector search endpoint configuration
-        name: one-env-shared-endpoint-12            # Databricks vector search endpoint
+        name: ${var.vector_search_endpoint}                   # Databricks vector search endpoint
         type: STANDARD                              # Endpoint type (STANDARD or OPTIMIZED_STORAGE)
       index:                                        # Vector search index configuration
         schema: *retail_schema
@@ -61,9 +73,7 @@ resources:
     retail_genie_room: &retail_genie_room
       name: "Retail AI Genie Room"                  # Human-readable name
       description: "A room for Genie agents to interact"  # Description
-      space_id:
-        env: RETAIL_AI_GENIE_SPACE_ID
-        default_value: 01f01c91f1f414d59daaefd2b7ec82ea
+      space_id: ${var.genie_space_id}               # Databricks Genie space ID
 
 retrievers:
   # Product information retriever using vector search
@@ -90,7 +100,7 @@ tools:
     function:
       type: genie  # Tool type: factory function
       name: my_genie_tool
-      description: My Answers questions about genie
+      description: Query retail sales, inventory, and store metrics from the Retail AI Genie space
       genie_room: *retail_genie_room
                                                   # Reference to Genie room config
 
@@ -113,9 +123,13 @@ agents:
     tools:                                          # Tools available to this agent
     - *genie_tool
     prompt: |                                       # System prompt defining agent behavior
-      Answers questions about foo
+      You answer structured retail questions by querying the Retail AI Genie space.
+      Use the genie tool for anything that needs aggregation or filtering over the data:
+      sales, revenue, order counts, inventory levels, and store or brand comparisons.
+      Base every answer on the tool results and do not invent numbers.
     handoff_prompt: |                               # Conditions for routing to this agent
-      Answers all foo questions
+      Route here for structured data questions: sales, revenue, inventory levels,
+      order counts, and store or brand metrics that need aggregation or filtering.
 
   vector_search: &vector_search
     name: vector_search                                   # Agent identifier
@@ -125,9 +139,13 @@ agents:
     tools:                                          # Tools available to this agent
     - *vector_search_tool
     prompt: |                                       # System prompt defining agent behavior
-      Answers questions about bar
+      You help customers find products by searching the product catalog with vector search.
+      Use the vector search tool for descriptive, natural-language product questions:
+      "waterproof hiking boots", "something like a Dewalt drill", or matches by
+      brand, product name, or merchandise class. Summarize the returned products clearly.
     handoff_prompt: |                               # Conditions for routing to this agent
-      Answers all bar questions
+      Route here for product discovery and semantic search: finding items by
+      description, features, or similarity rather than exact sales or inventory numbers.
 
 app:
   name: genie_vector_search_hybrid_dao             # Application name  

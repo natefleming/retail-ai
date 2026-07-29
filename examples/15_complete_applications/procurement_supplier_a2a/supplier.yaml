@@ -17,6 +17,11 @@
 # Pair with ``procurement.yaml`` (deployed separately). See ``README.md`` in
 # this directory for the end-to-end deployment workflow.
 
+parameters:
+  llm:
+    description: Chat serving endpoint for the supplier agent
+    default: databricks-gpt-5-4-mini
+
 resources:
   models:
     # Single supplier-side LLM. ``on_behalf_of_user: true`` routes inference
@@ -26,7 +31,7 @@ resources:
     # the proxy chain — assuming the procurement-side A2A tool is configured
     # to forward a user token (see procurement.yaml notes).
     supplier_llm: &supplier_llm
-      name: databricks-gpt-5-4-mini
+      name: ${var.llm}
       temperature: 0.1
       max_tokens: 2048
       on_behalf_of_user: true

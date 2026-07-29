@@ -90,20 +90,20 @@ cd <repo root>
 uv run dao-ai agent generate \
   -c examples/15_complete_applications/procurement_supplier_a2a/supplier.yaml \
   -o ../output-supplier-a2a \
-  -p fevm
+  -p DEFAULT
 
 # Deploy + start.
 cd ../output-supplier-a2a
-databricks bundle deploy --target dev -p fevm
-databricks bundle run dao-ai-supplier-a2a --target dev -p fevm
+databricks bundle deploy --target dev -p DEFAULT
+databricks bundle run dao-ai-supplier-a2a --target dev -p DEFAULT
 cd -
 ```
 
 ### 2. (Optional) Sanity-check the supplier
 
 ```bash
-SUPPLIER_URL=$(databricks apps get dao-ai-supplier-a2a -p fevm --output json | jq -r .url)
-TOKEN=$(databricks auth token -p fevm | jq -r .access_token)
+SUPPLIER_URL=$(databricks apps get dao-ai-supplier-a2a -p DEFAULT --output json | jq -r .url)
+TOKEN=$(databricks auth token -p DEFAULT | jq -r .access_token)
 curl -sf "$SUPPLIER_URL/.well-known/agent-card.json" \
   -H "Authorization: Bearer $TOKEN" | jq '.name, .version'
 ```
@@ -115,12 +115,12 @@ curl -sf "$SUPPLIER_URL/.well-known/agent-card.json" \
 uv run dao-ai agent generate \
   -c examples/15_complete_applications/procurement_supplier_a2a/procurement.yaml \
   -o ../output-procurement-a2a \
-  -p fevm
+  -p DEFAULT
 
 # Deploy + start.
 cd ../output-procurement-a2a
-databricks bundle deploy --target dev -p fevm
-databricks bundle run dao-ai-procurement-a2a --target dev -p fevm
+databricks bundle deploy --target dev -p DEFAULT
+databricks bundle run dao-ai-procurement-a2a --target dev -p DEFAULT
 cd -
 ```
 
@@ -133,8 +133,8 @@ rest at runtime.
 ### 4. Try it end-to-end
 
 ```bash
-PROC_URL=$(databricks apps get dao-ai-procurement-a2a -p fevm --output json | jq -r .url)
-TOKEN=$(databricks auth token -p fevm | jq -r .access_token)
+PROC_URL=$(databricks apps get dao-ai-procurement-a2a -p DEFAULT --output json | jq -r .url)
+TOKEN=$(databricks auth token -p DEFAULT | jq -r .access_token)
 
 # Responses-API form (uses ``input``, not ``messages``).
 curl -sf -X POST "$PROC_URL/invocations" \
@@ -193,8 +193,8 @@ in a second terminal — `create_a2a_agent_tool` logs an
 `Invoking A2A agent` line before every hop:
 
 ```bash
-PROC_URL=$(databricks apps get dao-ai-procurement-a2a -p fevm --output json | jq -r .url)
-TOKEN=$(databricks auth token -p fevm | jq -r .access_token)
+PROC_URL=$(databricks apps get dao-ai-procurement-a2a -p DEFAULT --output json | jq -r .url)
+TOKEN=$(databricks auth token -p DEFAULT | jq -r .access_token)
 
 curl -sN -H "Authorization: Bearer $TOKEN" "$PROC_URL/logz/stream?source=APP" \
   | grep --line-buffered -E "Invoking A2A agent|query_supplier|dao_ai.a2a"
@@ -389,14 +389,14 @@ the same output directory and redeploy:
 # Supplier:
 uv run dao-ai agent generate \
   -c examples/15_complete_applications/procurement_supplier_a2a/supplier.yaml \
-  -o ../output-supplier-a2a -p fevm
-(cd ../output-supplier-a2a && databricks bundle deploy --target dev -p fevm)
+  -o ../output-supplier-a2a -p DEFAULT
+(cd ../output-supplier-a2a && databricks bundle deploy --target dev -p DEFAULT)
 
 # Procurement:
 uv run dao-ai agent generate \
   -c examples/15_complete_applications/procurement_supplier_a2a/procurement.yaml \
-  -o ../output-procurement-a2a -p fevm
-(cd ../output-procurement-a2a && databricks bundle deploy --target dev -p fevm)
+  -o ../output-procurement-a2a -p DEFAULT
+(cd ../output-procurement-a2a && databricks bundle deploy --target dev -p DEFAULT)
 ```
 
 ---

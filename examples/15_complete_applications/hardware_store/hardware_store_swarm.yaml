@@ -11,11 +11,17 @@ parameters:
   schema:
     description: Schema within the catalog
     default: hardware_store
+  vector_search_endpoint:
+    description: Vector Search endpoint hosting the indexes for this app
+    default: dbdemos_vs_endpoint
   # Model endpoints are parameterized so defaults are overridable per
   # environment (e.g. --param llm=databricks-claude-sonnet-5) without editing
   # the config. Defaults track current GA Foundation Model API endpoints.
   llm:
     description: Chat/reasoning serving endpoint (agents, tool-calling, judge).
+    default: databricks-claude-sonnet-5
+  fallback_llm:
+    description: Same-class fallback serving endpoint (one generation back) the primary llm falls back to when unavailable
     default: databricks-claude-sonnet-4-5
   embedding_model:
     description: Text embedding serving endpoint for vector search.
@@ -59,6 +65,8 @@ resources:
       name: ${var.llm}
       temperature: 0.1
       max_tokens: 8192
+      fallbacks:
+      - ${var.fallback_llm}
 
     # LLM for evaluating and judging responses (guardrails)
     judge_llm: &judge_llm
@@ -80,7 +88,7 @@ resources:
       embedding_model: *embedding_model
                                                     # Reference to embedding model above
       endpoint:                                     # Vector search endpoint configuration
-        name: dbdemos_vs_endpoint            # Databricks vector search endpoint
+        name: ${var.vector_search_endpoint}            # Databricks vector search endpoint
         type: STANDARD                              # Endpoint type (STANDARD or OPTIMIZED_STORAGE)
       index:                                        # Vector search index configuration
         schema: *retail_schema

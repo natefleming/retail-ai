@@ -11,6 +11,9 @@ parameters:
   schema:
     description: Schema within the catalog
     default: sporting_goods_store
+  vector_search_endpoint:
+    description: Vector Search endpoint hosting the indexes for this app
+    default: dbdemos_vs_endpoint
   genie_parent_path:
     description: Workspace folder where Genie spaces are created. Must already exist.
     default: "/Users/${workspace.current_user.userName}"
@@ -25,13 +28,13 @@ parameters:
     provided: true
   llm:
     description: Chat/reasoning serving endpoint for tool-calling and judge tasks
-    default: databricks-claude-sonnet-4-5
+    default: databricks-claude-sonnet-5
   fast_llm:
     description: Fast chat serving endpoint for supervisor, verifier, decomposition, and query tasks
     default: databricks-gpt-5-4-mini
   fallback_llm:
     description: Fallback chat serving endpoint when the primary llm is unavailable
-    default: databricks-claude-sonnet-4-6
+    default: databricks-claude-sonnet-4-5
   embedding_model:
     description: Embedding serving endpoint for vector search and memory store
     default: databricks-gte-large-en
@@ -144,7 +147,7 @@ resources:
       embedding_model: *embedding_model
       on_behalf_of_user: true
       endpoint:
-        name: dbdemos_vs_endpoint
+        name: ${var.vector_search_endpoint}
         type: STANDARD
       index:
         schema: *sporting_goods_schema
