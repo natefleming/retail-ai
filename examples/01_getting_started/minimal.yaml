@@ -11,6 +11,13 @@ parameters:
   schema:
     description: Schema within the catalog
     default: hardware_store
+  # Model endpoints are parameterized so the default can be overridden per
+  # environment (e.g. --param llm=databricks-claude-sonnet-5) without editing
+  # the config. Defaults track a current GA Foundation Model API endpoint;
+  # override when a workspace pins a different model.
+  llm:
+    description: Chat/reasoning serving endpoint for the agent.
+    default: databricks-claude-sonnet-4-5
 
 schemas:
   retail_schema: &retail_schema
@@ -20,7 +27,7 @@ schemas:
 resources:
   models:
     default_llm: &default_llm
-      name: databricks-claude-sonnet-4  # Databricks serving endpoint name
+      name: ${var.llm}                              # Databricks serving endpoint (override via --param llm=...)
 
   vector_stores:
     products_vector_store: &products_vector_store

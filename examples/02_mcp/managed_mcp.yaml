@@ -11,6 +11,12 @@ parameters:
   schema:
     description: Schema within the catalog
     default: hardware_store
+  # Parameterized so the model default is overridable per environment
+  # (e.g. --param llm=databricks-claude-sonnet-5). Default tracks a current GA
+  # Foundation Model API endpoint.
+  llm:
+    description: Chat/reasoning serving endpoint for the MCP agent.
+    default: databricks-claude-sonnet-4-5
 
 variables:
   client_id: &client_id
@@ -42,7 +48,7 @@ resources:
   models:
     default_llm: &default_llm
                                                  # Default LLM configuration
-      name: databricks-claude-3-7-sonnet        # Databricks serving endpoint name
+      name: ${var.llm}                          # serving endpoint (override via --param llm=...)
 
   genie_rooms:
     retail_genie_room: &retail_genie_room
