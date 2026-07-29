@@ -39,12 +39,18 @@ parameters:
   schema:
     description: Schema within the catalog
     default: commerce_swarm
+  vector_search_endpoint:
+    description: Vector Search endpoint hosting the indexes for this app
+    default: dbdemos_vs_endpoint
   warehouse_id:
     description: SQL warehouse ID used for UC trace_location export
     default: d58e5fb998498840
   llm:
     description: Chat/reasoning serving endpoint for all agents (routed via AI Gateway)
-    default: databricks-claude-sonnet-4-6
+    default: databricks-claude-sonnet-5
+  fallback_llm:
+    description: Same-class fallback serving endpoint (one generation back) the primary llm falls back to when unavailable
+    default: databricks-claude-sonnet-4-5
   embedding_model:
     description: Text embedding serving endpoint for Vector Search + memory recall
     default: databricks-gte-large-en
@@ -113,6 +119,8 @@ resources:
       ai_gateway: true
       temperature: 0.1
       max_tokens: 8192
+      fallbacks:
+      - ${var.fallback_llm}
 
     # Background memory extraction — uses fast_llm to avoid competing with foreground
     extraction_llm: &extraction_llm
@@ -141,7 +149,7 @@ resources:
     products_vector_store: &products_vector_store
       embedding_model: *embedding_model
       endpoint:
-        name: dbdemos_vs_endpoint
+        name: ${var.vector_search_endpoint}
         type: STANDARD
       index:
         schema: *retail_schema
@@ -167,7 +175,7 @@ resources:
     faqs_vector_store: &faqs_vector_store
       embedding_model: *embedding_model
       endpoint:
-        name: dbdemos_vs_endpoint
+        name: ${var.vector_search_endpoint}
         type: STANDARD
       index:
         schema: *retail_schema
@@ -188,7 +196,7 @@ resources:
     policies_vector_store: &policies_vector_store
       embedding_model: *embedding_model
       endpoint:
-        name: dbdemos_vs_endpoint
+        name: ${var.vector_search_endpoint}
         type: STANDARD
       index:
         schema: *retail_schema

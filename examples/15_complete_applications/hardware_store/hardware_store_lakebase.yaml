@@ -11,9 +11,12 @@ parameters:
   schema:
     description: Schema within the catalog
     default: hardware_store
+  vector_search_endpoint:
+    description: Vector Search endpoint hosting the indexes for this app
+    default: dbdemos_vs_endpoint
   llm:
     description: Primary chat/tool-calling serving endpoint for agents.
-    default: databricks-claude-sonnet-4-6
+    default: databricks-claude-sonnet-5
   fallback_llm:
     description: Fallback chat serving endpoint when the primary endpoint errors.
     default: databricks-claude-sonnet-4-5
@@ -22,7 +25,7 @@ parameters:
     default: databricks-gpt-oss-120b
   judge_llm:
     description: Serving endpoint used to evaluate/judge responses (guardrails, eval).
-    default: databricks-claude-sonnet-4-5
+    default: databricks-claude-sonnet-5
   embedding_model:
     description: Text embedding serving endpoint for vector search and memory recall.
     default: databricks-gte-large-en
@@ -124,7 +127,7 @@ resources:
       embedding_model: *embedding_model
                                                     # Reference to embedding model above
       endpoint:                                     # Vector search endpoint configuration
-        name: dbdemos_vs_endpoint            # Databricks vector search endpoint
+        name: ${var.vector_search_endpoint}            # Databricks vector search endpoint
         type: STANDARD                              # Endpoint type (STANDARD or OPTIMIZED_STORAGE)
       index:                                        # Vector search index configuration
         schema: *retail_schema

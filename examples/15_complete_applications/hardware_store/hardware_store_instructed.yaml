@@ -11,8 +11,14 @@ parameters:
   schema:
     description: Schema within the catalog
     default: hardware_store
+  vector_search_endpoint:
+    description: Vector Search endpoint hosting the indexes for this app
+    default: dbdemos_vs_endpoint
   llm:
     description: Chat/reasoning serving endpoint (agents, tool-calling, judge).
+    default: databricks-claude-sonnet-5
+  fallback_llm:
+    description: Same-class fallback serving endpoint (one generation back) the primary llm falls back to when unavailable
     default: databricks-claude-sonnet-4-5
   decomposition_llm:
     description: Fast serving endpoint for query decomposition (lower latency).
@@ -60,6 +66,8 @@ resources:
       name: ${var.llm}
       temperature: 0.1
       max_tokens: 8192
+      fallbacks:
+      - ${var.fallback_llm}
 
     # Fast LLM for query decomposition (smaller model = lower latency)
     decomposition_llm: &decomposition_llm
@@ -84,7 +92,7 @@ resources:
     products_vector_store: &products_vector_store
       embedding_model: *embedding_model
       endpoint:
-        name: dbdemos_vs_endpoint
+        name: ${var.vector_search_endpoint}
         type: STANDARD
       index:
         schema: *retail_schema

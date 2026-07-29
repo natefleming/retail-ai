@@ -29,10 +29,15 @@
 #
 # Pair with ``supplier.yaml``. See ``README.md`` for the deploy workflow.
 
+parameters:
+  llm:
+    description: Chat serving endpoint for the procurement officer agent
+    default: databricks-gpt-5-4-mini
+
 resources:
   models:
     procurement_llm: &procurement_llm
-      name: databricks-gpt-5-4-mini
+      name: ${var.llm}
       temperature: 0.1
       max_tokens: 4096
       # OBO on the procurement-side LLM. The Databricks Apps proxy

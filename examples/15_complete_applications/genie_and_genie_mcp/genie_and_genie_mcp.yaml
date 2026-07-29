@@ -14,6 +14,9 @@ parameters:
   genie_space_id:
     description: Databricks Genie space ID
     default: 01f05dd06c421ad6b522bf7a517cf6d2
+  llm:
+    description: Chat/tool-calling serving endpoint for both agents
+    default: databricks-claude-sonnet-5
 
 variables:
   client_id: &client_id
@@ -44,11 +47,11 @@ schemas:
 resources:
   models:
     fast_llm: &fast_llm
-      name: databricks-claude-sonnet-4
+      name: ${var.llm}
       on_behalf_of_user: false
 
     tool_calling_llm: &tool_calling_llm
-      name: databricks-claude-sonnet-4
+      name: ${var.llm}
       on_behalf_of_user: false
 
   genie_rooms:

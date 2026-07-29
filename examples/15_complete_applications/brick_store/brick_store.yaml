@@ -11,12 +11,18 @@ parameters:
   schema:
     description: Schema within the catalog
     default: store_ops
+  vector_search_endpoint:
+    description: Vector Search endpoint hosting the indexes for this app
+    default: dbdemos_vs_endpoint
   llm:
     description: Primary chat/reasoning + tool-calling serving endpoint for the agents
-    default: databricks-claude-sonnet-4-5
+    default: databricks-claude-sonnet-5
   fast_llm:
     description: Fast serving endpoint for supervisor routing, decomposition, and lightweight calls
     default: databricks-gpt-5-4-mini
+  fallback_llm:
+    description: Same-class fallback serving endpoint (one generation back) the primary llm falls back to when unavailable
+    default: databricks-claude-sonnet-4-5
   embedding_model:
     description: Embedding serving endpoint for vector search and memory
     default: databricks-gte-large-en
@@ -115,7 +121,7 @@ resources:
       max_tokens: 4096
       on_behalf_of_user: true
       fallbacks:
-      - ${var.llm}
+      - ${var.fallback_llm}
 
     judge_llm: &judge_llm
       name: ${var.llm}
@@ -141,7 +147,7 @@ resources:
       embedding_model: *embedding_model
       on_behalf_of_user: true
       endpoint:
-        name: dbdemos_vs_endpoint
+        name: ${var.vector_search_endpoint}
         type: STANDARD
       index:
         schema: *brickstore_schema
@@ -170,7 +176,7 @@ resources:
       embedding_model: *embedding_model
       on_behalf_of_user: true
       endpoint:
-        name: dbdemos_vs_endpoint
+        name: ${var.vector_search_endpoint}
         type: STANDARD
       index:
         schema: *brickstore_schema

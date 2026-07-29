@@ -2,7 +2,9 @@
 
 **Production-ready examples combining multiple features**
 
-End-to-end configurations demonstrating best practices for real-world deployments.
+End-to-end configurations demonstrating best practices for real-world deployments. Each
+application lives in its own directory with a dedicated deep-dive README — this page is the
+directory that links to all of them.
 
 ## Architecture Overview
 
@@ -58,267 +60,29 @@ flowchart TB
     style Data fill:#f3e5f5,stroke:#7b1fa2
 ```
 
-## Examples
+## Applications
 
-| File | Pattern | Description |
-|------|---------|-------------|
-| [`hardware_store.yaml`](./hardware_store/hardware_store.yaml) | 👔 Supervisor | Multi-agent supervisor with full features |
-| [`hardware_store_swarm.yaml`](./hardware_store/hardware_store_swarm.yaml) | 🐝 Swarm | Swarm orchestration with handoffs |
-| [`hardware_store_lakebase.yaml`](./hardware_store/hardware_store_lakebase.yaml) | 👔 Supervisor + 🧠 Lakebase | Supervisor with PostgreSQL memory persistence |
-| [`hardware_store_instructed.yaml`](./hardware_store/hardware_store_instructed.yaml) | 🎯 Instructed | Hardware store with instructed retrieval |
-| [`sporting_goods_store.yaml`](./sporting_goods_store/sporting_goods_store.yaml) | 👔 Supervisor + 🧠 Lakebase | Merchandiser 360 multi-agent system for sporting goods lifecycle management |
-| [`procurement_supplier_a2a/`](./procurement_supplier_a2a/) | 🔁 A2A pair | Procurement officer agent calls a wholesale-supplier agent over the Google A2A protocol — two coordinated Databricks Apps deployments |
+Every application below has its own deep-dive README (architecture diagrams, per-agent breakdown,
+data plane, design rationale, deploy steps, and sample prompts). Start with the README, then open
+the config.
 
-## Hardware Store Supervisor Architecture
+| Application | Config(s) | Orchestration | Feature stack | Docs |
+|---|---|---|---|---|
+| **Brick Store** | [`brick_store.yaml`](./brick_store/brick_store.yaml) | 👔 Supervisor · 7 agents | Lakebase memory · Genie · Vector Search · OBO · guardrails + monitoring | [README](./brick_store/README.md) |
+| **Commerce** | [`commerce_supervisor.yaml`](./commerce/commerce_supervisor.yaml) · [`commerce_swarm.yaml`](./commerce/commerce_swarm.yaml) | 👔 Supervisor / 🔁 Pipeline · 10–11 agents | Lakebase memory · 3× Vector Search · MCP · Unity AI Gateway · guardrails (B2B + B2C) | [supervisor](./commerce/commerce_supervisor.README.md) · [swarm](./commerce/commerce_swarm.README.md) |
+| **Deep Research** | [`deep_research.yaml`](./deep_research/deep_research.yaml) | 🐝 Swarm · 6 agents | Genie · Tavily web search · tiered reasoning LLMs | [README](./deep_research/README.md) |
+| **Executive Assistant** | [`executive_assistant.yaml`](./executive_assistant/executive_assistant.yaml) | 🤖 Single agent | Genie · Tavily web search | [README](./executive_assistant/README.md) |
+| **Genie + Genie MCP** | [`genie_and_genie_mcp.yaml`](./genie_and_genie_mcp/genie_and_genie_mcp.yaml) | 👔 Supervisor · 2 agents | Native Genie tool vs. managed Genie **MCP** over the same space | [README](./genie_and_genie_mcp/README.md) |
+| **Genie + Vector Search Hybrid** | [`genie_vector_search_hybrid.yaml`](./genie_vector_search_hybrid/genie_vector_search_hybrid.yaml) | 👔 Supervisor · 2 agents | Structured Genie/SQL path + unstructured Vector Search path | [README](./genie_vector_search_hybrid/README.md) |
+| **Hardware Store** | [`hardware_store.yaml`](./hardware_store/hardware_store.yaml) · [`_instructed`](./hardware_store/hardware_store_instructed.yaml) · [`_swarm`](./hardware_store/hardware_store_swarm.yaml) · [`_lakebase`](./hardware_store/hardware_store_lakebase.yaml) | 👔 Supervisor / 🐝 Swarm · 5–7 agents | Vector Search · instructed retrieval (RRF + FlashRank) · Lakebase · MCP · guardrails · SQL tools + HITL | [README](./hardware_store/README.md) |
+| **Loyalty Offer Personalization** | [`loyalty_offer_personalization.yaml`](./loyalty_offer_personalization/loyalty_offer_personalization.yaml) | 👔 Supervisor · 7 agents | Lakebase memory · Genie · Vector Search · 7 UC SQL functions incl. `ai_query` ranker | [README](./loyalty_offer_personalization/README.md) |
+| **Procurement ↔ Supplier (A2A)** | [`procurement.yaml`](./procurement_supplier_a2a/procurement.yaml) · [`supplier.yaml`](./procurement_supplier_a2a/supplier.yaml) | 🔁 A2A pair · 2 apps | Google A2A protocol · cross-app calls · on-behalf-of-user identity forwarding | [README](./procurement_supplier_a2a/README.md) |
+| **Quick Serve Restaurant** | [`quick_serve_restaurant.yaml`](./quick_serve_restaurant/quick_serve_restaurant.yaml) | 🐝 Swarm · single `barista` | Vector Search over menu · UC SQL functions · in-memory state | [README](./quick_serve_restaurant/README.md) |
+| **Reservations System** | [`reservations_system.yaml`](./reservations_system/reservations_system.yaml) | 👔 Supervisor · 1 agent | Human-in-the-loop confirmation · in-memory checkpointer *(minimal demo)* | [README](./reservations_system/README.md) |
+| **Sporting Goods Store — Merchandiser 360** | [`sporting_goods_store.yaml`](./sporting_goods_store/sporting_goods_store.yaml) · [`_slim`](./sporting_goods_store/sporting_goods_store_slim.yaml) | 👔 Supervisor · 7 agents | Lakebase memory · 2× Genie rooms · Vector Search · guardrails + monitoring | [README](./sporting_goods_store/README.md) |
 
-```mermaid
-%%{init: {'theme': 'base'}}%%
-flowchart TB
-    subgraph User["👤 Customer"]
-        Query["Do you have Dewalt drills?<br/>What's the price and stock?"]
-    end
-
-    subgraph Supervisor["🎯 Supervisor Agent"]
-        Router["Routing LLM<br/>Analyzes request<br/>Routes to specialist"]
-    end
-
-    subgraph Specialists["👷 Specialized Agents"]
-        General["💬 General"]
-        Orders["📋 Orders"]
-        DIY["🔧 DIY"]
-        Product["🛒 Product"]
-        Inventory["📦 Inventory"]
-        Comparison["⚖️ Comparison"]
-        Recommendation["💡 Recommendation"]
-    end
-
-    subgraph Features["✨ Applied Features"]
-        Memory["🧠 Memory"]
-        Middleware["🔒 Middleware"]
-        Guard["🛡️ Guardrails"]
-    end
-
-    Query --> Router
-    Router --> General
-    Router --> Orders
-    Router --> DIY
-    Router --> Product
-    Router --> Inventory
-    Router --> Comparison
-    Router --> Recommendation
-    Specialists --> Features
-
-    style Supervisor fill:#fff3e0,stroke:#e65100
-    style Specialists fill:#e8f5e9,stroke:#2e7d32
-    style Features fill:#e3f2fd,stroke:#1565c0
-```
-
-## Hardware Store Swarm Architecture
-
-```mermaid
-%%{init: {'theme': 'base'}}%%
-flowchart TB
-    subgraph User["👤 Customer"]
-        Query["Compare Dewalt vs Milwaukee drills<br/>Check stock for both"]
-    end
-
-    subgraph Swarm["🐝 Agent Swarm"]
-        General["💬 General<br/>Entry Point"]
-        Orders["📋 Orders"]
-        DIY["🔧 DIY"]
-        Product["🛒 Product"]
-        Inventory["📦 Inventory<br/>Terminal"]
-        Comparison["⚖️ Comparison"]
-        Recommendation["💡 Recommendation"]
-    end
-
-    subgraph Features["✨ Applied Features"]
-        Memory["🧠 Memory"]
-        Middleware["🔒 Swarm Middleware"]
-    end
-
-    Query --> General
-    General -->|handoff| Orders
-    General -->|handoff| DIY
-    General -->|handoff| Product
-    General -->|handoff| Inventory
-    General -->|handoff| Comparison
-    General -->|handoff| Recommendation
-    DIY -->|handoff| Product
-    DIY -->|handoff| Inventory
-    DIY -->|handoff| Recommendation
-    Swarm --> Features
-
-    style General fill:#1565c0,stroke:#0d47a1,color:#fff
-    style Inventory fill:#42BA91,stroke:#00875C
-    style Swarm fill:#e8f5e9,stroke:#2e7d32
-    style Features fill:#e3f2fd,stroke:#1565c0
-```
-
-**Swarm Handoff Configuration:**
-- **General** (blue, entry point): Can handoff to any agent
-- **DIY**: Can handoff to product, inventory, recommendation
-- **Inventory** (green): Terminal agent with no outbound handoffs
-
----
-
-## Sporting Goods Store - Merchandiser 360
-
-A multi-agent system for sporting goods merchandising lifecycle management. Covers the full merchandiser workflow: assortment planning, demand forecasting, purchase orders, pricing strategy, sales analytics, and inventory management across categories like athletic footwear, apparel, team sports, fitness equipment, outdoor/camping, cycling, golf, and accessories.
-
-### Merchandiser 360 Architecture
-
-```mermaid
-%%{init: {'theme': 'base'}}%%
-flowchart TB
-    subgraph User["👤 Merchandiser"]
-        Query["What's the demand forecast<br/>for running shoes next quarter?"]
-    end
-
-    subgraph SupervisorLayer["🎯 Supervisor"]
-        Router["Routing LLM<br/>gpt-5-4-mini<br/>Routes to specialist"]
-    end
-
-    subgraph Specialists["👷 7 Specialized Agents"]
-        Assortment["📊 Assortment<br/>Planning"]
-        Forecasting["📈 Demand<br/>Forecasting"]
-        PurchaseOrder["📋 Purchase<br/>Orders"]
-        Pricing["💲 Pricing<br/>Strategy"]
-        Sales["🏷️ Sales<br/>Analytics"]
-        InventoryAgent["📦 Inventory<br/>Management"]
-        General["💬 General<br/>Assistant"]
-    end
-
-    subgraph MemoryLayer["🧠 Lakebase Persistent Memory"]
-        Checkpointer["Checkpointer"]
-        Store["User Store<br/>per-user namespace"]
-        Extraction["Memory Extraction<br/>user_profile, preference, episode"]
-    end
-
-    subgraph DataLayer["☁️ Databricks Platform"]
-        GenieRooms["🧞 Genie Rooms x2"]
-        UCFunctions["⚙️ UC Functions x6"]
-        VectorSearch["🔍 Vector Search"]
-        Lakebase["🗄️ Lakebase"]
-        LLMs["🧠 LLM Endpoints"]
-    end
-
-    Query --> Router
-    Router --> Assortment
-    Router --> Forecasting
-    Router --> PurchaseOrder
-    Router --> Pricing
-    Router --> Sales
-    Router --> InventoryAgent
-    Router --> General
-    Specialists --> MemoryLayer
-    Specialists --> DataLayer
-
-    style SupervisorLayer fill:#fff3e0,stroke:#e65100
-    style Specialists fill:#e8f5e9,stroke:#2e7d32
-    style MemoryLayer fill:#e3f2fd,stroke:#1565c0
-    style DataLayer fill:#f3e5f5,stroke:#7b1fa2
-```
-
-### Agents
-
-| Agent | Description | Tools |
-|-------|-------------|-------|
-| **Assortment Planning** | Category mix, planogram strategy, seasonal transitions, product lifecycle | Genie (Merchandising Analytics), Vector Search |
-| **Demand Forecasting** | Sales predictions, trend analysis, seasonal demand, stockout risk | Genie (Merchandising Analytics), Current Time |
-| **Purchase Orders** | PO lifecycle, vendor relations, buying decisions, receiving | Genie (Merchandising Analytics), find_inventory_by_sku |
-| **Pricing Strategy** | Markdowns, promotions, competitive pricing, clearance, margin analysis | Genie (Sales & Pricing), find_product_by_sku, find_product_by_upc |
-| **Sales Analytics** | Store comparisons, revenue tracking, department sales, return analysis | Genie (Sales & Pricing), find_inventory_by_sku, Vector Search |
-| **Inventory Management** | Stock levels, replenishment, allocation, store-level availability | find_inventory_by_sku/upc, find_store_inventory_by_sku/upc, Vector Search |
-| **General Assistant** | Product information, store inquiries, general questions | Vector Search |
-
-### Tools and Data Sources
-
-```mermaid
-%%{init: {'theme': 'base'}}%%
-flowchart LR
-    subgraph GenieTools["🧞 Genie Rooms"]
-        G1["Merchandising Analytics<br/>Assortment, demand, POs,<br/>category performance"]
-        G2["Sales & Pricing Analytics<br/>Revenue, margins, promos,<br/>competitive pricing"]
-    end
-
-    subgraph UCTools["⚙️ Unity Catalog Functions"]
-        UC1["find_product_by_sku"]
-        UC2["find_product_by_upc"]
-        UC3["find_inventory_by_sku"]
-        UC4["find_inventory_by_upc"]
-        UC5["find_store_inventory_by_sku"]
-        UC6["find_store_inventory_by_upc"]
-    end
-
-    subgraph VSTools["🔍 Vector Search"]
-        VS1["Product Catalog Search<br/>Hybrid query + Instructed retrieval<br/>Decomposition + Reranking"]
-    end
-
-    subgraph Caching["⚡ Caching Layer"]
-        C1["LRU Cache<br/>capacity: 100, TTL: 1h"]
-        C2["Semantic Cache<br/>similarity: 0.85, TTL: 24h"]
-    end
-
-    GenieTools --> Caching
-
-    style GenieTools fill:#e3f2fd,stroke:#1565c0
-    style UCTools fill:#e8f5e9,stroke:#2e7d32
-    style VSTools fill:#fff3e0,stroke:#e65100
-    style Caching fill:#fce4ec,stroke:#c2185b
-```
-
-### Key Features
-
-- **Lakebase Persistent Memory** -- Checkpointer for conversation state, per-user namespace store, and background memory extraction across three schemas (`user_profile`, `preference`, `episode`). Memories are auto-injected into agent context (limit: 5).
-- **Instructed Retrieval** -- Vector search with query decomposition into up to 3 sub-queries, Reciprocal Rank Fusion (RRF, k=60) for merging, normalized filter case (uppercase), and LLM-based reranking with domain-specific instructions.
-- **Genie Caching** -- Dual-layer caching on both Genie rooms: LRU cache (100 capacity, 1h TTL) plus context-aware semantic cache via Lakebase (0.85 similarity threshold, 24h TTL). Persistent conversation history enabled.
-- **Monitoring** -- Built-in scorers (`safety`, `completeness`, `relevance_to_query`, `tool_call_efficiency`) at 100% sample rate, plus custom guideline scorers at 50% (`merchandising_accuracy`, `tool_usage_quality`, `response_professionalism`).
-- **Reusable Prompts** -- 7 prompts defined as first-class config objects with `environment` and `domain` tags, referenced by the agents via YAML anchors.
-- **Middleware** -- Store number field validation (`store_num`) ensures inventory and sales lookups are scoped to the correct location.
-- **Evaluation** -- 25 auto-generated eval questions with merchandising-specific guidelines covering all 7 agent specializations and multiple user personas (merchandiser, buyer, pricing analyst, store manager, demand planner).
-- **Service Principal** -- Dedicated `retail_consumer_goods_sp` service principal with secrets managed via Unity Catalog scopes.
-- **LLM Fallbacks** -- Tool-calling LLM configured with automatic fallback (`claude-sonnet-4-6` -> `claude-sonnet-4-5`).
-
-### Datasets
-
-| Table | Description |
-|-------|-------------|
-| `products` | Product catalog with SKU, UPC, brand, sport category, pricing, and descriptions |
-| `inventory` | Stock levels across all stores and warehouses |
-| `dim_stores` | Store dimension table with location and attributes |
-| `sales_orders` | Sales transaction history |
-| `purchase_orders` | Purchase order records with vendor and status tracking |
-| `pricing_history` | Historical pricing changes, markdowns, and promotions |
-
-All tables live in `retail_consumer_goods.sporting_goods_store` within Unity Catalog.
-
-### Quick Start
-
-```bash
-# Validate the sporting goods store configuration
-dao-ai validate -c examples/15_complete_applications/sporting_goods_store/sporting_goods_store.yaml
-
-# Run in chat mode
-dao-ai chat -c examples/15_complete_applications/sporting_goods_store/sporting_goods_store.yaml
-
-# Visualize the multi-agent architecture
-dao-ai graph -c examples/15_complete_applications/sporting_goods_store/sporting_goods_store.yaml -o sporting_goods_architecture.png
-
-# Deploy to Databricks
-dao-ai workflow up -c examples/15_complete_applications/sporting_goods_store/sporting_goods_store.yaml
-```
-
-### Sample Prompts
-
-- "What Nike running shoes do we carry?"
-- "What's the demand forecast for running shoes next quarter?"
-- "Show me open purchase orders from Nike"
-- "What are our margin targets for footwear?"
-- "How are trail running shoes performing this month?"
-- "What's the stock level on SKU NKE-RUN-001?"
-
----
+**Orchestration legend:** 👔 Supervisor (hub-and-spoke routing) · 🐝 Swarm (peer handoffs) ·
+🔁 Pipeline / A2A (staged or app-to-app).
 
 ## Feature Integration
 
@@ -460,19 +224,28 @@ app:
 
 ## Quick Start
 
+Every application follows the same lifecycle. Point `-c` at any config above; use `-p` to select
+your Databricks profile. Apps that ship a `data/` + `functions/` directory provision their infra
+with `workflow up`; config-only apps use `agent up`.
+
 ```bash
-# Validate complete application
+# Validate any complete application
 dao-ai validate -c examples/15_complete_applications/hardware_store/hardware_store.yaml
 
-# Run in chat mode
-dao-ai chat -c examples/15_complete_applications/hardware_store/hardware_store.yaml
+# Run in chat mode (local)
+dao-ai chat -c examples/15_complete_applications/hardware_store/hardware_store.yaml -p DEFAULT
 
-# Visualize architecture
+# Visualize the multi-agent architecture
 dao-ai graph -c examples/15_complete_applications/hardware_store/hardware_store.yaml -o architecture.png
 
-# Deploy to Databricks
-dao-ai workflow up -c examples/15_complete_applications/hardware_store/hardware_store.yaml
+# Deploy — provision infra (Vector Search, Lakebase, Genie…) + deploy the agent
+dao-ai workflow up -c examples/15_complete_applications/hardware_store/hardware_store.yaml -p DEFAULT
+
+# Deploy a config-only app (no infra to provision)
+dao-ai agent up -c examples/15_complete_applications/reservations_system/reservations_system.yaml -p DEFAULT
 ```
+
+See each application's README for its exact provisioning path and verification steps.
 
 ## Deployment Options
 

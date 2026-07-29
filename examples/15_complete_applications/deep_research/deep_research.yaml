@@ -1,5 +1,28 @@
 # yaml-language-server: $schema=../../../schemas/model_config_schema.json
 
+# =============================================================================
+# PARAMETERS
+# =============================================================================
+parameters:
+  llm:
+    description: Primary chat/reasoning + tool-calling serving endpoint for the agents
+    default: databricks-claude-sonnet-5
+  fast_llm:
+    description: Fast/cheap serving endpoint for lightweight calls
+    default: databricks-gpt-5-4-mini
+  reasoning_llm:
+    description: Serving endpoint for reasoning-heavy synthesis
+    default: databricks-claude-sonnet-5
+  deep_reasoning_llm:
+    description: Extended-context serving endpoint for the deepest reasoning steps
+    default: databricks-claude-opus-4-6
+  fallback_llm:
+    description: Fallback chat serving endpoint when a primary endpoint is unavailable
+    default: databricks-claude-sonnet-4-5
+  genie_space_id:
+    description: Genie space id for the Executive Research Genie room
+    default: 01f05dd06c421ad6b522bf7a517cf6d2
+
 variables:
   tavily_search_key:
     options:
@@ -15,33 +38,33 @@ schemas:
 resources:
   models:
     default_llm: &default_llm
-      name: databricks-claude-sonnet-4-5
+      name: ${var.llm}
       temperature: 0.1
       max_tokens: 16384
 
     fast_llm:
-      name: databricks-meta-llama-3-1-8b-instruct
+      name: ${var.fast_llm}
       temperature: 0.1
       max_tokens: 8192
 
     tool_calling_llm:
-      name: databricks-claude-sonnet-4-5
+      name: ${var.llm}
       temperature: 0.1
       max_tokens: 16384
       fallbacks:
-      - databricks-claude-sonnet-4
+      - ${var.fallback_llm}
 
     reasoning_llm: &reasoning_llm
-      name: databricks-claude-sonnet-4-5
+      name: ${var.reasoning_llm}
       temperature: 0.2
       max_tokens: 16384
 
     deep_reasoning_llm: &deep_reasoning_llm
-      name: databricks-claude-sonnet-4
+      name: ${var.deep_reasoning_llm}
       temperature: 0.1
       max_tokens: 32768
       fallbacks:
-      - databricks-claude-sonnet-4-5
+      - ${var.llm}
 
   tables:
     employee_performance:
@@ -109,7 +132,7 @@ resources:
     executive_research_genie_room: &executive_research_genie_room
       name: "Executive Research Genie Room"
       description: "A specialized room for deep executive research and analysis"
-      space_id: 01f05dd06c421ad6b522bf7a517cf6d2
+      space_id: ${var.genie_space_id}
 
 tools:
   executive_research_genie_tool: &executive_research_genie_tool
