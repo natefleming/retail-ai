@@ -566,7 +566,13 @@ _STAGING_MARKER = ".dao-ai-generated"
 # plus the state files themselves. A path is ignored if any of its parts is a
 # listed dir, or its name matches a listed file / suffix. Keeps the manifest's
 # stray-file detection from flagging .venv/__pycache__/dist churn as user edits.
-_STAGING_IGNORED_DIRS: set[str] = {".venv", ".databricks", "dist", "__pycache__", ".vscode"}
+_STAGING_IGNORED_DIRS: set[str] = {
+    ".venv",
+    ".databricks",
+    "dist",
+    "__pycache__",
+    ".vscode",
+}
 _STAGING_IGNORED_FILES: set[str] = {
     "bundle_config_schema.json",
     "dao_ai_schema.json",
@@ -1588,19 +1594,28 @@ Examples:
         parents=[_GLOBAL],
     )
     sp_create_parser.add_argument(
-        "-c", "--config", type=str, metavar="FILE",
+        "-c",
+        "--config",
+        type=str,
+        metavar="FILE",
         help="Config file; app.name provides the default service-principal name",
     )
     sp_create_parser.add_argument(
-        "--name", type=str, default=None,
+        "--name",
+        type=str,
+        default=None,
         help="Service-principal display name (default: <app.name>-sp)",
     )
     sp_create_parser.add_argument(
-        "--lifetime", type=str, default=None,
+        "--lifetime",
+        type=str,
+        default=None,
         help="OAuth secret lifetime (e.g. 7776000s); default is the workspace maximum",
     )
     sp_create_parser.add_argument(
-        "--json", action="store_true", help="Emit the result as JSON",
+        "--json",
+        action="store_true",
+        help="Emit the result as JSON",
     )
     _add_var_argument(sp_create_parser)
 
@@ -1611,14 +1626,39 @@ Examples:
         parents=[_GLOBAL],
     )
     sp_store_parser.add_argument(
-        "-c", "--config", type=str, metavar="FILE",
+        "-c",
+        "--config",
+        type=str,
+        metavar="FILE",
         help="Config file; its service_principals block provides default scope + key names",
     )
-    sp_store_parser.add_argument("--client-id", type=str, required=True, help="Service-principal application (client) id")
-    sp_store_parser.add_argument("--client-secret", type=str, required=True, help="Service-principal OAuth client secret")
-    sp_store_parser.add_argument("--scope", type=str, default=None, help="Secret scope (default: from config)")
-    sp_store_parser.add_argument("--client-id-key", type=str, default=None, help="Secret key for the client id (default: from config)")
-    sp_store_parser.add_argument("--client-secret-key", type=str, default=None, help="Secret key for the client secret (default: from config)")
+    sp_store_parser.add_argument(
+        "--client-id",
+        type=str,
+        required=True,
+        help="Service-principal application (client) id",
+    )
+    sp_store_parser.add_argument(
+        "--client-secret",
+        type=str,
+        required=True,
+        help="Service-principal OAuth client secret",
+    )
+    sp_store_parser.add_argument(
+        "--scope", type=str, default=None, help="Secret scope (default: from config)"
+    )
+    sp_store_parser.add_argument(
+        "--client-id-key",
+        type=str,
+        default=None,
+        help="Secret key for the client id (default: from config)",
+    )
+    sp_store_parser.add_argument(
+        "--client-secret-key",
+        type=str,
+        default=None,
+        help="Secret key for the client secret (default: from config)",
+    )
     _add_var_argument(sp_store_parser)
 
     # grant
@@ -1628,15 +1668,24 @@ Examples:
         parents=[_GLOBAL],
     )
     sp_grant_parser.add_argument(
-        "-c", "--config", type=str, required=True, metavar="FILE",
+        "-c",
+        "--config",
+        type=str,
+        required=True,
+        metavar="FILE",
         help="Config file whose resources are granted to the service principal",
     )
     sp_grant_parser.add_argument(
-        "--principal", "--client-id", dest="principal", type=str, default=None,
+        "--principal",
+        "--client-id",
+        dest="principal",
+        type=str,
+        default=None,
         help="Grantee client id (default: config service_principals.client_id)",
     )
     sp_grant_parser.add_argument(
-        "--dry-run", action="store_true",
+        "--dry-run",
+        action="store_true",
         help="Print the grants that would be applied without applying them",
     )
     _add_var_argument(sp_grant_parser)
@@ -1656,22 +1705,51 @@ The client secret is written straight to the secret scope and is never printed.
         parents=[_GLOBAL],
     )
     sp_provision_parser.add_argument(
-        "-c", "--config", type=str, required=True, metavar="FILE",
+        "-c",
+        "--config",
+        type=str,
+        required=True,
+        metavar="FILE",
         help="Config to provision the service principal for",
     )
     sp_provision_parser.add_argument(
-        "--name", type=str, default=None,
+        "--name",
+        type=str,
+        default=None,
         help="Service-principal display name (default: <app.name>-sp)",
     )
     sp_provision_parser.add_argument(
-        "--scope", type=str, default=None,
+        "--scope",
+        type=str,
+        default=None,
         help="Secret scope for the credentials (default: from config, else app name)",
     )
-    sp_provision_parser.add_argument("--client-id-key", type=str, default=None, help="Secret key for the client id (default: from config)")
-    sp_provision_parser.add_argument("--client-secret-key", type=str, default=None, help="Secret key for the client secret (default: from config)")
-    sp_provision_parser.add_argument("--lifetime", type=str, default=None, help="OAuth secret lifetime (e.g. 7776000s)")
-    sp_provision_parser.add_argument("--no-store", action="store_true", help="Skip writing the secret to a scope (print it instead)")
-    sp_provision_parser.add_argument("--no-grant", action="store_true", help="Skip granting the config's resources")
+    sp_provision_parser.add_argument(
+        "--client-id-key",
+        type=str,
+        default=None,
+        help="Secret key for the client id (default: from config)",
+    )
+    sp_provision_parser.add_argument(
+        "--client-secret-key",
+        type=str,
+        default=None,
+        help="Secret key for the client secret (default: from config)",
+    )
+    sp_provision_parser.add_argument(
+        "--lifetime",
+        type=str,
+        default=None,
+        help="OAuth secret lifetime (e.g. 7776000s)",
+    )
+    sp_provision_parser.add_argument(
+        "--no-store",
+        action="store_true",
+        help="Skip writing the secret to a scope (print it instead)",
+    )
+    sp_provision_parser.add_argument(
+        "--no-grant", action="store_true", help="Skip granting the config's resources"
+    )
     _add_var_argument(sp_provision_parser)
 
     chat_parser: ArgumentParser = subparsers.add_parser(

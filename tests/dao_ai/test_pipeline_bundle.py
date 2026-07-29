@@ -509,7 +509,7 @@ class TestGenieProvisioningStaging:
         "  genie_rooms:\n"
         "    room: &room\n"
         "      name: test room\n"
-        "      space_id: \"${var.genie_space_id}\"\n"
+        '      space_id: "${var.genie_space_id}"\n'
         "      warehouse: *wh\n"
         "  llms:\n    m: &m\n      name: databricks-test-llm\n"
         "agents:\n  a: &a\n    name: a\n    description: a\n    model: *m\n    prompt: hi\n"
@@ -522,7 +522,9 @@ class TestGenieProvisioningStaging:
         return p
 
     def _staged_text(self, tmp_path: Path, out_name: str, **from_file_kwargs) -> str:
-        cfg = AppConfig.from_file(str(self._cfg(tmp_path)), initialize=False, **from_file_kwargs)
+        cfg = AppConfig.from_file(
+            str(self._cfg(tmp_path)), initialize=False, **from_file_kwargs
+        )
         out = tmp_path / out_name
         write_pipeline_bundle(cfg, out)
         return (out / "config" / "prov.yaml").read_text()
@@ -568,7 +570,10 @@ class TestGenieProvisioningStaging:
                 return "PROVISIONED_123" if key == "genie_space_id" else default
 
         injected = AppConfig.from_file(
-            staged_path, task_values=_FakeTV(), task_key="provision-genie", initialize=False
+            staged_path,
+            task_values=_FakeTV(),
+            task_key="provision-genie",
+            initialize=False,
         )
         room2 = list(injected.resources.genie_rooms.values())[0]
         assert value_of(room2.space_id) == "PROVISIONED_123"

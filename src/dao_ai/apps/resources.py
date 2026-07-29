@@ -870,9 +870,7 @@ def generate_user_api_scopes(config: AppConfig) -> list[str]:
         if not function.on_behalf_of_user:
             continue
         is_resourceless: bool = (
-            function.genie is True
-            or function.sql is True
-            or function.url is not None
+            function.genie is True or function.sql is True or function.url is not None
         )
         if is_resourceless:
             obo_resources.append(function)

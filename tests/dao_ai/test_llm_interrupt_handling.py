@@ -445,9 +445,7 @@ class TestInterruptParserModelSource:
         return snapshot
 
     @patch("dao_ai.models.ChatDatabricks")
-    def test_threaded_model_is_used_and_no_chatdatabricks_constructed(
-        self, mock_chat
-    ):
+    def test_threaded_model_is_used_and_no_chatdatabricks_constructed(self, mock_chat):
         """When a model is passed, the parser must NOT construct its own
         ChatDatabricks (which would ignore the deployment's configured model).
         """

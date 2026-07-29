@@ -309,7 +309,7 @@ def test_retain_only_parameters_keeps_whitelist() -> None:
     from dao_ai.apps.bundle import _retain_only_parameters
 
     doc = (
-        "parameters:\n  a:\n    default: x\n  genie_space_id:\n    default: \"\"\n"
+        'parameters:\n  a:\n    default: x\n  genie_space_id:\n    default: ""\n'
         "resources:\n  r: 1\n"
     )
     out = _retain_only_parameters(doc, keep={"genie_space_id"})

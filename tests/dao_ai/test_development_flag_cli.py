@@ -272,7 +272,9 @@ class TestEditSafety:
         """
         monkeypatch.setenv("DAO_AI_BUNDLE_DIR", str(tmp_path / "base"))
         d = self._staged(tmp_path)  # src/mine.py present at stamp time
-        (d / "src" / "mine.py").write_text("print('edited')\n")  # edit existing user code
+        (d / "src" / "mine.py").write_text(
+            "print('edited')\n"
+        )  # edit existing user code
         assert cli._staging_dir_has_local_edits(d) is False
         # A dir with no edited generated files + no strays is wiped silently.
         cli._clean_default_staging_dir(
@@ -288,7 +290,9 @@ class TestEditSafety:
         monkeypatch.setenv("DAO_AI_BUNDLE_DIR", str(tmp_path / "base"))
         d = self._staged(tmp_path)
         (d / "resources").mkdir()
-        (d / "resources" / "jobs.yml").write_text("resources: {}\n")  # stray, not in `known`
+        (d / "resources" / "jobs.yml").write_text(
+            "resources: {}\n"
+        )  # stray, not in `known`
         assert cli._staging_dir_has_local_edits(d) is True
         with pytest.raises(SystemExit):
             cli._clean_default_staging_dir(
@@ -627,7 +631,9 @@ class TestConfigVarsForwardedOnlyIfDeclared:
         out = tmp_path / "out"
         out.mkdir()
         # Pre-staged bundle whose databricks.yaml declares `declared_vars`.
-        variables_block = "".join(f"  {name}:\n    description: d\n" for name in declared_vars)
+        variables_block = "".join(
+            f"  {name}:\n    description: d\n" for name in declared_vars
+        )
         (out / "databricks.yaml").write_text(f"variables:\n{variables_block}")
 
         captured: dict[str, list[str]] = {}
@@ -669,7 +675,13 @@ class TestConfigVarsForwardedOnlyIfDeclared:
         extra = self._run_and_capture(
             tmp_path,
             monkeypatch,
-            declared_vars=["config_path", "mode", "development", "dao_ai_dep", "catalog"],
+            declared_vars=[
+                "config_path",
+                "mode",
+                "development",
+                "dao_ai_dep",
+                "catalog",
+            ],
             config_vars={"catalog": "main", "genie_space_id": "01f153"},
         )
         joined = " ".join(extra)

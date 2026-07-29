@@ -2485,9 +2485,7 @@ def test_get_vector_index_self_resolves_endpoint_when_none():
     # Endpoint stamped back onto the model, and get_index called with it.
     assert vector_store.endpoint is not None
     assert vector_store.endpoint.name == "resolved_ep"
-    provider.vsc.get_index.assert_called_once_with(
-        "resolved_ep", "c.s.products_index"
-    )
+    provider.vsc.get_index.assert_called_once_with("resolved_ep", "c.s.products_index")
 
 
 @pytest.mark.unit

@@ -253,8 +253,7 @@ class TestGrantTraceWritesAppSpName:
         with (
             patch("databricks.sdk.WorkspaceClient") as wc,
             patch(
-                "dao_ai.providers.databricks."
-                "_grant_experiment_permissions_to_principal"
+                "dao_ai.providers.databricks._grant_experiment_permissions_to_principal"
             ),
             patch(
                 "dao_ai.providers.databricks."
@@ -279,8 +278,7 @@ class TestGrantTraceWritesAppSpName:
         with (
             patch("databricks.sdk.WorkspaceClient") as wc,
             patch(
-                "dao_ai.providers.databricks."
-                "_grant_experiment_permissions_to_principal"
+                "dao_ai.providers.databricks._grant_experiment_permissions_to_principal"
             ),
             patch(
                 "dao_ai.providers.databricks."

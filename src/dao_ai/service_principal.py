@@ -484,7 +484,9 @@ def _grant_warehouse(w: "WorkspaceClient", principal: str, warehouse_id: str) ->
             )
         ],
     )
-    logger.info("Granted warehouse CAN_USE", principal=principal, warehouse_id=warehouse_id)
+    logger.info(
+        "Granted warehouse CAN_USE", principal=principal, warehouse_id=warehouse_id
+    )
 
 
 def _grant_genie(w: "WorkspaceClient", principal: str, space_id: str) -> None:
@@ -514,7 +516,9 @@ def _grant_genie(w: "WorkspaceClient", principal: str, space_id: str) -> None:
     logger.info("Granted genie CAN_RUN", principal=principal, space_id=space_id)
 
 
-def _grant_experiment(w: "WorkspaceClient", principal: str, experiment_name: str) -> None:
+def _grant_experiment(
+    w: "WorkspaceClient", principal: str, experiment_name: str
+) -> None:
     """Grant CAN_EDIT on an MLflow experiment (reuses the provider helper)."""
     from dao_ai.providers.databricks import (
         _grant_experiment_permissions_to_principal,
@@ -526,7 +530,9 @@ def _grant_experiment(w: "WorkspaceClient", principal: str, experiment_name: str
         _grant_experiment_permissions_to_principal(principal, exp_id)
 
 
-def _grant_serving_endpoint(w: "WorkspaceClient", principal: str, endpoint_name: str) -> None:
+def _grant_serving_endpoint(
+    w: "WorkspaceClient", principal: str, endpoint_name: str
+) -> None:
     """Grant CAN_QUERY on a Model Serving endpoint (best-effort; skip if absent).
 
     Uses ``update_permissions`` (additive), and resolves the endpoint's id from
@@ -540,7 +546,9 @@ def _grant_serving_endpoint(w: "WorkspaceClient", principal: str, endpoint_name:
     try:
         endpoint = w.serving_endpoints.get(name=endpoint_name)
     except Exception:  # noqa: BLE001 — endpoint not deployed yet; skip quietly
-        logger.debug("Serving endpoint not found; skipping grant", endpoint=endpoint_name)
+        logger.debug(
+            "Serving endpoint not found; skipping grant", endpoint=endpoint_name
+        )
         return
 
     endpoint_id = endpoint.id or endpoint_name
@@ -553,7 +561,11 @@ def _grant_serving_endpoint(w: "WorkspaceClient", principal: str, endpoint_name:
             )
         ],
     )
-    logger.info("Granted serving endpoint CAN_QUERY", principal=principal, endpoint=endpoint_name)
+    logger.info(
+        "Granted serving endpoint CAN_QUERY",
+        principal=principal,
+        endpoint=endpoint_name,
+    )
 
 
 # =============================================================================

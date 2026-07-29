@@ -185,9 +185,7 @@ else:
     # ``set_experiment`` is get-or-create, so the eval run + traces always have
     # a home even on the first apps deploy.
     resolved: str | None = (
-        config.app.experiment.resolved_id
-        if config.app.experiment is not None
-        else None
+        config.app.experiment.resolved_id if config.app.experiment is not None else None
     )
     if resolved:
         experiment_id = resolved

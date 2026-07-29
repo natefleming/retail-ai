@@ -225,9 +225,7 @@ def write_mcp_bundle(
         if rendered is not None:
             _write(config_dest, _strip_parameters_block(rendered), register=False)
         elif source_config_path is not None:
-            _write(
-                config_dest, Path(source_config_path).read_text(), register=False
-            )
+            _write(config_dest, Path(source_config_path).read_text(), register=False)
         else:
             logger.warning("mcp.generate.no_source_config — skipping config copy")
 

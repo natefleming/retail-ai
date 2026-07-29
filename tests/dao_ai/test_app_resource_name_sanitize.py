@@ -24,9 +24,7 @@ from dao_ai.config import FunctionModel, TableModel
 class TestUniqueResourceName:
     def test_long_name_truncated_to_30(self) -> None:
         # The exact matrix failure key (34 chars).
-        name = _unique_resource_name(
-            "tbl_3978880469080159_trace_unified", set()
-        )
+        name = _unique_resource_name("tbl_3978880469080159_trace_unified", set())
         assert 2 <= len(name) <= 30
 
     def test_short_name_unchanged(self) -> None:

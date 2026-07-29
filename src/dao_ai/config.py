@@ -11408,8 +11408,10 @@ class AppConfig(BaseModel):
         # 3. Swarm default agent, else 4. first declared agent.
         default_agent: AgentModel = agents[0]
         source: str = "agents[0].model"
-        if orch is not None and orch.swarm and isinstance(
-            orch.swarm.default_agent, AgentModel
+        if (
+            orch is not None
+            and orch.swarm
+            and isinstance(orch.swarm.default_agent, AgentModel)
         ):
             default_agent = orch.swarm.default_agent
             source = "orchestration.swarm.default_agent.model"

@@ -56,7 +56,9 @@ class TestInterruptParserModelResolution:
         assert _resolve(orch, [_agent("a", "agent-model")]) == "chat:pinned-parser"
 
     def test_supervisor_model_used_when_no_override(self) -> None:
-        orch = OrchestrationModel(supervisor=SupervisorModel(model=LLMModel(name="router-model")))
+        orch = OrchestrationModel(
+            supervisor=SupervisorModel(model=LLMModel(name="router-model"))
+        )
         assert _resolve(orch, [_agent("a", "agent-model")]) == "chat:router-model"
 
     def test_swarm_default_agent_model(self) -> None:

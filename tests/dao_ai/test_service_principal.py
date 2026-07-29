@@ -49,7 +49,11 @@ def test_grant_plan_schema_catalog_privileges() -> None:
     assert ("catalog", "cat") in by_target
     assert by_target[("catalog", "cat")].privileges == ["USE_CATALOG"]
     assert ("schema", "cat.sch") in by_target
-    assert by_target[("schema", "cat.sch")].privileges == ["USE_SCHEMA", "SELECT", "EXECUTE"]
+    assert by_target[("schema", "cat.sch")].privileges == [
+        "USE_SCHEMA",
+        "SELECT",
+        "EXECUTE",
+    ]
 
 
 def test_grant_plan_table_and_function_privileges() -> None:
@@ -91,9 +95,7 @@ def test_grant_plan_dedupes_catalog_and_schema() -> None:
 
 
 def test_grant_plan_warehouse_and_serving_endpoint() -> None:
-    from dao_ai.config import ResourcesModel
-
-    from dao_ai.config import AgentModel, InferenceEndpointModel
+    from dao_ai.config import AgentModel, InferenceEndpointModel, ResourcesModel
 
     config = AppConfig(
         resources=ResourcesModel(
@@ -148,9 +150,7 @@ def test_grant_applies_uc_patch_for_schema() -> None:
     # catalog USE_CATALOG + schema USE_SCHEMA/SELECT/EXECUTE via PATCH
     calls = w.api_client.do.call_args_list
     patched = {
-        c.args[1]: c.kwargs["body"]["changes"][0]
-        for c in calls
-        if c.args[0] == "PATCH"
+        c.args[1]: c.kwargs["body"]["changes"][0] for c in calls if c.args[0] == "PATCH"
     }
     assert "/api/2.1/unity-catalog/permissions/catalog/cat" in patched
     schema_body = patched["/api/2.1/unity-catalog/permissions/schema/cat.sch"]
@@ -221,7 +221,10 @@ def test_grant_serving_endpoint_uses_resolved_id_and_additive_update() -> None:
     w.serving_endpoints.set_permissions.assert_not_called()
     w.serving_endpoints.update_permissions.assert_called_once()
     # keyed on the resolved id, not the endpoint name
-    assert w.serving_endpoints.update_permissions.call_args.kwargs["serving_endpoint_id"] == "ep-internal-id"
+    assert (
+        w.serving_endpoints.update_permissions.call_args.kwargs["serving_endpoint_id"]
+        == "ep-internal-id"
+    )
 
 
 def test_grant_serving_endpoint_skips_when_endpoint_absent() -> None:
@@ -300,7 +303,10 @@ def test_store_creates_scope_and_puts_secrets() -> None:
         client_secret="the-secret",
     )
     w.secrets.create_scope.assert_called_once_with(scope="myscope")
-    put_calls = {c.kwargs["key"]: c.kwargs["string_value"] for c in w.secrets.put_secret.call_args_list}
+    put_calls = {
+        c.kwargs["key"]: c.kwargs["string_value"]
+        for c in w.secrets.put_secret.call_args_list
+    }
     assert put_calls == {"CID": "the-id", "CSEC": "the-secret"}
 
 
@@ -379,7 +385,9 @@ def test_default_scope_falls_back_to_catalog() -> None:
 def test_provision_end_to_end_stores_and_grants() -> None:
     w = MagicMock()
     w.service_principals.list.return_value = []
-    w.service_principals.create.return_value = MagicMock(id="9", application_id=PRINCIPAL)
+    w.service_principals.create.return_value = MagicMock(
+        id="9", application_id=PRINCIPAL
+    )
     w.service_principal_secrets_proxy.create.return_value = MagicMock(secret="s3cr3t")
 
     config = AppConfig(
@@ -425,7 +433,9 @@ def test_provision_without_sp_block_requires_explicit_keys() -> None:
 
     w = MagicMock()
     w.service_principals.list.return_value = []
-    w.service_principals.create.return_value = MagicMock(id="9", application_id=PRINCIPAL)
+    w.service_principals.create.return_value = MagicMock(
+        id="9", application_id=PRINCIPAL
+    )
     w.service_principal_secrets_proxy.create.return_value = MagicMock(secret="x")
 
     config = AppConfig(app=_appmodel_no_sp())
@@ -439,7 +449,9 @@ def test_provision_without_sp_block_succeeds_with_explicit_keys() -> None:
     """Explicit --scope/--*-key overrides make provision work on any config."""
     w = MagicMock()
     w.service_principals.list.return_value = []
-    w.service_principals.create.return_value = MagicMock(id="9", application_id=PRINCIPAL)
+    w.service_principals.create.return_value = MagicMock(
+        id="9", application_id=PRINCIPAL
+    )
     w.service_principal_secrets_proxy.create.return_value = MagicMock(secret="x")
 
     config = AppConfig(app=_appmodel_no_sp())
@@ -460,7 +472,9 @@ def test_provision_without_sp_block_succeeds_with_explicit_keys() -> None:
 def test_provision_no_store_no_grant_flags() -> None:
     w = MagicMock()
     w.service_principals.list.return_value = []
-    w.service_principals.create.return_value = MagicMock(id="9", application_id=PRINCIPAL)
+    w.service_principals.create.return_value = MagicMock(
+        id="9", application_id=PRINCIPAL
+    )
     w.service_principal_secrets_proxy.create.return_value = MagicMock(secret="x")
 
     result = provision(
@@ -486,7 +500,9 @@ def test_resolve_secret_target_from_variables_block() -> None:
                 options=[SecretVariableModel(scope="rcg", secret="RETAIL_AI_CLIENT_ID")]
             ),
             "client_secret": CompositeVariableModel(
-                options=[SecretVariableModel(scope="rcg", secret="RETAIL_AI_CLIENT_SECRET")]
+                options=[
+                    SecretVariableModel(scope="rcg", secret="RETAIL_AI_CLIENT_SECRET")
+                ]
             ),
         }
     )
