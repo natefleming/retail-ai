@@ -98,7 +98,7 @@ tools:
   genie_tool: &genie_tool
     name: genie
     function:
-      type: genie  # Tool type: factory function
+      type: genie  # First-class Genie tool
       name: my_genie_tool
       description: Query retail sales, inventory, and store metrics from the Retail AI Genie space
       genie_room: *retail_genie_room
