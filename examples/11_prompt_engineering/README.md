@@ -106,7 +106,7 @@ dao-ai chat -c examples/11_prompt_engineering/reusable_prompts.yaml
 
 - **08_guardrails/** - Reuse prompts for guardrail judges
 - **13_orchestration/** - Apply to multi-agent systems
-- **15_complete_applications/** - Production prompt management
+- **99_complete_applications/** - Production prompt management
 
 ## Related Documentation
 

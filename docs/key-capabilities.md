@@ -455,7 +455,7 @@ genie_tool:
 
 *(AI Search is the current Databricks name; older docs and configs may still call it Vector Search — dao-ai accepts both.)*
 
-> **`lakebase_search` parity (Stage 2, PR A):** the same `rerank` field with identical semantics is now available on `LakebaseRetrieverModel`. Set `rerank: true` for the default FlashRank model or provide a full `RerankParametersModel` — applies uniformly to the retriever's ANN, BM25, or HYBRID output. See [examples/21_lakebase_search/reranked.yaml](../examples/21_lakebase_search/reranked.yaml).
+> **`lakebase_search` parity (Stage 2, PR A):** the same `rerank` field with identical semantics is now available on `LakebaseRetrieverModel`. Set `rerank: true` for the default FlashRank model or provide a full `RerankParametersModel` — applies uniformly to the retriever's ANN, BM25, or HYBRID output. See [examples/20_lakebase_search/reranked.yaml](../examples/20_lakebase_search/reranked.yaml).
 
 **The problem:** AI Search (semantic similarity) is fast but sometimes returns loosely related results. It's like a librarian who quickly grabs 50 books that *might* be relevant.
 
@@ -527,7 +527,7 @@ rerank:
 > → parallel search → RRF merge → instruction rerank → verifier retry loop)
 > is shared via `dao_ai.tools.instructed_pipeline` — both retrievers pass a
 > backend adapter callable. See
-> [examples/21_lakebase_search/instructed.yaml](../examples/21_lakebase_search/instructed.yaml).
+> [examples/20_lakebase_search/instructed.yaml](../examples/20_lakebase_search/instructed.yaml).
 
 **The problem:** Standard AI Search ignores metadata constraints entirely. When a user asks "Milwaukee power drills under $200 from last month", semantic similarity alone can't enforce brand, price, or recency constraints. Queries with multiple intents or exclusions ("cordless tools excluding DeWalt") fare even worse.
 
@@ -648,7 +648,7 @@ instructed:
 
 **Fallback behavior:** If decomposition fails (LLM error, parsing error), the system automatically falls back to standard single-query search, ensuring robustness in production.
 
-**Example configurations:** See [`examples/16_instructed_retriever/`](../examples/16_instructed_retriever/) for complete working examples including basic instructed retrieval and the full pipeline with router and verifier.
+**Example configurations:** See [`examples/15_instructed_retriever/`](../examples/15_instructed_retriever/) for complete working examples including basic instructed retrieval and the full pipeline with router and verifier.
 
 ## 6. Human-in-the-Loop Approvals
 
@@ -1558,7 +1558,7 @@ agents:
 
 **Example configurations:**
 - See [`examples/12_middleware/`](../examples/12_middleware/) for complete examples
-- See [`examples/15_complete_applications/hardware_store/hardware_store.yaml`](../examples/15_complete_applications/hardware_store/hardware_store.yaml) for production usage
+- See [`examples/99_complete_applications/hardware_store/hardware_store.yaml`](../examples/99_complete_applications/hardware_store/hardware_store.yaml) for production usage
 
 ---
 
@@ -2006,7 +2006,7 @@ Each visualization in `custom_outputs.visualizations` has this shape:
 The client matches `message_id` to the response output item `id` and renders
 the spec using [vega-embed](https://github.com/vega/vega-embed).
 
-**Example configuration:** See [`examples/18_visualization/`](../examples/18_visualization/)
+**Example configuration:** See [`examples/17_visualization/`](../examples/17_visualization/)
 
 ---
 
@@ -2075,7 +2075,7 @@ for architecture diagrams, Lakebase schema, streaming retrieve + cursor
 resumption, cancel semantics, connection-pool OAuth refresh, and the
 end-to-end demo notebook.
 
-**Example configuration:** See [`examples/19_background_agents/`](../examples/19_background_agents/)
+**Example configuration:** See [`examples/18_background_agents/`](../examples/18_background_agents/)
 
 ---
 
@@ -2125,8 +2125,8 @@ app:
   the wire mappings, configuration surface, HITL/OBO semantics, task
   store selection, and scope of v0.3 compliance.
 
-**Example:** [`examples/20_a2a_protocol/a2a_minimal.yaml`](../examples/20_a2a_protocol/a2a_minimal.yaml)
-is a deploy-ready, dependency-free A2A agent; [`examples/20_a2a_protocol/client/client.py`](../examples/20_a2a_protocol/client/client.py)
+**Example:** [`examples/19_a2a_protocol/a2a_minimal.yaml`](../examples/19_a2a_protocol/a2a_minimal.yaml)
+is a deploy-ready, dependency-free A2A agent; [`examples/19_a2a_protocol/client/client.py`](../examples/19_a2a_protocol/client/client.py)
 is an end-to-end Python A2A client that exercises agent card, message/send,
 message/stream, and HITL resume.
 

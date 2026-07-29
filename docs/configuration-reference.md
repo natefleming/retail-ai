@@ -1012,7 +1012,7 @@ shared connection pool.
 **Governance** — because `type: sql` inherits the base tool model, it composes with
 `human_in_the_loop:` and `audit:` (e.g. gate a mutating `UPDATE`/`DELETE` behind
 human approval with a signed audit receipt). See
-[`examples/15_complete_applications/hardware_store/hardware_store_lakebase.yaml`](../examples/15_complete_applications/hardware_store/hardware_store_lakebase.yaml)
+[`examples/99_complete_applications/hardware_store/hardware_store_lakebase.yaml`](../examples/99_complete_applications/hardware_store/hardware_store_lakebase.yaml)
 and [`examples/14_basic_tools/sql_tool_example.yaml`](../examples/14_basic_tools/sql_tool_example.yaml).
 
 ## First-Class Agent Tools
@@ -1092,14 +1092,14 @@ tools:
 
 ### `type: a2a` — call an external A2A agent
 
-See [`examples/15_complete_applications/procurement_supplier_a2a/README.md`](../examples/15_complete_applications/procurement_supplier_a2a/README.md) for the full A2A protocol example. Available since v0.1.80.
+See [`examples/99_complete_applications/procurement_supplier_a2a/README.md`](../examples/99_complete_applications/procurement_supplier_a2a/README.md) for the full A2A protocol example. Available since v0.1.80.
 
 ### See Also
 
 - [`examples/10_agent_integrations/app_first_class.yaml`](../examples/10_agent_integrations/app_first_class.yaml)
 - [`examples/10_agent_integrations/serving_endpoint_first_class.yaml`](../examples/10_agent_integrations/serving_endpoint_first_class.yaml)
 - [`examples/10_agent_integrations/README.md`](../examples/10_agent_integrations/README.md) — routing matrix and migration notes
-- [`examples/15_complete_applications/procurement_supplier_a2a/`](../examples/15_complete_applications/procurement_supplier_a2a/) — end-to-end A2A example
+- [`examples/99_complete_applications/procurement_supplier_a2a/`](../examples/99_complete_applications/procurement_supplier_a2a/) — end-to-end A2A example
 
 ---
 

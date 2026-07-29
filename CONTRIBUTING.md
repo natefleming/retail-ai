@@ -85,7 +85,7 @@ src/[industry-example]/             # Core industry-specific code (optional)
 ├── tools.py                         # Industry-specific tools
 └── hooks.py                         # Industry-specific hooks
 
-examples/15_complete_applications/[use-case]/   # Self-contained use-case dir
+examples/99_complete_applications/[use-case]/   # Self-contained use-case dir
 ├── README.md                        # Use-case documentation
 ├── [use-case].yaml                  # dao-ai config (one or more variants)
 ├── functions/                       # UC SQL function DDL, colocated
@@ -116,7 +116,7 @@ For a healthcare industry use case:
 
 2. **Add a self-contained use-case directory with colocated assets:**
    ```
-   examples/15_complete_applications/healthcare/
+   examples/99_complete_applications/healthcare/
    ├── README.md
    ├── healthcare.yaml                      # dao-ai config
    ├── functions/

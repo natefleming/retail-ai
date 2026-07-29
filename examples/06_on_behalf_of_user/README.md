@@ -198,7 +198,7 @@ graph TB
 
 - **07_human_in_the_loop/** - Add user approval workflows
 - **05_memory/** - Per-user conversation history
-- **15_complete_applications/** - Production OBO patterns
+- **99_complete_applications/** - Production OBO patterns
 
 ## Related Documentation
 

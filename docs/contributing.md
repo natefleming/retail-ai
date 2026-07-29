@@ -284,7 +284,7 @@ pytest --cov=dao_ai --cov-report=html tests/
    - `12_middleware/` - Validation, logging, monitoring
    - `13_orchestration/` - Multi-agent coordination patterns
    - `14_basic_tools/` - Simple tool patterns
-   - `15_complete_applications/` - Full-featured, production-ready applications
+   - `99_complete_applications/` - Full-featured, production-ready applications
 
 2. **Use descriptive file names**: `tool_name_variant.yaml` (e.g., `slack_with_threads.yaml`)
 

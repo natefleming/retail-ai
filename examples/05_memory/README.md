@@ -267,7 +267,7 @@ Noted! I'll provide thorough technical details in my responses.
 
 - **13_orchestration/** - Combine with multi-agent patterns
 - **07_human_in_the_loop/** - Stateful approval workflows
-- **15_complete_applications/** - Production memory patterns
+- **99_complete_applications/** - Production memory patterns
 
 ## Related Documentation
 

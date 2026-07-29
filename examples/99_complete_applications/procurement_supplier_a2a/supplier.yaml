@@ -1,0 +1,123 @@
+# yaml-language-server: $schema=../../../../schemas/model_config_schema.json
+#
+# Supplier-side dao-ai app for the A2A procurement <-> supplier demo.
+#
+# Deploys as a Databricks App. A2A endpoints are mounted automatically:
+#   - GET  /.well-known/agent-card.json   Agent Card (used by the procurement app)
+#   - POST /a2a                           A2A JSON-RPC 2.0 (message/send, tasks/*)
+#   - POST /invocations                   MLflow Responses / chat-completions
+#
+# Persona: a wholesale industrial-supply distributor (``Acme Industrial Supply``)
+# answering questions about its catalog, pricing tiers, lead times, MOQs, and
+# stock availability. The catalog is embedded directly in the system prompt so
+# the supplier app is self-contained — no Unity Catalog tables, no Genie rooms,
+# no Vector Search index required. This keeps the demo bootstrap to a single
+# ``dao-ai workflow up`` command per app.
+#
+# Pair with ``procurement.yaml`` (deployed separately). See ``README.md`` in
+# this directory for the end-to-end deployment workflow.
+
+parameters:
+  llm:
+    description: Chat serving endpoint for the supplier agent
+    default: databricks-gpt-5-4-mini
+
+resources:
+  models:
+    # Single supplier-side LLM. ``on_behalf_of_user: true`` routes inference
+    # through the calling user's bearer token (forwarded by the Databricks
+    # Apps proxy as ``x-forwarded-access-token``). When the procurement app
+    # delegates to this app over A2A, the user identity is preserved through
+    # the proxy chain — assuming the procurement-side A2A tool is configured
+    # to forward a user token (see procurement.yaml notes).
+    supplier_llm: &supplier_llm
+      name: ${var.llm}
+      temperature: 0.1
+      max_tokens: 2048
+      on_behalf_of_user: true
+
+agents:
+  supplier_agent: &supplier_agent
+    name: supplier_agent
+    description: >
+      Wholesale-supplier specialist agent for Acme Industrial Supply. Answers
+      questions about catalog SKUs, unit pricing, bulk discount tiers, lead
+      times, MOQs, and current stock availability.
+    model: *supplier_llm
+    prompt: |
+      You are the customer-facing agent for **Acme Industrial Supply**, a
+      wholesale distributor of industrial fasteners, fittings, and tools.
+      You answer procurement-officer questions accurately and concisely.
+
+      # Mock catalog (authoritative — do not invent SKUs)
+
+      | SKU       | Item                              | Unit price | Bulk price (>=500) | Bulk price (>=2000) | Lead time | MOQ | Stock |
+      |-----------|-----------------------------------|-----------:|-------------------:|--------------------:|-----------|----:|------:|
+      | ACM-HB-08 | M8 hex bolt, zinc-plated, 30mm    |     $0.42  |             $0.34  |              $0.28  | 5 days    | 100 | 18,400 |
+      | ACM-HB-10 | M10 hex bolt, zinc-plated, 40mm   |     $0.61  |             $0.49  |              $0.41  | 5 days    | 100 |  9,200 |
+      | ACM-WS-12 | 1/2" stainless flat washer        |     $0.08  |             $0.06  |              $0.05  | 3 days    | 250 | 42,000 |
+      | ACM-LT-25 | 25mm M-class locknut, grade 8     |     $0.55  |             $0.44  |              $0.37  | 7 days    | 100 |  3,150 |
+      | ACM-CP-15 | 1/2" copper compression fitting   |     $1.95  |             $1.62  |              $1.38  | 10 days   |  50 |    640 |
+      | ACM-DR-3  | 3/8" cordless impact driver       |    $189.00 |           $164.00  |            $148.00  | 14 days   |  10 |     72 |
+      | ACM-SK-58 | 58-pc metric socket set, chrome   |     $79.50 |            $68.00  |             $58.50  | 7 days    |  20 |    310 |
+
+      # Response rules
+
+      1. **Only quote from the table above.** If asked about an unknown SKU
+         or item, say so — do not invent SKUs, prices, or lead times.
+      2. Quote the **tier-appropriate price** when a quantity is given.
+         Below 500 units use the unit price; 500-1999 the first bulk tier;
+         >=2000 the second bulk tier.
+      3. Always restate the **SKU, quantity, applied price, lead time, and
+         line-item total** for any quote.
+      4. Flag when a requested quantity is below MOQ or exceeds current
+         stock, and offer the next-best alternative (e.g. partial fill +
+         backorder).
+      5. Keep replies short and structured (bullets or a quote table). No
+         marketing language. You are talking to procurement officers.
+
+app:
+  name: dao-ai-supplier-a2a
+  description: >-
+    Acme Industrial Supply — wholesale supplier-side A2A agent. Paired
+    with the procurement app in this directory; see README.md for
+    deployment.
+  log_level: INFO
+  agents:
+    - *supplier_agent
+  # ``orchestration.memory`` is omitted — this agent has no HITL, no
+  # deep-agent state, and A2A handles multi-turn continuity via
+  # server-side ``context_id`` independent of the LangGraph checkpointer.
+  # ``supplier_llm.on_behalf_of_user: true`` above is what causes the
+  # auto-generated Agent Card to advertise both bearer and oauth2
+  # schemes with the OBO-aware description.
+  #
+  # The ``a2a`` block below is fully optional — every Databricks Apps
+  # deployment exposes A2A by default and auto-derives reasonable
+  # discovery metadata from ``app.name`` / ``app.description`` /
+  # ``agents``. Populated here to demonstrate the full set of override
+  # knobs and to ship a richer Agent Card for discovery clients.
+  a2a:
+    provider:
+      organization: Databricks Field Engineering
+      url: https://github.com/databrickslabs/dao-ai
+    documentation_url: >-
+      https://github.com/databrickslabs/dao-ai/blob/main/examples/99_complete_applications/procurement_supplier_a2a/README.md
+    skills:
+      - id: supplier_agent
+        name: Acme Industrial Supply — Catalog Specialist
+        description: >-
+          Wholesale-supplier specialist for Acme Industrial Supply. Answers
+          procurement-officer questions about catalog SKUs, unit pricing,
+          bulk discount tiers, lead times, MOQs, and live stock availability.
+        tags: [dao-ai, supplier, procurement, catalog, wholesale, fasteners]
+        examples:
+          - Quote 750 units of ACM-HB-08 and confirm lead time.
+          - Is the M10 hex bolt in stock for a 5,000 unit order?
+          - What's the MOQ on the 3/8" cordless impact driver?
+        input_modes: [text/plain, application/json]
+        output_modes: [text/plain, application/json]
+  input_example:
+    messages:
+      - role: user
+        content: "Quote 750 units of ACM-HB-08 and confirm lead time."

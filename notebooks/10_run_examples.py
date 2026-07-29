@@ -104,7 +104,7 @@ from rich import print as pprint
 # Inference examples are colocated with each complete-application config as
 # ``<use-case>/examples.yaml``. Discover the use-case dirs that ship one.
 apps_root: Path = (
-    Path.cwd().parent / "examples" / "15_complete_applications"
+    Path.cwd().parent / "examples" / "99_complete_applications"
 )
 projects: Sequence[str] = sorted(
     item.name

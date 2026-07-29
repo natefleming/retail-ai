@@ -359,7 +359,7 @@ graph TB
 
 - **13_orchestration/** - Compare with supervisor/swarm
 - **12_middleware/** - Apply middleware to sub-agents
-- **15_complete_applications/** - Production patterns
+- **99_complete_applications/** - Production patterns
 
 ## Related Documentation
 

@@ -381,7 +381,7 @@ dao-ai chat -c examples/08_guardrails/guardrails_basic.yaml --log-level DEBUG
 
 - **11_prompt_engineering/** - Reuse guardrail prompts across agents
 - **12_middleware/** - Combine with other middleware
-- **15_complete_applications/** - See guardrails in production
+- **99_complete_applications/** - See guardrails in production
 
 ## Related Documentation
 

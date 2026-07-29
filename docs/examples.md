@@ -10,9 +10,9 @@ The examples follow a natural progression:
 01_getting_started → 02_mcp → 03_reranking → 04_genie → 05_memory 
     → 06_on_behalf_of_user → 07_human_in_the_loop → 08_guardrails → 09_structured_output
     → 10_agent_integrations → 11_prompt_engineering → 12_middleware → 13_orchestration
-    → 14_basic_tools → 15_complete_applications → 16_instructed_retriever
-    → 17_parallel_tools → 18_visualization → 19_background_agents
-    → 20_a2a_protocol → 21_lakebase_search
+    → 14_basic_tools → 99_complete_applications → 15_instructed_retriever
+    → 16_parallel_tools → 17_visualization → 18_background_agents
+    → 19_a2a_protocol → 20_lakebase_search
 ```
 
 Start at `01_getting_started` if you're new, or jump directly to the category that matches your needs.
@@ -52,19 +52,19 @@ Start at `01_getting_started` if you're new, or jump directly to the category th
 
 ### 📊 Visualizations?
 **Charts and graphs:**
-- [`18_visualization/`](../examples/18_visualization/) - Vega-Lite chart generation via `custom_outputs`
+- [`17_visualization/`](../examples/17_visualization/) - Vega-Lite chart generation via `custom_outputs`
 
 ### ⏱️ Background Tasks?
 **Background kickoff + poll/stream retrieval (deep research, multi-tool workflows):**
-- [`19_background_agents/`](../examples/19_background_agents/) - OpenAI Responses API–compatible `/v1/responses` on Apps + `background=true` on Model Serving, backed by Lakebase
+- [`18_background_agents/`](../examples/18_background_agents/) - OpenAI Responses API–compatible `/v1/responses` on Apps + `background=true` on Model Serving, backed by Lakebase
 
 ### 🔎 Retrieval from Lakebase Postgres?
 **ANN / BM25 / hybrid RRF over a Lakebase table (as a sibling of `ai_search`):**
-- [`21_lakebase_search/`](../examples/21_lakebase_search/) - `type: lakebase_search` using the `lakebase_vector` + `lakebase_text` extensions, with filter-operator coverage and a UC OTEL `trace_location` example
+- [`20_lakebase_search/`](../examples/20_lakebase_search/) - `type: lakebase_search` using the `lakebase_vector` + `lakebase_text` extensions, with filter-operator coverage and a UC OTEL `trace_location` example
 
 ### 🏗️ Complete Solutions?
 **Full applications:**
-- [`15_complete_applications/`](../examples/15_complete_applications/) - Executive assistant, research agent, reservation system
+- [`99_complete_applications/`](../examples/99_complete_applications/) - Executive assistant, research agent, reservation system
 
 ---
 
@@ -372,7 +372,7 @@ agents:
 ```
 
 **Real-World Example:**  
-The hardware store application uses store number validation to ensure users provide their store location for inventory lookups. See [`15_complete_applications/hardware_store/hardware_store.yaml`](../examples/15_complete_applications/hardware_store/hardware_store.yaml).
+The hardware store application uses store number validation to ensure users provide their store location for inventory lookups. See [`99_complete_applications/hardware_store/hardware_store.yaml`](../examples/99_complete_applications/hardware_store/hardware_store.yaml).
 
 **Prerequisites:** Basic understanding of agents and prompts  
 **Next:** Learn multi-agent coordination in `13_orchestration/`
@@ -403,11 +403,11 @@ Simple tool integrations for SQL and data operations.
 | `sql_tool_example.yaml` | First-class `type: sql` execution tools for inventory analysis, including a parameterized statement |
 
 **Prerequisites:** Databricks SQL warehouse  
-**Next:** See complete applications in `15_complete_applications/`
+**Next:** See complete applications in `99_complete_applications/`
 
 ---
 
-### 15. Complete Applications [📖 README](../examples/15_complete_applications/README.md)
+### 15. Complete Applications [📖 README](../examples/99_complete_applications/README.md)
 
 Full-featured, production-ready agent applications.
 
@@ -424,7 +424,7 @@ Full-featured, production-ready agent applications.
 
 ---
 
-### 18. Visualization [📖 README](../examples/18_visualization/README.md)
+### 18. Visualization [📖 README](../examples/17_visualization/README.md)
 
 Generate Vega-Lite chart specs from structured data, delivered to clients via `custom_outputs.visualizations`.
 
