@@ -502,7 +502,7 @@ Covers:
 
 ### Live demo notebook
 
-`notebooks/15_background_agents_demo.py` exercises every flow against
+`notebooks/06_background_agents_demo.py` exercises every flow against
 a deployed Apps + Model Serving pair:
 
 1. Sync passthrough (Apps + MS)
@@ -620,7 +620,7 @@ sessions discarded automatically
 ## See also
 
 - Example config: `examples/18_background_agents/background_research.yaml`
-- Full demo notebook: `notebooks/15_background_agents_demo.py`
+- Full demo notebook: `notebooks/06_background_agents_demo.py`
 - Implementation:
   - `src/dao_ai/background/agent.py` — wrapper + background loop
   - `src/dao_ai/background/store.py` — Lakebase schema + CRUD

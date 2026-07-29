@@ -2,7 +2,7 @@
 
 The store is mocked so these tests don't require a live Lakebase/Postgres
 instance. End-to-end coverage against real endpoints lives in
-``notebooks/15_background_agents_demo.py``.
+``notebooks/06_background_agents_demo.py``.
 """
 
 from __future__ import annotations

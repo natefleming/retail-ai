@@ -339,7 +339,7 @@ positive = traces[has_pos]
 ```
 
 For SQL-side analysis, see
-[`notebooks/16_feedback_demo.py`](../notebooks/16_feedback_demo.py) — it
+[`notebooks/07_feedback_demo.py`](../notebooks/07_feedback_demo.py) — it
 registers `mlflow.search_traces` results as a Spark temp view and
 demonstrates `LATERAL VIEW EXPLODE(assessments)` queries for daily
 up/down volume and feedback-by-trace.

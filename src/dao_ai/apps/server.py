@@ -122,14 +122,20 @@ def _mount_background_routes() -> None:
         response_id: str,
         stream: bool = Query(default=False),
         cursor: int = Query(default=0, ge=0),
+        starting_after: int | None = Query(default=None, ge=0),
     ):
+        # The OpenAI Responses API uses `starting_after` as the stream cursor;
+        # dao-ai originally exposed it as `cursor`. Accept both so the stock
+        # OpenAI client (`responses.retrieve(id, stream=True, starting_after=N)`)
+        # resumes correctly, preferring the OpenAI-spec name when supplied.
+        effective_cursor: int = starting_after if starting_after is not None else cursor
         request = ResponsesAgentRequest(input=[])
         _inject_custom_inputs(
             request,
             **{
                 CUSTOM_INPUT_OPERATION: OPERATION_RETRIEVE,
                 CUSTOM_INPUT_RESPONSE_ID: response_id,
-                CUSTOM_INPUT_CURSOR: cursor,
+                CUSTOM_INPUT_CURSOR: effective_cursor,
             },
         )
 
