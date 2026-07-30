@@ -17,9 +17,6 @@ Each asset ships in four files: `name.png` (1x), `name@2x.png` (retina), and `.w
 | `color-palette` | yes | Rebuilt crisp swatch strip |
 | `dao-ai-brand-sheet` | no | Original source sheet |
 
-### `agents/`
-The five specialist agent robots, transparent. Each as `name.png` (robot only) and `name-labeled.png` (robot + name pill): `researcher`, `planner`, `coder`, `writer`, `executor`.
-
 ### `mascots/`
 Transparent mascot poses for callouts: `wand-thumbs-up`, `yaml-scroll` (holding `agents.yaml`), `laptop`, `heart-thumbs-up`.
 
@@ -35,7 +32,7 @@ Die-cut badges, transparent: `lets-build`, `yaml-driven`, `team-of-agents`, `aut
 
 ### `banners/`
 `terminal-banner` — terminal window with tagline and ASCII mascot, rounded corners.
-Feature cards (opaque, rounded corners): `yaml-first`, `python-powered`, `modular-extensible`, `observability`, `community-driven`.
+Feature cards (opaque, rounded corners): `yaml-first`, `python-powered`, `modular-extensible`, `observability`.
 
 ### `diagrams/`
 Documentation diagrams (not derived from the brand sheet), organized by topic:
