@@ -1,10 +1,28 @@
-# DAO: Declarative Agent Orchestration
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/images/brand/logo-lockup-tagline.png">
+    <img src="docs/images/brand/logo-lockup-tagline-lightbg.png" width="480" alt="DAO-ai — Orchestrate. Collaborate. Automate.">
+  </picture>
+</p>
 
-[![Version](https://img.shields.io/badge/version-0.2.4-blue.svg)](CHANGELOG.md)
-[![Python](https://img.shields.io/badge/python-3.11+-green.svg)](https://www.python.org/)
-[![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+<p align="center">
+  <a href="CHANGELOG.md"><img src="https://img.shields.io/badge/version-0.2.4-blue.svg" alt="Version"></a>
+  <a href="https://www.python.org/"><img src="https://img.shields.io/badge/python-3.11+-green.svg" alt="Python"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License"></a>
+</p>
 
-**Production-grade AI agents defined in YAML, powered by LangGraph, deployed on Databricks.**
+<p align="center">
+  <img src="docs/images/hero/main-hero-panel.png" width="640" alt="DAO-ai orchestrator directing a team of specialist agents — researcher, planner, coder, writer, executor">
+</p>
+
+<p align="center"><strong>Production-grade AI agents defined in YAML, powered by LangGraph, deployed on Databricks.</strong></p>
+
+<p align="center">
+  <img src="docs/images/banners/yaml-first.png" height="76" alt="YAML First — configure everything with simple YAML">
+  <img src="docs/images/banners/python-powered.png" height="76" alt="Python Powered — built for developers, by developers">
+  <img src="docs/images/banners/modular-extensible.png" height="76" alt="Modular & Extensible — add your own agents, tools, and capabilities">
+  <img src="docs/images/banners/observability.png" height="76" alt="Observability Built-in — logs, traces, and metrics out of the box">
+</p>
 
 DAO is an **infrastructure-as-code framework** for building, deploying, and managing multi-agent AI systems. Instead of writing boilerplate Python code to wire up agents, tools, and orchestration, you define everything declaratively in YAML configuration files.
 
@@ -20,6 +38,17 @@ agents:
     prompt: |
       You are a product expert. Answer questions about inventory and pricing.
 ```
+
+### 🎓 Learn DAO: Hands-on Workshop
+
+New to DAO? Start with the **[DAO AI Workshop](https://github.com/natefleming/dao-ai-workshop)** — a self-paced, hands-on workshop that takes you from zero to a deployed, governed multi-agent system. Designed for solution architects, data engineers, and analysts, it's organized as **L100 → L200 → L300** with lectures and lab notebooks covering:
+
+- **Tool use** — Unity Catalog SQL functions and managed MCP servers
+- **NL-to-SQL** with Genie Spaces
+- **Vector search**, memory, and chat-history summarization
+- **Prompts + guardrails** and multi-agent orchestration
+
+By the end you'll have built, tested, and deployed a multi-agent system — all defined in YAML and running as a Databricks App.
 
 ### 🎨 Visual Configuration Studio
 
@@ -65,6 +94,10 @@ DAO AI Builder generates valid YAML configurations that work seamlessly with thi
 ---
 
 ## Quick Start
+
+<p align="center">
+  <img src="docs/images/banners/terminal-banner.png" width="560" alt="dao-ai — Orchestrate intelligence. Empower builders. Ship the future.">
+</p>
 
 ### Prerequisites
 
@@ -418,6 +451,8 @@ Full reference: [Parameters (Load-Time Substitution)](docs/configuration-referen
 
 ## Key Features at a Glance
 
+<a href="docs/key-capabilities.md"><img src="docs/images/stickers/team-of-agents.png" align="right" width="120" alt="Team of agents"></a>
+
 DAO provides powerful capabilities for building production-ready AI agents:
 
 | Feature | Description |
@@ -590,6 +625,8 @@ The CLI automatically:
 ---
 
 ## Contributing
+
+<a href="docs/contributing.md"><img src="docs/images/stickers/lets-build.png" align="right" width="110" alt="Let's build"></a>
 
 We welcome contributions! See the [Contributing Guide](docs/contributing.md) for details on:
 

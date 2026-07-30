@@ -1,5 +1,7 @@
 # Architecture
 
+<img src="images/mascots/yaml-scroll.png" align="right" width="130" alt="DAO-ai mascot holding an agents.yaml scroll">
+
 ## How It Works (Simple Explanation)
 
 Think of DAO as a three-layer cake:

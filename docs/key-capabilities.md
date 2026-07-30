@@ -1,5 +1,7 @@
 # Key Capabilities
 
+<img src="images/stickers/team-of-agents.png" align="right" width="130" alt="A team of DAO-ai agents">
+
 These are the powerful features that make DAO production-ready. Don't worry if some seem complex — you can start simple and add these capabilities as you need them.
 
 ## 1. Dual Deployment Targets

@@ -1,4 +1,15 @@
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="../docs/images/brand/logo-lockup.png">
+    <img src="../docs/images/brand/logo-lockup-lightbg.png" width="420" alt="DAO-ai">
+  </picture>
+</p>
+
 # DAO AI Example Configurations
+
+<p align="center">
+  <img src="../docs/images/banners/terminal-banner.png" width="540" alt="dao-ai — Orchestrate intelligence. Empower builders. Ship the future.">
+</p>
 
 Welcome to the DAO AI examples! This directory contains ready-to-use configurations organized in a **numbered, progressive learning path**.
 
