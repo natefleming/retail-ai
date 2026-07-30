@@ -523,7 +523,7 @@ Databricks Apps forwards user identity on `X-Forwarded-User` /
 picks these up automatically. Deployment flow:
 
 ```bash
-uv run dao-ai agent generate --overwrite --development -c my_config.yaml
+uv run dao-ai agent build --overwrite --development -c my_config.yaml
 databricks bundle deploy -p <profile>
 # Critical: link the trace destination BEFORE bundle run.
 uv run dao-ai trace link -c my_config.yaml -p <profile>

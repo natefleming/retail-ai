@@ -66,7 +66,7 @@ everything):
 app:
   name: my_agent
   description: My helpful assistant.
-  # deploy with: dao-ai agent deploy --mode apps
+  # deploy with: dao-ai agent sync --mode apps
   agents:
     - *my_agent
 ```
@@ -79,7 +79,7 @@ To customise:
 app:
   name: my_agent
   description: My helpful assistant.
-  # deploy with: dao-ai agent deploy --mode apps
+  # deploy with: dao-ai agent sync --mode apps
   a2a:
     enabled: true                        # default; set false to skip mounting
     server_url: null                     # default: derive from $DATABRICKS_APP_URL
@@ -250,7 +250,7 @@ agents:
 
 app:
   name: my-app
-  # deploy with: dao-ai agent deploy --mode apps
+  # deploy with: dao-ai agent sync --mode apps
   agents: [...]
   # No a2a block — Agent Card auto-emits oauth2 + bearer
 ```

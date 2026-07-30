@@ -24,8 +24,8 @@ Search, UC functions) already have first-class Databricks MCP surfaces or
 UC exposure; publishing them a second time from a dao-ai MCP server is
 duplicative.
 
-`dao-ai agent generate --mode mcp` bundles a Databricks App that runs the same graph
-`dao-ai agent generate` deploys — but with an MCP entrypoint instead of an
+`dao-ai agent build --mode mcp` bundles a Databricks App that runs the same graph
+`dao-ai agent build` deploys — but with an MCP entrypoint instead of an
 MLflow AgentServer HTTP entrypoint. OBO tokens from the caller flow
 through the graph unchanged: downstream Genie / Vector Search / UC
 function calls run as the caller, not as the App's service principal.
@@ -46,7 +46,7 @@ function calls run as the caller, not as the App's service principal.
 pip install 'dao-ai[mcp]'
 
 # 2. Generate a deploy-ready bundle from your dao-ai config
-dao-ai agent generate \
+dao-ai agent build \
   --mode mcp \
   -c my_agent.yaml \
   -s ./my-agent-mcp \
@@ -78,7 +78,7 @@ Your dao-ai config needs:
 - At least one agent (or an `orchestration.deep_agent` block) — the
   server calls `AppConfig.as_responses_agent()` at boot.
 - Any resources the agent needs (Genie rooms, Vector Search indexes,
-  Lakebase, warehouses, models) — same as `dao-ai agent generate`.
+  Lakebase, warehouses, models) — same as `dao-ai agent build`.
 
 The MCP server prefers `mcp-`-prefixed app names because Databricks
 Multi-Agent Supervisor pattern-matches that prefix when auto-discovering
@@ -141,8 +141,8 @@ Every `tools/call` response is a `CallToolResult` with:
 
 ### Experiment provisioning
 
-`dao-ai agent generate --mode mcp` emits an MLflow experiment resource in the DAB — parity
-with `dao-ai agent generate`. Behaviour:
+`dao-ai agent build --mode mcp` emits an MLflow experiment resource in the DAB — parity
+with `dao-ai agent build`. Behaviour:
 
 - If `config.app.experiment` is set → binds by literal experiment id
   (and if `manage_permissions: false`, requests `CAN_READ` only).
@@ -430,7 +430,7 @@ with **no code changes** in the agent config beyond the usual
 
 ## Deployment artifacts
 
-`dao-ai agent generate --mode mcp` emits:
+`dao-ai agent build --mode mcp` emits:
 
 ```
 output/
@@ -461,12 +461,12 @@ launches the server via module invocation — no console script required.
 
 ### App resource bindings
 
-`dao-ai agent generate --mode mcp` derives App resource bindings via
+`dao-ai agent build --mode mcp` derives App resource bindings via
 `dao_ai.apps.resources.generate_app_resources` and converts them with
 `dao_ai.apps.bundle._convert_to_bundle_resources`. The resulting
 `databricks.yml` declares whatever bindings the agent needs — genie
 space, sql warehouse, postgres, uc securable, serving endpoint, secret —
-identical to what `dao-ai agent generate` emits.
+identical to what `dao-ai agent build` emits.
 
 Lakebase `database_instances` are **not** auto-provisioned. The bundle
 assumes the Lakebase project already exists.
@@ -786,7 +786,7 @@ parent-graph and MCP-side conversation lineage stay aligned.
 - `dao_ai.mcp.agent_tool` — the single-tool registration surface.
 - `dao_ai.mcp.server` — FastAPI + FastMCP entrypoint.
 - `dao_ai.mcp.generate` — `write_mcp_bundle` bundle emission.
-- `dao_ai.apps.bundle.write_bundle` — the `dao-ai agent generate` entry
+- `dao_ai.apps.bundle.write_bundle` — the `dao-ai agent build` entry
   point for the standard AgentServer HTTP deployment. `write_mcp_bundle`
   mirrors its shape.
 - `dao_ai.apps.mcp` — **client** primitives for consuming external MCP

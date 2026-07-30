@@ -794,7 +794,7 @@ Substitution does not recurse. If a substituted value happens to contain `${para
 
 ### Bundle behaviour
 
-When `dao-ai agent generate` writes the deployable Apps bundle, the emitted config YAML has every reference (both `${param.*}` and `${workspace.*}`) substituted to a literal value and the `parameters:` block dropped. The deployed app does not need the original `--param` flags or runtime workspace lookups.
+When `dao-ai agent build` writes the deployable Apps bundle, the emitted config YAML has every reference (both `${param.*}` and `${workspace.*}`) substituted to a literal value and the `parameters:` block dropped. The deployed app does not need the original `--param` flags or runtime workspace lookups.
 
 ---
 

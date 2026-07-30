@@ -17,13 +17,13 @@ Your deployed agent runs on Databricks, accessing Unity Catalog data, calling AI
 
 For developers and architects, here's the detailed view:
 
-![DAO's three-layer architecture: YAML config compiles into the DAO framework, which builds a LangGraph runtime that runs on the Databricks platform](images/dao-architecture-layers.png)
+![DAO's three-layer architecture: YAML config compiles into the DAO framework, which builds a LangGraph runtime that runs on the Databricks platform](images/diagrams/architecture/dao-architecture-layers.png)
 
 ## System-Level Data Flow
 
 This diagram shows how a deployed DAO agent integrates with Databricks services and external systems:
 
-![System-level data flow: how a deployed DAO agent runs on Databricks Model Serving, calls external services via typed tools, and persists state to Lakebase](images/dao-system-dataflow.png)
+![System-level data flow: how a deployed DAO agent runs on Databricks Model Serving, calls external services via typed tools, and persists state to Lakebase](images/diagrams/architecture/dao-system-dataflow.png)
 
 ### Data Flow Explanation
 
@@ -110,7 +110,7 @@ orchestration:
       Route queries to the appropriate specialist agent based on the content.
 ```
 
-![Supervisor orchestration pattern: a single supervisor agent delegates to seven specialist agents and synthesizes results](images/supervisor-pattern.png)
+![Supervisor orchestration pattern: a single supervisor agent delegates to seven specialist agents and synthesizes results](images/diagrams/orchestration-patterns/supervisor-pattern.png)
 
 ### 2. Swarm Pattern
 
@@ -161,7 +161,7 @@ orchestration:
         - escalation_agent              # agentic: LLM can choose to escalate
 ```
 
-![Swarm orchestration pattern: seven peer agents hand off directly, with General as entry point and Inventory as a terminal agent](images/swarm-pattern.png)
+![Swarm orchestration pattern: seven peer agents hand off directly, with General as entry point and Inventory as a terminal agent](images/diagrams/orchestration-patterns/swarm-pattern.png)
 
 #### Handoff constraints (`requires`)
 
@@ -256,7 +256,7 @@ You can mix a cohort with regular single-target handoffs on the same source (age
 
 **Prompt tip:** the LLM decides which siblings to invoke, so tell the source agent explicitly to "call ALL parallel handoff tools in a single turn" when that's the intent. If the LLM invokes a subset, only those run before the join. If it invokes zero, the source terminates and the join does not run.
 
-![Parallel fan-out orchestration pattern: a source agent fires multiple handoff tools in a single LLM turn; LangGraph runs the siblings concurrently in one superstep and the join reducer runs exactly once](images/parallel-fan-out-pattern.png)
+![Parallel fan-out orchestration pattern: a source agent fires multiple handoff tools in a single LLM turn; LangGraph runs the siblings concurrently in one superstep and the join reducer runs exactly once](images/diagrams/orchestration-patterns/parallel-fan-out-pattern.png)
 
 See [`examples/13_orchestration/parallel_fan_out_pattern.yaml`](https://github.com/natefleming/dao-ai/blob/main/examples/13_orchestration/parallel_fan_out_pattern.yaml) for a complete deployable example.
 

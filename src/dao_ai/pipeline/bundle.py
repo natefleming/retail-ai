@@ -31,6 +31,7 @@ or the ``dao-ai`` PyPI package otherwise. There is no pinned ``requirements.txt`
 from __future__ import annotations
 
 import shutil
+from collections.abc import Callable
 from importlib.resources import files
 from pathlib import Path
 from typing import Any
@@ -95,19 +96,49 @@ _PIPELINE_TASKS: tuple[tuple[str, str, tuple[str, ...], dict[str, str]], ...] = 
 )
 
 
-def generate_pipeline_databricks_yaml(config: AppConfig, development: bool) -> str:
-    """Build the ``deploy_job`` bundle ``databricks.yaml`` (dict -> YAML).
+# The single-task DAG for the thin ``dao-ai agent --mode model_serving`` Job
+# bundle: it skips all provisioning (01–05, 07–08) and runs ONLY the deploy-agent
+# notebook, which logs+registers the MLflow model and deploys the serving
+# endpoint. Same notebook the pipeline's ``deploy-agents`` task runs; here it is
+# the only task, so it has no ``depends_on``. ``mode``/``development`` ride the
+# same bundle variables the pipeline uses, so the shared Job deploy driver
+# (``run_databricks_command``) forwards them unchanged.
+_MODEL_SERVING_AGENT_TASKS: tuple[
+    tuple[str, str, tuple[str, ...], dict[str, str]], ...
+] = (
+    (
+        "deploy-agent",
+        "06_deploy_agent.py",
+        (),
+        {"mode": "${var.mode}", "development": "${var.development}"},
+    ),
+)
+
+
+def _build_job_bundle_yaml(
+    config: AppConfig,
+    development: bool,
+    *,
+    tasks_spec: tuple[tuple[str, str, tuple[str, ...], dict[str, str]], ...],
+    default_mode: str,
+    extras_target: str,
+) -> str:
+    """Build a Lakeflow **Job** bundle ``databricks.yaml`` (dict -> YAML).
+
+    Shared by the multi-task provisioning pipeline
+    (:func:`generate_pipeline_databricks_yaml`) and the thin single-task
+    model_serving agent bundle
+    (:func:`generate_model_serving_agent_databricks_yaml`). The variables,
+    serverless environment, per-cloud targets, and sync globs are identical
+    across both; only the task DAG, the ``mode`` variable default, and the
+    extras-resolution target differ.
 
     Programmatic, matching :func:`dao_ai.apps.bundle.generate_databricks_yaml`
-    (both serialize via :func:`dao_ai.apps.bundle.dump_bundle_yaml`). Unlike the
-    App generators this emits a Lakeflow **Job** — the 8-task provisioning DAG —
-    with a per-cloud target (``<app>-<cloud>``) and the four bundle variables the
-    step notebooks read.
-
-    There is no ``artifacts:`` block: the dao-ai wheel is not built at
-    ``bundle deploy`` time. In development mode a pre-built wheel is staged into
-    ``dist/`` (added to ``sync.include`` so the CLI uploads it as a source file);
-    otherwise the notebooks install ``dao-ai`` from PyPI.
+    (both serialize via :func:`dao_ai.apps.bundle.dump_bundle_yaml`). There is no
+    ``artifacts:`` block: the dao-ai wheel is not built at ``bundle deploy`` time.
+    In development mode a pre-built wheel is staged into ``dist/`` (added to
+    ``sync.include`` so the CLI uploads it as a source file); otherwise the
+    notebooks install ``dao-ai`` from PyPI.
     """
     if config.app is None:
         raise ValueError("Config must have an 'app' section to build the bundle.")
@@ -144,12 +175,12 @@ def generate_pipeline_databricks_yaml(config: AppConfig, development: bool) -> s
         from dao_ai.utils import get_installed_packages
 
         required_extras = expand_all(
-            resolve_required_extras_or_all(config, target="pipeline")
+            resolve_required_extras_or_all(config, target=extras_target)
         )
         extra_dep_pins = get_installed_packages(required_extras)
 
     tasks: list[dict[str, Any]] = []
-    for task_key, notebook, depends_on, extra_params in _PIPELINE_TASKS:
+    for task_key, notebook, depends_on, extra_params in tasks_spec:
         task: dict[str, Any] = {"task_key": task_key}
         if depends_on:
             task["depends_on"] = [{"task_key": d} for d in depends_on]
@@ -172,7 +203,7 @@ def generate_pipeline_databricks_yaml(config: AppConfig, development: bool) -> s
             },
             "mode": {
                 "description": "Agent serving mode (model_serving, apps, mcp).",
-                "default": "apps",
+                "default": default_mode,
             },
             "development": {
                 "description": (
@@ -237,11 +268,52 @@ def generate_pipeline_databricks_yaml(config: AppConfig, development: bool) -> s
     return dump_bundle_yaml(bundle)
 
 
-def _materialize_notebooks(staging_dir: Path, overwrite: bool) -> list[str]:
+def generate_pipeline_databricks_yaml(config: AppConfig, development: bool) -> str:
+    """Build the multi-task ``deploy_job`` bundle ``databricks.yaml`` (dict -> YAML).
+
+    Emits the Lakeflow **Job** — the 8-task provisioning DAG — with a per-cloud
+    target (``<app>-<cloud>``) and the five bundle variables the step notebooks
+    read. See :func:`_build_job_bundle_yaml` for the shared bundle shape.
+    """
+    return _build_job_bundle_yaml(
+        config,
+        development,
+        tasks_spec=_PIPELINE_TASKS,
+        default_mode="apps",
+        extras_target="pipeline",
+    )
+
+
+def generate_model_serving_agent_databricks_yaml(
+    config: AppConfig, development: bool
+) -> str:
+    """Build the thin single-task model_serving agent ``databricks.yaml``.
+
+    Same Job bundle shape as the provisioning pipeline
+    (:func:`_build_job_bundle_yaml`), but the DAG is a single ``deploy-agent``
+    task that runs ``06_deploy_agent.py`` to register the MLflow model and deploy
+    the serving endpoint — no ingest/vector-search/lakebase/genie/eval tasks. The
+    ``mode`` variable defaults to ``model_serving`` and extras resolve for the
+    Model Serving target (a leaner serving image than the full pipeline).
+    """
+    return _build_job_bundle_yaml(
+        config,
+        development,
+        tasks_spec=_MODEL_SERVING_AGENT_TASKS,
+        default_mode="model_serving",
+        extras_target="model_serving",
+    )
+
+
+def _materialize_notebooks(
+    staging_dir: Path, overwrite: bool, *, only: set[str] | None = None
+) -> list[str]:
     """Copy the packaged step notebooks into ``<staging_dir>/notebooks/``.
 
     Only the wired ``NN_*.py`` step notebooks are materialized; the package
-    ``__init__.py`` marker is skipped.
+    ``__init__.py`` marker is skipped. When ``only`` is given, restrict to those
+    filenames (the thin model_serving agent bundle stages just
+    ``06_deploy_agent.py``); otherwise materialize every step notebook.
     """
     notebooks_dir = staging_dir / "notebooks"
     notebooks_dir.mkdir(parents=True, exist_ok=True)
@@ -249,6 +321,8 @@ def _materialize_notebooks(staging_dir: Path, overwrite: bool) -> list[str]:
     written: list[str] = []
     for entry in files(_NOTEBOOKS_PKG).iterdir():
         if entry.name == "__init__.py" or not entry.name.endswith(".py"):
+            continue
+        if only is not None and entry.name not in only:
             continue
         if _write_file(
             notebooks_dir / entry.name,
@@ -474,7 +548,9 @@ def _deferred_provided_params(config: AppConfig) -> set[str]:
     }
 
 
-def _staged_config_text(config: AppConfig) -> str | None:
+def _staged_config_text(
+    config: AppConfig, *, defer_provided: bool = True
+) -> str | None:
     """The dao-ai config text to stage for a workflow bundle.
 
     Default: the fully-substituted rendered YAML with the ``parameters:`` block
@@ -484,12 +560,17 @@ def _staged_config_text(config: AppConfig) -> str | None:
     ONLY their declarations, so ``05_provision_genie`` can provision and
     ``06_deploy_agent`` can inject the forwarded id. Returns None if the config
     was not loaded via ``AppConfig.from_file`` (no rendered text available).
+
+    ``defer_provided=False`` bakes every param to a literal (no ``${var.X}``
+    left) — used by the thin model_serving agent bundle, which has no
+    provisioning task to fill deferred values (the CLI asserts all ``provided``
+    params are satisfied before staging), mirroring the Apps bundle.
     """
     rendered: str | None = config._rendered_yaml
     if rendered is None:
         return None
 
-    defer: set[str] = _deferred_provided_params(config)
+    defer: set[str] = _deferred_provided_params(config) if defer_provided else set()
     if not defer:
         return _strip_parameters_block(rendered)
 
@@ -516,17 +597,75 @@ def write_pipeline_bundle(
     overwrite: bool = False,
     development: bool = False,
 ) -> dict[str, str]:
-    """Stage a deployable ``deploy_job`` bundle for ``dao-ai generate-workflow``.
+    """Stage a deployable multi-task ``deploy_job`` bundle for ``dao-ai workflow``.
 
-    Materializes the packaged pipeline assets (``databricks.yaml`` template,
-    step notebooks) plus the resolved dao-ai config into ``staging_dir``, so
+    Thin wrapper over :func:`_write_job_bundle` staging the full 8-task
+    provisioning DAG. See that function for the staging contract.
+    """
+    return _write_job_bundle(
+        config,
+        staging_dir,
+        overwrite=overwrite,
+        development=development,
+        yaml_generator=generate_pipeline_databricks_yaml,
+        notebook_only=None,
+        defer_provided=True,
+        label="Workflow",
+    )
+
+
+def write_model_serving_agent_bundle(
+    config: AppConfig,
+    staging_dir: Path,
+    overwrite: bool = False,
+    development: bool = False,
+) -> dict[str, str]:
+    """Stage the thin single-task model_serving agent ``deploy_job`` bundle.
+
+    The ``dao-ai agent --mode model_serving`` DAB analogue of the Apps/MCP
+    bundles: a Lakeflow Job whose one ``deploy-agent`` task runs
+    ``06_deploy_agent.py`` to register the MLflow model and deploy the serving
+    endpoint. No provisioning tasks and no upstream ``provided``-param filler, so
+    the config is baked fully (``defer_provided=False``, like the Apps bundle);
+    the CLI asserts all ``provided`` params are satisfied before staging.
+    Thin wrapper over :func:`_write_job_bundle`.
+    """
+    return _write_job_bundle(
+        config,
+        staging_dir,
+        overwrite=overwrite,
+        development=development,
+        yaml_generator=generate_model_serving_agent_databricks_yaml,
+        notebook_only={"06_deploy_agent.py"},
+        defer_provided=False,
+        label="Model serving agent",
+    )
+
+
+def _write_job_bundle(
+    config: AppConfig,
+    staging_dir: Path,
+    *,
+    overwrite: bool,
+    development: bool,
+    yaml_generator: Callable[[AppConfig, bool], str],
+    notebook_only: set[str] | None,
+    defer_provided: bool,
+    label: str,
+) -> dict[str, str]:
+    """Stage a deployable Job (``deploy_job``) bundle into ``staging_dir``.
+
+    Shared body for :func:`write_pipeline_bundle` (full provisioning DAG) and
+    :func:`write_model_serving_agent_bundle` (single deploy-agent task). Both
+    materialize the same asset kinds — ``databricks.yaml``, step notebooks, the
+    resolved config, dev wheel, and config-relative data/functions/code — so
     ``databricks bundle deploy/run`` can be invoked from there with no source
     checkout. dao-ai installs via the serverless env's ``dao_ai_dep`` dependency.
 
     Config-referenced ``ddl``/``data`` assets are colocated with the config and
     resolved against its own directory (via ``AppConfig.from_file``), so they
     stage next to the staged config under ``config/`` and resolve identically
-    when the provisioning notebook reloads the staged config.
+    when the notebook reloads the staged config.
 
     Args:
         config: The loaded dao-ai config (via ``AppConfig.from_file`` — the
@@ -534,9 +673,17 @@ def write_pipeline_bundle(
         staging_dir: Directory to stage the bundle into.
         overwrite: Overwrite existing staged files.
         development: When True, stage the current build's dao-ai wheel under
-            ``dist/`` so the step notebooks install *this* code rather than the
+            ``dist/`` so the notebooks install *this* code rather than the
             published PyPI package. When no local wheel/source is available this
             raises rather than silently falling back to PyPI.
+        yaml_generator: Builds the ``databricks.yaml`` text from the config +
+            development flag (the pipeline vs model_serving Job shape).
+        notebook_only: When set, materialize only these step notebooks;
+            otherwise every wired ``NN_*.py`` notebook.
+        defer_provided: Passed to :func:`_staged_config_text` — True keeps
+            deferred ``provided`` params as ``${var.X}`` (pipeline fills them at
+            run time); False bakes every param (model_serving has no filler).
+        label: Human label for the staging summary printout.
 
     Returns the staging registry: ``{relative_posix_path: sha256}`` for the files
     dao-ai *generated* (databricks.yaml, step notebooks). The staged config,
@@ -545,9 +692,7 @@ def write_pipeline_bundle(
     ``.dao-ai-manifest.yaml``.
     """
     if config.app is None:
-        raise ValueError(
-            "Config must have an 'app' section to stage a pipeline bundle."
-        )
+        raise ValueError("Config must have an 'app' section to stage a job bundle.")
 
     staging_dir = staging_dir.resolve()
     staging_dir.mkdir(parents=True, exist_ok=True)
@@ -578,7 +723,7 @@ def write_pipeline_bundle(
     #    mode adds the `dist/*.whl` sync include so the staged wheel uploads.
     _write_file(
         staging_dir / "databricks.yaml",
-        generate_pipeline_databricks_yaml(config, development=development),
+        yaml_generator(config, development),
         overwrite=True,
     )
     written.append("databricks.yaml")
@@ -587,7 +732,9 @@ def write_pipeline_bundle(
     # 2. Step notebooks. (No requirements.txt: the serverless environment
     #    installs dao-ai — which pulls its own transitive deps — via the
     #    ``dao_ai_dep`` dependency, mirroring the Apps deploy paths.)
-    notebook_rels = _materialize_notebooks(staging_dir, overwrite=True)
+    notebook_rels = _materialize_notebooks(
+        staging_dir, overwrite=True, only=notebook_only
+    )
     written.extend(notebook_rels)
     for rel in notebook_rels:
         _register(rel)
@@ -608,7 +755,9 @@ def write_pipeline_bundle(
     elif config_dest.exists() and not overwrite:
         logger.info(f"Skipping {config_filename} (exists; use --overwrite)")
     else:
-        staged_text: str | None = _staged_config_text(config)
+        staged_text: str | None = _staged_config_text(
+            config, defer_provided=defer_provided
+        )
         if staged_text is not None:
             config_dest.write_text(staged_text)
         elif source_config:
@@ -658,7 +807,7 @@ def write_pipeline_bundle(
             wheel_path = find_dev_wheel()
         if not wheel_path:
             raise RuntimeError(
-                "No local dao-ai wheel found for a --development pipeline "
+                f"No local dao-ai wheel found for a --development {label.lower()} "
                 "bundle. Build one first with `uv build --wheel`."
             )
         dist_dir = staging_dir / "dist"
@@ -670,7 +819,7 @@ def write_pipeline_bundle(
         shutil.copy2(wheel_path, dest_wheel)
         written.append(f"dist/{wheel_path.name}")
         logger.info(
-            "Staged dao-ai wheel for development pipeline",
+            f"Staged dao-ai wheel for development {label.lower()} bundle",
             wheel=wheel_path.name,
         )
 
@@ -688,7 +837,7 @@ def write_pipeline_bundle(
     preserved_user_code.extend(cp_preserved)
     preserved_user_code.extend(src_preserved)
 
-    print(f"\nPipeline bundle staged in {staging_dir}/\n")
+    print(f"\n{label} bundle staged in {staging_dir}/\n")
     for name in sorted(written):
         print(f"  {name}")
     for name in sorted(preserved_user_code):

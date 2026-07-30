@@ -194,20 +194,20 @@ print(f"Deployed app: {config.app.name}")
 
 `deploy_agent(target=ServingMode.APPS)` generates the Asset Bundle, uploads source + `pyproject.toml` + `uv.lock` (the Apps build phase runs `uv sync --locked --no-dev`), deploys the app, waits for compute ACTIVE, and (if `app.trace_location:` is set) grants the App SP the OTEL-table permissions.  See [Lab 1 — Your First DAO-AI Agent](https://github.com/natefleming/dao-ai-workshop/tree/main/L100-foundations/lab-01-first-agent) for the shortest working example.
 
-**Path 2 — `dao-ai agent generate` (Asset Bundle you can inspect / edit / check into Git):**
+**Path 2 — `dao-ai agent build` (Asset Bundle you can inspect / edit / check into Git):**
 
 ```bash
-dao-ai agent generate -c config/my_agent.yaml -s ./my-bundle
+dao-ai agent build -c config/my_agent.yaml -s ./my-bundle
 # Optionally hand-edit ./my-bundle, then ship exactly what's on disk (no regeneration):
-dao-ai agent deploy -c config/my_agent.yaml -s ./my-bundle
-dao-ai agent run    -c config/my_agent.yaml -s ./my-bundle
+dao-ai agent sync -c config/my_agent.yaml -s ./my-bundle
+dao-ai agent start    -c config/my_agent.yaml -s ./my-bundle
 # ...or drive the bundle manually
 cd my-bundle
 databricks bundle deploy
 databricks bundle run <app-name>
 ```
 
-`agent generate` writes a complete, deployable Databricks Apps bundle directory (`databricks.yaml`, `app.yaml`, `pyproject.toml`, scaffolding). Useful when you want the bundle under version control, need to hand-tune anything the generator produced, or want to deploy from CI outside of Python. Add `--development` to bundle local dao-ai source instead of the pinned PyPI wheel; add `--overwrite` to overwrite an existing output directory. The strict `deploy`/`run`/`destroy` verbs act on the already-staged bundle without regenerating. Use `--mode mcp` to generate an MCP-server App instead.
+`agent build` writes a complete, deployable Databricks Apps bundle directory (`databricks.yaml`, `app.yaml`, `pyproject.toml`, scaffolding). Useful when you want the bundle under version control, need to hand-tune anything the generator produced, or want to deploy from CI outside of Python. Add `--development` to bundle local dao-ai source instead of the pinned PyPI wheel; add `--overwrite` to overwrite an existing output directory. The strict `sync`/`start`/`down` verbs act on the already-built bundle without rebuilding. Use `--mode mcp` to build an MCP-server App instead.
 
 **Learn more:** [`docs/cli-reference.md`](cli-reference.md) · [`docs/python-api.md`](python-api.md)
 
@@ -762,7 +762,7 @@ app:
 **Deploy flow for Databricks Apps** (bundle path):
 
 ```bash
-dao-ai agent generate -c my_config.yaml -s ./bundle
+dao-ai agent build -c my_config.yaml -s ./bundle
 cd ./bundle
 databricks bundle deploy --target dev -p <profile>
 dao-ai trace link -c ../my_config.yaml -p <profile>               # explicit link step

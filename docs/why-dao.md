@@ -131,7 +131,7 @@ Many teams use **multiple approaches** in their workflow, playing to each platfo
 
 #### Real-World Example: Customer Support System
 
-![DAO, Agent Bricks, and Kasal composing: DAO's orchestration layer calls Agent Bricks specialists and Kasal workflows as first-class tools](images/dao-agent-bricks-kasal-composition.png)
+![DAO, Agent Bricks, and Kasal composing: DAO's orchestration layer calls Agent Bricks specialists and Kasal workflows as first-class tools](images/diagrams/architecture/dao-agent-bricks-kasal-composition.png)
 
 #### Interoperability
 
