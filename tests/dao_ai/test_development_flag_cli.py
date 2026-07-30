@@ -613,28 +613,108 @@ class TestPipelineEmitsDevelopmentVar:
         exec_mock.assert_called_once()
         assert exec_mock.call_args.kwargs["cwd"] == out
 
-    def test_stage_false_errors_when_not_staged(
+    _CFG = (
+        "resources:\n  models:\n    m: &m\n      name: databricks-gpt-5-4-mini\n"
+        "agents:\n  g: &g\n    name: g\n    description: d\n    model: *m\n"
+        "    prompt: p\n"
+        "app:\n  name: stage_only_app\n  agents:\n    - *g\n"
+    )
+
+    def test_stage_false_deploy_auto_builds_when_not_staged(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """`workflow deploy` against an unstaged dir exits with guidance."""
+        """`workflow sync` (stage=False, `bundle deploy`) on an UNSTAGED dir now
+        auto-builds first, then deploys — matching `agent sync`."""
         cfg = tmp_path / "c.yaml"
-        cfg.write_text(
-            "resources:\n  models:\n    m: &m\n      name: databricks-gpt-5-4-mini\n"
-            "agents:\n  g: &g\n    name: g\n    description: d\n    model: *m\n"
-            "    prompt: p\n"
-            "app:\n  name: stage_only_app\n  agents:\n    - *g\n"
-        )
+        cfg.write_text(self._CFG)
+        out = tmp_path / "nonexistent"  # no databricks.yaml on disk
+
+        wrote: dict[str, object] = {}
         monkeypatch.setattr(cli, "_apply_profile_context", lambda p: None)
         monkeypatch.setattr(cli, "detect_cloud_provider", lambda p: "aws")
+        monkeypatch.setattr(
+            "dao_ai.pipeline.bundle.write_pipeline_bundle",
+            lambda *a, **k: wrote.setdefault("wrote", True) or {},
+        )
+        monkeypatch.setattr(cli, "_write_staging_manifest", lambda *a, **k: None)
+        monkeypatch.setattr(cli, "_clean_default_staging_dir", lambda *a, **k: None)
+        exec_mock = patch.object(cli, "_exec_bundle_command").start()
+
+        run_databricks_command(
+            ["bundle", "deploy"],
+            config=str(cfg),
+            staging_dir=str(out),
+            development=False,
+            stage=False,
+        )
+        patch.stopall()
+
+        assert wrote.get("wrote") is True, "unstaged deploy must auto-build"
+        exec_mock.assert_called_once()
+
+    @pytest.mark.parametrize(
+        "command",
+        [
+            ["bundle", "run", "deploy_job"],  # start
+            ["bundle", "destroy", "--auto-approve"],  # down
+        ],
+    )
+    def test_stage_false_start_down_still_error_when_not_staged(
+        self, command: list[str], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """`workflow start`/`down` on an unstaged dir still exit with guidance —
+        only `sync` (bundle deploy) auto-builds; there's nothing to run/destroy."""
+        cfg = tmp_path / "c.yaml"
+        cfg.write_text(self._CFG)
+        monkeypatch.setattr(cli, "_apply_profile_context", lambda p: None)
+        monkeypatch.setattr(cli, "detect_cloud_provider", lambda p: "aws")
+        wrote: dict[str, object] = {}
+        monkeypatch.setattr(
+            "dao_ai.pipeline.bundle.write_pipeline_bundle",
+            lambda *a, **k: wrote.setdefault("wrote", True) or {},
+        )
         with pytest.raises(SystemExit) as exc:
             run_databricks_command(
-                ["bundle", "deploy"],
+                command,
                 config=str(cfg),
                 staging_dir=str(tmp_path / "nonexistent"),
                 development=False,
                 stage=False,
             )
         assert exc.value.code == 1
+        assert "wrote" not in wrote, "start/down must NOT auto-build"
+
+
+@pytest.mark.unit
+class TestWorkflowSyncForwardsSourceFlags:
+    """`workflow sync` parses --development/--overwrite; _exec_workflow_verb must
+    forward them so the auto-build (unstaged deploy) honors them."""
+
+    def test_sync_forwards_development_and_overwrite(self) -> None:
+        opts = parse_args(
+            ["workflow", "sync", "-c", "c.yaml", "--development", "--overwrite"]
+        )
+        captured: dict = {}
+        with patch.object(
+            cli, "run_databricks_command",
+            side_effect=lambda *a, **k: captured.update(k),
+        ):
+            cli._exec_workflow_verb(opts, ["bundle", "deploy"])
+        assert captured["development"] is True
+        assert captured["overwrite"] is True
+        assert captured["stage"] is False
+
+    def test_start_defaults_when_flags_absent(self) -> None:
+        # start doesn't parse the source flags; forwarding must fall back safely.
+        opts = parse_args(["workflow", "start", "-c", "c.yaml"])
+        captured: dict = {}
+        with patch.object(
+            cli, "run_databricks_command",
+            side_effect=lambda *a, **k: captured.update(k),
+        ):
+            cli._exec_workflow_verb(opts, ["bundle", "run", "deploy_job"])
+        assert captured["development"] is None
+        assert captured["overwrite"] is False
 
 
 @pytest.mark.unit

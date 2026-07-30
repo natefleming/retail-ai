@@ -3948,7 +3948,19 @@ def run_databricks_command(
 
         use_local_source: bool = resolve_use_local_source(development)
 
-        if stage:
+        # Auto-build when a `sync` (bundle deploy) lands on an unstaged dir —
+        # matching `agent sync`'s build-if-needed contract (CDK/SAM norm) so a
+        # deploy "just works" from a clean checkout. `start`/`down` still error
+        # on an unstaged dir (nothing to run/destroy), like agent start/down.
+        is_deploy: bool = command is not None and command[:2] == ["bundle", "deploy"]
+        unstaged: bool = not (staging_dir / "databricks.yaml").exists()
+        auto_build: bool = (not stage) and is_deploy and unstaged
+        if stage or auto_build:
+            if auto_build:
+                logger.info(
+                    f"No staged workflow bundle at {staging_dir}; "
+                    f"auto-generating before deploy."
+                )
             # Regenerate the owned default dir cleanly so stale dev artifacts
             # (e.g. dist/ wheels) don't linger across dev/published switches.
             _clean_default_staging_dir(
@@ -3968,8 +3980,8 @@ def run_databricks_command(
             _write_staging_manifest(
                 staging_dir, is_default=is_default_dir, registry=registry or {}
             )
-        elif not (staging_dir / "databricks.yaml").exists():
-            # Standalone sync/start/down on an unstaged dir: nothing to run.
+        elif unstaged:
+            # Standalone start/down on an unstaged dir: nothing to run/destroy.
             logger.error(
                 f"No staged workflow bundle at {staging_dir}. "
                 f"Run `dao-ai workflow build -c {config}"
@@ -4401,7 +4413,14 @@ def handle_workflow_command(options: Namespace) -> None:
 
 
 def _exec_workflow_verb(options: Namespace, command: list[str]) -> None:
-    """Run a bundle verb against an already-staged workflow bundle (no restage)."""
+    """Run a bundle verb against a staged workflow bundle (no forced restage).
+
+    ``stage=False`` so an already-staged bundle deploys in place. A `sync`
+    (``bundle deploy``) on an UNSTAGED dir auto-builds first (see
+    :func:`run_databricks_command`), matching `agent sync`; `start`/`down` still
+    error on an unstaged dir. ``development``/``overwrite`` (parsed only on
+    ``sync``) are forwarded so the auto-build honors them.
+    """
     run_databricks_command(
         command,
         profile=options.profile,
@@ -4410,8 +4429,10 @@ def _exec_workflow_verb(options: Namespace, command: list[str]) -> None:
         cloud=options.cloud,
         dry_run=options.dry_run,
         mode=getattr(options, "mode", None),
+        development=getattr(options, "development", None),
         config_vars=_parse_var_args(options.var),
         staging_dir=options.staging_dir,
+        overwrite=getattr(options, "overwrite", False),
         stage=False,
     )
 
