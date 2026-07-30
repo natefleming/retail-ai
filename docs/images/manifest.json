@@ -1,0 +1,650 @@
+{
+  "source": "brand/dao-ai-brand-sheet.png",
+  "assets": [
+    {
+      "category": "agents",
+      "name": "coder-labeled",
+      "size_1x": [
+        135,
+        180
+      ],
+      "transparent": true,
+      "files": [
+        "agents/coder-labeled.png",
+        "agents/coder-labeled@2x.png",
+        "agents/coder-labeled.webp",
+        "agents/coder-labeled@2x.webp"
+      ]
+    },
+    {
+      "category": "agents",
+      "name": "coder",
+      "size_1x": [
+        127,
+        141
+      ],
+      "transparent": true,
+      "files": [
+        "agents/coder.png",
+        "agents/coder@2x.png",
+        "agents/coder.webp",
+        "agents/coder@2x.webp"
+      ]
+    },
+    {
+      "category": "agents",
+      "name": "executor-labeled",
+      "size_1x": [
+        198,
+        159
+      ],
+      "transparent": true,
+      "files": [
+        "agents/executor-labeled.png",
+        "agents/executor-labeled@2x.png",
+        "agents/executor-labeled.webp",
+        "agents/executor-labeled@2x.webp"
+      ]
+    },
+    {
+      "category": "agents",
+      "name": "executor",
+      "size_1x": [
+        103,
+        137
+      ],
+      "transparent": true,
+      "files": [
+        "agents/executor.png",
+        "agents/executor@2x.png",
+        "agents/executor.webp",
+        "agents/executor@2x.webp"
+      ]
+    },
+    {
+      "category": "agents",
+      "name": "planner-labeled",
+      "size_1x": [
+        116,
+        186
+      ],
+      "transparent": true,
+      "files": [
+        "agents/planner-labeled.png",
+        "agents/planner-labeled@2x.png",
+        "agents/planner-labeled.webp",
+        "agents/planner-labeled@2x.webp"
+      ]
+    },
+    {
+      "category": "agents",
+      "name": "planner",
+      "size_1x": [
+        115,
+        147
+      ],
+      "transparent": true,
+      "files": [
+        "agents/planner.png",
+        "agents/planner@2x.png",
+        "agents/planner.webp",
+        "agents/planner@2x.webp"
+      ]
+    },
+    {
+      "category": "agents",
+      "name": "researcher-labeled",
+      "size_1x": [
+        107,
+        170
+      ],
+      "transparent": true,
+      "files": [
+        "agents/researcher-labeled.png",
+        "agents/researcher-labeled@2x.png",
+        "agents/researcher-labeled.webp",
+        "agents/researcher-labeled@2x.webp"
+      ]
+    },
+    {
+      "category": "agents",
+      "name": "researcher",
+      "size_1x": [
+        105,
+        135
+      ],
+      "transparent": true,
+      "files": [
+        "agents/researcher.png",
+        "agents/researcher@2x.png",
+        "agents/researcher.webp",
+        "agents/researcher@2x.webp"
+      ]
+    },
+    {
+      "category": "agents",
+      "name": "writer-labeled",
+      "size_1x": [
+        122,
+        183
+      ],
+      "transparent": true,
+      "files": [
+        "agents/writer-labeled.png",
+        "agents/writer-labeled@2x.png",
+        "agents/writer-labeled.webp",
+        "agents/writer-labeled@2x.webp"
+      ]
+    },
+    {
+      "category": "agents",
+      "name": "writer",
+      "size_1x": [
+        122,
+        147
+      ],
+      "transparent": true,
+      "files": [
+        "agents/writer.png",
+        "agents/writer@2x.png",
+        "agents/writer.webp",
+        "agents/writer@2x.webp"
+      ]
+    },
+    {
+      "category": "banners",
+      "name": "community-driven",
+      "size_1x": [
+        215,
+        73
+      ],
+      "transparent": true,
+      "files": [
+        "banners/community-driven.png",
+        "banners/community-driven@2x.png",
+        "banners/community-driven.webp",
+        "banners/community-driven@2x.webp"
+      ]
+    },
+    {
+      "category": "banners",
+      "name": "modular-extensible",
+      "size_1x": [
+        252,
+        73
+      ],
+      "transparent": true,
+      "files": [
+        "banners/modular-extensible.png",
+        "banners/modular-extensible@2x.png",
+        "banners/modular-extensible.webp",
+        "banners/modular-extensible@2x.webp"
+      ]
+    },
+    {
+      "category": "banners",
+      "name": "observability",
+      "size_1x": [
+        260,
+        93
+      ],
+      "transparent": true,
+      "files": [
+        "banners/observability.png",
+        "banners/observability@2x.png",
+        "banners/observability.webp",
+        "banners/observability@2x.webp"
+      ]
+    },
+    {
+      "category": "banners",
+      "name": "python-powered",
+      "size_1x": [
+        225,
+        73
+      ],
+      "transparent": true,
+      "files": [
+        "banners/python-powered.png",
+        "banners/python-powered@2x.png",
+        "banners/python-powered.webp",
+        "banners/python-powered@2x.webp"
+      ]
+    },
+    {
+      "category": "banners",
+      "name": "terminal-banner",
+      "size_1x": [
+        550,
+        150
+      ],
+      "transparent": true,
+      "files": [
+        "banners/terminal-banner.png",
+        "banners/terminal-banner@2x.png",
+        "banners/terminal-banner.webp",
+        "banners/terminal-banner@2x.webp"
+      ]
+    },
+    {
+      "category": "banners",
+      "name": "yaml-first",
+      "size_1x": [
+        236,
+        76
+      ],
+      "transparent": true,
+      "files": [
+        "banners/yaml-first.png",
+        "banners/yaml-first@2x.png",
+        "banners/yaml-first.webp",
+        "banners/yaml-first@2x.webp"
+      ]
+    },
+    {
+      "category": "brand",
+      "name": "color-palette",
+      "size_1x": [
+        972,
+        210
+      ],
+      "transparent": true,
+      "files": [
+        "brand/color-palette.png",
+        "brand/color-palette@2x.png",
+        "brand/color-palette.webp",
+        "brand/color-palette@2x.webp"
+      ]
+    },
+    {
+      "category": "brand",
+      "name": "logo-lockup-lightbg",
+      "size_1x": [
+        481,
+        124
+      ],
+      "transparent": true,
+      "files": [
+        "brand/logo-lockup-lightbg.png",
+        "brand/logo-lockup-lightbg@2x.png",
+        "brand/logo-lockup-lightbg.webp",
+        "brand/logo-lockup-lightbg@2x.webp"
+      ]
+    },
+    {
+      "category": "brand",
+      "name": "logo-lockup-tagline-lightbg",
+      "size_1x": [
+        481,
+        163
+      ],
+      "transparent": true,
+      "files": [
+        "brand/logo-lockup-tagline-lightbg.png",
+        "brand/logo-lockup-tagline-lightbg@2x.png",
+        "brand/logo-lockup-tagline-lightbg.webp",
+        "brand/logo-lockup-tagline-lightbg@2x.webp"
+      ]
+    },
+    {
+      "category": "brand",
+      "name": "logo-lockup-tagline",
+      "size_1x": [
+        481,
+        163
+      ],
+      "transparent": true,
+      "files": [
+        "brand/logo-lockup-tagline.png",
+        "brand/logo-lockup-tagline@2x.png",
+        "brand/logo-lockup-tagline.webp",
+        "brand/logo-lockup-tagline@2x.webp"
+      ]
+    },
+    {
+      "category": "brand",
+      "name": "logo-lockup",
+      "size_1x": [
+        481,
+        124
+      ],
+      "transparent": true,
+      "files": [
+        "brand/logo-lockup.png",
+        "brand/logo-lockup@2x.png",
+        "brand/logo-lockup.webp",
+        "brand/logo-lockup@2x.webp"
+      ]
+    },
+    {
+      "category": "brand",
+      "name": "logo-symbol",
+      "size_1x": [
+        166,
+        118
+      ],
+      "transparent": true,
+      "files": [
+        "brand/logo-symbol.png",
+        "brand/logo-symbol@2x.png",
+        "brand/logo-symbol.webp",
+        "brand/logo-symbol@2x.webp"
+      ]
+    },
+    {
+      "category": "hero",
+      "name": "hero-mascot",
+      "size_1x": [
+        458,
+        465
+      ],
+      "transparent": true,
+      "files": [
+        "hero/hero-mascot.png",
+        "hero/hero-mascot@2x.png",
+        "hero/hero-mascot.webp",
+        "hero/hero-mascot@2x.webp"
+      ]
+    },
+    {
+      "category": "hero",
+      "name": "main-hero-panel",
+      "size_1x": [
+        696,
+        735
+      ],
+      "transparent": false,
+      "files": [
+        "hero/main-hero-panel.png",
+        "hero/main-hero-panel@2x.png",
+        "hero/main-hero-panel.webp",
+        "hero/main-hero-panel@2x.webp"
+      ]
+    },
+    {
+      "category": "icons",
+      "name": "dynamic-workflows",
+      "size_1x": [
+        92,
+        80
+      ],
+      "transparent": true,
+      "files": [
+        "icons/dynamic-workflows.png",
+        "icons/dynamic-workflows@2x.png",
+        "icons/dynamic-workflows.webp",
+        "icons/dynamic-workflows@2x.webp"
+      ]
+    },
+    {
+      "category": "icons",
+      "name": "extensible-design",
+      "size_1x": [
+        73,
+        77
+      ],
+      "transparent": true,
+      "files": [
+        "icons/extensible-design.png",
+        "icons/extensible-design@2x.png",
+        "icons/extensible-design.webp",
+        "icons/extensible-design@2x.webp"
+      ]
+    },
+    {
+      "category": "icons",
+      "name": "logo-square-blue",
+      "size_1x": [
+        113,
+        113
+      ],
+      "transparent": true,
+      "files": [
+        "icons/logo-square-blue.png",
+        "icons/logo-square-blue@2x.png",
+        "icons/logo-square-blue.webp",
+        "icons/logo-square-blue@2x.webp"
+      ]
+    },
+    {
+      "category": "icons",
+      "name": "logo-square-purple",
+      "size_1x": [
+        113,
+        113
+      ],
+      "transparent": true,
+      "files": [
+        "icons/logo-square-purple.png",
+        "icons/logo-square-purple@2x.png",
+        "icons/logo-square-purple.webp",
+        "icons/logo-square-purple@2x.webp"
+      ]
+    },
+    {
+      "category": "icons",
+      "name": "mascot-round",
+      "size_1x": [
+        114,
+        114
+      ],
+      "transparent": true,
+      "files": [
+        "icons/mascot-round.png",
+        "icons/mascot-round@2x.png",
+        "icons/mascot-round.webp",
+        "icons/mascot-round@2x.webp"
+      ]
+    },
+    {
+      "category": "icons",
+      "name": "mascot-square",
+      "size_1x": [
+        114,
+        114
+      ],
+      "transparent": true,
+      "files": [
+        "icons/mascot-square.png",
+        "icons/mascot-square@2x.png",
+        "icons/mascot-square.webp",
+        "icons/mascot-square@2x.webp"
+      ]
+    },
+    {
+      "category": "icons",
+      "name": "multi-agent-collaboration",
+      "size_1x": [
+        94,
+        80
+      ],
+      "transparent": true,
+      "files": [
+        "icons/multi-agent-collaboration.png",
+        "icons/multi-agent-collaboration@2x.png",
+        "icons/multi-agent-collaboration.webp",
+        "icons/multi-agent-collaboration@2x.webp"
+      ]
+    },
+    {
+      "category": "icons",
+      "name": "plug-in-everything",
+      "size_1x": [
+        56,
+        77
+      ],
+      "transparent": true,
+      "files": [
+        "icons/plug-in-everything.png",
+        "icons/plug-in-everything@2x.png",
+        "icons/plug-in-everything.webp",
+        "icons/plug-in-everything@2x.webp"
+      ]
+    },
+    {
+      "category": "icons",
+      "name": "secure-local-first",
+      "size_1x": [
+        70,
+        79
+      ],
+      "transparent": true,
+      "files": [
+        "icons/secure-local-first.png",
+        "icons/secure-local-first@2x.png",
+        "icons/secure-local-first.webp",
+        "icons/secure-local-first@2x.webp"
+      ]
+    },
+    {
+      "category": "icons",
+      "name": "tool-code-execution",
+      "size_1x": [
+        79,
+        74
+      ],
+      "transparent": true,
+      "files": [
+        "icons/tool-code-execution.png",
+        "icons/tool-code-execution@2x.png",
+        "icons/tool-code-execution.webp",
+        "icons/tool-code-execution@2x.webp"
+      ]
+    },
+    {
+      "category": "icons",
+      "name": "yaml-driven",
+      "size_1x": [
+        68,
+        80
+      ],
+      "transparent": true,
+      "files": [
+        "icons/yaml-driven.png",
+        "icons/yaml-driven@2x.png",
+        "icons/yaml-driven.webp",
+        "icons/yaml-driven@2x.webp"
+      ]
+    },
+    {
+      "category": "mascots",
+      "name": "heart-thumbs-up",
+      "size_1x": [
+        139,
+        166
+      ],
+      "transparent": true,
+      "files": [
+        "mascots/heart-thumbs-up.png",
+        "mascots/heart-thumbs-up@2x.png",
+        "mascots/heart-thumbs-up.webp",
+        "mascots/heart-thumbs-up@2x.webp"
+      ]
+    },
+    {
+      "category": "mascots",
+      "name": "laptop",
+      "size_1x": [
+        140,
+        159
+      ],
+      "transparent": true,
+      "files": [
+        "mascots/laptop.png",
+        "mascots/laptop@2x.png",
+        "mascots/laptop.webp",
+        "mascots/laptop@2x.webp"
+      ]
+    },
+    {
+      "category": "mascots",
+      "name": "wand-thumbs-up",
+      "size_1x": [
+        125,
+        145
+      ],
+      "transparent": true,
+      "files": [
+        "mascots/wand-thumbs-up.png",
+        "mascots/wand-thumbs-up@2x.png",
+        "mascots/wand-thumbs-up.webp",
+        "mascots/wand-thumbs-up@2x.webp"
+      ]
+    },
+    {
+      "category": "mascots",
+      "name": "yaml-scroll",
+      "size_1x": [
+        135,
+        162
+      ],
+      "transparent": true,
+      "files": [
+        "mascots/yaml-scroll.png",
+        "mascots/yaml-scroll@2x.png",
+        "mascots/yaml-scroll.webp",
+        "mascots/yaml-scroll@2x.webp"
+      ]
+    },
+    {
+      "category": "stickers",
+      "name": "automate-everything",
+      "size_1x": [
+        132,
+        178
+      ],
+      "transparent": true,
+      "files": [
+        "stickers/automate-everything.png",
+        "stickers/automate-everything@2x.png",
+        "stickers/automate-everything.webp",
+        "stickers/automate-everything@2x.webp"
+      ]
+    },
+    {
+      "category": "stickers",
+      "name": "lets-build",
+      "size_1x": [
+        116,
+        160
+      ],
+      "transparent": true,
+      "files": [
+        "stickers/lets-build.png",
+        "stickers/lets-build@2x.png",
+        "stickers/lets-build.webp",
+        "stickers/lets-build@2x.webp"
+      ]
+    },
+    {
+      "category": "stickers",
+      "name": "team-of-agents",
+      "size_1x": [
+        150,
+        181
+      ],
+      "transparent": true,
+      "files": [
+        "stickers/team-of-agents.png",
+        "stickers/team-of-agents@2x.png",
+        "stickers/team-of-agents.webp",
+        "stickers/team-of-agents@2x.webp"
+      ]
+    },
+    {
+      "category": "stickers",
+      "name": "yaml-driven",
+      "size_1x": [
+        123,
+        167
+      ],
+      "transparent": true,
+      "files": [
+        "stickers/yaml-driven.png",
+        "stickers/yaml-driven@2x.png",
+        "stickers/yaml-driven.webp",
+        "stickers/yaml-driven@2x.webp"
+      ]
+    }
+  ]
+}

@@ -163,8 +163,8 @@ additional tools are needed on your development machine.
 All three deploy flows converge on the same runtime behavior:
 
 - `config.deploy_agent(target=ServingMode.APPS)` (programmatic)
-- `dao-ai agent up --mode apps` (CLI — generate → deploy → run in one command)
-- `dao-ai agent generate` + `databricks bundle deploy` (standalone bundle)
+- `dao-ai agent up --mode apps` (CLI — build → sync → start in one command)
+- `dao-ai agent build` + `databricks bundle deploy` (standalone bundle)
 
 Set `app.enable_chat_proxy: false` in your config to deploy without the chat
 UI (backend API only).

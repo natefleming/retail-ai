@@ -30,6 +30,7 @@ from dao_ai.config import (
 from dao_ai.pipeline.bundle import (
     _materialize_notebooks,
     _referenced_asset_paths,
+    generate_model_serving_agent_databricks_yaml,
     generate_pipeline_databricks_yaml,
     write_pipeline_bundle,
 )
@@ -204,6 +205,120 @@ class TestGeneratePipelineDatabricksYaml:
     def test_no_artifacts_block(self) -> None:
         # The dao-ai wheel is never built at bundle-deploy time.
         assert "artifacts" not in self._doc(development=True)
+
+
+# ---------------------------------------------------------------------------
+# Thin model_serving agent Job bundle (single deploy-agent task)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestGenerateModelServingAgentDatabricksYaml:
+    """The thin model_serving agent bundle: same Job shape as the pipeline but a
+    single deploy-agent task and a model_serving default mode."""
+
+    @staticmethod
+    def _config() -> AppConfig:
+        return AppConfig.model_construct(
+            app=_AppStub("ms_agent_app"),
+            datasets=[],
+            unity_catalog_functions=[],
+            tools={},
+            retrievers={},
+            middleware={},
+            memory=None,
+        )
+
+    def _doc(self, development: bool) -> dict:
+        import yaml
+
+        return yaml.safe_load(
+            generate_model_serving_agent_databricks_yaml(
+                self._config(), development=development
+            )
+        )
+
+    def test_single_deploy_agent_task(self) -> None:
+        tasks = self._doc(development=False)["resources"]["jobs"]["deploy_job"]["tasks"]
+        assert len(tasks) == 1, (
+            f"expected one task, got {[t['task_key'] for t in tasks]}"
+        )
+        task = tasks[0]
+        assert task["task_key"] == "deploy-agent"
+        assert (
+            task["notebook_task"]["notebook_path"] == "./notebooks/06_deploy_agent.py"
+        )
+        # A lone task has no upstream dependency.
+        assert "depends_on" not in task
+        params = task["notebook_task"]["base_parameters"]
+        assert params["config-path"] == "${var.config_path}"
+        assert params["mode"] == "${var.mode}"
+        assert params["development"] == "${var.development}"
+
+    def test_mode_variable_defaults_to_model_serving(self) -> None:
+        # So a raw `databricks bundle run` (no --var mode=…) deploys the endpoint.
+        assert self._doc(development=False)["variables"]["mode"]["default"] == (
+            "model_serving"
+        )
+
+    def test_no_app_or_experiment_resource(self) -> None:
+        # It is a Job bundle — no Databricks App / experiment resource blocks
+        # (the deploy notebook creates the experiment at run time).
+        resources = self._doc(development=False)["resources"]
+        assert set(resources) == {"jobs"}
+
+    def test_per_cloud_targets_and_env_spec_shared(self) -> None:
+        doc = self._doc(development=False)
+        assert set(doc["targets"]) == {
+            "ms_agent_app-azure",
+            "ms_agent_app-aws",
+            "ms_agent_app-gcp",
+        }
+        env = doc["resources"]["jobs"]["deploy_job"]["environments"][0]
+        assert env["environment_key"] == "dao-ai-env"
+        assert env["spec"]["dependencies"] == ["${var.dao_ai_dep}"]
+
+    def test_development_includes_wheel_no_artifacts(self) -> None:
+        doc = self._doc(development=True)
+        assert "dist/*.whl" in doc["sync"]["include"]
+        assert "artifacts" not in doc
+
+
+@pytest.mark.unit
+class TestWriteModelServingAgentBundle:
+    """The MS writer stages only the deploy-agent notebook + baked config."""
+
+    @staticmethod
+    def _config(tmp_path: Path) -> AppConfig:
+        cfg = tmp_path / "ms.yaml"
+        cfg.write_text(_MINIMAL_CONFIG)
+        return AppConfig.from_file(str(cfg), initialize=False)
+
+    def test_stages_only_deploy_agent_notebook(self, tmp_path: Path) -> None:
+        from dao_ai.pipeline.bundle import write_model_serving_agent_bundle
+
+        out = tmp_path / "ms_out"
+        registry = write_model_serving_agent_bundle(
+            self._config(tmp_path), out, overwrite=True
+        )
+        staged_notebooks = sorted(p.name for p in (out / "notebooks").glob("*.py"))
+        assert staged_notebooks == ["06_deploy_agent.py"], staged_notebooks
+        # databricks.yaml + the one notebook are the generated (registry) files;
+        # the config is user-editable and excluded from the registry.
+        assert set(registry) == {"databricks.yaml", "notebooks/06_deploy_agent.py"}
+        assert (out / "config" / "ms.yaml").exists()
+
+    def test_baked_config_has_no_parameters_block(self, tmp_path: Path) -> None:
+        # MS has no provisioning task to fill deferred params, so params are baked
+        # (parameters: block stripped) — like the Apps bundle.
+        import yaml
+
+        from dao_ai.pipeline.bundle import write_model_serving_agent_bundle
+
+        out = tmp_path / "ms_out"
+        write_model_serving_agent_bundle(self._config(tmp_path), out, overwrite=True)
+        staged = yaml.safe_load((out / "config" / "ms.yaml").read_text())
+        assert "parameters" not in staged
 
 
 # ---------------------------------------------------------------------------

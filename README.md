@@ -50,7 +50,7 @@ DAO AI Builder generates valid YAML configurations that work seamlessly with thi
 - **[Configuration Reference](docs/configuration-reference.md)** - Complete YAML configuration guide
 - **[Examples](docs/examples.md)** - Ready-to-use example configurations
 - **[A2A Protocol](docs/a2a_protocol.md)** - Google Agent2Agent endpoints on every Apps deployment
-- **[MCP Server](docs/mcp_server.md)** - Expose a dao-ai agent as a single MCP tool via `dao-ai agent generate --mode mcp` — for integrating dao-ai into external agent frameworks (Claude Desktop, Cursor, MAS, ADK, etc.)
+- **[MCP Server](docs/mcp_server.md)** - Expose a dao-ai agent as a single MCP tool via `dao-ai agent build --mode mcp` — for integrating dao-ai into external agent frameworks (Claude Desktop, Cursor, MAS, ADK, etc.)
 - **[Background Agents](docs/background_agents.md)** - kickoff/poll/cancel for multi-minute graph runs
 - **[Auditable Tool Invocations](docs/audit.md)** - Tamper-evident approval receipts + agent-driven audit-trail queries (SOX / SOC2 / HIPAA-ready)
 
@@ -324,15 +324,18 @@ dao-ai agent up -c config/my_agent.yaml --profile aws-field-eng
 dao-ai agent up -c config/my_agent.yaml --profile azure-retail
 ```
 
-> The bundle commands are **verb-under-noun** — `dao-ai <agent|workflow> <up|generate|deploy|run|destroy>`.
-> `up` is the one-command path: generate (if needed) → deploy → run. The granular
-> primitives act on the staged bundle: `generate` stages it (inspect / hand-edit),
-> `deploy` pushes it (`agent deploy` auto-generates if nothing is staged;
-> `workflow deploy` requires a prior `generate`/`up`), `run` starts it, and
-> `destroy` tears it down. Use `--mode mcp` on the `agent` noun to build the
-> MCP-server App instead, or `--mode model_serving` to deploy to a Model Serving
+> The bundle commands are **verb-under-noun** — `dao-ai <agent|workflow> <up|build|sync|start|down>`.
+> The verbs are plain-language names for the DAB lifecycle: `build` **builds** the bundle
+> (inspect / hand-edit), `sync` **pushes** it to the workspace (`bundle deploy` — does not
+> start it; `agent sync` auto-builds if nothing is staged, `workflow sync` requires a
+> prior `build`/`up`), `start` **makes it live** (`bundle run` — no re-sync: starts the
+> app / runs the job), and `down` tears it down. `up` is the idempotent one-command
+> path: build (if unchanged, skipped) → sync (convergent re-sync) → start — safe to
+> re-run. Use `--mode mcp` on the `agent` noun to build the
+> MCP-server App instead, or `--mode model_serving` for a Model Serving
 > endpoint. The old flat `generate-agent`, `generate-mcp`, `generate-workflow`, and
-> `dao-ai mcp` commands — and the one-shot `generate --deploy/--run` flags — have been
+> `dao-ai mcp` commands — the pre-v3 `generate/deploy/run/destroy` verbs — and the
+> one-shot `generate --deploy/--run` flags — have been
 > removed. See the [migration table](docs/cli-reference.md#migration-from-pre-v2-cli).
 
 **Step 5: Interact with your agent**
@@ -443,7 +446,7 @@ DAO provides powerful capabilities for building production-ready AI agents:
 
 ## Architecture Overview
 
-![DAO's three-layer architecture: YAML config compiles into the DAO framework, which builds a LangGraph runtime that runs on the Databricks platform](docs/images/dao-architecture-layers.png)
+![DAO's three-layer architecture: YAML config compiles into the DAO framework, which builds a LangGraph runtime that runs on the Databricks platform](docs/images/diagrams/architecture/dao-architecture-layers.png)
 
 👉 **Learn more:** [Architecture Documentation](docs/architecture.md)
 
@@ -481,7 +484,7 @@ dao-ai graph -c config/my_config.yaml -o workflow.png
 # Generate + deploy + start a Databricks Apps bundle in one command
 dao-ai agent up -c config/my_config.yaml -p <profile>
 
-# Provision backing infra (Vector Search, Lakebase, Genie…) then deploy the agent
+# Provision backing infra (Vector Search, Lakebase, Genie…) then deploy + run the agent
 dao-ai workflow up -c config/my_config.yaml
 
 # Deploy to a specific workspace (multi-cloud support)
@@ -489,7 +492,7 @@ dao-ai agent up -c config/my_config.yaml --profile aws-field-eng
 dao-ai agent up -c config/my_config.yaml --profile azure-retail
 
 # Re-deploy the already-staged bundle without regenerating (retry a transient failure)
-dao-ai agent deploy -c config/my_config.yaml -p <profile>
+dao-ai agent sync -c config/my_config.yaml -p <profile>
 
 # Interactive chat with agent
 dao-ai chat -c config/my_config.yaml
@@ -500,21 +503,21 @@ dao-ai parameters list -c config/my_config.yaml --param catalog=nfleming
 
 ### Deploying to Databricks Apps
 
-`dao-ai agent generate` produces a deploy-ready Databricks Apps bundle: `databricks.yaml`, the app resource YAML (with the agent's UC resource wiring), a `pyproject.toml`, a portable `uv.lock`, and a copy of your config. The Apps build phase installs dependencies by running `uv sync --locked --no-dev` from the pyproject + lock (no `requirements.txt` — it would take precedence and force the slower pip path). The lock's internal-mirror URLs are rewritten to the public CDN so it resolves from Apps containers.
+`dao-ai agent build` produces a deploy-ready Databricks Apps bundle: `databricks.yaml`, the app resource YAML (with the agent's UC resource wiring), a `pyproject.toml`, a portable `uv.lock`, and a copy of your config. The Apps build phase installs dependencies by running `uv sync --locked --no-dev` from the pyproject + lock (no `requirements.txt` — it would take precedence and force the slower pip path). The lock's internal-mirror URLs are rewritten to the public CDN so it resolves from Apps containers.
 
-The simplest path is `up` (generate + `bundle deploy` + trace-link/grant + `bundle run`):
+The simplest path is `up` (build + `bundle deploy` + trace-link/grant + `bundle run`):
 
 ```bash
 dao-ai agent up -c config/my_config.yaml -p <profile>
 ```
 
-Or generate first, optionally hand-edit the staged files, then ship exactly what's on disk with the `deploy` verb, and start it with `run`:
+Or build first, optionally hand-edit the staged files, then ship exactly what's on disk with the `sync` verb, and make it live with `start`:
 
 ```bash
-dao-ai agent generate -c config/my_config.yaml -s ./my-bundle
+dao-ai agent build -c config/my_config.yaml -s ./my-bundle
 # (optionally hand-edit ./my-bundle)
-dao-ai agent deploy -c config/my_config.yaml -s ./my-bundle -p <profile>
-dao-ai agent run    -c config/my_config.yaml -s ./my-bundle -p <profile>
+dao-ai agent sync -c config/my_config.yaml -s ./my-bundle -p <profile>
+dao-ai agent start    -c config/my_config.yaml -s ./my-bundle -p <profile>
 
 # ...or drive the bundle by hand
 cd ./my-bundle

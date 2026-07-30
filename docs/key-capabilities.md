@@ -41,12 +41,12 @@ app:
 
 **Deploy to Model Serving:**
 ```bash
-dao-ai agent deploy -c config.yaml --mode model_serving
+dao-ai agent sync -c config.yaml --mode model_serving
 ```
 
 **Deploy to Databricks Apps:**
 ```bash
-dao-ai agent deploy -c config.yaml --mode apps
+dao-ai agent sync -c config.yaml --mode apps
 ```
 
 **CLI override:** The `--mode` flag selects the serving target at deploy time (default: `apps`).
@@ -290,7 +290,7 @@ genie_tool:
 
 ### Cache Architecture
 
-![Two-tier cache before Genie: L1 in-memory LRU cache, then L2 pg_vector context-aware cache, then Genie NL→SQL fallback — every path executes fresh SQL against the warehouse](images/genie-cache-hierarchy.png)
+![Two-tier cache before Genie: L1 in-memory LRU cache, then L2 pg_vector context-aware cache, then Genie NL→SQL fallback — every path executes fresh SQL against the warehouse](images/diagrams/genie-cache/genie-cache-hierarchy.png)
 
 ### LRU Cache (L1)
 
@@ -439,7 +439,7 @@ genie_tool:
 
 **Force toolkit mode without caches:** Set `enable_feedback: true` on a `type: genie` tool to get the feedback tool even when no cache is configured.
 
-![Cache circuit breaker for stale hits: tracks consecutive SQL hashes and trips at max_consecutive_cache_hits, invalidating all layers and re-querying Genie for fresh SQL](images/genie-cache-circuit-breaker.png)
+![Cache circuit breaker for stale hits: tracks consecutive SQL hashes and trips at max_consecutive_cache_hits, invalidating all layers and re-querying Genie for fresh SQL](images/diagrams/genie-cache/genie-cache-circuit-breaker.png)
 
 | Parameter | Default | Description |
 |-----------|---------|-------------|
@@ -483,7 +483,7 @@ retrievers:
 
 ### How It Works
 
-![Two-stage retrieval funnel: vector similarity returns 50 candidates, then FlashRank cross-encoder reranks to the top 5 most relevant — visualized as 50 dots narrowing to 5](images/vector-search-rerank-funnel.png)
+![Two-stage retrieval funnel: vector similarity returns 50 candidates, then FlashRank cross-encoder reranks to the top 5 most relevant — visualized as 50 dots narrowing to 5](images/diagrams/retrieval/vector-search-rerank-funnel.png)
 
 ### Why Reranking?
 
@@ -541,7 +541,7 @@ rerank:
 
 ### How Instructed Retrieval Works
 
-![Instructed retrieval pipeline: LLM decomposes the query into filters and subqueries, fans out to parallel AI Search calls, merges via Reciprocal Rank Fusion, then reranks with constraint awareness](images/instructed-retrieval-pipeline.png)
+![Instructed retrieval pipeline: LLM decomposes the query into filters and subqueries, fans out to parallel AI Search calls, merges via Reciprocal Rank Fusion, then reranks with constraint awareness](images/diagrams/retrieval/instructed-retrieval-pipeline.png)
 
 ### Instructed Retrieval Configuration
 
@@ -2032,7 +2032,7 @@ daemon thread so it survives request-loop teardown.
 
 **Architecture at a glance:**
 
-![Background agents at a glance: two-phase card showing kickoff (POST returns in_progress immediately, task continues on daemon thread) and poll (GET returns completed with output assembled from Lakebase)](images/background-agents-at-a-glance.png)
+![Background agents at a glance: two-phase card showing kickoff (POST returns in_progress immediately, task continues on daemon thread) and poll (GET returns completed with output assembled from Lakebase)](images/diagrams/orchestration-patterns/background-agents-at-a-glance.png)
 
 **Configuration:**
 

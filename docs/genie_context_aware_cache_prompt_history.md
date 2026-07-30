@@ -133,7 +133,7 @@ CREATE TABLE genie_context_aware_cache (
 
 ## Data Flow
 
-![Concrete before/after: genie_prompt_history mutates around a query — two-row conversation, four numbered steps, and a hit/miss decision leading to a three-row table with the new prompt highlighted](images/genie-cache-prompt-history-mutation.png)
+![Concrete before/after: genie_prompt_history mutates around a query — two-row conversation, four numbered steps, and a hit/miss decision leading to a three-row table with the new prompt highlighted](images/diagrams/genie-cache/genie-cache-prompt-history-mutation.png)
 
 ## Dual Embedding Architecture
 

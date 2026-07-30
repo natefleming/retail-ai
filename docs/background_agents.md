@@ -164,7 +164,7 @@ read.
 
 ### Data flow — the three operations
 
-![Background agents three ops: kickoff, retrieve, and cancel each with their own internal step flow and decision points](images/background-agents-three-ops.png)
+![Background agents three ops: kickoff, retrieve, and cancel each with their own internal step flow and decision points](images/diagrams/orchestration-patterns/background-agents-three-ops.png)
 
 ### Wire protocol
 
@@ -579,7 +579,7 @@ connection-check failed. If you're seeing this in production:
 
 The dao-ai CLI's start-before-deploy step can't reconcile this state. The
 workaround is to invoke `databricks apps deploy <app>` directly — once
-the app is back in `RUNNING`, subsequent `dao-ai agent deploy --mode apps` calls
+the app is back in `RUNNING`, subsequent `dao-ai agent sync --mode apps` calls
 work normally.
 
 ## Best practices

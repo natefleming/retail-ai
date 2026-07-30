@@ -1824,7 +1824,7 @@ def test_cli_var_flag_appears_in_subparser_help(
         )
 
     # Bundle-noun verbs get --var from the shared _add_bundle_common_args helper.
-    for argv in (["agent", "generate", "--help"], ["workflow", "deploy", "--help"]):
+    for argv in (["agent", "build", "--help"], ["workflow", "sync", "--help"]):
         with pytest.raises(SystemExit):
             parse_args(argv)
         captured = capsys.readouterr()
