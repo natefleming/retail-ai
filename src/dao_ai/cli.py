@@ -1325,6 +1325,17 @@ Examples:
   dao-ai workflow sync  -c config.yaml -p fevm
   dao-ai workflow start -c config.yaml -p fevm
 """
+    _WORKFLOW_BUILD_EPILOG = """
+Examples:
+  # Stage the provisioning bundle from a config (no sync, no run)
+  dao-ai workflow build -c config.yaml
+
+  # Bake parameters in at build time
+  dao-ai workflow build -c config.yaml --param schema=nfleming
+
+  # Rebuild over a staging dir that carries hand-edits
+  dao-ai workflow build -c config.yaml --overwrite
+"""
     _AGENT_DESC = """
 Manage the agent bundle — a Databricks App (or MCP server / Model Serving
 endpoint). Plain-language lifecycle: `build` builds the bundle artifact, `sync`
@@ -1354,6 +1365,20 @@ Examples:
   # Pass -p at the top level (equivalent)
   dao-ai -p fevm agent up -c config.yaml
 """
+    _AGENT_BUILD_EPILOG = """
+Examples:
+  # Stage the App bundle from a config (no sync, no start)
+  dao-ai agent build -c config.yaml
+
+  # Build a Model Serving deploy bundle instead of the default App bundle
+  dao-ai agent build -c config.yaml --mode model_serving
+
+  # Bake parameters in at build time
+  dao-ai agent build -c config.yaml --param schema=nfleming
+
+  # Rebuild over a staging dir that carries hand-edits
+  dao-ai agent build -c config.yaml --overwrite
+"""
 
     _add_noun_verb_parsers(
         subparsers,
@@ -1361,7 +1386,7 @@ Examples:
         noun_description=_AGENT_DESC,
         noun_epilog=_AGENT_EPILOG,
         generate_description=_AGENT_DESC,
-        generate_epilog=_AGENT_EPILOG,
+        generate_epilog=_AGENT_BUILD_EPILOG,
         parents=[_GLOBAL],
     )
     _add_noun_verb_parsers(
@@ -1370,7 +1395,7 @@ Examples:
         noun_description=_WORKFLOW_DESC,
         noun_epilog=_WORKFLOW_EPILOG,
         generate_description=_WORKFLOW_DESC,
-        generate_epilog=_WORKFLOW_EPILOG,
+        generate_epilog=_WORKFLOW_BUILD_EPILOG,
         parents=[_GLOBAL],
     )
 
