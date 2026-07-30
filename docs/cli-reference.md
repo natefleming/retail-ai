@@ -139,6 +139,11 @@ dao-ai agent start -c config/my_config.yaml --profile fevm
   **does not re-sync or rebuild** — it errors if nothing is synced. Re-run it any
   time to restart an app or re-execute a model_serving/workflow job.
 
+> If `app.trace_location` is set, run `dao-ai trace link` **between `sync` and
+> `start`** — otherwise traces silently drop (`TABLE_DOES_NOT_EXIST`) on re-deploys.
+> See [Linking the UC trace destination](#linking-the-uc-trace-destination-run-dao-ai-trace-link-between-deploy-and-run).
+> The one-command `up` path does this linking for you.
+
 To ship the **local dao-ai wheel** instead of the published PyPI package, add
 `--development` on `build` (or on `sync`, which can auto-build):
 
