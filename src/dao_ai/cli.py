@@ -748,8 +748,13 @@ def _write_staging_manifest(
         legacy.unlink()
 
 
-def _staging_dir_has_local_edits(bundle_dir: Path) -> bool:
-    """True if a staging dir was hand-edited since its last generate.
+def _local_edit_reason(bundle_dir: Path) -> str | None:
+    """Describe the first hand-edit in a staging dir, or None if it has none.
+
+    Backs :func:`_staging_dir_has_local_edits`; callers that want to name the
+    offending file in a message (e.g. the guard in
+    :func:`_clean_default_staging_dir`) use this directly. The returned string
+    names the file and how it changed (modified / deleted / added).
 
     Manifest present, an edit is any of:
 
@@ -777,9 +782,9 @@ def _staging_dir_has_local_edits(bundle_dir: Path) -> bool:
         for rel, expected in files.items():
             path: Path = bundle_dir / rel
             if not path.exists():
-                return True
+                return f"{rel} was deleted since build"
             if _sha256_file(path) != expected:
-                return True
+                return f"{rel} was modified since build"
 
         # ``tracked`` is the current key; fall back to the legacy ``known`` name
         # for manifests staged before the rename. Older manifests with neither
@@ -788,26 +793,35 @@ def _staging_dir_has_local_edits(bundle_dir: Path) -> bool:
         raw_tracked = manifest.get("tracked", manifest.get("known"))
         if isinstance(raw_tracked, list):
             tracked: set[str] = set(raw_tracked)
-            for path in bundle_dir.rglob("*"):
+            for path in sorted(bundle_dir.rglob("*")):
                 if path.is_dir():
                     continue
                 rel_path = path.relative_to(bundle_dir)
                 if _is_ignored_staging_path(rel_path):
                     continue
                 if rel_path.as_posix() not in tracked:
-                    return True
-        return False
+                    return f"{rel_path.as_posix()} was added since build"
+        return None
 
     marker: Path = bundle_dir / _STAGING_MARKER
     if not marker.exists():
-        return True
+        return "no build manifest found"
     marker_mtime: float = marker.stat().st_mtime
-    for path in bundle_dir.rglob("*"):
+    for path in sorted(bundle_dir.rglob("*")):
         if path == marker or path.is_dir():
             continue
         if path.stat().st_mtime > marker_mtime:
-            return True
-    return False
+            rel_path = path.relative_to(bundle_dir)
+            return f"{rel_path.as_posix()} is newer than the build marker"
+    return None
+
+
+def _staging_dir_has_local_edits(bundle_dir: Path) -> bool:
+    """True if a staging dir was hand-edited since its last generate.
+
+    Thin boolean wrapper over :func:`_local_edit_reason`; see it for the rules.
+    """
+    return _local_edit_reason(bundle_dir) is not None
 
 
 def _staged_config_is_stale(bundle_dir: Path, fingerprint: str) -> bool:
@@ -860,9 +874,10 @@ def _clean_default_staging_dir(
     # safety: only wipe paths strictly under the owned base dir
     if base not in resolved.parents:
         return
-    if not overwrite and _staging_dir_has_local_edits(bundle_dir):
+    reason: str | None = _local_edit_reason(bundle_dir)
+    if not overwrite and reason is not None:
         logger.error(
-            f"Staging dir {bundle_dir} has local modifications. "
+            f"Staging dir {bundle_dir} has local modifications ({reason}). "
             f"Ship it with `dao-ai {noun} sync -c <config>`, "
             f"or pass --overwrite to discard the edits and rebuild."
         )

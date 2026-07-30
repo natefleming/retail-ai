@@ -191,3 +191,21 @@ class TestStagedConfigTracked:
 
         # The edit is now detected, so build refuses to wipe it without --overwrite.
         assert _staging_dir_has_local_edits(out) is True
+
+    def test_edit_reason_names_the_file(self, tmp_path: Path) -> None:
+        from dao_ai.cli import _local_edit_reason, _write_staging_manifest
+
+        cfg = _config_with_src(tmp_path)
+        out = tmp_path / "bundle"
+        registry = write_bundle(cfg, out, overwrite=True)
+        _write_staging_manifest(out, is_default=True, registry=registry)
+
+        assert _local_edit_reason(out) is None
+
+        # Modified generated file -> reason names it and says "modified".
+        staged = out / "dao_ai.yaml"
+        staged.write_text(staged.read_text() + "\n# hand-edit\n")
+        reason = _local_edit_reason(out)
+        assert reason is not None
+        assert "dao_ai.yaml" in reason
+        assert "modified" in reason
