@@ -90,8 +90,9 @@ dao-ai agent up -c config/my_config.yaml --mode apps --direct --profile fevm
 dao-ai agent deploy -c config/my_config.yaml --mode mcp --profile fevm
 
 # Ship the local dao-ai wheel instead of the published PyPI package
+# (repeat --development on deploy so a re-stage can't drop the local-wheel wiring)
 dao-ai agent generate -c config/my_config.yaml --development --profile fevm
-dao-ai agent deploy   -c config/my_config.yaml --profile fevm
+dao-ai agent deploy   -c config/my_config.yaml --development --profile fevm
 ```
 
 Mode resolution: `--mode` flag wins; default is `apps`.
@@ -177,6 +178,51 @@ auto-generate; for `workflow` it acts on the already-staged bundle); `run` and
 > `generate-workflow` have been removed. Use `dao-ai agent generate`,
 > `dao-ai agent generate --mode mcp`, and `dao-ai workflow generate` instead.
 > See [Migration reference](#migration-from-pre-v2-cli) below.
+
+## End-to-end: from a fresh config to a live agent
+
+The full path from a config file to a running agent. Two of the steps are
+**conditional** — run them only when your config needs them.
+
+```bash
+# 1. Validate the config (always). No network calls, no auth.
+dao-ai validate -c config/my_config.yaml
+
+# 2. Provision the service principal — CONDITIONAL.
+#    Run this when the config declares a `service_principals:` block, deploys to
+#    Model Serving, or uses on-behalf-of (OBO). Creates the SP, stores its secret
+#    in the config's secret scope, and grants it every resource in the config.
+dao-ai sp provision -c config/my_config.yaml -p <profile>
+
+# 3. Provision backing infrastructure — CONDITIONAL.
+#    Run this when the config CREATES resources rather than only referencing
+#    existing ones: a Vector Search index with a `source_table`, a Genie room
+#    with `table_sources`, `lakebase` sections, `unity_catalog_functions`, or
+#    datasets. The provisioning job is idempotent, so it's safe to re-run.
+#    (`workflow up` also deploys the agent as its final task.)
+dao-ai workflow up -c config/my_config.yaml -p <profile>
+
+# 4. Bring the agent up: generate → deploy → (link trace) → run, one command.
+dao-ai agent up -c config/my_config.yaml -p <profile>
+```
+
+**When all resources already exist** (no provisioning, no declared SP), the whole
+thing collapses to two steps:
+
+```bash
+dao-ai validate -c config/my_config.yaml
+dao-ai agent up -c config/my_config.yaml -p <profile>
+```
+
+**Iterating** after the first deploy: skip validate/sp/workflow and re-push with
+`dao-ai agent deploy -c config/my_config.yaml -p <profile>` (auto-regenerates only
+if the config changed). Re-provision infra with `dao-ai workflow up` only when the
+resource definitions change.
+
+> **Trace linking is automatic in `up`.** When `app.trace_location` is set,
+> `agent up` links the UC trace destination and grants the App SP between deploy
+> and run for you. You only run `dao-ai trace link` / `dao-ai trace grant` by hand
+> on the granular `generate → deploy → run` path (see [Trace Commands](#trace-commands)).
 
 ## Workflow: Provision and Deploy
 
@@ -414,6 +460,13 @@ Development mode changes the generated bundle in several ways:
 - **Path dependency**: The generated `pyproject.toml` uses a `[tool.uv.sources]` path dependency pointing at the local wheel instead of pinning a PyPI version.
 - **No artifacts block**: The `databricks.yaml` omits the `artifacts` section so the wheel uploads as a regular source file rather than being intercepted by the artifact system.
 - **Adjusted .gitignore**: The `dist/` directory is not ignored, since the wheel must be included in the bundle.
+
+> **Two-step caveat.** `--development` is auto-detected from your install type when
+> omitted, so a plain `dao-ai agent deploy` after `generate --development` normally
+> keeps the local wheel. But if the deploy re-stages (because the config changed, or
+> auto-detect resolves differently), the local-wheel wiring is regenerated from that
+> resolution. To be explicit and safe, pass `--development` on the `deploy` step too
+> (or use `--no-development` to force the published PyPI package).
 
 ### Next Steps
 

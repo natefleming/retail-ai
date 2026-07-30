@@ -458,7 +458,12 @@ Each example is a starting point:
 2. **Modify** prompts, tools, and settings
 3. **Validate**: `dao-ai validate -c config/my_agent.yaml`
 4. **Test** locally: `dao-ai chat -c config/my_agent.yaml`
-5. **Deploy**: `dao-ai agent up -c config/my_agent.yaml`
+5. **Provision** (first-time, if the config creates infra or declares an SP):
+   `dao-ai sp provision -c config/my_agent.yaml -p <profile>` and/or
+   `dao-ai workflow up -c config/my_agent.yaml -p <profile>`
+6. **Deploy**: `dao-ai agent up -c config/my_agent.yaml -p <profile>`
+
+See the [end-to-end sequence](cli-reference.md#end-to-end-from-a-fresh-config-to-a-live-agent) for when steps 5 apply.
 
 For detailed guidance, see the README.md in each category directory.
 

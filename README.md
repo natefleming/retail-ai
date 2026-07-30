@@ -298,21 +298,33 @@ config = AppConfig.from_file("config/my_agent.yaml")
 # Package the agent as an MLflow model
 config.create_agent()
 
-# Deploy to Databricks Model Serving
+# Deploy to Databricks Model Serving.
+# Note: the Python API defaults to Model Serving, whereas the CLI `agent up`
+# defaults to Apps. Pass target=ServingMode.APPS for an Apps deployment.
 config.deploy_agent()
 ```
 
-**Option B: Using the CLI** (one command)
+**Option B: Using the CLI** (recommended)
 
 ```bash
 dao-ai agent up -c config/my_agent.yaml
 ```
 
-This single command:
-1. Validates your configuration
-2. Packages the agent
-3. Deploys it to Databricks
-4. Starts the deployed agent
+This single command generates the bundle, deploys it to Databricks, links the
+trace destination (if configured), and starts the deployed agent.
+
+> **First-time prerequisites (conditional).** Before the very first `agent up`,
+> run these only if your config needs them:
+> - `dao-ai sp provision -c config/my_agent.yaml -p <profile>` — when the config
+>   declares a `service_principals:` block, deploys to Model Serving, or uses OBO.
+> - `dao-ai workflow up -c config/my_agent.yaml -p <profile>` — when the config
+>   *creates* backing infrastructure (a Vector Search index with a `source_table`,
+>   a Genie room with `table_sources`, `lakebase`, `unity_catalog_functions`, or
+>   datasets) rather than only referencing resources that already exist.
+>
+> See the [end-to-end sequence](docs/cli-reference.md#end-to-end-from-a-fresh-config-to-a-live-agent)
+> for the full path and when each step applies. When all resources already exist,
+> `validate` + `agent up` is all you need.
 
 **Deploying to a specific workspace:**
 
@@ -478,11 +490,15 @@ dao-ai schema > schemas/model_config_schema.json
 # Visualize agent workflow
 dao-ai graph -c config/my_config.yaml -o workflow.png
 
+# (Conditional, first-time) Create + grant the service principal
+dao-ai sp provision -c config/my_config.yaml -p <profile>
+
+# (Conditional, first-time) Provision backing infra (Vector Search, Lakebase, Genie…)
+# — only when the config CREATES these resources; also deploys the agent
+dao-ai workflow up -c config/my_config.yaml -p <profile>
+
 # Generate + deploy + start a Databricks Apps bundle in one command
 dao-ai agent up -c config/my_config.yaml -p <profile>
-
-# Provision backing infra (Vector Search, Lakebase, Genie…) then deploy the agent
-dao-ai workflow up -c config/my_config.yaml
 
 # Deploy to a specific workspace (multi-cloud support)
 dao-ai agent up -c config/my_config.yaml --profile aws-field-eng
