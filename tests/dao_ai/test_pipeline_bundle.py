@@ -303,9 +303,14 @@ class TestWriteModelServingAgentBundle:
         )
         staged_notebooks = sorted(p.name for p in (out / "notebooks").glob("*.py"))
         assert staged_notebooks == ["06_deploy_agent.py"], staged_notebooks
-        # databricks.yaml + the one notebook are the generated (registry) files;
-        # the config is user-editable and excluded from the registry.
-        assert set(registry) == {"databricks.yaml", "notebooks/06_deploy_agent.py"}
+        # databricks.yaml + the one notebook + the staged config are the
+        # dao-ai-generated (registry) files; a hand-edit to any of them trips the
+        # local-edit guard on the next build.
+        assert set(registry) == {
+            "databricks.yaml",
+            "notebooks/06_deploy_agent.py",
+            "config/ms.yaml",
+        }
         assert (out / "config" / "ms.yaml").exists()
 
     def test_baked_config_has_no_parameters_block(self, tmp_path: Path) -> None:
@@ -407,6 +412,15 @@ class TestWritePipelineBundle:
         assert (out / "config" / "my_config.yaml").exists()
         notebooks = sorted((out / "notebooks").glob("*.py"))
         assert len(notebooks) == 8
+
+    def test_staged_config_is_registered(self, tmp_path: Path) -> None:
+        # The staged config is a dao-ai-generated artifact: it lands in the
+        # returned registry (-> manifest `files`) so a hand-edit to the staged
+        # copy trips the local-edit guard, like databricks.yaml + the notebooks.
+        config = self._load(tmp_path, _MINIMAL_CONFIG)
+        out = tmp_path / "bundle"
+        registry = write_pipeline_bundle(config, out)
+        assert "config/my_config.yaml" in registry
 
     def test_databricks_yaml_substitutes_app_name(self, tmp_path: Path) -> None:
         config = self._load(tmp_path, _MINIMAL_CONFIG)

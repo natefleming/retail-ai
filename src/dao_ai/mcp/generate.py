@@ -106,9 +106,10 @@ def write_mcp_bundle(
     skipped: list[str] = []
     # User code (src/ + code_paths + source config) preserved as-is.
     preserved: list[str] = []
-    # Content hashes of the files dao-ai generated, keyed by staging-dir-relative
-    # POSIX path. User-code writes pass register=False so hand-edits to them never
-    # trip edit-detection.
+    # Content hashes of the files dao-ai generated (incl. the staged config),
+    # keyed by staging-dir-relative POSIX path, so a hand-edit to any of them
+    # trips edit-detection. Copied-in user code (src/, code_paths) passes
+    # register=False so editing it stays safe.
     registry: dict[str, str] = {}
 
     def _register(path: Path) -> None:
@@ -219,13 +220,17 @@ def write_mcp_bundle(
     ):
         # Never write over the user's ORIGINAL config in place (would strip
         # their parameters: block). Belt-and-suspenders behind the CLI guard.
+        # In-place: the staged copy IS the source, so leave it unregistered —
+        # editing it is editing the source, not a staged-copy edit.
         preserved.append(config_filename)
     else:
+        # Register the staged config (default register=True) so a hand-edit to it
+        # trips the local-edit guard, matching databricks.yaml + uv.lock.
         rendered: str | None = config._rendered_yaml
         if rendered is not None:
-            _write(config_dest, _strip_parameters_block(rendered), register=False)
+            _write(config_dest, _strip_parameters_block(rendered))
         elif source_config_path is not None:
-            _write(config_dest, Path(source_config_path).read_text(), register=False)
+            _write(config_dest, Path(source_config_path).read_text())
         else:
             logger.warning("mcp.generate.no_source_config — skipping config copy")
 
