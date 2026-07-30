@@ -11,6 +11,8 @@ edit_uri: edit/main/docs/
 # Configuration
 theme:
   name: material
+  logo: images/brand/logo-symbol.png
+  favicon: images/brand/logo-symbol.png
   palette:
     # Palette toggle for light mode
     - scheme: default

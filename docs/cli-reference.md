@@ -64,34 +64,92 @@ dao-ai graph -c config/my_config.yaml -o workflow.png --param catalog=main
 
 ## Deploy
 
-`dao-ai agent sync` deploys the agent using its staged bundle (the default path;
-it auto-generates the bundle first if nothing is staged). Pass `--mode model_serving`
-to deploy directly to Databricks Model Serving (no bundle). All paths call
-`AppConfig.create_agent()` + `deploy_agent()` in-process: for Model Serving it
-registers the MLflow model and creates the serving endpoint (`agents.deploy`); for
-Apps it uploads the config + source and drives the Apps REST API. Auto-links the UC
-trace destination and auto-grants the runtime service principal the trace-write
-permissions (gated on `app.manage_permissions`).
+Deploying an agent follows one lifecycle — **`build → sync → start`** — whether you
+run it as three explicit steps or let a single command do all three. Start with the
+one-command path and reach for the granular verbs only when you need them.
 
-For the bundle-less SDK fast-path (no bundle written to disk), use `agent up --direct`
-(apps/mcp only) — `--direct` is an `up`-only flag.
+All deploy paths call `AppConfig.create_agent()` + `deploy_agent()` in-process: for
+Model Serving it registers the MLflow model and creates the serving endpoint
+(`agents.deploy`); for Apps it uploads the config + source and drives the Apps REST
+API. Every path auto-links the UC trace destination and auto-grants the runtime
+service principal the trace-write permissions (gated on `app.manage_permissions`).
+
+### Start here: `up` — build, sync, and start in one command
+
+`dao-ai agent up` is the fast path to a live agent. It **builds** the bundle (if
+nothing is staged), **syncs** it to the workspace, links the trace destination, then
+**starts** it — the whole `build → sync → start` lifecycle in one idempotent command.
+This is what you want most of the time.
 
 ```bash
-# Deploy to Model Serving (SDK path, no bundle)
-dao-ai agent sync -c config/my_config.yaml --mode model_serving --profile fevm
+# Bring up a Databricks App (default mode) — build → sync → start
+dao-ai agent up -c config/my_config.yaml --profile fevm
 
-# Deploy as a Databricks App (bundle path, default)
-dao-ai agent sync -c config/my_config.yaml --mode apps --profile fevm
+# Bring up the MCP-server App
+dao-ai agent up -c config/my_config.yaml --mode mcp --profile fevm
 
-# Bring up as Apps via SDK directly (no bundle on disk — fast iteration)
+# Bring up on Model Serving (builds a thin deploy-agent Job, runs it to
+# register the model + create the endpoint)
+dao-ai agent up -c config/my_config.yaml --mode model_serving --profile fevm
+```
+
+`up` is safe to re-run: an unchanged config **skips the build** (content
+fingerprint) and the sync is **convergent**, so re-running never duplicates the
+bundle. The `start` step always executes — an app restarts, a model_serving job
+re-runs and registers a new model version — which is `start` doing its job.
+
+#### The `--direct` option — skip the bundle on disk
+
+Add `--direct` to `up` to go straight through the SDK **without writing a bundle to
+disk**. There is no staged artifact to inspect or hand-edit — dao-ai calls
+`create_agent`/`deploy_agent` directly. It works for **all three modes** (`apps`,
+`mcp`, `model_serving`) and inherently syncs and starts. Use it for fast iteration
+when you don't need an auditable bundle artifact. `--direct` is an **`up`-only** flag
+(it has no meaning on `build`/`sync`/`start`, which are defined by the bundle they act
+on).
+
+```bash
+# Bring up as an App via the SDK directly — no bundle on disk (fast iteration)
 dao-ai agent up -c config/my_config.yaml --mode apps --direct --profile fevm
+```
 
-# Deploy MCP server App
-dao-ai agent sync -c config/my_config.yaml --mode mcp --profile fevm
+### The granular lifecycle: `build → sync → start`
 
-# Ship the local dao-ai wheel instead of the published PyPI package
+When you want to inspect or hand-edit the bundle before it ships — or run the
+CI-style **build once, sync once, start N times** flow — drive the three steps
+yourself, in order:
+
+```bash
+# 1. build — stage the bundle to disk (inspect / hand-edit before shipping)
+dao-ai agent build -c config/my_config.yaml --profile fevm
+
+# 2. sync — push the staged bundle to the workspace (does NOT start it)
+dao-ai agent sync -c config/my_config.yaml --profile fevm
+
+# 3. start — make the synced bundle live (no re-sync; starts/restarts the app)
+dao-ai agent start -c config/my_config.yaml --profile fevm
+```
+
+- **`build`** stages the bundle and does nothing else. `sync` will auto-build first
+  if nothing is staged, so step 1 is optional unless you want to hand-edit.
+- **`sync`** pushes to the workspace but **does not start** the app (it runs
+  `databricks bundle deploy`). A `sync` that failed on a transient error is safe to
+  retry on its own — no rebuild.
+- **`start`** makes the synced bundle live (`databricks bundle run <app>`), and
+  **does not re-sync or rebuild** — it errors if nothing is synced. Re-run it any
+  time to restart an app or re-execute a model_serving/workflow job.
+
+> If `app.trace_location` is set, run `dao-ai trace link` **between `sync` and
+> `start`** — otherwise traces silently drop (`TABLE_DOES_NOT_EXIST`) on re-deploys.
+> See [Linking the UC trace destination](#linking-the-uc-trace-destination-run-dao-ai-trace-link-between-deploy-and-run).
+> The one-command `up` path does this linking for you.
+
+To ship the **local dao-ai wheel** instead of the published PyPI package, add
+`--development` on `build` (or on `sync`, which can auto-build):
+
+```bash
 dao-ai agent build -c config/my_config.yaml --development --profile fevm
-dao-ai agent sync   -c config/my_config.yaml --profile fevm
+dao-ai agent sync  -c config/my_config.yaml --profile fevm
 ```
 
 Mode resolution: `--mode` flag wins; default is `apps`.
@@ -106,9 +164,13 @@ so this local stack never ships to the deployed endpoint.
 
 **When to use which:**
 
-- **`dao-ai agent sync --mode model_serving`** — deploy to Model Serving (SDK, no bundle). Best for iterating on the serving endpoint.
-- **`dao-ai agent sync --mode apps` / `--mode mcp`** — deploy Apps or MCP bundle. Generates on first run if unstaged; ships staged bundle if already generated.
-- **`dao-ai agent up --direct`** — bring up Apps/MCP via SDK without writing a bundle (fast iteration when you don't need an auditable bundle artifact). `--direct` is an `up`-only flag.
+- **`dao-ai agent up`** — the one-command path (`build → sync → start`). Reach for
+  this first for any mode: `apps` (default), `mcp`, or `model_serving`.
+- **`dao-ai agent up --direct`** — same, but SDK-direct with no bundle on disk. Best
+  for fast iteration when you don't need an auditable bundle artifact.
+- **`dao-ai agent build → sync → start`** — the granular flow. Use it to inspect or
+  hand-edit the staged bundle before shipping, or for the CI pattern *build once,
+  sync once, start N times*.
 - **`dao-ai workflow`** — provision the full backing infra (schemas,
   Vector Search, Lakebase, Genie, UC functions) *and* deploy the agent, as a
   multi-task Databricks Job. The job's deploy step runs the same

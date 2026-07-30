@@ -1,5 +1,7 @@
 # Frequently Asked Questions (FAQ)
 
+<img src="images/mascots/heart-thumbs-up.png" align="right" width="120" alt="DAO-ai mascot giving a friendly thumbs up">
+
 ## Contents
 
 **General**

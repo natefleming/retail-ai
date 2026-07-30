@@ -1,5 +1,7 @@
 # Why DAO?
 
+<img src="images/mascots/wand-thumbs-up.png" align="right" width="130" alt="DAO-ai mascot casting a wand">
+
 ## For Newcomers to AI Agents
 
 **What is an AI Agent?**

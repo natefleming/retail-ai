@@ -1,5 +1,7 @@
 # Contributing to DAO
 
+<img src="images/stickers/lets-build.png" align="right" width="120" alt="Let's build">
+
 Thank you for your interest in contributing to DAO! This guide will help you get started.
 
 ## Project Structure
