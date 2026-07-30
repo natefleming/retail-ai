@@ -3970,10 +3970,12 @@ def run_databricks_command(
             )
         elif not (staging_dir / "databricks.yaml").exists():
             # Standalone sync/start/down on an unstaged dir: nothing to run.
+            # Primitives never build — `up` is the sole orchestrator/builder.
+            _s: str = f" -s {staging_dir_arg}" if staging_dir_arg else ""
             logger.error(
                 f"No staged workflow bundle at {staging_dir}. "
-                f"Run `dao-ai workflow build -c {config}"
-                f"{f' -s {staging_dir_arg}' if staging_dir_arg else ''}` first."
+                f"Run `dao-ai workflow build -c {config}{_s}` first "
+                f"(or `dao-ai workflow up -c {config}{_s}` to build, sync, and run)."
             )
             sys.exit(1)
 
@@ -4490,6 +4492,9 @@ def _handle_up_workflow_command(options: Namespace) -> None:
         config_vars=config_vars,
         staging_dir=staging_dir,
         overwrite=overwrite,
+        # Build already happened on the deploy call above; the run must NOT
+        # re-stage (that rebuilt the bundle every `up`). `up` builds exactly once.
+        stage=False,
     )
 
 
@@ -4685,12 +4690,26 @@ def _deploy_run_destroy_app_bundle(
     )
     is_staged: bool = (bundle_dir / "databricks.yaml").exists()
 
-    if not is_staged and not deploy:
-        # start/down on an unstaged dir: nothing to act on.
+    # Only `up` (deploy AND run) orchestrates build→sync→start; the granular
+    # primitives (sync=deploy, start=run, down=destroy) act on prepared state and
+    # NEVER build. So `up` is the sole builder, and any primitive on an unstaged
+    # dir errors with the exact next command — a single, consistent contract
+    # across agent|workflow × apps|mcp|ms (this guard precedes the mode split).
+    orchestrating: bool = deploy and run
+
+    if not is_staged and not orchestrating:
+        _s: str = f" -s {options.staging_dir}" if options.staging_dir else ""
+        nxt: str = (
+            f"Run `dao-ai {kind} build -c {options.config}{_s}` first"
+            if deploy  # sync: only build is missing
+            else (
+                f"Run `dao-ai {kind} build -c {options.config}{_s}` + "
+                f"`dao-ai {kind} sync -c {options.config}{_s}` first"
+            )  # start/down: build AND sync are missing
+        )
         logger.error(
-            f"No staged {kind} bundle at {bundle_dir}. "
-            f"Run `dao-ai {kind} build -c {options.config}"
-            f"{f' -s {options.staging_dir}' if options.staging_dir else ''}` first."
+            f"No staged {kind} bundle at {bundle_dir}. {nxt} "
+            f"(or `dao-ai {kind} up -c {options.config}{_s}` to do it all)."
         )
         sys.exit(1)
 
@@ -4700,14 +4719,14 @@ def _deploy_run_destroy_app_bundle(
         # Fingerprint the UNRESOLVED config (matches the generate-time stamp).
         fingerprint: str = _config_fingerprint(config, development=development)
 
-        # Decide whether to (re)stage. Fresh dir → stage (CDK/SAM auto-generate
-        # norm). Already staged → stage only when the source config drifted from
-        # the staged fingerprint, and only if the dir carries no hand-edits (or
-        # --overwrite). A stale bundle with hand-edits deploys in place with a
-        # warning so the user's edits win but they're told source changes aren't
-        # reflected. run/destroy never reach here unstaged (guarded above).
-        should_stage: bool = not is_staged
-        if is_staged and _staged_config_is_stale(bundle_dir, fingerprint):
+        # Only `up` builds. A pure `sync` never (re)stages — it deploys what's on
+        # disk (erroring above if nothing is staged), and on config drift it warns
+        # + deploys in place rather than silently rebuilding. `up` builds when
+        # unstaged and rebuilds a clean dir on drift (hand-edits preserved).
+        should_stage: bool = orchestrating and not is_staged
+        if orchestrating and is_staged and _staged_config_is_stale(
+            bundle_dir, fingerprint
+        ):
             # Only a dao-ai-owned default dir is safe to rebuild; a user `-s`
             # dir is never touched. --overwrite forces rebuild even over
             # hand-edits; otherwise a clean default dir rebuilds and an edited
@@ -4728,6 +4747,14 @@ def _deploy_run_destroy_app_bundle(
                     f"--overwrite (or re-run `dao-ai {kind} build --overwrite`) "
                     f"to discard the edits and rebuild from the current config."
                 )
+        elif is_staged and _staged_config_is_stale(bundle_dir, fingerprint):
+            # Pure `sync` on a drifted bundle: never rebuild — deploy in place and
+            # tell the user how to pick up the config change.
+            logger.warning(
+                f"Source config changed since {bundle_dir} was built; syncing "
+                f"the staged bundle as-is. Run `dao-ai {kind} build` (or `up`) "
+                f"to rebuild from the current config."
+            )
 
         if should_stage:
             if not is_staged:
