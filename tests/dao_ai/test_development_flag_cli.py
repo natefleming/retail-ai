@@ -2283,3 +2283,202 @@ class TestParametersSubcommand:
     def test_config_still_required(self) -> None:
         with pytest.raises(SystemExit):
             parse_args(["parameters", "list"])
+
+
+# ---------------------------------------------------------------------------
+# Auto-adopt: bind an existing-but-untracked workspace resource before deploy
+# so `bundle deploy` UPDATEs instead of 409-ing on a blind CREATE.
+# ---------------------------------------------------------------------------
+
+
+import json as _json  # noqa: E402
+from types import SimpleNamespace  # noqa: E402
+from unittest.mock import MagicMock  # noqa: E402
+
+
+def _plan_json(*resources: tuple[str, str, dict]) -> str:
+    """Build a `bundle plan --output json` payload.
+
+    Each resource is (node_type, short_key, extra_entry_fields). The node key is
+    ``resources.<type>.<short_key>``; extra fields (e.g. action, new_state) merge
+    into the entry.
+    """
+    plan: dict = {}
+    for rtype, key, fields in resources:
+        plan[f"resources.{rtype}.{key}"] = fields
+    return _json.dumps({"plan": plan})
+
+
+def _completed(returncode: int, stdout: str = "", stderr: str = "") -> SimpleNamespace:
+    return SimpleNamespace(returncode=returncode, stdout=stdout, stderr=stderr)
+
+
+@pytest.mark.unit
+class TestAdoptUntrackedBundleResources:
+    _APP_CREATE = (
+        "apps",
+        "my-app",
+        {"action": "create", "new_state": {"value": {"name": "my-app"}}},
+    )
+
+    def _run_adopt(
+        self, tmp_path: Path, *, plan: str, target: str = "dev",
+        extra_vars=None, dry_run: bool = False, app_exists: bool = True,
+    ):
+        """Drive the helper with subprocess + WorkspaceClient patched.
+
+        Returns the list of argv lists passed to subprocess.run so the test can
+        assert which commands (plan/bind) ran.
+        """
+        calls: list[list[str]] = []
+
+        def _fake_run(cmd, **kwargs):
+            calls.append(cmd)
+            if cmd[-3:] == ["bundle", "plan", "--output"] or "plan" in cmd:
+                return _completed(0, stdout=plan)
+            return _completed(0)  # bind
+
+        w = MagicMock()
+        if app_exists:
+            w.apps.get.return_value = SimpleNamespace(name="my-app")
+        else:
+            from databricks.sdk.errors import NotFound
+
+            w.apps.get.side_effect = NotFound("no such app")
+
+        with patch.object(cli.subprocess, "run", side_effect=_fake_run), patch(
+            "databricks.sdk.WorkspaceClient", return_value=w
+        ):
+            cli._adopt_untracked_bundle_resources(
+                staging_dir=tmp_path, profile="fevm", target=target,
+                extra_vars=extra_vars, dry_run=dry_run,
+            )
+        return calls
+
+    def test_app_would_create_and_exists_binds(self, tmp_path: Path) -> None:
+        calls = self._run_adopt(tmp_path, plan=_plan_json(self._APP_CREATE))
+        bind_calls = [c for c in calls if "bind" in c]
+        assert len(bind_calls) == 1
+        b = bind_calls[0]
+        assert b[-4:] == ["bind", "my-app", "my-app", "--auto-approve"] or (
+            "bind" in b and "my-app" in b and "--auto-approve" in b
+        )
+
+    def test_app_would_create_but_absent_no_bind(self, tmp_path: Path) -> None:
+        calls = self._run_adopt(
+            tmp_path, plan=_plan_json(self._APP_CREATE), app_exists=False
+        )
+        assert not [c for c in calls if "bind" in c]
+
+    def test_resource_skip_action_no_bind(self, tmp_path: Path) -> None:
+        entry = ("apps", "my-app", {"action": "skip"})
+        calls = self._run_adopt(tmp_path, plan=_plan_json(entry))
+        assert not [c for c in calls if "bind" in c]
+
+    def test_dry_run_prints_no_bind(self, tmp_path: Path) -> None:
+        calls = self._run_adopt(
+            tmp_path, plan=_plan_json(self._APP_CREATE), dry_run=True
+        )
+        # plan still runs (read-only); bind is NOT executed as a subprocess.
+        assert not [c for c in calls if "bind" in c]
+        assert any("plan" in c for c in calls)
+
+    def test_bind_failure_is_swallowed(self, tmp_path: Path) -> None:
+        def _fake_run(cmd, **kwargs):
+            if "plan" in cmd:
+                return _completed(0, stdout=_plan_json(self._APP_CREATE))
+            return _completed(1, stderr="bind boom")  # bind fails
+
+        w = MagicMock()
+        w.apps.get.return_value = SimpleNamespace(name="my-app")
+        with patch.object(cli.subprocess, "run", side_effect=_fake_run), patch(
+            "databricks.sdk.WorkspaceClient", return_value=w
+        ):
+            # Must not raise.
+            cli._adopt_untracked_bundle_resources(
+                staging_dir=tmp_path, profile="fevm", target="dev",
+            )
+
+    def test_plan_failure_is_noop(self, tmp_path: Path) -> None:
+        def _fake_run(cmd, **kwargs):
+            return _completed(1, stderr="plan boom")
+
+        with patch.object(cli.subprocess, "run", side_effect=_fake_run):
+            cli._adopt_untracked_bundle_resources(
+                staging_dir=tmp_path, profile="fevm", target="dev",
+            )  # no raise, no bind
+
+    def test_plan_non_json_is_noop(self, tmp_path: Path) -> None:
+        def _fake_run(cmd, **kwargs):
+            return _completed(0, stdout="not json")
+
+        with patch.object(cli.subprocess, "run", side_effect=_fake_run):
+            cli._adopt_untracked_bundle_resources(
+                staging_dir=tmp_path, profile="fevm", target="dev",
+            )
+
+    def test_job_target_and_vars_forwarded(self, tmp_path: Path) -> None:
+        calls = self._run_adopt(
+            tmp_path,
+            plan=_plan_json(),  # empty plan; we only assert the plan argv
+            target="myapp-aws",
+            extra_vars=['--var="config_path=../config/x.yaml"'],
+        )
+        plan_call = next(c for c in calls if "plan" in c)
+        assert "--target" in plan_call and "myapp-aws" in plan_call
+        assert '--var="config_path=../config/x.yaml"' in plan_call
+
+
+@pytest.mark.unit
+class TestDeployTriggersAdopt:
+    """The adopt step fires only for `bundle deploy`, across both exec paths."""
+
+    def _fake_popen(self):
+        """A Popen stand-in whose stdout.readline drains cleanly (empty output)."""
+        proc = MagicMock()
+        proc.stdout.readline.side_effect = [""]  # iter(readline, "") stops at once
+        proc.wait.return_value = None
+        proc.returncode = 0
+        return proc
+
+    def test_deploy_triggers_adopt(self, tmp_path: Path) -> None:
+        with patch.object(cli, "_adopt_untracked_bundle_resources") as adopt, patch.object(
+            cli.subprocess, "Popen", return_value=self._fake_popen()
+        ):
+            cli._exec_bundle_command(
+                ["bundle", "deploy"], profile="fevm", target="dev", cwd=tmp_path,
+            )
+        adopt.assert_called_once()
+        assert adopt.call_args.kwargs["target"] == "dev"
+        assert adopt.call_args.kwargs["staging_dir"] == tmp_path
+
+    def test_run_skips_adopt(self, tmp_path: Path) -> None:
+        with patch.object(cli, "_adopt_untracked_bundle_resources") as adopt, patch.object(
+            cli.subprocess, "Popen", return_value=self._fake_popen()
+        ):
+            cli._exec_bundle_command(
+                ["bundle", "run", "my-app"], profile="fevm", target="dev", cwd=tmp_path,
+            )
+        adopt.assert_not_called()
+
+    def test_destroy_skips_adopt(self, tmp_path: Path) -> None:
+        with patch.object(cli, "_adopt_untracked_bundle_resources") as adopt, patch.object(
+            cli.subprocess, "Popen", return_value=self._fake_popen()
+        ):
+            cli._exec_bundle_command(
+                ["bundle", "destroy", "--auto-approve"], profile="fevm",
+                target="dev", cwd=tmp_path,
+            )
+        adopt.assert_not_called()
+
+    def test_job_deploy_forwards_target_and_vars(self, tmp_path: Path) -> None:
+        with patch.object(cli, "_adopt_untracked_bundle_resources") as adopt, patch.object(
+            cli.subprocess, "Popen", return_value=self._fake_popen()
+        ):
+            cli._exec_bundle_command(
+                ["bundle", "deploy"], profile="fevm", target="myapp-aws",
+                cwd=tmp_path, extra_vars=['--var="mode=apps"'],
+            )
+        adopt.assert_called_once()
+        assert adopt.call_args.kwargs["target"] == "myapp-aws"
+        assert adopt.call_args.kwargs["extra_vars"] == ['--var="mode=apps"']
