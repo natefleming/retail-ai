@@ -130,11 +130,13 @@ dao-ai agent sync -c config/my_config.yaml --profile fevm
 dao-ai agent start -c config/my_config.yaml --profile fevm
 ```
 
-- **`build`** stages the bundle and does nothing else. `sync` will auto-build first
-  if nothing is staged, so step 1 is optional unless you want to hand-edit.
+- **`build`** stages the bundle and does nothing else. `sync`/`start`/`down`
+  require it first (they never build) — or use `up`, the one command that builds
+  for you.
 - **`sync`** pushes to the workspace but **does not start** the app (it runs
-  `databricks bundle deploy`). A `sync` that failed on a transient error is safe to
-  retry on its own — no rebuild.
+  `databricks bundle deploy`) and **does not build** — it errors if nothing is
+  staged. A `sync` that failed on a transient error is safe to retry on its own —
+  no rebuild.
 - **`start`** makes the synced bundle live (`databricks bundle run <app>`), and
   **does not re-sync or rebuild** — it errors if nothing is synced. Re-run it any
   time to restart an app or re-execute a model_serving/workflow job.
@@ -145,7 +147,7 @@ dao-ai agent start -c config/my_config.yaml --profile fevm
 > The one-command `up` path does this linking for you.
 
 To ship the **local dao-ai wheel** instead of the published PyPI package, add
-`--development` on `build` (or on `sync`, which can auto-build):
+`--development` on `build` (or on `up`, which builds):
 
 ```bash
 dao-ai agent build -c config/my_config.yaml --development --profile fevm
@@ -231,15 +233,16 @@ dao-ai workflow up|build|sync|start|down  -c <cfg> [-p <profile>]
 - **`build`** stages a bundle to disk (`<base>/<noun>/<app>`, where `<base>` is
   `$DAO_AI_BUNDLE_DIR` or `./.dao-ai/bundle`, or `-s <dir>`) and does nothing
   else — inspect or hand-edit the staged files before shipping.
-- **`sync`** pushes the bundle to the workspace but **does not start it**. For
+- **`sync`** pushes the **already-built** bundle to the workspace but **does not
+  start it**, and **does not build** — run `build` (or `up`) first; it errors
+  with the exact next command if nothing is staged. This is uniform across every
+  noun and mode (`agent`/`workflow` × `apps`/`mcp`/`model_serving`) — a primitive
+  acts on prepared state, it never provisions its own prerequisites. For
   `agent`/`mcp`, `sync` runs `databricks bundle deploy` — it creates/updates the
-  App resource and uploads its source; when a staged bundle exists it syncs it in
-  place (preserving hand-edits), and when **nothing is staged it auto-builds
-  first**, so `dao-ai agent sync -c <cfg> -p fevm` works from a clean tree. For
-  `workflow`, `sync` acts on the **already-built** bundle and does **not**
-  auto-build — run `dao-ai workflow build` (or `workflow up`) first; it errors if
-  nothing is staged. Use `--mode model_serving` on `agent sync` to go SDK-direct
-  to an endpoint.
+  App resource and uploads its source; a staged bundle is synced in place
+  (preserving hand-edits), and on config drift it warns and deploys as-is rather
+  than rebuilding. Use `--mode model_serving` on `agent sync` to sync the
+  deploy-agent Job bundle.
 - **`start`** makes the synced bundle live and **does not re-sync, build, or
   push** — it errors if nothing is synced. For `agent`/`mcp`, `start` runs
   `databricks bundle run <app>` (starts/restarts the app — a DABs App is not
@@ -269,9 +272,9 @@ per-file SHA-256 registry — content-based, so mtime-preserving copies can't
 defeat it), unless you pass `--overwrite`. The error points you at
 `<noun> sync` to ship the edits instead. A `-s <dir>` is never auto-wiped.
 The source-selection flags `--overwrite`, `--development`, and `--no-development`
-are on `up`, `build`, and `sync` (for `agent`/`mcp`, `sync` can auto-build; for
-`workflow` it acts on the already-built bundle); `start` and `down` act on
-already-built artifacts and don't carry them.
+take effect on the verbs that build — `up` and `build`. `sync`/`start`/`down`
+act on already-built artifacts and never build, so these flags don't apply
+there.
 
 > **Migration:** the flat commands `generate-agent`, `generate-mcp`, and
 > `generate-workflow` have been removed. Use `dao-ai agent build`,
@@ -914,10 +917,9 @@ dao-ai workflow down  -c config/my_config.yaml [OPTIONS]
 ```
 
 `up` builds (if needed) → syncs → starts in one command. `build` stages the
-bundle only; `sync` pushes the already-built bundle (unlike `agent sync`,
-`workflow sync` does **not** auto-build — run `build` or `up` first);
-`start`/`down` act on already-built artifacts. For `workflow`, `start` is
-`databricks bundle run deploy_job` (the provisioning job).
+bundle only; `sync`/`start`/`down` act on the already-built bundle and never
+build — run `build` (or `up`) first, else they error with the next command. For
+`workflow`, `start` is `databricks bundle run deploy_job` (the provisioning job).
 
 | Option | Description | Verbs |
 |--------|-------------|-------|
@@ -929,8 +931,8 @@ bundle only; `sync` pushes the already-built bundle (unlike `agent sync`,
 | `-t, --target NAME` | Bundle target name (auto-generated if not specified) | all |
 | `--mode {apps,mcp,model_serving}` | Serving mode selector (default: `apps`; `ms`/`model-serving` accepted as aliases). Forwarded to the deploy-agent job step as a runtime var. | all |
 | `--dry-run` | Preview commands without executing | all |
-| `--overwrite` | Overwrite copied-in files in the staging dir | `up`, `build`, `sync` |
-| `--development` / `--no-development` | Ship the local dao-ai wheel vs pin PyPI (default: auto-detect) | `up`, `build`, `sync` |
+| `--overwrite` | Overwrite copied-in files in the staging dir | `up`, `build` |
+| `--development` / `--no-development` | Ship the local dao-ai wheel vs pin PyPI (default: auto-detect) | `up`, `build` |
 | `--direct` | Go via SDK directly, no bundle on disk (apps/mcp) | `up` |
 
 The flat `generate-workflow` command and the one-shot `generate --deploy/--run`
@@ -948,9 +950,9 @@ dao-ai agent down  -c config/my_config.yaml [OPTIONS]
 ```
 
 `up` builds (if needed) → syncs → starts in one command. `build` stages the
-bundle only; `sync` pushes it (auto-building if nothing is staged);
-`start`/`down` act on already-built artifacts. For `agent`, `start` is
-`databricks bundle run <app>`.
+bundle only; `sync`/`start`/`down` act on the already-built bundle and never
+build — run `build` (or `up`) first, else they error with the next command. For
+`agent`, `start` is `databricks bundle run <app>`.
 
 | Option | Description | Verbs |
 |--------|-------------|-------|
@@ -961,8 +963,8 @@ bundle only; `sync` pushes it (auto-building if nothing is staged);
 | `--mode {apps,mcp,model_serving}` | Serving target (default: `apps`; `ms`/`model-serving` accepted as aliases) | all |
 | `--dry-run` | Preview commands without executing | all |
 | `--direct` | Go via SDK directly, no bundle on disk (all modes) | `up` |
-| `--overwrite` | Overwrite existing files in the output directory | `up`, `build`, `sync` |
-| `--development` / `--no-development` | Bundle a local dao-ai wheel vs pin PyPI (default: auto-detect) | `up`, `build`, `sync` |
+| `--overwrite` | Overwrite existing files in the output directory | `up`, `build` |
+| `--development` / `--no-development` | Bundle a local dao-ai wheel vs pin PyPI (default: auto-detect) | `up`, `build` |
 
 The flat `generate-agent` / `generate-mcp` commands and the one-shot
 `generate --deploy/--run` flags have been removed — use `dao-ai agent up` (or

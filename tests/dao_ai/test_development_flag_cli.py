@@ -1033,11 +1033,12 @@ class TestAgentModeWriterSelection:
             f"Expected mcp staging dir path to contain /mcp, got {resolved['mcp']}"
         )
 
-    def test_agent_deploy_model_serving_uses_ms_writer_and_job_driver(
+    def test_agent_up_model_serving_uses_ms_writer_and_job_driver(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """agent deploy --mode model_serving stages via the MS writer and runs
-        the Job driver (_run_ms_job_bundle), NOT the App driver."""
+        """agent up --mode model_serving stages via the MS writer and runs
+        the Job driver (_run_ms_job_bundle), NOT the App driver. (Only `up`
+        builds; unstaged `sync` errors.)"""
         called: dict[str, bool] = {}
         monkeypatch.setattr(
             "dao_ai.pipeline.bundle.write_model_serving_agent_bundle",
@@ -1056,7 +1057,7 @@ class TestAgentModeWriterSelection:
                 opts = parse_args(
                     [
                         "agent",
-                        "sync",
+                        "up",
                         "-c",
                         str(cfg),
                         "-s",
@@ -1074,7 +1075,8 @@ class TestAgentModeWriterSelection:
 
 @pytest.mark.unit
 class TestDeployRestagesOnConfigDrift:
-    """agent deploy re-stages an already-staged bundle when the source config drifts."""
+    """agent `up` re-stages an already-staged bundle when the source config drifts.
+    (Re-staging on drift is an `up`-only concern — `sync` never rebuilds.)"""
 
     def _write_config(self, tmp_path: Path) -> Path:
         cfg = tmp_path / "c.yaml"
@@ -1125,7 +1127,7 @@ class TestDeployRestagesOnConfigDrift:
             lambda *a, **k: restaged.setdefault("staged", True),
         )
 
-        argv = ["agent", "sync", "-c", str(cfg)]
+        argv = ["agent", "up", "-c", str(cfg)]
         if overwrite:
             argv.append("--overwrite")
         opts = parse_args(argv)
@@ -1190,6 +1192,141 @@ class TestDeployRestagesOnConfigDrift:
             )
             is True
         )
+
+
+_STRICT_CFG = (
+    "resources:\n  models:\n    m: &m\n      name: databricks-gpt-5-4-mini\n"
+    "agents:\n  g: &g\n    name: g\n    description: d\n    model: *m\n"
+    "    prompt: p\n"
+    "app:\n  name: my_app\n  agents:\n    - *g\n"
+)
+
+
+@pytest.mark.unit
+class TestStrictPrimitivesErrorWhenUnstaged:
+    """Model B: only `up` builds. sync/start/down on an unstaged dir error with
+    the exact next command — consistent across agent (apps/mcp/ms) and workflow.
+    `up` on the same unstaged dir succeeds (auto-builds)."""
+
+    def _cfg(self, tmp_path: Path) -> Path:
+        cfg = tmp_path / "c.yaml"
+        cfg.write_text(_STRICT_CFG)
+        return cfg
+
+    @pytest.mark.parametrize("verb", ["sync", "start", "down"])
+    @pytest.mark.parametrize("mode", ["apps", "mcp", "model_serving"])
+    def test_agent_primitive_errors_when_unstaged(
+        self, verb: str, mode: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        cfg = self._cfg(tmp_path)
+        out = tmp_path / "out"  # no databricks.yaml
+        monkeypatch.setattr(cli, "_apply_profile_context", lambda p: None)
+        # Guard must fire BEFORE any writer/driver — patch them to blow up if hit.
+        monkeypatch.setattr(
+            "dao_ai.apps.bundle.write_bundle",
+            lambda *a, **k: pytest.fail("must not build a primitive"),
+        )
+        with patch.object(cli, "deploy_app_bundle") as dep, patch.object(
+            cli, "_run_ms_job_bundle"
+        ) as job:
+            opts = parse_args(
+                ["agent", verb, "-c", str(cfg), "-s", str(out), "--mode", mode]
+            )
+            with pytest.raises(SystemExit) as exc:
+                cli.handle_agent_command(opts)
+        assert exc.value.code == 1
+        dep.assert_not_called()
+        job.assert_not_called()
+
+    @pytest.mark.parametrize("mode", ["apps", "mcp", "model_serving"])
+    def test_agent_up_autobuilds_when_unstaged(
+        self, mode: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        cfg = self._cfg(tmp_path)
+        out = tmp_path / "out"
+        built: dict[str, bool] = {}
+
+        def fake_writer(config: object, bundle_dir: object, **kw: object) -> dict:
+            built["yes"] = True
+            import pathlib
+
+            p = pathlib.Path(str(bundle_dir))
+            p.mkdir(parents=True, exist_ok=True)
+            (p / "databricks.yaml").write_text("bundle: {}\n")
+            return {}
+
+        monkeypatch.setattr(cli, "_apply_profile_context", lambda p: None)
+        monkeypatch.setattr(cli, "detect_cloud_provider", lambda p: "aws")
+        monkeypatch.setattr(AppConfig, "_resolve_all_resources", lambda self: None)
+        monkeypatch.setattr(
+            AppConfig, "assert_provided_params_satisfied", lambda self: None
+        )
+        monkeypatch.setattr(cli, "_resolve_job_dao_ai_dep", lambda *a, **k: "dao-ai")
+        # _mode_writer imports the writer per mode at call time — patch each source.
+        monkeypatch.setattr("dao_ai.apps.bundle.write_bundle", fake_writer)
+        monkeypatch.setattr("dao_ai.mcp.generate.write_mcp_bundle", fake_writer)
+        monkeypatch.setattr(
+            "dao_ai.pipeline.bundle.write_model_serving_agent_bundle", fake_writer
+        )
+        with patch.object(cli, "deploy_app_bundle"), patch.object(
+            cli, "_run_ms_job_bundle"
+        ):
+            opts = parse_args(
+                ["agent", "up", "-c", str(cfg), "-s", str(out), "--mode", mode]
+            )
+            cli.handle_agent_command(opts)
+        assert built.get("yes"), f"up --mode {mode} must auto-build when unstaged"
+
+    @pytest.mark.parametrize("verb", ["sync", "start", "down"])
+    def test_workflow_primitive_errors_when_unstaged(
+        self, verb: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        cfg = self._cfg(tmp_path)
+        monkeypatch.setattr(cli, "_apply_profile_context", lambda p: None)
+        monkeypatch.setattr(cli, "detect_cloud_provider", lambda p: "aws")
+        monkeypatch.setattr(
+            "dao_ai.pipeline.bundle.write_pipeline_bundle",
+            lambda *a, **k: pytest.fail("must not build a primitive"),
+        )
+        with patch.object(cli, "_exec_bundle_command"):
+            opts = parse_args(
+                ["workflow", verb, "-c", str(cfg), "-s", str(tmp_path / "out")]
+            )
+            with pytest.raises(SystemExit) as exc:
+                cli.handle_workflow_command(opts)
+        assert exc.value.code == 1
+
+    def test_workflow_up_builds_exactly_once(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """workflow up = build → sync → start. It must stage ONCE (the deploy
+        call builds; the run call passes stage=False), not twice."""
+        cfg = self._cfg(tmp_path)
+        out = tmp_path / "out"
+        builds: list[int] = []
+
+        def fake_writer(config: object, bundle_dir: object, **kw: object) -> dict:
+            builds.append(1)
+            import pathlib
+
+            p = pathlib.Path(str(bundle_dir))
+            p.mkdir(parents=True, exist_ok=True)
+            (p / "databricks.yaml").write_text("bundle: {}\n")
+            return {}
+
+        monkeypatch.setattr(cli, "_apply_profile_context", lambda p: None)
+        monkeypatch.setattr(cli, "detect_cloud_provider", lambda p: "aws")
+        monkeypatch.setattr(AppConfig, "_resolve_all_resources", lambda self: None)
+        monkeypatch.setattr(cli, "_resolve_job_dao_ai_dep", lambda *a, **k: "dao-ai")
+        monkeypatch.setattr(cli, "_clean_default_staging_dir", lambda *a, **k: None)
+        monkeypatch.setattr(cli, "_write_staging_manifest", lambda *a, **k: None)
+        monkeypatch.setattr(
+            "dao_ai.pipeline.bundle.write_pipeline_bundle", fake_writer
+        )
+        with patch.object(cli, "_exec_bundle_command"):
+            opts = parse_args(["workflow", "up", "-c", str(cfg), "-s", str(out)])
+            cli.handle_workflow_command(opts)
+        assert len(builds) == 1, f"workflow up must build once, built {len(builds)}x"
 
 
 @pytest.mark.unit
@@ -1591,10 +1728,12 @@ class TestDeployAutoGenerate:
         cfg.write_text(_MINIMAL_CONFIG_NO_TARGET)
         return cfg
 
-    def test_deploy_autogenerates_when_unstaged(
+    def test_up_autogenerates_when_unstaged(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """`agent deploy` on an empty dir stages first, then deploys the bundle."""
+        """`agent up` on an empty dir stages first, then deploys the bundle.
+        (Only `up` builds; `sync` on an unstaged dir errors — see
+        TestStrictPrimitivesErrorWhenUnstaged.)"""
         cfg = self._write_cfg(tmp_path)
         out = tmp_path / "out"  # does NOT pre-exist with databricks.yaml
 
@@ -1616,7 +1755,7 @@ class TestDeployAutoGenerate:
             fake_writer,
         )
         with patch.object(cli, "deploy_app_bundle") as dep:
-            opts = parse_args(["agent", "sync", "-c", str(cfg), "-s", str(out)])
+            opts = parse_args(["agent", "up", "-c", str(cfg), "-s", str(out)])
             cli.handle_agent_command(opts)
 
         assert wrote.get("called"), "writer must be called to auto-generate the bundle"
@@ -1772,7 +1911,7 @@ class TestDeployAutoGenerate:
             opts = parse_args(
                 [
                     "agent",
-                    "sync",
+                    "up",
                     "-c",
                     str(cfg),
                     "-s",
@@ -1905,7 +2044,7 @@ class TestDeployAutoGenerate:
             track_resolve,
         )
         with patch.object(cli, "deploy_app_bundle"):
-            opts = parse_args(["agent", "sync", "-c", str(cfg), "-s", str(out)])
+            opts = parse_args(["agent", "up", "-c", str(cfg), "-s", str(out)])
             cli.handle_agent_command(opts)
 
         assert resolve_calls == ["called"], (
