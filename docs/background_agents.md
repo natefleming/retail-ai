@@ -174,13 +174,21 @@ The wrapper uses a single contract across both deployment targets:
 |---|---|---|
 | **Kickoff** | `POST /v1/responses` with body `background: true` | `POST /invocations` with body `background: true` |
 | **Retrieve (non-stream)** | `GET /v1/responses/{id}` | `POST /invocations` with `custom_inputs: {operation: "retrieve", response_id}` |
-| **Retrieve (stream)** | `GET /v1/responses/{id}?stream=true&cursor=N` | *Apps only — no custom SSE route on Model Serving* |
+| **Retrieve (stream)** | `GET /v1/responses/{id}?stream=true&starting_after=N` | *Apps only — no custom SSE route on Model Serving* |
 | **Cancel** | `POST /v1/responses/{id}/cancel` | `POST /invocations` with `custom_inputs: {operation: "cancel", response_id}` |
 
 **Both targets resolve to the same `BackgroundResponsesAgent.apredict`
 code path**; the Apps routes are thin FastAPI adapters that translate URL
 segments into `custom_inputs` fields before delegating to the MLflow
 `@invoke` handler.
+
+> **Stream cursor — `starting_after` vs `cursor`.** The streaming-retrieve
+> route accepts the OpenAI-canonical `starting_after=N` query param so the
+> stock OpenAI client works unchanged: `client.responses.retrieve(id,
+> stream=True, starting_after=N)`. The older `cursor=N` name is still
+> accepted as a backward-compatible alias; when both are present,
+> `starting_after` wins. Either way, pass the last
+> `custom_outputs.background.cursor` you saw to resume without re-rendering.
 
 ## Configuration
 
@@ -311,7 +319,7 @@ curl -X GET "$APP_URL/v1/responses/resp_a7f2d02fe9d4465d88b85230471641a7" \
 #### Retrieve (streaming) — Apps only
 
 ```bash
-curl -N "$APP_URL/v1/responses/resp_…?stream=true&cursor=0" \
+curl -N "$APP_URL/v1/responses/resp_…?stream=true&starting_after=0" \
   -H "Authorization: Bearer $DATABRICKS_TOKEN"
 ```
 
@@ -327,7 +335,8 @@ data: {"type":"response.in_progress","id":"resp_…","custom_outputs":{"backgrou
 
 Stop reading when `custom_outputs.background.status` is terminal. To
 resume after a dropped connection, pass the last seen
-`custom_outputs.background.cursor` as the `cursor` query param.
+`custom_outputs.background.cursor` as the `starting_after` query param
+(the `cursor` param name is still accepted as a legacy alias).
 
 #### Cancel
 
@@ -502,25 +511,36 @@ Covers:
 
 ### Live demo notebook
 
-`notebooks/06_background_agents_demo.py` exercises every flow against
-a deployed Apps + Model Serving pair:
+`notebooks/06_background_agents.py` drives every flow against a deployed
+Apps agent using the stock **OpenAI Python client** pointed at the app's
+`/v1` base URL:
 
-1. Sync passthrough (Apps + MS)
-2. Sync streaming (Apps + MS, via `stream: true` on `/invocations`)
-3. Background kickoff + non-streaming poll (Apps + MS)
-4. Background kickoff + streaming retrieve (Apps only)
-5. Cancel (Apps + MS)
-6. Cursor resume on dropped SSE connection (Apps)
+1. **Kick off + poll** — `responses.create(..., background=True)` returns a
+   `resp_…` id immediately; `responses.retrieve(id)` polls until terminal.
+2. **Cancel** — kick off a longer task, then `responses.cancel(id)` before it
+   finishes and confirm the terminal `cancelled` status.
+3. **Stream a background task's events** — `responses.retrieve(id, stream=True,
+   starting_after=0)` replays persisted events; deltas render incrementally.
+4. **Stream the agent's output live** — `responses.create(..., stream=True)`
+   (synchronous, `background=False`) for progressive rendering.
 
-Run it as a Databricks notebook, or inline from a workstation with:
+> **App-scoped token required.** When you call an Apps deployment with the
+> OpenAI client, the Apps front door rejects the notebook's ambient
+> Databricks token with a bare `401`. The notebook exchanges it for an
+> **app-scoped** OAuth token via `POST {host}/oidc/v1/token` (token-exchange
+> grant, `audience=<app.oauth2_app_client_id>`) and uses that as the client
+> `api_key`. Point the client at `f"{app_url}/v1"` — the `WorkspaceClient`
+> OpenAI helper omits the `/v1` prefix, so the `retrieve`/`cancel` legs 404
+> without it.
 
-```bash
-export APP_URL=https://background-…
-export MS_ENDPOINT=background_dao
-export DATABRICKS_HOST=https://…
-export DATABRICKS_TOKEN=$(databricks --profile X auth token | jq -r .access_token)
-uv run python /tmp/run_notebook_inline.py   # strips MAGIC cells and execs the .py
-```
+Sections 3 and 4 accumulate `response.output_text.delta` events and print
+each delta with `print(delta, end="", flush=True)`; a `saw_delta` guard
+suppresses the final done-item fallback so output isn't rendered twice when
+an agent emits both deltas and a terminal item.
+
+Run it as a Databricks notebook (recommended — the token exchange uses the
+notebook's workspace context), or adapt the OpenAI-client calls into your own
+harness.
 
 ## Troubleshooting
 
@@ -594,8 +614,8 @@ work normally.
    per-poll HTTP overhead and gives progressive rendering. Non-streaming
    poll is for batch/daemon consumers.
 4. **Track the cursor** on streaming retrievers — reconnect with
-   `?cursor=<last_seen>` so you don't re-render events you've already
-   shown.
+   `?starting_after=<last_seen>` so you don't re-render events you've
+   already shown (`?cursor=` still works as a legacy alias).
 5. **Don't pin the serving workload to one pod**. The stateless retrieve
    path works across pods; only the cancel path is same-pod-only, and
    the DB update always happens regardless. If strict cross-pod cancel is
@@ -620,7 +640,7 @@ sessions discarded automatically
 ## See also
 
 - Example config: `examples/18_background_agents/background_research.yaml`
-- Full demo notebook: `notebooks/06_background_agents_demo.py`
+- Full demo notebook: `notebooks/06_background_agents.py`
 - Implementation:
   - `src/dao_ai/background/agent.py` — wrapper + background loop
   - `src/dao_ai/background/store.py` — Lakebase schema + CRUD

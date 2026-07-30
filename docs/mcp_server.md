@@ -45,17 +45,17 @@ function calls run as the caller, not as the App's service principal.
 # 1. Install the optional MCP extra
 pip install 'dao-ai[mcp]'
 
-# 2. Generate a deploy-ready bundle from your dao-ai config
-dao-ai agent generate \
-  --mode mcp \
-  -c my_agent.yaml \
-  -s ./my-agent-mcp \
-  -p <profile>
-
-# 3. Deploy + run in one step (or drive databricks bundle by hand, below)
+# 2. Generate + deploy + run in one command (recommended)
 dao-ai agent up --mode mcp -c my_agent.yaml -s ./my-agent-mcp -p <profile>
+```
 
-# 3b. ...or drive the bundle manually
+`up` runs generate → deploy → run for you. Only reach for the granular
+verbs when you want to inspect or hand-edit the staged bundle before
+shipping it:
+
+```bash
+# Stage the bundle, (optionally) hand-edit ./my-agent-mcp, then drive it manually
+dao-ai agent generate --mode mcp -c my_agent.yaml -s ./my-agent-mcp -p <profile>
 cd my-agent-mcp
 uv sync
 databricks bundle deploy -t dev -p <profile>

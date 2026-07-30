@@ -12,17 +12,6 @@ These are the powerful features that make DAO production-ready. Don't worry if s
 - **Single Configuration**: Switch deployment targets with one line change — no code rewrite needed
 - **Environment Consistency**: Same YAML config works in both environments
 
-**Comparison:**
-
-| Feature | Model Serving | Databricks Apps |
-|---------|--------------|-----------------|
-| **Use Case** | Inference API endpoint | Full web application |
-| **Scaling** | Auto-scales based on load | Manual scaling configuration |
-| **UI** | API only | Custom web UI possible |
-| **Pricing** | Pay per token/request | Compute-based |
-| **Deployment Speed** | ~2-5 minutes | ~2-5 minutes |
-| **Best For** | API integrations, high throughput | Interactive apps, custom UX |
-
 **How to configure:**
 
 ```yaml
@@ -41,15 +30,15 @@ app:
 
 **Deploy to Model Serving:**
 ```bash
-dao-ai agent deploy -c config.yaml --mode model_serving
+dao-ai agent up -c config.yaml --mode model_serving
 ```
 
 **Deploy to Databricks Apps:**
 ```bash
-dao-ai agent deploy -c config.yaml --mode apps
+dao-ai agent up -c config.yaml --mode apps
 ```
 
-**CLI override:** The `--mode` flag selects the serving target at deploy time (default: `apps`).
+**CLI override:** The `--mode` flag selects the serving target at deploy time (default: `apps`). `up` runs generate → deploy → run in one command; use the granular `generate` / `deploy` / `run` verbs only when you need to inspect or hand-edit the bundle between steps.
 
 **Behind the scenes:**
 - Model Serving deployments create an MLflow model and serving endpoint
