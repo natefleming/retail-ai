@@ -3646,6 +3646,196 @@ def _declared_bundle_variables(bundle_dir: Path) -> set[str]:
     return set(variables) if isinstance(variables, dict) else set()
 
 
+def _bundle_subprocess_env(profile: Optional[str]) -> dict[str, str]:
+    """Env for a side ``databricks`` subprocess, mirroring _exec_bundle_command.
+
+    When a profile is passed, the ambient ``DATABRICKS_*`` auth vars are cleared
+    so the profile is authoritative (same rule the streaming executor applies).
+    """
+    env = os.environ.copy()
+    if profile:
+        for var in DATABRICKS_AUTH_ENV_VARS:
+            env.pop(var, None)
+    return env
+
+
+def _adopt_untracked_bundle_resources(
+    *,
+    staging_dir: Path,
+    profile: Optional[str],
+    target: Optional[str],
+    extra_vars: Optional[list[str]] = None,
+    dry_run: bool = False,
+) -> None:
+    """Adopt workspace resources that exist but aren't in this bundle's state.
+
+    Runs BEFORE ``bundle deploy`` for every sync scenario (agent apps/mcp,
+    ``agent --mode model_serving``, and ``workflow`` — they all funnel through
+    :func:`_exec_bundle_command`). The DABs ``direct`` engine plans a CREATE for
+    any resource missing from its deploy state; if that resource already exists
+    in the workspace (a prior ``--direct`` SDK deploy, a manual create, or a
+    reset state), the CREATE fails with 409 ALREADY_EXISTS. This makes deploy
+    idempotent: for each resource the plan would CREATE that ALSO already exists
+    in the workspace, ``bundle deployment bind`` adopts it into state so the
+    deploy UPDATEs instead.
+
+    Best-effort by design: any failure here (plan errors, unparseable JSON, a
+    failed/again-bound bind) is logged and swallowed so the real ``bundle
+    deploy`` still runs and surfaces its own errors. Enumeration is delegated to
+    ``bundle plan`` (the engine's authoritative per-resource action list); only
+    id-resolution + the bind call are per-resource.
+    """
+    import json as _json
+
+    plan_cmd: list[str] = ["databricks"]
+    if profile:
+        plan_cmd.extend(["--profile", profile])
+    plan_cmd.extend(["bundle", "plan", "--output", "json"])
+    if target:
+        plan_cmd.extend(["--target", target])
+    # summary/plan re-evaluate the bundle and hard-fail on unset required --vars
+    # (e.g. the Job bundle's config_path); forward the same overrides deploy uses.
+    plan_cmd.extend(extra_vars or [])
+
+    env = _bundle_subprocess_env(profile)
+    try:
+        out = subprocess.run(
+            plan_cmd,
+            cwd=str(staging_dir),
+            capture_output=True,
+            text=True,
+            timeout=60,
+            env=env,
+        )
+        if out.returncode != 0:
+            logger.debug(
+                f"bundle plan for resource adoption failed (rc={out.returncode}); "
+                f"skipping adopt. stderr: {out.stderr.strip()[:400]}"
+            )
+            return
+        plan = _json.loads(out.stdout).get("plan") or {}
+    except Exception as e:  # noqa: BLE001
+        logger.debug(f"Could not compute bundle plan for resource adoption: {e}")
+        return
+
+    # Collect (bundle-resource-key, workspace-resource-id) to bind: every plan
+    # entry the engine would CREATE whose resource ALREADY exists in the
+    # workspace. Key form is ``resources.<type>.<short-key>``.
+    to_bind: list[tuple[str, str]] = []
+    for node, entry in plan.items():
+        if not isinstance(entry, dict) or entry.get("action") != "create":
+            continue
+        parts = node.split(".")
+        if len(parts) != 3 or parts[0] != "resources":
+            continue
+        _, rtype, short_key = parts
+        rid: Optional[str] = _resolve_existing_resource_id(rtype, short_key, entry, profile)
+        if rid is not None:
+            to_bind.append((short_key, rid))
+
+    if not to_bind:
+        return
+
+    for short_key, rid in to_bind:
+        bind_cmd: list[str] = ["databricks"]
+        if profile:
+            bind_cmd.extend(["--profile", profile])
+        bind_cmd.extend(["bundle", "deployment", "bind", short_key, rid, "--auto-approve"])
+        if target:
+            bind_cmd.extend(["--target", target])
+        if dry_run:
+            logger.info(f"[DRY RUN] Would run: {' '.join(bind_cmd)}")
+            continue
+        try:
+            logger.info(
+                f"Adopting existing workspace resource into bundle state: "
+                f"bind {short_key} -> {rid}"
+            )
+            bound = subprocess.run(
+                bind_cmd,
+                cwd=str(staging_dir),
+                capture_output=True,
+                text=True,
+                timeout=120,
+                env=env,
+            )
+            if bound.returncode != 0:
+                # Non-fatal: already-bound / racing / transient — the subsequent
+                # deploy still runs and reports any real problem itself.
+                logger.debug(
+                    f"bundle deployment bind {short_key} -> {rid} returned "
+                    f"rc={bound.returncode}; continuing. stderr: "
+                    f"{bound.stderr.strip()[:400]}"
+                )
+        except Exception as e:  # noqa: BLE001
+            logger.debug(f"bind {short_key} -> {rid} failed: {e}; continuing.")
+
+
+def _resolve_existing_resource_id(
+    rtype: str,
+    short_key: str,
+    plan_entry: dict[str, Any],
+    profile: Optional[str],
+) -> Optional[str]:
+    """Workspace id to bind, if a would-CREATE resource already exists — else None.
+
+    Apps are self-contained: the plan's ``new_state`` carries the app name, and
+    an app's bind id IS its name. Other resource types (jobs, pipelines,
+    experiments) use a numeric workspace id not present in an unbound plan entry,
+    so they're resolved by name via the SDK. Returning None means "leave it" — a
+    genuine create, not a 409 risk. Never raises.
+    """
+    try:
+        from databricks.sdk import WorkspaceClient
+        from databricks.sdk.errors import NotFound
+    except Exception:  # noqa: BLE001
+        return None
+
+    new_state = (plan_entry.get("new_state") or {}).get("value") or {}
+
+    try:
+        w = WorkspaceClient(profile=profile) if profile else WorkspaceClient()
+    except Exception as e:  # noqa: BLE001
+        logger.debug(f"Could not init WorkspaceClient for adopt lookup: {e}")
+        return None
+
+    try:
+        if rtype == "apps":
+            # App id == app name; confirm it actually exists in the workspace.
+            name = new_state.get("name")
+            if not name:
+                return None
+            w.apps.get(name=name)
+            return str(name)
+
+        if rtype == "jobs":
+            name = new_state.get("name")
+            if not name:
+                return None
+            for job in w.jobs.list(name=name):
+                if job.settings and job.settings.name == name and job.job_id:
+                    return str(job.job_id)
+            return None
+
+        if rtype == "pipelines":
+            name = new_state.get("name")
+            if not name:
+                return None
+            for p in w.pipelines.list_pipelines(filter=f"name LIKE '{name}'"):
+                if p.name == name and p.pipeline_id:
+                    return str(p.pipeline_id)
+            return None
+
+        # Other types (experiments, etc.): conservative — the app/job/pipeline
+        # resources are the create-vs-update 409 cases. Skip rather than guess.
+        return None
+    except NotFound:
+        return None
+    except Exception as e:  # noqa: BLE001
+        logger.debug(f"adopt id-resolution for {rtype}.{short_key} failed: {e}")
+        return None
+
+
 def _exec_bundle_command(
     command: list[str],
     *,
@@ -3670,6 +3860,19 @@ def _exec_bundle_command(
         extra_vars: pre-formatted ``--var="k=v"`` args to append.
         dry_run: print the command instead of executing.
     """
+    # Before a deploy, adopt any workspace resource that already exists but is
+    # missing from this bundle's deploy state, so the deploy UPDATEs instead of
+    # issuing a CREATE that 409s (ALREADY_EXISTS). Best-effort; covers every sync
+    # path since they all deploy through here. run/destroy/other verbs skip this.
+    if command[:2] == ["bundle", "deploy"]:
+        _adopt_untracked_bundle_resources(
+            staging_dir=cwd,
+            profile=profile,
+            target=target,
+            extra_vars=extra_vars,
+            dry_run=dry_run,
+        )
+
     cmd: list[str] = ["databricks"]
     if profile:
         cmd.extend(["--profile", profile])
