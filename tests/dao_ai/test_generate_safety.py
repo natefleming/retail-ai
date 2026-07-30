@@ -152,3 +152,60 @@ class TestUserCodeSacred:
         write_bundle(cfg, tmp_path, overwrite=True)
         # The original config (with its parameters block) is untouched.
         assert (tmp_path / "dao_ai.yaml").read_text() == original
+
+
+# ---------------------------------------------------------------------------
+# The staged config is a generated artifact: its hash is registered so a
+# hand-edit to the STAGED copy trips the local-edit guard on the next build.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+class TestStagedConfigTracked:
+    def test_staged_config_is_registered(self, tmp_path: Path) -> None:
+        cfg = _config_with_src(tmp_path)
+        out = tmp_path / "bundle"
+        registry = write_bundle(cfg, out, overwrite=True)
+        # The staged config lands in the hashed registry, like every other
+        # generated file — not silently absent as it was before.
+        assert "dao_ai.yaml" in registry
+        assert (out / "dao_ai.yaml").exists()
+
+    def test_hand_edit_to_staged_config_trips_guard(self, tmp_path: Path) -> None:
+        from dao_ai.cli import (
+            _staging_dir_has_local_edits,
+            _write_staging_manifest,
+        )
+
+        cfg = _config_with_src(tmp_path)
+        out = tmp_path / "bundle"
+        registry = write_bundle(cfg, out, overwrite=True)
+        _write_staging_manifest(out, is_default=True, registry=registry)
+
+        # A freshly generated dir has no local edits.
+        assert _staging_dir_has_local_edits(out) is False
+
+        # Hand-edit the STAGED config, exactly as a user tweaking the copy would.
+        staged = out / "dao_ai.yaml"
+        staged.write_text(staged.read_text() + "\n# hand-edit\n")
+
+        # The edit is now detected, so build refuses to wipe it without --overwrite.
+        assert _staging_dir_has_local_edits(out) is True
+
+    def test_edit_reason_names_the_file(self, tmp_path: Path) -> None:
+        from dao_ai.cli import _local_edit_reason, _write_staging_manifest
+
+        cfg = _config_with_src(tmp_path)
+        out = tmp_path / "bundle"
+        registry = write_bundle(cfg, out, overwrite=True)
+        _write_staging_manifest(out, is_default=True, registry=registry)
+
+        assert _local_edit_reason(out) is None
+
+        # Modified generated file -> reason names it and says "modified".
+        staged = out / "dao_ai.yaml"
+        staged.write_text(staged.read_text() + "\n# hand-edit\n")
+        reason = _local_edit_reason(out)
+        assert reason is not None
+        assert "dao_ai.yaml" in reason
+        assert "modified" in reason

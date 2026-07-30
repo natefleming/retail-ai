@@ -245,9 +245,9 @@ class TestEditSafety:
         d.mkdir(parents=True)
         (d / "app.yaml").write_text("orig\n")  # generated (tracked in `files`)
         (d / "src").mkdir()
-        (d / "src" / "mine.py").write_text("print('mine')\n")  # user code (in `known`)
+        (d / "src" / "mine.py").write_text("print('mine')\n")  # user code (in `tracked`)
         # Only app.yaml is a generated file; src/mine.py is present at stamp time,
-        # so it lands in `known` (not `files`) and is safe to edit later.
+        # so it lands in `tracked` (not `files`) and is safe to edit later.
         _stamp_manifest(d, files=["app.yaml"])
         return d
 
@@ -302,9 +302,9 @@ class TestEditSafety:
     ) -> None:
         """Editing user code that existed at generate time must never flag edits.
 
-        Only dao-ai-generated files are hashed; a user's in-place edits to src/,
-        code_paths, or their config (present in ``known`` but not ``files``) are
-        invisible to edit-detection, so the dir regenerates cleanly.
+        Only dao-ai-generated files are hashed; a user's in-place edits to src/
+        or code_paths (present in ``tracked`` but not ``files``) are invisible to
+        edit-detection, so the dir regenerates cleanly.
         """
         monkeypatch.setenv("DAO_AI_BUNDLE_DIR", str(tmp_path / "base"))
         d = self._staged(tmp_path)  # src/mine.py present at stamp time
@@ -328,7 +328,7 @@ class TestEditSafety:
         (d / "resources").mkdir()
         (d / "resources" / "jobs.yml").write_text(
             "resources: {}\n"
-        )  # stray, not in `known`
+        )  # stray, not in `tracked`
         assert cli._staging_dir_has_local_edits(d) is True
         with pytest.raises(SystemExit):
             cli._clean_default_staging_dir(
@@ -374,6 +374,32 @@ class TestEditSafety:
         assert cli._staging_dir_has_local_edits(d) is False
         # A file newer than the marker -> edited.
         os.utime(d / "app.yaml", (marker_mtime + 10, marker_mtime + 10))
+        assert cli._staging_dir_has_local_edits(d) is True
+
+    def test_legacy_known_key_still_detects_stray(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A manifest staged before the ``known`` -> ``tracked`` rename still
+        drives stray detection via the legacy key."""
+        import yaml
+
+        monkeypatch.setenv("DAO_AI_BUNDLE_DIR", str(tmp_path / "base"))
+        d = tmp_path / "base" / "agent" / "app"
+        d.mkdir(parents=True)
+        (d / "app.yaml").write_text("orig\n")
+        # Hand-write a legacy-shaped manifest that uses the old ``known`` key.
+        (d / cli._STAGING_MANIFEST).write_text(
+            yaml.safe_dump(
+                {
+                    "version": cli._MANIFEST_VERSION,
+                    "config_fingerprint": "",
+                    "files": {},
+                    "known": ["app.yaml"],
+                }
+            )
+        )
+        assert cli._staging_dir_has_local_edits(d) is False
+        (d / "stray.txt").write_text("added later\n")  # not in legacy `known`
         assert cli._staging_dir_has_local_edits(d) is True
 
 
@@ -427,8 +453,8 @@ class TestConfigFingerprint:
         assert manifest["version"] == cli._MANIFEST_VERSION
         assert manifest["config_fingerprint"] == "abc123"
         assert manifest["files"] == registry
-        # `known` snapshots every non-ignored file on disk at stamp time.
-        assert "databricks.yaml" in manifest["known"]
+        # `tracked` snapshots every non-ignored file on disk at stamp time.
+        assert "databricks.yaml" in manifest["tracked"]
 
     def test_manifest_retires_legacy_marker(self, tmp_path: Path) -> None:
         d = tmp_path / "base" / "agent" / "app"

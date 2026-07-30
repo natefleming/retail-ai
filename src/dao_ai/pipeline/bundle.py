@@ -700,9 +700,11 @@ def _write_job_bundle(
     written: list[str] = []
     # User code (src/ + code_paths + source config) left untouched.
     preserved_user_code: list[str] = []
-    # Content hashes of the files dao-ai generated (databricks.yaml + notebooks),
-    # keyed by staging-dir-relative POSIX path. The staged config and assets are
-    # user-editable, so they're excluded.
+    # Content hashes of the files dao-ai generated (databricks.yaml + notebooks
+    # + the staged config), keyed by staging-dir-relative POSIX path, so a
+    # hand-edit to any of them trips the local-edit guard on the next build.
+    # Copied-in user assets (data/functions) stay unregistered — editing those
+    # is safe.
     registry: dict[str, str] = {}
 
     def _register(rel: str) -> None:
@@ -748,12 +750,18 @@ def _write_job_bundle(
     config_dir = staging_dir / "config"
     config_dir.mkdir(parents=True, exist_ok=True)
     config_dest = config_dir / config_filename
+    config_rel = f"config/{config_filename}"
     if source_config and config_dest.resolve() == Path(source_config).resolve():
         # Never write over the user's ORIGINAL config in place (would strip
         # their parameters: block). Belt-and-suspenders behind the CLI guard.
-        preserved_user_code.append(f"config/{config_filename}")
+        # In-place: the staged copy IS the source, so don't register it — editing
+        # it is editing the source, a different situation from a staged-copy edit.
+        preserved_user_code.append(config_rel)
     elif config_dest.exists() and not overwrite:
         logger.info(f"Skipping {config_filename} (exists; use --overwrite)")
+        # Register the on-disk copy even when skipped: it's a dao-ai-staged
+        # artifact whose hand-edits we want to detect on the next build.
+        _register(config_rel)
     else:
         staged_text: str | None = _staged_config_text(
             config, defer_provided=defer_provided
@@ -767,7 +775,10 @@ def _write_job_bundle(
                 "Config has no source path or rendered YAML; cannot stage it. "
                 "Load the config via AppConfig.from_file."
             )
-        written.append(f"config/{config_filename}")
+        written.append(config_rel)
+        # Track the staged config's hash so a later hand-edit to it trips the
+        # local-edit guard, matching databricks.yaml + the notebooks.
+        _register(config_rel)
 
     # 5. Development wheel: build the current source into a uniquely-versioned
     #    (``+dev<epoch>``) wheel and stage it under dist/, so the serverless
