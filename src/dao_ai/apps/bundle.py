@@ -870,6 +870,9 @@ def write_bundle(
         elif dest.exists() and not overwrite:
             print(f"  WARNING: Skipping {config_filename} (exists; use --overwrite)")
             skipped.append(config_filename)
+            # Register the on-disk copy even when skipped: it's a dao-ai-generated
+            # artifact whose hand-edits we want to detect on the next build.
+            _register(dest)
         else:
             # Prefer the rendered YAML (with ${param.NAME} already substituted
             # and the parameters: declaration block stripped) so the deployed
@@ -885,6 +888,9 @@ def write_bundle(
                 shutil.copy2(source_config, dest)
                 logger.info(f"Copied config as {config_filename}")
             written.append(config_filename)
+            # Track the staged config's hash so a later hand-edit to it trips the
+            # local-edit guard, matching every other generated file (see _track).
+            _register(dest)
     else:
         logger.warning("No source config path found -- skipping config copy")
 
