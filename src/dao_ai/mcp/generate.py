@@ -40,7 +40,6 @@ from dao_ai._locking import generate_bundle_lock
 from dao_ai.apps.bundle import (
     _GITIGNORE_CONTENT,
     _GITIGNORE_DEV_CONTENT,
-    _sha256_file,
     _strip_parameters_block,
     generate_databricks_yaml,
     generate_resources_app_yaml,
@@ -63,7 +62,7 @@ def write_mcp_bundle(
     *,
     overwrite: bool = False,
     development: bool = False,
-) -> dict[str, str]:
+) -> None:
     """Write an MCP-server deploy bundle into ``staging_dir``.
 
     Requires ``config.app.name`` (used as both the Databricks App name and
@@ -74,11 +73,11 @@ def write_mcp_bundle(
     into ``staging_dir/dist/``; the generated requirements.txt then installs
     from that wheel instead of pulling ``dao-ai[mcp]`` from PyPI.
 
-    Returns the staging registry: ``{relative_posix_path: sha256}`` for the
-    files dao-ai *generated* (databricks.yaml, resources/app.yml, pyproject.toml,
-    uv.lock, scaffold, README.md). User code (the rendered config, the stub
-    package, code_paths, src/<pkg>, dist wheel) is excluded so hand-edits to it
-    never trip edit-detection. The caller stamps this into ``.dao-ai-manifest.yaml``.
+    The staging dir is ephemeral build output: dao-ai-generated files
+    (databricks.yaml, resources/app.yml, pyproject.toml, uv.lock, scaffold,
+    README.md) are (re)written every build, while user-owned content (the
+    rendered config, code_paths, src/<pkg>, ``resources/`` overlays) is copied
+    once and never overwritten unless ``overwrite``.
     """
     if config.app is None or not config.app.name:
         raise ValueError(
@@ -106,27 +105,14 @@ def write_mcp_bundle(
     skipped: list[str] = []
     # User code (src/ + code_paths + source config) preserved as-is.
     preserved: list[str] = []
-    # Content hashes of the files dao-ai generated (incl. the staged config),
-    # keyed by staging-dir-relative POSIX path, so a hand-edit to any of them
-    # trips edit-detection. Copied-in user code (src/, code_paths) passes
-    # register=False so editing it stays safe.
-    registry: dict[str, str] = {}
 
-    def _register(path: Path) -> None:
-        if path.exists():
-            registry[path.relative_to(staging_dir).as_posix()] = _sha256_file(path)
-
-    def _write(path: Path, content: str, *, register: bool = True) -> None:
+    def _write(path: Path, content: str) -> None:
         if path.exists() and not overwrite:
             skipped.append(str(path.relative_to(staging_dir)))
-            if register:
-                _register(path)
             return
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(content)
         written.append(str(path.relative_to(staging_dir)))
-        if register:
-            _register(path)
 
     # Reuse the shared bundle helpers so the App + experiment + resource
     # bindings match ``generate-agent`` byte-for-byte. MCP disables the
@@ -195,10 +181,9 @@ def write_mcp_bundle(
     )
 
     # Stub package so uv can build the local project when locking (the
-    # pyproject declares ``packages = ["src/<pkg>"]``). User code: not registered
-    # so a real package the user drops here can be edited freely.
+    # pyproject declares ``packages = ["src/<pkg>"]``).
     package_name = app_name.replace("-", "_")
-    _write(staging_dir / "src" / package_name / "__init__.py", "", register=False)
+    _write(staging_dir / "src" / package_name / "__init__.py", "")
 
     _write(
         staging_dir / ".gitignore",
@@ -212,7 +197,6 @@ def write_mcp_bundle(
     # locks the full ``dao-ai[mcp]`` public-PyPI closure.
     generate_bundle_lock(staging_dir)
     written.append("uv.lock")
-    _register(staging_dir / "uv.lock")
 
     config_dest = staging_dir / config_filename
     if source_config_path is not None and (
@@ -220,12 +204,8 @@ def write_mcp_bundle(
     ):
         # Never write over the user's ORIGINAL config in place (would strip
         # their parameters: block). Belt-and-suspenders behind the CLI guard.
-        # In-place: the staged copy IS the source, so leave it unregistered —
-        # editing it is editing the source, not a staged-copy edit.
         preserved.append(config_filename)
     else:
-        # Register the staged config (default register=True) so a hand-edit to it
-        # trips the local-edit guard, matching databricks.yaml + uv.lock.
         rendered: str | None = config._rendered_yaml
         if rendered is not None:
             _write(config_dest, _strip_parameters_block(rendered))
@@ -241,6 +221,7 @@ def write_mcp_bundle(
         _SRC_DIRNAME,
         discover_src_packages,
         iter_code_path_stagings,
+        iter_resource_path_stagings,
         walk_code_path_files,
     )
 
@@ -268,6 +249,23 @@ def write_mcp_bundle(
             out.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(file_src, out)
             written.append(file_dest)
+
+    # DAB resource overlays (app.resource_paths + the colocated resources/
+    # convention) → resources/, merged by the generated databricks.yaml's
+    # ``include: [resources/*.yml]``. Copied once; an existing staged copy is
+    # refreshed only under --overwrite (matching the field's documented contract),
+    # and never copied onto itself.
+    for res_src, res_dest in iter_resource_path_stagings(config):
+        out = staging_dir / res_dest
+        if res_src.resolve() == out.resolve():
+            preserved.append(res_dest)
+            continue
+        if out.exists() and not overwrite:
+            preserved.append(res_dest)
+            continue
+        out.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(res_src, out)
+        written.append(res_dest)
 
     _write(
         staging_dir / "README.md",
@@ -299,8 +297,6 @@ def write_mcp_bundle(
     print("  # Apps' build phase installs deps via `uv sync --locked` from")
     print("  # pyproject.toml + uv.lock (portable, public-CDN URLs).")
     print()
-
-    return registry
 
 
 def _derive_app_name(config: AppConfig) -> str:

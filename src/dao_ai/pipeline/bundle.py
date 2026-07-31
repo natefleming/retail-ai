@@ -40,7 +40,6 @@ from loguru import logger
 
 from dao_ai.apps.bundle import (
     _retain_only_parameters,
-    _sha256_file,
     _strip_parameters_block,
     _write_file,
     dump_bundle_yaml,
@@ -148,6 +147,13 @@ def _build_job_bundle_yaml(
         "config/**",
         "notebooks/*.py",
     ]
+    # DAB resource overlays (app.resource_paths + the colocated resources/
+    # convention) stage under resources/ and are merged via the bundle's
+    # ``include: [resources/*.yml]`` (added below) — the same seam the agent/mcp
+    # bundles expose, so a config's overlays behave identically no matter which
+    # noun deploys it.
+    if config.app is not None and _has_resource_overlays(config):
+        sync_include.append("resources/**")
     # Config-referenced assets stage under ``config/`` (covered above). A config
     # that references a sibling use case's shared assets via ``../`` stages them
     # outside ``config/`` at the bundle root; add explicit globs so those upload
@@ -264,6 +270,14 @@ def _build_job_bundle_yaml(
             for cloud in _CLOUDS
         },
     }
+
+    # Merge user DAB resource overlays (app.resource_paths + the colocated
+    # resources/ convention) the same way the agent/mcp bundles do — so a config's
+    # overlays deploy identically regardless of noun. Only emitted when the config
+    # actually has overlays, so a plain workflow bundle stays free of a dangling
+    # (empty) include.
+    if config.app is not None and _has_resource_overlays(config):
+        bundle["include"] = ["resources/*.yml"]
 
     return dump_bundle_yaml(bundle)
 
@@ -513,6 +527,57 @@ def _stage_src_packages(
     return copied, preserved
 
 
+def _has_resource_overlays(config: AppConfig) -> bool:
+    """True if the config contributes any DAB resource overlay.
+
+    Either an explicit ``app.resource_paths`` entry or an implicit ``*.yml`` under
+    the colocated ``resources/`` directory. Used to decide whether the workflow
+    bundle emits the ``include: [resources/*.yml]`` seam + ``resources/**`` sync
+    glob (skipped for a plain bundle so no dangling empty include is written).
+    """
+    from dao_ai.code_paths import discover_resource_overlays
+
+    app = config.app
+    if app is None:
+        return False
+    return bool(app.resource_paths) or bool(discover_resource_overlays(config))
+
+
+def _stage_resource_overlays(
+    config: AppConfig,
+    staging_dir: Path,
+    overwrite: bool,
+) -> tuple[list[str], list[str]]:
+    """Copy the config's DAB resource overlays into ``resources/``.
+
+    Parity with the agent/mcp bundles: each overlay (from ``app.resource_paths`` or
+    the colocated ``resources/`` convention) lands flat at ``resources/<basename>``
+    (bundle root), where the generated ``databricks.yaml``'s
+    ``include: [resources/*.yml]`` merges it at deploy — so a config's overlays
+    behave identically whichever noun deploys it. Copied once; an existing staged
+    copy is refreshed only under ``overwrite`` (matching the field's documented
+    contract), and never copied onto itself. Returns ``(copied, preserved)``
+    bundle-relative labels.
+    """
+    from dao_ai.code_paths import iter_resource_path_stagings
+
+    copied: list[str] = []
+    preserved: list[str] = []
+    for res_src, res_dest in iter_resource_path_stagings(config):
+        file_out = (staging_dir / res_dest).resolve()
+        label = _bundle_label(file_out, staging_dir)
+        if res_src.resolve() == file_out:
+            preserved.append(label)
+            continue
+        if file_out.exists() and not overwrite:
+            preserved.append(label)
+            continue
+        file_out.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(res_src, file_out)
+        copied.append(label)
+    return copied, preserved
+
+
 def _bundle_label(file_out: Path, staging_dir: Path) -> str:
     """Bundle-relative label for the staging summary (best-effort)."""
     try:
@@ -596,13 +661,13 @@ def write_pipeline_bundle(
     staging_dir: Path,
     overwrite: bool = False,
     development: bool = False,
-) -> dict[str, str]:
+) -> None:
     """Stage a deployable multi-task ``deploy_job`` bundle for ``dao-ai workflow``.
 
     Thin wrapper over :func:`_write_job_bundle` staging the full 8-task
     provisioning DAG. See that function for the staging contract.
     """
-    return _write_job_bundle(
+    _write_job_bundle(
         config,
         staging_dir,
         overwrite=overwrite,
@@ -619,7 +684,7 @@ def write_model_serving_agent_bundle(
     staging_dir: Path,
     overwrite: bool = False,
     development: bool = False,
-) -> dict[str, str]:
+) -> None:
     """Stage the thin single-task model_serving agent ``deploy_job`` bundle.
 
     The ``dao-ai agent --mode model_serving`` DAB analogue of the Apps/MCP
@@ -630,7 +695,7 @@ def write_model_serving_agent_bundle(
     the CLI asserts all ``provided`` params are satisfied before staging.
     Thin wrapper over :func:`_write_job_bundle`.
     """
-    return _write_job_bundle(
+    _write_job_bundle(
         config,
         staging_dir,
         overwrite=overwrite,
@@ -652,7 +717,7 @@ def _write_job_bundle(
     notebook_only: set[str] | None,
     defer_provided: bool,
     label: str,
-) -> dict[str, str]:
+) -> None:
     """Stage a deployable Job (``deploy_job``) bundle into ``staging_dir``.
 
     Shared body for :func:`write_pipeline_bundle` (full provisioning DAG) and
@@ -685,11 +750,10 @@ def _write_job_bundle(
             run time); False bakes every param (model_serving has no filler).
         label: Human label for the staging summary printout.
 
-    Returns the staging registry: ``{relative_posix_path: sha256}`` for the files
-    dao-ai *generated* (databricks.yaml, step notebooks). The staged config,
-    referenced assets, code_paths, src/<pkg>, and dist wheel are excluded so
-    hand-edits to them never trip edit-detection. The caller stamps this into
-    ``.dao-ai-manifest.yaml``.
+    The staging dir is ephemeral build output: dao-ai-generated files
+    (databricks.yaml, step notebooks) are (re)written every build, while
+    user-owned content (the staged config, referenced data/functions assets,
+    code_paths, src/<pkg>, dist wheel) is copied once and preserved on re-stage.
     """
     if config.app is None:
         raise ValueError("Config must have an 'app' section to stage a job bundle.")
@@ -700,17 +764,6 @@ def _write_job_bundle(
     written: list[str] = []
     # User code (src/ + code_paths + source config) left untouched.
     preserved_user_code: list[str] = []
-    # Content hashes of the files dao-ai generated (databricks.yaml + notebooks
-    # + the staged config), keyed by staging-dir-relative POSIX path, so a
-    # hand-edit to any of them trips the local-edit guard on the next build.
-    # Copied-in user assets (data/functions) stay unregistered — editing those
-    # is safe.
-    registry: dict[str, str] = {}
-
-    def _register(rel: str) -> None:
-        path = staging_dir / rel
-        if path.exists():
-            registry[Path(rel).as_posix()] = _sha256_file(path)
 
     # Packaged/derived artifacts (databricks.yaml, requirements.txt, notebooks)
     # are ALWAYS regenerated — they are 100% derived from the installed wheel and
@@ -729,7 +782,6 @@ def _write_job_bundle(
         overwrite=True,
     )
     written.append("databricks.yaml")
-    _register("databricks.yaml")
 
     # 2. Step notebooks. (No requirements.txt: the serverless environment
     #    installs dao-ai — which pulls its own transitive deps — via the
@@ -738,8 +790,6 @@ def _write_job_bundle(
         staging_dir, overwrite=True, only=notebook_only
     )
     written.extend(notebook_rels)
-    for rel in notebook_rels:
-        _register(rel)
 
     # 4. The resolved config, under config/<name>.yaml so the notebook's
     #    `../config` discovery and an explicit config-path both resolve. Prefer
@@ -754,14 +804,9 @@ def _write_job_bundle(
     if source_config and config_dest.resolve() == Path(source_config).resolve():
         # Never write over the user's ORIGINAL config in place (would strip
         # their parameters: block). Belt-and-suspenders behind the CLI guard.
-        # In-place: the staged copy IS the source, so don't register it — editing
-        # it is editing the source, a different situation from a staged-copy edit.
         preserved_user_code.append(config_rel)
     elif config_dest.exists() and not overwrite:
         logger.info(f"Skipping {config_filename} (exists; use --overwrite)")
-        # Register the on-disk copy even when skipped: it's a dao-ai-staged
-        # artifact whose hand-edits we want to detect on the next build.
-        _register(config_rel)
     else:
         staged_text: str | None = _staged_config_text(
             config, defer_provided=defer_provided
@@ -776,9 +821,6 @@ def _write_job_bundle(
                 "Load the config via AppConfig.from_file."
             )
         written.append(config_rel)
-        # Track the staged config's hash so a later hand-edit to it trips the
-        # local-edit guard, matching databricks.yaml + the notebooks.
-        _register(config_rel)
 
     # 5. Development wheel: build the current source into a uniquely-versioned
     #    (``+dev<epoch>``) wheel and stage it under dist/, so the serverless
@@ -848,6 +890,15 @@ def _write_job_bundle(
     preserved_user_code.extend(cp_preserved)
     preserved_user_code.extend(src_preserved)
 
+    # 6c. DAB resource overlays (app.resource_paths + resources/ convention) into
+    # resources/, merged by the bundle's include: [resources/*.yml] — parity with
+    # the agent/mcp bundles.
+    res_copied, res_preserved = _stage_resource_overlays(
+        config, staging_dir, overwrite
+    )
+    written.extend(res_copied)
+    preserved_user_code.extend(res_preserved)
+
     print(f"\n{label} bundle staged in {staging_dir}/\n")
     for name in sorted(written):
         print(f"  {name}")
@@ -865,5 +916,3 @@ def _write_job_bundle(
             "from a tree that contains them, point them at UC volume paths, or "
             "use --development from a full checkout."
         )
-
-    return registry

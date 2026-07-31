@@ -16,7 +16,6 @@ Usage:
     write_bundle(config, Path("./my-bundle"), overwrite=False)
 """
 
-import hashlib
 import io
 import shutil
 import subprocess
@@ -36,18 +35,6 @@ from dao_ai.apps.resources import (
 )
 from dao_ai.code_paths import _SRC_DIRNAME, code_path_sync_globs
 from dao_ai.config import AppConfig, value_of
-
-
-def _sha256_file(path: Path) -> str:
-    """Hex SHA-256 of a file's bytes.
-
-    Used to build the staging manifest (``.dao-ai-manifest.yaml``): the manifest
-    records a content hash for every file dao-ai generated so a later
-    ``deploy``/``generate`` can tell a hand-edited generated file from an
-    untouched one (see ``_staging_dir_has_local_edits`` in ``cli.py``). Shared by
-    the app, MCP, and pipeline bundle writers.
-    """
-    return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
 def dump_bundle_yaml(doc: dict[str, Any]) -> str:
@@ -757,7 +744,7 @@ def write_bundle(
     staging_dir: Path,
     overwrite: bool = False,
     development: bool = False,
-) -> dict[str, str]:
+) -> None:
     """Write a complete, deployable Databricks Apps bundle directory.
 
     Generates databricks.yaml, copies the dao-ai config, and creates
@@ -773,11 +760,14 @@ def write_bundle(
     ``generate-agent`` from inside a dao-ai checkout (the default
     ``--staging-dir`` is the CWD).
 
-    Returns the staging registry: ``{relative_posix_path: sha256}`` for the
-    files dao-ai *generated* (databricks.yaml, resources/app.yml, pyproject.toml,
-    uv.lock, scaffold). User code (the rendered config, code_paths, src/<pkg>,
-    skills, dist wheels) is deliberately excluded so hand-edits to it never trip
-    edit-detection. The caller stamps this into ``.dao-ai-manifest.yaml``.
+    The staging dir is ephemeral build output: dao-ai-generated files
+    (databricks.yaml, resources/app.yml, pyproject.toml, uv.lock, scaffold) are
+    (re)written every build, while user-owned content (the rendered config,
+    code_paths, src/<pkg>, skills, ``resources/`` overlays) is copied once and
+    never overwritten unless ``overwrite``. To add your own bundle resources
+    without editing a generated file, declare them via ``app.resource_paths`` or
+    drop them in a colocated ``resources/`` dir (merged by DABs' ``include:
+    [resources/*.yml]``).
     """
     resolved_output = staging_dir.resolve()
     if (resolved_output / "src" / "dao_ai" / "config.py").exists():
@@ -796,45 +786,12 @@ def write_bundle(
     # User code (src/ + code_paths + source config) that already existed at the
     # dest and was left untouched — never overwritten, even with --overwrite.
     preserved: list[str] = []
-    # Content hashes of the files dao-ai generated, keyed by staging-dir-relative
-    # POSIX path. Populated only at generated-scaffold write sites (see _track and
-    # the uv.lock write); user-code copy sites deliberately omit themselves.
-    registry: dict[str, str] = {}
-
-    def _register(path: Path) -> None:
-        if path.exists():
-            registry[path.relative_to(staging_dir).as_posix()] = _sha256_file(path)
-
-    # Warn loudly when the bundle is being built without `trace_location`:
-    # Databricks Apps containers cannot reach the artifact-storage host the
-    # default MLflow control-plane trace exporter PUTs spans to, so spans
-    # silently fail to persist on Apps. Configuring `app.trace_location`
-    # routes export through a SQL warehouse → UC OTEL tables (reachable
-    # from Apps). Model Serving deploys aren't affected. The warning is
-    # informational — generate-agent still emits a working bundle either way.
-    if config.app is None or config.app.trace_location is None:
-        _trace_location_warning = (
-            "app.trace_location is NOT set. MLflow trace SPANS will NOT "
-            "persist when this bundle runs on Databricks Apps — control-plane "
-            "trace export targets a storage host that Apps containers cannot "
-            "reach, so spans are silently dropped. To capture traces, set "
-            "`app.trace_location` in your config (see "
-            "config/examples/01_getting_started/ai_gateway.yaml for the YAML "
-            "shape). Local notebook/CLI runs and Model Serving deploys are "
-            "not affected by this."
-        )
-        logger.warning(_trace_location_warning)
-        print(f"\n  ⚠  {_trace_location_warning}\n")
 
     def _track(path: Path, content: str) -> None:
         if _write_file(path, content, overwrite):
             written.append(path.name)
         else:
             skipped.append(path.name)
-        # Register the on-disk content whether we wrote it or skipped an existing
-        # copy — either way it's a dao-ai-generated file whose hand-edits we want
-        # to detect on the next deploy.
-        _register(path)
 
     source_config: str | None = config._source_config_path
     config_filename: str = Path(source_config).name if source_config else "dao_ai.yaml"
@@ -870,9 +827,6 @@ def write_bundle(
         elif dest.exists() and not overwrite:
             print(f"  WARNING: Skipping {config_filename} (exists; use --overwrite)")
             skipped.append(config_filename)
-            # Register the on-disk copy even when skipped: it's a dao-ai-generated
-            # artifact whose hand-edits we want to detect on the next build.
-            _register(dest)
         else:
             # Prefer the rendered YAML (with ${param.NAME} already substituted
             # and the parameters: declaration block stripped) so the deployed
@@ -888,9 +842,6 @@ def write_bundle(
                 shutil.copy2(source_config, dest)
                 logger.info(f"Copied config as {config_filename}")
             written.append(config_filename)
-            # Track the staged config's hash so a later hand-edit to it trips the
-            # local-edit guard, matching every other generated file (see _track).
-            _register(dest)
     else:
         logger.warning("No source config path found -- skipping config copy")
 
@@ -944,6 +895,7 @@ def write_bundle(
     from dao_ai.code_paths import (
         discover_src_packages,
         iter_code_path_stagings,
+        iter_resource_path_stagings,
         walk_code_path_files,
     )
 
@@ -979,6 +931,25 @@ def write_bundle(
             out.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(file_src, out)
             written.append(file_dest)
+
+    # Copy the config's DAB resource overlays (app.resource_paths + the colocated
+    # resources/ convention) into the bundle's resources/ directory, where the
+    # generated databricks.yaml's ``include: [resources/*.yml]`` merges them at
+    # deploy — so users add their own Jobs/Pipelines/etc. without editing any
+    # generated file. Copied from the config dir once; an existing staged copy is
+    # refreshed only under --overwrite (matching the field's documented contract),
+    # and never copied onto itself.
+    for res_src, res_dest in iter_resource_path_stagings(config):
+        out = staging_dir / res_dest
+        if res_src.resolve() == out.resolve():
+            preserved.append(res_dest)
+            continue
+        if out.exists() and not overwrite:
+            preserved.append(res_dest)
+            continue
+        out.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(res_src, out)
+        written.append(res_dest)
 
     package_name = app_name.replace("-", "_")
 
@@ -1101,7 +1072,6 @@ def write_bundle(
         # ``[tool.uv.sources]`` path and pins the full public-PyPI closure.
         generate_bundle_lock(staging_dir)
         written.append("uv.lock")
-        _register(staging_dir / "uv.lock")
     else:
         _track(
             staging_dir / "pyproject.toml",
@@ -1132,7 +1102,6 @@ def write_bundle(
         # public-PyPI closure at lock time; the lock pins it.
         generate_bundle_lock(staging_dir)
         written.append("uv.lock")
-        _register(staging_dir / "uv.lock")
 
     _track(
         staging_dir / ".gitignore",
@@ -1170,5 +1139,3 @@ def write_bundle(
     print("  # Apps' build phase installs deps via `uv sync --locked` from")
     print("  # pyproject.toml + uv.lock (portable, public-CDN URLs).")
     print()
-
-    return registry

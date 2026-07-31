@@ -93,8 +93,8 @@ dao-ai agent up -c config/my_config.yaml --mode mcp --profile fevm
 dao-ai agent up -c config/my_config.yaml --mode model_serving --profile fevm
 ```
 
-`up` is safe to re-run: an unchanged config **skips the build** (content
-fingerprint) and the sync is **convergent**, so re-running never duplicates the
+`up` is safe to re-run: an unchanged config **skips the build** (config
+checksum) and the sync is **convergent**, so re-running never duplicates the
 bundle. The `start` step always executes — an app restarts, a model_serving job
 re-runs and registers a new model version — which is `start` doing its job.
 
@@ -221,9 +221,10 @@ dao-ai workflow up|build|sync|start|down  -c <cfg> [-p <profile>]
   `READY`). Add `--direct` (apps/mcp/model_serving) to go via the SDK with no
   bundle written to disk.
 - **`up` is safe to re-run.** On the artifact-and-sync axes it is idempotent: an
-  unchanged config **skips the build** (content fingerprint — see *Edit safety*
-  below) and the sync is **convergent**, so re-running `up` never duplicates the
-  bundle. The `start` step, by contrast, always *executes*: an app restarts, and
+  unchanged config **skips the build** (config checksum — see *The staging dir is
+  ephemeral build output* below) and the sync is **convergent**, so re-running
+  `up` never duplicates the bundle. The `start` step, by contrast, always
+  *executes*: an app restarts, and
   a workflow/model_serving job re-runs (a model_serving `start` registers a new
   model version each time). That is the start step doing its job, not an
   artifact/sync concern.
@@ -239,9 +240,9 @@ dao-ai workflow up|build|sync|start|down  -c <cfg> [-p <profile>]
   noun and mode (`agent`/`workflow` × `apps`/`mcp`/`model_serving`) — a primitive
   acts on prepared state, it never provisions its own prerequisites. For
   `agent`/`mcp`, `sync` runs `databricks bundle deploy` — it creates/updates the
-  App resource and uploads its source; a staged bundle is synced in place
-  (preserving hand-edits), and on config drift it warns and deploys as-is rather
-  than rebuilding. Use `--mode model_serving` on `agent sync` to sync the
+  App resource and uploads its source; a staged bundle is synced in place, and
+  on config drift it warns and deploys as-is rather than rebuilding (run `build`
+  or `up` to pick up the change). Use `--mode model_serving` on `agent sync` to sync the
   deploy-agent Job bundle.
 - **`start`** makes the synced bundle live and **does not re-sync, build, or
   push** — it errors if nothing is synced. For `agent`/`mcp`, `start` runs
@@ -268,13 +269,23 @@ This is the payoff: a sync that failed on a transient error can be retried with
 just `dao-ai agent sync -c <cfg> -p fevm` — no rebuild. To build, sync, *and*
 start in one shot, use `dao-ai agent up` instead.
 
-**Edit safety.** Re-running `build` into the **default** staging dir refuses to
-wipe it once it has local hand-edits (detected via the `.dao-ai-manifest.yaml`
-per-file SHA-256 registry — content-based, so mtime-preserving copies can't
-defeat it), unless you pass `--overwrite`. The error points you at
-`<noun> sync` to ship the edits instead. A `-s <dir>` is never auto-wiped.
-The source-selection flags `--overwrite`, `--development`, and `--no-development`
-take effect on the verbs that build — `up` and `build`. `sync`/`start`/`down`
+**The staging dir is ephemeral build output.** Everything in the **default**
+staging dir (`<base>/<noun>/<app>`) is either generated from your config or
+copied from the config directory (custom `code_paths`, `src/` packages,
+`resources/` overlays, the rendered config), so `build`/`up` regenerate it in
+place — a default dir is wiped and rebuilt on each run, and on config drift `up`
+rebuilds it automatically. **Don't hand-edit generated files** — to add your own
+Databricks resources (Jobs, Pipelines, …) to the bundle, drop a `*.yml` in a
+`resources/` directory next to your config (auto-shipped, like `src/` for code),
+or list files explicitly via `app.resource_paths: [path/to/jobs.yml, …]`; each is
+copied into the bundle's `resources/` directory where DABs'
+`include: [resources/*.yml]` merges it at deploy, with no generated file touched.
+Your own `src/`/`code_paths` are always preserved (copied once, never
+overwritten). A `-s <dir>` you supply is treated as your territory: it is never
+auto-wiped, and its files follow the writer's per-file overwrite rules. The
+source-selection flags `--overwrite`, `--development`, and `--no-development`
+take effect on the verbs that build — `up` and `build` (`--overwrite` also
+re-copies the user-owned artifacts for a full clean slate). `sync`/`start`/`down`
 act on already-built artifacts and never build, so these flags don't apply
 there.
 
@@ -405,12 +416,81 @@ The command creates a self-contained bundle directory with everything needed to 
 | `.gitignore` | Ignore patterns for build artifacts |
 | `.python-version` | Python version pin (3.11) |
 | `src/<package>/` | Stub package for custom code |
+| `resources/app.yml` | The App + experiment resource block (owned by dao-ai) |
+| `resources/<your>.yml` | Your own resource overlays (see below) |
+
+### Extending the bundle with your own resources
+
+The staging dir is regenerated on every `build`, so **don't hand-edit generated
+files**. To add your own Databricks Asset Bundle resources (Jobs, Pipelines, …)
+alongside the generated App, you have two options (they compose):
+
+**Convention** — drop `*.yml` files in a `resources/` directory next to your
+config. They're auto-shipped with no declaration, exactly like `src/` packages
+are for code:
+
+```
+my-app/
+  dao_ai.yaml
+  resources/
+    nightly_job.yml     # auto-discovered and staged
+```
+
+**Explicit** — list files anywhere (relative to the config dir) via
+`app.resource_paths`:
+
+```yaml
+app:
+  name: my_app
+  resource_paths:
+    - overlays/nightly_job.yml   # relative to your config file's directory
+```
+
+Either way, each file is copied into the bundle's `resources/` directory, where
+the generated `databricks.yaml`'s `include: [resources/*.yml]` merges it at
+deploy — so your resources ship without touching a single generated file.
+Overlays are user-owned: copied once and never overwritten by a rebuild (pass
+`--overwrite` to re-copy). File basenames must be unique and may not be `app.yml`
+(reserved for the generated App block). This works identically on the `agent`,
+`mcp`, and `workflow` nouns.
 
 ### Dependency install: `pyproject.toml` + portable `uv.lock`
 
 `dao-ai agent build` writes a `pyproject.toml` and a portable `uv.lock` to the bundle (no `requirements.txt` — its presence would take precedence and force the pip path). The Databricks Apps build phase runs `uv sync --locked --no-dev` from them. Published mode (`--no-development`) pins `dao-ai[<extras>]==<version>` for reproducible redeploys; `--development` redirects dao-ai to the bundled local wheel via `[tool.uv.sources]`. `uv lock` records the full closure, and any internal-mirror host (`pypi-proxy.dev.databricks.com`) is rewritten to the public CDN so the lock resolves from Apps containers.
 
 > **Pre-publish note:** published-mode lock generation resolves `dao-ai==<version>` from PyPI, so it fails with an actionable error until that version is published (release-time / CI). For local/pre-release iteration, generate with `--development` (locks against the bundled wheel — works anytime).
+
+### Upgrading dao-ai in an existing bundle
+
+When you `pip`/`uv` upgrade dao-ai and want an already-built bundle on the new
+version, the right move differs by surface — because the artifacts differ:
+
+- **Apps / MCP bundles** — the deployed app installs dao-ai as a *dependency*
+  (`pyproject.toml` + `uv.lock`), and new runtime behavior ships inside that
+  wheel. The low-risk default is a **version bump, not a regenerate**: update the
+  pin and re-lock, then redeploy.
+
+  ```bash
+  # in the staged bundle dir (or edit pyproject.toml's dao-ai==<ver> then):
+  uv lock --upgrade-package dao-ai
+  dao-ai agent sync -c <config> -p <profile>     # redeploy the same bundle
+  ```
+
+  Only run a full `dao-ai agent build --overwrite` when you want to adopt a new
+  bundle **shape** (a dao-ai release that changed the generated `databricks.yaml`
+  / `resources/` layout). Because the staging dir is ephemeral and your resources
+  live in the config's `resources/` dir (or `app.resource_paths`), a rebuild is
+  safe — nothing you authored is lost.
+
+- **Workflow bundles** — the provisioning notebooks (`01`–`08`) ship *inside the
+  dao-ai wheel* and are materialized into the bundle at build time, so a stale
+  bundle would run *old* notebooks against a *new* runtime. **Always regenerate**
+  after an upgrade:
+
+  ```bash
+  dao-ai workflow build -c <config>              # re-materializes 01–08 from the new wheel
+  dao-ai workflow up   -c <config> -p <profile>  # or build + deploy + run in one step
+  ```
 
 When `app.enable_chat_proxy` is `true` (the default), the deployed app automatically clones and builds the Databricks [e2e-chatbot-app-next](https://github.com/databricks/app-templates/tree/main/e2e-chatbot-app-next) chat UI at startup. The Apps runtime has Node.js pre-installed, so no Node.js is needed on your development machine. Set `enable_chat_proxy: false` to deploy without the chat UI.
 
@@ -489,15 +569,20 @@ dao-ai trace create --name /Shared/my-app/dao-ai-fresh -p <profile>
 # or rev `app.name` so the auto-declared experiment path is distinct.
 ```
 
-### Overwriting Existing Files
+### Regenerating and Overwriting
 
-If the output directory already contains generated files, they are skipped by default. Use `--overwrite` to overwrite:
+The **default** staging dir (no `-s`) is ephemeral build output: `build`/`up`
+regenerate it in place on every run (a default dir is wiped and rebuilt), so
+there is nothing to hand-edit and nothing to lose. Add your own bundle resources
+via a colocated `resources/` dir or `app.resource_paths` (see [Extending the bundle](#extending-the-bundle-with-your-own-resources)) rather than editing generated files.
+
+For a **user-supplied** `-s <dir>`, existing generated files are skipped by
+default; use `--overwrite` to rewrite them (and re-copy user-owned artifacts).
+A `-s <dir>` is never auto-wiped. `--overwrite` is only valid on `build`/`up`.
 
 ```bash
 dao-ai agent build -c config/retail.yaml -s ./my-bundle --overwrite
 ```
-
-Re-running `build` into the **default** staging dir (no `-s`) refuses to wipe it once it has local hand-edits (detected via the `.dao-ai-manifest.yaml` per-file SHA-256 registry — content-based, so mtime-preserving copies can't defeat it) unless you pass `--overwrite`; the error points you at `dao-ai agent sync` to ship the edits as-is. A `-s <dir>` is never auto-wiped. `--overwrite` is only valid on `build`.
 
 ### Using a Databricks Profile
 
