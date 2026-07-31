@@ -184,6 +184,63 @@ class TestIterCodePathStagings:
         assert stagings == [(abs_file, "code/outside.py")]
 
 
+_CONFIG_INCLUDE_RESOURCES = textwrap.dedent(
+    """
+    schemas:
+      s: &s
+        catalog_name: cat
+        schema_name: sch
+    resources:
+      models:
+        m: &m
+          name: databricks-claude-sonnet-5
+    agents:
+      a: &a
+        name: agent_one
+        model: *m
+        prompt: hi
+    app:
+      name: test_app
+      include_resources:
+    {block}
+      registered_model:
+        schema: *s
+        name: test_model
+      agents:
+      - *a
+    """
+)
+
+
+def _write_config_include_resources(tmp_path: Path, entries: list[str]) -> AppConfig:
+    block = "\n".join(f"    - {e}" for e in entries)
+    (tmp_path / "cfg.yaml").write_text(
+        _CONFIG_INCLUDE_RESOURCES.format(block=block)
+    )
+    return AppConfig.from_file(str(tmp_path / "cfg.yaml"))
+
+
+class TestIterIncludeResourceStagings:
+    def test_config_relative_lands_flat_in_resources(self, tmp_path: Path) -> None:
+        (tmp_path / "overlays").mkdir()
+        target = tmp_path / "overlays" / "jobs.yml"
+        target.write_text("resources: {}\n")
+        config = _write_config_include_resources(tmp_path, ["overlays/jobs.yml"])
+
+        # Dest is resources/<basename> — the declared subpath is NOT preserved,
+        # because DABs' ``include: [resources/*.yml]`` merges a flat directory.
+        stagings = cp.iter_include_resource_stagings(config)
+        assert stagings == [(target.resolve(), "resources/jobs.yml")]
+
+    def test_missing_entry_skipped(self, tmp_path: Path) -> None:
+        config = _write_config_include_resources(tmp_path, ["overlays/absent.yml"])
+        assert cp.iter_include_resource_stagings(config) == []
+
+    def test_empty_when_unset(self, tmp_path: Path) -> None:
+        config = _write_config_no_code_paths(tmp_path)
+        assert cp.iter_include_resource_stagings(config) == []
+
+
 class TestWalkCodePathFiles:
     def test_file_yields_itself(self, tmp_path: Path) -> None:
         f = tmp_path / "a.py"

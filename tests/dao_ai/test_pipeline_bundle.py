@@ -95,12 +95,14 @@ class _A2AStub:
 
 class _AppStub:
     """Minimal stand-in — the generator reads ``config.app.name``,
-    ``config.app.pip_requirements``, and (in dev mode, via the extras resolver)
-    ``config.app.a2a`` / ``config.app.orchestration``."""
+    ``config.app.pip_requirements``, ``config.app.include_resources``, and (in
+    dev mode, via the extras resolver) ``config.app.a2a`` /
+    ``config.app.orchestration``."""
 
     def __init__(self, name: str, pip_requirements: list[str] | None = None) -> None:
         self.name = name
         self.pip_requirements = pip_requirements or []
+        self.include_resources: list[str] = []
         # Resolver-touched attributes (dev-mode extras resolution).
         self.a2a = _A2AStub()
         self.orchestration = None
@@ -298,19 +300,14 @@ class TestWriteModelServingAgentBundle:
         from dao_ai.pipeline.bundle import write_model_serving_agent_bundle
 
         out = tmp_path / "ms_out"
-        registry = write_model_serving_agent_bundle(
+        write_model_serving_agent_bundle(
             self._config(tmp_path), out, overwrite=True
         )
         staged_notebooks = sorted(p.name for p in (out / "notebooks").glob("*.py"))
         assert staged_notebooks == ["06_deploy_agent.py"], staged_notebooks
-        # databricks.yaml + the one notebook + the staged config are the
-        # dao-ai-generated (registry) files; a hand-edit to any of them trips the
-        # local-edit guard on the next build.
-        assert set(registry) == {
-            "databricks.yaml",
-            "notebooks/06_deploy_agent.py",
-            "config/ms.yaml",
-        }
+        # databricks.yaml + the one notebook + the staged config are all written.
+        assert (out / "databricks.yaml").exists()
+        assert (out / "notebooks" / "06_deploy_agent.py").exists()
         assert (out / "config" / "ms.yaml").exists()
 
     def test_baked_config_has_no_parameters_block(self, tmp_path: Path) -> None:
@@ -413,14 +410,13 @@ class TestWritePipelineBundle:
         notebooks = sorted((out / "notebooks").glob("*.py"))
         assert len(notebooks) == 8
 
-    def test_staged_config_is_registered(self, tmp_path: Path) -> None:
-        # The staged config is a dao-ai-generated artifact: it lands in the
-        # returned registry (-> manifest `files`) so a hand-edit to the staged
-        # copy trips the local-edit guard, like databricks.yaml + the notebooks.
+    def test_staged_config_written(self, tmp_path: Path) -> None:
+        # The config is staged under config/ next to the notebooks so the job
+        # reloads it at run time.
         config = self._load(tmp_path, _MINIMAL_CONFIG)
         out = tmp_path / "bundle"
-        registry = write_pipeline_bundle(config, out)
-        assert "config/my_config.yaml" in registry
+        write_pipeline_bundle(config, out)
+        assert (out / "config" / "my_config.yaml").exists()
 
     def test_databricks_yaml_substitutes_app_name(self, tmp_path: Path) -> None:
         config = self._load(tmp_path, _MINIMAL_CONFIG)
@@ -527,6 +523,56 @@ class TestWritePipelineBundle:
         write_pipeline_bundle(config, out)
 
         assert (out / "config" / "src" / "foo" / "bar.py").exists()
+
+    _INCLUDE_RESOURCES_CONFIG = (
+        "resources:\n"
+        "  models:\n"
+        "    default_llm: &default_llm\n"
+        "      name: databricks-gpt-5-4-mini\n"
+        "agents:\n"
+        "  greeter: &greeter\n"
+        "    name: greeter\n"
+        "    description: A friendly assistant.\n"
+        "    model: *default_llm\n"
+        "    prompt: You are a concise assistant.\n"
+        "app:\n"
+        "  name: overlay_wf_app\n"
+        "  include_resources:\n"
+        "    - overlays/extra_job.yml\n"
+        "  agents:\n"
+        "    - *greeter\n"
+    )
+
+    def test_include_resources_overlay_parity_with_agent(
+        self, tmp_path: Path
+    ) -> None:
+        # Parity: app.include_resources works on the workflow noun exactly as on
+        # agent/mcp — the overlay lands in resources/ and the generated
+        # databricks.yaml merges it via include: [resources/*.yml].
+        import yaml
+
+        (tmp_path / "overlays").mkdir()
+        (tmp_path / "overlays" / "extra_job.yml").write_text(
+            "resources:\n  jobs:\n    extra:\n      name: extra\n"
+        )
+        config = self._load(tmp_path, self._INCLUDE_RESOURCES_CONFIG)
+        out = tmp_path / "bundle"
+        write_pipeline_bundle(config, out)
+
+        assert (out / "resources" / "extra_job.yml").exists()
+        doc = yaml.safe_load((out / "databricks.yaml").read_text())
+        assert doc.get("include") == ["resources/*.yml"]
+        assert "resources/**" in doc["sync"]["include"]
+
+    def test_no_include_when_no_overlays(self, tmp_path: Path) -> None:
+        # A config without include_resources emits no dangling include: key.
+        import yaml
+
+        config = self._load(tmp_path, _MINIMAL_CONFIG)
+        out = tmp_path / "bundle"
+        write_pipeline_bundle(config, out)
+        doc = yaml.safe_load((out / "databricks.yaml").read_text())
+        assert "include" not in doc
 
     def test_sibling_use_case_assets_stage_and_get_sync_glob(
         self, tmp_path: Path

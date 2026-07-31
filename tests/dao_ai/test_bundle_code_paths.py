@@ -158,6 +158,91 @@ _SRC_CONFIG = textwrap.dedent(
 )
 
 
+_INCLUDE_RESOURCES_CONFIG = textwrap.dedent(
+    """
+    resources:
+      models:
+        default_llm: &default_llm
+          name: databricks-claude-sonnet-5
+    agents:
+      greeter: &greeter
+        name: greeter
+        description: A friendly assistant.
+        model: *default_llm
+        prompt: You are concise.
+    app:
+      name: overlay_bundle_app
+      include_resources:
+        - overlays/jobs.yml
+      registered_model:
+        schema:
+          catalog_name: cat
+          schema_name: sch
+        name: overlay_bundle_model
+      agents:
+        - *greeter
+    """
+)
+
+
+@pytest.mark.unit
+class TestBundleShipsIncludeResources:
+    """``app.include_resources`` overlay files land in the bundle's resources/."""
+
+    def _config(self, tmp_path: Path) -> AppConfig:
+        (tmp_path / "overlays").mkdir()
+        (tmp_path / "overlays" / "jobs.yml").write_text(
+            "resources:\n  jobs:\n    my_job:\n      name: my_job\n"
+        )
+        cfg_path = tmp_path / "dao_ai.yaml"
+        cfg_path.write_text(_INCLUDE_RESOURCES_CONFIG)
+        return AppConfig.from_file(str(cfg_path))
+
+    def test_overlay_copied_flat_into_resources(self, tmp_path: Path) -> None:
+        config = self._config(tmp_path)
+        out = tmp_path / "bundle_out"
+        write_bundle(config, out, overwrite=True)
+
+        # Overlay lands flat under resources/ (dest is resources/<basename>) so
+        # the generated databricks.yaml's ``include: [resources/*.yml]`` merges it.
+        assert (out / "resources" / "jobs.yml").exists()
+        # The generated App block is untouched alongside it.
+        assert (out / "resources" / "app.yml").exists()
+
+    def test_databricks_yaml_includes_resources_glob(self, tmp_path: Path) -> None:
+        import yaml
+
+        config = self._config(tmp_path)
+        out = tmp_path / "bundle_out"
+        write_bundle(config, out, overwrite=True)
+
+        doc = yaml.safe_load((out / "databricks.yaml").read_text())
+        assert "resources/*.yml" in doc["include"]
+
+    def test_overlay_not_overwritten_on_rebuild(self, tmp_path: Path) -> None:
+        config = self._config(tmp_path)
+        out = tmp_path / "bundle_out"
+        write_bundle(config, out, overwrite=True)
+
+        # Hand-tune the staged overlay, then rebuild: user edits win (overlay is
+        # user-owned — copied once, never overwritten, even with overwrite=True).
+        staged = out / "resources" / "jobs.yml"
+        staged.write_text("# hand-tuned\nresources:\n  jobs: {}\n")
+        write_bundle(config, out, overwrite=True)
+
+        assert staged.read_text().startswith("# hand-tuned")
+
+    def test_no_resources_copied_when_unset(self, tmp_path: Path) -> None:
+        config = self._config(tmp_path)
+        config.app.include_resources = []
+        out = tmp_path / "bundle_out"
+        write_bundle(config, out, overwrite=True)
+
+        # Only the generated app.yml is present; no stray overlay.
+        assert (out / "resources" / "app.yml").exists()
+        assert not (out / "resources" / "jobs.yml").exists()
+
+
 @pytest.mark.unit
 class TestPyprojectTemplatesUseSrcConvention:
     def test_apps_templates_package_src_prefix_free(self) -> None:

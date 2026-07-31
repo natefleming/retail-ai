@@ -9567,6 +9567,17 @@ class AppModel(BaseModel):
         "bundle. Use for custom ``type: python`` tool modules or agent code. "
         "(Apps bundles also still support hand-packaged code under ``src/<package>/``.)",
     )
+    include_resources: list[str] = Field(
+        default_factory=list,
+        description="Additional Databricks Asset Bundle resource files (``*.yml``, "
+        "relative to the config file's directory; absolute paths pass through) "
+        "copied into the generated bundle's ``resources/`` directory, where DABs' "
+        "``include: [resources/*.yml]`` merges them at deploy. Use to add your own "
+        "Jobs, Pipelines, or other resources alongside the generated bundle without "
+        "editing any generated file — works identically on the agent, mcp, and "
+        "workflow nouns. These are user-owned: copied once and never overwritten by "
+        "a rebuild (pass ``--overwrite`` to re-copy).",
+    )
     pip_requirements: list[str] = Field(
         default_factory=list,
         description="Extra pip packages for your custom code, installed alongside "

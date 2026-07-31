@@ -28,21 +28,13 @@ def _base(cmd: str) -> list[str]:
     return cmd.split() + ["-c", "config.yaml"]
 
 
-def _stamp_manifest(
-    bundle_dir: Path, *, fingerprint: str = "", files: list[str] | None = None
-) -> None:
-    """Write a `.dao-ai-manifest.yaml` recording the given files' current hashes.
+def _stamp_manifest(bundle_dir: Path, *, checksum: str = "") -> None:
+    """Write a `.manifest.yaml` recording the config checksum.
 
-    Mirrors what the bundle writers hand `_write_staging_manifest`: only the
-    listed (generated) files are registered, so edits to unlisted user code are
-    ignored by `_staging_dir_has_local_edits`.
+    The staging dir is ephemeral build output, so the manifest records only the
+    ``checksum`` used for drift detection (no per-file registry).
     """
-    from dao_ai.apps.bundle import _sha256_file
-
-    registry = {rel: _sha256_file(bundle_dir / rel) for rel in (files or [])}
-    cli._write_staging_manifest(
-        bundle_dir, is_default=True, fingerprint=fingerprint, registry=registry
-    )
+    cli._write_staging_manifest(bundle_dir, is_default=True, checksum=checksum)
 
 
 @pytest.mark.unit
@@ -220,199 +212,82 @@ class TestDefaultBundleDir:
         under = base / "agent" / "app"
         under.mkdir(parents=True)
         (under / "sentinel").write_text("x")
-        _stamp_manifest(under, files=["sentinel"])  # mark as our output
-        cli._clean_default_staging_dir(
-            under, is_default=True, overwrite=False, noun="agent"
-        )
+        cli._clean_default_staging_dir(under, is_default=True)
         assert not under.exists(), "path under env base must be cleaned"
 
         outside = tmp_path / "user_dir"
         outside.mkdir()
         (outside / "keep").write_text("x")
-        cli._clean_default_staging_dir(
-            outside, is_default=True, overwrite=False, noun="agent"
-        )
+        cli._clean_default_staging_dir(outside, is_default=True)
         assert (outside / "keep").exists(), "path outside base must be protected"
 
 
 @pytest.mark.unit
-class TestEditSafety:
-    """A default staging dir with hand-edits is protected from re-generate."""
+class TestCleanDefaultStagingDir:
+    """The default staging dir is ephemeral build output — always wiped for a
+    clean regenerate; user-supplied / outside-base dirs are never touched."""
 
     def _staged(self, tmp_path: Path) -> Path:
         base = tmp_path / "base"
         d = base / "agent" / "app"
         d.mkdir(parents=True)
-        (d / "app.yaml").write_text("orig\n")  # generated (tracked in `files`)
+        (d / "app.yaml").write_text("orig\n")  # generated file
         (d / "src").mkdir()
-        (d / "src" / "mine.py").write_text("print('mine')\n")  # user code (in `tracked`)
-        # Only app.yaml is a generated file; src/mine.py is present at stamp time,
-        # so it lands in `tracked` (not `files`) and is safe to edit later.
-        _stamp_manifest(d, files=["app.yaml"])
+        (d / "src" / "mine.py").write_text("print('mine')\n")  # user code
+        _stamp_manifest(d)
         return d
 
-    def test_untouched_dir_wiped_silently(
+    def test_default_dir_wiped(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         monkeypatch.setenv("DAO_AI_BUNDLE_DIR", str(tmp_path / "base"))
         d = self._staged(tmp_path)
-        cli._clean_default_staging_dir(
-            d, is_default=True, overwrite=False, noun="agent"
-        )
+        cli._clean_default_staging_dir(d, is_default=True)
         assert not d.exists()
 
-    def test_hand_edit_refuses_without_overwrite(
+    def test_default_dir_wiped_even_with_hand_edits(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        monkeypatch.setenv("DAO_AI_BUNDLE_DIR", str(tmp_path / "base"))
-        d = self._staged(tmp_path)
-        # Change a registered file's CONTENT — hash no longer matches the manifest.
-        (d / "app.yaml").write_text("edited\n")
-        with pytest.raises(SystemExit) as exc:
-            cli._clean_default_staging_dir(
-                d, is_default=True, overwrite=False, noun="agent"
-            )
-        assert exc.value.code == 1
-        assert d.exists(), "edited dir must be preserved"
-
-    def test_overwrite_wipes_edited_dir(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+        """No edit-detection: a default dir is ephemeral, so it's always wiped for
+        a clean regenerate (user intent lives in the config, not the staging dir)."""
         monkeypatch.setenv("DAO_AI_BUNDLE_DIR", str(tmp_path / "base"))
         d = self._staged(tmp_path)
         (d / "app.yaml").write_text("edited\n")
-        cli._clean_default_staging_dir(d, is_default=True, overwrite=True, noun="agent")
+        (d / "extra.txt").write_text("hand-dropped\n")
+        cli._clean_default_staging_dir(d, is_default=True)
         assert not d.exists()
 
-    def test_missing_marker_treated_as_edited(
+    def test_non_default_dir_never_wiped(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
+        """A user-supplied ``-o`` dir (is_default=False) is left entirely alone."""
         monkeypatch.setenv("DAO_AI_BUNDLE_DIR", str(tmp_path / "base"))
-        d = tmp_path / "base" / "agent" / "app"
-        d.mkdir(parents=True)
-        (d / "app.yaml").write_text("user file\n")  # no manifest written
-        with pytest.raises(SystemExit):
-            cli._clean_default_staging_dir(
-                d, is_default=True, overwrite=False, noun="agent"
-            )
+        d = self._staged(tmp_path)
+        cli._clean_default_staging_dir(d, is_default=False)
         assert d.exists()
 
-    def test_editing_existing_user_code_does_not_trigger(
+    def test_dir_outside_base_never_wiped(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """Editing user code that existed at generate time must never flag edits.
-
-        Only dao-ai-generated files are hashed; a user's in-place edits to src/
-        or code_paths (present in ``tracked`` but not ``files``) are invisible to
-        edit-detection, so the dir regenerates cleanly.
-        """
+        """Even is_default=True only wipes paths strictly under the owned base."""
         monkeypatch.setenv("DAO_AI_BUNDLE_DIR", str(tmp_path / "base"))
-        d = self._staged(tmp_path)  # src/mine.py present at stamp time
-        (d / "src" / "mine.py").write_text(
-            "print('edited')\n"
-        )  # edit existing user code
-        assert cli._staging_dir_has_local_edits(d) is False
-        # A dir with no edited generated files + no strays is wiped silently.
-        cli._clean_default_staging_dir(
-            d, is_default=True, overwrite=False, noun="agent"
-        )
-        assert not d.exists()
-
-    def test_user_added_stray_file_triggers(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """A NEW user file added after generate (e.g. a hand-dropped resources/
-        jobs.yml) must be protected — the dir must not be silently wiped."""
-        monkeypatch.setenv("DAO_AI_BUNDLE_DIR", str(tmp_path / "base"))
-        d = self._staged(tmp_path)
-        (d / "resources").mkdir()
-        (d / "resources" / "jobs.yml").write_text(
-            "resources: {}\n"
-        )  # stray, not in `tracked`
-        assert cli._staging_dir_has_local_edits(d) is True
-        with pytest.raises(SystemExit):
-            cli._clean_default_staging_dir(
-                d, is_default=True, overwrite=False, noun="agent"
-            )
-        assert d.exists(), "stray user file must be preserved"
-
-    def test_build_noise_not_treated_as_stray(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """__pycache__/.venv/dist churn appearing after generate is ignored."""
-        monkeypatch.setenv("DAO_AI_BUNDLE_DIR", str(tmp_path / "base"))
-        d = self._staged(tmp_path)
-        (d / "__pycache__").mkdir()
-        (d / "__pycache__" / "x.cpython-311.pyc").write_text("noise")
-        (d / "src" / "app.pyc").write_text("noise")
-        (d / "dist").mkdir()
-        (d / "dist" / "app-0.1.0.whl").write_text("noise")
-        assert cli._staging_dir_has_local_edits(d) is False
-
-    def test_deleted_generated_file_triggers(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        monkeypatch.setenv("DAO_AI_BUNDLE_DIR", str(tmp_path / "base"))
-        d = self._staged(tmp_path)
-        (d / "app.yaml").unlink()  # a tracked file vanished
-        assert cli._staging_dir_has_local_edits(d) is True
-
-    def test_legacy_marker_mtime_fallback(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """A pre-manifest dir (legacy marker, no manifest) uses the mtime heuristic."""
-        import os
-
-        monkeypatch.setenv("DAO_AI_BUNDLE_DIR", str(tmp_path / "base"))
-        d = tmp_path / "base" / "agent" / "app"
-        d.mkdir(parents=True)
-        (d / "app.yaml").write_text("orig\n")
-        (d / cli._STAGING_MARKER).write_text("legacy-fp")
-        marker_mtime = (d / cli._STAGING_MARKER).stat().st_mtime
-        # Untouched (all files older-or-equal to marker) -> no edits.
-        os.utime(d / "app.yaml", (marker_mtime - 10, marker_mtime - 10))
-        assert cli._staging_dir_has_local_edits(d) is False
-        # A file newer than the marker -> edited.
-        os.utime(d / "app.yaml", (marker_mtime + 10, marker_mtime + 10))
-        assert cli._staging_dir_has_local_edits(d) is True
-
-    def test_legacy_known_key_still_detects_stray(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """A manifest staged before the ``known`` -> ``tracked`` rename still
-        drives stray detection via the legacy key."""
-        import yaml
-
-        monkeypatch.setenv("DAO_AI_BUNDLE_DIR", str(tmp_path / "base"))
-        d = tmp_path / "base" / "agent" / "app"
-        d.mkdir(parents=True)
-        (d / "app.yaml").write_text("orig\n")
-        # Hand-write a legacy-shaped manifest that uses the old ``known`` key.
-        (d / cli._STAGING_MANIFEST).write_text(
-            yaml.safe_dump(
-                {
-                    "version": cli._MANIFEST_VERSION,
-                    "config_fingerprint": "",
-                    "files": {},
-                    "known": ["app.yaml"],
-                }
-            )
-        )
-        assert cli._staging_dir_has_local_edits(d) is False
-        (d / "stray.txt").write_text("added later\n")  # not in legacy `known`
-        assert cli._staging_dir_has_local_edits(d) is True
+        outside = tmp_path / "user_dir"
+        outside.mkdir()
+        (outside / "keep").write_text("x")
+        cli._clean_default_staging_dir(outside, is_default=True)
+        assert (outside / "keep").exists()
 
 
 @pytest.mark.unit
-class TestConfigFingerprint:
-    """The staging marker records a config fingerprint for staleness detection."""
+class TestConfigChecksum:
+    """The staging manifest records a config checksum for staleness detection."""
 
     def _config(self, name: str = "greeter") -> AppConfig:
         from dao_ai.config import AgentModel, AppModel, InferenceEndpointModel
 
         return AppConfig(
             app=AppModel(
-                name="fp-test",
+                name="cksum-test",
                 agents=[
                     AgentModel(
                         name=name,
@@ -423,98 +298,114 @@ class TestConfigFingerprint:
             )
         )
 
-    def test_fingerprint_stable_for_identical_config(self) -> None:
-        a = cli._config_fingerprint(self._config(), development=False)
-        b = cli._config_fingerprint(self._config(), development=False)
+    def test_checksum_stable_for_identical_config(self) -> None:
+        a = cli._config_checksum(self._config(), development=False)
+        b = cli._config_checksum(self._config(), development=False)
         assert a == b
 
-    def test_fingerprint_changes_with_config(self) -> None:
-        a = cli._config_fingerprint(self._config(name="greeter"), development=False)
-        b = cli._config_fingerprint(self._config(name="farewell"), development=False)
+    def test_checksum_changes_with_config(self) -> None:
+        a = cli._config_checksum(self._config(name="greeter"), development=False)
+        b = cli._config_checksum(self._config(name="farewell"), development=False)
         assert a != b
 
-    def test_fingerprint_changes_with_development_flag(self) -> None:
-        a = cli._config_fingerprint(self._config(), development=False)
-        b = cli._config_fingerprint(self._config(), development=True)
+    def test_checksum_changes_with_development_flag(self) -> None:
+        a = cli._config_checksum(self._config(), development=False)
+        b = cli._config_checksum(self._config(), development=True)
         assert a != b
 
-    def test_manifest_records_fingerprint_and_files(self, tmp_path: Path) -> None:
+    def test_checksum_stable_despite_input_example_uuid(self) -> None:
+        """Regression: ``app.input_example`` auto-injects a fresh conversation_id
+        UUID on every load (ChatPayload.ensure_thread_id). The checksum must
+        exclude it so a config with an input_example still hashes identically
+        across loads — otherwise the idempotent-skip never triggers."""
+        from dao_ai.config import (
+            AgentModel,
+            AppModel,
+            ChatPayload,
+            InferenceEndpointModel,
+        )
+
+        def _cfg() -> AppConfig:
+            return AppConfig(
+                app=AppModel(
+                    name="cksum-ie",
+                    agents=[
+                        AgentModel(
+                            name="g",
+                            description="hi",
+                            model=InferenceEndpointModel(
+                                name="databricks-gpt-5-4-mini"
+                            ),
+                        )
+                    ],
+                    # No conversation_id/thread_id → a UUID is injected each load.
+                    input_example=ChatPayload(
+                        messages=[{"role": "user", "content": "hi"}]
+                    ),
+                )
+            )
+
+        # Sanity: the two loads really do differ in the injected UUID.
+        a_cfg, b_cfg = _cfg(), _cfg()
+        a_cid = a_cfg.app.input_example.custom_inputs["configurable"][
+            "conversation_id"
+        ]
+        b_cid = b_cfg.app.input_example.custom_inputs["configurable"][
+            "conversation_id"
+        ]
+        assert a_cid != b_cid, "precondition: input_example UUIDs should differ"
+        # ...yet the checksum is stable (input_example excluded from the hash).
+        assert cli._config_checksum(
+            a_cfg, development=False
+        ) == cli._config_checksum(b_cfg, development=False)
+
+    def test_manifest_records_only_checksum(self, tmp_path: Path) -> None:
         d = tmp_path / "base" / "agent" / "app"
         d.mkdir(parents=True)
-        (d / "databricks.yaml").write_text("bundle: x\n")
-        from dao_ai.apps.bundle import _sha256_file
-
-        registry = {"databricks.yaml": _sha256_file(d / "databricks.yaml")}
-        cli._write_staging_manifest(
-            d, is_default=True, fingerprint="abc123", registry=registry
-        )
+        cli._write_staging_manifest(d, is_default=True, checksum="abc123")
         manifest = cli._read_staging_manifest(d)
         assert manifest is not None
         assert manifest["version"] == cli._MANIFEST_VERSION
-        assert manifest["config_fingerprint"] == "abc123"
-        assert manifest["files"] == registry
-        # `tracked` snapshots every non-ignored file on disk at stamp time.
-        assert "databricks.yaml" in manifest["tracked"]
+        assert manifest["checksum"] == "abc123"
+        # Ephemeral model: no per-file edit-detection registry.
+        assert "files" not in manifest
+        assert "tracked" not in manifest
 
-    def test_manifest_retires_legacy_marker(self, tmp_path: Path) -> None:
-        d = tmp_path / "base" / "agent" / "app"
+    def test_manifest_only_written_for_default_dir(self, tmp_path: Path) -> None:
+        d = tmp_path / "user_dir"
         d.mkdir(parents=True)
-        (d / cli._STAGING_MARKER).write_text("old-fp")
-        cli._write_staging_manifest(
-            d, is_default=True, fingerprint="new-fp", registry={}
-        )
-        assert not (d / cli._STAGING_MARKER).exists()
-        assert (d / cli._STAGING_MANIFEST).exists()
-
-    def test_malformed_manifest_files_does_not_crash(self, tmp_path: Path) -> None:
-        """A manifest whose `files` is a non-dict must not raise on detection."""
-        d = tmp_path / "base" / "agent" / "app"
-        d.mkdir(parents=True)
-        (d / cli._STAGING_MANIFEST).write_text(
-            "version: 1\nconfig_fingerprint: fp\nfiles:\n  - a\n  - b\n"
-        )
-        # `files` is a list, not a dict -> treated as empty, no AttributeError.
-        assert cli._staging_dir_has_local_edits(d) is False
-        assert cli._staged_config_is_stale(d, "fp") is False
+        # is_default=False → a user -o dir is never stamped.
+        cli._write_staging_manifest(d, is_default=False, checksum="cksum")
+        assert not (d / cli._STAGING_MANIFEST).exists()
 
 
 @pytest.mark.unit
 class TestStagedConfigStaleness:
-    """_staged_config_is_stale compares current config vs the stamped fingerprint."""
+    """_staged_config_is_stale compares current config vs the stamped checksum."""
 
-    def _marked(self, tmp_path: Path, fingerprint: str) -> Path:
+    def _marked(self, tmp_path: Path, checksum: str) -> Path:
         d = tmp_path / "base" / "agent" / "app"
         d.mkdir(parents=True)
-        cli._write_staging_manifest(
-            d, is_default=True, fingerprint=fingerprint, registry={}
-        )
+        cli._write_staging_manifest(d, is_default=True, checksum=checksum)
         return d
 
-    def test_matching_fingerprint_not_stale(self, tmp_path: Path) -> None:
-        d = self._marked(tmp_path, "fp-1")
-        assert cli._staged_config_is_stale(d, "fp-1") is False
+    def test_matching_checksum_not_stale(self, tmp_path: Path) -> None:
+        d = self._marked(tmp_path, "cksum-1")
+        assert cli._staged_config_is_stale(d, "cksum-1") is False
 
-    def test_differing_fingerprint_is_stale(self, tmp_path: Path) -> None:
-        d = self._marked(tmp_path, "fp-1")
-        assert cli._staged_config_is_stale(d, "fp-2") is True
+    def test_differing_checksum_is_stale(self, tmp_path: Path) -> None:
+        d = self._marked(tmp_path, "cksum-1")
+        assert cli._staged_config_is_stale(d, "cksum-2") is True
 
     def test_missing_manifest_not_stale(self, tmp_path: Path) -> None:
         d = tmp_path / "base" / "agent" / "app"
-        d.mkdir(parents=True)  # no manifest (legacy / -o dir)
-        assert cli._staged_config_is_stale(d, "fp-1") is False
+        d.mkdir(parents=True)  # no manifest (user -o dir)
+        assert cli._staged_config_is_stale(d, "cksum-1") is False
 
-    def test_empty_fingerprint_not_stale(self, tmp_path: Path) -> None:
-        # A workflow bundle stamps an empty fingerprint; never treat it as stale.
+    def test_empty_checksum_not_stale(self, tmp_path: Path) -> None:
+        # A workflow bundle may stamp an empty checksum; never treat it as stale.
         d = self._marked(tmp_path, "")
-        assert cli._staged_config_is_stale(d, "fp-1") is False
-
-    def test_legacy_marker_fingerprint_fallback(self, tmp_path: Path) -> None:
-        # A pre-manifest dir still exposes its fingerprint via the legacy marker.
-        d = tmp_path / "base" / "agent" / "app"
-        d.mkdir(parents=True)
-        (d / cli._STAGING_MARKER).write_text("legacy-fp")
-        assert cli._staged_config_is_stale(d, "legacy-fp") is False
-        assert cli._staged_config_is_stale(d, "other-fp") is True
+        assert cli._staged_config_is_stale(d, "cksum-1") is False
 
 
 @pytest.mark.unit
@@ -1088,27 +979,24 @@ class TestDeployRestagesOnConfigDrift:
         tmp_path: Path,
         monkeypatch: pytest.MonkeyPatch,
         *,
-        marker_fingerprint: str | None,
-        has_edits: bool = False,
+        marker_checksum: str | None,
         overwrite: bool = False,
     ) -> bool:
         """Drive `agent deploy` against a pre-staged dir. Returns True if re-staged.
 
-        ``marker_fingerprint`` seeds the staged manifest's config_fingerprint:
-        None omits the manifest (legacy dir), "" is a workflow-style empty
-        fingerprint, a string is a recorded hash. ``has_edits`` simulates
-        hand-edits; ``overwrite`` passes --overwrite.
+        ``marker_checksum`` seeds the staged manifest's checksum: None omits the
+        manifest (user -o dir), "" is a workflow-style empty checksum, a string is
+        a recorded hash. ``overwrite`` passes --overwrite.
         """
         cfg = self._write_config(tmp_path)
         staged = tmp_path / "staged" / "agent" / "test_app"
-        staged.mkdir(parents=True)
+        staged.mkdir(parents=True, exist_ok=True)
         (staged / "databricks.yaml").write_text("bundle: {}\n")
-        if marker_fingerprint is not None:
+        if marker_checksum is not None:
             cli._write_staging_manifest(
                 staged,
                 is_default=True,
-                fingerprint=marker_fingerprint,
-                registry={},
+                checksum=marker_checksum,
             )
 
         restaged: dict[str, bool] = {}
@@ -1118,7 +1006,6 @@ class TestDeployRestagesOnConfigDrift:
             "_resolve_bundle_dir",
             lambda kind, config, staging_dir, mode_subdir=None: (staged, True),
         )
-        monkeypatch.setattr(cli, "_staging_dir_has_local_edits", lambda d: has_edits)
         monkeypatch.setattr(cli, "deploy_app_bundle", lambda *a, **k: None)
         monkeypatch.setattr(AppConfig, "_resolve_all_resources", lambda self: None)
         monkeypatch.setattr(
@@ -1134,61 +1021,52 @@ class TestDeployRestagesOnConfigDrift:
         cli.handle_agent_command(opts)
         return restaged.get("staged", False)
 
-    def test_restages_when_manifest_fingerprint_differs(
+    def test_restages_when_manifest_checksum_differs(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        # A fingerprint that cannot match the current config -> stale -> re-stage.
+        # A checksum that cannot match the current config -> stale -> re-stage.
         assert (
-            self._run_deploy(tmp_path, monkeypatch, marker_fingerprint="stale-hash")
+            self._run_deploy(tmp_path, monkeypatch, marker_checksum="stale-hash")
             is True
         )
 
-    def test_deploys_in_place_when_fingerprint_matches(
+    def test_deploys_in_place_when_checksum_matches(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        # Stamp the marker with the CURRENT config's real fingerprint -> not stale.
+        # Stamp the marker with the CURRENT config's real checksum -> not stale.
         # Resolve development exactly as the deploy path does (options.development
         # is None here -> auto-detect), so the seeded hash matches.
         from dao_ai.utils import resolve_use_local_source
 
         cfg = self._write_config(tmp_path)
         config = AppConfig.from_file(str(cfg), initialize=False)
-        current_fp = cli._config_fingerprint(
+        current_checksum = cli._config_checksum(
             config, development=resolve_use_local_source(None)
         )
         assert (
-            self._run_deploy(tmp_path, monkeypatch, marker_fingerprint=current_fp)
+            self._run_deploy(tmp_path, monkeypatch, marker_checksum=current_checksum)
             is False
         )
 
     def test_deploys_in_place_when_manifest_absent(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        # Staged dir with no manifest -> no recorded fingerprint -> in place.
-        assert self._run_deploy(tmp_path, monkeypatch, marker_fingerprint=None) is False
+        # Staged dir with no manifest -> no recorded checksum -> in place.
+        assert self._run_deploy(tmp_path, monkeypatch, marker_checksum=None) is False
 
-    def test_stale_with_edits_deploys_in_place(
+    def test_stale_default_dir_always_regenerates(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        # Config drifted but the dir has hand-edits and no --overwrite -> in place.
+        # Ephemeral model: a stale DEFAULT dir always re-stages — there is no
+        # edit-detection guard, so the outcome is identical with or without
+        # --overwrite (user intent lives in the config, not the staging dir).
         assert (
-            self._run_deploy(
-                tmp_path, monkeypatch, marker_fingerprint="stale", has_edits=True
-            )
-            is False
+            self._run_deploy(tmp_path, monkeypatch, marker_checksum="stale")
+            is True
         )
-
-    def test_stale_with_edits_and_overwrite_regenerates(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        # --overwrite forces regen even over hand-edits when the config drifted.
         assert (
             self._run_deploy(
-                tmp_path,
-                monkeypatch,
-                marker_fingerprint="stale",
-                has_edits=True,
-                overwrite=True,
+                tmp_path, monkeypatch, marker_checksum="stale", overwrite=True
             )
             is True
         )
@@ -1327,6 +1205,85 @@ class TestStrictPrimitivesErrorWhenUnstaged:
             opts = parse_args(["workflow", "up", "-c", str(cfg), "-s", str(out)])
             cli.handle_workflow_command(opts)
         assert len(builds) == 1, f"workflow up must build once, built {len(builds)}x"
+
+    def test_workflow_up_skips_rebuild_on_unchanged_config(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Parity with agent up: a second `workflow up` against an unchanged
+        config in a DEFAULT staging dir is an idempotent no-op skip (the writer
+        is not called again), not an unconditional rebuild."""
+        monkeypatch.setenv("DAO_AI_BUNDLE_DIR", str(tmp_path / "base"))
+        cfg = self._cfg(tmp_path)
+        builds: list[int] = []
+
+        def fake_writer(config: object, bundle_dir: object, **kw: object) -> None:
+            builds.append(1)
+            import pathlib
+
+            p = pathlib.Path(str(bundle_dir))
+            p.mkdir(parents=True, exist_ok=True)
+            (p / "databricks.yaml").write_text("bundle: {}\n")
+
+        monkeypatch.setattr(cli, "_apply_profile_context", lambda p: None)
+        monkeypatch.setattr(cli, "detect_cloud_provider", lambda p: "aws")
+        monkeypatch.setattr(AppConfig, "_resolve_all_resources", lambda self: None)
+        monkeypatch.setattr(cli, "_resolve_job_dao_ai_dep", lambda *a, **k: "dao-ai")
+        monkeypatch.setattr(
+            "dao_ai.pipeline.bundle.write_pipeline_bundle", fake_writer
+        )
+        with patch.object(cli, "_exec_bundle_command"):
+            # First up builds; second up (same config) must skip the rebuild.
+            for _ in range(2):
+                opts = parse_args(["workflow", "up", "-c", str(cfg)])
+                cli.handle_workflow_command(opts)
+        assert len(builds) == 1, (
+            f"workflow up must skip rebuild on unchanged config; built {len(builds)}x"
+        )
+
+    def test_agent_build_skips_and_overwrite_forces(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """`agent build` is idempotent like `workflow build`: a second build of an
+        unchanged config in a DEFAULT dir skips (writer not re-invoked); passing
+        --overwrite forces a rebuild."""
+        monkeypatch.setenv("DAO_AI_BUNDLE_DIR", str(tmp_path / "base"))
+        cfg = self._cfg(tmp_path)
+        builds: list[int] = []
+
+        def fake_stage(*a: object, **k: object) -> None:
+            builds.append(1)
+
+        monkeypatch.setattr(cli, "_apply_profile_context", lambda p: None)
+        monkeypatch.setattr(cli, "detect_cloud_provider", lambda p: "aws")
+        monkeypatch.setattr(AppConfig, "_resolve_all_resources", lambda self: None)
+        monkeypatch.setattr(
+            AppConfig, "assert_provided_params_satisfied", lambda self: None
+        )
+        # Stamp a manifest so the 2nd/3rd builds see a "current" dir. The real
+        # _stage_app_bundle is replaced, so emulate its manifest write here.
+        orig_checksum = cli._config_checksum
+
+        def stage_and_stamp(config, bundle_dir, *, is_default_dir, checksum, **k):  # type: ignore[no-untyped-def]
+            builds.append(1)
+            bundle_dir.mkdir(parents=True, exist_ok=True)
+            (bundle_dir / "databricks.yaml").write_text("bundle: {}\n")
+            cli._write_staging_manifest(
+                bundle_dir, is_default=is_default_dir, checksum=checksum
+            )
+
+        monkeypatch.setattr(cli, "_stage_app_bundle", stage_and_stamp)
+        monkeypatch.setattr(cli, "_config_checksum", orig_checksum)
+
+        # 1st build stages; 2nd (unchanged) skips; 3rd with --overwrite forces.
+        for argv in (
+            ["agent", "build", "-c", str(cfg)],
+            ["agent", "build", "-c", str(cfg)],
+            ["agent", "build", "-c", str(cfg), "--overwrite"],
+        ):
+            cli.handle_agent_command(parse_args(argv))
+        assert len(builds) == 2, (
+            f"expected build, skip, force = 2 stages; got {len(builds)}"
+        )
 
 
 @pytest.mark.unit

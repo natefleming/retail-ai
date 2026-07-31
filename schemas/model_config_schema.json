@@ -1649,6 +1649,14 @@
           "title": "Code Paths",
           "type": "array"
         },
+        "include_resources": {
+          "description": "Additional Databricks Asset Bundle resource files (``*.yml``, relative to the config file's directory; absolute paths pass through) copied into the generated bundle's ``resources/`` directory, where DABs' ``include: [resources/*.yml]`` merges them at deploy. Use to add your own Jobs, Pipelines, or other resources alongside the generated bundle without editing any generated file \u2014 works identically on the agent, mcp, and workflow nouns. These are user-owned: copied once and never overwritten by a rebuild (pass ``--overwrite`` to re-copy).",
+          "items": {
+            "type": "string"
+          },
+          "title": "Include Resources",
+          "type": "array"
+        },
         "pip_requirements": {
           "description": "Extra pip packages for your custom code, installed alongside dao-ai in every deployment target (Model Serving conda env; Apps/MCP requirements.txt; pipeline job environment).",
           "items": {

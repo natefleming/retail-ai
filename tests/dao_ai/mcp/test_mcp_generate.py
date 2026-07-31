@@ -125,19 +125,17 @@ def test_write_mcp_bundle_emits_expected_files(tmp_path: Path) -> None:
 
 
 @pytest.mark.unit
-def test_write_mcp_bundle_registers_staged_config(tmp_path: Path) -> None:
-    """The staged config is a dao-ai-generated artifact: it lands in the
-    returned registry (-> manifest `files`) so a hand-edit to the staged copy
-    trips the local-edit guard, like databricks.yaml + uv.lock."""
+def test_write_mcp_bundle_stages_config(tmp_path: Path) -> None:
+    """The rendered config is staged next to the bundle so the deployed MCP
+    server loads it at runtime."""
     from dao_ai.mcp.config import load_app_config
     from dao_ai.mcp.generate import write_mcp_bundle
 
     with mcp_config(tmp_path) as path:
         config = load_app_config(path, initialize=False)
     out = tmp_path / "out"
-    registry = write_mcp_bundle(config, out, overwrite=True)
+    write_mcp_bundle(config, out, overwrite=True)
 
-    assert "dao_ai_mcp.yaml" in registry
     assert (out / "dao_ai_mcp.yaml").exists()
 
 

@@ -305,6 +305,33 @@ def walk_code_path_files(source: Path, dest: str) -> list[tuple[Path, str]]:
     return files
 
 
+def iter_include_resource_stagings(config: "AppConfig") -> list[tuple[Path, str]]:
+    """Plan how each ``app.include_resources`` entry is staged into ``resources/``.
+
+    Returns ``(source_abs, bundle_relative_dest)`` pairs where the dest is always
+    ``resources/<basename>`` — DABs merges the generated ``databricks.yaml``'s
+    ``include: [resources/*.yml]`` over that flat directory, so an overlay file
+    only needs to land there (its declared subpath, if any, is not preserved).
+    Relative entries resolve against the config directory (same anchor as
+    ``code_paths``); an entry that resolves nowhere is skipped with a warning.
+    """
+    app = config.app
+    if app is None or not app.include_resources:
+        return []
+
+    stagings: list[tuple[Path, str]] = []
+    for entry in app.include_resources:
+        source = resolve_code_path(entry, config)
+        if source is None:
+            logger.warning(
+                "include_resources entry not found; skipping staging",
+                entry=entry,
+            )
+            continue
+        stagings.append((source, posixpath.join("resources", source.name)))
+    return stagings
+
+
 def code_path_sync_globs(config: "AppConfig") -> list[str]:
     """Bundle-root-relative ``<top>/**`` globs for staged code_paths.
 
