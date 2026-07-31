@@ -786,27 +786,6 @@ def write_bundle(
     # dest and was left untouched — never overwritten, even with --overwrite.
     preserved: list[str] = []
 
-    # Warn loudly when the bundle is being built without `trace_location`:
-    # Databricks Apps containers cannot reach the artifact-storage host the
-    # default MLflow control-plane trace exporter PUTs spans to, so spans
-    # silently fail to persist on Apps. Configuring `app.trace_location`
-    # routes export through a SQL warehouse → UC OTEL tables (reachable
-    # from Apps). Model Serving deploys aren't affected. The warning is
-    # informational — generate-agent still emits a working bundle either way.
-    if config.app is None or config.app.trace_location is None:
-        _trace_location_warning = (
-            "app.trace_location is NOT set. MLflow trace SPANS will NOT "
-            "persist when this bundle runs on Databricks Apps — control-plane "
-            "trace export targets a storage host that Apps containers cannot "
-            "reach, so spans are silently dropped. To capture traces, set "
-            "`app.trace_location` in your config (see "
-            "config/examples/01_getting_started/ai_gateway.yaml for the YAML "
-            "shape). Local notebook/CLI runs and Model Serving deploys are "
-            "not affected by this."
-        )
-        logger.warning(_trace_location_warning)
-        print(f"\n  ⚠  {_trace_location_warning}\n")
-
     def _track(path: Path, content: str) -> None:
         if _write_file(path, content, overwrite):
             written.append(path.name)
