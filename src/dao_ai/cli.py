@@ -641,10 +641,12 @@ def _custom_input_digests(config: AppConfig) -> dict[str, str]:
     code ships). This returns ``{staging_rel: sha256}`` for their current on-disk
     bytes so :func:`_config_checksum` can fold them in.
 
-    Best-effort per file: an entry that resolves nowhere contributes nothing here
-    (the writers surface the missing input themselves — ``code_paths`` fails loud
-    in ``collect_code_paths``; resource overlays in
-    :func:`iter_resource_path_stagings`).
+    Fails loud on an unresolvable/invalid input, matching the writers' own
+    contract: a missing ``resource_paths`` entry (or an overlay basename collision)
+    raises out of :func:`iter_resource_path_stagings`, so ``_config_checksum`` —
+    and therefore every ``build``/``up``/``sync`` that computes it — surfaces the
+    error before staging rather than silently checksumming an incomplete bundle.
+    A file that vanishes mid-read (``OSError``) is skipped, not fatal.
     """
     from dao_ai.code_paths import (
         _SRC_DIRNAME,

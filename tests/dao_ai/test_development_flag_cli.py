@@ -388,6 +388,27 @@ class TestConfigChecksum:
             "editing custom code must change the checksum (else stale code ships)"
         )
 
+    def test_checksum_fails_loud_on_missing_resource_path(
+        self, tmp_path: Path
+    ) -> None:
+        """A bad resource_paths entry must surface through _config_checksum (which
+        every build/up/sync computes), not be silently checksummed away — locks in
+        the fail-loud contract the checksum folds in via iter_resource_path_stagings."""
+        cfg_path = tmp_path / "dao_ai.yaml"
+        cfg_path.write_text(
+            "resources:\n  models:\n    m: &m {name: databricks-gpt-5-4-mini}\n"
+            "agents:\n  g: &g {name: g, description: d, model: *m, prompt: p}\n"
+            "app:\n  name: cksum_badres\n"
+            "  resource_paths: [does/not/exist.yml]\n"
+            "  registered_model: {schema: {catalog_name: c, schema_name: s}, "
+            "name: m}\n  agents: [*g]\n"
+        )
+        with pytest.raises(FileNotFoundError, match="does not exist"):
+            cli._config_checksum(
+                AppConfig.from_file(str(cfg_path), initialize=False),
+                development=False,
+            )
+
     def test_manifest_records_only_checksum(self, tmp_path: Path) -> None:
         d = tmp_path / "base" / "agent" / "app"
         d.mkdir(parents=True)

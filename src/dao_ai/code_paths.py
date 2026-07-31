@@ -311,7 +311,12 @@ def walk_code_path_files(source: Path, dest: str) -> list[tuple[Path, str]]:
     return files
 
 
-# Generated resource file the writers own; a user overlay may not reuse the name.
+# Generated resource files the writers own; a user overlay may not reuse these
+# basenames (they'd collide in the flat ``resources/`` dir). Keep in sync with the
+# writers that emit them: ``resources/app.yml`` is written by
+# ``dao_ai.apps.bundle.write_bundle`` / ``dao_ai.mcp.generate.write_mcp_bundle``
+# via :func:`dao_ai.apps.bundle.generate_resources_app_yaml`. Add a name here if a
+# generator starts emitting another ``resources/<name>.yml``.
 _RESERVED_RESOURCE_NAMES: set[str] = {"app.yml"}
 
 # DAB resource-overlay file extensions the ``resources/`` convention auto-ships.
