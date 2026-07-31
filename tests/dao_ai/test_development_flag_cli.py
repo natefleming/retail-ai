@@ -1544,6 +1544,155 @@ class TestDeleteServingEndpoint:
 
 
 @pytest.mark.unit
+class TestDeleteApp:
+    """_delete_app removes the imperatively-deployed App on workflow down."""
+
+    @staticmethod
+    def _app_config(name: str = "My_App") -> AppConfig:
+        class _App:
+            def __init__(self, n: str) -> None:
+                self.name = n
+
+            @property
+            def app_resource_name(self) -> str:
+                return self.name.lower().replace("_", "-")
+
+        return AppConfig.model_construct(app=_App(name))
+
+    def test_deletes_app_by_normalized_name(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        deleted: list[str] = []
+
+        class _WC:
+            class apps:
+                @staticmethod
+                def delete(name: str) -> None:
+                    deleted.append(name)
+
+        import databricks.sdk as sdk
+
+        monkeypatch.setattr(sdk, "WorkspaceClient", lambda *a, **k: _WC())
+        cli._delete_app(self._app_config("My_App"), profile=None, dry_run=False)
+        # App name is the lower/hyphen form the App was deployed under.
+        assert deleted == ["my-app"]
+
+    def test_dry_run_does_not_delete(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        called: list[str] = []
+
+        class _WC:
+            class apps:
+                @staticmethod
+                def delete(name: str) -> None:
+                    called.append(name)
+
+        import databricks.sdk as sdk
+
+        monkeypatch.setattr(sdk, "WorkspaceClient", lambda *a, **k: _WC())
+        cli._delete_app(self._app_config(), profile=None, dry_run=True)
+        assert called == [], "dry-run must not delete the app"
+
+    def test_missing_app_is_not_an_error(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from databricks.sdk.errors import NotFound
+
+        class _WC:
+            class apps:
+                @staticmethod
+                def delete(name: str) -> None:
+                    raise NotFound("gone")
+
+        import databricks.sdk as sdk
+
+        monkeypatch.setattr(sdk, "WorkspaceClient", lambda *a, **k: _WC())
+        # Must not raise — an already-deleted app is fine.
+        cli._delete_app(self._app_config(), profile=None, dry_run=False)
+
+    def test_delete_failure_is_non_fatal(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        class _WC:
+            class apps:
+                @staticmethod
+                def delete(name: str) -> None:
+                    raise RuntimeError("boom")
+
+        import databricks.sdk as sdk
+
+        monkeypatch.setattr(sdk, "WorkspaceClient", lambda *a, **k: _WC())
+        # Best-effort: any failure is logged, not raised.
+        cli._delete_app(self._app_config(), profile=None, dry_run=False)
+
+
+@pytest.mark.unit
+class TestWorkflowDownRemovesDeployedAgent:
+    """workflow down destroys the Job THEN removes the imperatively-deployed
+    App (apps/mcp) or serving endpoint (model_serving)."""
+
+    _CFG = (
+        "resources:\n  models:\n    m: &m\n      name: databricks-gpt-5-4-mini\n"
+        "agents:\n  g: &g\n    name: g\n    description: d\n    model: *m\n"
+        "    prompt: p\n"
+        "app:\n  name: my_app\n  agents:\n    - *g\n"
+    )
+
+    def _cfg(self, tmp_path: Path) -> Path:
+        cfg = tmp_path / "c.yaml"
+        cfg.write_text(self._CFG)
+        (tmp_path / "databricks.yaml").write_text("bundle: {}\n")  # pretend staged
+        return cfg
+
+    def _run_down(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, *, mode_argv: list[str]
+    ) -> list[str]:
+        order: list[str] = []
+        monkeypatch.setattr(cli, "_apply_profile_context", lambda p: None)
+        monkeypatch.setattr(cli, "detect_cloud_provider", lambda p: "aws")
+        monkeypatch.setattr(cli, "_resolve_job_dao_ai_dep", lambda *a, **k: "dao-ai")
+        monkeypatch.setattr(
+            cli, "_exec_job_bundle", lambda **k: order.append("bundle_destroy")
+        )
+        monkeypatch.setattr(
+            cli,
+            "_delete_app",
+            lambda config, *, profile, dry_run: order.append("app_delete"),
+        )
+        monkeypatch.setattr(
+            cli,
+            "_delete_serving_endpoint",
+            lambda config, *, profile, dry_run: order.append("endpoint_delete"),
+        )
+        cfg = self._cfg(tmp_path)
+        argv = ["workflow", "down", "-c", str(cfg), "-s", str(tmp_path)] + mode_argv
+        opts = parse_args(argv)
+        cli.handle_workflow_command(opts)
+        return order
+
+    def test_apps_mode_deletes_app_after_destroy(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        order = self._run_down(tmp_path, monkeypatch, mode_argv=["--mode", "apps"])
+        assert order == ["bundle_destroy", "app_delete"], order
+
+    def test_no_mode_defaults_to_app_delete(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # Unspecified mode → the workflow deployed apps (notebook default), so
+        # cleanup must target the App, NOT a serving endpoint.
+        order = self._run_down(tmp_path, monkeypatch, mode_argv=[])
+        assert order == ["bundle_destroy", "app_delete"], order
+
+    def test_model_serving_deletes_endpoint_after_destroy(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        order = self._run_down(
+            tmp_path, monkeypatch, mode_argv=["--mode", "model_serving"]
+        )
+        assert order == ["bundle_destroy", "endpoint_delete"], order
+
+
+@pytest.mark.unit
 class TestLinkAndGrantTrace:
     """_link_and_grant_trace no-ops without trace_location, links with it."""
 

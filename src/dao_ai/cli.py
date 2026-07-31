@@ -4261,6 +4261,22 @@ def run_databricks_command(
         stage_only_msg=f"Workflow bundle staged in {staging_dir}",
     )
 
+    # `bundle destroy` only removes the provisioning Job. The workflow's
+    # `06_deploy_agent` step deployed the agent IMPERATIVELY (App for apps/mcp,
+    # serving endpoint for model_serving) — not a DAB resource of the Job — so
+    # destroy orphans it. Remove it too, so `workflow down` fully tears the
+    # deployment down (mirrors `agent --mode model_serving` down). Provisioned
+    # DATA infra (Vector Search, Lakebase, Genie, UC) is intentionally kept.
+    if command is not None and command[:2] == ["bundle", "destroy"] and app_config:
+        # The notebook defaults an unset mode to apps (06_deploy_agent.py), so
+        # resolve the deployed mode as `apps` when unspecified — NOT the
+        # model_serving fallback the Job's runtime var uses above.
+        deployed_mode: str = mode or "apps"
+        if deployed_mode == "model_serving":
+            _delete_serving_endpoint(app_config, profile=profile, dry_run=dry_run)
+        else:
+            _delete_app(app_config, profile=profile, dry_run=dry_run)
+
 
 def _print_job_link(
     cwd: Path,
@@ -4590,6 +4606,44 @@ def _delete_serving_endpoint(
             f"Could not delete Model Serving endpoint '{endpoint_name}' "
             f"({type(e).__name__}: {e}). Delete it manually with "
             f"`databricks serving-endpoints delete {endpoint_name}`."
+        )
+
+
+def _delete_app(config: AppConfig, *, profile: Optional[str], dry_run: bool) -> None:
+    """Delete the Databricks App a workflow `down` leaves behind.
+
+    The workflow DAB only manages the provisioning Job; its ``06_deploy_agent``
+    step creates the App imperatively (``config.deploy_agent``), so ``bundle
+    destroy`` on the Job orphans it. This removes it so ``workflow down`` fully
+    tears the deployment down — the App analogue of :func:`_delete_serving_endpoint`
+    (the ``agent --mode model_serving`` endpoint cleanup). Provisioned data
+    infrastructure (Vector Search, Lakebase, Genie, UC) is intentionally kept.
+    Best-effort: a missing App (already gone) is not an error.
+    """
+    app_name: Optional[str] = config.app.app_resource_name if config.app else None
+    if not app_name:
+        return
+    if dry_run:
+        logger.info(f"[DRY RUN] Would delete App '{app_name}'.")
+        return
+    try:
+        from databricks.sdk import WorkspaceClient
+        from databricks.sdk.errors import NotFound
+
+        w: WorkspaceClient = (
+            WorkspaceClient(profile=profile) if profile else WorkspaceClient()
+        )
+        try:
+            w.apps.delete(name=app_name)
+            logger.info(f"Deleted App '{app_name}'.")
+        except NotFound:
+            logger.info(
+                f"App '{app_name}' not found (already deleted) — nothing to do."
+            )
+    except Exception as e:  # noqa: BLE001
+        logger.warning(
+            f"Could not delete App '{app_name}' ({type(e).__name__}: {e}). "
+            f"Delete it manually with `databricks apps delete {app_name}`."
         )
 
 
