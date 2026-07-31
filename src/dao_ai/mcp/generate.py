@@ -76,8 +76,8 @@ def write_mcp_bundle(
     The staging dir is ephemeral build output: dao-ai-generated files
     (databricks.yaml, resources/app.yml, pyproject.toml, uv.lock, scaffold,
     README.md) are (re)written every build, while user-owned content (the
-    rendered config, code_paths, src/<pkg>, ``app.include_resources`` overlays)
-    is copied once and never overwritten unless ``overwrite``.
+    rendered config, code_paths, src/<pkg>, ``resources/`` overlays) is copied
+    once and never overwritten unless ``overwrite``.
     """
     if config.app is None or not config.app.name:
         raise ValueError(
@@ -221,7 +221,7 @@ def write_mcp_bundle(
         _SRC_DIRNAME,
         discover_src_packages,
         iter_code_path_stagings,
-        iter_include_resource_stagings,
+        iter_resource_path_stagings,
         walk_code_path_files,
     )
 
@@ -250,11 +250,12 @@ def write_mcp_bundle(
             shutil.copy2(file_src, out)
             written.append(file_dest)
 
-    # Overlay resource files (app.include_resources) → resources/, merged by the
-    # generated databricks.yaml's ``include: [resources/*.yml]``. Copied once; an
-    # existing staged copy is refreshed only under --overwrite (matching the
-    # field's documented contract), and never copied onto itself.
-    for res_src, res_dest in iter_include_resource_stagings(config):
+    # DAB resource overlays (app.resource_paths + the colocated resources/
+    # convention) → resources/, merged by the generated databricks.yaml's
+    # ``include: [resources/*.yml]``. Copied once; an existing staged copy is
+    # refreshed only under --overwrite (matching the field's documented contract),
+    # and never copied onto itself.
+    for res_src, res_dest in iter_resource_path_stagings(config):
         out = staging_dir / res_dest
         if res_src.resolve() == out.resolve():
             preserved.append(res_dest)

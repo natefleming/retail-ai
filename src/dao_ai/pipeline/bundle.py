@@ -147,11 +147,12 @@ def _build_job_bundle_yaml(
         "config/**",
         "notebooks/*.py",
     ]
-    # Overlay resources (app.include_resources) stage under resources/ and are
-    # merged via the bundle's ``include: [resources/*.yml]`` (added below) — same
-    # seam the agent/mcp bundles expose, so a config's include_resources behaves
-    # identically no matter which noun deploys it.
-    if config.app is not None and config.app.include_resources:
+    # DAB resource overlays (app.resource_paths + the colocated resources/
+    # convention) stage under resources/ and are merged via the bundle's
+    # ``include: [resources/*.yml]`` (added below) — the same seam the agent/mcp
+    # bundles expose, so a config's overlays behave identically no matter which
+    # noun deploys it.
+    if config.app is not None and _has_resource_overlays(config):
         sync_include.append("resources/**")
     # Config-referenced assets stage under ``config/`` (covered above). A config
     # that references a sibling use case's shared assets via ``../`` stages them
@@ -270,11 +271,12 @@ def _build_job_bundle_yaml(
         },
     }
 
-    # Merge user overlay resources (app.include_resources) the same way the
-    # agent/mcp bundles do — so a config's include_resources deploys identically
-    # regardless of noun. Only emitted when the config declares overlays, so a
-    # plain workflow bundle stays free of a dangling (empty) include.
-    if config.app is not None and config.app.include_resources:
+    # Merge user DAB resource overlays (app.resource_paths + the colocated
+    # resources/ convention) the same way the agent/mcp bundles do — so a config's
+    # overlays deploy identically regardless of noun. Only emitted when the config
+    # actually has overlays, so a plain workflow bundle stays free of a dangling
+    # (empty) include.
+    if config.app is not None and _has_resource_overlays(config):
         bundle["include"] = ["resources/*.yml"]
 
     return dump_bundle_yaml(bundle)
@@ -525,26 +527,43 @@ def _stage_src_packages(
     return copied, preserved
 
 
-def _stage_include_resources(
+def _has_resource_overlays(config: AppConfig) -> bool:
+    """True if the config contributes any DAB resource overlay.
+
+    Either an explicit ``app.resource_paths`` entry or an implicit ``*.yml`` under
+    the colocated ``resources/`` directory. Used to decide whether the workflow
+    bundle emits the ``include: [resources/*.yml]`` seam + ``resources/**`` sync
+    glob (skipped for a plain bundle so no dangling empty include is written).
+    """
+    from dao_ai.code_paths import discover_resource_overlays
+
+    app = config.app
+    if app is None:
+        return False
+    return bool(app.resource_paths) or bool(discover_resource_overlays(config))
+
+
+def _stage_resource_overlays(
     config: AppConfig,
     staging_dir: Path,
     overwrite: bool,
 ) -> tuple[list[str], list[str]]:
-    """Copy ``config.app.include_resources`` overlay files into ``resources/``.
+    """Copy the config's DAB resource overlays into ``resources/``.
 
-    Parity with the agent/mcp bundles: each overlay lands flat at
-    ``resources/<basename>`` (bundle root), where the generated ``databricks.yaml``'s
-    ``include: [resources/*.yml]`` merges it at deploy — so a config's
-    ``include_resources`` behaves identically whichever noun deploys it. Copied
-    once; an existing staged copy is refreshed only under ``overwrite`` (matching
-    the field's documented contract), and never copied onto itself. Returns
-    ``(copied, preserved)`` bundle-relative labels.
+    Parity with the agent/mcp bundles: each overlay (from ``app.resource_paths`` or
+    the colocated ``resources/`` convention) lands flat at ``resources/<basename>``
+    (bundle root), where the generated ``databricks.yaml``'s
+    ``include: [resources/*.yml]`` merges it at deploy — so a config's overlays
+    behave identically whichever noun deploys it. Copied once; an existing staged
+    copy is refreshed only under ``overwrite`` (matching the field's documented
+    contract), and never copied onto itself. Returns ``(copied, preserved)``
+    bundle-relative labels.
     """
-    from dao_ai.code_paths import iter_include_resource_stagings
+    from dao_ai.code_paths import iter_resource_path_stagings
 
     copied: list[str] = []
     preserved: list[str] = []
-    for res_src, res_dest in iter_include_resource_stagings(config):
+    for res_src, res_dest in iter_resource_path_stagings(config):
         file_out = (staging_dir / res_dest).resolve()
         label = _bundle_label(file_out, staging_dir)
         if res_src.resolve() == file_out:
@@ -871,9 +890,10 @@ def _write_job_bundle(
     preserved_user_code.extend(cp_preserved)
     preserved_user_code.extend(src_preserved)
 
-    # 6c. Overlay resources (app.include_resources) into resources/, merged by the
-    # bundle's include: [resources/*.yml] — parity with the agent/mcp bundles.
-    res_copied, res_preserved = _stage_include_resources(
+    # 6c. DAB resource overlays (app.resource_paths + resources/ convention) into
+    # resources/, merged by the bundle's include: [resources/*.yml] — parity with
+    # the agent/mcp bundles.
+    res_copied, res_preserved = _stage_resource_overlays(
         config, staging_dir, overwrite
     )
     written.extend(res_copied)

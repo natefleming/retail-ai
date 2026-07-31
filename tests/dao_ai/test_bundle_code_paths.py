@@ -172,7 +172,7 @@ _INCLUDE_RESOURCES_CONFIG = textwrap.dedent(
         prompt: You are concise.
     app:
       name: overlay_bundle_app
-      include_resources:
+      resource_paths:
         - overlays/jobs.yml
       registered_model:
         schema:
@@ -186,8 +186,8 @@ _INCLUDE_RESOURCES_CONFIG = textwrap.dedent(
 
 
 @pytest.mark.unit
-class TestBundleShipsIncludeResources:
-    """``app.include_resources`` overlay files land in the bundle's resources/."""
+class TestBundleShipsResourcePaths:
+    """``app.resource_paths`` overlay files land in the bundle's resources/."""
 
     def _config(self, tmp_path: Path) -> AppConfig:
         (tmp_path / "overlays").mkdir()
@@ -247,7 +247,7 @@ class TestBundleShipsIncludeResources:
 
     def test_no_resources_copied_when_unset(self, tmp_path: Path) -> None:
         config = self._config(tmp_path)
-        config.app.include_resources = []
+        config.app.resource_paths = []
         out = tmp_path / "bundle_out"
         write_bundle(config, out, overwrite=True)
 

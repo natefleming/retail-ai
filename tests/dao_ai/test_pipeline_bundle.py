@@ -95,14 +95,14 @@ class _A2AStub:
 
 class _AppStub:
     """Minimal stand-in — the generator reads ``config.app.name``,
-    ``config.app.pip_requirements``, ``config.app.include_resources``, and (in
+    ``config.app.pip_requirements``, ``config.app.resource_paths``, and (in
     dev mode, via the extras resolver) ``config.app.a2a`` /
     ``config.app.orchestration``."""
 
     def __init__(self, name: str, pip_requirements: list[str] | None = None) -> None:
         self.name = name
         self.pip_requirements = pip_requirements or []
-        self.include_resources: list[str] = []
+        self.resource_paths: list[str] = []
         # Resolver-touched attributes (dev-mode extras resolution).
         self.a2a = _A2AStub()
         self.orchestration = None
@@ -524,7 +524,7 @@ class TestWritePipelineBundle:
 
         assert (out / "config" / "src" / "foo" / "bar.py").exists()
 
-    _INCLUDE_RESOURCES_CONFIG = (
+    _RESOURCE_PATHS_CONFIG = (
         "resources:\n"
         "  models:\n"
         "    default_llm: &default_llm\n"
@@ -537,16 +537,16 @@ class TestWritePipelineBundle:
         "    prompt: You are a concise assistant.\n"
         "app:\n"
         "  name: overlay_wf_app\n"
-        "  include_resources:\n"
+        "  resource_paths:\n"
         "    - overlays/extra_job.yml\n"
         "  agents:\n"
         "    - *greeter\n"
     )
 
-    def test_include_resources_overlay_parity_with_agent(
+    def test_resource_paths_overlay_parity_with_agent(
         self, tmp_path: Path
     ) -> None:
-        # Parity: app.include_resources works on the workflow noun exactly as on
+        # Parity: app.resource_paths works on the workflow noun exactly as on
         # agent/mcp — the overlay lands in resources/ and the generated
         # databricks.yaml merges it via include: [resources/*.yml].
         import yaml
@@ -555,7 +555,7 @@ class TestWritePipelineBundle:
         (tmp_path / "overlays" / "extra_job.yml").write_text(
             "resources:\n  jobs:\n    extra:\n      name: extra\n"
         )
-        config = self._load(tmp_path, self._INCLUDE_RESOURCES_CONFIG)
+        config = self._load(tmp_path, self._RESOURCE_PATHS_CONFIG)
         out = tmp_path / "bundle"
         write_pipeline_bundle(config, out)
 
@@ -564,8 +564,26 @@ class TestWritePipelineBundle:
         assert doc.get("include") == ["resources/*.yml"]
         assert "resources/**" in doc["sync"]["include"]
 
+    def test_implicit_resources_dir_parity(self, tmp_path: Path) -> None:
+        # The resources/ convention works on the workflow noun too: a *.yml
+        # dropped in resources/ (no resource_paths declared) is staged + merged.
+        import yaml
+
+        (tmp_path / "resources").mkdir()
+        (tmp_path / "resources" / "nightly.yml").write_text(
+            "resources:\n  jobs:\n    nightly:\n      name: nightly\n"
+        )
+        config = self._load(tmp_path, _MINIMAL_CONFIG)
+        out = tmp_path / "bundle"
+        write_pipeline_bundle(config, out)
+
+        assert (out / "resources" / "nightly.yml").exists()
+        doc = yaml.safe_load((out / "databricks.yaml").read_text())
+        assert doc.get("include") == ["resources/*.yml"]
+
     def test_no_include_when_no_overlays(self, tmp_path: Path) -> None:
-        # A config without include_resources emits no dangling include: key.
+        # A config with no resource_paths and no resources/ dir emits no dangling
+        # include: key.
         import yaml
 
         config = self._load(tmp_path, _MINIMAL_CONFIG)

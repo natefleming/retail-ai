@@ -608,9 +608,10 @@ def _default_bundle_dir(
 # so ``up`` can tell when the config changed and re-stage. The staging dir is
 # ephemeral build output — always regenerated from the config — so dao-ai does
 # NOT track per-file checksums or guard hand-edits to it: to add your own bundle
-# resources (Jobs, Pipelines, …), declare them via ``app.include_resources`` (a
-# config seam merged by DABs' ``include: [resources/*.yml]``) rather than editing
-# a generated file. Intentionally not gitignored.
+# resources (Jobs, Pipelines, …), declare them via ``app.resource_paths`` or drop
+# them in a colocated ``resources/`` dir (merged by DABs' ``include:
+# [resources/*.yml]``) rather than editing a generated file. Intentionally not
+# gitignored.
 _STAGING_MANIFEST = ".manifest.yaml"
 _MANIFEST_VERSION = 1
 
@@ -634,21 +635,22 @@ def _custom_input_digests(config: AppConfig) -> dict[str, str]:
 
     The idempotent-skip keys off the config checksum, but the writers also copy
     files that live OUTSIDE the config — ``app.code_paths``, colocated
-    ``src/<pkg>`` packages, and ``app.include_resources`` overlays. Editing one of
-    those without touching the config must still count as drift (otherwise a
-    rebuild is skipped and stale code ships). This returns ``{staging_rel: sha256}``
-    for their current on-disk bytes so :func:`_config_checksum` can fold them in.
+    ``src/<pkg>`` packages, and DAB resource overlays (``app.resource_paths`` +
+    the colocated ``resources/`` convention). Editing one of those without touching
+    the config must still count as drift (otherwise a rebuild is skipped and stale
+    code ships). This returns ``{staging_rel: sha256}`` for their current on-disk
+    bytes so :func:`_config_checksum` can fold them in.
 
     Best-effort per file: an entry that resolves nowhere contributes nothing here
     (the writers surface the missing input themselves — ``code_paths`` fails loud
-    in ``collect_code_paths``; ``include_resources`` in
-    :func:`iter_include_resource_stagings`).
+    in ``collect_code_paths``; resource overlays in
+    :func:`iter_resource_path_stagings`).
     """
     from dao_ai.code_paths import (
         _SRC_DIRNAME,
         discover_src_packages,
         iter_code_path_stagings,
-        iter_include_resource_stagings,
+        iter_resource_path_stagings,
         walk_code_path_files,
     )
 
@@ -667,7 +669,7 @@ def _custom_input_digests(config: AppConfig) -> dict[str, str]:
         _hash_into(source, dest)
     for pkg_dir in discover_src_packages(config):
         _hash_into(pkg_dir, f"{_SRC_DIRNAME}/{pkg_dir.name}")
-    for res_src, res_dest in iter_include_resource_stagings(config):
+    for res_src, res_dest in iter_resource_path_stagings(config):
         try:
             digests[res_dest] = hashlib.sha256(res_src.read_bytes()).hexdigest()
         except OSError:
@@ -687,8 +689,9 @@ def _config_checksum(config: AppConfig, *, development: bool) -> str:
     inputs.
 
     Folding in the custom-code/overlay file bytes means editing a ``code_paths``
-    module, a ``src/<pkg>`` file, or an ``include_resources`` overlay — even
-    without touching the config — changes the checksum and triggers a rebuild, so
+    module, a ``src/<pkg>`` file, or a ``resource_paths`` / ``resources/`` overlay
+    — even without touching the config — changes the checksum and triggers a
+    rebuild, so
     the idempotent-skip never ships stale copies of those files.
 
     ``app.input_example`` is excluded: ``ChatPayload.ensure_thread_id`` injects a
@@ -782,8 +785,8 @@ def _clean_default_staging_dir(bundle_dir: Path, *, is_default: bool) -> None:
 
     The staging dir is ephemeral build output: everything in it is either
     generated from the config or copied from the config directory (custom code,
-    ``src/``, ``app.include_resources`` overlays, the config itself), so a full
-    regenerate loses nothing a user authored only here. Wiping first keeps a
+    ``src/``, ``resources/`` overlays, the config itself), so a full regenerate
+    loses nothing a user authored only here. Wiping first keeps a
     ``--development`` run's ``dist/`` wheel + dev ``pyproject.toml`` from mixing
     into a later ``--no-development`` published layout.
 

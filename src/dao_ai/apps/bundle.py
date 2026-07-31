@@ -763,10 +763,11 @@ def write_bundle(
     The staging dir is ephemeral build output: dao-ai-generated files
     (databricks.yaml, resources/app.yml, pyproject.toml, uv.lock, scaffold) are
     (re)written every build, while user-owned content (the rendered config,
-    code_paths, src/<pkg>, skills, ``app.include_resources`` overlays) is copied
-    once and never overwritten unless ``overwrite``. To add your own bundle
-    resources without editing a generated file, declare them via
-    ``app.include_resources`` (merged by DABs' ``include: [resources/*.yml]``).
+    code_paths, src/<pkg>, skills, ``resources/`` overlays) is copied once and
+    never overwritten unless ``overwrite``. To add your own bundle resources
+    without editing a generated file, declare them via ``app.resource_paths`` or
+    drop them in a colocated ``resources/`` dir (merged by DABs' ``include:
+    [resources/*.yml]``).
     """
     resolved_output = staging_dir.resolve()
     if (resolved_output / "src" / "dao_ai" / "config.py").exists():
@@ -894,7 +895,7 @@ def write_bundle(
     from dao_ai.code_paths import (
         discover_src_packages,
         iter_code_path_stagings,
-        iter_include_resource_stagings,
+        iter_resource_path_stagings,
         walk_code_path_files,
     )
 
@@ -931,13 +932,14 @@ def write_bundle(
             shutil.copy2(file_src, out)
             written.append(file_dest)
 
-    # Copy the config's overlay resource files (app.include_resources) into the
-    # bundle's resources/ directory, where the generated databricks.yaml's
-    # ``include: [resources/*.yml]`` merges them at deploy — so users add their
-    # own Jobs/Pipelines/etc. without editing any generated file. Copied from the
-    # config dir once; an existing staged copy is refreshed only under --overwrite
-    # (matching the field's documented contract), and never copied onto itself.
-    for res_src, res_dest in iter_include_resource_stagings(config):
+    # Copy the config's DAB resource overlays (app.resource_paths + the colocated
+    # resources/ convention) into the bundle's resources/ directory, where the
+    # generated databricks.yaml's ``include: [resources/*.yml]`` merges them at
+    # deploy — so users add their own Jobs/Pipelines/etc. without editing any
+    # generated file. Copied from the config dir once; an existing staged copy is
+    # refreshed only under --overwrite (matching the field's documented contract),
+    # and never copied onto itself.
+    for res_src, res_dest in iter_resource_path_stagings(config):
         out = staging_dir / res_dest
         if res_src.resolve() == out.resolve():
             preserved.append(res_dest)

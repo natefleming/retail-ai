@@ -184,7 +184,7 @@ class TestIterCodePathStagings:
         assert stagings == [(abs_file, "code/outside.py")]
 
 
-_CONFIG_INCLUDE_RESOURCES = textwrap.dedent(
+_CONFIG_RESOURCE_PATHS = textwrap.dedent(
     """
     schemas:
       s: &s
@@ -201,7 +201,7 @@ _CONFIG_INCLUDE_RESOURCES = textwrap.dedent(
         prompt: hi
     app:
       name: test_app
-      include_resources:
+      resource_paths:
     {block}
       registered_model:
         schema: *s
@@ -212,32 +212,30 @@ _CONFIG_INCLUDE_RESOURCES = textwrap.dedent(
 )
 
 
-def _write_config_include_resources(tmp_path: Path, entries: list[str]) -> AppConfig:
+def _write_config_resource_paths(tmp_path: Path, entries: list[str]) -> AppConfig:
     block = "\n".join(f"    - {e}" for e in entries)
-    (tmp_path / "cfg.yaml").write_text(
-        _CONFIG_INCLUDE_RESOURCES.format(block=block)
-    )
+    (tmp_path / "cfg.yaml").write_text(_CONFIG_RESOURCE_PATHS.format(block=block))
     return AppConfig.from_file(str(tmp_path / "cfg.yaml"))
 
 
-class TestIterIncludeResourceStagings:
+class TestIterResourcePathStagings:
     def test_config_relative_lands_flat_in_resources(self, tmp_path: Path) -> None:
         (tmp_path / "overlays").mkdir()
         target = tmp_path / "overlays" / "jobs.yml"
         target.write_text("resources: {}\n")
-        config = _write_config_include_resources(tmp_path, ["overlays/jobs.yml"])
+        config = _write_config_resource_paths(tmp_path, ["overlays/jobs.yml"])
 
         # Dest is resources/<basename> — the declared subpath is NOT preserved,
         # because DABs' ``include: [resources/*.yml]`` merges a flat directory.
-        stagings = cp.iter_include_resource_stagings(config)
+        stagings = cp.iter_resource_path_stagings(config)
         assert stagings == [(target.resolve(), "resources/jobs.yml")]
 
     def test_missing_entry_fails_loud(self, tmp_path: Path) -> None:
         # A typo'd/absent overlay must NOT silently ship a bundle missing the
         # user's resource — fail loud like collect_code_paths does for code.
-        config = _write_config_include_resources(tmp_path, ["overlays/absent.yml"])
+        config = _write_config_resource_paths(tmp_path, ["overlays/absent.yml"])
         with pytest.raises(FileNotFoundError, match="does not exist"):
-            cp.iter_include_resource_stagings(config)
+            cp.iter_resource_path_stagings(config)
 
     def test_duplicate_basename_raises(self, tmp_path: Path) -> None:
         # Two entries flattening to the same resources/<name> would silently drop
@@ -246,24 +244,57 @@ class TestIterIncludeResourceStagings:
         (tmp_path / "b").mkdir()
         (tmp_path / "a" / "jobs.yml").write_text("resources: {}\n")
         (tmp_path / "b" / "jobs.yml").write_text("resources: {}\n")
-        config = _write_config_include_resources(
-            tmp_path, ["a/jobs.yml", "b/jobs.yml"]
-        )
+        config = _write_config_resource_paths(tmp_path, ["a/jobs.yml", "b/jobs.yml"])
         with pytest.raises(ValueError, match="resources/jobs.yml"):
-            cp.iter_include_resource_stagings(config)
+            cp.iter_resource_path_stagings(config)
 
     def test_reserved_app_yml_basename_raises(self, tmp_path: Path) -> None:
         # An overlay named app.yml would collide with the generated
         # resources/app.yml and be silently shadowed — reject it.
         (tmp_path / "o").mkdir()
         (tmp_path / "o" / "app.yml").write_text("resources: {}\n")
-        config = _write_config_include_resources(tmp_path, ["o/app.yml"])
+        config = _write_config_resource_paths(tmp_path, ["o/app.yml"])
         with pytest.raises(ValueError, match="reserved basename"):
-            cp.iter_include_resource_stagings(config)
+            cp.iter_resource_path_stagings(config)
 
     def test_empty_when_unset(self, tmp_path: Path) -> None:
         config = _write_config_no_code_paths(tmp_path)
-        assert cp.iter_include_resource_stagings(config) == []
+        assert cp.iter_resource_path_stagings(config) == []
+
+
+class TestResourcesConvention:
+    """The colocated ``resources/`` dir auto-ships *.yml overlays (like src/)."""
+
+    def test_implicit_resources_dir_discovered(self, tmp_path: Path) -> None:
+        (tmp_path / "resources").mkdir()
+        target = tmp_path / "resources" / "nightly.yml"
+        target.write_text("resources: {}\n")
+        # No resource_paths declared — the convention picks it up.
+        config = _write_config_no_code_paths(tmp_path)
+        assert cp.discover_resource_overlays(config) == [target.resolve()]
+        assert cp.iter_resource_path_stagings(config) == [
+            (target.resolve(), "resources/nightly.yml")
+        ]
+
+    def test_reserved_and_non_yaml_skipped(self, tmp_path: Path) -> None:
+        (tmp_path / "resources").mkdir()
+        (tmp_path / "resources" / "app.yml").write_text("resources: {}\n")  # reserved
+        (tmp_path / "resources" / "notes.txt").write_text("hi\n")  # non-yaml
+        (tmp_path / "resources" / "jobs.yaml").write_text("resources: {}\n")  # kept
+        config = _write_config_no_code_paths(tmp_path)
+        names = [p.name for p in cp.discover_resource_overlays(config)]
+        assert names == ["jobs.yaml"]
+
+    def test_explicit_and_implicit_dedup_by_path(self, tmp_path: Path) -> None:
+        # An explicit resource_paths entry that points at a file already under the
+        # resources/ dir must not be staged twice.
+        (tmp_path / "resources").mkdir()
+        (tmp_path / "resources" / "jobs.yml").write_text("resources: {}\n")
+        config = _write_config_resource_paths(tmp_path, ["resources/jobs.yml"])
+        stagings = cp.iter_resource_path_stagings(config)
+        assert stagings == [
+            ((tmp_path / "resources" / "jobs.yml").resolve(), "resources/jobs.yml")
+        ]
 
 
 class TestWalkCodePathFiles:

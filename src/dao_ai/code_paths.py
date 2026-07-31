@@ -50,6 +50,12 @@ _CODE_FALLBACK_PREFIX = "code"
 # as ``foo.bar`` — in every target (see the module docstring / the deploy code).
 _SRC_DIRNAME = "src"
 
+# Convention: a ``resources/`` directory colocated with the config auto-ships
+# every ``*.yml``/``*.yaml`` file under it as a DAB overlay (no ``resource_paths``
+# declaration needed), mirroring the ``src/`` convention. Merged into the bundle
+# via the generated ``databricks.yaml``'s ``include: [resources/*.yml]``.
+_RESOURCES_DIRNAME = "resources"
+
 # Directory entries whose contents dao-ai never needs to ship.
 _SKIP_DIR_NAMES = {"__pycache__"}
 
@@ -308,51 +314,104 @@ def walk_code_path_files(source: Path, dest: str) -> list[tuple[Path, str]]:
 # Generated resource file the writers own; a user overlay may not reuse the name.
 _RESERVED_RESOURCE_NAMES: set[str] = {"app.yml"}
 
+# DAB resource-overlay file extensions the ``resources/`` convention auto-ships.
+_RESOURCE_SUFFIXES: tuple[str, ...] = (".yml", ".yaml")
 
-def iter_include_resource_stagings(config: "AppConfig") -> list[tuple[Path, str]]:
-    """Plan how each ``app.include_resources`` entry is staged into ``resources/``.
 
-    Returns ``(source_abs, bundle_relative_dest)`` pairs where the dest is always
-    ``resources/<basename>`` — DABs merges the generated ``databricks.yaml``'s
-    ``include: [resources/*.yml]`` over that flat directory, so an overlay file
-    only needs to land there (its declared subpath, if any, is not preserved).
-    Relative entries resolve against the config directory (same anchor as
-    ``code_paths``).
+def _resources_dir(config: "AppConfig") -> Path:
+    """The ``resources/`` directory colocated with the config (may not exist)."""
+    return _code_paths_base_dir(config) / _RESOURCES_DIRNAME
 
-    Fails loud (never silently drops a resource the user asked to ship):
 
-    * an entry that resolves nowhere raises ``FileNotFoundError`` — matching the
-      :func:`collect_code_paths` contract for custom code;
-    * two entries whose basenames collide (both flatten to the same
-      ``resources/<name>``), or an entry whose basename is a generated file the
-      writer owns (e.g. ``app.yml``), raise ``ValueError`` rather than letting one
-      file silently clobber or shadow the other.
+def discover_resource_overlays(config: "AppConfig") -> list[Path]:
+    """DAB overlay files under the config's colocated ``resources/`` directory.
+
+    The ``resources/`` convention auto-ships DAB overlays with NO
+    ``resource_paths`` declaration (mirroring the ``src/`` convention for code):
+    any top-level ``*.yml``/``*.yaml`` file directly under ``<config_dir>/resources``
+    is a bundle-resource overlay. Subdirectories, non-YAML files, and the reserved
+    generated name (``app.yml``) are skipped. Sorted, deduped; ``[]`` when
+    ``resources/`` is absent or empty.
     """
-    app = config.app
-    if app is None or not app.include_resources:
+    resources_dir = _resources_dir(config)
+    if not resources_dir.is_dir():
         return []
 
-    stagings: list[tuple[Path, str]] = []
-    seen: dict[str, str] = {}  # basename -> originating entry
-    for entry in app.include_resources:
+    overlays: list[Path] = []
+    for child in sorted(resources_dir.iterdir()):
+        if not child.is_file():
+            continue
+        if child.suffix not in _RESOURCE_SUFFIXES:
+            continue
+        if child.name in _RESERVED_RESOURCE_NAMES:
+            continue
+        overlays.append(child.resolve())
+    return overlays
+
+
+def iter_resource_path_stagings(config: "AppConfig") -> list[tuple[Path, str]]:
+    """Plan how DAB resource overlays are staged into the bundle's ``resources/``.
+
+    Two sources, both landing flat at ``resources/<basename>`` — DABs merges the
+    generated ``databricks.yaml``'s ``include: [resources/*.yml]`` over that flat
+    directory, so an overlay only needs to land there (a declared subpath is not
+    preserved):
+
+    * **explicit** ``app.resource_paths`` entries (relative to the config dir, same
+      anchor as ``code_paths``; absolute paths pass through);
+    * **implicit** ``*.yml``/``*.yaml`` files under the colocated ``resources/``
+      directory (:func:`discover_resource_overlays`) — the ``resources/`` convention,
+      mirroring ``src/`` for code.
+
+    Fails loud (never silently drops a resource the user meant to ship):
+
+    * an explicit entry that resolves nowhere raises ``FileNotFoundError`` —
+      matching the :func:`collect_code_paths` contract for custom code;
+    * two overlays whose basenames collide (both flatten to the same
+      ``resources/<name>``), or one whose basename is a generated file the writer
+      owns (e.g. ``app.yml``), raise ``ValueError`` rather than letting one file
+      silently clobber or shadow the other.
+    """
+    app = config.app
+    if app is None:
+        return []
+
+    # Explicit entries first (deterministic), then the implicit resources/ dir.
+    # discover_resource_overlays already excludes reserved names; an explicit
+    # entry that overlaps an implicit one dedups by resolved path below.
+    explicit: list[tuple[str, Path]] = []
+    for entry in app.resource_paths:
         source = resolve_code_path(entry, config)
         if source is None:
             raise FileNotFoundError(
-                f"include_resources entry does not exist: {entry}"
+                f"resource_paths entry does not exist: {entry}"
             )
+        explicit.append((entry, source))
+    implicit: list[tuple[str, Path]] = [
+        (str(p), p) for p in discover_resource_overlays(config)
+    ]
+
+    stagings: list[tuple[Path, str]] = []
+    seen_names: dict[str, str] = {}  # basename -> originating label
+    seen_paths: set[str] = set()  # resolved source paths, to dedup explicit∩implicit
+    for label, source in [*explicit, *implicit]:
+        resolved = source.resolve()
+        if resolved.as_posix() in seen_paths:
+            continue
         name = source.name
         if name in _RESERVED_RESOURCE_NAMES:
             raise ValueError(
-                f"include_resources entry '{entry}' has reserved basename "
+                f"resource_paths entry '{label}' has reserved basename "
                 f"'{name}' — it would collide with the generated "
                 f"resources/{name}. Rename the overlay file."
             )
-        if name in seen:
+        if name in seen_names:
             raise ValueError(
-                f"include_resources entries '{seen[name]}' and '{entry}' both map "
+                f"resource overlays '{seen_names[name]}' and '{label}' both map "
                 f"to resources/{name}; overlay basenames must be unique. Rename one."
             )
-        seen[name] = entry
+        seen_names[name] = label
+        seen_paths.add(resolved.as_posix())
         stagings.append((source, posixpath.join("resources", name)))
     return stagings
 

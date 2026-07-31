@@ -272,12 +272,13 @@ start in one shot, use `dao-ai agent up` instead.
 **The staging dir is ephemeral build output.** Everything in the **default**
 staging dir (`<base>/<noun>/<app>`) is either generated from your config or
 copied from the config directory (custom `code_paths`, `src/` packages,
-`app.include_resources` overlays, the rendered config), so `build`/`up`
-regenerate it in place — a default dir is wiped and rebuilt on each run, and on
-config drift `up` rebuilds it automatically. **Don't hand-edit generated files**
-— to add your own Databricks resources (Jobs, Pipelines, …) to the bundle,
-declare them via `app.include_resources: [path/to/jobs.yml, …]` in your config;
-each is copied into the bundle's `resources/` directory where DABs'
+`resources/` overlays, the rendered config), so `build`/`up` regenerate it in
+place — a default dir is wiped and rebuilt on each run, and on config drift `up`
+rebuilds it automatically. **Don't hand-edit generated files** — to add your own
+Databricks resources (Jobs, Pipelines, …) to the bundle, drop a `*.yml` in a
+`resources/` directory next to your config (auto-shipped, like `src/` for code),
+or list files explicitly via `app.resource_paths: [path/to/jobs.yml, …]`; each is
+copied into the bundle's `resources/` directory where DABs'
 `include: [resources/*.yml]` merges it at deploy, with no generated file touched.
 Your own `src/`/`code_paths` are always preserved (copied once, never
 overwritten). A `-s <dir>` you supply is treated as your territory: it is never
@@ -416,27 +417,42 @@ The command creates a self-contained bundle directory with everything needed to 
 | `.python-version` | Python version pin (3.11) |
 | `src/<package>/` | Stub package for custom code |
 | `resources/app.yml` | The App + experiment resource block (owned by dao-ai) |
-| `resources/<your>.yml` | Your own `app.include_resources` overlays (see below) |
+| `resources/<your>.yml` | Your own resource overlays (see below) |
 
 ### Extending the bundle with your own resources
 
 The staging dir is regenerated on every `build`, so **don't hand-edit generated
 files**. To add your own Databricks Asset Bundle resources (Jobs, Pipelines, …)
-alongside the generated App, declare overlay files via `app.include_resources`:
+alongside the generated App, you have two options (they compose):
+
+**Convention** — drop `*.yml` files in a `resources/` directory next to your
+config. They're auto-shipped with no declaration, exactly like `src/` packages
+are for code:
+
+```
+my-app/
+  dao_ai.yaml
+  resources/
+    nightly_job.yml     # auto-discovered and staged
+```
+
+**Explicit** — list files anywhere (relative to the config dir) via
+`app.resource_paths`:
 
 ```yaml
 app:
   name: my_app
-  include_resources:
-    - resources/nightly_job.yml   # relative to your config file's directory
+  resource_paths:
+    - overlays/nightly_job.yml   # relative to your config file's directory
 ```
 
-Each listed file is copied into the bundle's `resources/` directory, where the
-generated `databricks.yaml`'s `include: [resources/*.yml]` merges it at deploy —
-so your resources ship without touching a single generated file. Overlays are
-user-owned: copied once and never overwritten by a rebuild (pass `--overwrite`
-to re-copy). This works identically on the `agent`, `mcp`, and `workflow` nouns —
-`include_resources` behaves the same regardless of which one deploys your config.
+Either way, each file is copied into the bundle's `resources/` directory, where
+the generated `databricks.yaml`'s `include: [resources/*.yml]` merges it at
+deploy — so your resources ship without touching a single generated file.
+Overlays are user-owned: copied once and never overwritten by a rebuild (pass
+`--overwrite` to re-copy). File basenames must be unique and may not be `app.yml`
+(reserved for the generated App block). This works identically on the `agent`,
+`mcp`, and `workflow` nouns.
 
 ### Dependency install: `pyproject.toml` + portable `uv.lock`
 
@@ -463,8 +479,8 @@ version, the right move differs by surface — because the artifacts differ:
   Only run a full `dao-ai agent build --overwrite` when you want to adopt a new
   bundle **shape** (a dao-ai release that changed the generated `databricks.yaml`
   / `resources/` layout). Because the staging dir is ephemeral and your resources
-  live in `app.include_resources`, a rebuild is safe — nothing you authored is
-  lost.
+  live in the config's `resources/` dir (or `app.resource_paths`), a rebuild is
+  safe — nothing you authored is lost.
 
 - **Workflow bundles** — the provisioning notebooks (`01`–`08`) ship *inside the
   dao-ai wheel* and are materialized into the bundle at build time, so a stale
@@ -558,7 +574,7 @@ dao-ai trace create --name /Shared/my-app/dao-ai-fresh -p <profile>
 The **default** staging dir (no `-s`) is ephemeral build output: `build`/`up`
 regenerate it in place on every run (a default dir is wiped and rebuilt), so
 there is nothing to hand-edit and nothing to lose. Add your own bundle resources
-via `app.include_resources` (see [Extending the bundle](#extending-the-bundle-with-your-own-resources)) rather than editing generated files.
+via a colocated `resources/` dir or `app.resource_paths` (see [Extending the bundle](#extending-the-bundle-with-your-own-resources)) rather than editing generated files.
 
 For a **user-supplied** `-s <dir>`, existing generated files are skipped by
 default; use `--overwrite` to rewrite them (and re-copy user-owned artifacts).
