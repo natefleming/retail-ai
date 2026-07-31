@@ -528,15 +528,17 @@ def _stage_src_packages(
 def _stage_include_resources(
     config: AppConfig,
     staging_dir: Path,
+    overwrite: bool,
 ) -> tuple[list[str], list[str]]:
     """Copy ``config.app.include_resources`` overlay files into ``resources/``.
 
     Parity with the agent/mcp bundles: each overlay lands flat at
     ``resources/<basename>`` (bundle root), where the generated ``databricks.yaml``'s
     ``include: [resources/*.yml]`` merges it at deploy — so a config's
-    ``include_resources`` behaves identically whichever noun deploys it. User-owned:
-    an existing file at the dest is preserved (never overwritten, never copied onto
-    itself). Returns ``(copied, preserved)`` bundle-relative labels.
+    ``include_resources`` behaves identically whichever noun deploys it. Copied
+    once; an existing staged copy is refreshed only under ``overwrite`` (matching
+    the field's documented contract), and never copied onto itself. Returns
+    ``(copied, preserved)`` bundle-relative labels.
     """
     from dao_ai.code_paths import iter_include_resource_stagings
 
@@ -545,7 +547,10 @@ def _stage_include_resources(
     for res_src, res_dest in iter_include_resource_stagings(config):
         file_out = (staging_dir / res_dest).resolve()
         label = _bundle_label(file_out, staging_dir)
-        if res_src.resolve() == file_out or file_out.exists():
+        if res_src.resolve() == file_out:
+            preserved.append(label)
+            continue
+        if file_out.exists() and not overwrite:
             preserved.append(label)
             continue
         file_out.parent.mkdir(parents=True, exist_ok=True)
@@ -868,7 +873,9 @@ def _write_job_bundle(
 
     # 6c. Overlay resources (app.include_resources) into resources/, merged by the
     # bundle's include: [resources/*.yml] — parity with the agent/mcp bundles.
-    res_copied, res_preserved = _stage_include_resources(config, staging_dir)
+    res_copied, res_preserved = _stage_include_resources(
+        config, staging_dir, overwrite
+    )
     written.extend(res_copied)
     preserved_user_code.extend(res_preserved)
 

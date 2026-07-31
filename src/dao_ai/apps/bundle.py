@@ -934,15 +934,15 @@ def write_bundle(
     # Copy the config's overlay resource files (app.include_resources) into the
     # bundle's resources/ directory, where the generated databricks.yaml's
     # ``include: [resources/*.yml]`` merges them at deploy — so users add their
-    # own Jobs/Pipelines/etc. without editing any generated file. User-owned:
-    # copied once, never overwritten (even with --overwrite; belt-and-suspenders
-    # against clobbering a hand-tuned overlay), and never copied onto itself.
+    # own Jobs/Pipelines/etc. without editing any generated file. Copied from the
+    # config dir once; an existing staged copy is refreshed only under --overwrite
+    # (matching the field's documented contract), and never copied onto itself.
     for res_src, res_dest in iter_include_resource_stagings(config):
         out = staging_dir / res_dest
         if res_src.resolve() == out.resolve():
             preserved.append(res_dest)
             continue
-        if out.exists():
+        if out.exists() and not overwrite:
             preserved.append(res_dest)
             continue
         out.parent.mkdir(parents=True, exist_ok=True)

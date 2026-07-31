@@ -219,18 +219,31 @@ class TestBundleShipsIncludeResources:
         doc = yaml.safe_load((out / "databricks.yaml").read_text())
         assert "resources/*.yml" in doc["include"]
 
-    def test_overlay_not_overwritten_on_rebuild(self, tmp_path: Path) -> None:
+    def test_overlay_preserved_without_overwrite(self, tmp_path: Path) -> None:
+        # A staged overlay copy is left as-is on a rebuild WITHOUT overwrite
+        # (copied once), so a hand-edit to the staged copy survives.
         config = self._config(tmp_path)
         out = tmp_path / "bundle_out"
         write_bundle(config, out, overwrite=True)
 
-        # Hand-tune the staged overlay, then rebuild: user edits win (overlay is
-        # user-owned — copied once, never overwritten, even with overwrite=True).
         staged = out / "resources" / "jobs.yml"
         staged.write_text("# hand-tuned\nresources:\n  jobs: {}\n")
+        write_bundle(config, out, overwrite=False)
+        assert staged.read_text().startswith("# hand-tuned")
+
+    def test_overlay_recopied_with_overwrite(self, tmp_path: Path) -> None:
+        # --overwrite re-copies the overlay from its config-dir source (matching
+        # the field's documented contract), refreshing a stale staged copy.
+        config = self._config(tmp_path)
+        out = tmp_path / "bundle_out"
         write_bundle(config, out, overwrite=True)
 
-        assert staged.read_text().startswith("# hand-tuned")
+        staged = out / "resources" / "jobs.yml"
+        staged.write_text("# stale staged copy\n")
+        write_bundle(config, out, overwrite=True)
+        # Source content wins: the "my_job" from the config-dir overlay is back.
+        assert "my_job" in staged.read_text()
+        assert "stale staged copy" not in staged.read_text()
 
     def test_no_resources_copied_when_unset(self, tmp_path: Path) -> None:
         config = self._config(tmp_path)

@@ -305,6 +305,10 @@ def walk_code_path_files(source: Path, dest: str) -> list[tuple[Path, str]]:
     return files
 
 
+# Generated resource file the writers own; a user overlay may not reuse the name.
+_RESERVED_RESOURCE_NAMES: set[str] = {"app.yml"}
+
+
 def iter_include_resource_stagings(config: "AppConfig") -> list[tuple[Path, str]]:
     """Plan how each ``app.include_resources`` entry is staged into ``resources/``.
 
@@ -313,22 +317,43 @@ def iter_include_resource_stagings(config: "AppConfig") -> list[tuple[Path, str]
     ``include: [resources/*.yml]`` over that flat directory, so an overlay file
     only needs to land there (its declared subpath, if any, is not preserved).
     Relative entries resolve against the config directory (same anchor as
-    ``code_paths``); an entry that resolves nowhere is skipped with a warning.
+    ``code_paths``).
+
+    Fails loud (never silently drops a resource the user asked to ship):
+
+    * an entry that resolves nowhere raises ``FileNotFoundError`` — matching the
+      :func:`collect_code_paths` contract for custom code;
+    * two entries whose basenames collide (both flatten to the same
+      ``resources/<name>``), or an entry whose basename is a generated file the
+      writer owns (e.g. ``app.yml``), raise ``ValueError`` rather than letting one
+      file silently clobber or shadow the other.
     """
     app = config.app
     if app is None or not app.include_resources:
         return []
 
     stagings: list[tuple[Path, str]] = []
+    seen: dict[str, str] = {}  # basename -> originating entry
     for entry in app.include_resources:
         source = resolve_code_path(entry, config)
         if source is None:
-            logger.warning(
-                "include_resources entry not found; skipping staging",
-                entry=entry,
+            raise FileNotFoundError(
+                f"include_resources entry does not exist: {entry}"
             )
-            continue
-        stagings.append((source, posixpath.join("resources", source.name)))
+        name = source.name
+        if name in _RESERVED_RESOURCE_NAMES:
+            raise ValueError(
+                f"include_resources entry '{entry}' has reserved basename "
+                f"'{name}' — it would collide with the generated "
+                f"resources/{name}. Rename the overlay file."
+            )
+        if name in seen:
+            raise ValueError(
+                f"include_resources entries '{seen[name]}' and '{entry}' both map "
+                f"to resources/{name}; overlay basenames must be unique. Rename one."
+            )
+        seen[name] = entry
+        stagings.append((source, posixpath.join("resources", name)))
     return stagings
 
 

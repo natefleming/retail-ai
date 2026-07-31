@@ -629,14 +629,67 @@ def _read_staging_manifest(bundle_dir: Path) -> dict[str, Any] | None:
     return loaded if isinstance(loaded, dict) else None
 
 
+def _custom_input_digests(config: AppConfig) -> dict[str, str]:
+    """SHA-256 of every custom-code/overlay file the bundle stages from the config.
+
+    The idempotent-skip keys off the config checksum, but the writers also copy
+    files that live OUTSIDE the config — ``app.code_paths``, colocated
+    ``src/<pkg>`` packages, and ``app.include_resources`` overlays. Editing one of
+    those without touching the config must still count as drift (otherwise a
+    rebuild is skipped and stale code ships). This returns ``{staging_rel: sha256}``
+    for their current on-disk bytes so :func:`_config_checksum` can fold them in.
+
+    Best-effort per file: an entry that resolves nowhere contributes nothing here
+    (the writers surface the missing input themselves — ``code_paths`` fails loud
+    in ``collect_code_paths``; ``include_resources`` in
+    :func:`iter_include_resource_stagings`).
+    """
+    from dao_ai.code_paths import (
+        _SRC_DIRNAME,
+        discover_src_packages,
+        iter_code_path_stagings,
+        iter_include_resource_stagings,
+        walk_code_path_files,
+    )
+
+    digests: dict[str, str] = {}
+
+    def _hash_into(source: Path, dest: str) -> None:
+        for file_src, file_dest in walk_code_path_files(source, dest):
+            try:
+                digests[file_dest] = hashlib.sha256(
+                    file_src.read_bytes()
+                ).hexdigest()
+            except OSError:
+                continue
+
+    for source, dest in iter_code_path_stagings(config):
+        _hash_into(source, dest)
+    for pkg_dir in discover_src_packages(config):
+        _hash_into(pkg_dir, f"{_SRC_DIRNAME}/{pkg_dir.name}")
+    for res_src, res_dest in iter_include_resource_stagings(config):
+        try:
+            digests[res_dest] = hashlib.sha256(res_src.read_bytes()).hexdigest()
+        except OSError:
+            continue
+    return digests
+
+
 def _config_checksum(config: AppConfig, *, development: bool) -> str:
-    """Stable hash of the config content that determines the generated bundle.
+    """Stable hash of every input that determines the generated bundle.
 
     Computed from the UNRESOLVED config (``model_dump`` with no network resource
-    resolution) plus the resolved ``development`` source-selection flag — the two
-    inputs the bundle writer consumes. MUST be taken before
-    ``config._resolve_all_resources()`` mutates the config in place, so the
-    generate-time stamp and the deploy-time check hash identical inputs.
+    resolution), the resolved ``development`` source-selection flag, and the
+    content digests of the custom-code/overlay files the writer copies
+    (:func:`_custom_input_digests`) — the inputs the bundle writer consumes.
+    MUST be taken before ``config._resolve_all_resources()`` mutates the config in
+    place, so the generate-time stamp and the deploy-time check hash identical
+    inputs.
+
+    Folding in the custom-code/overlay file bytes means editing a ``code_paths``
+    module, a ``src/<pkg>`` file, or an ``include_resources`` overlay — even
+    without touching the config — changes the checksum and triggers a rebuild, so
+    the idempotent-skip never ships stale copies of those files.
 
     ``app.input_example`` is excluded: ``ChatPayload.ensure_thread_id`` injects a
     fresh ``conversation_id`` UUID on every load when none is provided, so a config
@@ -653,7 +706,11 @@ def _config_checksum(config: AppConfig, *, development: bool) -> str:
     if isinstance(app, dict):
         app.pop("input_example", None)
     payload: str = json.dumps(
-        {"config": dumped, "development": development},
+        {
+            "config": dumped,
+            "development": development,
+            "custom_inputs": _custom_input_digests(config),
+        },
         sort_keys=True,
         default=str,
     )

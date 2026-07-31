@@ -359,6 +359,35 @@ class TestConfigChecksum:
             a_cfg, development=False
         ) == cli._config_checksum(b_cfg, development=False)
 
+    def test_checksum_changes_when_custom_code_edited(self, tmp_path: Path) -> None:
+        """Regression: editing a code_paths/src file WITHOUT touching the config
+        must change the checksum, so the idempotent-skip never ships stale code."""
+        (tmp_path / "src" / "mypkg").mkdir(parents=True)
+        tool = tmp_path / "src" / "mypkg" / "tool.py"
+        tool.write_text("VERSION = 1\n")
+        cfg_path = tmp_path / "dao_ai.yaml"
+        cfg_path.write_text(
+            "resources:\n  models:\n    m: &m {name: databricks-gpt-5-4-mini}\n"
+            "agents:\n  g: &g {name: g, description: d, model: *m, prompt: p}\n"
+            "app:\n  name: cksum_code\n"
+            "  registered_model: {schema: {catalog_name: c, schema_name: s}, "
+            "name: m}\n  agents: [*g]\n"
+        )
+
+        def _checksum() -> str:
+            return cli._config_checksum(
+                AppConfig.from_file(str(cfg_path), initialize=False),
+                development=False,
+            )
+
+        before = _checksum()
+        # Edit ONLY the src file — config bytes are untouched.
+        tool.write_text("VERSION = 2\n")
+        after = _checksum()
+        assert before != after, (
+            "editing custom code must change the checksum (else stale code ships)"
+        )
+
     def test_manifest_records_only_checksum(self, tmp_path: Path) -> None:
         d = tmp_path / "base" / "agent" / "app"
         d.mkdir(parents=True)

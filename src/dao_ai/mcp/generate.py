@@ -251,11 +251,15 @@ def write_mcp_bundle(
             written.append(file_dest)
 
     # Overlay resource files (app.include_resources) → resources/, merged by the
-    # generated databricks.yaml's ``include: [resources/*.yml]``. User-owned:
-    # copied once, never overwritten, never copied onto itself.
+    # generated databricks.yaml's ``include: [resources/*.yml]``. Copied once; an
+    # existing staged copy is refreshed only under --overwrite (matching the
+    # field's documented contract), and never copied onto itself.
     for res_src, res_dest in iter_include_resource_stagings(config):
         out = staging_dir / res_dest
-        if res_src.resolve() == out.resolve() or out.exists():
+        if res_src.resolve() == out.resolve():
+            preserved.append(res_dest)
+            continue
+        if out.exists() and not overwrite:
             preserved.append(res_dest)
             continue
         out.parent.mkdir(parents=True, exist_ok=True)

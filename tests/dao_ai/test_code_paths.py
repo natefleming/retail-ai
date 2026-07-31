@@ -232,9 +232,34 @@ class TestIterIncludeResourceStagings:
         stagings = cp.iter_include_resource_stagings(config)
         assert stagings == [(target.resolve(), "resources/jobs.yml")]
 
-    def test_missing_entry_skipped(self, tmp_path: Path) -> None:
+    def test_missing_entry_fails_loud(self, tmp_path: Path) -> None:
+        # A typo'd/absent overlay must NOT silently ship a bundle missing the
+        # user's resource — fail loud like collect_code_paths does for code.
         config = _write_config_include_resources(tmp_path, ["overlays/absent.yml"])
-        assert cp.iter_include_resource_stagings(config) == []
+        with pytest.raises(FileNotFoundError, match="does not exist"):
+            cp.iter_include_resource_stagings(config)
+
+    def test_duplicate_basename_raises(self, tmp_path: Path) -> None:
+        # Two entries flattening to the same resources/<name> would silently drop
+        # one — reject the collision instead.
+        (tmp_path / "a").mkdir()
+        (tmp_path / "b").mkdir()
+        (tmp_path / "a" / "jobs.yml").write_text("resources: {}\n")
+        (tmp_path / "b" / "jobs.yml").write_text("resources: {}\n")
+        config = _write_config_include_resources(
+            tmp_path, ["a/jobs.yml", "b/jobs.yml"]
+        )
+        with pytest.raises(ValueError, match="resources/jobs.yml"):
+            cp.iter_include_resource_stagings(config)
+
+    def test_reserved_app_yml_basename_raises(self, tmp_path: Path) -> None:
+        # An overlay named app.yml would collide with the generated
+        # resources/app.yml and be silently shadowed — reject it.
+        (tmp_path / "o").mkdir()
+        (tmp_path / "o" / "app.yml").write_text("resources: {}\n")
+        config = _write_config_include_resources(tmp_path, ["o/app.yml"])
+        with pytest.raises(ValueError, match="reserved basename"):
+            cp.iter_include_resource_stagings(config)
 
     def test_empty_when_unset(self, tmp_path: Path) -> None:
         config = _write_config_no_code_paths(tmp_path)

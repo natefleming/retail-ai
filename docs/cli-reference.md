@@ -93,8 +93,8 @@ dao-ai agent up -c config/my_config.yaml --mode mcp --profile fevm
 dao-ai agent up -c config/my_config.yaml --mode model_serving --profile fevm
 ```
 
-`up` is safe to re-run: an unchanged config **skips the build** (content
-fingerprint) and the sync is **convergent**, so re-running never duplicates the
+`up` is safe to re-run: an unchanged config **skips the build** (config
+checksum) and the sync is **convergent**, so re-running never duplicates the
 bundle. The `start` step always executes — an app restarts, a model_serving job
 re-runs and registers a new model version — which is `start` doing its job.
 
@@ -221,9 +221,10 @@ dao-ai workflow up|build|sync|start|down  -c <cfg> [-p <profile>]
   `READY`). Add `--direct` (apps/mcp/model_serving) to go via the SDK with no
   bundle written to disk.
 - **`up` is safe to re-run.** On the artifact-and-sync axes it is idempotent: an
-  unchanged config **skips the build** (content fingerprint — see *Edit safety*
-  below) and the sync is **convergent**, so re-running `up` never duplicates the
-  bundle. The `start` step, by contrast, always *executes*: an app restarts, and
+  unchanged config **skips the build** (config checksum — see *The staging dir is
+  ephemeral build output* below) and the sync is **convergent**, so re-running
+  `up` never duplicates the bundle. The `start` step, by contrast, always
+  *executes*: an app restarts, and
   a workflow/model_serving job re-runs (a model_serving `start` registers a new
   model version each time). That is the start step doing its job, not an
   artifact/sync concern.
