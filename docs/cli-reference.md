@@ -257,10 +257,12 @@ dao-ai workflow up|build|sync|start|down  -c <cfg> [-p <profile>]
   deploy_job) **and** deletes the serving endpoint — the endpoint is created by
   the deploy-agent job, not the DAB, so `bundle destroy` alone would leave it
   running and billing; the registered UC model + versions are **kept** (a
-  reusable artifact). For `workflow`, `down` removes the provisioning job only —
-  it does **not** delete the infrastructure that job provisioned (Vector Search
-  indexes, Lakebase, Genie spaces, UC schemas/functions); tear those down
-  yourself if you no longer need them.
+  reusable artifact). For `workflow`, `down` removes the provisioning job **and**
+  the agent it deployed — the App (apps/mcp) or serving endpoint (model_serving)
+  the `deploy_agent` step created imperatively, which `bundle destroy` alone
+  would orphan. It does **not** delete the *data* infrastructure that job
+  provisioned (Vector Search indexes, Lakebase, Genie spaces, UC
+  schemas/functions); tear those down yourself if you no longer need them.
 
 This is the payoff: a sync that failed on a transient error can be retried with
 just `dao-ai agent sync -c <cfg> -p fevm` — no rebuild. To build, sync, *and*
