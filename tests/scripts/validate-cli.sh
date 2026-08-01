@@ -58,9 +58,12 @@ dai mcp tools -c "$CONFIG"
 dai workflow build -c "$CONFIG"
 dai workflow sync  -c "$CONFIG"
 dai workflow start -c "$CONFIG"
-dai workflow down -c "$CONFIG"
+# --wait: block until the deployed App/endpoint is fully deleted so the next
+# deploy (the `up` below, and the agent section) can't race the async teardown.
+dai workflow down -c "$CONFIG" --wait
 dai workflow up    -c "$CONFIG"
-dai workflow down  -c "$CONFIG"
+# Last workflow down before the agent section redeploys the same app — wait it out.
+dai workflow down  -c "$CONFIG" --wait
 
 # ---------------------------------------------------------------------------
 # Agent lifecycle on Apps (default mode): granular build → sync → start → down,
@@ -69,9 +72,9 @@ dai workflow down  -c "$CONFIG"
 dai agent build -c "$CONFIG"
 dai agent sync  -c "$CONFIG"
 dai agent start -c "$CONFIG"
-# `down` waits for the app to be fully deleted by default, so the following `up`
-# never races the teardown (no `--wait` needed; pass `--no-wait` to skip).
-dai agent down  -c "$CONFIG"
+# --wait: block until the app is fully deleted so the following `up` can't race
+# the async teardown (400 "compute is in DELETING state"). Omit for fire-and-forget.
+dai agent down  -c "$CONFIG" --wait
 dai agent up    -c "$CONFIG"
 dai monitor logs -c "$CONFIG"
 dai agent down  -c "$CONFIG"
@@ -86,7 +89,10 @@ dai agent down -c "$CONFIG" -m ms
 # Agent via the --direct SDK fast-path (no bundle on disk).
 # ---------------------------------------------------------------------------
 dai agent up   -c "$CONFIG" --direct
-dai agent down -c "$CONFIG"
+# Final teardown uses --purge for a clean slate: permanently delete the MLflow
+# experiment too (not just soft-delete/trash it), so no trashed node lingers to
+# collide with a future redeploy. Also exercises the --purge path live.
+dai agent down -c "$CONFIG" --purge
 
 # Reaching here means every command above exited 0 (set -euo pipefail aborts on
 # the first failure), so this banner is an unambiguous end-to-end success signal.
