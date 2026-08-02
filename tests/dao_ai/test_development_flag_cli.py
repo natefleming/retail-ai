@@ -1530,7 +1530,7 @@ class TestDeleteServingEndpoint:
         monkeypatch.setattr(
             cli,
             "_delete_serving_endpoint",
-            lambda config, *, profile, dry_run, wait_timeout=None, purge=False: order.append(
+            lambda config, *, profile, dry_run, wait_timeout=None: order.append(
                 "endpoint_delete"
             ),
         )
@@ -1667,14 +1667,14 @@ class TestWorkflowDownRemovesDeployedAgent:
         monkeypatch.setattr(
             cli,
             "_delete_app",
-            lambda config, *, profile, dry_run, wait_timeout=None, purge=False: order.append(
+            lambda config, *, profile, dry_run, wait_timeout=None: order.append(
                 "app_delete"
             ),
         )
         monkeypatch.setattr(
             cli,
             "_delete_serving_endpoint",
-            lambda config, *, profile, dry_run, wait_timeout=None, purge=False: order.append(
+            lambda config, *, profile, dry_run, wait_timeout=None: order.append(
                 "endpoint_delete"
             ),
         )
@@ -2889,66 +2889,6 @@ class TestWaitForResourceDeleted:
         self._patch_ws(monkeypatch, "app", lambda name: object())
         with pytest.raises(ValueError, match="unknown resource kind"):
             cli._wait_for_resource_deleted("App", "res", profile=None, timeout_seconds=1)
-
-
-@pytest.mark.unit
-class TestRestoreTrashedExperiment:
-    """`_restore_trashed_experiment` un-trashes a soft-deleted experiment; else no-op."""
-
-    def _patch_mlflow(
-        self, monkeypatch: pytest.MonkeyPatch, experiment, restored: list[str]
-    ) -> None:
-        import mlflow
-
-        monkeypatch.setattr(cli, "_apply_profile_context", lambda p: None)
-        monkeypatch.setattr(
-            mlflow, "get_experiment_by_name", lambda name: experiment
-        )
-
-        class _Client:
-            def restore_experiment(self, experiment_id: str) -> None:
-                restored.append(experiment_id)
-
-        monkeypatch.setattr(mlflow, "MlflowClient", lambda *a, **k: _Client())
-
-    def test_restores_when_deleted(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        from types import SimpleNamespace
-
-        restored: list[str] = []
-        exp = SimpleNamespace(experiment_id="123", lifecycle_stage="deleted")
-        self._patch_mlflow(monkeypatch, exp, restored)
-        cli._restore_trashed_experiment("/Users/u/app", profile=None)
-        assert restored == ["123"]
-
-    def test_noop_when_active(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        from types import SimpleNamespace
-
-        restored: list[str] = []
-        exp = SimpleNamespace(experiment_id="123", lifecycle_stage="active")
-        self._patch_mlflow(monkeypatch, exp, restored)
-        cli._restore_trashed_experiment("/Users/u/app", profile=None)
-        assert restored == []
-
-    def test_noop_when_absent(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        restored: list[str] = []
-        self._patch_mlflow(monkeypatch, None, restored)
-        cli._restore_trashed_experiment("/Users/u/app", profile=None)
-        assert restored == []
-
-    def test_errors_are_swallowed(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        import mlflow
-
-        monkeypatch.setattr(cli, "_apply_profile_context", lambda p: None)
-
-        def _boom(name: str):
-            raise RuntimeError("mlflow down")
-
-        monkeypatch.setattr(mlflow, "get_experiment_by_name", _boom)
-        # Best-effort: must not raise.
-        cli._restore_trashed_experiment("/Users/u/app", profile=None)
-
-
-@pytest.mark.unit
 class TestWaitFlagParsing:
     """`--wait [SECONDS]` is opt-in on the `down` verb of BOTH nouns."""
 
@@ -2980,89 +2920,3 @@ class TestWaitFlagParsing:
         # Non-down verbs never define --wait; the accessor must return None, not raise.
         opts = parse_args(["agent", verb, "-c", "c.yaml"])
         assert cli._wait_timeout_of(opts) is None
-
-
-@pytest.mark.unit
-class TestPurgeFlagParsing:
-    """`--purge` is opt-in on the `down` verb of BOTH nouns; default False."""
-
-    @pytest.mark.parametrize("noun", ["agent", "workflow"])
-    def test_down_purge_sets_true(self, noun: str) -> None:
-        opts = parse_args([noun, "down", "-c", "c.yaml", "--purge"])
-        assert opts.purge is True
-        assert cli._purge_of(opts) is True
-
-    @pytest.mark.parametrize("noun", ["agent", "workflow"])
-    def test_down_default_no_purge(self, noun: str) -> None:
-        opts = parse_args([noun, "down", "-c", "c.yaml"])
-        assert opts.purge is False
-
-    @pytest.mark.parametrize("verb", ["up", "sync", "build", "start"])
-    def test_non_down_verbs_reject_purge(self, verb: str) -> None:
-        with pytest.raises(SystemExit):
-            parse_args(["agent", verb, "-c", "c.yaml", "--purge"])
-        # And the accessor returns False (flag absent) rather than raising.
-        assert cli._purge_of(parse_args(["agent", verb, "-c", "c.yaml"])) is False
-
-
-@pytest.mark.unit
-class TestPurgeExperiment:
-    """`_purge_experiment` deletes the experiment's workspace node; best-effort."""
-
-    def _config(self, *, experiment_id: str | None = None):
-        from dao_ai.config import AppConfig
-
-        class _Exp:
-            def __init__(self, eid):
-                self.id = eid
-
-        class _App:
-            name = "my_app"
-            experiment = _Exp(experiment_id) if experiment_id else None
-
-        return AppConfig.model_construct(app=_App())
-
-    def _patch(self, monkeypatch, deleted: list[str], exp_path: str = "/Users/u/my_app"):
-        import databricks.sdk as _sdk
-
-        from dao_ai.providers import databricks as _prov
-
-        monkeypatch.setattr(cli, "_apply_profile_context", lambda p: None)
-
-        class _WS:
-            def delete(self, path: str, recursive: bool = False) -> None:
-                deleted.append((path, recursive))
-
-        class _WC:
-            workspace = _WS()
-
-        monkeypatch.setattr(_sdk, "WorkspaceClient", lambda *a, **k: _WC())
-        monkeypatch.setattr(
-            _prov.DatabricksProvider, "experiment_name", lambda self, config: exp_path
-        )
-
-    def test_purges_default_experiment(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        deleted: list[str] = []
-        self._patch(monkeypatch, deleted)
-        cli._purge_experiment(self._config(), profile=None)
-        assert deleted == [("/Users/u/my_app", True)]
-
-    def test_skips_external_experiment_id(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        # An externally-referenced experiment (app.experiment.id) is not ours.
-        deleted: list[str] = []
-        self._patch(monkeypatch, deleted)
-        cli._purge_experiment(self._config(experiment_id="999"), profile=None)
-        assert deleted == []
-
-    def test_errors_are_swallowed(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        import databricks.sdk as _sdk
-
-        monkeypatch.setattr(cli, "_apply_profile_context", lambda p: None)
-
-        def _boom(*a, **k):
-            raise RuntimeError("workspace down")
-
-        monkeypatch.setattr(_sdk, "WorkspaceClient", _boom)
-        cli._purge_experiment(self._config(), profile=None)  # must not raise

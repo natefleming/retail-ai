@@ -359,29 +359,6 @@ def _wait_timeout_of(options: Namespace) -> Optional[int]:
     return getattr(options, "wait", None)
 
 
-def _add_purge_argument(parser: ArgumentParser) -> None:
-    """Add the opt-in ``--purge`` flag to a ``down`` verb.
-
-    A normal ``down`` SOFT-deletes the MLflow experiment (leaves it in the
-    workspace trash), which lingers and can collide with a later redeploy.
-    ``--purge`` permanently removes the experiment too, for a true clean slate.
-    Destructive: it deletes the experiment's run/trace history irrecoverably.
-    """
-    parser.add_argument(
-        "--purge",
-        action="store_true",
-        default=False,
-        help="Also PERMANENTLY delete the MLflow experiment (not just "
-        "soft-delete/trash it) — a clean slate. Destroys the experiment's run and "
-        "trace history irrecoverably.",
-    )
-
-
-def _purge_of(options: Namespace) -> bool:
-    """Whether ``--purge`` was set. Absent on non-``down`` verbs → ``False``."""
-    return getattr(options, "purge", False)
-
-
 def _add_workflow_target_args(parser: ArgumentParser) -> None:
     """Add workflow-only target/cloud flags used to resolve the bundle target.
 
@@ -627,12 +604,10 @@ def _add_noun_verb_parsers(
             _add_bundle_source_args(verb_parser)
         # `down` returns as soon as the (async) delete is issued; `--wait` blocks
         # until the deployed App/endpoint is fully gone so a following deploy
-        # can't race the teardown. `--purge` also permanently deletes the MLflow
-        # experiment (not just soft-delete). Both nouns deploy an App (apps/mcp)
-        # or a serving endpoint (model_serving), so both offer them.
+        # can't race the teardown. Both nouns deploy an App (apps/mcp) or a
+        # serving endpoint (model_serving), so both offer it.
         if verb == "down":
             _add_wait_argument(verb_parser)
-            _add_purge_argument(verb_parser)
 
 
 # Env var that overrides the base directory for generated bundles. The
@@ -3763,16 +3738,6 @@ def _adopt_untracked_bundle_resources(
         if len(parts) != 3 or parts[0] != "resources":
             continue
         _, rtype, short_key = parts
-        # Experiments aren't adopted by binding: a prior `down` SOFT-deletes
-        # (trashes) the tracked experiment, and a bind wouldn't un-trash it — the
-        # deploy would still try to move the trashed node back to its name and hit
-        # `Cannot move node ... in trash folder (400)`. Restore it instead so the
-        # deploy's update targets a live experiment. (Side effect, not a bind.)
-        if rtype == "experiments":
-            exp_name = ((entry.get("new_state") or {}).get("value") or {}).get("name")
-            if exp_name:
-                _restore_trashed_experiment(str(exp_name), profile)
-            continue
         rid: Optional[str] = _resolve_existing_resource_id(rtype, short_key, entry, profile)
         if rid is not None:
             to_bind.append((short_key, rid))
@@ -3870,77 +3835,14 @@ def _resolve_existing_resource_id(
                     return str(p.pipeline_id)
             return None
 
-        # Other types: conservative — apps/jobs/pipelines are the create-vs-update
-        # 409 cases handled by binding. Experiments are handled separately by
-        # _restore_trashed_experiment (a restore, not a bind), so skip here.
+        # Other types (experiments, etc.): conservative — the app/job/pipeline
+        # resources are the create-vs-update 409 cases. Skip rather than guess.
         return None
     except NotFound:
         return None
     except Exception as e:  # noqa: BLE001
         logger.debug(f"adopt id-resolution for {rtype}.{short_key} failed: {e}")
         return None
-
-
-def _restore_trashed_experiment(name: str, profile: Optional[str]) -> None:
-    """Un-trash a soft-deleted MLflow experiment so a redeploy's update succeeds.
-
-    ``down``/``bundle destroy`` SOFT-deletes the experiment the bundle declares
-    (leaves it in ``lifecycle_stage == "deleted"``). On the next deploy DABs tries
-    to move/rename that trashed node back to ``name`` and MLflow rejects it
-    (``Cannot move node ... in trash folder``). Restoring it first makes the node
-    live again so the deploy's update lands. If the experiment is absent or
-    already live, this is a no-op. Reuses the restore idiom in
-    :meth:`dao_ai.providers.databricks.DatabricksProvider.get_or_create_experiment`.
-
-    Best-effort (matches :func:`_adopt_untracked_bundle_resources`): any failure is
-    logged and swallowed so the subsequent ``bundle deploy`` still runs.
-    """
-    try:
-        import mlflow
-        from mlflow import MlflowClient
-
-        _apply_profile_context(profile)
-        experiment = mlflow.get_experiment_by_name(name)
-        if experiment is not None and experiment.lifecycle_stage == "deleted":
-            MlflowClient().restore_experiment(experiment.experiment_id)
-            logger.info(
-                f"Restored soft-deleted experiment '{name}' "
-                f"(id={experiment.experiment_id}) before deploy."
-            )
-    except Exception as e:  # noqa: BLE001
-        logger.debug(f"restore of trashed experiment '{name}' skipped: {e}")
-
-
-def _purge_experiment(config: AppConfig, profile: Optional[str]) -> None:
-    """Permanently delete the app's MLflow experiment (``down --purge``).
-
-    A normal ``down`` only soft-deletes the experiment (trash); MLflow exposes no
-    permanent-delete API, so purge removes the experiment's workspace node
-    directly via ``workspace.delete(path, recursive=True)``. The path is resolved
-    the same way it was generated — :meth:`DatabricksProvider.experiment_name`
-    (explicit ``app.experiment.name``, else ``/Users/<deployer>/<app.name>``). An
-    externally-referenced experiment (``app.experiment.id``) is left alone — dao-ai
-    didn't create it.
-
-    Best-effort: a missing node or any error is logged and swallowed so ``down``
-    still completes.
-    """
-    if config.app is None or (
-        config.app.experiment is not None and config.app.experiment.id
-    ):
-        return
-    try:
-        from databricks.sdk import WorkspaceClient
-
-        from dao_ai.providers.databricks import DatabricksProvider
-
-        _apply_profile_context(profile)
-        w = WorkspaceClient(profile=profile) if profile else WorkspaceClient()
-        path: str = DatabricksProvider(w=w).experiment_name(config)
-        w.workspace.delete(path, recursive=True)
-        logger.info(f"Purged (permanently deleted) experiment node '{path}'.")
-    except Exception as e:  # noqa: BLE001
-        logger.debug(f"purge of experiment skipped: {e}")
 
 
 def _exec_bundle_command(
@@ -4148,7 +4050,6 @@ def run_databricks_command(
     overwrite: bool = False,
     stage: bool = True,
     wait_timeout: Optional[int] = None,
-    purge: bool = False,
 ) -> None:
     """Execute a databricks CLI command with optional profile, target, and cloud.
 
@@ -4356,7 +4257,6 @@ def run_databricks_command(
                 profile=profile,
                 dry_run=dry_run,
                 wait_timeout=wait_timeout,
-                purge=purge,
             )
         else:
             _delete_app(
@@ -4364,7 +4264,6 @@ def run_databricks_command(
                 profile=profile,
                 dry_run=dry_run,
                 wait_timeout=wait_timeout,
-                purge=purge,
             )
 
 
@@ -4525,7 +4424,6 @@ def deploy_app_bundle(
     profile: Optional[str],
     dry_run: bool = False,
     wait_timeout: Optional[int] = None,
-    purge: bool = False,
 ) -> None:
     """Sync/start/down an already-staged App bundle (agent or MCP).
 
@@ -4564,9 +4462,6 @@ def deploy_app_bundle(
         # until the app is actually gone so a following deploy can't race it.
         if wait_timeout is not None and not dry_run:
             _wait_for_resource_deleted("app", app_name, profile, wait_timeout)
-        # --purge: also permanently delete the experiment (destroy only trashes it).
-        if purge and not dry_run:
-            _purge_experiment(config, profile)
         return
 
     if deploy:
@@ -4608,7 +4503,6 @@ def _run_ms_job_bundle(
     cloud: Optional[str],
     config_vars: dict[str, str],
     wait_timeout: Optional[int] = None,
-    purge: bool = False,
 ) -> None:
     """Deploy/run/destroy a staged model_serving *Job* bundle (``agent/<app>/ms``).
 
@@ -4691,7 +4585,6 @@ def _run_ms_job_bundle(
             profile=profile,
             dry_run=dry_run,
             wait_timeout=wait_timeout,
-            purge=purge,
         )
         return
 
@@ -4741,7 +4634,6 @@ def _delete_serving_endpoint(
     profile: Optional[str],
     dry_run: bool,
     wait_timeout: Optional[int] = None,
-    purge: bool = False,
 ) -> None:
     """Delete the Model Serving endpoint a model_serving `down` leaves behind.
 
@@ -4786,9 +4678,6 @@ def _delete_serving_endpoint(
         _wait_for_resource_deleted(
             "endpoint", endpoint_name, profile, wait_timeout
         )
-    # --purge: also permanently delete the experiment (destroy only trashes it).
-    if purge:
-        _purge_experiment(config, profile)
 
 
 def _delete_app(
@@ -4797,7 +4686,6 @@ def _delete_app(
     profile: Optional[str],
     dry_run: bool,
     wait_timeout: Optional[int] = None,
-    purge: bool = False,
 ) -> None:
     """Delete the Databricks App a workflow `down` leaves behind.
 
@@ -4840,9 +4728,6 @@ def _delete_app(
     # following deploy can't race the teardown.
     if wait_timeout is not None:
         _wait_for_resource_deleted("app", app_name, profile, wait_timeout)
-    # --purge: also permanently delete the experiment (destroy only trashes it).
-    if purge:
-        _purge_experiment(config, profile)
 
 
 def _print_app_link(app_name: str) -> None:
@@ -4915,7 +4800,6 @@ def _exec_workflow_verb(options: Namespace, command: list[str]) -> None:
         # `--wait` (down only) blocks until the deleted App/endpoint is gone;
         # other verbs never reach the destroy branch that consults it.
         wait_timeout=_wait_timeout_of(options),
-        purge=_purge_of(options),
     )
 
 
@@ -5313,8 +5197,7 @@ def _deploy_run_destroy_app_bundle(
             cloud=None,
             config_vars=_parse_var_args(options.var),
             wait_timeout=_wait_timeout_of(options),
-            purge=_purge_of(options),
-        )
+            )
         return
 
     if run and not deploy and not destroy and not dry_run:
@@ -5331,7 +5214,6 @@ def _deploy_run_destroy_app_bundle(
         # `--wait` (down only) blocks until the deleted App is gone; non-down
         # verbs never reach the destroy branch that consults it.
         wait_timeout=_wait_timeout_of(options),
-        purge=_purge_of(options),
     )
 
 

@@ -89,10 +89,7 @@ dai agent down -c "$CONFIG" -m ms
 # Agent via the --direct SDK fast-path (no bundle on disk).
 # ---------------------------------------------------------------------------
 dai agent up   -c "$CONFIG" --direct
-# Final teardown uses --purge for a clean slate: permanently delete the MLflow
-# experiment too (not just soft-delete/trash it), so no trashed node lingers to
-# collide with a future redeploy. Also exercises the --purge path live.
-dai agent down -c "$CONFIG" --purge
+dai agent down -c "$CONFIG"
 
 # Reaching here means every command above exited 0 (set -euo pipefail aborts on
 # the first failure), so this banner is an unambiguous end-to-end success signal.
