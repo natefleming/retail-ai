@@ -4,6 +4,7 @@ import getpass
 import hashlib
 import json
 import os
+import re
 import shutil
 import signal
 import subprocess
@@ -3906,7 +3907,7 @@ def _restore_trashed_experiment(
     logged and swallowed so the subsequent ``bundle deploy`` still runs and
     surfaces its own error.
     """
-    remote_state = (plan_entry.get("remote_state") or {})
+    remote_state = plan_entry.get("remote_state") or {}
     if remote_state.get("lifecycle_stage") != "deleted":
         return
     experiment_id = remote_state.get("experiment_id")
@@ -3925,6 +3926,27 @@ def _restore_trashed_experiment(
         logger.debug(f"restore of trashed experiment id={experiment_id} skipped: {e}")
 
 
+def _experiment_basename_pattern(leaf: str) -> "re.Pattern[str]":
+    """Regex matching the workspace-node basenames of ONE app's experiment.
+
+    ``leaf`` is the clean experiment name (the last path segment, e.g. ``my_app``
+    or ``ai-gateway-example``). The returned pattern matches exactly that node and
+    its known variants — and NOTHING for a sibling app (``my_app_2`` must not match
+    when the leaf is ``my_app``):
+
+    * optional ``[dev <user>] `` prefix (DAB dev-mode names),
+    * the leaf itself with every ``-``/``_`` treated as interchangeable (apps/mcp
+      DABs use the HYPHENATED ``app_resource_name`` while model_serving/workflow
+      create it under the UNDERSCORED ``app.name``),
+    * an optional ``-<timestamp>`` suffix that MLflow appends on trash-rename.
+
+    Anchored at both ends so it can't match a longer sibling name.
+    """
+    core = "".join("[-_]" if c in "-_" else re.escape(c) for c in leaf)
+    ts = r"(?:-\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})?"
+    return re.compile(rf"^(?:\[dev [^\]]+\] )?{core}{ts}$")
+
+
 def _purge_experiment(config: AppConfig, profile: Optional[str]) -> None:
     """Permanently delete the app's MLflow experiment(s) (``down --purge``).
 
@@ -3934,12 +3956,15 @@ def _purge_experiment(config: AppConfig, profile: Optional[str]) -> None:
 
     Id/Trash-based, not clean-name-based: a trashed experiment is RENAMED to
     ``/Users/<u>/Trash/[dev <u>] <name>-<ts>``, so a clean-name lookup finds
-    nothing (the bug in the reverted first attempt). Instead, search DELETED_ONLY
-    by name substring and delete each matching node by its (Trash) path. This
-    works uniformly whether ``down`` trashed the experiment via ``bundle destroy``
-    (agent apps/mcp) or the runtime created it imperatively (model_serving,
-    workflow). An externally-referenced experiment (``app.experiment.id``) is
-    left alone — dao-ai didn't create it.
+    nothing (the bug in the reverted first attempt). Instead, ``search_experiments``
+    (``ViewType.ALL`` — active AND trashed) with a substring ``LIKE`` prefilter,
+    then keep only nodes whose basename matches THIS app's experiment via
+    :func:`_experiment_basename_pattern` so a sibling app (``<name>_2``) is never
+    touched, and delete each survivor by its (Trash) path. This works uniformly
+    whether ``down`` trashed the experiment via ``bundle destroy`` (agent apps/mcp)
+    or the runtime created it imperatively (model_serving, workflow). An
+    externally-referenced experiment (``app.experiment.id``) is left alone —
+    dao-ai didn't create it.
 
     Best-effort: a missing node or any error is logged and swallowed so ``down``
     still completes.
@@ -3957,25 +3982,24 @@ def _purge_experiment(config: AppConfig, profile: Optional[str]) -> None:
 
         _apply_profile_context(profile)
         w = WorkspaceClient(profile=profile) if profile else WorkspaceClient()
-        # The clean experiment path, e.g. ``/Users/<u>/<app.name>``. Match on its
-        # leaf so all variants are found: the clean node, a ``[dev <u>] ...``
-        # prefixed node (DAB dev-mode), and a ``...-<ts>`` trash rename. The two
-        # creation paths also differ in separator — apps/mcp DABs use the
-        # HYPHENATED ``app_resource_name`` while model_serving/workflow create the
-        # experiment imperatively under the UNDERSCORED ``app.name`` — so
-        # substitute every ``-``/``_`` in the leaf with ``_``, the SQL LIKE
-        # single-char wildcard, matching both forms in one query.
+        # The clean experiment path, e.g. ``/Users/<u>/<app.name>``. The LIKE query
+        # is a cheap server-side prefilter (``-``→``_`` so the SQL single-char
+        # wildcard spans both separators); the exact node selection is the
+        # basename regex below, which alone decides what gets deleted.
         clean_path: str = DatabricksProvider(w=w).experiment_name(config)
         leaf: str = clean_path.rsplit("/", 1)[-1]
         leaf_pattern: str = leaf.replace("-", "_")
+        basename_re = _experiment_basename_pattern(leaf)
         client = MlflowClient()
-        matches = list(
-            client.search_experiments(
-                view_type=ViewType.ALL,
-                filter_string=f"name LIKE '%{leaf_pattern}%'",
-                max_results=1000,
-            )
+        candidates = client.search_experiments(
+            view_type=ViewType.ALL,
+            filter_string=f"name LIKE '%{leaf_pattern}%'",
+            max_results=1000,
         )
+        matches = [
+            exp for exp in candidates
+            if basename_re.match(exp.name.rsplit("/", 1)[-1])
+        ]
         if not matches:
             logger.info(f"Purge: no experiment nodes matching '{leaf}' to delete.")
             return

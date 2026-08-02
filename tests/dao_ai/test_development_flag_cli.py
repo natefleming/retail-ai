@@ -3070,6 +3070,50 @@ class TestPurgeExperiment:
         for c in w.workspace.delete.call_args_list:
             assert c.kwargs.get("recursive") is True
 
+    def test_purge_does_not_touch_sibling_app_experiment(self) -> None:
+        # Purging `my_app` must NOT delete a different app whose name merely shares
+        # the prefix (`my_app_2`) — the LIKE prefilter matches it, the basename
+        # regex must reject it.
+        w = MagicMock()
+        client = MagicMock()
+        mine = SimpleNamespace(experiment_id="1", name="/Users/u@d.com/my_app")
+        sibling = SimpleNamespace(experiment_id="2", name="/Users/u@d.com/my_app_2")
+        sibling_trash = SimpleNamespace(
+            experiment_id="3",
+            name="/Users/u@d.com/Trash/[dev u] my_app_v2-2026-08-02 01:33:48",
+        )
+        client.search_experiments.return_value = [mine, sibling, sibling_trash]
+        provider = MagicMock()
+        provider.experiment_name.return_value = "/Users/u@d.com/my_app"
+        with patch("databricks.sdk.WorkspaceClient", return_value=w), patch(
+            "mlflow.MlflowClient", return_value=client
+        ), patch(
+            "dao_ai.providers.databricks.DatabricksProvider", return_value=provider
+        ):
+            cli._purge_experiment(self._config(), profile="fevm")
+        deleted = {c.args[0] for c in w.workspace.delete.call_args_list}
+        assert deleted == {mine.name}
+
+    def test_purge_matches_hyphenated_apps_leaf(self) -> None:
+        # apps/mcp DABs name the node with the HYPHENATED leaf; the underscored
+        # clean leaf from experiment_name must still match it (separator-agnostic).
+        w = MagicMock()
+        client = MagicMock()
+        node = SimpleNamespace(
+            experiment_id="1", name="/Users/u@d.com/[dev u] ai-gateway-example"
+        )
+        client.search_experiments.return_value = [node]
+        provider = MagicMock()
+        provider.experiment_name.return_value = "/Users/u@d.com/ai_gateway_example"
+        with patch("databricks.sdk.WorkspaceClient", return_value=w), patch(
+            "mlflow.MlflowClient", return_value=client
+        ), patch(
+            "dao_ai.providers.databricks.DatabricksProvider", return_value=provider
+        ):
+            cli._purge_experiment(self._config(), profile="fevm")
+        deleted = {c.args[0] for c in w.workspace.delete.call_args_list}
+        assert deleted == {node.name}
+
     def test_purge_search_pattern_is_separator_agnostic(self) -> None:
         # apps/mcp DABs name the experiment with a HYPHENATED leaf while
         # model_serving/workflow use the UNDERSCORED one; the search LIKE pattern
