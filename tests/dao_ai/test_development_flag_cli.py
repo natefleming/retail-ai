@@ -1479,7 +1479,7 @@ class TestDeleteServingEndpoint:
 
         monkeypatch.setattr(sdk, "WorkspaceClient", lambda *a, **k: _WC())
         cli._delete_serving_endpoint(
-            self._ms_config("my_ep"), profile=None, dry_run=False
+            self._ms_config("my_ep"), profile=None, dry_run=False, wait_timeout=None
         )
         assert deleted == ["my_ep"]
 
@@ -1530,7 +1530,9 @@ class TestDeleteServingEndpoint:
         monkeypatch.setattr(
             cli,
             "_delete_serving_endpoint",
-            lambda config, *, profile, dry_run: order.append("endpoint_delete"),
+            lambda config, *, profile, dry_run, wait_timeout=None: order.append(
+                "endpoint_delete"
+            ),
         )
         monkeypatch.setattr(cli, "_resolve_job_dao_ai_dep", lambda *a, **k: "dao-ai")
         monkeypatch.setattr(cli, "detect_cloud_provider", lambda p: "aws")
@@ -1580,7 +1582,9 @@ class TestDeleteApp:
         import databricks.sdk as sdk
 
         monkeypatch.setattr(sdk, "WorkspaceClient", lambda *a, **k: _WC())
-        cli._delete_app(self._app_config("My_App"), profile=None, dry_run=False)
+        cli._delete_app(
+            self._app_config("My_App"), profile=None, dry_run=False, wait_timeout=None
+        )
         # App name is the lower/hyphen form the App was deployed under.
         assert deleted == ["my-app"]
 
@@ -1663,12 +1667,16 @@ class TestWorkflowDownRemovesDeployedAgent:
         monkeypatch.setattr(
             cli,
             "_delete_app",
-            lambda config, *, profile, dry_run: order.append("app_delete"),
+            lambda config, *, profile, dry_run, wait_timeout=None: order.append(
+                "app_delete"
+            ),
         )
         monkeypatch.setattr(
             cli,
             "_delete_serving_endpoint",
-            lambda config, *, profile, dry_run: order.append("endpoint_delete"),
+            lambda config, *, profile, dry_run, wait_timeout=None: order.append(
+                "endpoint_delete"
+            ),
         )
         cfg = self._cfg(tmp_path)
         argv = ["workflow", "down", "-c", str(cfg), "-s", str(tmp_path)] + mode_argv
@@ -2803,3 +2811,112 @@ class TestDeployTriggersAdopt:
         adopt.assert_called_once()
         assert adopt.call_args.kwargs["target"] == "myapp-aws"
         assert adopt.call_args.kwargs["extra_vars"] == ['--var="mode=apps"']
+
+
+@pytest.mark.unit
+class TestWaitForResourceDeleted:
+    """`_wait_for_resource_deleted` polls get() until NotFound, else times out."""
+
+    def _patch_ws(
+        self, monkeypatch: pytest.MonkeyPatch, kind: str, get_side_effect
+    ) -> None:
+        """Install a fake WorkspaceClient whose <kind>.get uses get_side_effect."""
+        from unittest.mock import MagicMock
+
+        fake = MagicMock()
+        getter = fake.apps.get if kind == "app" else fake.serving_endpoints.get
+        getter.side_effect = get_side_effect
+        monkeypatch.setattr(cli, "_apply_profile_context", lambda p: None)
+        # Patch the symbols the helper imports lazily (databricks.sdk.WorkspaceClient
+        # + the stdlib time.sleep) at their source modules.
+        import time as _time
+
+        import databricks.sdk as _sdk
+
+        monkeypatch.setattr(_sdk, "WorkspaceClient", lambda *a, **k: fake)
+        monkeypatch.setattr(_time, "sleep", lambda *_a, **_k: None)
+
+    @pytest.mark.parametrize("kind", ["app", "endpoint"])
+    def test_returns_when_absent_after_polls(
+        self, kind: str, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from databricks.sdk.errors import NotFound
+
+        calls = {"n": 0}
+
+        def _get(name: str):
+            calls["n"] += 1
+            if calls["n"] < 3:
+                return object()  # still present
+            raise NotFound("gone")
+
+        self._patch_ws(monkeypatch, kind, _get)
+        cli._wait_for_resource_deleted(kind, "res", profile=None, timeout_seconds=60)
+        assert calls["n"] == 3
+
+    @pytest.mark.parametrize("kind", ["app", "endpoint"])
+    def test_returns_immediately_when_already_absent(
+        self, kind: str, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from databricks.sdk.errors import NotFound
+
+        self._patch_ws(monkeypatch, kind, NotFound("gone"))
+        cli._wait_for_resource_deleted(kind, "res", profile=None, timeout_seconds=60)
+
+    def test_timeout_warns_and_returns_when_never_deleted(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # A resource that never disappears must be POLLED (>=1 get) and then time
+        # out gracefully (warn + return, no hang/raise). Drive a fake monotonic
+        # clock so the deadline is reached after a couple of real poll iterations
+        # without waiting wall-clock time.
+        calls = {"n": 0}
+
+        def _get(name: str):  # never raises NotFound -> "still present"
+            calls["n"] += 1
+            return object()
+
+        self._patch_ws(monkeypatch, "app", _get)
+        import time as _time
+
+        ticks = iter([0.0, 0.5, 1.0, 5.0, 999.0])  # advances past a 2s timeout
+        monkeypatch.setattr(_time, "monotonic", lambda: next(ticks))
+        cli._wait_for_resource_deleted("app", "res", profile=None, timeout_seconds=2)
+        assert calls["n"] >= 1, "must poll at least once before timing out"
+
+    def test_unknown_kind_raises(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        # A bad kind must fail loud, not silently poll the endpoint getter.
+        self._patch_ws(monkeypatch, "app", lambda name: object())
+        with pytest.raises(ValueError, match="unknown resource kind"):
+            cli._wait_for_resource_deleted("App", "res", profile=None, timeout_seconds=1)
+class TestWaitFlagParsing:
+    """`--wait [SECONDS]` is opt-in on the `down` verb of BOTH nouns."""
+
+    @pytest.mark.parametrize("noun", ["agent", "workflow"])
+    def test_down_bare_wait_uses_default(self, noun: str) -> None:
+        opts = parse_args([noun, "down", "-c", "c.yaml", "--wait"])
+        assert opts.wait == cli._DEFAULT_WAIT_SECONDS
+
+    @pytest.mark.parametrize("noun", ["agent", "workflow"])
+    def test_down_wait_explicit_count(self, noun: str) -> None:
+        opts = parse_args([noun, "down", "-c", "c.yaml", "--wait", "90"])
+        assert opts.wait == 90
+
+    @pytest.mark.parametrize("noun", ["agent", "workflow"])
+    def test_down_without_wait_is_none(self, noun: str) -> None:
+        opts = parse_args([noun, "down", "-c", "c.yaml"])
+        assert opts.wait is None
+        # And the typed accessor reflects "don't wait".
+        assert cli._wait_timeout_of(opts) is None
+
+    @pytest.mark.parametrize("noun", ["agent", "workflow"])
+    @pytest.mark.parametrize("verb", ["up", "sync", "build", "start"])
+    def test_non_down_verbs_reject_wait(self, noun: str, verb: str) -> None:
+        with pytest.raises(SystemExit):
+            parse_args([noun, verb, "-c", "c.yaml", "--wait"])
+
+    @pytest.mark.parametrize("verb", ["up", "sync", "build", "start"])
+    def test_wait_timeout_of_none_for_verbs_without_flag(self, verb: str) -> None:
+        # Non-down verbs never define --wait; the accessor must return None, not raise.
+        opts = parse_args(["agent", verb, "-c", "c.yaml"])
+        assert cli._wait_timeout_of(opts) is None

@@ -255,6 +255,11 @@ def _global_parent_parser() -> ArgumentParser:
     return p
 
 
+# Default timeout (seconds) for `down --wait`: how long to block waiting for the
+# deleted App/endpoint to be fully gone before returning.
+_DEFAULT_WAIT_SECONDS = 600
+
+
 def _add_bundle_common_args(parser: ArgumentParser, *, kind: str) -> None:
     """Add the flags every bundle verb shares: -c/-s/-p/--dry-run/--param.
 
@@ -318,6 +323,40 @@ def _add_bundle_source_args(parser: ArgumentParser) -> None:
         help="Force the published PyPI dao-ai package even from a local/editable "
         "install.",
     )
+
+
+def _add_wait_argument(parser: ArgumentParser) -> None:
+    """Add the opt-in ``--wait [SECONDS]`` flag to a ``down`` verb.
+
+    ``down`` deletes the deployed resource (App or serving endpoint) and returns
+    as soon as the delete is *issued* — the delete is async, so the resource can
+    still be ``DELETING`` afterward. A deploy that immediately follows a teardown
+    then races it and hits ``400 ... compute is in DELETING state``. ``--wait``
+    makes ``down`` block until the resource is fully gone, so a following deploy
+    can't race it. Bare ``--wait`` uses the default timeout; ``--wait N`` overrides
+    it; omitting the flag returns immediately (default fire-and-forget).
+    """
+    parser.add_argument(
+        "--wait",
+        nargs="?",
+        type=int,
+        const=_DEFAULT_WAIT_SECONDS,
+        default=None,
+        metavar="SECONDS",
+        help="After deleting, wait up to SECONDS (default %(const)s) for the "
+        "app/endpoint to be fully gone before returning, so a following deploy "
+        "can't race the teardown. Omit to return as soon as the delete is issued.",
+    )
+
+
+def _wait_timeout_of(options: Namespace) -> Optional[int]:
+    """The ``--wait`` timeout (seconds) for a verb, or ``None`` when not waiting.
+
+    ``--wait`` is defined only on the ``down`` verb parser, so ``options.wait`` is
+    absent for other verbs; treat that (and an omitted flag) as ``None`` = don't
+    wait. Centralizes the one conditional-attribute read so call sites stay typed.
+    """
+    return getattr(options, "wait", None)
 
 
 def _add_workflow_target_args(parser: ArgumentParser) -> None:
@@ -563,6 +602,12 @@ def _add_noun_verb_parsers(
             # development for create_agent/deploy_agent). start/down act on
             # already-built artifacts so source flags are omitted there.
             _add_bundle_source_args(verb_parser)
+        # `down` returns as soon as the (async) delete is issued; `--wait` blocks
+        # until the deployed App/endpoint is fully gone so a following deploy
+        # can't race the teardown. Both nouns deploy an App (apps/mcp) or a
+        # serving endpoint (model_serving), so both offer it.
+        if verb == "down":
+            _add_wait_argument(verb_parser)
 
 
 # Env var that overrides the base directory for generated bundles. The
@@ -4004,6 +4049,7 @@ def run_databricks_command(
     staging_dir: Optional[str] = None,
     overwrite: bool = False,
     stage: bool = True,
+    wait_timeout: Optional[int] = None,
 ) -> None:
     """Execute a databricks CLI command with optional profile, target, and cloud.
 
@@ -4206,9 +4252,19 @@ def run_databricks_command(
         # model_serving fallback the Job's runtime var uses above.
         deployed_mode: str = mode or "apps"
         if deployed_mode == "model_serving":
-            _delete_serving_endpoint(app_config, profile=profile, dry_run=dry_run)
+            _delete_serving_endpoint(
+                app_config,
+                profile=profile,
+                dry_run=dry_run,
+                wait_timeout=wait_timeout,
+            )
         else:
-            _delete_app(app_config, profile=profile, dry_run=dry_run)
+            _delete_app(
+                app_config,
+                profile=profile,
+                dry_run=dry_run,
+                wait_timeout=wait_timeout,
+            )
 
 
 def _print_job_link(
@@ -4302,6 +4358,62 @@ def _link_and_grant_trace(
     _grant_trace_writes_to_app_sp(config, experiment_id, sp_override=None)
 
 
+def _wait_for_resource_deleted(
+    kind: str,
+    name: str,
+    profile: Optional[str],
+    timeout_seconds: int = _DEFAULT_WAIT_SECONDS,
+) -> None:
+    """Block until a just-deleted deployment resource is fully gone, or timeout.
+
+    dao-ai's teardowns are async: ``bundle destroy`` / ``apps.delete`` /
+    ``serving_endpoints.delete`` return while the resource is still ``DELETING``,
+    so a deploy that immediately follows a ``down`` races it and hits e.g.
+    ``400 ... compute is in DELETING state``. Calling this after the delete makes
+    ``down`` block until the resource is actually gone, so nothing is left to race.
+
+    ``kind`` selects the resource — ``"app"`` (``w.apps.get``) or ``"endpoint"``
+    (``w.serving_endpoints.get``); both raise ``NotFound`` once deleted. Bounded by
+    ``timeout_seconds``; on expiry it warns and returns rather than hanging.
+    Mirrors :func:`dao_ai.providers.databricks._wait_until_index_absent`.
+    """
+    import random
+    import time
+
+    from databricks.sdk import WorkspaceClient
+    from databricks.sdk.errors import NotFound
+
+    _apply_profile_context(profile)
+    w = WorkspaceClient(profile=profile) if profile else WorkspaceClient()
+    if kind == "app":
+        getter = w.apps.get
+    elif kind == "endpoint":
+        getter = w.serving_endpoints.get
+    else:
+        raise ValueError(f"unknown resource kind: {kind!r} (expected 'app'/'endpoint')")
+
+    logger.info(
+        f"Waiting up to {timeout_seconds}s for {kind} '{name}' to be fully "
+        f"deleted..."
+    )
+    deadline = time.monotonic() + timeout_seconds
+    attempt = 1
+    while time.monotonic() < deadline:
+        try:
+            getter(name=name)
+        except NotFound:
+            logger.info(f"{kind.capitalize()} '{name}' is fully deleted.")
+            return
+        sleep_s = min(attempt, 10)
+        logger.debug(f"{kind} '{name}' still present; retrying in ~{sleep_s}s")
+        time.sleep(sleep_s + random.random())
+        attempt += 1
+    logger.warning(
+        f"{kind.capitalize()} '{name}' still present after {timeout_seconds}s; "
+        "returning anyway."
+    )
+
+
 def deploy_app_bundle(
     config: AppConfig,
     *,
@@ -4311,6 +4423,7 @@ def deploy_app_bundle(
     destroy: bool,
     profile: Optional[str],
     dry_run: bool = False,
+    wait_timeout: Optional[int] = None,
 ) -> None:
     """Sync/start/down an already-staged App bundle (agent or MCP).
 
@@ -4328,6 +4441,9 @@ def deploy_app_bundle(
         deploy / run / destroy: which action(s) to perform.
         profile: Databricks CLI profile.
         dry_run: print instead of executing.
+        wait_timeout: on destroy, block after ``bundle destroy`` until the app is
+            fully deleted, up to this many seconds. None (default) = don't wait;
+            set from ``down --wait [SECONDS]``.
     """
     if config.app is None:
         raise ValueError("Config must have an 'app' section to deploy a bundle.")
@@ -4342,6 +4458,10 @@ def deploy_app_bundle(
             cwd=staging_dir,
             dry_run=dry_run,
         )
+        # `bundle destroy` returns once the delete is issued; with --wait, block
+        # until the app is actually gone so a following deploy can't race it.
+        if wait_timeout is not None and not dry_run:
+            _wait_for_resource_deleted("app", app_name, profile, wait_timeout)
         return
 
     if deploy:
@@ -4382,6 +4502,7 @@ def _run_ms_job_bundle(
     target: Optional[str],
     cloud: Optional[str],
     config_vars: dict[str, str],
+    wait_timeout: Optional[int] = None,
 ) -> None:
     """Deploy/run/destroy a staged model_serving *Job* bundle (``agent/<app>/ms``).
 
@@ -4459,7 +4580,12 @@ def _run_ms_job_bundle(
         # otherwise. Delete it explicitly so `down` fully tears the deployment
         # down. The registered UC model + versions are intentionally KEPT — a
         # reusable artifact a later `up`/`start` can redeploy.
-        _delete_serving_endpoint(config, profile=profile, dry_run=dry_run)
+        _delete_serving_endpoint(
+            config,
+            profile=profile,
+            dry_run=dry_run,
+            wait_timeout=wait_timeout,
+        )
         return
 
     if deploy:
@@ -4503,7 +4629,11 @@ def _run_ms_job_bundle(
 
 
 def _delete_serving_endpoint(
-    config: AppConfig, *, profile: Optional[str], dry_run: bool
+    config: AppConfig,
+    *,
+    profile: Optional[str],
+    dry_run: bool,
+    wait_timeout: Optional[int] = None,
 ) -> None:
     """Delete the Model Serving endpoint a model_serving `down` leaves behind.
 
@@ -4534,15 +4664,29 @@ def _delete_serving_endpoint(
                 f"Model Serving endpoint '{endpoint_name}' not found "
                 "(already deleted) — nothing to do."
             )
+            return
     except Exception as e:  # noqa: BLE001
         logger.warning(
             f"Could not delete Model Serving endpoint '{endpoint_name}' "
             f"({type(e).__name__}: {e}). Delete it manually with "
             f"`databricks serving-endpoints delete {endpoint_name}`."
         )
+        return
+    # serving_endpoints.delete is async; with --wait, block until the endpoint is
+    # gone so a following deploy can't race the teardown.
+    if wait_timeout is not None:
+        _wait_for_resource_deleted(
+            "endpoint", endpoint_name, profile, wait_timeout
+        )
 
 
-def _delete_app(config: AppConfig, *, profile: Optional[str], dry_run: bool) -> None:
+def _delete_app(
+    config: AppConfig,
+    *,
+    profile: Optional[str],
+    dry_run: bool,
+    wait_timeout: Optional[int] = None,
+) -> None:
     """Delete the Databricks App a workflow `down` leaves behind.
 
     The workflow DAB only manages the provisioning Job; its ``06_deploy_agent``
@@ -4573,11 +4717,17 @@ def _delete_app(config: AppConfig, *, profile: Optional[str], dry_run: bool) -> 
             logger.info(
                 f"App '{app_name}' not found (already deleted) — nothing to do."
             )
+            return
     except Exception as e:  # noqa: BLE001
         logger.warning(
             f"Could not delete App '{app_name}' ({type(e).__name__}: {e}). "
             f"Delete it manually with `databricks apps delete {app_name}`."
         )
+        return
+    # apps.delete is async; with --wait, block until the App is gone so a
+    # following deploy can't race the teardown.
+    if wait_timeout is not None:
+        _wait_for_resource_deleted("app", app_name, profile, wait_timeout)
 
 
 def _print_app_link(app_name: str) -> None:
@@ -4647,6 +4797,9 @@ def _exec_workflow_verb(options: Namespace, command: list[str]) -> None:
         config_vars=_parse_var_args(options.var),
         staging_dir=options.staging_dir,
         stage=False,
+        # `--wait` (down only) blocks until the deleted App/endpoint is gone;
+        # other verbs never reach the destroy branch that consults it.
+        wait_timeout=_wait_timeout_of(options),
     )
 
 
@@ -5043,7 +5196,8 @@ def _deploy_run_destroy_app_bundle(
             target=None,
             cloud=None,
             config_vars=_parse_var_args(options.var),
-        )
+            wait_timeout=_wait_timeout_of(options),
+            )
         return
 
     if run and not deploy and not destroy and not dry_run:
@@ -5057,6 +5211,9 @@ def _deploy_run_destroy_app_bundle(
         destroy=destroy,
         profile=options.profile,
         dry_run=dry_run,
+        # `--wait` (down only) blocks until the deleted App is gone; non-down
+        # verbs never reach the destroy branch that consults it.
+        wait_timeout=_wait_timeout_of(options),
     )
 
 
