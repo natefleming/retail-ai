@@ -1451,6 +1451,44 @@ class TestDeployAppBundle:
         )
         link.assert_not_called()
 
+    def test_up_wait_calls_ready_poller_for_app(self, tmp_path: Path) -> None:
+        # `up --wait` (wait_timeout set) blocks on the App readiness poller with
+        # kind="app" and the app_resource_name (my_app -> my-app).
+        cfg = _app_config(trace=False)
+        with (
+            patch.object(cli, "_exec_bundle_command"),
+            patch.object(cli, "_link_and_grant_trace"),
+            patch.object(cli, "_wait_for_resource_ready") as ready,
+        ):
+            deploy_app_bundle(
+                cfg,
+                staging_dir=tmp_path,
+                deploy=True,
+                run=True,
+                destroy=False,
+                profile="fevm",
+                wait_timeout=120,
+            )
+        ready.assert_called_once_with("app", "my-app", "fevm", 120)
+
+    def test_up_without_wait_does_not_poll(self, tmp_path: Path) -> None:
+        cfg = _app_config(trace=False)
+        with (
+            patch.object(cli, "_exec_bundle_command"),
+            patch.object(cli, "_link_and_grant_trace"),
+            patch.object(cli, "_wait_for_resource_ready") as ready,
+        ):
+            deploy_app_bundle(
+                cfg,
+                staging_dir=tmp_path,
+                deploy=True,
+                run=True,
+                destroy=False,
+                profile="fevm",
+                wait_timeout=None,
+            )
+        ready.assert_not_called()
+
 
 @pytest.mark.unit
 class TestDeleteServingEndpoint:
@@ -1548,6 +1586,32 @@ class TestDeleteServingEndpoint:
             config_vars={},
         )
         assert order == ["bundle_destroy", "endpoint_delete"], order
+
+    def test_ms_up_wait_calls_ready_poller_for_endpoint(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """_run_ms_job_bundle(run=True, wait_timeout=N) blocks on the endpoint
+        readiness poller with kind="endpoint" and the endpoint name."""
+        monkeypatch.setattr(cli, "_exec_job_bundle", lambda **k: None)
+        monkeypatch.setattr(cli, "_resolve_job_dao_ai_dep", lambda *a, **k: "dao-ai")
+        monkeypatch.setattr(cli, "detect_cloud_provider", lambda p: "aws")
+        monkeypatch.setattr(cli, "_print_endpoint_link", lambda _n: None)
+        with patch.object(cli, "_wait_for_resource_ready") as ready:
+            cli._run_ms_job_bundle(
+                self._ms_config("my_ep"),
+                staging_dir=tmp_path,
+                deploy=True,
+                run=True,
+                destroy=False,
+                dry_run=False,
+                profile="fevm",
+                development=None,
+                target=None,
+                cloud=None,
+                config_vars={},
+                wait_timeout=200,
+            )
+        ready.assert_called_once_with("endpoint", "my_ep", "fevm", 200)
 
 
 @pytest.mark.unit
@@ -2883,35 +2947,275 @@ class TestWaitForResourceDeleted:
         self._patch_ws(monkeypatch, "app", lambda name: object())
         with pytest.raises(ValueError, match="unknown resource kind"):
             cli._wait_for_resource_deleted("App", "res", profile=None, timeout_seconds=1)
+
+
+@pytest.mark.unit
+class TestWaitForResourceReady:
+    """`_wait_for_resource_ready` blocks until servable; exits non-zero on
+    terminal failure/timeout. Apps: SDK compute-ACTIVE then GET /health 200.
+    Model Serving: endpoint READY + served-model DEPLOYMENT_READY (no HTTP)."""
+
+    @staticmethod
+    def _app(compute=None, app_state=None, deployment=None, url="https://app.example"):
+        from types import SimpleNamespace
+
+        return SimpleNamespace(
+            url=url,
+            compute_status=SimpleNamespace(state=compute, message=""),
+            app_status=SimpleNamespace(state=app_state, message=""),
+            active_deployment=SimpleNamespace(status=SimpleNamespace(state=deployment)),
+        )
+
+    @staticmethod
+    def _endpoint(ready=None, config_update=None, deployments=()):
+        from types import SimpleNamespace
+
+        served = [
+            SimpleNamespace(state=SimpleNamespace(deployment=d))
+            for d in deployments
+        ]
+        return SimpleNamespace(
+            state=SimpleNamespace(ready=ready, config_update=config_update),
+            config=SimpleNamespace(served_entities=served),
+        )
+
+    def _patch(self, monkeypatch, *, app_get=None, ep_get=None, http_get=None):
+        from unittest.mock import MagicMock
+
+        fake = MagicMock()
+        fake.config.authenticate.return_value = {"Authorization": "Bearer x"}
+        if app_get is not None:
+            fake.apps.get.side_effect = app_get
+        if ep_get is not None:
+            fake.serving_endpoints.get.side_effect = ep_get
+        monkeypatch.setattr(cli, "_apply_profile_context", lambda p: None)
+        import time as _time
+
+        import databricks.sdk as _sdk
+
+        monkeypatch.setattr(_sdk, "WorkspaceClient", lambda *a, **k: fake)
+        monkeypatch.setattr(_time, "sleep", lambda *_a, **_k: None)
+        if http_get is not None:
+            import httpx
+
+            monkeypatch.setattr(httpx, "get", http_get)
+        return fake
+
+    # --- Apps ---------------------------------------------------------------
+    def test_app_ready_when_compute_active_and_health_200(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from databricks.sdk.service.apps import ApplicationState, ComputeState
+
+        # compute becomes ACTIVE on 2nd poll, then /health 200 on 2nd HTTP poll.
+        app_calls = {"n": 0}
+
+        def _app_get(name: str):
+            app_calls["n"] += 1
+            compute = (
+                ComputeState.ACTIVE if app_calls["n"] >= 2 else ComputeState.STARTING
+            )
+            return self._app(compute=compute, app_state=ApplicationState.RUNNING)
+
+        http_calls = {"n": 0}
+
+        def _http(url, **kw):
+            http_calls["n"] += 1
+            from types import SimpleNamespace
+
+            return SimpleNamespace(status_code=200 if http_calls["n"] >= 2 else 503)
+
+        fake = self._patch(monkeypatch, app_get=_app_get, http_get=_http)
+        cli._wait_for_resource_ready("app", "my-app", profile=None, timeout_seconds=60)
+        # Health was polled at the resolved app URL with auth headers.
+        assert http_calls["n"] >= 2
+        assert fake.config.authenticate.called
+
+    def test_app_crashed_exits_nonzero(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from databricks.sdk.service.apps import ApplicationState, ComputeState
+
+        def _app_get(name: str):
+            return self._app(
+                compute=ComputeState.ACTIVE, app_state=ApplicationState.CRASHED
+            )
+
+        # No http_get: must fail before/without needing a 200.
+        self._patch(monkeypatch, app_get=_app_get, http_get=lambda *a, **k: None)
+        with pytest.raises(SystemExit):
+            cli._wait_for_resource_ready(
+                "app", "my-app", profile=None, timeout_seconds=60
+            )
+
+    def test_app_compute_never_active_times_out(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from databricks.sdk.service.apps import ApplicationState, ComputeState
+
+        def _app_get(name: str):
+            return self._app(
+                compute=ComputeState.STARTING, app_state=ApplicationState.DEPLOYING
+            )
+
+        self._patch(monkeypatch, app_get=_app_get)
+        import time as _time
+
+        ticks = iter([0.0, 0.5, 1.0, 5.0, 999.0])
+        monkeypatch.setattr(_time, "monotonic", lambda: next(ticks))
+        with pytest.raises(SystemExit):
+            cli._wait_for_resource_ready(
+                "app", "my-app", profile=None, timeout_seconds=2
+            )
+
+    def test_app_health_never_200_times_out(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from databricks.sdk.service.apps import ApplicationState, ComputeState
+
+        def _app_get(name: str):
+            return self._app(
+                compute=ComputeState.ACTIVE, app_state=ApplicationState.RUNNING
+            )
+
+        def _http(url, **kw):
+            from types import SimpleNamespace
+
+            return SimpleNamespace(status_code=503)
+
+        self._patch(monkeypatch, app_get=_app_get, http_get=_http)
+        import time as _time
+
+        ticks = iter([0.0, 0.1, 0.2, 0.3, 1.0, 5.0, 999.0])
+        monkeypatch.setattr(_time, "monotonic", lambda: next(ticks))
+        with pytest.raises(SystemExit):
+            cli._wait_for_resource_ready(
+                "app", "my-app", profile=None, timeout_seconds=2
+            )
+
+    # --- Model Serving ------------------------------------------------------
+    def test_endpoint_ready_when_all_served_models_ready(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from databricks.sdk.service.serving import (
+            EndpointStateConfigUpdate,
+            EndpointStateReady,
+            ServedModelStateDeployment,
+        )
+
+        calls = {"n": 0}
+
+        def _ep_get(name: str):
+            calls["n"] += 1
+            if calls["n"] < 2:
+                return self._endpoint(
+                    ready=EndpointStateReady.NOT_READY,
+                    config_update=EndpointStateConfigUpdate.IN_PROGRESS,
+                    deployments=[ServedModelStateDeployment.DEPLOYMENT_CREATING],
+                )
+            return self._endpoint(
+                ready=EndpointStateReady.READY,
+                config_update=EndpointStateConfigUpdate.NOT_UPDATING,
+                deployments=[ServedModelStateDeployment.DEPLOYMENT_READY],
+            )
+
+        self._patch(monkeypatch, ep_get=_ep_get)
+        cli._wait_for_resource_ready("endpoint", "ep", profile=None, timeout_seconds=60)
+        assert calls["n"] >= 2
+
+    def test_endpoint_served_model_failed_exits_nonzero(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from databricks.sdk.service.serving import (
+            EndpointStateConfigUpdate,
+            EndpointStateReady,
+            ServedModelStateDeployment,
+        )
+
+        def _ep_get(name: str):
+            return self._endpoint(
+                ready=EndpointStateReady.NOT_READY,
+                config_update=EndpointStateConfigUpdate.NOT_UPDATING,
+                deployments=[ServedModelStateDeployment.DEPLOYMENT_FAILED],
+            )
+
+        self._patch(monkeypatch, ep_get=_ep_get)
+        with pytest.raises(SystemExit):
+            cli._wait_for_resource_ready(
+                "endpoint", "ep", profile=None, timeout_seconds=60
+            )
+
+    def test_endpoint_ready_but_model_still_creating_keeps_polling(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # Endpoint READY but served model still CREATING → NOT ready yet; must
+        # keep polling (and here, time out rather than falsely returning).
+        from databricks.sdk.service.serving import (
+            EndpointStateConfigUpdate,
+            EndpointStateReady,
+            ServedModelStateDeployment,
+        )
+
+        calls = {"n": 0}
+
+        def _ep_get(name: str):
+            calls["n"] += 1
+            return self._endpoint(
+                ready=EndpointStateReady.READY,
+                config_update=EndpointStateConfigUpdate.NOT_UPDATING,
+                deployments=[ServedModelStateDeployment.DEPLOYMENT_CREATING],
+            )
+
+        self._patch(monkeypatch, ep_get=_ep_get)
+        import time as _time
+
+        ticks = iter([0.0, 0.5, 1.0, 5.0, 999.0])
+        monkeypatch.setattr(_time, "monotonic", lambda: next(ticks))
+        with pytest.raises(SystemExit):
+            cli._wait_for_resource_ready(
+                "endpoint", "ep", profile=None, timeout_seconds=2
+            )
+        assert calls["n"] >= 1
+
+    def test_unknown_kind_raises(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        self._patch(monkeypatch)
+        with pytest.raises(ValueError, match="unknown resource kind"):
+            cli._wait_for_resource_ready(
+                "App", "res", profile=None, timeout_seconds=1
+            )
+
+
+@pytest.mark.unit
 class TestWaitFlagParsing:
-    """`--wait [SECONDS]` is opt-in on the `down` verb of BOTH nouns."""
+    """`--wait [SECONDS]` is opt-in on the `up` AND `down` verbs of BOTH nouns."""
 
     @pytest.mark.parametrize("noun", ["agent", "workflow"])
-    def test_down_bare_wait_uses_default(self, noun: str) -> None:
-        opts = parse_args([noun, "down", "-c", "c.yaml", "--wait"])
+    @pytest.mark.parametrize("verb", ["up", "down"])
+    def test_bare_wait_uses_default(self, noun: str, verb: str) -> None:
+        opts = parse_args([noun, verb, "-c", "c.yaml", "--wait"])
         assert opts.wait == cli._DEFAULT_WAIT_SECONDS
 
     @pytest.mark.parametrize("noun", ["agent", "workflow"])
-    def test_down_wait_explicit_count(self, noun: str) -> None:
-        opts = parse_args([noun, "down", "-c", "c.yaml", "--wait", "90"])
+    @pytest.mark.parametrize("verb", ["up", "down"])
+    def test_wait_explicit_count(self, noun: str, verb: str) -> None:
+        opts = parse_args([noun, verb, "-c", "c.yaml", "--wait", "90"])
         assert opts.wait == 90
 
     @pytest.mark.parametrize("noun", ["agent", "workflow"])
-    def test_down_without_wait_is_none(self, noun: str) -> None:
-        opts = parse_args([noun, "down", "-c", "c.yaml"])
+    @pytest.mark.parametrize("verb", ["up", "down"])
+    def test_without_wait_is_none(self, noun: str, verb: str) -> None:
+        opts = parse_args([noun, verb, "-c", "c.yaml"])
         assert opts.wait is None
         # And the typed accessor reflects "don't wait".
         assert cli._wait_timeout_of(opts) is None
 
     @pytest.mark.parametrize("noun", ["agent", "workflow"])
-    @pytest.mark.parametrize("verb", ["up", "sync", "build", "start"])
-    def test_non_down_verbs_reject_wait(self, noun: str, verb: str) -> None:
+    @pytest.mark.parametrize("verb", ["sync", "build", "start"])
+    def test_non_up_down_verbs_reject_wait(self, noun: str, verb: str) -> None:
         with pytest.raises(SystemExit):
             parse_args([noun, verb, "-c", "c.yaml", "--wait"])
 
-    @pytest.mark.parametrize("verb", ["up", "sync", "build", "start"])
+    @pytest.mark.parametrize("verb", ["sync", "build", "start"])
     def test_wait_timeout_of_none_for_verbs_without_flag(self, verb: str) -> None:
-        # Non-down verbs never define --wait; the accessor must return None, not raise.
+        # Non-up/down verbs never define --wait; the accessor returns None, not raise.
         opts = parse_args(["agent", verb, "-c", "c.yaml"])
         assert cli._wait_timeout_of(opts) is None
 
