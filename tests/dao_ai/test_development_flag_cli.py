@@ -1530,9 +1530,7 @@ class TestDeleteServingEndpoint:
         monkeypatch.setattr(
             cli,
             "_delete_serving_endpoint",
-            lambda config, *, profile, dry_run, wait_timeout=None: order.append(
-                "endpoint_delete"
-            ),
+            lambda *a, **k: order.append("endpoint_delete"),
         )
         monkeypatch.setattr(cli, "_resolve_job_dao_ai_dep", lambda *a, **k: "dao-ai")
         monkeypatch.setattr(cli, "detect_cloud_provider", lambda p: "aws")
@@ -1667,16 +1665,12 @@ class TestWorkflowDownRemovesDeployedAgent:
         monkeypatch.setattr(
             cli,
             "_delete_app",
-            lambda config, *, profile, dry_run, wait_timeout=None: order.append(
-                "app_delete"
-            ),
+            lambda *a, **k: order.append("app_delete"),
         )
         monkeypatch.setattr(
             cli,
             "_delete_serving_endpoint",
-            lambda config, *, profile, dry_run, wait_timeout=None: order.append(
-                "endpoint_delete"
-            ),
+            lambda *a, **k: order.append("endpoint_delete"),
         )
         cfg = self._cfg(tmp_path)
         argv = ["workflow", "down", "-c", str(cfg), "-s", str(tmp_path)] + mode_argv
@@ -2920,3 +2914,213 @@ class TestWaitFlagParsing:
         # Non-down verbs never define --wait; the accessor must return None, not raise.
         opts = parse_args(["agent", verb, "-c", "c.yaml"])
         assert cli._wait_timeout_of(opts) is None
+
+
+@pytest.mark.unit
+class TestPurgeFlagParsing:
+    """`--purge` is opt-in on the `down` verb of BOTH nouns."""
+
+    @pytest.mark.parametrize("noun", ["agent", "workflow"])
+    def test_down_purge_sets_true(self, noun: str) -> None:
+        opts = parse_args([noun, "down", "-c", "c.yaml", "--purge"])
+        assert opts.purge is True
+        assert cli._purge_of(opts) is True
+
+    @pytest.mark.parametrize("noun", ["agent", "workflow"])
+    def test_down_without_purge_is_false(self, noun: str) -> None:
+        opts = parse_args([noun, "down", "-c", "c.yaml"])
+        assert opts.purge is False
+        assert cli._purge_of(opts) is False
+
+    @pytest.mark.parametrize("noun", ["agent", "workflow"])
+    @pytest.mark.parametrize("verb", ["up", "sync", "build", "start"])
+    def test_non_down_verbs_reject_purge(self, noun: str, verb: str) -> None:
+        with pytest.raises(SystemExit):
+            parse_args([noun, verb, "-c", "c.yaml", "--purge"])
+
+    @pytest.mark.parametrize("verb", ["up", "sync", "build", "start"])
+    def test_purge_of_false_for_verbs_without_flag(self, verb: str) -> None:
+        # Non-down verbs never define --purge; the accessor must return False.
+        opts = parse_args(["agent", verb, "-c", "c.yaml"])
+        assert cli._purge_of(opts) is False
+
+
+@pytest.mark.unit
+class TestRestoreTrashedExperimentOnUpdate:
+    """A tracked experiment trashed out-of-band is restored before deploy so the
+    bundle UPDATE isn't blocked by `Cannot move node ... in trash folder`.
+
+    These tests model the MLflow trash-RENAME: the deleted node's remote_state
+    carries the tracked id and lifecycle_stage=="deleted" (its `name` is the
+    ``Trash/[dev ...] <name>-<ts>`` path), and the fix keys on that id — NOT the
+    clean name, which no longer resolves once trashed (the reverted bug).
+    """
+
+    _TRASHED_UPDATE = (
+        "experiments",
+        "my-app-experiment",
+        {
+            "action": "update",
+            "new_state": {
+                "value": {"name": "/Users/u@d.com/[dev u] my_app"}
+            },
+            "remote_state": {
+                "experiment_id": "12345",
+                "lifecycle_stage": "deleted",
+                "name": "/Users/u@d.com/Trash/[dev u] my_app-2026-08-02 01:33:48",
+            },
+        },
+    )
+
+    def _run_adopt(self, tmp_path: Path, *, plan: str):
+        client = MagicMock()
+        with patch.object(
+            cli.subprocess, "run",
+            side_effect=lambda cmd, **kw: _completed(0, stdout=plan),
+        ), patch("mlflow.MlflowClient", return_value=client):
+            cli._adopt_untracked_bundle_resources(
+                staging_dir=tmp_path, profile="fevm", target="dev",
+            )
+        return client
+
+    def test_trashed_update_restores_by_id(self, tmp_path: Path) -> None:
+        client = self._run_adopt(tmp_path, plan=_plan_json(self._TRASHED_UPDATE))
+        # Restored by the tracked id from remote_state, never the clean name.
+        client.restore_experiment.assert_called_once_with("12345")
+
+    def test_live_update_not_restored(self, tmp_path: Path) -> None:
+        # Same UPDATE but the remote is ACTIVE — nothing to un-trash.
+        live = (
+            "experiments",
+            "my-app-experiment",
+            {
+                "action": "update",
+                "remote_state": {
+                    "experiment_id": "12345",
+                    "lifecycle_stage": "active",
+                    "name": "/Users/u@d.com/[dev u] my_app",
+                },
+            },
+        )
+        client = self._run_adopt(tmp_path, plan=_plan_json(live))
+        client.restore_experiment.assert_not_called()
+
+    def test_create_experiment_not_restored(self, tmp_path: Path) -> None:
+        # A CREATE (fresh deploy, state cleared by destroy) never restores.
+        create = (
+            "experiments",
+            "my-app-experiment",
+            {
+                "action": "create",
+                "new_state": {"value": {"name": "/Users/u@d.com/my_app"}},
+            },
+        )
+        client = self._run_adopt(tmp_path, plan=_plan_json(create))
+        client.restore_experiment.assert_not_called()
+
+    def test_restore_failure_is_swallowed(self, tmp_path: Path) -> None:
+        client = MagicMock()
+        client.restore_experiment.side_effect = RuntimeError("boom")
+        with patch.object(
+            cli.subprocess, "run",
+            side_effect=lambda cmd, **kw: _completed(
+                0, stdout=_plan_json(self._TRASHED_UPDATE)
+            ),
+        ), patch("mlflow.MlflowClient", return_value=client):
+            # Must not raise — best-effort, so deploy still runs.
+            cli._adopt_untracked_bundle_resources(
+                staging_dir=tmp_path, profile="fevm", target="dev",
+            )
+
+
+@pytest.mark.unit
+class TestPurgeExperiment:
+    """`down --purge` permanently deletes experiment nodes by their (Trash) path,
+    found via search_experiments — NOT a clean-name workspace.delete (the
+    reverted bug, which no-oped because the clean path no longer exists)."""
+
+    def _config(self, *, external_id: str | None = None):
+        app = MagicMock()
+        app.experiment = SimpleNamespace(id=external_id) if external_id else None
+        cfg = MagicMock()
+        cfg.app = app
+        return cfg
+
+    def test_purge_deletes_each_matching_node_by_path(self) -> None:
+        w = MagicMock()
+        client = MagicMock()
+        trashed = SimpleNamespace(
+            experiment_id="1",
+            name="/Users/u@d.com/Trash/[dev u] my_app-2026-08-02 01:33:48",
+        )
+        active = SimpleNamespace(
+            experiment_id="2", name="/Users/u@d.com/[dev u] my_app"
+        )
+        client.search_experiments.return_value = [trashed, active]
+        provider = MagicMock()
+        provider.experiment_name.return_value = "/Users/u@d.com/my_app"
+        with patch("databricks.sdk.WorkspaceClient", return_value=w), patch(
+            "mlflow.MlflowClient", return_value=client
+        ), patch(
+            "dao_ai.providers.databricks.DatabricksProvider", return_value=provider
+        ):
+            cli._purge_experiment(self._config(), profile="fevm")
+        deleted = {c.args[0] for c in w.workspace.delete.call_args_list}
+        assert deleted == {trashed.name, active.name}
+        for c in w.workspace.delete.call_args_list:
+            assert c.kwargs.get("recursive") is True
+
+    def test_purge_search_pattern_is_separator_agnostic(self) -> None:
+        # apps/mcp DABs name the experiment with a HYPHENATED leaf while
+        # model_serving/workflow use the UNDERSCORED one; the search LIKE pattern
+        # must map both separators to the `_` wildcard so one query finds either.
+        w = MagicMock()
+        client = MagicMock()
+        client.search_experiments.return_value = []
+        provider = MagicMock()
+        provider.experiment_name.return_value = "/Users/u@d.com/ai-gateway-example"
+        with patch("databricks.sdk.WorkspaceClient", return_value=w), patch(
+            "mlflow.MlflowClient", return_value=client
+        ), patch(
+            "dao_ai.providers.databricks.DatabricksProvider", return_value=provider
+        ):
+            cli._purge_experiment(self._config(), profile="fevm")
+        (_, kwargs) = client.search_experiments.call_args
+        assert kwargs["filter_string"] == "name LIKE '%ai_gateway_example%'"
+
+    def test_purge_skips_external_experiment_id(self) -> None:
+        w = MagicMock()
+        with patch("databricks.sdk.WorkspaceClient", return_value=w):
+            cli._purge_experiment(self._config(external_id="999"), profile="fevm")
+        w.workspace.delete.assert_not_called()
+
+    def test_purge_no_matches_is_noop(self) -> None:
+        w = MagicMock()
+        client = MagicMock()
+        client.search_experiments.return_value = []
+        provider = MagicMock()
+        provider.experiment_name.return_value = "/Users/u@d.com/my_app"
+        with patch("databricks.sdk.WorkspaceClient", return_value=w), patch(
+            "mlflow.MlflowClient", return_value=client
+        ), patch(
+            "dao_ai.providers.databricks.DatabricksProvider", return_value=provider
+        ):
+            cli._purge_experiment(self._config(), profile="fevm")
+        w.workspace.delete.assert_not_called()
+
+    def test_purge_delete_failure_is_swallowed(self) -> None:
+        w = MagicMock()
+        w.workspace.delete.side_effect = RuntimeError("boom")
+        client = MagicMock()
+        client.search_experiments.return_value = [
+            SimpleNamespace(experiment_id="1", name="/Users/u@d.com/Trash/x")
+        ]
+        provider = MagicMock()
+        provider.experiment_name.return_value = "/Users/u@d.com/my_app"
+        with patch("databricks.sdk.WorkspaceClient", return_value=w), patch(
+            "mlflow.MlflowClient", return_value=client
+        ), patch(
+            "dao_ai.providers.databricks.DatabricksProvider", return_value=provider
+        ):
+            # Must not raise.
+            cli._purge_experiment(self._config(), profile="fevm")
