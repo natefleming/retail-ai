@@ -3189,12 +3189,11 @@ class TestPurgeOtelTraceTables:
         return cfg
 
     @staticmethod
-    def _trace_location(*, prefix, catalog="cat", schema="sch", warehouse_id="wh1"):
+    def _trace_location(*, prefix, catalog="cat", schema="sch"):
         loc = MagicMock()
         loc.resolved_table_prefix = prefix
         loc.catalog_name = catalog
         loc.schema_name = schema
-        loc.warehouse_id = warehouse_id
         return loc
 
     def test_unset_prefix_drops_per_experiment_tables(self) -> None:
@@ -3217,10 +3216,15 @@ class TestPurgeOtelTraceTables:
         ) as drop, patch.object(cli.logger, "warning") as warn:
             cli._purge_otel_trace_tables(cfg, ["111"], profile="fevm")
         drop.assert_not_called()
-        # The four shared table names are surfaced for manual cleanup.
+        # The four shared table names are surfaced for manual cleanup, with EACH
+        # identifier segment backticked (`cat`.`sch`.`tbl`) — NOT the whole dotted
+        # name in one pair, which SQL parses as a single literal identifier and
+        # silently no-ops. This is the runnable form.
         logged = " ".join(str(c.args[0]) for c in warn.call_args_list)
         for suffix in ("spans", "logs", "metrics", "annotations"):
-            assert f"cat.sch.shared_x_otel_{suffix}" in logged
+            assert f"`cat`.`sch`.`shared_x_otel_{suffix}`" in logged
+        # Guard against a regression to the broken single-backtick-pair form.
+        assert "`cat.sch." not in logged
 
     def test_no_trace_location_is_noop(self) -> None:
         cfg = self._config(trace_location=None)

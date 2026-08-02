@@ -4061,8 +4061,17 @@ def _purge_otel_trace_tables(
         prefix = loc.resolved_table_prefix
         if prefix:
             # Explicit prefix — potentially shared; don't drop. Surface the names.
+            # Backtick EACH identifier segment (`cat`.`sch`.`tbl`), not the whole
+            # dotted name — a single backtick pair around a dotted name is parsed
+            # as one literal identifier, so the DROP silently no-ops (the same trap
+            # `_drop_uc_otel_tables` avoids by using the Tables SDK). An OTEL prefix
+            # is often the experiment_id, which starts with a digit and so genuinely
+            # requires quoting; per-segment backticks are both correct and runnable.
             tables = _otel_table_names(catalog_name, schema_name, prefix)
-            hint = "; ".join(f"DROP TABLE IF EXISTS `{t}`" for t in tables)
+            quoted = [
+                ".".join(f"`{seg}`" for seg in t.split(".")) for t in tables
+            ]
+            hint = "; ".join(f"DROP TABLE IF EXISTS {q}" for q in quoted)
             logger.warning(
                 "Purge left OTEL trace tables in place: trace_location.table_prefix "
                 f"'{prefix}' may be shared across agents. Drop manually if this "
