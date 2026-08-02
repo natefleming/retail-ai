@@ -3966,6 +3966,9 @@ def _purge_experiment(config: AppConfig, profile: Optional[str]) -> None:
     externally-referenced experiment (``app.experiment.id``) is left alone —
     dao-ai didn't create it.
 
+    After deleting the nodes, :func:`_purge_otel_trace_tables` also drops the app's
+    UC OTEL trace tables when it can do so safely (per-experiment prefix only).
+
     Best-effort: a missing node or any error is logged and swallowed so ``down``
     still completes.
     """
@@ -4003,17 +4006,82 @@ def _purge_experiment(config: AppConfig, profile: Optional[str]) -> None:
         if not matches:
             logger.info(f"Purge: no experiment nodes matching '{leaf}' to delete.")
             return
+        purged_ids: list[str] = []
         for exp in matches:
             try:
                 w.workspace.delete(exp.name, recursive=True)
+                purged_ids.append(str(exp.experiment_id))
                 logger.info(
                     f"Purged (permanently deleted) experiment node '{exp.name}' "
                     f"(id={exp.experiment_id})."
                 )
             except Exception as e:  # noqa: BLE001
                 logger.debug(f"purge of experiment node '{exp.name}' skipped: {e}")
+        _purge_otel_trace_tables(config, purged_ids, profile)
     except Exception as e:  # noqa: BLE001
         logger.debug(f"purge of experiment skipped: {e}")
+
+
+def _purge_otel_trace_tables(
+    config: AppConfig, experiment_ids: list[str], profile: Optional[str]
+) -> None:
+    """Drop the app's OTEL trace tables when ``down --purge`` can do so SAFELY.
+
+    MLflow lazily materializes four Delta tables per trace-location prefix
+    (``<catalog>.<schema>.<prefix>_otel_{spans,logs,metrics,annotations}``).
+    Purging the experiment node leaves these orphaned, so ``--purge`` cleans them
+    up — but only when it can prove no OTHER agent shares the table set (the same
+    sibling-safety principle as the experiment-node purge):
+
+    * ``trace_location.table_prefix`` UNSET → MLflow uses the ``experiment_id`` as
+      the prefix, so tables are per-experiment. For each experiment id this purge
+      just deleted, drop its ``<id>_otel_*`` tables — cannot collide with another
+      agent.
+    * ``trace_location.table_prefix`` SET → the prefix is chosen precisely to
+      NAMESPACE/SHARE a table set across agents, so dao-ai can't know if another
+      agent still writes there. Do NOT drop; log the exact table names + a manual
+      ``DROP TABLE`` hint so the operator can clean a genuinely single-agent prefix.
+
+    No-op when ``trace_location`` is unset (no UC tables) or nothing was purged.
+    Best-effort: any failure is logged and swallowed so ``down`` still completes.
+    """
+    if config.app is None or config.app.trace_location is None:
+        return
+    if not experiment_ids:
+        return
+    try:
+        from dao_ai.providers.databricks import (
+            _drop_uc_otel_tables,
+            _otel_table_names,
+        )
+
+        loc = config.app.trace_location
+        catalog_name = loc.catalog_name
+        schema_name = loc.schema_name
+        prefix = loc.resolved_table_prefix
+        if prefix:
+            # Explicit prefix — potentially shared; don't drop. Surface the names.
+            # Backtick EACH identifier segment (`cat`.`sch`.`tbl`), not the whole
+            # dotted name — a single backtick pair around a dotted name is parsed
+            # as one literal identifier, so the DROP silently no-ops (the same trap
+            # `_drop_uc_otel_tables` avoids by using the Tables SDK). An OTEL prefix
+            # is often the experiment_id, which starts with a digit and so genuinely
+            # requires quoting; per-segment backticks are both correct and runnable.
+            tables = _otel_table_names(catalog_name, schema_name, prefix)
+            quoted = [
+                ".".join(f"`{seg}`" for seg in t.split(".")) for t in tables
+            ]
+            hint = "; ".join(f"DROP TABLE IF EXISTS {q}" for q in quoted)
+            logger.warning(
+                "Purge left OTEL trace tables in place: trace_location.table_prefix "
+                f"'{prefix}' may be shared across agents. Drop manually if this "
+                f"prefix is single-agent: {hint}"
+            )
+            return
+        for experiment_id in experiment_ids:
+            _drop_uc_otel_tables(catalog_name, schema_name, experiment_id, profile)
+    except Exception as e:  # noqa: BLE001
+        logger.debug(f"purge of OTEL trace tables skipped: {e}")
 
 
 def _exec_bundle_command(

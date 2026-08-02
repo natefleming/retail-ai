@@ -3042,6 +3042,9 @@ class TestPurgeExperiment:
     def _config(self, *, external_id: str | None = None):
         app = MagicMock()
         app.experiment = SimpleNamespace(id=external_id) if external_id else None
+        # No trace_location by default, so the existing purge tests exercise only
+        # the experiment-node path (OTEL cleanup is covered in its own class).
+        app.trace_location = None
         cfg = MagicMock()
         cfg.app = app
         return cfg
@@ -3168,3 +3171,96 @@ class TestPurgeExperiment:
         ):
             # Must not raise.
             cli._purge_experiment(self._config(), profile="fevm")
+
+
+@pytest.mark.unit
+class TestPurgeOtelTraceTables:
+    """`down --purge` also drops the app's OTEL trace tables — but ONLY when the
+    prefix is per-experiment (unset ``table_prefix``). An explicit prefix may be
+    shared across agents, so it's left in place with a manual-drop hint."""
+
+    @staticmethod
+    def _config(*, trace_location, external_id: str | None = None):
+        app = MagicMock()
+        app.experiment = SimpleNamespace(id=external_id) if external_id else None
+        app.trace_location = trace_location
+        cfg = MagicMock()
+        cfg.app = app
+        return cfg
+
+    @staticmethod
+    def _trace_location(*, prefix, catalog="cat", schema="sch"):
+        loc = MagicMock()
+        loc.resolved_table_prefix = prefix
+        loc.catalog_name = catalog
+        loc.schema_name = schema
+        return loc
+
+    def test_unset_prefix_drops_per_experiment_tables(self) -> None:
+        cfg = self._config(trace_location=self._trace_location(prefix=None))
+        with patch(
+            "dao_ai.providers.databricks._drop_uc_otel_tables"
+        ) as drop:
+            cli._purge_otel_trace_tables(cfg, ["111", "222"], profile="fevm")
+        # One drop call per purged experiment id, keyed on that id as the prefix.
+        assert drop.call_count == 2
+        called_prefixes = {c.args[2] for c in drop.call_args_list}
+        assert called_prefixes == {"111", "222"}
+        for c in drop.call_args_list:
+            assert c.args[0] == "cat" and c.args[1] == "sch"  # catalog, schema
+
+    def test_explicit_prefix_does_not_drop_but_logs(self) -> None:
+        cfg = self._config(trace_location=self._trace_location(prefix="shared_x"))
+        with patch(
+            "dao_ai.providers.databricks._drop_uc_otel_tables"
+        ) as drop, patch.object(cli.logger, "warning") as warn:
+            cli._purge_otel_trace_tables(cfg, ["111"], profile="fevm")
+        drop.assert_not_called()
+        # The four shared table names are surfaced for manual cleanup, with EACH
+        # identifier segment backticked (`cat`.`sch`.`tbl`) — NOT the whole dotted
+        # name in one pair, which SQL parses as a single literal identifier and
+        # silently no-ops. This is the runnable form.
+        logged = " ".join(str(c.args[0]) for c in warn.call_args_list)
+        for suffix in ("spans", "logs", "metrics", "annotations"):
+            assert f"`cat`.`sch`.`shared_x_otel_{suffix}`" in logged
+        # Guard against a regression to the broken single-backtick-pair form.
+        assert "`cat.sch." not in logged
+
+    def test_no_trace_location_is_noop(self) -> None:
+        cfg = self._config(trace_location=None)
+        with patch("dao_ai.providers.databricks._drop_uc_otel_tables") as drop:
+            cli._purge_otel_trace_tables(cfg, ["111"], profile="fevm")
+        drop.assert_not_called()
+
+    def test_no_purged_ids_is_noop(self) -> None:
+        cfg = self._config(trace_location=self._trace_location(prefix=None))
+        with patch("dao_ai.providers.databricks._drop_uc_otel_tables") as drop:
+            cli._purge_otel_trace_tables(cfg, [], profile="fevm")
+        drop.assert_not_called()
+
+    def test_drop_failure_is_swallowed(self) -> None:
+        cfg = self._config(trace_location=self._trace_location(prefix=None))
+        with patch(
+            "dao_ai.providers.databricks._drop_uc_otel_tables",
+            side_effect=RuntimeError("boom"),
+        ):
+            # Must not raise — best-effort so `down` still completes.
+            cli._purge_otel_trace_tables(cfg, ["111"], profile="fevm")
+
+    def test_purge_experiment_passes_purged_ids_to_otel_cleanup(self) -> None:
+        # Integration: _purge_experiment forwards the ids it actually deleted.
+        w = MagicMock()
+        client = MagicMock()
+        node = SimpleNamespace(experiment_id="777", name="/Users/u@d.com/my_app")
+        client.search_experiments.return_value = [node]
+        provider = MagicMock()
+        provider.experiment_name.return_value = "/Users/u@d.com/my_app"
+        cfg = self._config(trace_location=self._trace_location(prefix=None))
+        with patch("databricks.sdk.WorkspaceClient", return_value=w), patch(
+            "mlflow.MlflowClient", return_value=client
+        ), patch(
+            "dao_ai.providers.databricks.DatabricksProvider", return_value=provider
+        ), patch.object(cli, "_purge_otel_trace_tables") as otel:
+            cli._purge_experiment(cfg, profile="fevm")
+        otel.assert_called_once()
+        assert otel.call_args.args[1] == ["777"]
