@@ -865,6 +865,67 @@ def _grant_uc_trace_table_permissions_to_principal(
     )
 
 
+def _otel_table_names(
+    catalog_name: str, schema_name: str, table_prefix: str
+) -> list[str]:
+    """The four fully-qualified OTEL trace table names for a prefix.
+
+    Mirrors what MLflow materializes for a UC trace location:
+    ``<catalog>.<schema>.<prefix>_otel_{spans,logs,metrics,annotations}``.
+    """
+    return [
+        f"{catalog_name}.{schema_name}.{table_prefix}_otel_{suffix}"
+        for suffix in ("spans", "logs", "metrics", "annotations")
+    ]
+
+
+def _drop_uc_otel_tables(
+    catalog_name: str,
+    schema_name: str,
+    table_prefix: str,
+    profile: Optional[str] = None,
+) -> None:
+    """Permanently drop the four OTEL trace tables for ``table_prefix``.
+
+    The inverse of :func:`_grant_uc_trace_table_permissions_to_principal` — used by
+    ``down --purge`` to clean up the Delta tables MLflow lazily materialized at
+    ``<catalog>.<schema>.<prefix>_otel_{spans,logs,metrics,annotations}``. Deletes
+    each table via the UC Tables SDK (``w.tables.delete(full_name=...)``) rather
+    than a SQL ``DROP`` — no warehouse needed, and it sidesteps the identifier-
+    quoting trap where a fully-qualified dotted name inside a single backtick pair
+    is parsed as one literal identifier (so ``DROP TABLE IF EXISTS`` silently
+    no-ops instead of dropping). A table that was never materialized (traces never
+    exported) raises ``NotFound`` and is treated as a harmless no-op.
+
+    CALLER CONTRACT: only call this with a prefix that uniquely identifies ONE
+    experiment (i.e. the experiment_id, when ``trace_location.table_prefix`` is
+    unset). An explicitly-configured ``table_prefix`` may be SHARED across agents,
+    so purge must not drop those tables — see :func:`_purge_experiment`.
+
+    Best-effort: each delete is independent; any failure is logged and swallowed so
+    ``down`` still completes.
+    """
+    from databricks.sdk import WorkspaceClient
+    from databricks.sdk.errors import NotFound
+
+    w = WorkspaceClient(profile=profile) if profile else WorkspaceClient()
+    for full_name in _otel_table_names(catalog_name, schema_name, table_prefix):
+        try:
+            w.tables.delete(full_name=full_name)
+            logger.info(f"Purged (dropped) OTEL trace table '{full_name}'.")
+        except NotFound:
+            logger.debug(
+                f"OTEL trace table '{full_name}' not found (never materialized) "
+                "— nothing to drop."
+            )
+        except Exception as e:  # noqa: BLE001
+            logger.warning(
+                "Failed to drop OTEL trace table during purge",
+                full_name=full_name,
+                error=str(e),
+            )
+
+
 def _resolve_trace_table_prefix(config: AppConfig, experiment_id: Optional[str]) -> str:
     """Return the table prefix MLflow uses for OTEL trace tables.
 
