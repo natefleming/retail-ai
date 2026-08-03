@@ -9682,11 +9682,12 @@ class AppModel(BaseModel):
         """
         return {"Large": "LARGE", "XLarge": "XLARGE"}.get(self.workload_size)
 
-    def serving_workload_size(self) -> str:
+    def serving_workload_size(self) -> Optional[str]:
         """Clamp ``workload_size`` to the Model Serving domain.
 
         Model Serving has no XLarge tier, so XLarge is clamped to Large (its
-        largest size). Small/Medium/Large pass through unchanged.
+        largest size). Small/Medium/Large pass through unchanged. Returns
+        ``None`` when ``workload_size`` is unset (explicit null).
         """
         return "Large" if self.workload_size == "XLarge" else self.workload_size
 

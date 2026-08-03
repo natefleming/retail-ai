@@ -2285,6 +2285,23 @@ class DatabricksProvider(ServiceProvider):
                     )
         else:
             app = existing_app
+            # compute_size can't be changed on an existing app via the update
+            # API (it rejects the field), so warn if the configured size no
+            # longer matches — otherwise the resize would silently no-op.
+            if apps_compute_size:
+                current_size = getattr(existing_app.compute_size, "value", None) or (
+                    existing_app.compute_size
+                )
+                if current_size and str(current_size) != apps_compute_size:
+                    logger.warning(
+                        "App compute_size cannot be changed on an existing app "
+                        "via the update API; the app keeps its current size. To "
+                        "resize, change it in the Databricks UI or tear down and "
+                        "recreate the app.",
+                        app_name=app_name,
+                        current_size=str(current_size),
+                        requested_size=apps_compute_size,
+                    )
             # Update resources and scopes on existing app
             if deployment_resources or user_api_scopes:
                 logger.info("Updating app resources and scopes", app_name=app_name)
