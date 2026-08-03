@@ -1,5 +1,6 @@
 import base64
 import re
+import shutil
 import time
 from datetime import timedelta
 from pathlib import Path
@@ -2668,13 +2669,18 @@ class DatabricksProvider(ServiceProvider):
                 data_path = data_path.resolve()
                 logger.trace("Data path resolved", path=str(data_path))
 
-                # Parquet intentionally routed to Spark's distributed reader
-                # below — pd.read_parquet on the driver OOMs on serverless for
-                # text-heavy datasets (e.g. hardware_store products.parquet:
-                # 17 MB on disk → 45 MB in pandas, dominated by the description
-                # column).
+                # csv/parquet/orc/delta go to Spark's distributed reader below.
+                # Parquet was moved off pandas because pd.read_parquet on the
+                # driver OOMs on serverless for text-heavy datasets (e.g.
+                # hardware_store products.parquet: 17 MB on disk → 45 MB in
+                # pandas). csv carries the same OOM exposure, and its
+                # read_options are authored in Spark's vocabulary (``header:
+                # true``) — which pd.read_csv rejects — so Spark is also the
+                # correct reader. json/excel stay on pandas: Spark's json
+                # reader defaults to JSON Lines (not the records array
+                # pd.read_json expects) and there is no serverless Spark excel
+                # reader.
                 pandas_readers: dict[str, Callable[..., pd.DataFrame]] = {
-                    "csv": lambda p, **kw: pd.read_csv(p, **kw),
                     "json": lambda p, **kw: pd.read_json(p, **kw),
                     "excel": lambda p, **kw: pd.read_excel(p, **kw),
                 }
@@ -2688,11 +2694,18 @@ class DatabricksProvider(ServiceProvider):
                         schema = target_schema
                     df = spark.createDataFrame(pdf, schema=schema)
                 else:
+                    # Spark executors cannot read workspace files (/Workspace/...)
+                    # on serverless compute, so a config-relative asset staged
+                    # into the bundle is unreadable here. Stage it to a UC volume
+                    # — FUSE-writable on the driver, readable by executors — and
+                    # point Spark at the /Volumes path. A path already on a
+                    # volume passes through untouched.
+                    load_path: str = self._resolve_spark_read_path(dataset, data_path)
                     df = (
                         spark.read.format(format)
                         .options(**read_options)
                         .load(
-                            str(data_path),
+                            load_path,
                             schema=dataset.table_schema,
                         )
                     )
@@ -2705,6 +2718,55 @@ class DatabricksProvider(ServiceProvider):
                     df.write.insertInto(table, overwrite=True)
                 else:
                     df.write.mode("overwrite").saveAsTable(table)
+
+    def _resolve_spark_read_path(self, dataset: DatasetModel, data_path: Path) -> str:
+        """Return a path Spark executors can read on serverless compute.
+
+        Serverless Spark cannot read workspace files (``/Workspace/...``), so a
+        config-relative asset staged into the deployed bundle is unreadable via
+        ``spark.read``. A ``data:`` value already on a UC volume
+        (``/Volumes/...``) is executor-readable and passes through unchanged.
+        Anything else is a driver-local/workspace file: copy it into a managed
+        UC volume in the dataset's own target schema and return the ``/Volumes``
+        path. (Cloud/``dbfs:`` URIs are not a case here — a string ``data:``
+        value is wrapped in ``Path`` by ``resolve_asset_path``, which only
+        preserves ``/Volumes`` and local absolute paths.)
+
+        The copy uses the volume's FUSE mount (writable on the driver) and the
+        volume is idempotent — the same destination is overwritten on each run.
+        """
+        raw: str = str(data_path)
+        if raw.startswith("/Volumes/"):
+            return raw
+
+        schema: SchemaModel = self._dataset_staging_schema(dataset)
+        volume: VolumeModel = VolumeModel(schema=schema, name="dao_ai_staging")
+        self.create_volume(volume)
+
+        dest: str = f"/Volumes/{volume.full_name.replace('.', '/')}/{data_path.name}"
+        logger.info("Staging asset to volume for Spark read", src=raw, dest=dest)
+        shutil.copy2(raw, dest)
+        return dest
+
+    def _dataset_staging_schema(self, dataset: DatasetModel) -> SchemaModel:
+        """Derive the catalog+schema to stage a dataset's asset into.
+
+        Prefers the target table's ``schema_model``. Falls back to parsing a
+        fully-qualified ``catalog.schema.table`` name when no schema reference
+        is set (both forms are permitted by ``TableModel``).
+        """
+        if dataset.table is not None and dataset.table.schema_model is not None:
+            return dataset.table.schema_model
+
+        full_name: str = dataset.table.full_name if dataset.table else ""
+        parts: list[str] = full_name.split(".")
+        if len(parts) < 3:
+            raise ValueError(
+                "Cannot derive a staging schema for dataset asset: table must "
+                "have a schema reference or a fully-qualified "
+                f"catalog.schema.table name (got {full_name!r})."
+            )
+        return SchemaModel(catalog_name=parts[0], schema_name=parts[1])
 
     def create_vector_store(self, vector_store: VectorStoreModel) -> None:
         """
