@@ -4,13 +4,20 @@
 # PyPI package. In a deployed job the serverless environment has already
 # installed it; this reinstall is harmless. ``%restart_python`` makes the freshly
 # installed package importable in the cells below.
+# This notebook builds the agent graph (as_responses_agent below), so it must
+# install every optional feature extra — the graph is built before the config is
+# known, and any agent may use memory (langmem), a2a, deepagents, rerank, or
+# search. Hence ``[all]``. The install spec is single-quoted in the magic so a
+# dev wheel's ``+local`` version tag and the ``[all]`` bracket survive shell
+# glob/bracket expansion.
 import glob
 
-_dao_ai_dep = next(
-    iter(sorted(glob.glob("../dist/dao_ai-*.whl"), reverse=True)), "dao-ai"
+_dao_ai_dep = (
+    next(iter(sorted(glob.glob("../dist/dao_ai-*.whl"), reverse=True)), "dao-ai")
+    + "[all]"
 )
 
-# MAGIC %uv pip install --quiet {_dao_ai_dep}
+# MAGIC %uv pip install --quiet '{_dao_ai_dep}'
 # MAGIC %restart_python
 
 # COMMAND ----------

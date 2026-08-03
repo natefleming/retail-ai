@@ -4,13 +4,18 @@
 # PyPI package. In a deployed job the serverless environment has already
 # installed it; this reinstall is harmless. ``%restart_python`` makes the freshly
 # installed package importable in the cells below.
+# No extras suffix: this notebook only calls core APIs (databricks.agents eval
+# generation). Notebooks that build the agent graph (06_deploy_agent,
+# 08_run_evaluation) install ``[all]``; 01_ingest_and_transform installs
+# ``[excel]``. The install spec is single-quoted in the magic so a dev wheel's
+# ``+local`` version tag and any ``[extras]`` survive shell glob/bracket expansion.
 import glob
 
 _dao_ai_dep = next(
     iter(sorted(glob.glob("../dist/dao_ai-*.whl"), reverse=True)), "dao-ai"
 )
 
-# MAGIC %uv pip install --quiet {_dao_ai_dep}
+# MAGIC %uv pip install --quiet '{_dao_ai_dep}'
 # MAGIC %restart_python
 
 # COMMAND ----------
