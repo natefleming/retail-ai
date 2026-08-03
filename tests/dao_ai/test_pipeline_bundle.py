@@ -81,6 +81,57 @@ class TestPackagedAssets:
                 f"{p.name} still has the ../src fallback"
             )
 
+    def test_notebooks_bootstrap_extras_suffix(self) -> None:
+        """Each step notebook's ``%uv pip install`` bootstrap must install the
+        feature extras its own body can exercise.
+
+        Graph-building notebooks (06_deploy_agent, 08_run_evaluation) build the
+        agent before the config is known, so they install ``[all]``;
+        01_ingest_and_transform may read EXCEL datasets so it installs
+        ``[excel]``; the pure provisioning notebooks install bare dao-ai. Every
+        notebook single-quotes the interpolated spec so a dev wheel's ``+local``
+        version tag and any ``[extras]`` bracket survive shell expansion.
+        """
+        # notebook filename prefix -> the extras suffix its bootstrap must append
+        # ("" means no suffix — bare core install).
+        expected_suffix: dict[str, str] = {
+            "01_": "[excel]",
+            "02_": "",
+            "03_": "",
+            "04_": "",
+            "05_": "",
+            "06_": "[all]",
+            "07_": "",
+            "08_": "[all]",
+        }
+        seen: set[str] = set()
+        for p in files("dao_ai.pipeline.notebooks").iterdir():
+            if not p.name.endswith(".py") or p.name == "__init__.py":
+                continue
+            prefix = p.name[:3]
+            assert prefix in expected_suffix, f"unmapped notebook {p.name}"
+            seen.add(prefix)
+            text = p.read_text(encoding="utf-8")
+
+            # The magic must single-quote the interpolated spec (glob-safe).
+            assert "# MAGIC %uv pip install --quiet '{_dao_ai_dep}'" in text, (
+                f"{p.name} must single-quote the %uv install spec"
+            )
+
+            suffix = expected_suffix[prefix]
+            if suffix:
+                assert f'+ "{suffix}"' in text, (
+                    f"{p.name} must append the {suffix} extras suffix"
+                )
+            else:
+                # Core provisioning notebooks must not append any extras suffix.
+                assert '+ "[' not in text, (
+                    f"{p.name} must not append an extras suffix"
+                )
+        assert seen == set(expected_suffix), (
+            f"notebook set changed: {sorted(seen)}"
+        )
+
 
 # ---------------------------------------------------------------------------
 # generate_pipeline_databricks_yaml — programmatic DAB (dict -> YAML)
