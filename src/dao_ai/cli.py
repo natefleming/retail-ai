@@ -258,7 +258,7 @@ def _global_parent_parser() -> ArgumentParser:
 
 # Default timeout (seconds) for `down --wait`: how long to block waiting for the
 # deleted App/endpoint to be fully gone before returning.
-_DEFAULT_WAIT_SECONDS = 600
+_DEFAULT_WAIT_SECONDS = 1200
 
 
 def _add_bundle_common_args(parser: ArgumentParser, *, kind: str) -> None:
