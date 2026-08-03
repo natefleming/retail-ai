@@ -8742,11 +8742,18 @@ class LogLevel(str, Enum):
 
 
 class WorkloadSize(str, Enum):
-    """Model Serving workload size controlling compute resources."""
+    """Compute size controlling deployment resources.
+
+    Shared by both deployment targets. Model Serving accepts Small/Medium/Large
+    natively; XLarge is an Apps-only tier (Databricks Apps supports MEDIUM,
+    LARGE, XLARGE and has no Small tier). When XLarge is used with the Model
+    Serving target it is clamped to Large (its largest size).
+    """
 
     SMALL = "Small"
     MEDIUM = "Medium"
     LARGE = "Large"
+    XLARGE = "XLarge"
 
 
 class MessageRole(str, Enum):
@@ -9503,7 +9510,15 @@ class AppModel(BaseModel):
     )
     workload_size: Optional[WorkloadSize] = Field(
         default="Small",
-        description="Model Serving workload size (Small, Medium, Large).",
+        description=(
+            "Compute size for the deployment. Applies to both targets. "
+            "Model Serving accepts Small/Medium/Large (XLarge is clamped to "
+            "Large). For the Databricks Apps target this is coerced to the Apps "
+            "compute_size domain: Small/Medium leave the platform default "
+            "(MEDIUM, ~2 vCPU / 6 GB — Apps has no Small tier and existing apps "
+            "are not resized), Large → LARGE, XLarge → XLARGE. Apps compute does "
+            "not scale to zero."
+        ),
     )
     workers: Optional[int] = Field(
         default=None,
@@ -9655,6 +9670,25 @@ class AppModel(BaseModel):
         "a2a.on_behalf_of_user). Set a2a.enabled=false to opt out. Ignored for Model "
         "Serving deployments. See A2AModel for the full schema.",
     )
+
+    def apps_compute_size(self) -> Optional[str]:
+        """Map ``workload_size`` to a Databricks Apps ``compute_size``.
+
+        Returns ``None`` to leave the Apps platform default (MEDIUM) — this is
+        the case for Small and Medium, so existing apps are never resized on
+        redeploy and the simplest configs keep the current behavior. Large and
+        XLarge map to the corresponding Apps tiers. Apps has no Small tier and
+        does not scale to zero.
+        """
+        return {"Large": "LARGE", "XLarge": "XLARGE"}.get(self.workload_size)
+
+    def serving_workload_size(self) -> str:
+        """Clamp ``workload_size`` to the Model Serving domain.
+
+        Model Serving has no XLarge tier, so XLarge is clamped to Large (its
+        largest size). Small/Medium/Large pass through unchanged.
+        """
+        return "Large" if self.workload_size == "XLarge" else self.workload_size
 
     @model_validator(mode="after")
     def set_databricks_env_vars(self) -> Self:

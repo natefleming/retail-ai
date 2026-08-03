@@ -569,6 +569,13 @@ def _build_app_block(
     if config.app.space:
         app_def["space"] = config.app.space
 
+    # Coerce workload_size → Apps compute_size (None for Small/Medium leaves the
+    # platform default MEDIUM; Large/XLarge set the tier). Raw string so XLARGE
+    # passes through regardless of the installed SDK ComputeSize enum.
+    apps_compute_size = config.app.apps_compute_size()
+    if apps_compute_size:
+        app_def["compute_size"] = apps_compute_size
+
     # experiments_block sourcing:
     #   - config.app.experiment set → we already resolved the id via
     #     ``ensure_resolved`` above (creating from name if needed). The

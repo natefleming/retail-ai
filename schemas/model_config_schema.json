@@ -1485,7 +1485,7 @@
             }
           ],
           "default": "Small",
-          "description": "Model Serving workload size (Small, Medium, Large)."
+          "description": "Compute size for the deployment. Applies to both targets. Model Serving accepts Small/Medium/Large (XLarge is clamped to Large). For the Databricks Apps target this is coerced to the Apps compute_size domain: Small/Medium leave the platform default (MEDIUM, ~2 vCPU / 6 GB \u2014 Apps has no Small tier and existing apps are not resized), Large \u2192 LARGE, XLarge \u2192 XLARGE. Apps compute does not scale to zero."
         },
         "workers": {
           "anyOf": [
@@ -10687,11 +10687,12 @@
       "type": "object"
     },
     "WorkloadSize": {
-      "description": "Model Serving workload size controlling compute resources.",
+      "description": "Compute size controlling deployment resources.\n\nShared by both deployment targets. Model Serving accepts Small/Medium/Large\nnatively; XLarge is an Apps-only tier (Databricks Apps supports MEDIUM,\nLARGE, XLARGE and has no Small tier). When XLarge is used with the Model\nServing target it is clamped to Large (its largest size).",
       "enum": [
         "Small",
         "Medium",
-        "Large"
+        "Large",
+        "XLarge"
       ],
       "title": "WorkloadSize",
       "type": "string"
