@@ -93,6 +93,97 @@ def test_dataset_resolve_asset_path_cwd_fallback():
 
 
 @pytest.mark.unit
+def test_resolve_spark_read_path_passthrough_volumes():
+    """A path already on a UC volume returns unchanged and never stages."""
+    existing_path = "/Volumes/cat/sch/vol/products.parquet"
+    ds = DatasetModel(
+        table=TableModel(schema=SchemaModel(catalog_name="c", schema_name="s"), name="t")
+    )
+    provider = DatabricksProvider()
+    with (
+        patch.object(provider, "create_volume") as mock_create_volume,
+        patch("dao_ai.providers.databricks.shutil.copy2") as mock_copy,
+    ):
+        result = provider._resolve_spark_read_path(ds, Path(existing_path))
+    assert result == existing_path
+    mock_create_volume.assert_not_called()
+    mock_copy.assert_not_called()
+
+
+@pytest.mark.unit
+def test_resolve_spark_read_path_stages_workspace_file_to_volume():
+    """A workspace/local file is copied into a staging volume in the target
+    schema, and Spark is pointed at the /Volumes path."""
+    ds = DatasetModel(
+        table=TableModel(
+            schema=SchemaModel(catalog_name="mycat", schema_name="mysch"), name="products"
+        )
+    )
+    workspace_path = Path(
+        "/Workspace/Users/me/.bundle/app/files/config/data/products.snappy.parquet"
+    )
+    provider = DatabricksProvider()
+    with (
+        patch.object(provider, "create_volume") as mock_create_volume,
+        patch("dao_ai.providers.databricks.shutil.copy2") as mock_copy,
+    ):
+        result = provider._resolve_spark_read_path(ds, workspace_path)
+
+    expected = "/Volumes/mycat/mysch/dao_ai_staging/products.snappy.parquet"
+    assert result == expected
+    # Volume derived from the dataset's own target schema.
+    (volume_arg,) = mock_create_volume.call_args.args
+    assert volume_arg.full_name == "mycat.mysch.dao_ai_staging"
+    mock_copy.assert_called_once_with(str(workspace_path), expected)
+
+
+@pytest.mark.unit
+def test_dataset_staging_schema_from_fully_qualified_table_name():
+    """When no schema reference is set, catalog+schema parse from the FQN."""
+    ds = DatasetModel(table=TableModel(name="mycat.mysch.products"))
+    provider = DatabricksProvider()
+    schema = provider._dataset_staging_schema(ds)
+    assert schema.catalog_name == "mycat"
+    assert schema.schema_name == "mysch"
+
+
+@pytest.mark.unit
+def test_create_dataset_routes_csv_through_spark_read_not_pandas():
+    """csv reads via the staged spark.read path — not pd.read_csv, whose
+    header= arg is incompatible with the Spark-style ``header: true``
+    read_options the configs author."""
+    ds = DatasetModel(
+        table=TableModel(
+            schema=SchemaModel(catalog_name="mycat", schema_name="mysch"), name="orders"
+        ),
+        data="data/orders_raw.csv",
+        format="csv",
+        read_options={"header": True},
+    )
+    ds._base_path = "/Workspace/Users/me/.bundle/app/files/config"
+
+    mock_spark = MagicMock()
+    provider = DatabricksProvider()
+    with (
+        patch(
+            "pyspark.sql.SparkSession.getActiveSession", return_value=mock_spark
+        ),
+        patch.object(
+            provider,
+            "_resolve_spark_read_path",
+            return_value="/Volumes/mycat/mysch/dao_ai_staging/orders_raw.csv",
+        ) as mock_resolve,
+        patch("dao_ai.providers.databricks.pd.read_csv") as mock_read_csv,
+    ):
+        provider.create_dataset(ds)
+
+    mock_read_csv.assert_not_called()
+    mock_resolve.assert_called_once()
+    mock_spark.read.format.assert_called_once_with("csv")
+    mock_spark.read.format.return_value.options.assert_called_once_with(header=True)
+
+
+@pytest.mark.unit
 def test_from_file_stamps_base_path_on_models(tmp_path):
     """AppConfig.from_file stamps each dataset/function with the config's dir."""
     body = (
