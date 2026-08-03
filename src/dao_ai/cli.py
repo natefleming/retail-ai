@@ -5560,8 +5560,7 @@ def _deploy_run_destroy_app_bundle(
             )
             # `--wait`: `deploy_agent` (agents.deploy) returns once the update is
             # issued; block until the endpoint is READY + served model
-            # DEPLOYMENT_READY. (The apps/mcp direct path already waits internally
-            # via the provider's apps.deploy_and_wait, so only MS needs this here.)
+            # DEPLOYMENT_READY.
             wait_timeout = _wait_timeout_of(options)
             if wait_timeout is not None and config.app.endpoint_name:
                 _wait_for_resource_ready(
@@ -5573,6 +5572,18 @@ def _deploy_run_destroy_app_bundle(
         else:
             # Apps/MCP deploy directly from config + wheel (no MLflow model).
             config.deploy_agent(target=ServingMode(mode), development=development)
+            # `--wait`: the provider's `apps.deploy_and_wait` only blocks until the
+            # DEPLOYMENT is SUCCEEDED — the app PROCESS can still be booting and
+            # 502 on the first request. Gate on compute ACTIVE + GET /health 200
+            # (same poller the bundle path uses) so inference can follow at once.
+            wait_timeout = _wait_timeout_of(options)
+            if wait_timeout is not None:
+                _wait_for_resource_ready(
+                    "app",
+                    config.app.app_resource_name,
+                    options.profile,
+                    wait_timeout,
+                )
         return
 
     # --- Route 2: bundle path (default; apps/mcp App bundle, MS Job bundle) ---

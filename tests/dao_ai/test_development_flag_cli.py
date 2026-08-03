@@ -2039,6 +2039,48 @@ class TestDeployAutoGenerate:
         dep.assert_not_called()
         exec_cmd.assert_not_called()
 
+    def test_direct_apps_up_wait_gates_on_health(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """`agent up --direct --wait` (apps) must block on the App readiness poller
+        AFTER deploy_agent — deploy_and_wait only reaches deployment SUCCEEDED, but
+        the app process can still 502, so we gate on compute ACTIVE + /health 200.
+        """
+        cfg = self._write_cfg(tmp_path)
+        monkeypatch.setattr(cli, "_apply_profile_context", lambda p: None)
+        monkeypatch.setattr(
+            "dao_ai.config.AppConfig.deploy_agent",
+            lambda self_config, target=None, development=None: None,
+        )
+        with (
+            patch.object(cli, "deploy_app_bundle"),
+            patch.object(cli, "_exec_bundle_command"),
+            patch.object(cli, "_wait_for_resource_ready") as ready,
+        ):
+            opts = parse_args(
+                ["agent", "up", "-c", str(cfg), "--direct", "--wait", "120"]
+            )
+            cli.handle_agent_command(opts)
+        ready.assert_called_once_with("app", "my-app", None, 120)
+
+    def test_direct_apps_up_without_wait_does_not_poll(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        cfg = self._write_cfg(tmp_path)
+        monkeypatch.setattr(cli, "_apply_profile_context", lambda p: None)
+        monkeypatch.setattr(
+            "dao_ai.config.AppConfig.deploy_agent",
+            lambda self_config, target=None, development=None: None,
+        )
+        with (
+            patch.object(cli, "deploy_app_bundle"),
+            patch.object(cli, "_exec_bundle_command"),
+            patch.object(cli, "_wait_for_resource_ready") as ready,
+        ):
+            opts = parse_args(["agent", "up", "-c", str(cfg), "--direct"])
+            cli.handle_agent_command(opts)
+        ready.assert_not_called()
+
     def test_model_serving_direct_registers_then_deploys_no_bundle(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
