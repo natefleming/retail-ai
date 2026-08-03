@@ -1496,7 +1496,7 @@ class DatabricksProvider(ServiceProvider):
             k: str(v) if v is not None else ""
             for k, v in (config.app.environment_vars or {}).items()
         }
-        workload_size: str = config.app.workload_size
+        workload_size: str = config.app.serving_workload_size()
         tags: dict[str, str] = config.app.tags.copy() if config.app.tags else {}
 
         # Add dao_ai framework tag
@@ -2181,6 +2181,15 @@ class DatabricksProvider(ServiceProvider):
             app_body["resources"] = deployment_resources
         if user_api_scopes:
             app_body["user_api_scopes"] = user_api_scopes
+        # Coerce workload_size → Apps compute_size. None (Small/Medium) leaves
+        # the platform default (MEDIUM); Large/XLarge set the tier explicitly.
+        # Sent as a raw string so XLARGE flows through even though the installed
+        # SDK ComputeSize enum may not include it. Applied on CREATE only — the
+        # PATCH update API rejects compute_size ("Compute size updates are not
+        # supported in this update API"), so an existing app's size is left as
+        # is on redeploy via this SDK path (change it in the UI, or tear down
+        # and recreate).
+        apps_compute_size: str | None = config.app.apps_compute_size()
 
         def _set_app_resources(method: str, path: str, body: dict) -> None:
             """Create or update app via REST API.
@@ -2249,6 +2258,8 @@ class DatabricksProvider(ServiceProvider):
 
         if not app_exists:
             logger.info("Creating Databricks App", app_name=app_name)
+            if apps_compute_size:
+                app_body["compute_size"] = apps_compute_size
             _set_app_resources("POST", "/api/2.0/apps", app_body)
             # Wait for app to be ready
             app = self.w.apps.wait_get_app_active(name=app_name)
@@ -2274,6 +2285,23 @@ class DatabricksProvider(ServiceProvider):
                     )
         else:
             app = existing_app
+            # compute_size can't be changed on an existing app via the update
+            # API (it rejects the field), so warn if the configured size no
+            # longer matches — otherwise the resize would silently no-op.
+            if apps_compute_size:
+                current_size = getattr(existing_app.compute_size, "value", None) or (
+                    existing_app.compute_size
+                )
+                if current_size and str(current_size) != apps_compute_size:
+                    logger.warning(
+                        "App compute_size cannot be changed on an existing app "
+                        "via the update API; the app keeps its current size. To "
+                        "resize, change it in the Databricks UI or tear down and "
+                        "recreate the app.",
+                        app_name=app_name,
+                        current_size=str(current_size),
+                        requested_size=apps_compute_size,
+                    )
             # Update resources and scopes on existing app
             if deployment_resources or user_api_scopes:
                 logger.info("Updating app resources and scopes", app_name=app_name)

@@ -984,8 +984,10 @@ def test_deploy_apps_agent_creates_new_app():
     mock_app.trace_location = None
     mock_app.monitoring = None
     mock_app.enable_chat_proxy = True
+    mock_app.apps_compute_size.return_value = "LARGE"
     mock_config.app = mock_app
     mock_config.source_config_path = None  # No config file to upload
+    mock_config._source_config_path = None
     mock_config.rendered_yaml = None
     mock_config.model_dump.return_value = {"app": {"name": "test_app"}}
     mock_config.resources = None  # No resources (required for generate_app_resources)
@@ -1042,6 +1044,8 @@ def test_deploy_apps_agent_creates_new_app():
             body = create_call.kwargs.get("body", {})
             assert body["name"] == "test-app"  # Normalized: underscores become dashes
             assert body["description"] == "Test app description"
+            # compute_size is set on CREATE (the POST API accepts it)
+            assert body["compute_size"] == "LARGE"
             # Verify deploy_and_wait was called
             provider.w.apps.deploy_and_wait.assert_called_once()
 
@@ -1070,18 +1074,22 @@ def test_deploy_apps_agent_updates_existing_app():
     mock_app.trace_location = None
     mock_app.monitoring = None
     mock_app.enable_chat_proxy = True
+    mock_app.apps_compute_size.return_value = "LARGE"
     mock_config.app = mock_app
     mock_config.source_config_path = None  # No config file to upload
+    mock_config._source_config_path = None
     mock_config.rendered_yaml = None
     mock_config.model_dump.return_value = {"app": {"name": "test_app"}}
     mock_config.resources = None  # No resources (required for generate_app_resources)
     mock_config.agents = None
     mock_config.retrievers = None
 
-    # Create mock existing App
+    # Create mock existing App (already MEDIUM — a resize to LARGE should warn
+    # and NOT be sent on the update API, which rejects compute_size changes)
     mock_existing_app = MagicMock(spec=App)
     mock_existing_app.name = "test_app"
     mock_existing_app.url = "https://test_app.databricks.com"
+    mock_existing_app.compute_size = "MEDIUM"
     mock_existing_app.app_status = MagicMock()
     mock_existing_app.app_status.state = ApplicationState.RUNNING
 
@@ -1119,6 +1127,13 @@ def test_deploy_apps_agent_updates_existing_app():
             for call in provider.w.api_client.do.call_args_list:
                 assert call.args[0] != "POST" or "/api/2.0/apps" not in call.args[1], (
                     "POST /api/2.0/apps should not be called for existing app"
+                )
+            # compute_size must NOT be sent on any update — the PATCH API
+            # rejects it. It is only valid on CREATE.
+            for call in provider.w.api_client.do.call_args_list:
+                body = call.kwargs.get("body", {})
+                assert "compute_size" not in body, (
+                    "compute_size must not be sent on an update call"
                 )
             # Verify deploy_and_wait was called
             provider.w.apps.deploy_and_wait.assert_called_once()
