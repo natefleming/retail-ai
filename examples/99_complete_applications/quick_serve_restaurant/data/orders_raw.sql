@@ -1,6 +1,6 @@
 USE IDENTIFIER(:database);
 
-CREATE OR REPLACE TABLE orders (
+CREATE OR REPLACE TABLE orders_raw (
     row_id BIGINT NOT NULL,
     order_id STRING NOT NULL,
     created_at TIMESTAMP NOT NULL,
