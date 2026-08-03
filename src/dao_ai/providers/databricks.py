@@ -13,6 +13,7 @@ import yaml
 from databricks import agents
 from databricks.agents import PermissionLevel, set_permissions
 from databricks.ai_search.client import VectorSearchClient
+from databricks.ai_search.exceptions import BadRequest as AISearchBadRequest
 from databricks.ai_search.index import VectorSearchIndex
 from databricks.sdk import WorkspaceClient
 from databricks.sdk.errors.platform import (
@@ -453,6 +454,51 @@ def _wait_until_index_absent(
         "Index still present after delete wait — proceeding anyway",
         index_name=index_full_name,
     )
+
+
+def _sync_when_pipeline_idle(
+    index: VectorSearchIndex,
+    index_name: str,
+    timeout_seconds: int = _VS_INDEX_READY_TIMEOUT_SECONDS,
+) -> None:
+    """Trigger an incremental ``index.sync()``, tolerating a still-running sync.
+
+    ``index.sync()`` (Delta-Sync, ``pipeline_type=TRIGGERED``) only succeeds when
+    the underlying pipeline is idle; the platform rejects it with a 400 (message
+    contains ``Pipeline is in state RUNNING``) while a sync is in flight. That is
+    benign — a pipeline already RUNNING is a sync already in progress, which
+    reaches the same end state. Poll past that specific 400 until the pipeline is
+    idle and the sync is accepted (or the pipeline finishes on its own). Any other
+    ``BadRequest`` re-raises unchanged. Bounded so a genuinely stuck pipeline
+    can't hang provisioning — the caller's ``wait_until_ready(wait_for_updates=
+    True)`` asserts the index actually lands ``ONLINE_NO_PENDING_UPDATE``.
+    """
+    deadline = time.monotonic() + timeout_seconds
+    attempt = 0
+    while True:
+        try:
+            index.sync()
+            return
+        except AISearchBadRequest as exc:
+            attempt += 1
+            if "pipeline is in state running" not in str(exc).lower():
+                raise
+            if time.monotonic() >= deadline:
+                logger.warning(
+                    "Delta-Sync pipeline still RUNNING at sync timeout — relying "
+                    "on the in-flight sync; proceeding to readiness wait",
+                    index_name=index_name,
+                    timeout_seconds=timeout_seconds,
+                    attempts=attempt,
+                )
+                return
+            logger.info(
+                "Delta-Sync pipeline still RUNNING — a sync is already in flight; "
+                "waiting for it to settle before retrying",
+                index_name=index_name,
+                attempt=attempt,
+            )
+            time.sleep(30)
 
 
 def link_experiment_trace_location(config: AppConfig, experiment_id: str) -> None:
@@ -2852,10 +2898,20 @@ class DatabricksProvider(ServiceProvider):
                     index_name=index_name,
                     detailed_state=current_state,
                 )
-                # Wait for the index to be queryable before issuing sync, so we
-                # don't race against a still-provisioning index.
-                index.wait_until_ready(verbose=True, wait_for_updates=False)
-                index.sync()
+                # Wait for the pipeline to be idle (not merely queryable) before
+                # issuing sync. wait_for_updates=False returns while an update is
+                # still in flight (detailed_state merely *contains* ONLINE), and
+                # sync() 400s ("Pipeline is in state RUNNING") against a running
+                # pipeline. wait_for_updates=True blocks until
+                # ONLINE_NO_PENDING_UPDATE. Bounded like the final readiness wait.
+                index.wait_until_ready(
+                    verbose=True,
+                    wait_for_updates=True,
+                    timeout=timedelta(seconds=_VS_INDEX_READY_TIMEOUT_SECONDS),
+                )
+                # Defensive: tolerate the residual TOCTOU window if the pipeline
+                # re-enters RUNNING between the wait and the sync.
+                _sync_when_pipeline_idle(index, index_name)
 
         # create_delta_sync_index_and_wait and index.sync() return before the
         # underlying data sync completes. wait_for_updates=True blocks until the

@@ -178,6 +178,71 @@ class TestSelfHeal:
 
 
 @pytest.mark.unit
+class TestSyncPipelineRunningRace:
+    """``index.sync()`` 400s ("Pipeline is in state RUNNING") when a Delta-Sync
+    pipeline is mid-update. That is benign — a sync is already in flight — so
+    provisioning must poll past it, not fail the task."""
+
+    def test_running_pipeline_400_is_retried_then_succeeds(self) -> None:
+        provider, vsc = _provider()
+        idx = MagicMock()
+        idx.describe.return_value = _delta_sync_details("ONLINE_NO_PENDING_UPDATE")
+        # First sync() races the pipeline; second succeeds once it's idle.
+        idx.sync.side_effect = [
+            dbx.AISearchBadRequest(
+                "Index is not ready to sync yet. Pipeline is in state RUNNING "
+                "and needs to be in one of the following states to sync: "
+                "COMPLETED, FAILED, CANCELED."
+            ),
+            None,
+        ]
+        vsc.get_index.return_value = idx
+        with (
+            patch.object(dbx, "endpoint_exists", return_value=True),
+            patch.object(dbx, "index_exists", return_value=True),
+            patch.object(dbx, "_source_table_delta_uuid", return_value="uuid-1"),
+            patch.object(dbx.time, "sleep"),
+        ):
+            provider.create_vector_store(_vector_store())
+        assert idx.sync.call_count == 2
+        vsc.delete_index.assert_not_called()
+
+    def test_other_bad_request_is_reraised(self) -> None:
+        provider, vsc = _provider()
+        idx = MagicMock()
+        idx.describe.return_value = _delta_sync_details("ONLINE_NO_PENDING_UPDATE")
+        idx.sync.side_effect = dbx.AISearchBadRequest("Some other 400")
+        vsc.get_index.return_value = idx
+        with (
+            patch.object(dbx, "endpoint_exists", return_value=True),
+            patch.object(dbx, "index_exists", return_value=True),
+            patch.object(dbx, "_source_table_delta_uuid", return_value="uuid-1"),
+        ):
+            with pytest.raises(dbx.AISearchBadRequest, match="Some other 400"):
+                provider.create_vector_store(_vector_store())
+
+    def test_presync_wait_uses_wait_for_updates(self) -> None:
+        """The pre-sync gate must wait for the pipeline to be idle
+        (wait_for_updates=True), not merely queryable, to avoid the race."""
+        provider, vsc = _provider()
+        idx = MagicMock()
+        idx.describe.return_value = _delta_sync_details("ONLINE_NO_PENDING_UPDATE")
+        vsc.get_index.return_value = idx
+        with (
+            patch.object(dbx, "endpoint_exists", return_value=True),
+            patch.object(dbx, "index_exists", return_value=True),
+            patch.object(dbx, "_source_table_delta_uuid", return_value="uuid-1"),
+        ):
+            provider.create_vector_store(_vector_store())
+        # Every wait_until_ready in the healthy path waits for updates to settle.
+        assert idx.wait_until_ready.call_count >= 2
+        assert all(
+            call.kwargs.get("wait_for_updates") is True
+            for call in idx.wait_until_ready.call_args_list
+        )
+
+
+@pytest.mark.unit
 class TestStaleHelpers:
     def test_index_is_delta_sync_true_false(self) -> None:
         assert dbx._index_is_delta_sync(_delta_sync_details()) is True
