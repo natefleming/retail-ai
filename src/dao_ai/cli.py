@@ -327,15 +327,25 @@ def _add_bundle_source_args(parser: ArgumentParser) -> None:
 
 
 def _add_wait_argument(parser: ArgumentParser) -> None:
-    """Add the opt-in ``--wait [SECONDS]`` flag to a ``down`` verb.
+    """Add the opt-in ``--wait [SECONDS]`` flag to an ``up`` or ``down`` verb.
 
-    ``down`` deletes the deployed resource (App or serving endpoint) and returns
-    as soon as the delete is *issued* — the delete is async, so the resource can
-    still be ``DELETING`` afterward. A deploy that immediately follows a teardown
-    then races it and hits ``400 ... compute is in DELETING state``. ``--wait``
-    makes ``down`` block until the resource is fully gone, so a following deploy
-    can't race it. Bare ``--wait`` uses the default timeout; ``--wait N`` overrides
-    it; omitting the flag returns immediately (default fire-and-forget).
+    The flag blocks until the deployment reaches a stable state, so a follow-on
+    step can't race an async transition. Its meaning depends on the verb:
+
+    * ``down`` — the delete is issued async (the resource can still be
+      ``DELETING``), so a deploy that immediately follows races it and hits
+      ``400 ... compute is in DELETING state``. ``--wait`` blocks until the
+      resource is fully GONE.
+    * ``up`` — the deploy returns as soon as it is issued (or the provisioning
+      job finishes), while the app/endpoint may not yet be able to serve
+      inference. ``--wait`` blocks until the resource is READY: for an App,
+      compute is ``ACTIVE`` and ``GET <url>/health`` returns 200; for a serving
+      endpoint, the endpoint is ``READY`` and its served model is
+      ``DEPLOYMENT_READY``. A terminal failure (App ``CRASHED``, served model
+      ``DEPLOYMENT_FAILED``) or timeout exits non-zero.
+
+    Bare ``--wait`` uses the default timeout; ``--wait N`` overrides it; omitting
+    the flag returns immediately (default fire-and-forget).
     """
     parser.add_argument(
         "--wait",
@@ -344,18 +354,21 @@ def _add_wait_argument(parser: ArgumentParser) -> None:
         const=_DEFAULT_WAIT_SECONDS,
         default=None,
         metavar="SECONDS",
-        help="After deleting, wait up to SECONDS (default %(const)s) for the "
-        "app/endpoint to be fully gone before returning, so a following deploy "
-        "can't race the teardown. Omit to return as soon as the delete is issued.",
+        help="Wait up to SECONDS (default %(const)s) for the deployment to reach a "
+        "stable state before returning: on `up`, until the app/endpoint is READY "
+        "to serve (exits non-zero on failure/timeout); on `down`, until the "
+        "app/endpoint is fully deleted. Omit to return as soon as the operation is "
+        "issued.",
     )
 
 
 def _wait_timeout_of(options: Namespace) -> Optional[int]:
     """The ``--wait`` timeout (seconds) for a verb, or ``None`` when not waiting.
 
-    ``--wait`` is defined only on the ``down`` verb parser, so ``options.wait`` is
-    absent for other verbs; treat that (and an omitted flag) as ``None`` = don't
-    wait. Centralizes the one conditional-attribute read so call sites stay typed.
+    ``--wait`` is defined only on the ``up`` and ``down`` verb parsers, so
+    ``options.wait`` is absent for other verbs; treat that (and an omitted flag)
+    as ``None`` = don't wait. Centralizes the one conditional-attribute read so
+    call sites stay typed.
     """
     return getattr(options, "wait", None)
 
@@ -519,6 +532,11 @@ def _add_noun_verb_parsers(
     if is_workflow:
         _add_workflow_target_args(up_parser)
     _add_mode_argument(up_parser, choices=["model_serving", "apps", "mcp"])
+    # `up --wait [SECONDS]` blocks until the App/endpoint is READY to serve
+    # inference (App: compute ACTIVE + GET /health 200; endpoint: READY +
+    # served-model DEPLOYMENT_READY), exiting non-zero on failure/timeout. The
+    # `down` verb (in the verb loop below) offers the deletion-oriented `--wait`.
+    _add_wait_argument(up_parser)
     # --direct (SDK, no DAB on disk) is agent-only: the workflow noun's whole
     # purpose is running the provisioning JOB, which requires the DAB — there is
     # no meaningful bundle-less path, so --direct would be a silent no-op.
@@ -630,8 +648,9 @@ def _add_noun_verb_parsers(
         # `down` returns as soon as the (async) delete is issued; `--wait` blocks
         # until the deployed App/endpoint is fully gone so a following deploy
         # can't race the teardown. `--purge` also PERMANENTLY deletes the MLflow
-        # experiment (not just soft-delete). Both nouns deploy an App (apps/mcp)
-        # or a serving endpoint (model_serving), so both offer them.
+        # experiment (not just soft-delete). (`up` offers its own readiness
+        # `--wait`, registered on the dedicated `up` parser above.) This loop
+        # never processes `up`, so it is not handled here.
         if verb == "down":
             _add_wait_argument(verb_parser)
             _add_purge_argument(verb_parser)
@@ -4508,6 +4527,30 @@ def run_databricks_command(
                 purge=purge,
             )
 
+    # `workflow up --wait`: the provisioning job's `06_deploy_agent` step deploys
+    # the agent IMPERATIVELY (App for apps/mcp, serving endpoint for
+    # model_serving), and `bundle run deploy_job` returns when the job finishes —
+    # but the App/endpoint may still be starting. Block until it is READY to serve
+    # (mirrors the mode-branch of the destroy cleanup above). Exits non-zero on a
+    # failed deploy or timeout.
+    if (
+        command is not None
+        and command[:2] == ["bundle", "run"]
+        and wait_timeout is not None
+        and not dry_run
+        and app_config
+    ):
+        deployed_mode_up: str = mode or "apps"
+        if deployed_mode_up == "model_serving":
+            if app_config.app.endpoint_name:
+                _wait_for_resource_ready(
+                    "endpoint", app_config.app.endpoint_name, profile, wait_timeout
+                )
+        else:
+            _wait_for_resource_ready(
+                "app", app_config.app.app_resource_name, profile, wait_timeout
+            )
+
 
 def _print_job_link(
     cwd: Path,
@@ -4656,6 +4699,169 @@ def _wait_for_resource_deleted(
     )
 
 
+def _wait_for_resource_ready(
+    kind: str,
+    name: str,
+    profile: Optional[str],
+    timeout_seconds: int = _DEFAULT_WAIT_SECONDS,
+) -> None:
+    """Block until a just-deployed resource is READY to serve inference, or fail.
+
+    ``up`` returns as soon as the deploy is issued (or the provisioning job
+    finishes) — the App/endpoint may still be starting and unable to serve. This
+    blocks until it is actually servable. The readiness signal DIFFERS by resource:
+
+    * ``kind == "app"`` (Databricks Apps, agent + mcp) — two phases against a
+      single deadline: (a) poll ``w.apps.get`` until ``compute_status.state`` is
+      ``ACTIVE`` (so the URL/proxy exists), then (b) poll ``GET <app.url>/health``
+      (behind the Apps auth proxy → auth headers from ``w.config.authenticate()``)
+      until it returns 200 — a 200 means the app PROCESS is up and answering HTTP.
+      ``app_status.state == CRASHED`` or ``compute_status.state == ERROR`` is a
+      terminal failure.
+    * ``kind == "endpoint"`` (Model Serving; no HTTP health route exists) — poll
+      ``w.serving_endpoints.get`` until ``state.ready == READY``,
+      ``state.config_update == NOT_UPDATING``, and every served entity's
+      ``state.deployment == DEPLOYMENT_READY``. ``UPDATE_FAILED`` or a served
+      entity in ``DEPLOYMENT_FAILED``/``DEPLOYMENT_ABORTED`` is terminal.
+
+    Unlike :func:`_wait_for_resource_deleted` (which warns and returns on timeout),
+    readiness is an ASSERTION: a terminal-failure state OR timeout logs an error
+    and ``sys.exit(1)`` so CI/scripts catch a broken deploy.
+    """
+    import random
+    import time
+
+    from databricks.sdk import WorkspaceClient
+    from databricks.sdk.service.apps import ApplicationState, ComputeState
+    from databricks.sdk.service.serving import (
+        EndpointStateConfigUpdate,
+        EndpointStateReady,
+        ServedModelStateDeployment,
+    )
+
+    _apply_profile_context(profile)
+    w = WorkspaceClient(profile=profile) if profile else WorkspaceClient()
+
+    logger.info(
+        f"Waiting up to {timeout_seconds}s for {kind} '{name}' to be ready to "
+        "serve inference..."
+    )
+    deadline = time.monotonic() + timeout_seconds
+    attempt = 1
+
+    def _sleep() -> None:
+        nonlocal attempt
+        time.sleep(min(attempt, 10) + random.random())
+        attempt += 1
+
+    def _fail(msg: str) -> None:
+        logger.error(msg)
+        sys.exit(1)
+
+    if kind == "app":
+        # Phase (a): compute ACTIVE (URL/proxy exists) — surfaces CRASHED early.
+        app_url: Optional[str] = None
+        while time.monotonic() < deadline:
+            app = w.apps.get(name=name)
+            compute_state = getattr(getattr(app, "compute_status", None), "state", None)
+            app_state = getattr(getattr(app, "app_status", None), "state", None)
+            if app_state == ApplicationState.CRASHED:
+                _fail(f"App '{name}' CRASHED during startup — deploy is not servable.")
+            if compute_state == ComputeState.ERROR:
+                msg = getattr(getattr(app, "compute_status", None), "message", "")
+                _fail(f"App '{name}' compute is in ERROR state: {msg}")
+            if compute_state == ComputeState.ACTIVE:
+                app_url = app.url
+                break
+            logger.debug(f"App '{name}' compute state={compute_state}; waiting...")
+            _sleep()
+        if app_url is None:
+            _fail(
+                f"App '{name}' compute did not reach ACTIVE within {timeout_seconds}s."
+            )
+        # Phase (b): the app process answers HTTP 200 on /health (behind the proxy).
+        import httpx
+
+        health_url = f"{app_url.rstrip('/')}/health"
+        headers = w.config.authenticate() or {}
+        while time.monotonic() < deadline:
+            try:
+                resp = httpx.get(
+                    health_url, headers=headers, timeout=10.0, follow_redirects=True
+                )
+                if resp.status_code == 200:
+                    logger.info(f"App '{name}' is ready (GET /health → 200).")
+                    return
+                logger.debug(f"App '{name}' /health → {resp.status_code}; waiting...")
+            except Exception as e:  # noqa: BLE001 — pre-ready connection errors are expected
+                logger.debug(f"App '{name}' /health not reachable yet: {e}")
+            # /health isn't passing yet — spend one SDK call to see WHY: a live
+            # CRASHED signal (compute ACTIVE but the process died) is terminal, so
+            # fail fast instead of polling to the deadline.
+            app_state = getattr(
+                getattr(w.apps.get(name=name), "app_status", None), "state", None
+            )
+            if app_state == ApplicationState.CRASHED:
+                _fail(f"App '{name}' CRASHED during startup — deploy is not servable.")
+            _sleep()
+        _fail(
+            f"App '{name}' compute is ACTIVE but /health did not return 200 within "
+            f"{timeout_seconds}s — the app process is not serving."
+        )
+
+    elif kind == "endpoint":
+        while time.monotonic() < deadline:
+            ep = w.serving_endpoints.get(name=name)
+            state = getattr(ep, "state", None)
+            ready = getattr(state, "ready", None)
+            config_update = getattr(state, "config_update", None)
+            if config_update == EndpointStateConfigUpdate.UPDATE_FAILED:
+                _fail(
+                    f"Endpoint '{name}' config update FAILED — deploy is not servable."
+                )
+            entities = (
+                getattr(getattr(ep, "config", None), "served_entities", None) or []
+            )
+            deployments = [
+                getattr(getattr(se, "state", None), "deployment", None)
+                for se in entities
+            ]
+            for dep in deployments:
+                if dep in (
+                    ServedModelStateDeployment.DEPLOYMENT_FAILED,
+                    ServedModelStateDeployment.DEPLOYMENT_ABORTED,
+                ):
+                    _fail(
+                        f"Endpoint '{name}' served model deployment {dep} — "
+                        "deploy is not servable."
+                    )
+            all_models_ready = bool(deployments) and all(
+                dep == ServedModelStateDeployment.DEPLOYMENT_READY
+                for dep in deployments
+            )
+            if (
+                ready == EndpointStateReady.READY
+                and config_update == EndpointStateConfigUpdate.NOT_UPDATING
+                and all_models_ready
+            ):
+                logger.info(
+                    f"Endpoint '{name}' is ready (READY + served model "
+                    "DEPLOYMENT_READY)."
+                )
+                return
+            logger.debug(
+                f"Endpoint '{name}' ready={ready} config_update={config_update} "
+                f"deployments={deployments}; waiting..."
+            )
+            _sleep()
+        _fail(
+            f"Endpoint '{name}' did not become READY within {timeout_seconds}s — "
+            "the endpoint is not serving."
+        )
+    else:
+        raise ValueError(f"unknown resource kind: {kind!r} (expected 'app'/'endpoint')")
+
+
 def deploy_app_bundle(
     config: AppConfig,
     *,
@@ -4732,6 +4938,11 @@ def deploy_app_bundle(
             cwd=staging_dir,
             dry_run=dry_run,
         )
+        # `--wait`: block until the App is actually serving (compute ACTIVE +
+        # GET /health 200) so a caller can send inference immediately. Exits
+        # non-zero on a CRASHED app or timeout.
+        if wait_timeout is not None and not dry_run:
+            _wait_for_resource_ready("app", app_name, profile, wait_timeout)
 
     if (deploy or run) and not dry_run:
         _print_app_link(app_name)
@@ -4873,6 +5084,14 @@ def _run_ms_job_bundle(
             dry_run=dry_run,
             stage_only_msg="",
         )
+        # `--wait`: the deploy-agent job returns once `agents.deploy()` is issued,
+        # but the endpoint may still be spinning up its served model. Block until
+        # the endpoint is READY + served model DEPLOYMENT_READY so inference can
+        # follow immediately. Exits non-zero on a failed deployment or timeout.
+        if wait_timeout is not None and not dry_run and config.app.endpoint_name:
+            _wait_for_resource_ready(
+                "endpoint", config.app.endpoint_name, profile, wait_timeout
+            )
 
     if (deploy or run) and not dry_run and config.app.endpoint_name:
         _print_endpoint_link(config.app.endpoint_name)
@@ -5147,6 +5366,9 @@ def _handle_up_workflow_command(options: Namespace) -> None:
         # Build already happened on the deploy call above; the run must NOT
         # re-stage (that rebuilt the bundle every `up`). `up` builds exactly once.
         stage=False,
+        # `--wait`: block until the imperatively-deployed App/endpoint is READY
+        # to serve (resolved by mode inside run_databricks_command).
+        wait_timeout=_wait_timeout_of(options),
     )
 
 
@@ -5336,6 +5558,18 @@ def _deploy_run_destroy_app_bundle(
             config.deploy_agent(
                 target=ServingMode.MODEL_SERVING, development=development
             )
+            # `--wait`: `deploy_agent` (agents.deploy) returns once the update is
+            # issued; block until the endpoint is READY + served model
+            # DEPLOYMENT_READY. (The apps/mcp direct path already waits internally
+            # via the provider's apps.deploy_and_wait, so only MS needs this here.)
+            wait_timeout = _wait_timeout_of(options)
+            if wait_timeout is not None and config.app.endpoint_name:
+                _wait_for_resource_ready(
+                    "endpoint",
+                    config.app.endpoint_name,
+                    options.profile,
+                    wait_timeout,
+                )
         else:
             # Apps/MCP deploy directly from config + wheel (no MLflow model).
             config.deploy_agent(target=ServingMode(mode), development=development)
