@@ -120,8 +120,10 @@ class TestPackagedAssets:
 
             suffix = expected_suffix[prefix]
             if suffix:
-                assert f'+ "{suffix}"' in text, (
-                    f"{p.name} must append the {suffix} extras suffix"
+                # Bind the suffix to the concatenation onto the glob fallback
+                # expression (not merely present somewhere, e.g. a comment).
+                assert f'), "dao-ai")\n    + "{suffix}"' in text, (
+                    f"{p.name} must append {suffix} onto the _dao_ai_dep spec"
                 )
             else:
                 # Core provisioning notebooks must not append any extras suffix.
