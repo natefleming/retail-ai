@@ -4785,13 +4785,6 @@ def _wait_for_resource_ready(
         health_url = f"{app_url.rstrip('/')}/health"
         headers = w.config.authenticate() or {}
         while time.monotonic() < deadline:
-            # A live CRASHED signal can still surface here (compute ACTIVE but the
-            # process died); check it before the HTTP poll so we fail fast.
-            app_state = getattr(
-                getattr(w.apps.get(name=name), "app_status", None), "state", None
-            )
-            if app_state == ApplicationState.CRASHED:
-                _fail(f"App '{name}' CRASHED during startup — deploy is not servable.")
             try:
                 resp = httpx.get(
                     health_url, headers=headers, timeout=10.0, follow_redirects=True
@@ -4802,6 +4795,14 @@ def _wait_for_resource_ready(
                 logger.debug(f"App '{name}' /health → {resp.status_code}; waiting...")
             except Exception as e:  # noqa: BLE001 — pre-ready connection errors are expected
                 logger.debug(f"App '{name}' /health not reachable yet: {e}")
+            # /health isn't passing yet — spend one SDK call to see WHY: a live
+            # CRASHED signal (compute ACTIVE but the process died) is terminal, so
+            # fail fast instead of polling to the deadline.
+            app_state = getattr(
+                getattr(w.apps.get(name=name), "app_status", None), "state", None
+            )
+            if app_state == ApplicationState.CRASHED:
+                _fail(f"App '{name}' CRASHED during startup — deploy is not servable.")
             _sleep()
         _fail(
             f"App '{name}' compute is ACTIVE but /health did not return 200 within "

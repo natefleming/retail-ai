@@ -46,10 +46,13 @@ dai() {
 # valid response. Run this immediately after `up --wait` so it doubly proves the
 # readiness gate: `up --wait` only returns once the App/endpoint is servable, so
 # this request must succeed straight away (no retry/sleep). `kind` is "app"
-# (apps/mcp) or "endpoint" (model_serving) — the check path differs per the
-# platform surface.
-#   Apps: POST <app.url>/invocations behind the Apps auth proxy.
-#   Model Serving: query the serving endpoint via the SDK OpenAI client.
+# (apps/mcp) or "endpoint" (model_serving).
+#
+# dao-ai agents ALWAYS speak the MLflow Responses contract (`{"input": [...]}`)
+# on `/invocations` — identical request/response body for Apps and Model Serving
+# (see docs/background_agents.md); only the URL differs:
+#   Apps:          POST <app.url>/invocations              (behind the Apps proxy)
+#   Model Serving: POST <host>/serving-endpoints/<ep>/invocations
 infer() {
   local kind="$1"
   printf '\n\033[1;35m# immediate inference check (%s) against %s\033[0m\n' \
@@ -59,6 +62,7 @@ infer() {
 import os
 import sys
 
+import httpx
 from databricks.sdk import WorkspaceClient
 
 from dao_ai.config import AppConfig
@@ -66,31 +70,24 @@ from dao_ai.config import AppConfig
 kind = os.environ["DAO_AI_INFER_KIND"]
 config = AppConfig.from_file(os.environ["DAO_AI_INFER_CONFIG"])
 w = WorkspaceClient()
-prompt = "Reply with a short greeting."
+host = (w.config.host or "").rstrip("/")
 
 if kind == "app":
-    import httpx
-
-    app_name = config.app.app_resource_name
-    url = w.apps.get(name=app_name).url.rstrip("/") + "/invocations"
-    headers = w.config.authenticate() or {}
-    headers["Content-Type"] = "application/json"
-    resp = httpx.post(
-        url,
-        headers=headers,
-        json={"input": [{"role": "user", "content": prompt}]},
-        timeout=120.0,
-    )
-    resp.raise_for_status()
-    body = resp.text
+    url = w.apps.get(name=config.app.app_resource_name).url.rstrip("/") + "/invocations"
 else:  # endpoint (model_serving)
-    endpoint = config.app.endpoint_name
-    oai = w.serving_endpoints.get_open_ai_client()
-    completion = oai.chat.completions.create(
-        model=endpoint,
-        messages=[{"role": "user", "content": prompt}],
-    )
-    body = completion.choices[0].message.content or ""
+    url = f"{host}/serving-endpoints/{config.app.endpoint_name}/invocations"
+
+# Same Responses-contract body for both surfaces.
+headers = w.config.authenticate() or {}
+headers["Content-Type"] = "application/json"
+resp = httpx.post(
+    url,
+    headers=headers,
+    json={"input": [{"role": "user", "content": "Reply with a short greeting."}]},
+    timeout=120.0,
+)
+resp.raise_for_status()
+body = resp.text
 
 if not body.strip():
     print("Inference check FAILED: empty response", file=sys.stderr)
@@ -144,9 +141,11 @@ dai agent down  -c "$CONFIG"
 
 # ---------------------------------------------------------------------------
 # Agent on Model Serving (-m ms). `up --wait` blocks until the endpoint is READY
-# + its served model is DEPLOYMENT_READY; then query it immediately.
+# + its served model is DEPLOYMENT_READY; then query it immediately. Model
+# Serving cold-start (container build + model load) routinely exceeds the 600s
+# default, so give it a generous 1800s — live-observed ~12min+ on fevm.
 # ---------------------------------------------------------------------------
-dai agent up   -c "$CONFIG" -m ms --wait
+dai agent up   -c "$CONFIG" -m ms --wait 1800
 infer endpoint
 dai agent down -c "$CONFIG" -m ms
 
