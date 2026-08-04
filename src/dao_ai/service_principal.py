@@ -7,12 +7,19 @@ Three operations, all workspace-level (no AccountClient needed):
 * :func:`store` — write client id / secret into a Databricks secret scope.
 * :func:`grant` — walk an :class:`~dao_ai.config.AppConfig` and grant the service
   principal the read/execute privileges an agent runtime needs on every declared
-  resource (catalog, schema, table, function, vector index, warehouse, genie room,
-  experiment, serving endpoint).
+  resource (catalog, schema, table, function, vector index, volume, connection,
+  warehouse, genie room, experiment, serving endpoint).
 
 The grant path reuses the same idempotent, warn-and-continue Unity Catalog
 permissions REST call dao-ai already uses at deploy time
 (``PATCH /api/2.1/unity-catalog/permissions/{securable_type}/{full_name}``).
+
+Lakebase autoscaling projects are a separate plane: SP access there is a Postgres
+role (created via the Postgres API), not a UC grant. :func:`grant` delegates to
+:meth:`~dao_ai.providers.databricks.DatabricksProvider.create_lakebase_autoscaling_role`,
+but only when the SP being granted matches the ``DatabaseModel``'s ``client_id`` —
+otherwise the role would belong to a different identity than the one the agent
+connects as, so the step is reported and skipped.
 """
 
 from __future__ import annotations
@@ -31,11 +38,14 @@ if TYPE_CHECKING:
     from dao_ai.config import (
         AiSearchVectorStoreModel,
         AppConfig,
+        ConnectionModel,
+        DatabaseModel,
         FunctionModel,
         GenieRoomModel,
         SchemaModel,
         ServicePrincipalModel,
         TableModel,
+        VolumeModel,
         WarehouseModel,
     )
 
@@ -288,9 +298,21 @@ class Grant:
     """A single intended permission grant (used for dry-run reporting)."""
 
     kind: str  # "uc" | "warehouse" | "genie" | "experiment" | "serving_endpoint"
+    #          | "lakebase_role"
     target: str  # full name / id
     privileges: Sequence[str]
     securable_type: Optional[str] = None  # for kind == "uc"
+    # The config dict key of the resource this grant came from. Set for the
+    # ``lakebase_role`` kind so the apply step re-resolves the exact
+    # ``DatabaseModel`` that passed the identity check in ``build_grant_plan``
+    # (matching on ``project`` alone could pick a different model when two
+    # DatabaseModels share a project but pin different ``client_id``s).
+    resource_key: Optional[str] = None
+    # Human-readable context surfaced in the plan (dry-run and apply). Used by
+    # the ``lakebase_role`` kind to explain an intentional skip (e.g. the granted
+    # SP does not match the DatabaseModel's ``client_id``). When set on a
+    # ``lakebase_role`` grant, the Postgres role is NOT created.
+    note: Optional[str] = None
     # Set during apply (not dry-run): True if applied, False if it errored,
     # None if not attempted (dry-run).
     applied: Optional[bool] = None
@@ -361,6 +383,28 @@ def build_grant_plan(config: "AppConfig", principal: str) -> GrantPlan:
             if index_name and str(index_name).count(".") == 2:
                 plan.grants.append(Grant("uc", str(index_name), ["SELECT"], "table"))
 
+        # Volumes → READ_VOLUME (+ ensure their schema is granted)
+        volume: "VolumeModel"
+        for volume in resources.volumes.values():
+            if volume.schema_model is not None:
+                _add_schema(
+                    volume.schema_model.catalog_name, volume.schema_model.schema_name
+                )
+            if volume.full_name and volume.full_name.count(".") == 2:
+                plan.grants.append(
+                    Grant("uc", volume.full_name, ["READ_VOLUME"], "volume")
+                )
+
+        # Connections → USE_CONNECTION (connection names are top-level, unqualified)
+        connection: "ConnectionModel"
+        for connection in resources.connections.values():
+            if connection.full_name:
+                plan.grants.append(
+                    Grant(
+                        "uc", connection.full_name, ["USE_CONNECTION"], "connection"
+                    )
+                )
+
         # Warehouses → CAN_USE (workspace permission, not UC)
         warehouse: "WarehouseModel"
         for warehouse in resources.warehouses.values():
@@ -374,6 +418,48 @@ def build_grant_plan(config: "AppConfig", principal: str) -> GrantPlan:
             space_id = value_of(room.space_id) if room.space_id else None
             if space_id:
                 plan.grants.append(Grant("genie", str(space_id), ["CAN_RUN"]))
+
+        # Lakebase autoscaling projects → Postgres SUPERUSER role (created via the
+        # Postgres API, NOT a UC PATCH — see DatabricksProvider.create_lakebase_
+        # autoscaling_role). The Postgres role is keyed on the DatabaseModel's own
+        # ``client_id``, so we only create it when the SP being granted matches;
+        # otherwise the deployed agent would connect to Postgres as one identity
+        # while the role belongs to another (silent runtime auth failure). Mismatch
+        # / unresolved cases are planned with a ``note`` and skipped at apply time.
+        db_key: str
+        database: "DatabaseModel"
+        for db_key, database in resources.databases.items():
+            if not database.is_lakebase or database.on_behalf_of_user:
+                continue
+            # ``is_lakebase`` is defined as ``project is not None``, so project
+            # is always set here.
+            project = str(database.project)
+            configured = value_of(database.client_id) if database.client_id else None
+            note: Optional[str] = None
+            if not configured:
+                note = (
+                    "SKIP: DatabaseModel.client_id is unset or resolved to None "
+                    "(secret scope populated?). A Postgres role can only be created "
+                    "for a concrete service-principal client id — provision the SP "
+                    "and populate the scope, then re-run."
+                )
+            elif configured != principal:
+                note = (
+                    f"SKIP: granting SP '{principal}' but this Lakebase project is "
+                    f"configured for client_id '{configured}'. The Postgres role is "
+                    f"created for the configured id, so '{principal}' would fail at "
+                    f"connect time. Grant the configured SP (--app-sp) or align "
+                    f"DatabaseModel.client_id."
+                )
+            plan.grants.append(
+                Grant(
+                    "lakebase_role",
+                    project,
+                    ["DATABRICKS_SUPERUSER"],
+                    resource_key=db_key,
+                    note=note,
+                )
+            )
 
     # Experiment + serving endpoint (only if declared on the app)
     app = config.app
@@ -423,6 +509,19 @@ def grant(
                 _grant_experiment(w, principal, g.target)
             elif g.kind == "serving_endpoint":
                 _grant_serving_endpoint(w, principal, g.target)
+            elif g.kind == "lakebase_role":
+                if g.note:
+                    # Intentional skip (identity mismatch or unresolved
+                    # client_id) — surface the reason and leave ``applied`` None
+                    # (not attempted) so it never reads as a success. The CLI
+                    # layer (``_print_grants``) renders the note for the user.
+                    logger.warning(
+                        "Lakebase Postgres role not created",
+                        project=g.target,
+                        reason=g.note,
+                    )
+                    continue
+                _grant_lakebase_role(w, config, g.resource_key)
             g.applied = True
         except Exception as e:  # noqa: BLE001 — warn-and-continue per resource
             g.applied = False
@@ -435,6 +534,33 @@ def grant(
             )
 
     return plan
+
+
+def _grant_lakebase_role(
+    w: "WorkspaceClient", config: "AppConfig", resource_key: Optional[str]
+) -> None:
+    """Create the Postgres SUPERUSER role for a Lakebase project's service principal.
+
+    Delegates to the existing, idempotent
+    :meth:`DatabricksProvider.create_lakebase_autoscaling_role` rather than
+    reinventing the Postgres-API role logic. The provider method reads the
+    ``DatabaseModel``'s own ``client_id`` and connects with its configured
+    credentials, so the caller has already verified (in :func:`build_grant_plan`)
+    that the SP being granted matches that ``client_id``.
+
+    Re-resolves the model by its config dict key (not by ``project``) so we act
+    on the exact ``DatabaseModel`` that passed the identity check — two models
+    can share a ``project`` while pinning different ``client_id``s.
+    """
+    from dao_ai.providers.databricks import DatabricksProvider
+
+    databases = config.resources.databases if config.resources else {}
+    database = databases.get(resource_key) if resource_key is not None else None
+    if database is None:
+        raise ValueError(
+            f"No Lakebase DatabaseModel with key '{resource_key}' found in config"
+        )
+    DatabricksProvider(w=w).create_lakebase_autoscaling_role(database)
 
 
 def _grant_uc(
