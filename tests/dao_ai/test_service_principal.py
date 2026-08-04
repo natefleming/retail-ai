@@ -156,12 +156,12 @@ def test_grant_plan_volume_reuses_schema_grant() -> None:
     assert len(schemas) == 1
 
 
-def _lakebase_db(client_id: str):
+def _lakebase_db(client_id: str, project: str = "my-proj", name: str = "lb"):
     from dao_ai.config import DatabaseModel
 
     return DatabaseModel(
-        name="lb",
-        project="my-proj",
+        name=name,
+        project=project,
         client_id=client_id,
         client_secret="secret",
     )
@@ -324,6 +324,34 @@ def test_grant_lakebase_role_skipped_when_sp_mismatched(monkeypatch) -> None:
     lb = next(g for g in plan.grants if g.kind == "lakebase_role")
     # skipped (not attempted) → applied stays None, never reads as success
     assert lb.applied is None
+
+
+def test_grant_lakebase_role_resolves_by_key_not_project(monkeypatch) -> None:
+    """Two DBs share a project but pin different client_ids; only the matching
+    one must be acted on — apply must re-resolve by config key, not project, so
+    it can't pick the mismatched model and create a role for the wrong SP."""
+    from dao_ai.config import ResourcesModel
+    import dao_ai.providers.databricks as dbx
+
+    provider = MagicMock()
+    monkeypatch.setattr(dbx, "DatabricksProvider", lambda w: provider)
+
+    other = "22222222-2222-2222-2222-222222222222"
+    match_db = _lakebase_db(PRINCIPAL, project="shared-proj", name="match")
+    mismatch_db = _lakebase_db(other, project="shared-proj", name="mismatch")
+    w = MagicMock()
+    config = AppConfig(
+        resources=ResourcesModel(
+            databases={"match": match_db, "mismatch": mismatch_db}
+        ),
+    )
+    plan = grant(w, principal=PRINCIPAL, config=config, dry_run=False)
+
+    # Exactly one role created, and it's the model whose client_id == principal.
+    provider.create_lakebase_autoscaling_role.assert_called_once_with(match_db)
+    lb = {g.resource_key: g for g in plan.grants if g.kind == "lakebase_role"}
+    assert lb["match"].applied is True and lb["match"].note is None
+    assert lb["mismatch"].applied is None and lb["mismatch"].note
 
 
 def test_grant_lakebase_role_not_created_on_dry_run(monkeypatch) -> None:

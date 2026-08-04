@@ -25,7 +25,6 @@ connects as, so the step is reported and skipped.
 from __future__ import annotations
 
 import re
-import sys
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Optional, Sequence
 
@@ -303,6 +302,12 @@ class Grant:
     target: str  # full name / id
     privileges: Sequence[str]
     securable_type: Optional[str] = None  # for kind == "uc"
+    # The config dict key of the resource this grant came from. Set for the
+    # ``lakebase_role`` kind so the apply step re-resolves the exact
+    # ``DatabaseModel`` that passed the identity check in ``build_grant_plan``
+    # (matching on ``project`` alone could pick a different model when two
+    # DatabaseModels share a project but pin different ``client_id``s).
+    resource_key: Optional[str] = None
     # Human-readable context surfaced in the plan (dry-run and apply). Used by
     # the ``lakebase_role`` kind to explain an intentional skip (e.g. the granted
     # SP does not match the DatabaseModel's ``client_id``). When set on a
@@ -421,12 +426,15 @@ def build_grant_plan(config: "AppConfig", principal: str) -> GrantPlan:
         # otherwise the deployed agent would connect to Postgres as one identity
         # while the role belongs to another (silent runtime auth failure). Mismatch
         # / unresolved cases are planned with a ``note`` and skipped at apply time.
+        db_key: str
         database: "DatabaseModel"
-        for database in resources.databases.values():
+        for db_key, database in resources.databases.items():
             if not database.is_lakebase or database.on_behalf_of_user:
                 continue
+            # ``is_lakebase`` is defined as ``project is not None``, so project
+            # is always set here.
+            project = str(database.project)
             configured = value_of(database.client_id) if database.client_id else None
-            project = str(database.project) if database.project else "<lakebase>"
             note: Optional[str] = None
             if not configured:
                 note = (
@@ -448,6 +456,7 @@ def build_grant_plan(config: "AppConfig", principal: str) -> GrantPlan:
                     "lakebase_role",
                     project,
                     ["DATABRICKS_SUPERUSER"],
+                    resource_key=db_key,
                     note=note,
                 )
             )
@@ -504,15 +513,15 @@ def grant(
                 if g.note:
                     # Intentional skip (identity mismatch or unresolved
                     # client_id) — surface the reason and leave ``applied`` None
-                    # (not attempted) so it never reads as a success.
+                    # (not attempted) so it never reads as a success. The CLI
+                    # layer (``_print_grants``) renders the note for the user.
                     logger.warning(
                         "Lakebase Postgres role not created",
                         project=g.target,
                         reason=g.note,
                     )
-                    print(f"  ⚠ Lakebase '{g.target}': {g.note}", file=sys.stderr)
                     continue
-                _grant_lakebase_role(w, config, g.target)
+                _grant_lakebase_role(w, config, g.resource_key)
             g.applied = True
         except Exception as e:  # noqa: BLE001 — warn-and-continue per resource
             g.applied = False
@@ -528,7 +537,7 @@ def grant(
 
 
 def _grant_lakebase_role(
-    w: "WorkspaceClient", config: "AppConfig", project: str
+    w: "WorkspaceClient", config: "AppConfig", resource_key: Optional[str]
 ) -> None:
     """Create the Postgres SUPERUSER role for a Lakebase project's service principal.
 
@@ -538,16 +547,18 @@ def _grant_lakebase_role(
     ``DatabaseModel``'s own ``client_id`` and connects with its configured
     credentials, so the caller has already verified (in :func:`build_grant_plan`)
     that the SP being granted matches that ``client_id``.
+
+    Re-resolves the model by its config dict key (not by ``project``) so we act
+    on the exact ``DatabaseModel`` that passed the identity check — two models
+    can share a ``project`` while pinning different ``client_id``s.
     """
     from dao_ai.providers.databricks import DatabricksProvider
 
     databases = config.resources.databases if config.resources else {}
-    database = next(
-        (db for db in databases.values() if str(db.project) == project), None
-    )
+    database = databases.get(resource_key) if resource_key is not None else None
     if database is None:
         raise ValueError(
-            f"No Lakebase DatabaseModel with project '{project}' found in config"
+            f"No Lakebase DatabaseModel with key '{resource_key}' found in config"
         )
     DatabricksProvider(w=w).create_lakebase_autoscaling_role(database)
 

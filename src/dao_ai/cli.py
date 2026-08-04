@@ -2837,11 +2837,11 @@ def _print_grants(plan, *, applied: bool) -> None:
         status = ""
         if applied and g.applied is False:
             status = "  ✗ FAILED"
-        elif getattr(g, "note", None):
+        elif g.note:
             # A planned-but-skipped grant (e.g. Lakebase identity mismatch).
             status = "  ⚠ SKIP"
         print(f"    [{g.kind}] {target} -> {', '.join(g.privileges)}{status}")
-        if getattr(g, "note", None):
+        if g.note:
             print(f"        {g.note}")
 
 
