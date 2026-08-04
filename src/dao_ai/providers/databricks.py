@@ -3604,8 +3604,12 @@ class DatabricksProvider(ServiceProvider):
             workspace_client, database.project
         )
 
-        # role_id must match ^[a-z]([a-z0-9-]{0,61}[a-z0-9])?$ so sanitize the client_id
-        # Must start with a lowercase letter, so prefix with 'sp-' for service principal
+        # ``role_id`` is a client-supplied hint that must match
+        # ^[a-z]([a-z0-9-]{0,61}[a-z0-9])?$ — sanitize the client_id and prefix
+        # with 'sp-'. NOTE: the server does NOT persist roles under this id; it
+        # assigns its own (e.g. ``rol-<random>``) and dedupes on ``postgres_role``
+        # (the client_id). So this hint is only used on the create call — the
+        # existence check below must match on ``status.postgres_role`` instead.
         import re
 
         sanitized = re.sub(r"[^a-z0-9-]", "-", client_id.lower()).strip("-")
@@ -3620,21 +3624,28 @@ class DatabricksProvider(ServiceProvider):
         )
 
         try:
-            # Check if role already exists
-            try:
-                role_resource_name = f"{branch_name}/roles/{sanitized_role_id}"
-                _ = workspace_client.postgres.get_role(name=role_resource_name)
+            # Check if a role for this service principal already exists. Roles
+            # are keyed server-side by ``status.postgres_role`` (the client_id),
+            # NOT by the ``role_id`` we pass to create_role, so we must scan the
+            # branch's roles rather than get_role(name=".../sp-<client-id>")
+            # (which always 404s and used to force a create → RESOURCE_ALREADY_
+            # EXISTS round-trip on every call).
+            existing_role = next(
+                (
+                    r
+                    for r in workspace_client.postgres.list_roles(branch_name)
+                    if r.status and r.status.postgres_role == client_id
+                ),
+                None,
+            )
+            if existing_role is not None:
                 logger.info(
                     "Autoscaling Lakebase role already exists",
                     role_name=client_id,
+                    role_id=existing_role.role_id,
                     project=database.project,
                 )
                 return
-            except NotFound:
-                logger.debug(
-                    "Autoscaling role not found, creating",
-                    role_name=client_id,
-                )
 
             role = Role(
                 spec=RoleRoleSpec(

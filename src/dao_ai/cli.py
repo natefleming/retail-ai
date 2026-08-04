@@ -1680,14 +1680,20 @@ Manage the service principal a dao-ai agent runs as.
 
 Sub-commands:
   provision  One shot: create the SP, store its secret to the config's scope,
-             and grant it every resource in the config. The secret is never
-             printed. This is the easiest way to make a config runnable.
+             and grant it the config's resources. The secret is never printed.
+             This is the easiest way to make a config runnable. NOTE: provision
+             mints a NEW SP, so it will not create Lakebase Postgres roles for a
+             DatabaseModel that pins a different client_id — use `grant --app-sp`
+             for that (see grant).
   create     Create (or reuse) a workspace service principal and mint an OAuth
              secret. Prints the client id + one-time secret.
   store      Write the client id / secret into a Databricks secret scope.
   grant      Grant the service principal the read/execute privileges an agent
-             needs on every resource declared in the config (catalog, schema,
-             table, function, vector index, warehouse, genie room, ...).
+             needs on the config's resources: catalog, schema, table, function,
+             vector index, volume, connection, warehouse, genie room, experiment,
+             serving endpoint. For Lakebase, a Postgres SUPERUSER role is created
+             only when the granted SP matches the DatabaseModel's client_id;
+             a mismatch is reported and skipped (grant --app-sp <that-id>).
 
 All read the config (-c) for defaults; explicit flags override.
         """,
@@ -2831,7 +2837,12 @@ def _print_grants(plan, *, applied: bool) -> None:
         status = ""
         if applied and g.applied is False:
             status = "  ✗ FAILED"
+        elif getattr(g, "note", None):
+            # A planned-but-skipped grant (e.g. Lakebase identity mismatch).
+            status = "  ⚠ SKIP"
         print(f"    [{g.kind}] {target} -> {', '.join(g.privileges)}{status}")
+        if getattr(g, "note", None):
+            print(f"        {g.note}")
 
 
 def _handle_sp_create(options, config, sp, WorkspaceClient) -> None:

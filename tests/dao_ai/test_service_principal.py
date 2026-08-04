@@ -122,6 +122,94 @@ def test_grant_plan_warehouse_and_serving_endpoint() -> None:
     assert kinds["serving_endpoint"].privileges == ["CAN_QUERY"]
 
 
+def test_grant_plan_volume_and_connection_privileges() -> None:
+    from dao_ai.config import ConnectionModel, ResourcesModel, VolumeModel
+
+    schema = _schema()
+    config = AppConfig(
+        schemas={"s": schema},
+        resources=ResourcesModel(
+            volumes={"v": VolumeModel(schema=schema, name="landing")},
+            connections={"c": ConnectionModel(name="my_conn")},
+        ),
+    )
+    plan = build_grant_plan(config, PRINCIPAL)
+    mapping = {(g.securable_type, g.target): list(g.privileges) for g in plan.grants}
+
+    assert mapping[("volume", "cat.sch.landing")] == ["READ_VOLUME"]
+    assert mapping[("connection", "my_conn")] == ["USE_CONNECTION"]
+
+
+def test_grant_plan_volume_reuses_schema_grant() -> None:
+    from dao_ai.config import ResourcesModel, VolumeModel
+
+    schema = _schema()
+    config = AppConfig(
+        schemas={"s": schema},
+        resources=ResourcesModel(
+            volumes={"v": VolumeModel(schema=schema, name="landing")},
+        ),
+    )
+    plan = build_grant_plan(config, PRINCIPAL)
+    # The volume's schema is deduped against the top-level schema grant.
+    schemas = [g for g in plan.grants if g.securable_type == "schema"]
+    assert len(schemas) == 1
+
+
+def _lakebase_db(client_id: str):
+    from dao_ai.config import DatabaseModel
+
+    return DatabaseModel(
+        name="lb",
+        project="my-proj",
+        client_id=client_id,
+        client_secret="secret",
+    )
+
+
+def test_grant_plan_lakebase_role_matching_sp_has_no_skip_note() -> None:
+    from dao_ai.config import ResourcesModel
+
+    config = AppConfig(
+        resources=ResourcesModel(databases={"d": _lakebase_db(PRINCIPAL)}),
+    )
+    plan = build_grant_plan(config, PRINCIPAL)
+    lb = [g for g in plan.grants if g.kind == "lakebase_role"]
+    assert len(lb) == 1
+    assert lb[0].target == "my-proj"
+    assert lb[0].privileges == ["DATABRICKS_SUPERUSER"]
+    assert lb[0].note is None  # matching SP → will be created at apply time
+
+
+def test_grant_plan_lakebase_role_mismatched_sp_is_skipped() -> None:
+    from dao_ai.config import ResourcesModel
+
+    config = AppConfig(
+        resources=ResourcesModel(
+            databases={"d": _lakebase_db("22222222-2222-2222-2222-222222222222")}
+        ),
+    )
+    plan = build_grant_plan(config, PRINCIPAL)
+    lb = next(g for g in plan.grants if g.kind == "lakebase_role")
+    assert lb.note is not None
+    assert "SKIP" in lb.note
+    assert "22222222-2222-2222-2222-222222222222" in lb.note
+
+
+def test_grant_plan_lakebase_role_unset_client_id_is_skipped() -> None:
+    from dao_ai.config import DatabaseModel, ResourcesModel
+
+    config = AppConfig(
+        resources=ResourcesModel(
+            databases={"d": DatabaseModel(name="lb", project="my-proj")}
+        ),
+    )
+    plan = build_grant_plan(config, PRINCIPAL)
+    lb = next(g for g in plan.grants if g.kind == "lakebase_role")
+    assert lb.note is not None
+    assert "client_id is unset" in lb.note
+
+
 def test_grant_plan_empty_config_yields_nothing() -> None:
     plan = build_grant_plan(AppConfig(), PRINCIPAL)
     assert plan.grants == []
@@ -169,6 +257,88 @@ def test_grant_continues_after_a_failure_and_tracks_status() -> None:
     assert plan.grants[0].applied is False
     assert plan.grants[0].error
     assert any(g.applied is True for g in plan.grants[1:])
+
+
+def test_grant_applies_uc_patch_for_volume_and_connection() -> None:
+    from dao_ai.config import ConnectionModel, ResourcesModel, VolumeModel
+
+    w = MagicMock()
+    schema = _schema()
+    config = AppConfig(
+        schemas={"s": schema},
+        resources=ResourcesModel(
+            volumes={"v": VolumeModel(schema=schema, name="landing")},
+            connections={"c": ConnectionModel(name="my_conn")},
+        ),
+    )
+    grant(w, principal=PRINCIPAL, config=config, dry_run=False)
+
+    calls = w.api_client.do.call_args_list
+    patched = {
+        c.args[1]: c.kwargs["body"]["changes"][0] for c in calls if c.args[0] == "PATCH"
+    }
+    assert (
+        patched["/api/2.1/unity-catalog/permissions/volume/cat.sch.landing"]["add"]
+        == ["READ_VOLUME"]
+    )
+    assert (
+        patched["/api/2.1/unity-catalog/permissions/connection/my_conn"]["add"]
+        == ["USE_CONNECTION"]
+    )
+
+
+def test_grant_lakebase_role_created_when_sp_matches(monkeypatch) -> None:
+    from dao_ai.config import ResourcesModel
+    import dao_ai.providers.databricks as dbx
+
+    provider = MagicMock()
+    monkeypatch.setattr(dbx, "DatabricksProvider", lambda w: provider)
+
+    w = MagicMock()
+    config = AppConfig(
+        resources=ResourcesModel(databases={"d": _lakebase_db(PRINCIPAL)}),
+    )
+    plan = grant(w, principal=PRINCIPAL, config=config, dry_run=False)
+
+    provider.create_lakebase_autoscaling_role.assert_called_once()
+    lb = next(g for g in plan.grants if g.kind == "lakebase_role")
+    assert lb.applied is True
+
+
+def test_grant_lakebase_role_skipped_when_sp_mismatched(monkeypatch) -> None:
+    from dao_ai.config import ResourcesModel
+    import dao_ai.providers.databricks as dbx
+
+    provider = MagicMock()
+    monkeypatch.setattr(dbx, "DatabricksProvider", lambda w: provider)
+
+    w = MagicMock()
+    config = AppConfig(
+        resources=ResourcesModel(
+            databases={"d": _lakebase_db("22222222-2222-2222-2222-222222222222")}
+        ),
+    )
+    plan = grant(w, principal=PRINCIPAL, config=config, dry_run=False)
+
+    provider.create_lakebase_autoscaling_role.assert_not_called()
+    lb = next(g for g in plan.grants if g.kind == "lakebase_role")
+    # skipped (not attempted) → applied stays None, never reads as success
+    assert lb.applied is None
+
+
+def test_grant_lakebase_role_not_created_on_dry_run(monkeypatch) -> None:
+    from dao_ai.config import ResourcesModel
+    import dao_ai.providers.databricks as dbx
+
+    provider = MagicMock()
+    monkeypatch.setattr(dbx, "DatabricksProvider", lambda w: provider)
+
+    w = MagicMock()
+    config = AppConfig(
+        resources=ResourcesModel(databases={"d": _lakebase_db(PRINCIPAL)}),
+    )
+    grant(w, principal=PRINCIPAL, config=config, dry_run=True)
+    provider.create_lakebase_autoscaling_role.assert_not_called()
 
 
 def test_grant_warehouse_uses_additive_update_not_set() -> None:

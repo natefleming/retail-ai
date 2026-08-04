@@ -3170,3 +3170,70 @@ def test_deploy_apps_agent_dev_path_ships_uv_lock(tmp_path):
     assert pyproject_uploads
     pyproject_text = pyproject_uploads[0].kwargs["content"].getvalue().decode("utf-8")
     assert "[tool.uv.sources]" in pyproject_text and stub_wheel.name in pyproject_text
+
+
+# =============================================================================
+# create_lakebase_autoscaling_role — idempotency via postgres_role match
+# =============================================================================
+
+_LB_CLIENT_ID = "ad1118d0-d49d-47a6-8aa5-7f67ef14da3c"
+
+
+def _mock_lakebase_ws(existing_postgres_roles: list[str]) -> Mock:
+    """A mock WorkspaceClient whose postgres branch has the given SP roles.
+
+    ``list_branches`` yields one default branch; ``list_roles`` yields a Role
+    per entry in ``existing_postgres_roles`` (matched on ``status.postgres_role``,
+    which is how the server keys SP roles — NOT the client-supplied role_id).
+    """
+    w = Mock()
+    branch = Mock()
+    branch.name = "projects/proj/branches/main"
+    branch.status = Mock(default=True)
+    w.postgres.list_branches.return_value = iter([branch])
+    roles = []
+    for pr in existing_postgres_roles:
+        role = Mock()
+        role.role_id = "rol-server-assigned"
+        role.status = Mock(postgres_role=pr)
+        roles.append(role)
+    w.postgres.list_roles.return_value = iter(roles)
+    return w
+
+
+@pytest.mark.unit
+def test_create_lakebase_role_skips_create_when_role_exists(monkeypatch):
+    """Role keyed by status.postgres_role already present → no create_role call."""
+    w = _mock_lakebase_ws(existing_postgres_roles=[_LB_CLIENT_ID])
+    monkeypatch.setattr(
+        "dao_ai.config.WorkspaceClient", lambda **kwargs: w
+    )
+    db = DatabaseModel(
+        name="lb", project="proj", client_id=_LB_CLIENT_ID, client_secret="s"
+    )
+    DatabricksProvider(w=w).create_lakebase_autoscaling_role(db)
+
+    w.postgres.list_roles.assert_called_once()
+    w.postgres.create_role.assert_not_called()
+
+
+@pytest.mark.unit
+def test_create_lakebase_role_creates_when_absent(monkeypatch):
+    """No role matching the SP's client_id → create_role is issued once."""
+    w = _mock_lakebase_ws(
+        existing_postgres_roles=["22222222-2222-2222-2222-222222222222"]
+    )
+    monkeypatch.setattr(
+        "dao_ai.config.WorkspaceClient", lambda **kwargs: w
+    )
+    db = DatabaseModel(
+        name="lb", project="proj", client_id=_LB_CLIENT_ID, client_secret="s"
+    )
+    DatabricksProvider(w=w).create_lakebase_autoscaling_role(db)
+
+    w.postgres.create_role.assert_called_once()
+    _, kwargs = w.postgres.create_role.call_args
+    assert kwargs["parent"] == "projects/proj/branches/main"
+    # The role hint is sanitized from the client_id and 'sp-' prefixed.
+    assert kwargs["role_id"] == f"sp-{_LB_CLIENT_ID}"
+    assert kwargs["role"].spec.postgres_role == _LB_CLIENT_ID
