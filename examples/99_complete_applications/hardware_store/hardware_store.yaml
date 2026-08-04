@@ -84,6 +84,7 @@ resources:
     products_vector_store: &products_vector_store
       embedding_model: *embedding_model
                                                     # Reference to embedding model above
+      on_behalf_of_user: True
       endpoint:                                     # Vector search endpoint configuration
         name: ${var.vector_search_endpoint}            # Databricks vector search endpoint
         type: STANDARD                              # Endpoint type (STANDARD or OPTIMIZED_STORAGE)
@@ -116,23 +117,29 @@ resources:
     find_product_by_sku: &find_product_by_sku
       schema: *retail_schema
       name: find_product_by_sku                     # Function to find products by SKU
+      on_behalf_of_user: True
     find_product_by_upc: &find_product_by_upc
       schema: *retail_schema
       name: find_product_by_upc                     # Function to find products by UPC
+      on_behalf_of_user: True
     # Inventory lookup functions
     find_inventory_by_sku: &find_inventory_by_sku
       schema: *retail_schema
       name: find_inventory_by_sku                   # Function to find inventory by SKU
+      on_behalf_of_user: True
     find_inventory_by_upc: &find_inventory_by_upc
       schema: *retail_schema
       name: find_inventory_by_upc                   # Function to find inventory by UPC
+      on_behalf_of_user: True
     # Store-specific inventory functions
     find_store_inventory_by_upc: &find_store_inventory_by_upc
       schema: *retail_schema
       name: find_store_inventory_by_upc             # Store-specific UPC inventory lookup
+      on_behalf_of_user: True
     find_store_inventory_by_sku: &find_store_inventory_by_sku
       schema: *retail_schema
       name: find_store_inventory_by_sku             # Store-specific SKU inventory lookup
+      on_behalf_of_user: True
 
 # =============================================================================
 # RETRIEVERS CONFIGURATION
@@ -732,19 +739,19 @@ app:
   # endpoint from the referenced secrets). Required for writing MS
   # traces to UC — see docs.databricks.com/aws/en/mlflow3/genai/
   # tracing/trace-unity-catalog#write-traces-from-a-model-serving-endpoint
-  service_principal:
-    client_id:
-      scope: retail_consumer_goods
-      secret: RETAIL_AI_DATABRICKS_CLIENT_ID
-    client_secret:
-      scope: retail_consumer_goods
-      secret: RETAIL_AI_DATABRICKS_CLIENT_SECRET
+#  service_principal:
+#    client_id:
+#      scope: retail_consumer_goods
+#      secret: RETAIL_AI_DATABRICKS_CLIENT_ID
+#    client_secret:
+#      scope: retail_consumer_goods
+#      secret: RETAIL_AI_DATABRICKS_CLIENT_SECRET
 
   # Point at the existing MLflow experiment by id (admin-provisioned +
   # UC-linked). dao-ai skips create in get_or_create_experiment and
   # injects MLFLOW_EXPERIMENT_ID at config-load time via the validator.
-  experiment:
-    id: "1952423719449237"
+  #experiment:
+  #  id: "1952423719449237"
 
   # Optional: set to false when an admin has already granted the SP the
   # required UC + experiment permissions, and the deployer lacks GRANT

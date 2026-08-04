@@ -109,6 +109,7 @@ resources:
       - merchandise_class
       - class_cd
       - description
+      on_behalf_of_user: True
 
   # ---------------------------------------------------------------------------
   # FUNCTIONS
@@ -117,21 +118,27 @@ resources:
     find_product_by_sku: &find_product_by_sku
       schema: *retail_schema
       name: find_product_by_sku
+      on_behalf_of_user: True
     find_product_by_upc: &find_product_by_upc
       schema: *retail_schema
       name: find_product_by_upc
+      on_behalf_of_user: True
     find_inventory_by_sku: &find_inventory_by_sku
       schema: *retail_schema
       name: find_inventory_by_sku
+      on_behalf_of_user: True
     find_inventory_by_upc: &find_inventory_by_upc
       schema: *retail_schema
       name: find_inventory_by_upc
+      on_behalf_of_user: True
     find_store_inventory_by_upc: &find_store_inventory_by_upc
       schema: *retail_schema
       name: find_store_inventory_by_upc
+      on_behalf_of_user: True
     find_store_inventory_by_sku: &find_store_inventory_by_sku
       schema: *retail_schema
       name: find_store_inventory_by_sku
+      on_behalf_of_user: True
 
 # =============================================================================
 # RETRIEVERS CONFIGURATION
