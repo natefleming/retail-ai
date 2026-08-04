@@ -127,12 +127,8 @@ class TestPackagedAssets:
                 )
             else:
                 # Core provisioning notebooks must not append any extras suffix.
-                assert '+ "[' not in text, (
-                    f"{p.name} must not append an extras suffix"
-                )
-        assert seen == set(expected_suffix), (
-            f"notebook set changed: {sorted(seen)}"
-        )
+                assert '+ "[' not in text, f"{p.name} must not append an extras suffix"
+        assert seen == set(expected_suffix), f"notebook set changed: {sorted(seen)}"
 
 
 # ---------------------------------------------------------------------------
@@ -353,9 +349,7 @@ class TestWriteModelServingAgentBundle:
         from dao_ai.pipeline.bundle import write_model_serving_agent_bundle
 
         out = tmp_path / "ms_out"
-        write_model_serving_agent_bundle(
-            self._config(tmp_path), out, overwrite=True
-        )
+        write_model_serving_agent_bundle(self._config(tmp_path), out, overwrite=True)
         staged_notebooks = sorted(p.name for p in (out / "notebooks").glob("*.py"))
         assert staged_notebooks == ["06_deploy_agent.py"], staged_notebooks
         # databricks.yaml + the one notebook + the staged config are all written.
@@ -596,9 +590,7 @@ class TestWritePipelineBundle:
         "    - *greeter\n"
     )
 
-    def test_resource_paths_overlay_parity_with_agent(
-        self, tmp_path: Path
-    ) -> None:
+    def test_resource_paths_overlay_parity_with_agent(self, tmp_path: Path) -> None:
         # Parity: app.resource_paths works on the workflow noun exactly as on
         # agent/mcp — the overlay lands in resources/ and the generated
         # databricks.yaml merges it via include: [resources/*.yml].

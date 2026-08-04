@@ -277,19 +277,17 @@ def test_grant_applies_uc_patch_for_volume_and_connection() -> None:
     patched = {
         c.args[1]: c.kwargs["body"]["changes"][0] for c in calls if c.args[0] == "PATCH"
     }
-    assert (
-        patched["/api/2.1/unity-catalog/permissions/volume/cat.sch.landing"]["add"]
-        == ["READ_VOLUME"]
-    )
-    assert (
-        patched["/api/2.1/unity-catalog/permissions/connection/my_conn"]["add"]
-        == ["USE_CONNECTION"]
-    )
+    assert patched["/api/2.1/unity-catalog/permissions/volume/cat.sch.landing"][
+        "add"
+    ] == ["READ_VOLUME"]
+    assert patched["/api/2.1/unity-catalog/permissions/connection/my_conn"]["add"] == [
+        "USE_CONNECTION"
+    ]
 
 
 def test_grant_lakebase_role_created_when_sp_matches(monkeypatch) -> None:
-    from dao_ai.config import ResourcesModel
     import dao_ai.providers.databricks as dbx
+    from dao_ai.config import ResourcesModel
 
     provider = MagicMock()
     monkeypatch.setattr(dbx, "DatabricksProvider", lambda w: provider)
@@ -306,8 +304,8 @@ def test_grant_lakebase_role_created_when_sp_matches(monkeypatch) -> None:
 
 
 def test_grant_lakebase_role_skipped_when_sp_mismatched(monkeypatch) -> None:
-    from dao_ai.config import ResourcesModel
     import dao_ai.providers.databricks as dbx
+    from dao_ai.config import ResourcesModel
 
     provider = MagicMock()
     monkeypatch.setattr(dbx, "DatabricksProvider", lambda w: provider)
@@ -330,8 +328,8 @@ def test_grant_lakebase_role_resolves_by_key_not_project(monkeypatch) -> None:
     """Two DBs share a project but pin different client_ids; only the matching
     one must be acted on — apply must re-resolve by config key, not project, so
     it can't pick the mismatched model and create a role for the wrong SP."""
-    from dao_ai.config import ResourcesModel
     import dao_ai.providers.databricks as dbx
+    from dao_ai.config import ResourcesModel
 
     provider = MagicMock()
     monkeypatch.setattr(dbx, "DatabricksProvider", lambda w: provider)
@@ -355,8 +353,8 @@ def test_grant_lakebase_role_resolves_by_key_not_project(monkeypatch) -> None:
 
 
 def test_grant_lakebase_role_not_created_on_dry_run(monkeypatch) -> None:
-    from dao_ai.config import ResourcesModel
     import dao_ai.providers.databricks as dbx
+    from dao_ai.config import ResourcesModel
 
     provider = MagicMock()
     monkeypatch.setattr(dbx, "DatabricksProvider", lambda w: provider)

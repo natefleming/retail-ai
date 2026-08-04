@@ -50,7 +50,11 @@ FORBIDDEN_LOCK_HOST := pypi-proxy
 # lock-local` exploits this to re-lock ON the corp network (where only the
 # mirror, not the public index API, is reachable) and rewrite the recorded host
 # back to the public CDN, yielding a lock byte-identical to a clean-room re-lock.
-MIRROR_LOCK_HOST := pypi-proxy.dev.databricks.com
+# The mirror host has appeared under multiple subdomains (pypi-proxy.dev... and
+# pypi-proxy.cloud...); the rewrite matches both via an alternation. Two forms
+# occur: index URLs (``.../simple`` — note the mirror omits the trailing slash
+# public PyPI writes) and artifact URLs (``.../packages/...``).
+MIRROR_LOCK_HOST := pypi-proxy\.(dev|cloud)\.databricks\.com
 PUBLIC_LOCK_HOST := files.pythonhosted.org
 
 all: dist
@@ -94,7 +98,10 @@ lock:
 # `uv sync --frozen`). Prefer `make lock` where pypi.org is reachable.
 lock-local:
 	$(UV) lock
-	@sed -i.bak 's#https://$(MIRROR_LOCK_HOST)/#https://$(PUBLIC_LOCK_HOST)/#g' "$(LOCK_FILE)" && rm -f "$(LOCK_FILE).bak"
+	@sed -E -i.bak \
+		-e 's#https://$(MIRROR_LOCK_HOST)/simple/?#https://$(PUBLIC_LOCK_HOST)/simple/#g' \
+		-e 's#https://$(MIRROR_LOCK_HOST)/#https://$(PUBLIC_LOCK_HOST)/#g' \
+		"$(LOCK_FILE)" && rm -f "$(LOCK_FILE).bak"
 	@$(MAKE) check-lock
 
 format: check depends

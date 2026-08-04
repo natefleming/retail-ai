@@ -388,9 +388,7 @@ def iter_resource_path_stagings(config: "AppConfig") -> list[tuple[Path, str]]:
     for entry in app.resource_paths:
         source = resolve_code_path(entry, config)
         if source is None:
-            raise FileNotFoundError(
-                f"resource_paths entry does not exist: {entry}"
-            )
+            raise FileNotFoundError(f"resource_paths entry does not exist: {entry}")
         explicit.append((entry, source))
     implicit: list[tuple[str, Path]] = [
         (str(p), p) for p in discover_resource_overlays(config)

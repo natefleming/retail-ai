@@ -72,12 +72,9 @@ class TestAppsComputeSizeCoercion:
             ("XLarge", "Large"),  # clamped: Model Serving has no XLarge tier
         ],
     )
-    def test_serving_workload_size(
-        self, workload_size: str, expected: str
-    ) -> None:
+    def test_serving_workload_size(self, workload_size: str, expected: str) -> None:
         assert (
-            _config(workload_size=workload_size).app.serving_workload_size()
-            == expected
+            _config(workload_size=workload_size).app.serving_workload_size() == expected
         )
 
 
@@ -86,7 +83,9 @@ class TestComputeSizeEmission:
     def test_omits_compute_size_for_small(self) -> None:
         # Small -> platform default (MEDIUM); no key emitted, existing apps
         # are never resized on redeploy.
-        _, _, apps_block = _build_app_block(_config(workload_size="Small"), "dao_ai.yaml")
+        _, _, apps_block = _build_app_block(
+            _config(workload_size="Small"), "dao_ai.yaml"
+        )
         assert _compute_size(apps_block) is None
 
     def test_omits_compute_size_for_medium(self) -> None:
@@ -96,7 +95,9 @@ class TestComputeSizeEmission:
         assert _compute_size(apps_block) is None
 
     def test_emits_large(self) -> None:
-        _, _, apps_block = _build_app_block(_config(workload_size="Large"), "dao_ai.yaml")
+        _, _, apps_block = _build_app_block(
+            _config(workload_size="Large"), "dao_ai.yaml"
+        )
         assert _compute_size(apps_block) == "LARGE"
 
     def test_emits_xlarge(self) -> None:

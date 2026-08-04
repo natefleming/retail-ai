@@ -347,17 +347,13 @@ class TestConfigChecksum:
 
         # Sanity: the two loads really do differ in the injected UUID.
         a_cfg, b_cfg = _cfg(), _cfg()
-        a_cid = a_cfg.app.input_example.custom_inputs["configurable"][
-            "conversation_id"
-        ]
-        b_cid = b_cfg.app.input_example.custom_inputs["configurable"][
-            "conversation_id"
-        ]
+        a_cid = a_cfg.app.input_example.custom_inputs["configurable"]["conversation_id"]
+        b_cid = b_cfg.app.input_example.custom_inputs["configurable"]["conversation_id"]
         assert a_cid != b_cid, "precondition: input_example UUIDs should differ"
         # ...yet the checksum is stable (input_example excluded from the hash).
-        assert cli._config_checksum(
-            a_cfg, development=False
-        ) == cli._config_checksum(b_cfg, development=False)
+        assert cli._config_checksum(a_cfg, development=False) == cli._config_checksum(
+            b_cfg, development=False
+        )
 
     def test_checksum_changes_when_custom_code_edited(self, tmp_path: Path) -> None:
         """Regression: editing a code_paths/src file WITHOUT touching the config
@@ -388,9 +384,7 @@ class TestConfigChecksum:
             "editing custom code must change the checksum (else stale code ships)"
         )
 
-    def test_checksum_fails_loud_on_missing_resource_path(
-        self, tmp_path: Path
-    ) -> None:
+    def test_checksum_fails_loud_on_missing_resource_path(self, tmp_path: Path) -> None:
         """A bad resource_paths entry must surface through _config_checksum (which
         every build/up/sync computes), not be silently checksummed away — locks in
         the fail-loud contract the checksum folds in via iter_resource_path_stagings."""
@@ -1110,10 +1104,7 @@ class TestDeployRestagesOnConfigDrift:
         # Ephemeral model: a stale DEFAULT dir always re-stages — there is no
         # edit-detection guard, so the outcome is identical with or without
         # --overwrite (user intent lives in the config, not the staging dir).
-        assert (
-            self._run_deploy(tmp_path, monkeypatch, marker_checksum="stale")
-            is True
-        )
+        assert self._run_deploy(tmp_path, monkeypatch, marker_checksum="stale") is True
         assert (
             self._run_deploy(
                 tmp_path, monkeypatch, marker_checksum="stale", overwrite=True
@@ -1154,9 +1145,10 @@ class TestStrictPrimitivesErrorWhenUnstaged:
             "dao_ai.apps.bundle.write_bundle",
             lambda *a, **k: pytest.fail("must not build a primitive"),
         )
-        with patch.object(cli, "deploy_app_bundle") as dep, patch.object(
-            cli, "_run_ms_job_bundle"
-        ) as job:
+        with (
+            patch.object(cli, "deploy_app_bundle") as dep,
+            patch.object(cli, "_run_ms_job_bundle") as job,
+        ):
             opts = parse_args(
                 ["agent", verb, "-c", str(cfg), "-s", str(out), "--mode", mode]
             )
@@ -1196,8 +1188,9 @@ class TestStrictPrimitivesErrorWhenUnstaged:
         monkeypatch.setattr(
             "dao_ai.pipeline.bundle.write_model_serving_agent_bundle", fake_writer
         )
-        with patch.object(cli, "deploy_app_bundle"), patch.object(
-            cli, "_run_ms_job_bundle"
+        with (
+            patch.object(cli, "deploy_app_bundle"),
+            patch.object(cli, "_run_ms_job_bundle"),
         ):
             opts = parse_args(
                 ["agent", "up", "-c", str(cfg), "-s", str(out), "--mode", mode]
@@ -1248,9 +1241,7 @@ class TestStrictPrimitivesErrorWhenUnstaged:
         monkeypatch.setattr(cli, "_resolve_job_dao_ai_dep", lambda *a, **k: "dao-ai")
         monkeypatch.setattr(cli, "_clean_default_staging_dir", lambda *a, **k: None)
         monkeypatch.setattr(cli, "_write_staging_manifest", lambda *a, **k: None)
-        monkeypatch.setattr(
-            "dao_ai.pipeline.bundle.write_pipeline_bundle", fake_writer
-        )
+        monkeypatch.setattr("dao_ai.pipeline.bundle.write_pipeline_bundle", fake_writer)
         with patch.object(cli, "_exec_bundle_command"):
             opts = parse_args(["workflow", "up", "-c", str(cfg), "-s", str(out)])
             cli.handle_workflow_command(opts)
@@ -1278,9 +1269,7 @@ class TestStrictPrimitivesErrorWhenUnstaged:
         monkeypatch.setattr(cli, "detect_cloud_provider", lambda p: "aws")
         monkeypatch.setattr(AppConfig, "_resolve_all_resources", lambda self: None)
         monkeypatch.setattr(cli, "_resolve_job_dao_ai_dep", lambda *a, **k: "dao-ai")
-        monkeypatch.setattr(
-            "dao_ai.pipeline.bundle.write_pipeline_bundle", fake_writer
-        )
+        monkeypatch.setattr("dao_ai.pipeline.bundle.write_pipeline_bundle", fake_writer)
         with patch.object(cli, "_exec_bundle_command"):
             # First up builds; second up (same config) must skip the rebuild.
             for _ in range(2):
@@ -1665,9 +1654,7 @@ class TestDeleteApp:
         cli._delete_app(self._app_config(), profile=None, dry_run=True)
         assert called == [], "dry-run must not delete the app"
 
-    def test_missing_app_is_not_an_error(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_missing_app_is_not_an_error(self, monkeypatch: pytest.MonkeyPatch) -> None:
         from databricks.sdk.errors import NotFound
 
         class _WC:
@@ -1682,9 +1669,7 @@ class TestDeleteApp:
         # Must not raise — an already-deleted app is fine.
         cli._delete_app(self._app_config(), profile=None, dry_run=False)
 
-    def test_delete_failure_is_non_fatal(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_delete_failure_is_non_fatal(self, monkeypatch: pytest.MonkeyPatch) -> None:
         class _WC:
             class apps:
                 @staticmethod
@@ -2751,8 +2736,14 @@ class TestAdoptUntrackedBundleResources:
     )
 
     def _run_adopt(
-        self, tmp_path: Path, *, plan: str, target: str = "dev",
-        extra_vars=None, dry_run: bool = False, app_exists: bool = True,
+        self,
+        tmp_path: Path,
+        *,
+        plan: str,
+        target: str = "dev",
+        extra_vars=None,
+        dry_run: bool = False,
+        app_exists: bool = True,
     ):
         """Drive the helper with subprocess + WorkspaceClient patched.
 
@@ -2775,12 +2766,16 @@ class TestAdoptUntrackedBundleResources:
 
             w.apps.get.side_effect = NotFound("no such app")
 
-        with patch.object(cli.subprocess, "run", side_effect=_fake_run), patch(
-            "databricks.sdk.WorkspaceClient", return_value=w
+        with (
+            patch.object(cli.subprocess, "run", side_effect=_fake_run),
+            patch("databricks.sdk.WorkspaceClient", return_value=w),
         ):
             cli._adopt_untracked_bundle_resources(
-                staging_dir=tmp_path, profile="fevm", target=target,
-                extra_vars=extra_vars, dry_run=dry_run,
+                staging_dir=tmp_path,
+                profile="fevm",
+                target=target,
+                extra_vars=extra_vars,
+                dry_run=dry_run,
             )
         return calls
 
@@ -2820,12 +2815,15 @@ class TestAdoptUntrackedBundleResources:
 
         w = MagicMock()
         w.apps.get.return_value = SimpleNamespace(name="my-app")
-        with patch.object(cli.subprocess, "run", side_effect=_fake_run), patch(
-            "databricks.sdk.WorkspaceClient", return_value=w
+        with (
+            patch.object(cli.subprocess, "run", side_effect=_fake_run),
+            patch("databricks.sdk.WorkspaceClient", return_value=w),
         ):
             # Must not raise.
             cli._adopt_untracked_bundle_resources(
-                staging_dir=tmp_path, profile="fevm", target="dev",
+                staging_dir=tmp_path,
+                profile="fevm",
+                target="dev",
             )
 
     def test_plan_failure_is_noop(self, tmp_path: Path) -> None:
@@ -2834,7 +2832,9 @@ class TestAdoptUntrackedBundleResources:
 
         with patch.object(cli.subprocess, "run", side_effect=_fake_run):
             cli._adopt_untracked_bundle_resources(
-                staging_dir=tmp_path, profile="fevm", target="dev",
+                staging_dir=tmp_path,
+                profile="fevm",
+                target="dev",
             )  # no raise, no bind
 
     def test_plan_non_json_is_noop(self, tmp_path: Path) -> None:
@@ -2843,7 +2843,9 @@ class TestAdoptUntrackedBundleResources:
 
         with patch.object(cli.subprocess, "run", side_effect=_fake_run):
             cli._adopt_untracked_bundle_resources(
-                staging_dir=tmp_path, profile="fevm", target="dev",
+                staging_dir=tmp_path,
+                profile="fevm",
+                target="dev",
             )
 
     def test_job_target_and_vars_forwarded(self, tmp_path: Path) -> None:
@@ -2871,42 +2873,57 @@ class TestDeployTriggersAdopt:
         return proc
 
     def test_deploy_triggers_adopt(self, tmp_path: Path) -> None:
-        with patch.object(cli, "_adopt_untracked_bundle_resources") as adopt, patch.object(
-            cli.subprocess, "Popen", return_value=self._fake_popen()
+        with (
+            patch.object(cli, "_adopt_untracked_bundle_resources") as adopt,
+            patch.object(cli.subprocess, "Popen", return_value=self._fake_popen()),
         ):
             cli._exec_bundle_command(
-                ["bundle", "deploy"], profile="fevm", target="dev", cwd=tmp_path,
+                ["bundle", "deploy"],
+                profile="fevm",
+                target="dev",
+                cwd=tmp_path,
             )
         adopt.assert_called_once()
         assert adopt.call_args.kwargs["target"] == "dev"
         assert adopt.call_args.kwargs["staging_dir"] == tmp_path
 
     def test_run_skips_adopt(self, tmp_path: Path) -> None:
-        with patch.object(cli, "_adopt_untracked_bundle_resources") as adopt, patch.object(
-            cli.subprocess, "Popen", return_value=self._fake_popen()
+        with (
+            patch.object(cli, "_adopt_untracked_bundle_resources") as adopt,
+            patch.object(cli.subprocess, "Popen", return_value=self._fake_popen()),
         ):
             cli._exec_bundle_command(
-                ["bundle", "run", "my-app"], profile="fevm", target="dev", cwd=tmp_path,
+                ["bundle", "run", "my-app"],
+                profile="fevm",
+                target="dev",
+                cwd=tmp_path,
             )
         adopt.assert_not_called()
 
     def test_destroy_skips_adopt(self, tmp_path: Path) -> None:
-        with patch.object(cli, "_adopt_untracked_bundle_resources") as adopt, patch.object(
-            cli.subprocess, "Popen", return_value=self._fake_popen()
+        with (
+            patch.object(cli, "_adopt_untracked_bundle_resources") as adopt,
+            patch.object(cli.subprocess, "Popen", return_value=self._fake_popen()),
         ):
             cli._exec_bundle_command(
-                ["bundle", "destroy", "--auto-approve"], profile="fevm",
-                target="dev", cwd=tmp_path,
+                ["bundle", "destroy", "--auto-approve"],
+                profile="fevm",
+                target="dev",
+                cwd=tmp_path,
             )
         adopt.assert_not_called()
 
     def test_job_deploy_forwards_target_and_vars(self, tmp_path: Path) -> None:
-        with patch.object(cli, "_adopt_untracked_bundle_resources") as adopt, patch.object(
-            cli.subprocess, "Popen", return_value=self._fake_popen()
+        with (
+            patch.object(cli, "_adopt_untracked_bundle_resources") as adopt,
+            patch.object(cli.subprocess, "Popen", return_value=self._fake_popen()),
         ):
             cli._exec_bundle_command(
-                ["bundle", "deploy"], profile="fevm", target="myapp-aws",
-                cwd=tmp_path, extra_vars=['--var="mode=apps"'],
+                ["bundle", "deploy"],
+                profile="fevm",
+                target="myapp-aws",
+                cwd=tmp_path,
+                extra_vars=['--var="mode=apps"'],
             )
         adopt.assert_called_once()
         assert adopt.call_args.kwargs["target"] == "myapp-aws"
@@ -2988,7 +3005,9 @@ class TestWaitForResourceDeleted:
         # A bad kind must fail loud, not silently poll the endpoint getter.
         self._patch_ws(monkeypatch, "app", lambda name: object())
         with pytest.raises(ValueError, match="unknown resource kind"):
-            cli._wait_for_resource_deleted("App", "res", profile=None, timeout_seconds=1)
+            cli._wait_for_resource_deleted(
+                "App", "res", profile=None, timeout_seconds=1
+            )
 
 
 @pytest.mark.unit
@@ -3013,8 +3032,7 @@ class TestWaitForResourceReady:
         from types import SimpleNamespace
 
         served = [
-            SimpleNamespace(state=SimpleNamespace(deployment=d))
-            for d in deployments
+            SimpleNamespace(state=SimpleNamespace(deployment=d)) for d in deployments
         ]
         return SimpleNamespace(
             state=SimpleNamespace(ready=ready, config_update=config_update),
@@ -3220,9 +3238,7 @@ class TestWaitForResourceReady:
     def test_unknown_kind_raises(self, monkeypatch: pytest.MonkeyPatch) -> None:
         self._patch(monkeypatch)
         with pytest.raises(ValueError, match="unknown resource kind"):
-            cli._wait_for_resource_ready(
-                "App", "res", profile=None, timeout_seconds=1
-            )
+            cli._wait_for_resource_ready("App", "res", profile=None, timeout_seconds=1)
 
 
 @pytest.mark.unit
@@ -3307,9 +3323,7 @@ class TestRestoreTrashedExperimentOnUpdate:
         "my-app-experiment",
         {
             "action": "update",
-            "new_state": {
-                "value": {"name": "/Users/u@d.com/[dev u] my_app"}
-            },
+            "new_state": {"value": {"name": "/Users/u@d.com/[dev u] my_app"}},
             "remote_state": {
                 "experiment_id": "12345",
                 "lifecycle_stage": "deleted",
@@ -3320,12 +3334,18 @@ class TestRestoreTrashedExperimentOnUpdate:
 
     def _run_adopt(self, tmp_path: Path, *, plan: str):
         client = MagicMock()
-        with patch.object(
-            cli.subprocess, "run",
-            side_effect=lambda cmd, **kw: _completed(0, stdout=plan),
-        ), patch("mlflow.MlflowClient", return_value=client):
+        with (
+            patch.object(
+                cli.subprocess,
+                "run",
+                side_effect=lambda cmd, **kw: _completed(0, stdout=plan),
+            ),
+            patch("mlflow.MlflowClient", return_value=client),
+        ):
             cli._adopt_untracked_bundle_resources(
-                staging_dir=tmp_path, profile="fevm", target="dev",
+                staging_dir=tmp_path,
+                profile="fevm",
+                target="dev",
             )
         return client
 
@@ -3367,15 +3387,21 @@ class TestRestoreTrashedExperimentOnUpdate:
     def test_restore_failure_is_swallowed(self, tmp_path: Path) -> None:
         client = MagicMock()
         client.restore_experiment.side_effect = RuntimeError("boom")
-        with patch.object(
-            cli.subprocess, "run",
-            side_effect=lambda cmd, **kw: _completed(
-                0, stdout=_plan_json(self._TRASHED_UPDATE)
+        with (
+            patch.object(
+                cli.subprocess,
+                "run",
+                side_effect=lambda cmd, **kw: _completed(
+                    0, stdout=_plan_json(self._TRASHED_UPDATE)
+                ),
             ),
-        ), patch("mlflow.MlflowClient", return_value=client):
+            patch("mlflow.MlflowClient", return_value=client),
+        ):
             # Must not raise — best-effort, so deploy still runs.
             cli._adopt_untracked_bundle_resources(
-                staging_dir=tmp_path, profile="fevm", target="dev",
+                staging_dir=tmp_path,
+                profile="fevm",
+                target="dev",
             )
 
 
@@ -3408,10 +3434,12 @@ class TestPurgeExperiment:
         client.search_experiments.return_value = [trashed, active]
         provider = MagicMock()
         provider.experiment_name.return_value = "/Users/u@d.com/my_app"
-        with patch("databricks.sdk.WorkspaceClient", return_value=w), patch(
-            "mlflow.MlflowClient", return_value=client
-        ), patch(
-            "dao_ai.providers.databricks.DatabricksProvider", return_value=provider
+        with (
+            patch("databricks.sdk.WorkspaceClient", return_value=w),
+            patch("mlflow.MlflowClient", return_value=client),
+            patch(
+                "dao_ai.providers.databricks.DatabricksProvider", return_value=provider
+            ),
         ):
             cli._purge_experiment(self._config(), profile="fevm")
         deleted = {c.args[0] for c in w.workspace.delete.call_args_list}
@@ -3434,10 +3462,12 @@ class TestPurgeExperiment:
         client.search_experiments.return_value = [mine, sibling, sibling_trash]
         provider = MagicMock()
         provider.experiment_name.return_value = "/Users/u@d.com/my_app"
-        with patch("databricks.sdk.WorkspaceClient", return_value=w), patch(
-            "mlflow.MlflowClient", return_value=client
-        ), patch(
-            "dao_ai.providers.databricks.DatabricksProvider", return_value=provider
+        with (
+            patch("databricks.sdk.WorkspaceClient", return_value=w),
+            patch("mlflow.MlflowClient", return_value=client),
+            patch(
+                "dao_ai.providers.databricks.DatabricksProvider", return_value=provider
+            ),
         ):
             cli._purge_experiment(self._config(), profile="fevm")
         deleted = {c.args[0] for c in w.workspace.delete.call_args_list}
@@ -3454,10 +3484,12 @@ class TestPurgeExperiment:
         client.search_experiments.return_value = [node]
         provider = MagicMock()
         provider.experiment_name.return_value = "/Users/u@d.com/ai_gateway_example"
-        with patch("databricks.sdk.WorkspaceClient", return_value=w), patch(
-            "mlflow.MlflowClient", return_value=client
-        ), patch(
-            "dao_ai.providers.databricks.DatabricksProvider", return_value=provider
+        with (
+            patch("databricks.sdk.WorkspaceClient", return_value=w),
+            patch("mlflow.MlflowClient", return_value=client),
+            patch(
+                "dao_ai.providers.databricks.DatabricksProvider", return_value=provider
+            ),
         ):
             cli._purge_experiment(self._config(), profile="fevm")
         deleted = {c.args[0] for c in w.workspace.delete.call_args_list}
@@ -3472,10 +3504,12 @@ class TestPurgeExperiment:
         client.search_experiments.return_value = []
         provider = MagicMock()
         provider.experiment_name.return_value = "/Users/u@d.com/ai-gateway-example"
-        with patch("databricks.sdk.WorkspaceClient", return_value=w), patch(
-            "mlflow.MlflowClient", return_value=client
-        ), patch(
-            "dao_ai.providers.databricks.DatabricksProvider", return_value=provider
+        with (
+            patch("databricks.sdk.WorkspaceClient", return_value=w),
+            patch("mlflow.MlflowClient", return_value=client),
+            patch(
+                "dao_ai.providers.databricks.DatabricksProvider", return_value=provider
+            ),
         ):
             cli._purge_experiment(self._config(), profile="fevm")
         (_, kwargs) = client.search_experiments.call_args
@@ -3493,10 +3527,12 @@ class TestPurgeExperiment:
         client.search_experiments.return_value = []
         provider = MagicMock()
         provider.experiment_name.return_value = "/Users/u@d.com/my_app"
-        with patch("databricks.sdk.WorkspaceClient", return_value=w), patch(
-            "mlflow.MlflowClient", return_value=client
-        ), patch(
-            "dao_ai.providers.databricks.DatabricksProvider", return_value=provider
+        with (
+            patch("databricks.sdk.WorkspaceClient", return_value=w),
+            patch("mlflow.MlflowClient", return_value=client),
+            patch(
+                "dao_ai.providers.databricks.DatabricksProvider", return_value=provider
+            ),
         ):
             cli._purge_experiment(self._config(), profile="fevm")
         w.workspace.delete.assert_not_called()
@@ -3510,10 +3546,12 @@ class TestPurgeExperiment:
         ]
         provider = MagicMock()
         provider.experiment_name.return_value = "/Users/u@d.com/my_app"
-        with patch("databricks.sdk.WorkspaceClient", return_value=w), patch(
-            "mlflow.MlflowClient", return_value=client
-        ), patch(
-            "dao_ai.providers.databricks.DatabricksProvider", return_value=provider
+        with (
+            patch("databricks.sdk.WorkspaceClient", return_value=w),
+            patch("mlflow.MlflowClient", return_value=client),
+            patch(
+                "dao_ai.providers.databricks.DatabricksProvider", return_value=provider
+            ),
         ):
             # Must not raise.
             cli._purge_experiment(self._config(), profile="fevm")
@@ -3544,9 +3582,7 @@ class TestPurgeOtelTraceTables:
 
     def test_unset_prefix_drops_per_experiment_tables(self) -> None:
         cfg = self._config(trace_location=self._trace_location(prefix=None))
-        with patch(
-            "dao_ai.providers.databricks._drop_uc_otel_tables"
-        ) as drop:
+        with patch("dao_ai.providers.databricks._drop_uc_otel_tables") as drop:
             cli._purge_otel_trace_tables(cfg, ["111", "222"], profile="fevm")
         # One drop call per purged experiment id, keyed on that id as the prefix.
         assert drop.call_count == 2
@@ -3557,9 +3593,10 @@ class TestPurgeOtelTraceTables:
 
     def test_explicit_prefix_does_not_drop_but_logs(self) -> None:
         cfg = self._config(trace_location=self._trace_location(prefix="shared_x"))
-        with patch(
-            "dao_ai.providers.databricks._drop_uc_otel_tables"
-        ) as drop, patch.object(cli.logger, "warning") as warn:
+        with (
+            patch("dao_ai.providers.databricks._drop_uc_otel_tables") as drop,
+            patch.object(cli.logger, "warning") as warn,
+        ):
             cli._purge_otel_trace_tables(cfg, ["111"], profile="fevm")
         drop.assert_not_called()
         # The four shared table names are surfaced for manual cleanup, with EACH
@@ -3602,11 +3639,14 @@ class TestPurgeOtelTraceTables:
         provider = MagicMock()
         provider.experiment_name.return_value = "/Users/u@d.com/my_app"
         cfg = self._config(trace_location=self._trace_location(prefix=None))
-        with patch("databricks.sdk.WorkspaceClient", return_value=w), patch(
-            "mlflow.MlflowClient", return_value=client
-        ), patch(
-            "dao_ai.providers.databricks.DatabricksProvider", return_value=provider
-        ), patch.object(cli, "_purge_otel_trace_tables") as otel:
+        with (
+            patch("databricks.sdk.WorkspaceClient", return_value=w),
+            patch("mlflow.MlflowClient", return_value=client),
+            patch(
+                "dao_ai.providers.databricks.DatabricksProvider", return_value=provider
+            ),
+            patch.object(cli, "_purge_otel_trace_tables") as otel,
+        ):
             cli._purge_experiment(cfg, profile="fevm")
         otel.assert_called_once()
         assert otel.call_args.args[1] == ["777"]

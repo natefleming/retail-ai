@@ -752,9 +752,7 @@ def _custom_input_digests(config: AppConfig) -> dict[str, str]:
     def _hash_into(source: Path, dest: str) -> None:
         for file_src, file_dest in walk_code_path_files(source, dest):
             try:
-                digests[file_dest] = hashlib.sha256(
-                    file_src.read_bytes()
-                ).hexdigest()
+                digests[file_dest] = hashlib.sha256(file_src.read_bytes()).hexdigest()
             except OSError:
                 continue
 
@@ -855,7 +853,9 @@ def _staged_config_is_stale(bundle_dir: Path, checksum: str) -> bool:
     return bool(staged) and staged != checksum
 
 
-def _staging_dir_is_current(bundle_dir: Path, *, is_default: bool, checksum: str) -> bool:
+def _staging_dir_is_current(
+    bundle_dir: Path, *, is_default: bool, checksum: str
+) -> bool:
     """True if a default staging dir already holds a bundle built from this config.
 
     The idempotency signal shared by ``build`` and ``up`` across both nouns: only
@@ -3810,7 +3810,9 @@ def _adopt_untracked_bundle_resources(
             continue
         if action != "create":
             continue
-        rid: Optional[str] = _resolve_existing_resource_id(rtype, short_key, entry, profile)
+        rid: Optional[str] = _resolve_existing_resource_id(
+            rtype, short_key, entry, profile
+        )
         if rid is not None:
             to_bind.append((short_key, rid))
 
@@ -3821,7 +3823,9 @@ def _adopt_untracked_bundle_resources(
         bind_cmd: list[str] = ["databricks"]
         if profile:
             bind_cmd.extend(["--profile", profile])
-        bind_cmd.extend(["bundle", "deployment", "bind", short_key, rid, "--auto-approve"])
+        bind_cmd.extend(
+            ["bundle", "deployment", "bind", short_key, rid, "--auto-approve"]
+        )
         if target:
             bind_cmd.extend(["--target", target])
         if dry_run:
@@ -4030,8 +4034,7 @@ def _purge_experiment(config: AppConfig, profile: Optional[str]) -> None:
             max_results=1000,
         )
         matches = [
-            exp for exp in candidates
-            if basename_re.match(exp.name.rsplit("/", 1)[-1])
+            exp for exp in candidates if basename_re.match(exp.name.rsplit("/", 1)[-1])
         ]
         if not matches:
             logger.info(f"Purge: no experiment nodes matching '{leaf}' to delete.")
@@ -4098,9 +4101,7 @@ def _purge_otel_trace_tables(
             # is often the experiment_id, which starts with a digit and so genuinely
             # requires quoting; per-segment backticks are both correct and runnable.
             tables = _otel_table_names(catalog_name, schema_name, prefix)
-            quoted = [
-                ".".join(f"`{seg}`" for seg in t.split(".")) for t in tables
-            ]
+            quoted = [".".join(f"`{seg}`" for seg in t.split(".")) for t in tables]
             hint = "; ".join(f"DROP TABLE IF EXISTS {q}" for q in quoted)
             logger.warning(
                 "Purge left OTEL trace tables in place: trace_location.table_prefix "
@@ -4433,9 +4434,7 @@ def run_databricks_command(
         # Fingerprint the UNRESOLVED config (matches the agent path) so a re-run
         # against an unchanged config is a no-op skip rather than a rebuild —
         # `workflow up` is idempotent, exactly like `agent up`.
-        checksum: str = _config_checksum(
-            app_config, development=use_local_source
-        )
+        checksum: str = _config_checksum(app_config, development=use_local_source)
 
         if stage:
             # Skip the rebuild when a default dir was already staged from the same
@@ -4689,8 +4688,7 @@ def _wait_for_resource_deleted(
         raise ValueError(f"unknown resource kind: {kind!r} (expected 'app'/'endpoint')")
 
     logger.info(
-        f"Waiting up to {timeout_seconds}s for {kind} '{name}' to be fully "
-        f"deleted..."
+        f"Waiting up to {timeout_seconds}s for {kind} '{name}' to be fully deleted..."
     )
     deadline = time.monotonic() + timeout_seconds
     attempt = 1
@@ -5645,8 +5643,10 @@ def _deploy_run_destroy_app_bundle(
                 f"before sync."
             )
             should_stage = True
-        elif orchestrating and is_staged and _staged_config_is_stale(
-            bundle_dir, checksum
+        elif (
+            orchestrating
+            and is_staged
+            and _staged_config_is_stale(bundle_dir, checksum)
         ):
             # A dao-ai-owned default dir is ephemeral build output — rebuild it
             # from the current config. A user `-o` dir is never wiped; leave it in

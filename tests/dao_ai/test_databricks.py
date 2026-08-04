@@ -97,7 +97,9 @@ def test_resolve_spark_read_path_passthrough_volumes():
     """A path already on a UC volume returns unchanged and never stages."""
     existing_path = "/Volumes/cat/sch/vol/products.parquet"
     ds = DatasetModel(
-        table=TableModel(schema=SchemaModel(catalog_name="c", schema_name="s"), name="t")
+        table=TableModel(
+            schema=SchemaModel(catalog_name="c", schema_name="s"), name="t"
+        )
     )
     provider = DatabricksProvider()
     with (
@@ -116,7 +118,8 @@ def test_resolve_spark_read_path_stages_workspace_file_to_volume():
     schema, and Spark is pointed at the /Volumes path."""
     ds = DatasetModel(
         table=TableModel(
-            schema=SchemaModel(catalog_name="mycat", schema_name="mysch"), name="products"
+            schema=SchemaModel(catalog_name="mycat", schema_name="mysch"),
+            name="products",
         )
     )
     workspace_path = Path(
@@ -165,9 +168,7 @@ def test_create_dataset_routes_csv_through_spark_read_not_pandas():
     mock_spark = MagicMock()
     provider = DatabricksProvider()
     with (
-        patch(
-            "pyspark.sql.SparkSession.getActiveSession", return_value=mock_spark
-        ),
+        patch("pyspark.sql.SparkSession.getActiveSession", return_value=mock_spark),
         patch.object(
             provider,
             "_resolve_spark_read_path",
@@ -3205,9 +3206,7 @@ def _mock_lakebase_ws(existing_postgres_roles: list[str]) -> Mock:
 def test_create_lakebase_role_skips_create_when_role_exists(monkeypatch):
     """Role keyed by status.postgres_role already present → no create_role call."""
     w = _mock_lakebase_ws(existing_postgres_roles=[_LB_CLIENT_ID])
-    monkeypatch.setattr(
-        "dao_ai.config.WorkspaceClient", lambda **kwargs: w
-    )
+    monkeypatch.setattr("dao_ai.config.WorkspaceClient", lambda **kwargs: w)
     db = DatabaseModel(
         name="lb", project="proj", client_id=_LB_CLIENT_ID, client_secret="s"
     )
@@ -3223,9 +3222,7 @@ def test_create_lakebase_role_creates_when_absent(monkeypatch):
     w = _mock_lakebase_ws(
         existing_postgres_roles=["22222222-2222-2222-2222-222222222222"]
     )
-    monkeypatch.setattr(
-        "dao_ai.config.WorkspaceClient", lambda **kwargs: w
-    )
+    monkeypatch.setattr("dao_ai.config.WorkspaceClient", lambda **kwargs: w)
     db = DatabaseModel(
         name="lb", project="proj", client_id=_LB_CLIENT_ID, client_secret="s"
     )

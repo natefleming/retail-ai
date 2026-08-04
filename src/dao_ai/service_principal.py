@@ -400,9 +400,7 @@ def build_grant_plan(config: "AppConfig", principal: str) -> GrantPlan:
         for connection in resources.connections.values():
             if connection.full_name:
                 plan.grants.append(
-                    Grant(
-                        "uc", connection.full_name, ["USE_CONNECTION"], "connection"
-                    )
+                    Grant("uc", connection.full_name, ["USE_CONNECTION"], "connection")
                 )
 
         # Warehouses → CAN_USE (workspace permission, not UC)

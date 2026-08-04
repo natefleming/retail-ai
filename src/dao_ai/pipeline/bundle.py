@@ -893,9 +893,7 @@ def _write_job_bundle(
     # 6c. DAB resource overlays (app.resource_paths + resources/ convention) into
     # resources/, merged by the bundle's include: [resources/*.yml] — parity with
     # the agent/mcp bundles.
-    res_copied, res_preserved = _stage_resource_overlays(
-        config, staging_dir, overwrite
-    )
+    res_copied, res_preserved = _stage_resource_overlays(config, staging_dir, overwrite)
     written.extend(res_copied)
     preserved_user_code.extend(res_preserved)
 
