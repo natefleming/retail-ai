@@ -80,7 +80,7 @@ if deploy_app:
 
     params: dict[str, str] | None = {"lakebase_project": lakebase_project} if lakebase_project else None
     deploy_config: AppConfig = AppConfig.from_file(config_path, params=params)
-    deploy_config.deploy_agent(target=ServingMode.APPS)
+    deploy_config.deploy_agent(mode=ServingMode.APPS)
     print("Deployed. app.name =", deploy_config.app.name)
 else:
     print(f"Skipping deploy (using existing app: {app_name})")

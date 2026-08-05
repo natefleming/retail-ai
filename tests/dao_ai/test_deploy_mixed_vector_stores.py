@@ -3,7 +3,7 @@
 
 Focus is on `_collect_resources_with_obo_flag` + `build_auth_policy` —
 the two functions that iterate the discriminated-union dict on
-deploy_agent(target=MODEL_SERVING). Both must dispatch correctly
+deploy_agent(mode=MODEL_SERVING). Both must dispatch correctly
 between :class:`AiSearchVectorStoreModel` (native
 :class:`IsDatabricksResource`) and :class:`LakebaseVectorStoreModel`
 (delegates the trio to its nested :class:`DatabaseModel`). No

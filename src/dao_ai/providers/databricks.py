@@ -2532,30 +2532,30 @@ class DatabricksProvider(ServiceProvider):
     def deploy_agent(
         self,
         config: AppConfig,
-        target: ServingMode = ServingMode.MODEL_SERVING,
+        mode: ServingMode = ServingMode.MODEL_SERVING,
         development: bool | None = None,
     ) -> None:
         """
-        Deploy agent to the specified target.
+        Deploy agent using the specified serving mode.
 
         This is the main deployment method that routes to the appropriate
-        deployment implementation based on the target.
+        deployment implementation based on the serving mode.
 
         Args:
             config: The AppConfig containing deployment configuration
-            target: The serving mode (MODEL_SERVING, APPS, or MCP)
+            mode: The serving mode (MODEL_SERVING, APPS, or MCP)
             development: When True, ship local dao-ai source/wheel; when False,
                 the published PyPI package; when None, auto-detect from the
                 install type. Only the Apps path consumes this today.
         """
-        if target == ServingMode.MODEL_SERVING:
+        if mode == ServingMode.MODEL_SERVING:
             self.deploy_model_serving_agent(config)
-        elif target == ServingMode.APPS:
+        elif mode == ServingMode.APPS:
             self.deploy_apps_agent(config, development=development)
-        elif target == ServingMode.MCP:
+        elif mode == ServingMode.MCP:
             self.deploy_mcp_agent(config, development=development)
         else:
-            raise ValueError(f"Unknown serving mode: {target}")
+            raise ValueError(f"Unknown serving mode: {mode}")
 
     def create_catalog(self, schema: SchemaModel) -> CatalogInfo:
         catalog_info: CatalogInfo

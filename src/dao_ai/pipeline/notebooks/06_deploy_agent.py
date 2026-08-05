@@ -159,4 +159,4 @@ if mode not in (ServingMode.APPS, ServingMode.MCP):
 
 # COMMAND ----------
 
-config.deploy_agent(target=mode, development=development)
+config.deploy_agent(mode=mode, development=development)

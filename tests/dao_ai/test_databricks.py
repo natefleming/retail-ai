@@ -933,7 +933,7 @@ def test_deploy_agent_routes_to_model_serving_by_default():
 
 @pytest.mark.unit
 def test_deploy_agent_routes_to_model_serving_explicitly():
-    """Test that deploy_agent routes to deploy_model_serving_agent when target=MODEL_SERVING."""
+    """Test that deploy_agent routes to deploy_model_serving_agent when mode=MODEL_SERVING."""
     from unittest.mock import MagicMock, patch
 
     from dao_ai.config import AppConfig, AppModel, ServingMode
@@ -958,7 +958,7 @@ def test_deploy_agent_routes_to_model_serving_explicitly():
         with patch.object(DatabricksProvider, "deploy_apps_agent") as mock_apps:
             provider = DatabricksProvider()
             _stamp_extras_resolvable(mock_config)
-            provider.deploy_agent(config=mock_config, target=ServingMode.MODEL_SERVING)
+            provider.deploy_agent(config=mock_config, mode=ServingMode.MODEL_SERVING)
 
             mock_model_serving.assert_called_once_with(mock_config)
             mock_apps.assert_not_called()
@@ -966,7 +966,7 @@ def test_deploy_agent_routes_to_model_serving_explicitly():
 
 @pytest.mark.unit
 def test_deploy_agent_routes_to_apps_when_specified():
-    """Test that deploy_agent routes to deploy_apps_agent when target=APPS."""
+    """Test that deploy_agent routes to deploy_apps_agent when mode=APPS."""
     from unittest.mock import MagicMock, patch
 
     from dao_ai.config import AppConfig, AppModel, ServingMode
@@ -984,7 +984,7 @@ def test_deploy_agent_routes_to_apps_when_specified():
         with patch.object(DatabricksProvider, "deploy_apps_agent") as mock_apps:
             provider = DatabricksProvider()
             _stamp_extras_resolvable(mock_config)
-            provider.deploy_agent(config=mock_config, target=ServingMode.APPS)
+            provider.deploy_agent(config=mock_config, mode=ServingMode.APPS)
 
             mock_apps.assert_called_once_with(mock_config, development=None)
             mock_model_serving.assert_not_called()
@@ -992,7 +992,7 @@ def test_deploy_agent_routes_to_apps_when_specified():
 
 @pytest.mark.unit
 def test_deploy_agent_routes_mcp(monkeypatch):
-    """deploy_agent routes target=MCP to deploy_mcp_agent."""
+    """deploy_agent routes mode=MCP to deploy_mcp_agent."""
     from dao_ai.config import ServingMode
     from dao_ai.providers.databricks import DatabricksProvider
 
@@ -1015,7 +1015,7 @@ def test_deploy_agent_routes_mcp(monkeypatch):
         lambda c, development=None: calls.append("mcp"),
         raising=False,
     )
-    p.deploy_agent(config=object(), target=ServingMode.MCP)
+    p.deploy_agent(config=object(), mode=ServingMode.MCP)
     assert calls == ["mcp"]
 
 

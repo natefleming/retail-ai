@@ -7189,7 +7189,7 @@ class ToolModel(BaseModel):
     )
 
 
-class PromptModel(BaseModel, HasFullName):
+class PromptModel(BaseModel):
     """A named, reusable prompt defined inline in configuration.
 
     Prompts are first-class config objects so they can be declared once and
@@ -7198,11 +7198,6 @@ class PromptModel(BaseModel, HasFullName):
     """
 
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
-    schema_model: Optional[SchemaModel] = Field(
-        default=None,
-        alias="schema",
-        description="Unity Catalog schema qualifying the prompt name (catalog.schema.name).",
-    )
     name: str = Field(
         description="Identifier for the prompt, used as a label in logs and traces.",
     )
@@ -7212,10 +7207,6 @@ class PromptModel(BaseModel, HasFullName):
     )
     template: str = Field(
         description="The prompt template text, with optional {variable} placeholders.",
-    )
-    tags: Optional[dict[str, Any]] = Field(
-        default_factory=dict,
-        description="Key-value tags attached to the prompt for documentation.",
     )
 
     @property
@@ -7244,13 +7235,6 @@ class PromptModel(BaseModel, HasFullName):
             )
 
         return raw_template
-
-    @property
-    def full_name(self) -> str:
-        prompt_name: str = self.name
-        if self.schema_model:
-            prompt_name = f"{self.schema_model.full_name}.{prompt_name}"
-        return prompt_name
 
 
 class GuardrailModel(BaseModel):
@@ -11285,7 +11269,7 @@ class AppConfig(BaseModel):
 
     def deploy_agent(
         self,
-        target: ServingMode | None = None,
+        mode: ServingMode | None = None,
         w: WorkspaceClient | None = None,
         vsc: "VectorSearchClient | None" = None,
         pat: str | None = None,
@@ -11295,13 +11279,13 @@ class AppConfig(BaseModel):
         development: bool | None = None,
     ) -> None:
         """
-        Deploy the agent to the specified target.
+        Deploy the agent using the specified serving mode.
 
-        Target resolution: the caller supplies ``target`` (the CLI defaults it).
+        Mode resolution: the caller supplies ``mode`` (the CLI defaults it).
         If not provided, defaults to MODEL_SERVING.
 
         Args:
-            target: The deployment target (MODEL_SERVING, APPS, or MCP). If None,
+            mode: The serving mode (MODEL_SERVING, APPS, or MCP). If None,
                 defaults to MODEL_SERVING.
             w: Optional WorkspaceClient instance
             vsc: Optional VectorSearchClient instance
@@ -11317,7 +11301,7 @@ class AppConfig(BaseModel):
 
         # Mode is a deploy-action parameter, not config: the caller supplies it
         # (the CLI defaults it). No AppConfig fallback.
-        resolved_target: ServingMode = target or ServingMode.MODEL_SERVING
+        resolved_mode: ServingMode = mode or ServingMode.MODEL_SERVING
 
         provider: ServiceProvider = DatabricksProvider(
             w=w,
@@ -11327,7 +11311,7 @@ class AppConfig(BaseModel):
             client_secret=client_secret,
             workspace_host=workspace_host,
         )
-        provider.deploy_agent(self, target=resolved_target, development=development)
+        provider.deploy_agent(self, mode=resolved_mode, development=development)
 
     def find_agents(
         self, predicate: Callable[[AgentModel], bool] | None = None

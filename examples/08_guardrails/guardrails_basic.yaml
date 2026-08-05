@@ -74,7 +74,6 @@ resources:
 prompts:
   # Professional tone guardrail prompt
   professional_tone_prompt: &professional_tone_prompt
-    schema: *retail_schema
     name: professional_tone_guardrail
     description: "Evaluates if agent responses maintain a professional, helpful tone"
     template: |
@@ -92,14 +91,9 @@ prompts:
       - Avoid being overly casual or too formal
 
       Rate as true if the response meets these criteria, false if it doesn't.
-    tags:
-      type: guardrail
-      category: tone
-
 
   # Completeness guardrail prompt
   completeness_guardrail_prompt: &completeness_guardrail_prompt
-    schema: *retail_schema
     name: completeness_guardrail
     description: "Evaluates if responses fully address the user's question"
     template: |
@@ -118,14 +112,10 @@ prompts:
 
       Rate as true if the response is complete and thorough, false if it's incomplete,
       vague, or doesn't fully address the question.
-    tags:
-      type: guardrail
-      category: completeness
 
   # Veracity/groundedness guardrail prompt
   # This prompt leverages tool context automatically extracted from ToolMessages
   veracity_guardrail_prompt: &veracity_guardrail_prompt
-    schema: *retail_schema
     name: veracity_guardrail
     description: "Evaluates if responses are grounded in retrieved tool context"
     template: |
@@ -141,9 +131,6 @@ prompts:
 
       Rate as true if all claims are grounded, false if any claims are fabricated
       or unsupported by the context.
-    tags:
-      type: guardrail
-      category: veracity
 
 
 

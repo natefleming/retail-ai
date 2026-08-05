@@ -66,7 +66,6 @@ prompts:
   # Employee Agent Prompt
   # ---------------------------------------------------------------------------
   employee_agent_prompt: &employee_agent_prompt
-    schema: *store_ops_schema
     name: employee_prompt
     description: "The employee management agent prompt for retail operations"
     template: |
@@ -89,17 +88,13 @@ prompts:
 
       Available tables in retail_consumer_goods.store_ops schema:
       - employee_daily_tasks
-      - employee_performance  
+      - employee_performance
       - employee_tasks
-    tags:
-      environment: development
-      agent_type: employee_agent
 
   # ---------------------------------------------------------------------------
   # Inventory Agent Prompt
   # ---------------------------------------------------------------------------
   inventory_agent_prompt: &inventory_agent_prompt
-    schema: *store_ops_schema
     name: inventory_prompt
     description: "The inventory agent prompt for retail operations"
     template: |
@@ -112,9 +107,6 @@ prompts:
       - Always verify information before providing answers
       - If you need current data, use the genie tool to query the inventory database
       - Provide actionable insights when discussing stock levels
-    tags:
-      environment: development
-      agent_type: inventory_agent
 
 tools:
   genie_tool: &genie_tool

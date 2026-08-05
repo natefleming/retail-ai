@@ -4,7 +4,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from dao_ai.config import PromptModel, SchemaModel
+from dao_ai.config import PromptModel
 
 
 class TestPromptModelConfiguration:
@@ -44,39 +44,6 @@ class TestPromptModelConfiguration:
 
         assert rendered.count("{{ inputs }}") == 1
         assert rendered.count("{{ outputs }}") == 1
-
-    @pytest.mark.unit
-    def test_prompt_model_full_name_with_schema(self):
-        """full_name prepends the schema's full name when a schema is set."""
-        schema = SchemaModel(catalog_name="main", schema_name="prompts")
-        prompt = PromptModel(name="agent_prompt", schema=schema, template="Template")
-
-        assert prompt.full_name == "main.prompts.agent_prompt"
-
-    @pytest.mark.unit
-    def test_prompt_model_full_name_without_schema(self):
-        """full_name is just the name when no schema is set."""
-        prompt = PromptModel(name="simple_prompt", template="Template")
-
-        assert prompt.full_name == "simple_prompt"
-
-    @pytest.mark.unit
-    def test_prompt_model_tags(self):
-        """PromptModel supports tags."""
-        prompt = PromptModel(
-            name="tagged_prompt",
-            template="Template",
-            tags={"environment": "production", "team": "retail"},
-        )
-
-        assert prompt.tags == {"environment": "production", "team": "retail"}
-
-    @pytest.mark.unit
-    def test_prompt_model_empty_tags(self):
-        """PromptModel has empty tags by default."""
-        prompt = PromptModel(name="untagged_prompt", template="Template")
-
-        assert prompt.tags == {}
 
     @pytest.mark.unit
     def test_template_is_required(self):

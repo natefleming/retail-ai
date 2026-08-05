@@ -249,7 +249,6 @@ prompts:
   # Barista Agent Prompt
   # ---------------------------------------------------------------------------
   barista_prompt: &barista_prompt
-    schema: *qsr_schema
     name: barista_prompt
     description: "Expert coffee shop barista prompt for menu recommendations, ordering, and order history"
     template: |
@@ -299,9 +298,6 @@ prompts:
       **Handle Ambiguity**: If a customer's request is unclear, use your tools to show options and let them choose.
 
       You are friendly, knowledgeable, and always ready to help customers find exactly what they're looking for!
-    tags:
-      environment: production
-      agent_name: barista
 
 # =============================================================================
 # MEMORY CONFIGURATION
