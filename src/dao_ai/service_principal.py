@@ -26,7 +26,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Optional, Sequence
+from typing import TYPE_CHECKING, Final, Optional, Sequence
 
 from loguru import logger
 
@@ -328,6 +328,190 @@ def provision(
         result.grant_plan = grant(w, principal=created.client_id, config=config)
 
     return result
+
+
+# =============================================================================
+# ownership — which declared service principal owns which resource
+# =============================================================================
+
+
+@dataclass(frozen=True)
+class SecretRef:
+    """A ``(scope, key)`` pointer into a Databricks secret scope."""
+
+    scope: str
+    key: str
+
+
+@dataclass
+class ServicePrincipalTarget:
+    """One service principal to provision/grant, plus the keys identifying it.
+
+    ``client_id_ref`` is the *primary* identity key rather than
+    ``configured_client_id``: a config's ``client_id`` variable resolves to
+    whatever is currently in the secret scope, which on a first provision is
+    nothing and after a rotation is the *previous* SP's id. The ``(scope, key)``
+    pair is a property of the config itself, so it is stable across both.
+    """
+
+    name: str
+    display_name: str
+    model: Optional["ServicePrincipalModel"] = None
+    scope: Optional[str] = None
+    client_id_key: Optional[str] = None
+    client_secret_key: Optional[str] = None
+    client_id_ref: Optional[SecretRef] = None
+    client_secret_ref: Optional[SecretRef] = None
+    # Value of the config's client_id variable at load time. May be stale (a
+    # previous SP) or None (scope not populated yet) — never authoritative.
+    configured_client_id: Optional[str] = None
+    # The real client id, filled in once the SP is looked up or created.
+    resolved_client_id: Optional[str] = None
+    # Whether a workspace SP with ``display_name`` already exists (set by the
+    # dry-run-safe probe; None until probed).
+    exists: Optional[bool] = None
+
+
+@dataclass
+class OwnershipMap:
+    """Which named service principal owns which declared resource.
+
+    Keys are ``(collection, config_key)`` — e.g. ``("databases",
+    "retail_database")``. Plain string tuples, deliberately: the variable models
+    a resource's ``client_id`` holds are unhashable (``CompositeVariableModel``
+    wraps a list), so they cannot be used as keys.
+
+    A resource absent from :attr:`owners` is **shared** — no declared SP claims
+    it, so every SP is granted it.
+    """
+
+    owners: dict[tuple[str, str], str] = field(default_factory=dict)
+
+    def owner_of(self, collection: str, key: str) -> Optional[str]:
+        """Name of the SP owning ``collection[key]``, or None when shared."""
+        return self.owners.get((collection, key))
+
+    def owns(self, collection: str, key: str, sp_name: Optional[str]) -> bool:
+        """True if ``sp_name`` should be granted ``collection[key]``.
+
+        Shared resources (no owner) return True for every SP.
+        """
+        owner = self.owners.get((collection, key))
+        return owner is None or owner == sp_name
+
+
+# The ``IsDatabricksResource`` collections on ``ResourcesModel`` that can carry
+# per-resource credentials, and so can be owned by a specific SP. ``schemas``
+# is intentionally absent — ``SchemaModel`` is not an ``IsDatabricksResource``
+# and catalogs/schemas are shared infrastructure every SP needs USE_CATALOG on.
+_OWNABLE_COLLECTIONS: Final[tuple[str, ...]] = (
+    "tables",
+    "functions",
+    "volumes",
+    "connections",
+    "vector_stores",
+    "warehouses",
+    "genie_rooms",
+    "databases",
+)
+
+
+def resource_owner(
+    resource: object, targets: Sequence[ServicePrincipalTarget]
+) -> Optional[str]:
+    """Return the name of the target owning ``resource``, or None if shared.
+
+    Matching, cheapest and most exact first:
+
+    0. ``resource.service_principal`` equals the target's model. Pydantic
+       compares by value, so a shared YAML anchor matches even though each
+       occurrence re-validates into a distinct object.
+    1. The resource's ``client_id`` points at the same secret ``(scope, key)``
+       as the target. **This is the load-bearing case** — it needs no API call
+       and works before the SP exists, which is what makes single-pass
+       provisioning of a brand-new SP possible.
+    2. The resource's ``client_id`` resolves to the target's client id. Only
+       reached when step 1 found no secret ref (a literal or env-var
+       ``client_id``), because ``value_of`` on a secret-backed variable is a
+       live, uncached ``secrets.get_secret`` call — running it per
+       resource × target would multiply one API call into N×M.
+    """
+    model = getattr(resource, "service_principal", None)
+    if model is not None:
+        for target in targets:
+            if target.model is not None and model == target.model:
+                return target.name
+
+    client_id = getattr(resource, "client_id", None)
+    if client_id is None:
+        return None
+
+    scope, key = _secret_ref(client_id)
+    if scope is not None and key is not None:
+        for target in targets:
+            ref = target.client_id_ref
+            if ref is not None and ref.scope == scope and ref.key == key:
+                return target.name
+        # A secret-backed client_id that matches no target is genuinely
+        # unowned; do NOT fall through to value_of() — that would read the
+        # secret for nothing.
+        return None
+
+    resolved = value_of(client_id)
+    if not resolved:
+        return None
+    for target in targets:
+        if target.resolved_client_id and str(resolved) == target.resolved_client_id:
+            return target.name
+    for target in targets:
+        if target.configured_client_id and str(resolved) == target.configured_client_id:
+            return target.name
+    return None
+
+
+def build_ownership_map(
+    config: "AppConfig", targets: Sequence[ServicePrincipalTarget]
+) -> OwnershipMap:
+    """Map each declared resource to the service principal that owns it.
+
+    Only records matches — anything omitted is shared and granted to every SP.
+    ``app.experiment`` / ``app.endpoint_name`` are deliberately never owned:
+    ``AppModel.service_principal`` is the deploy/tracing identity, a different
+    concept from "which SP does this resource authenticate as", and every SP
+    should be able to query the endpoint.
+
+    Raises:
+        ValueError: if two targets share a secret ``(scope, client_id_key)``.
+            They would overwrite each other's credential and ownership matching
+            could not tell them apart. Raised before any workspace mutation.
+    """
+    seen_refs: dict[tuple[str, str], str] = {}
+    for target in targets:
+        ref = target.client_id_ref
+        if ref is None:
+            continue
+        conflict = seen_refs.get((ref.scope, ref.key))
+        if conflict is not None:
+            raise ValueError(
+                f"Service principals '{conflict}' and '{target.name}' both read "
+                f"client_id from secret '{ref.scope}/{ref.key}'. Give each its "
+                "own secret keys — otherwise they overwrite each other's "
+                "credentials and their resources cannot be told apart."
+            )
+        seen_refs[(ref.scope, ref.key)] = target.name
+
+    ownership = OwnershipMap()
+    resources = config.resources
+    if resources is None:
+        return ownership
+
+    for collection in _OWNABLE_COLLECTIONS:
+        for key, resource in (getattr(resources, collection, None) or {}).items():
+            owner = resource_owner(resource, targets)
+            if owner is not None:
+                ownership.owners[(collection, key)] = owner
+
+    return ownership
 
 
 # =============================================================================

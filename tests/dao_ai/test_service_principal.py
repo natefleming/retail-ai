@@ -22,7 +22,10 @@ from dao_ai.service_principal import (
     GRANT_FAILURE_ABSENT,
     GRANT_FAILURE_DENIED,
     GRANT_FAILURE_ERROR,
+    SecretRef,
+    ServicePrincipalTarget,
     build_grant_plan,
+    build_ownership_map,
     classify_grant_error,
     create,
     default_scope_from_config,
@@ -30,6 +33,7 @@ from dao_ai.service_principal import (
     provision,
     resolve_principal_from_config,
     resolve_secret_target,
+    resource_owner,
     store,
 )
 
@@ -821,3 +825,177 @@ def test_grant_records_failure_kind_denied() -> None:
 
     catalog_grant = next(g for g in plan.grants if g.securable_type == "catalog")
     assert catalog_grant.failure_kind == GRANT_FAILURE_DENIED
+
+
+# =============================================================================
+# ownership — which declared SP owns which resource
+# =============================================================================
+
+
+def _target(
+    name: str,
+    scope: str = "sc",
+    cid_key: str = "CID",
+    csec_key: str = "CSEC",
+    model: object = None,
+    configured: str | None = None,
+    resolved: str | None = None,
+) -> ServicePrincipalTarget:
+    return ServicePrincipalTarget(
+        name=name,
+        display_name=f"app-{name}",
+        model=model,
+        scope=scope,
+        client_id_key=cid_key,
+        client_secret_key=csec_key,
+        client_id_ref=SecretRef(scope=scope, key=cid_key),
+        client_secret_ref=SecretRef(scope=scope, key=csec_key),
+        configured_client_id=configured,
+        resolved_client_id=resolved,
+    )
+
+
+def test_ownership_matches_resource_by_secret_ref() -> None:
+    """The load-bearing case: same (scope, key) → same owner. No API calls."""
+    schema = _schema()
+    table = TableModel(
+        schema=schema,
+        name="t",
+        client_id=SecretVariableModel(scope="sc", secret="CID"),
+        client_secret=SecretVariableModel(scope="sc", secret="CSEC"),
+    )
+    targets = [_target("memory_sp"), _target("tools_sp", cid_key="T_CID")]
+    assert resource_owner(table, targets) == "memory_sp"
+
+
+def test_ownership_matches_resource_by_shared_service_principal_model() -> None:
+    """A shared YAML anchor re-validates into distinct objects but compares equal."""
+    sp = ServicePrincipalModel(
+        client_id=SecretVariableModel(scope="sc", secret="CID"),
+        client_secret=SecretVariableModel(scope="sc", secret="CSEC"),
+    )
+    schema = _schema()
+    table = TableModel(schema=schema, name="t", service_principal=sp)
+    targets = [_target("tools_sp", cid_key="T_CID"), _target("memory_sp", model=sp)]
+    assert resource_owner(table, targets) == "memory_sp"
+
+
+def test_ownership_matches_resource_by_literal_client_id() -> None:
+    """A literal client_id falls through to value comparison."""
+    schema = _schema()
+    table = TableModel(schema=schema, name="t", client_id=PRINCIPAL, client_secret="s")
+    targets = [_target("memory_sp", resolved=PRINCIPAL)]
+    assert resource_owner(table, targets) == "memory_sp"
+
+
+def test_ownership_treats_resource_without_client_id_as_shared() -> None:
+    table = TableModel(schema=_schema(), name="t")
+    assert resource_owner(table, [_target("memory_sp")]) is None
+
+
+def test_ownership_unmatched_secret_ref_is_shared_without_reading_it(
+    monkeypatch,
+) -> None:
+    """A secret-backed client_id matching no target must NOT be resolved.
+
+    This is the case that actually leaks API calls: the ref lookup misses, and a
+    naive implementation falls through to ``value_of`` — a live, uncached
+    ``get_secret`` — for every unowned resource on every target.
+    """
+
+    def _boom(*args, **kwargs):
+        raise AssertionError(
+            "an unmatched secret-backed client_id must not be resolved"
+        )
+
+    monkeypatch.setattr("dao_ai.config.SecretVariableModel.as_value", _boom)
+    table = TableModel(
+        schema=_schema(),
+        name="t",
+        client_id=SecretVariableModel(scope="other", secret="NOPE"),
+        client_secret=SecretVariableModel(scope="other", secret="NOPE2"),
+    )
+    assert resource_owner(table, [_target("memory_sp")]) is None
+
+
+def test_ownership_secret_ref_match_never_reads_the_secret(monkeypatch) -> None:
+    """Guardrail: value_of() on a secret is a live uncached get_secret call.
+
+    Matching by (scope, key) must not trigger it — otherwise one API call
+    becomes N_resources x N_sps per plan.
+    """
+
+    def _boom(*args, **kwargs):
+        raise AssertionError("ownership matching must not read secret values")
+
+    monkeypatch.setattr("dao_ai.config.SecretVariableModel.as_value", _boom)
+    table = TableModel(
+        schema=_schema(),
+        name="t",
+        client_id=SecretVariableModel(scope="sc", secret="CID"),
+        client_secret=SecretVariableModel(scope="sc", secret="CSEC"),
+    )
+    assert resource_owner(table, [_target("memory_sp")]) == "memory_sp"
+
+
+def test_ownership_matches_fresh_sp_before_client_id_is_resolvable() -> None:
+    """A brand-new SP has no id yet; the secret ref still identifies its resources."""
+    table = TableModel(
+        schema=_schema(),
+        name="t",
+        client_id=SecretVariableModel(scope="sc", secret="CID"),
+        client_secret=SecretVariableModel(scope="sc", secret="CSEC"),
+    )
+    fresh = _target("memory_sp", configured=None, resolved=None)
+    assert resource_owner(table, [fresh]) == "memory_sp"
+
+
+def test_ownership_map_records_only_owned_resources() -> None:
+    from dao_ai.config import ResourcesModel
+
+    schema = _schema()
+    owned = TableModel(
+        schema=schema,
+        name="owned",
+        client_id=SecretVariableModel(scope="sc", secret="CID"),
+        client_secret=SecretVariableModel(scope="sc", secret="CSEC"),
+    )
+    shared = TableModel(schema=schema, name="shared")
+    config = AppConfig(
+        schemas={"s": schema},
+        resources=ResourcesModel(tables={"owned": owned, "shared": shared}),
+    )
+    ownership = build_ownership_map(config, [_target("memory_sp")])
+
+    assert ownership.owner_of("tables", "owned") == "memory_sp"
+    assert ownership.owner_of("tables", "shared") is None
+    # Shared resources are granted to every SP; owned ones only to their owner.
+    assert ownership.owns("tables", "shared", "memory_sp")
+    assert ownership.owns("tables", "shared", "tools_sp")
+    assert ownership.owns("tables", "owned", "memory_sp")
+    assert not ownership.owns("tables", "owned", "tools_sp")
+
+
+def test_ownership_map_covers_databases() -> None:
+    from dao_ai.config import ResourcesModel
+
+    db = _lakebase_db(PRINCIPAL)
+    config = AppConfig(resources=ResourcesModel(databases={"d": db}))
+    ownership = build_ownership_map(config, [_target("memory_sp", resolved=PRINCIPAL)])
+    assert ownership.owner_of("databases", "d") == "memory_sp"
+
+
+def test_ownership_rejects_two_sps_sharing_one_client_id_key() -> None:
+    import pytest
+
+    config = AppConfig()
+    targets = [_target("a"), _target("b")]  # same scope + CID key
+    with pytest.raises(ValueError, match="both read"):
+        build_ownership_map(config, targets)
+
+
+def test_ownership_map_empty_when_no_resources() -> None:
+    ownership = build_ownership_map(AppConfig(), [_target("memory_sp")])
+    assert ownership.owners == {}
+    # Everything is shared when nothing is owned.
+    assert ownership.owns("tables", "anything", "memory_sp")
