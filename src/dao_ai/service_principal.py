@@ -26,7 +26,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Optional, Sequence
+from typing import TYPE_CHECKING, Final, Optional, Sequence
 
 from loguru import logger
 
@@ -34,6 +34,7 @@ from dao_ai.config import value_of
 
 if TYPE_CHECKING:
     from databricks.sdk import WorkspaceClient
+    from databricks.sdk.service.iam import ServicePrincipal
 
     from dao_ai.config import (
         AiSearchVectorStoreModel,
@@ -60,6 +61,48 @@ def _looks_like_uuid(value: str) -> bool:
     return bool(_UUID_RE.match(value.strip()))
 
 
+# Why a grant did not apply. ``absent`` means the target isn't in this
+# workspace at all (a config/workspace mismatch — usually a wrong ``--var``
+# override or profile); ``denied`` means it exists but the calling identity
+# lacks GRANT/MANAGE on it. The distinction matters because the remedies are
+# completely different, and reporting every failure as a permissions problem
+# sends users chasing ACLs for a resource that was never there.
+GRANT_FAILURE_ABSENT: Final[str] = "absent"
+GRANT_FAILURE_DENIED: Final[str] = "denied"
+GRANT_FAILURE_ERROR: Final[str] = "error"
+
+
+def classify_grant_error(exc: BaseException) -> str:
+    """Bucket a grant failure into ``absent`` / ``denied`` / ``error``.
+
+    Prefers the SDK's typed exceptions, which are exact: a UC permissions PATCH
+    against a missing catalog raises :class:`NotFound` with
+    ``error_code='CATALOG_DOES_NOT_EXIST'``. Falls back to substring matching
+    only for non-SDK errors raised by provider helpers.
+    """
+    from databricks.sdk.errors import DatabricksError, NotFound, PermissionDenied
+
+    if isinstance(exc, NotFound):  # ResourceDoesNotExist subclasses NotFound
+        return GRANT_FAILURE_ABSENT
+    if isinstance(exc, PermissionDenied):
+        return GRANT_FAILURE_DENIED
+
+    error_code: str = ""
+    if isinstance(exc, DatabricksError):
+        error_code = str(getattr(exc, "error_code", "") or "")
+    if error_code.endswith("_DOES_NOT_EXIST") or error_code == "NOT_FOUND":
+        return GRANT_FAILURE_ABSENT
+    if error_code == "PERMISSION_DENIED":
+        return GRANT_FAILURE_DENIED
+
+    text: str = str(exc).lower()
+    if "does not exist" in text or "not found" in text:
+        return GRANT_FAILURE_ABSENT
+    if "permission_denied" in text or "not authorized" in text:
+        return GRANT_FAILURE_DENIED
+    return GRANT_FAILURE_ERROR
+
+
 # =============================================================================
 # create
 # =============================================================================
@@ -76,11 +119,37 @@ class CreatedServicePrincipal:
     reused: bool = False
 
 
+def find_service_principal(
+    w: "WorkspaceClient", *, display_name: str
+) -> Optional["ServicePrincipal"]:
+    """Look up a workspace service principal by display name.
+
+    Read-only — mints nothing and creates nothing. Split out of :func:`create`
+    so the provisioning flow can report "would create" vs "would reuse (id …)"
+    during a dry run, and decide whether a secret needs minting at all, without
+    any side effect.
+
+    Returns:
+        The matching service principal, or None when no SP has that name.
+    """
+    return next(
+        (
+            sp
+            for sp in w.service_principals.list(
+                filter=f'displayName eq "{display_name}"'
+            )
+            if sp.display_name == display_name
+        ),
+        None,
+    )
+
+
 def create(
     w: "WorkspaceClient",
     *,
     display_name: str,
     lifetime: Optional[str] = None,
+    dry_run: bool = False,
 ) -> CreatedServicePrincipal:
     """Create (or reuse) a workspace service principal and mint an OAuth secret.
 
@@ -93,20 +162,25 @@ def create(
         display_name: Display name for the service principal.
         lifetime: Optional OAuth secret lifetime (e.g. ``"7776000s"``). Defaults
             to the workspace maximum when omitted.
+        dry_run: Report whether the SP exists without creating it or minting a
+            secret. Note that minting IS a mutation — it registers a new OAuth
+            secret on the principal — so a dry run must not reach it. Returns
+            ``client_secret=None`` and an empty ``client_id`` when the SP does
+            not exist yet.
 
     Returns:
         The created/reused principal plus the one-time client secret.
     """
-    existing = next(
-        (
-            sp
-            for sp in w.service_principals.list(
-                filter=f'displayName eq "{display_name}"'
-            )
-            if sp.display_name == display_name
-        ),
-        None,
-    )
+    existing = find_service_principal(w, display_name=display_name)
+
+    if dry_run:
+        return CreatedServicePrincipal(
+            display_name=display_name,
+            client_id=(existing.application_id or "") if existing else "",
+            sp_id=str(existing.id) if existing else "",
+            client_secret=None,
+            reused=existing is not None,
+        )
 
     if existing is not None:
         logger.info(
@@ -152,20 +226,86 @@ def store(
     client_secret_key: str,
     client_id: str,
     client_secret: str,
-) -> None:
+    overwrite: bool = True,
+    dry_run: bool = False,
+) -> "StoreResult":
     """Write the service-principal credentials into a Databricks secret scope.
 
     Creates the scope if it does not already exist (idempotent).
+
+    Args:
+        overwrite: When False, a key that already holds a value is left alone and
+            reported in :attr:`StoreResult.skipped`. Defaults to True, preserving
+            the original unconditional-write behaviour for existing callers.
+        dry_run: Report what would be written without writing anything.
+
+    Returns:
+        Which keys were (or would be) written, and which were left untouched.
     """
-    _ensure_scope(w, scope)
-    w.secrets.put_secret(scope=scope, key=client_id_key, string_value=client_id)
-    w.secrets.put_secret(scope=scope, key=client_secret_key, string_value=client_secret)
-    logger.info(
-        "Stored service-principal credentials",
-        scope=scope,
-        client_id_key=client_id_key,
-        client_secret_key=client_secret_key,
+    existing = (
+        secret_keys_present(w, scope) if (not overwrite or dry_run) else frozenset()
     )
+    pairs = ((client_id_key, client_id), (client_secret_key, client_secret))
+    written: list[str] = []
+    skipped: list[str] = []
+    for key, secret_value in pairs:
+        if not overwrite and key in existing:
+            skipped.append(key)
+            continue
+        written.append(key)
+        if not dry_run:
+            if len(written) == 1:
+                # Only touch the scope once we know we have something to write.
+                _ensure_scope(w, scope)
+            w.secrets.put_secret(scope=scope, key=key, string_value=secret_value)
+
+    if not dry_run and written:
+        logger.info(
+            "Stored service-principal credentials",
+            scope=scope,
+            keys=written,
+            skipped=skipped or None,
+        )
+    return StoreResult(
+        scope=scope,
+        written=written,
+        skipped=skipped,
+        scope_existed=scope in secret_scopes(w) if dry_run else None,
+    )
+
+
+@dataclass
+class StoreResult:
+    """Which secret keys :func:`store` wrote, and which it left alone."""
+
+    scope: str
+    written: list[str] = field(default_factory=list)
+    skipped: list[str] = field(default_factory=list)
+    # Only populated on a dry run, where "the scope will be created" is worth
+    # reporting; None on a real run (the scope is ensured as a side effect).
+    scope_existed: Optional[bool] = None
+
+
+def secret_keys_present(w: "WorkspaceClient", scope: str) -> frozenset[str]:
+    """Keys that already hold a value in ``scope`` (empty if the scope is absent).
+
+    Uses ``list_secrets``, which returns key names and timestamps only — never a
+    value. The SDK has no exists-check helper, and ``get_secret`` would
+    materialize the credential just to learn whether it is there.
+    """
+    from databricks.sdk.errors import NotFound
+
+    try:
+        return frozenset(
+            s.key for s in w.secrets.list_secrets(scope=scope) if s.key is not None
+        )
+    except NotFound:
+        return frozenset()
+
+
+def secret_scopes(w: "WorkspaceClient") -> frozenset[str]:
+    """Names of every secret scope in the workspace."""
+    return frozenset(s.name for s in w.secrets.list_scopes() if s.name is not None)
 
 
 def _ensure_scope(w: "WorkspaceClient", scope: str) -> None:
@@ -185,9 +325,15 @@ def _ensure_scope(w: "WorkspaceClient", scope: str) -> None:
 # =============================================================================
 
 
+#: What :func:`provision_all` did (or would do) with a target's secret keys.
+SECRET_WRITE: Final[str] = "write"  # keys absent → write them
+SECRET_ROTATE: Final[str] = "rotate"  # keys present + overwrite → replace them
+SECRET_KEEP: Final[str] = "keep"  # keys present, no overwrite → leave them alone
+
+
 @dataclass
 class ProvisionResult:
-    """Outcome of :func:`provision`. The secret is deliberately NOT included."""
+    """Outcome of provisioning one SP. The secret is deliberately NOT included."""
 
     display_name: str
     client_id: str
@@ -197,6 +343,25 @@ class ProvisionResult:
     stored_client_secret_key: Optional[str] = None
     stored: bool = False
     grant_plan: Optional["GrantPlan"] = None
+    # Config key of the service principal in ``service_principals``; "default"
+    # for a config that declares none.
+    name: str = "default"
+    # One of the ``SECRET_*`` constants, or None when storing was skipped.
+    secret_action: Optional[str] = None
+    # Keys that already held a value when we looked.
+    existing_keys: list[str] = field(default_factory=list)
+    # Set when nothing was done because it could not be done safely.
+    blocked_reason: Optional[str] = None
+
+
+@dataclass
+class MultiProvisionResult:
+    """Outcome of :func:`provision_all` across every declared service principal."""
+
+    results: list[ProvisionResult] = field(default_factory=list)
+    dry_run: bool = False
+    # (sp_name, reason) for targets that were deliberately not provisioned.
+    blocked: list[tuple[str, str]] = field(default_factory=list)
 
 
 def provision(
@@ -233,59 +398,596 @@ def provision(
             resolved. Validated BEFORE creating the service principal so a
             misconfigured call never leaves an orphaned SP behind.
     """
-    # Resolve + validate the store target up front — before we create anything —
-    # so an unresolvable config fails fast without orphaning a service principal.
-    resolved_scope: Optional[str] = None
-    cid_key: Optional[str] = None
-    csec_key: Optional[str] = None
-    if do_store:
-        resolved_scope, cid_key, csec_key = resolve_secret_target(
-            config,
-            scope_override=scope,
-            client_id_key_override=client_id_key,
-            client_secret_key_override=client_secret_key,
-        )
-        resolved_scope = resolved_scope or default_scope_from_config(config)
-        if not resolved_scope:
-            raise ValueError(
-                "Cannot determine a secret scope to store credentials. "
-                "Pass --scope, or add a service_principals block to the config."
-            )
-        if not (cid_key and csec_key):
-            raise ValueError(
-                "Cannot determine which secret keys to store the credentials under. "
-                "The config has no service_principals block or client_id/client_secret "
-                "variables to infer them from. Pass --client-id-key and "
-                "--client-secret-key (the keys your config reads its credentials from)."
-            )
+    target = ServicePrincipalTarget(name="default", display_name=display_name)
+    _resolve_secret_target_for(
+        target,
+        config,
+        scope_override=scope,
+        client_id_key_override=client_id_key,
+        client_secret_key_override=client_secret_key,
+    )
+    outcome = provision_all(
+        w,
+        config=config,
+        targets=[target],
+        lifetime=lifetime,
+        do_store=do_store,
+        do_grant=do_grant,
+    )
+    return outcome.results[0]
 
-    created = create(w, display_name=display_name, lifetime=lifetime)
 
-    result = ProvisionResult(
-        display_name=created.display_name,
-        client_id=created.client_id,
-        reused=created.reused,
+def _resolve_secret_target_for(
+    target: ServicePrincipalTarget,
+    config: "AppConfig",
+    *,
+    scope_override: Optional[str] = None,
+    client_id_key_override: Optional[str] = None,
+    client_secret_key_override: Optional[str] = None,
+) -> None:
+    """Fill in ``target``'s secret scope/keys/refs from the config (in place)."""
+    resolved_scope, cid_key, csec_key = resolve_secret_target(
+        config,
+        scope_override=scope_override,
+        client_id_key_override=client_id_key_override,
+        client_secret_key_override=client_secret_key_override,
+    )
+    target.scope = resolved_scope or default_scope_from_config(config)
+    target.client_id_key = cid_key
+    target.client_secret_key = csec_key
+    if target.scope and cid_key:
+        target.client_id_ref = SecretRef(scope=target.scope, key=cid_key)
+    if target.scope and csec_key:
+        target.client_secret_ref = SecretRef(scope=target.scope, key=csec_key)
+
+
+def resolve_sp_targets(
+    config: "AppConfig",
+    *,
+    app_display_name: Optional[str] = None,
+    scope_override: Optional[str] = None,
+    client_id_key_override: Optional[str] = None,
+    client_secret_key_override: Optional[str] = None,
+    only: Optional[Sequence[str]] = None,
+) -> list[ServicePrincipalTarget]:
+    """Work out which service principals a config wants provisioned.
+
+    One target per entry in ``service_principals``. A config that declares none
+    yields exactly one synthetic ``"default"`` target whose secret scope/keys come
+    from :func:`resolve_secret_target` — identical inputs to the single-SP path,
+    so such configs behave exactly as before.
+
+    Args:
+        config: The config to read.
+        app_display_name: Display name for the synthetic default target, and the
+            prefix for derived names (``<app_display_name>-<key>``). Falls back to
+            ``config.app.name``.
+        scope_override / client_id_key_override / client_secret_key_override:
+            Explicit secret target. Only valid for a single target — applying one
+            key pair to several SPs would make each overwrite the last.
+        only: Provision just these named service principals.
+
+    Raises:
+        ValueError: if ``only`` names a service principal the config does not
+            declare, or if overrides are combined with several targets.
+    """
+    app_name = app_display_name or (
+        config.app.name if config.app is not None and config.app.name else None
     )
 
-    if do_store:
-        assert resolved_scope and cid_key and csec_key  # validated above
-        store(
-            w,
-            scope=resolved_scope,
-            client_id_key=cid_key,
-            client_secret_key=csec_key,
-            client_id=created.client_id,
-            client_secret=created.client_secret,
+    declared = config.service_principals or {}
+    if not declared:
+        target = ServicePrincipalTarget(
+            name="default",
+            display_name=app_display_name or (f"{app_name}-sp" if app_name else ""),
         )
-        result.stored_scope = resolved_scope
-        result.stored_client_id_key = cid_key
-        result.stored_client_secret_key = csec_key
-        result.stored = True
+        _resolve_secret_target_for(
+            target,
+            config,
+            scope_override=scope_override,
+            client_id_key_override=client_id_key_override,
+            client_secret_key_override=client_secret_key_override,
+        )
+        return [target]
 
-    if do_grant:
-        result.grant_plan = grant(w, principal=created.client_id, config=config)
+    if only:
+        unknown = [name for name in only if name not in declared]
+        if unknown:
+            raise ValueError(
+                f"Unknown service principal(s): {', '.join(sorted(unknown))}. "
+                f"The config declares: {', '.join(sorted(declared))}."
+            )
 
-    return result
+    overrides = (scope_override, client_id_key_override, client_secret_key_override)
+    selected = {k: v for k, v in declared.items() if not only or k in only}
+    if len(selected) > 1 and any(overrides):
+        raise ValueError(
+            "--scope / --client-id-key / --client-secret-key apply to a single "
+            f"service principal, but {len(selected)} are selected "
+            f"({', '.join(sorted(selected))}). Each service principal needs its "
+            "own secret keys — one shared pair would make each overwrite the "
+            "last. Narrow the run with --sp <name>, or drop the overrides and "
+            "let each SP use the keys its config block declares."
+        )
+
+    targets: list[ServicePrincipalTarget] = []
+    for key, sp in selected.items():
+        default_name = f"{app_name}-{key}" if app_name else key
+        target = ServicePrincipalTarget(
+            name=key,
+            display_name=sp.name or default_name,
+            model=sp,
+        )
+        cid_scope, cid_key = _secret_ref(sp.client_id)
+        csec_scope, csec_key = _secret_ref(sp.client_secret)
+        target.scope = (
+            scope_override
+            or cid_scope
+            or csec_scope
+            or default_scope_from_config(config)
+        )
+        target.client_id_key = client_id_key_override or cid_key
+        target.client_secret_key = client_secret_key_override or csec_key
+        if target.scope and target.client_id_key:
+            target.client_id_ref = SecretRef(
+                scope=target.scope, key=target.client_id_key
+            )
+        if target.scope and target.client_secret_key:
+            target.client_secret_ref = SecretRef(
+                scope=target.scope, key=target.client_secret_key
+            )
+        # Best effort: this is a live secret read that legitimately fails when the
+        # scope isn't populated yet (the common case on a first provision), and
+        # must not abort target resolution. Ownership matching doesn't need it.
+        try:
+            raw = value_of(sp.client_id) if sp.client_id is not None else None
+            # NB: an unresolvable secret yields None, and ``str(None)`` is the
+            # truthy string "None" — which would sail through every later
+            # ``if client_id:`` guard and get used as a real principal. Coerce
+            # only after the None check.
+            target.configured_client_id = str(raw) if raw is not None else None
+        except Exception as e:  # noqa: BLE001 — unreadable secret is expected
+            logger.debug(
+                "Could not resolve configured client_id",
+                service_principal=key,
+                error=str(e),
+            )
+        targets.append(target)
+
+    return targets
+
+
+def provision_all(
+    w: "WorkspaceClient",
+    *,
+    config: "AppConfig",
+    targets: Sequence[ServicePrincipalTarget],
+    lifetime: Optional[str] = None,
+    do_store: bool = True,
+    do_grant: bool = True,
+    dry_run: bool = False,
+    overwrite: bool = False,
+) -> MultiProvisionResult:
+    """Provision every service principal in ``targets``: create, store, grant.
+
+    Library-level and side-effect-reporting rather than printing, so the CLI and a
+    pipeline notebook drive the identical code path. Ordered in four phases so
+    that nothing is mutated until every target is known to be safe:
+
+    1. **Validate** — every target's secret scope/keys must resolve, and no two
+       targets may share a client-id key. Raises before any workspace change, so
+       a misconfigured run never leaves an orphaned service principal behind.
+    2. **Probe** (reads only) — does the SP exist, and do its secret keys already
+       hold values? This is what decides create-vs-reuse and
+       write/rotate/keep, and it is why ``dry_run`` can report the truth.
+    3. **Ownership** (pure) — which target owns which resource. Skipped for a
+       single target, where everything belongs to it anyway.
+    4. **Apply** — skipped entirely when ``dry_run``.
+
+    Args:
+        w: Workspace client. The caller chooses the identity: the CLI passes one
+            built from ``-p/--profile``, a notebook passes ambient auth.
+        config: The config being provisioned for.
+        targets: From :func:`resolve_sp_targets`.
+        lifetime: Optional OAuth secret lifetime.
+        do_store: Write credentials to the secret scope.
+        do_grant: Grant each SP the resources it owns.
+        dry_run: Report what would happen and change nothing.
+        overwrite: Replace secret keys that already hold a value. Without it an
+            existing key is reported and left alone, and no secret is minted —
+            so a re-run never rotates a credential out from under a live agent.
+
+    Raises:
+        ValueError: on an unresolvable secret target or conflicting keys.
+    """
+    outcome = MultiProvisionResult(dry_run=dry_run)
+
+    # ---- Phase 1: validate (no mutation, no reads) -------------------------
+    if do_store:
+        for target in targets:
+            if not target.scope:
+                raise ValueError(
+                    "Cannot determine a secret scope to store credentials. "
+                    "Pass --scope, or add a service_principals block to the config."
+                )
+            if not (target.client_id_key and target.client_secret_key):
+                raise ValueError(
+                    "Cannot determine which secret keys to store the credentials "
+                    "under. The config has no service_principals block or "
+                    "client_id/client_secret variables to infer them from. Pass "
+                    "--client-id-key and --client-secret-key (the keys your "
+                    "config reads its credentials from)."
+                )
+    for target in targets:
+        if not target.display_name:
+            raise ValueError(
+                f"No display name for service principal '{target.name}'. Set "
+                "`name:` on its service_principals entry, pass --name, or give "
+                "the config an app.name to derive one from."
+            )
+
+    # ---- Phase 2: probe (reads only) --------------------------------------
+    present_by_scope: dict[str, frozenset[str]] = {}
+    for target in targets:
+        if do_store and target.scope and target.scope not in present_by_scope:
+            present_by_scope[target.scope] = secret_keys_present(w, target.scope)
+
+        existing_sp = find_service_principal(w, display_name=target.display_name)
+        target.exists = existing_sp is not None
+        target.resolved_client_id = (
+            existing_sp.application_id if existing_sp is not None else None
+        ) or None
+
+        keys = {target.client_id_key, target.client_secret_key} - {None}
+        present = present_by_scope.get(target.scope or "", frozenset())
+        existing_keys = sorted(keys & present)
+
+        if not do_store:
+            secret_action = None
+        elif not existing_keys:
+            secret_action = SECRET_WRITE
+        elif overwrite:
+            secret_action = SECRET_ROTATE
+        else:
+            secret_action = SECRET_KEEP
+
+        result = ProvisionResult(
+            display_name=target.display_name,
+            client_id=target.resolved_client_id or "",
+            reused=bool(target.exists),
+            name=target.name,
+            secret_action=secret_action,
+            existing_keys=list(existing_keys),
+        )
+
+        # A populated key with no matching SP is the one case we refuse to guess
+        # at: the credential belongs to something, and minting a replacement
+        # without being told to would rotate it out from under whatever that is.
+        if secret_action == SECRET_KEEP and not target.exists:
+            result.blocked_reason = (
+                f"secret key(s) {', '.join(existing_keys)} in scope "
+                f"'{target.scope}' already hold a value, but no service "
+                f"principal named '{target.display_name}' exists. Pass "
+                f"--overwrite to replace them, or set `name:` on this "
+                f"service_principals entry to the SP that owns them."
+            )
+            outcome.blocked.append((target.name, result.blocked_reason))
+        outcome.results.append(result)
+
+    # ---- Phase 3: ownership (pure) ---------------------------------------
+    ownership = build_ownership_map(config, targets) if len(targets) > 1 else None
+
+    # ---- Phase 4: apply --------------------------------------------------
+    for target, result in zip(targets, outcome.results):
+        if result.blocked_reason:
+            continue
+
+        if dry_run:
+            principal = target.resolved_client_id or placeholder_principal(target.name)
+            if do_store and target.scope:
+                result.stored_scope = target.scope
+                result.stored_client_id_key = target.client_id_key
+                result.stored_client_secret_key = target.client_secret_key
+            if do_grant:
+                result.grant_plan = grant(
+                    w,
+                    principal=principal,
+                    config=config,
+                    dry_run=True,
+                    ownership=ownership,
+                    sp_name=target.name,
+                    targets=targets,
+                )
+            continue
+
+        if result.secret_action in (SECRET_WRITE, SECRET_ROTATE):
+            created = create(w, display_name=target.display_name, lifetime=lifetime)
+            target.resolved_client_id = created.client_id
+            result.client_id = created.client_id
+            result.reused = created.reused
+            assert target.scope and target.client_id_key and target.client_secret_key
+            store(
+                w,
+                scope=target.scope,
+                client_id_key=target.client_id_key,
+                client_secret_key=target.client_secret_key,
+                client_id=created.client_id,
+                client_secret=created.client_secret,
+                overwrite=True,  # decided in phase 2
+            )
+            result.stored_scope = target.scope
+            result.stored_client_id_key = target.client_id_key
+            result.stored_client_secret_key = target.client_secret_key
+            result.stored = True
+        elif result.secret_action is None and not target.exists:
+            # --no-store on a config whose SP doesn't exist yet: still create it,
+            # so `--no-store` means "don't write secrets", not "do nothing".
+            created = create(w, display_name=target.display_name, lifetime=lifetime)
+            target.resolved_client_id = created.client_id
+            result.client_id = created.client_id
+            result.reused = created.reused
+        # SECRET_KEEP: the SP exists and its credentials are already in place.
+        # Nothing to create, nothing to mint — grants below are still re-applied
+        # (they are additive and idempotent).
+
+        if do_grant:
+            result.grant_plan = grant(
+                w,
+                principal=target.resolved_client_id or result.client_id,
+                config=config,
+                ownership=ownership,
+                sp_name=target.name,
+                targets=targets,
+            )
+
+    return outcome
+
+
+def grant_all(
+    w: "WorkspaceClient",
+    *,
+    config: "AppConfig",
+    targets: Sequence[ServicePrincipalTarget],
+    dry_run: bool = False,
+) -> list[GrantPlan]:
+    """Grant every target the resources it owns, without provisioning anything.
+
+    Resolves each target's client id by looking the SP up — an SP must already
+    exist to be granted. Targets with no such SP get a plan whose grants are all
+    skipped rather than being silently dropped.
+    """
+    for target in targets:
+        existing = find_service_principal(w, display_name=target.display_name)
+        target.exists = existing is not None
+        if existing is not None and existing.application_id:
+            target.resolved_client_id = existing.application_id
+        elif target.configured_client_id:
+            target.resolved_client_id = target.configured_client_id
+
+    ownership = build_ownership_map(config, targets) if len(targets) > 1 else None
+    plans: list[GrantPlan] = []
+    for target in targets:
+        principal = target.resolved_client_id
+        if not principal:
+            logger.warning(
+                "No service principal to grant — skipping",
+                service_principal=target.name,
+                display_name=target.display_name,
+            )
+            plans.append(GrantPlan(principal=placeholder_principal(target.name)))
+            continue
+        plans.append(
+            grant(
+                w,
+                principal=principal,
+                config=config,
+                dry_run=dry_run,
+                ownership=ownership,
+                sp_name=target.name,
+                targets=targets,
+            )
+        )
+    return plans
+
+
+# =============================================================================
+# ownership — which declared service principal owns which resource
+# =============================================================================
+
+
+@dataclass(frozen=True)
+class SecretRef:
+    """A ``(scope, key)`` pointer into a Databricks secret scope."""
+
+    scope: str
+    key: str
+
+
+@dataclass
+class ServicePrincipalTarget:
+    """One service principal to provision/grant, plus the keys identifying it.
+
+    ``client_id_ref`` is the *primary* identity key rather than
+    ``configured_client_id``: a config's ``client_id`` variable resolves to
+    whatever is currently in the secret scope, which on a first provision is
+    nothing and after a rotation is the *previous* SP's id. The ``(scope, key)``
+    pair is a property of the config itself, so it is stable across both.
+    """
+
+    name: str
+    display_name: str
+    model: Optional["ServicePrincipalModel"] = None
+    scope: Optional[str] = None
+    client_id_key: Optional[str] = None
+    client_secret_key: Optional[str] = None
+    client_id_ref: Optional[SecretRef] = None
+    client_secret_ref: Optional[SecretRef] = None
+    # Value of the config's client_id variable at load time. May be stale (a
+    # previous SP) or None (scope not populated yet) — never authoritative.
+    configured_client_id: Optional[str] = None
+    # The real client id, filled in once the SP is looked up or created.
+    resolved_client_id: Optional[str] = None
+    # Whether a workspace SP with ``display_name`` already exists (set by the
+    # dry-run-safe probe; None until probed).
+    exists: Optional[bool] = None
+
+
+@dataclass
+class OwnershipMap:
+    """Which named service principal owns which declared resource.
+
+    Keys are ``(collection, config_key)`` — e.g. ``("databases",
+    "retail_database")``. Plain string tuples, deliberately: the variable models
+    a resource's ``client_id`` holds are unhashable (``CompositeVariableModel``
+    wraps a list), so they cannot be used as keys.
+
+    A resource absent from :attr:`owners` is **shared** — no declared SP claims
+    it, so every SP is granted it.
+    """
+
+    owners: dict[tuple[str, str], str] = field(default_factory=dict)
+
+    def owner_of(self, collection: str, key: str) -> Optional[str]:
+        """Name of the SP owning ``collection[key]``, or None when shared."""
+        return self.owners.get((collection, key))
+
+    def owns(self, collection: str, key: str, sp_name: Optional[str]) -> bool:
+        """True if ``sp_name`` should be granted ``collection[key]``.
+
+        Shared resources (no owner) return True for every SP.
+        """
+        owner = self.owners.get((collection, key))
+        return owner is None or owner == sp_name
+
+
+# The ``IsDatabricksResource`` collections on ``ResourcesModel`` that can carry
+# per-resource credentials, and so can be owned by a specific SP. ``schemas``
+# is intentionally absent — ``SchemaModel`` is not an ``IsDatabricksResource``
+# and catalogs/schemas are shared infrastructure every SP needs USE_CATALOG on.
+_OWNABLE_COLLECTIONS: Final[tuple[str, ...]] = (
+    "tables",
+    "functions",
+    "volumes",
+    "connections",
+    "vector_stores",
+    "warehouses",
+    "genie_rooms",
+    "databases",
+)
+
+
+def placeholder_principal(sp_name: str) -> str:
+    """A stand-in client id for an SP that does not exist yet (dry run only).
+
+    A dry run reports what *would* happen, so it must not create the service
+    principal — which means its client id is unknown. Ownership is resolved from
+    the config's secret refs rather than from ids (see :func:`resource_owner`),
+    so the plan is still correct; only the displayed principal is a stand-in.
+    """
+    return f"<new-sp:{sp_name}>"
+
+
+def _is_placeholder_principal(principal: str) -> bool:
+    """True if ``principal`` is a :func:`placeholder_principal` sentinel."""
+    return principal.startswith("<new-sp:")
+
+
+def resource_owner(
+    resource: object, targets: Sequence[ServicePrincipalTarget]
+) -> Optional[str]:
+    """Return the name of the target owning ``resource``, or None if shared.
+
+    Matching, cheapest and most exact first:
+
+    0. ``resource.service_principal`` equals the target's model. Pydantic
+       compares by value, so a shared YAML anchor matches even though each
+       occurrence re-validates into a distinct object.
+    1. The resource's ``client_id`` points at the same secret ``(scope, key)``
+       as the target. **This is the load-bearing case** — it needs no API call
+       and works before the SP exists, which is what makes single-pass
+       provisioning of a brand-new SP possible.
+    2. The resource's ``client_id`` resolves to the target's client id. Only
+       reached when step 1 found no secret ref (a literal or env-var
+       ``client_id``), because ``value_of`` on a secret-backed variable is a
+       live, uncached ``secrets.get_secret`` call — running it per
+       resource × target would multiply one API call into N×M.
+    """
+    model = getattr(resource, "service_principal", None)
+    if model is not None:
+        for target in targets:
+            if target.model is not None and model == target.model:
+                return target.name
+
+    client_id = getattr(resource, "client_id", None)
+    if client_id is None:
+        return None
+
+    scope, key = _secret_ref(client_id)
+    if scope is not None and key is not None:
+        for target in targets:
+            ref = target.client_id_ref
+            if ref is not None and ref.scope == scope and ref.key == key:
+                return target.name
+        # A secret-backed client_id that matches no target is genuinely
+        # unowned; do NOT fall through to value_of() — that would read the
+        # secret for nothing.
+        return None
+
+    resolved = value_of(client_id)
+    if not resolved:
+        return None
+    for target in targets:
+        if target.resolved_client_id and str(resolved) == target.resolved_client_id:
+            return target.name
+    for target in targets:
+        if target.configured_client_id and str(resolved) == target.configured_client_id:
+            return target.name
+    return None
+
+
+def build_ownership_map(
+    config: "AppConfig", targets: Sequence[ServicePrincipalTarget]
+) -> OwnershipMap:
+    """Map each declared resource to the service principal that owns it.
+
+    Only records matches — anything omitted is shared and granted to every SP.
+    ``app.experiment`` / ``app.endpoint_name`` are deliberately never owned:
+    ``AppModel.service_principal`` is the deploy/tracing identity, a different
+    concept from "which SP does this resource authenticate as", and every SP
+    should be able to query the endpoint.
+
+    Raises:
+        ValueError: if two targets share a secret ``(scope, client_id_key)``.
+            They would overwrite each other's credential and ownership matching
+            could not tell them apart. Raised before any workspace mutation.
+    """
+    seen_refs: dict[tuple[str, str], str] = {}
+    for target in targets:
+        ref = target.client_id_ref
+        if ref is None:
+            continue
+        conflict = seen_refs.get((ref.scope, ref.key))
+        if conflict is not None:
+            raise ValueError(
+                f"Service principals '{conflict}' and '{target.name}' both read "
+                f"client_id from secret '{ref.scope}/{ref.key}'. Give each its "
+                "own secret keys — otherwise they overwrite each other's "
+                "credentials and their resources cannot be told apart."
+            )
+        seen_refs[(ref.scope, ref.key)] = target.name
+
+    ownership = OwnershipMap()
+    resources = config.resources
+    if resources is None:
+        return ownership
+
+    for collection in _OWNABLE_COLLECTIONS:
+        for key, resource in (getattr(resources, collection, None) or {}).items():
+            owner = resource_owner(resource, targets)
+            if owner is not None:
+                ownership.owners[(collection, key)] = owner
+
+    return ownership
 
 
 # =============================================================================
@@ -317,6 +1019,16 @@ class Grant:
     # None if not attempted (dry-run).
     applied: Optional[bool] = None
     error: Optional[str] = None
+    # Why the grant failed, when ``applied is False`` — one of the
+    # ``GRANT_FAILURE_*`` constants. Lets the report separate "this resource
+    # isn't in the workspace" from "you lack GRANT on it", which need different
+    # fixes. See :func:`classify_grant_error`.
+    failure_kind: Optional[str] = None
+    # For ``lakebase_role``: the client id to create the Postgres role for, when
+    # it is known here but not yet readable from the config's secret scope (a
+    # just-minted SP). Overrides ``value_of(DatabaseModel.client_id)``, which is
+    # what makes single-pass provisioning possible.
+    principal_override: Optional[str] = None
 
 
 @dataclass
@@ -327,15 +1039,39 @@ class GrantPlan:
     grants: list[Grant] = field(default_factory=list)
 
 
-def build_grant_plan(config: "AppConfig", principal: str) -> GrantPlan:
+def build_grant_plan(
+    config: "AppConfig",
+    principal: str,
+    *,
+    ownership: Optional[OwnershipMap] = None,
+    sp_name: Optional[str] = None,
+    targets: Optional[Sequence[ServicePrincipalTarget]] = None,
+) -> GrantPlan:
     """Walk an AppConfig and compute the read/execute grants for ``principal``.
 
     Pure (no side effects) so it can back both ``--dry-run`` and the real apply.
     De-dupes catalogs and schemas across every resource that references them.
+
+    Args:
+        config: The config whose declared resources are walked.
+        principal: Client id being granted. May be a ``<new-sp:NAME>`` sentinel
+            during a dry run of a service principal that does not exist yet.
+        ownership: When given, restrict the walk to the resources ``sp_name``
+            owns plus every shared (unowned) resource. Omit it — the default —
+            to grant the whole config to ``principal``, which is exactly the
+            single-SP behaviour and keeps existing callers unchanged.
+        sp_name: Which named service principal this plan is for. Only meaningful
+            alongside ``ownership``.
+        targets: All declared targets, used to resolve the Lakebase role's
+            subject to the owning SP's client id.
     """
     plan = GrantPlan(principal=principal)
     catalogs: set[str] = set()
     schemas: set[str] = set()
+
+    def _owns(collection: str, key: str) -> bool:
+        """True when this plan should include ``collection[key]``."""
+        return ownership is None or ownership.owns(collection, key, sp_name)
 
     def _add_schema(catalog_name: str, schema_name: str) -> None:
         if catalog_name and catalog_name not in catalogs:
@@ -357,7 +1093,9 @@ def build_grant_plan(config: "AppConfig", principal: str) -> GrantPlan:
     if resources is not None:
         # Tables → SELECT (+ ensure their schema is granted)
         table: "TableModel"
-        for table in resources.tables.values():
+        for table_key, table in resources.tables.items():
+            if not _owns("tables", table_key):
+                continue
             if table.schema_model is not None:
                 _add_schema(
                     table.schema_model.catalog_name, table.schema_model.schema_name
@@ -367,7 +1105,9 @@ def build_grant_plan(config: "AppConfig", principal: str) -> GrantPlan:
 
         # UC functions → EXECUTE
         func: "FunctionModel"
-        for func in resources.functions.values():
+        for func_key, func in resources.functions.items():
+            if not _owns("functions", func_key):
+                continue
             if func.schema_model is not None:
                 _add_schema(
                     func.schema_model.catalog_name, func.schema_model.schema_name
@@ -377,7 +1117,9 @@ def build_grant_plan(config: "AppConfig", principal: str) -> GrantPlan:
 
         # Vector-search indexes → SELECT on the backing UC index (a table securable)
         store_model: "AiSearchVectorStoreModel"
-        for store_model in resources.vector_stores.values():
+        for store_key, store_model in resources.vector_stores.items():
+            if not _owns("vector_stores", store_key):
+                continue
             index = store_model.index
             index_name = value_of(index.full_name) if index is not None else None
             if index_name and str(index_name).count(".") == 2:
@@ -385,7 +1127,9 @@ def build_grant_plan(config: "AppConfig", principal: str) -> GrantPlan:
 
         # Volumes → READ_VOLUME (+ ensure their schema is granted)
         volume: "VolumeModel"
-        for volume in resources.volumes.values():
+        for volume_key, volume in resources.volumes.items():
+            if not _owns("volumes", volume_key):
+                continue
             if volume.schema_model is not None:
                 _add_schema(
                     volume.schema_model.catalog_name, volume.schema_model.schema_name
@@ -397,7 +1141,9 @@ def build_grant_plan(config: "AppConfig", principal: str) -> GrantPlan:
 
         # Connections → USE_CONNECTION (connection names are top-level, unqualified)
         connection: "ConnectionModel"
-        for connection in resources.connections.values():
+        for conn_key, connection in resources.connections.items():
+            if not _owns("connections", conn_key):
+                continue
             if connection.full_name:
                 plan.grants.append(
                     Grant("uc", connection.full_name, ["USE_CONNECTION"], "connection")
@@ -405,14 +1151,18 @@ def build_grant_plan(config: "AppConfig", principal: str) -> GrantPlan:
 
         # Warehouses → CAN_USE (workspace permission, not UC)
         warehouse: "WarehouseModel"
-        for warehouse in resources.warehouses.values():
+        for wh_key, warehouse in resources.warehouses.items():
+            if not _owns("warehouses", wh_key):
+                continue
             wid = value_of(warehouse.warehouse_id) if warehouse.warehouse_id else None
             if wid:
                 plan.grants.append(Grant("warehouse", str(wid), ["CAN_USE"]))
 
         # Genie rooms → CAN_RUN (workspace permission)
         room: "GenieRoomModel"
-        for room in resources.genie_rooms.values():
+        for room_key, room in resources.genie_rooms.items():
+            if not _owns("genie_rooms", room_key):
+                continue
             space_id = value_of(room.space_id) if room.space_id else None
             if space_id:
                 plan.grants.append(Grant("genie", str(space_id), ["CAN_RUN"]))
@@ -432,23 +1182,66 @@ def build_grant_plan(config: "AppConfig", principal: str) -> GrantPlan:
             # ``is_lakebase`` is defined as ``project is not None``, so project
             # is always set here.
             project = str(database.project)
-            configured = value_of(database.client_id) if database.client_id else None
             note: Optional[str] = None
-            if not configured:
-                note = (
-                    "SKIP: DatabaseModel.client_id is unset or resolved to None "
-                    "(secret scope populated?). A Postgres role can only be created "
-                    "for a concrete service-principal client id — provision the SP "
-                    "and populate the scope, then re-run."
+            principal_override: Optional[str] = None
+
+            if ownership is not None:
+                owner = ownership.owner_of("databases", db_key)
+                if owner is not None and owner != sp_name:
+                    # Another declared SP owns this project. Emit nothing: with N
+                    # service principals a per-SP mismatch note would print N-1
+                    # alarming SKIPs per project per run, and the owner's own
+                    # grant already tells the whole story.
+                    continue
+                # Owned by us, or shared. Either way the role subject is this
+                # SP's real client id — which, for a freshly minted SP, is only
+                # known here and NOT yet readable from the secret scope. Passing
+                # it explicitly is what lets provisioning finish in one pass.
+                if targets is not None:
+                    principal_override = next(
+                        (
+                            t.resolved_client_id
+                            for t in targets
+                            if t.name == sp_name and t.resolved_client_id
+                        ),
+                        None,
+                    )
+                if principal_override is None and not _is_placeholder_principal(
+                    principal
+                ):
+                    principal_override = principal
+                if principal_override is None:
+                    note = (
+                        f"SKIP: no client id resolved yet for service principal "
+                        f"'{sp_name}', so the Postgres role has no subject. This is "
+                        f"expected in a dry run of an SP that does not exist yet."
+                    )
+            else:
+                # Single-SP path (no ownership map): the role is keyed on the
+                # DatabaseModel's own client_id, so only create it when the SP
+                # being granted matches. Otherwise the agent would connect to
+                # Postgres as one identity while the role belongs to another.
+                configured = (
+                    value_of(database.client_id) if database.client_id else None
                 )
-            elif configured != principal:
-                note = (
-                    f"SKIP: granting SP '{principal}' but this Lakebase project is "
-                    f"configured for client_id '{configured}'. The Postgres role is "
-                    f"created for the configured id, so '{principal}' would fail at "
-                    f"connect time. Grant the configured SP (--app-sp) or align "
-                    f"DatabaseModel.client_id."
-                )
+                if not configured:
+                    note = (
+                        "SKIP: DatabaseModel.client_id is unset or resolved to "
+                        "None (secret scope populated?). A Postgres role can "
+                        "only be created for a concrete service-principal "
+                        "client id — provision the SP and populate the scope, "
+                        "then re-run."
+                    )
+                elif configured != principal:
+                    note = (
+                        f"SKIP: granting SP '{principal}' but this Lakebase "
+                        f"project is configured for client_id '{configured}'. "
+                        f"The Postgres role is created for the configured id, "
+                        f"so '{principal}' would fail at connect time. Grant "
+                        f"the configured SP (sp grant --principal <client-id>) "
+                        f"or align DatabaseModel.client_id."
+                    )
+
             plan.grants.append(
                 Grant(
                     "lakebase_role",
@@ -456,6 +1249,7 @@ def build_grant_plan(config: "AppConfig", principal: str) -> GrantPlan:
                     ["DATABRICKS_SUPERUSER"],
                     resource_key=db_key,
                     note=note,
+                    principal_override=principal_override,
                 )
             )
 
@@ -484,13 +1278,22 @@ def grant(
     principal: str,
     config: "AppConfig",
     dry_run: bool = False,
+    ownership: Optional[OwnershipMap] = None,
+    sp_name: Optional[str] = None,
+    targets: Optional[Sequence[ServicePrincipalTarget]] = None,
 ) -> GrantPlan:
     """Grant ``principal`` read/execute access to every resource in ``config``.
 
     Returns the :class:`GrantPlan`. When ``dry_run`` is True nothing is applied.
     Individual failures warn-and-continue (consistent with deploy-time granting).
+
+    ``ownership`` / ``sp_name`` / ``targets`` restrict the grant to the resources
+    one named service principal owns; see :func:`build_grant_plan`. Omitting them
+    grants the whole config, which is the single-SP behaviour.
     """
-    plan = build_grant_plan(config, principal)
+    plan = build_grant_plan(
+        config, principal, ownership=ownership, sp_name=sp_name, targets=targets
+    )
 
     if dry_run:
         return plan
@@ -519,13 +1322,25 @@ def grant(
                         reason=g.note,
                     )
                     continue
-                _grant_lakebase_role(w, config, g.resource_key)
+                _grant_lakebase_role(
+                    w, config, g.resource_key, client_id=g.principal_override
+                )
             g.applied = True
         except Exception as e:  # noqa: BLE001 — warn-and-continue per resource
             g.applied = False
             g.error = str(e)
+            g.failure_kind = classify_grant_error(e)
+            # Say what actually went wrong. Blaming GRANT rights unconditionally
+            # sends users auditing ACLs for a resource that isn't in the
+            # workspace at all — usually a wrong ``--var`` override or profile.
+            if g.failure_kind == GRANT_FAILURE_ABSENT:
+                message = "Grant target does not exist in this workspace"
+            elif g.failure_kind == GRANT_FAILURE_DENIED:
+                message = "Grant denied — the calling identity lacks GRANT rights"
+            else:
+                message = "Grant failed"
             logger.warning(
-                "Grant failed — verify the calling identity has GRANT rights",
+                message,
                 kind=g.kind,
                 target=g.target,
                 error=str(e),
@@ -535,20 +1350,28 @@ def grant(
 
 
 def _grant_lakebase_role(
-    w: "WorkspaceClient", config: "AppConfig", resource_key: Optional[str]
+    w: "WorkspaceClient",
+    config: "AppConfig",
+    resource_key: Optional[str],
+    *,
+    client_id: Optional[str] = None,
 ) -> None:
     """Create the Postgres SUPERUSER role for a Lakebase project's service principal.
 
     Delegates to the existing, idempotent
     :meth:`DatabricksProvider.create_lakebase_autoscaling_role` rather than
-    reinventing the Postgres-API role logic. The provider method reads the
-    ``DatabaseModel``'s own ``client_id`` and connects with its configured
-    credentials, so the caller has already verified (in :func:`build_grant_plan`)
-    that the SP being granted matches that ``client_id``.
+    reinventing the Postgres-API role logic. The Postgres control-plane calls run
+    as ``w`` — the caller's identity — since a service principal cannot create
+    its own role.
 
     Re-resolves the model by its config dict key (not by ``project``) so we act
-    on the exact ``DatabaseModel`` that passed the identity check — two models
-    can share a ``project`` while pinning different ``client_id``s.
+    on the exact ``DatabaseModel`` the plan selected — two models can share a
+    ``project`` while pinning different ``client_id``s.
+
+    Args:
+        client_id: Role subject. Passed when the plan already knows the owning
+            SP's client id (e.g. just minted, so not yet readable from the
+            config's secret scope). Falls back to ``DatabaseModel.client_id``.
     """
     from dao_ai.providers.databricks import DatabricksProvider
 
@@ -558,7 +1381,9 @@ def _grant_lakebase_role(
         raise ValueError(
             f"No Lakebase DatabaseModel with key '{resource_key}' found in config"
         )
-    DatabricksProvider(w=w).create_lakebase_autoscaling_role(database)
+    DatabricksProvider(w=w).create_lakebase_autoscaling_role(
+        database, client_id=client_id
+    )
 
 
 def _grant_uc(

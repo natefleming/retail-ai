@@ -1678,32 +1678,39 @@ Examples:
         description="""
 Manage the service principal a dao-ai agent runs as.
 
+Every service principal the config declares under `service_principals` is
+provisioned. Resources are matched to the SP that owns them — a resource whose
+credentials point at an SP's secret keys belongs to that SP; anything matching no
+SP is shared and granted to all of them. For Lakebase, the Postgres SUPERUSER
+role is created for the project's owning SP.
+
 Sub-commands:
-  provision  One shot: create the SP, store its secret to the config's scope,
-             and grant it the config's resources. The secret is never printed.
-             This is the easiest way to make a config runnable. NOTE: provision
-             mints a NEW SP, so it will not create Lakebase Postgres roles for a
-             DatabaseModel that pins a different client_id — use `grant --app-sp`
-             for that (see grant).
+  provision  One shot: create each SP, store its secret to the config's scope,
+             and grant it the resources it owns. The secret is never printed.
+             This is the easiest way to make a config runnable. Idempotent: an
+             existing SP is reused and secret keys that already hold a value are
+             left alone unless you pass --overwrite.
   create     Create (or reuse) a workspace service principal and mint an OAuth
              secret. Prints the client id + one-time secret.
   store      Write the client id / secret into a Databricks secret scope.
-  grant      Grant the service principal the read/execute privileges an agent
-             needs on the config's resources: catalog, schema, table, function,
+  grant      Grant each service principal the read/execute privileges an agent
+             needs on the resources it owns: catalog, schema, table, function,
              vector index, volume, connection, warehouse, genie room, experiment,
-             serving endpoint. For Lakebase, a Postgres SUPERUSER role is created
-             only when the granted SP matches the DatabaseModel's client_id;
-             a mismatch is reported and skipped (grant --app-sp <that-id>).
+             serving endpoint, plus a Lakebase Postgres role.
 
 All read the config (-c) for defaults; explicit flags override.
         """,
         epilog="""
-Examples:
-  dao-ai sp provision -c config/model_config.yaml                   # create + store + grant, one step
-  dao-ai sp provision -c config/model_config.yaml --no-grant        # just create + store the secret
-  dao-ai sp create -c config/model_config.yaml --name my-agent-sp   # granular: create only
-  dao-ai sp store  -c config/model_config.yaml --client-id ID --client-secret SECRET
-  dao-ai sp grant  -c config/model_config.yaml --dry-run            # print grants, apply nothing
+Examples (CONFIG=config/model_config.yaml):
+  dao-ai sp provision -c $CONFIG              # create + store + grant, one step
+  dao-ai sp provision -c $CONFIG --dry-run    # show what would happen; change nothing
+  dao-ai sp provision -c $CONFIG --overwrite  # rotate secrets that already exist
+  dao-ai sp provision -c $CONFIG --sp memory_sp   # just one declared SP
+  dao-ai sp provision -c $CONFIG --no-grant   # just create + store the secret
+  dao-ai sp create -c $CONFIG --name my-sp    # granular: create only
+  dao-ai sp store  -c $CONFIG --client-id ID --client-secret SECRET
+  dao-ai sp grant  -c $CONFIG --dry-run       # print grants, apply nothing
+  dao-ai sp grant  -c $CONFIG --principal <uuid>  # grant one specific client id
         """,
         formatter_class=argparse.RawDescriptionHelpFormatter,
         parents=[_GLOBAL],
@@ -1782,6 +1789,14 @@ Examples:
         default=None,
         help="Secret key for the client secret (default: from config)",
     )
+    sp_store_parser.add_argument(
+        "--overwrite",
+        action="store_true",
+        help=(
+            "Replace keys that already hold a value. Without this, an existing "
+            "key is reported and left untouched"
+        ),
+    )
     _add_var_argument(sp_store_parser)
 
     # grant
@@ -1810,6 +1825,16 @@ Examples:
         "--dry-run",
         action="store_true",
         help="Print the grants that would be applied without applying them",
+    )
+    sp_grant_parser.add_argument(
+        "--sp",
+        dest="sp_names",
+        action="append",
+        metavar="NAME",
+        help=(
+            "Grant only this service principal from the config's "
+            "service_principals block. Repeatable; default is all of them"
+        ),
     )
     _add_var_argument(sp_grant_parser)
 
@@ -1872,6 +1897,30 @@ The client secret is written straight to the secret scope and is never printed.
     )
     sp_provision_parser.add_argument(
         "--no-grant", action="store_true", help="Skip granting the config's resources"
+    )
+    sp_provision_parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Print what would be provisioned without changing anything",
+    )
+    sp_provision_parser.add_argument(
+        "--overwrite",
+        action="store_true",
+        help=(
+            "Replace secret keys that already hold a value. Without this, an "
+            "existing key is reported and left untouched (and no new secret is "
+            "minted, so a live credential is never rotated by accident)"
+        ),
+    )
+    sp_provision_parser.add_argument(
+        "--sp",
+        dest="sp_names",
+        action="append",
+        metavar="NAME",
+        help=(
+            "Provision only this service principal from the config's "
+            "service_principals block. Repeatable; default is all of them"
+        ),
     )
     _add_var_argument(sp_provision_parser)
 
@@ -2786,63 +2835,193 @@ def _handle_sp_provision(options, config, sp, WorkspaceClient) -> None:
         logger.error("provision requires -c/--config.")
         sys.exit(1)
 
-    display_name = _sp_display_name(options, config)
+    dry_run: bool = bool(getattr(options, "dry_run", False))
     w = WorkspaceClient()
     try:
-        result = sp.provision(
+        targets = sp.resolve_sp_targets(
+            config,
+            app_display_name=getattr(options, "name", None),
+            scope_override=options.scope,
+            client_id_key_override=options.client_id_key,
+            client_secret_key_override=options.client_secret_key,
+            only=getattr(options, "sp_names", None),
+        )
+        if not targets or not any(t.display_name for t in targets):
+            logger.error(
+                "No service-principal name. Pass --name, set `name:` on the "
+                "config's service_principals entry, or -c a config with an app.name."
+            )
+            sys.exit(1)
+        outcome = sp.provision_all(
             w,
             config=config,
-            display_name=display_name,
-            scope=options.scope,
-            client_id_key=options.client_id_key,
-            client_secret_key=options.client_secret_key,
+            targets=targets,
             lifetime=options.lifetime,
             do_store=not options.no_store,
             do_grant=not options.no_grant,
+            dry_run=dry_run,
+            overwrite=bool(getattr(options, "overwrite", False)),
         )
     except ValueError as e:
         logger.error(str(e))
         sys.exit(1)
 
-    verb = "Reused" if result.reused else "Created"
-    print(f"{verb} service principal: {result.display_name}")
-    print(f"  client_id: {result.client_id}")
-    if result.stored:
-        print(f"  secret stored in scope '{result.stored_scope}' (value hidden):")
-        print(f"    {result.stored_client_id_key}     = <client id>")
-        print(f"    {result.stored_client_secret_key} = <client secret>")
-    if result.grant_plan is not None:
-        _print_grants(result.grant_plan, applied=True)
-    print("\n✓ Service principal is ready for this config.")
+    _print_provision_results(outcome, dry_run=dry_run)
+
+    if outcome.blocked:
+        # The requested write did not happen, so this is not a success.
+        sys.exit(1)
+
+
+def _print_provision_results(outcome, *, dry_run: bool) -> None:
+    """Render a :class:`MultiProvisionResult` (secret values never printed)."""
+    from dao_ai.service_principal import (
+        SECRET_KEEP,
+        SECRET_ROTATE,
+    )
+
+    for result in outcome.results:
+        print(f"\nservice principal '{result.name}' — {result.display_name}")
+
+        if result.blocked_reason:
+            # Nothing happened, so don't claim it was created or reused.
+            print(f"  ✗ BLOCKED: {result.blocked_reason}")
+            continue
+
+        if dry_run:
+            verb = "would REUSE existing" if result.reused else "would CREATE new"
+            suffix = (
+                f" (client_id {result.client_id})"
+                if result.client_id
+                else " (client_id assigned at creation)"
+            )
+        else:
+            verb = "Reused" if result.reused else "Created"
+            suffix = f" (client_id {result.client_id})" if result.client_id else ""
+        print(f"  {verb} service principal{suffix}")
+
+        if result.stored_scope:
+            hidden = "(values hidden)"
+            if result.secret_action == SECRET_KEEP:
+                print(f"  secrets → scope '{result.stored_scope}'")
+                for key in result.existing_keys:
+                    print(
+                        f"    {key}  already contains a value — "
+                        f"{'would not be' if dry_run else 'not'} overwritten "
+                        "(--overwrite to replace)"
+                    )
+            else:
+                action = "would write" if dry_run else "wrote"
+                if result.secret_action == SECRET_ROTATE:
+                    action = "would rotate" if dry_run else "rotated"
+                print(f"  secrets → scope '{result.stored_scope}' {hidden}")
+                for key in (
+                    result.stored_client_id_key,
+                    result.stored_client_secret_key,
+                ):
+                    if key:
+                        print(f"    {key}  {action}")
+        elif result.secret_action is None:
+            print("  secrets: skipped (--no-store)")
+
+        if result.grant_plan is not None:
+            _print_grants(result.grant_plan, applied=not dry_run)
+
+    if dry_run:
+        print("\n✓ Dry run — nothing was created, written, or granted.")
+    elif outcome.blocked:
+        names = ", ".join(name for name, _ in outcome.blocked)
+        print(f"\n✗ Not provisioned: {names} (see BLOCKED above).")
+    else:
+        print("\n✓ Service principal(s) are ready for this config.")
 
 
 def _print_grants(plan, *, applied: bool) -> None:
     """Print a readable list of the grants in a plan (secret-free).
 
-    When ``applied`` (real run), reports each grant's success and a failure count;
-    otherwise labels the list as a dry-run plan.
+    When ``applied`` (real run), reports each grant's outcome plus per-bucket
+    counts; otherwise labels the list as a dry-run plan.
+
+    Failures print their actual error and are split into ``ABSENT`` (the target
+    isn't in this workspace) and ``DENIED`` (it is, but the caller lacks GRANT).
+    Those need opposite fixes, and a bare "FAILED" hid the difference — a run
+    against the wrong ``--var catalog=`` reported ten permission-looking
+    failures whose real cause was "that catalog does not exist here".
     """
+    from dao_ai.service_principal import (
+        GRANT_FAILURE_ABSENT,
+        GRANT_FAILURE_DENIED,
+    )
+
     if not applied:
         print(f"  grants (dry-run — nothing applied) ({len(plan.grants)}):")
     else:
-        failed = sum(1 for g in plan.grants if g.applied is False)
         ok = sum(1 for g in plan.grants if g.applied is True)
-        suffix = f"{ok} applied" + (f", {failed} failed" if failed else "")
-        print(f"  grants ({suffix}):")
+        absent = sum(1 for g in plan.grants if g.failure_kind == GRANT_FAILURE_ABSENT)
+        denied = sum(1 for g in plan.grants if g.failure_kind == GRANT_FAILURE_DENIED)
+        # An absent target is not a permissions failure, and _grant_serving_endpoint
+        # already no-ops silently on one, so count it in its own bucket.
+        failed = sum(
+            1
+            for g in plan.grants
+            if g.applied is False
+            and g.failure_kind not in (GRANT_FAILURE_ABSENT, GRANT_FAILURE_DENIED)
+        )
+        parts = [f"{ok} applied"]
+        for count, label in (
+            (absent, "absent"),
+            (denied, "denied"),
+            (failed, "failed"),
+        ):
+            if count:
+                parts.append(f"{count} {label}")
+        print(f"  grants ({', '.join(parts)}):")
     if not plan.grants:
         print("    (no grantable resources found in config)")
         return
+
+    missing_catalogs: list[str] = []
     for g in plan.grants:
         target = f"{g.securable_type} {g.target}" if g.securable_type else g.target
         status = ""
         if applied and g.applied is False:
-            status = "  ✗ FAILED"
+            if g.failure_kind == GRANT_FAILURE_ABSENT:
+                status = "  ⚠ ABSENT"
+                if g.securable_type == "catalog":
+                    missing_catalogs.append(g.target)
+            elif g.failure_kind == GRANT_FAILURE_DENIED:
+                status = "  ✗ DENIED"
+            else:
+                status = "  ✗ FAILED"
         elif g.note:
             # A planned-but-skipped grant (e.g. Lakebase identity mismatch).
             status = "  ⚠ SKIP"
         print(f"    [{g.kind}] {target} -> {', '.join(g.privileges)}{status}")
         if g.note:
             print(f"        {g.note}")
+        if applied and g.applied is False and g.error:
+            print(f"        {g.error}")
+            if g.failure_kind == GRANT_FAILURE_ABSENT:
+                print(
+                    "        hint: not found in this workspace — check the config's "
+                    "--var overrides and the -p profile"
+                )
+            elif g.failure_kind == GRANT_FAILURE_DENIED:
+                print(
+                    "        hint: the calling identity needs GRANT/MANAGE on this "
+                    "securable"
+                )
+
+    if missing_catalogs:
+        names = ", ".join(dict.fromkeys(missing_catalogs))
+        print(
+            f"\n  {len(missing_catalogs)} grant(s) targeted a catalog that does not "
+            f"exist here: {names}"
+        )
+        print(
+            "  If the config parameterizes the catalog, point it at a real one, "
+            "e.g. --var catalog=<existing_catalog>."
+        )
 
 
 def _handle_sp_create(options, config, sp, WorkspaceClient) -> None:
@@ -2907,17 +3086,23 @@ def _handle_sp_store(options, config, sp, WorkspaceClient) -> None:
         sys.exit(1)
 
     w = WorkspaceClient()
-    sp.store(
+    result = sp.store(
         w,
         scope=scope,
         client_id_key=cid_key,
         client_secret_key=csec_key,
         client_id=options.client_id,
         client_secret=options.client_secret,
+        overwrite=bool(getattr(options, "overwrite", False)),
     )
-    print(f"Stored credentials in scope '{scope}':")
-    print(f"  {cid_key}   = <client id>")
-    print(f"  {csec_key} = <client secret>")
+    if result.written:
+        print(f"Stored credentials in scope '{scope}':")
+        for key in result.written:
+            print(f"  {key} = <hidden>")
+    for key in result.skipped:
+        print(f"  {key} already contains a value — not overwritten (--overwrite)")
+    if not result.written:
+        sys.exit(1)
 
 
 def _handle_sp_grant(options, config, sp, WorkspaceClient) -> None:
@@ -2925,19 +3110,42 @@ def _handle_sp_grant(options, config, sp, WorkspaceClient) -> None:
         logger.error("grant requires -c/--config.")
         sys.exit(1)
 
-    principal = sp.resolve_principal_from_config(config, override=options.principal)
-    if not principal:
-        logger.error(
-            "No grantee. Pass --principal <client-id>, or -c a config whose "
-            "service_principals define a client_id."
-        )
+    w = WorkspaceClient()
+    dry_run: bool = bool(getattr(options, "dry_run", False))
+
+    # An explicit --principal names one grantee, which bypasses ownership: the
+    # caller is telling us exactly who to grant, so grant them the whole config.
+    if options.principal:
+        plan = sp.grant(w, principal=options.principal, config=config, dry_run=dry_run)
+        print(f"principal {plan.principal}")
+        _print_grants(plan, applied=not dry_run)
+        return
+
+    try:
+        targets = sp.resolve_sp_targets(config, only=getattr(options, "sp_names", None))
+    except ValueError as e:
+        logger.error(str(e))
         sys.exit(1)
 
-    w = WorkspaceClient()
-    plan = sp.grant(w, principal=principal, config=config, dry_run=options.dry_run)
+    # No declared service principals and nothing to resolve: fall back to the
+    # config's own client_id (the documented single-SP behaviour).
+    if not config.service_principals:
+        principal = sp.resolve_principal_from_config(config)
+        if not principal:
+            logger.error(
+                "No grantee. Pass --principal <client-id>, or -c a config whose "
+                "service_principals define a client_id."
+            )
+            sys.exit(1)
+        plan = sp.grant(w, principal=principal, config=config, dry_run=dry_run)
+        print(f"principal {plan.principal}")
+        _print_grants(plan, applied=not dry_run)
+        return
 
-    print(f"principal {plan.principal}")
-    _print_grants(plan, applied=not options.dry_run)
+    plans = sp.grant_all(w, config=config, targets=targets, dry_run=dry_run)
+    for target, plan in zip(targets, plans):
+        print(f"\nservice principal '{target.name}' — principal {plan.principal}")
+        _print_grants(plan, applied=not dry_run)
 
 
 def _empty_config() -> "AppConfig":
@@ -5564,9 +5772,7 @@ def _deploy_run_destroy_app_bundle(
             # current config first, then deploy the endpoint. Without create_agent
             # the deploy would target a stale-or-nonexistent model version.
             config.create_agent(development=development)
-            config.deploy_agent(
-                mode=ServingMode.MODEL_SERVING, development=development
-            )
+            config.deploy_agent(mode=ServingMode.MODEL_SERVING, development=development)
             # `--wait`: `deploy_agent` (agents.deploy) returns once the update is
             # issued; block until the endpoint is READY + served model
             # DEPLOYMENT_READY.

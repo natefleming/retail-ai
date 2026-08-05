@@ -19,13 +19,29 @@ from dao_ai.config import (
     WarehouseModel,
 )
 from dao_ai.service_principal import (
+    GRANT_FAILURE_ABSENT,
+    GRANT_FAILURE_DENIED,
+    GRANT_FAILURE_ERROR,
+    SECRET_KEEP,
+    SECRET_ROTATE,
+    SECRET_WRITE,
+    SecretRef,
+    ServicePrincipalTarget,
     build_grant_plan,
+    build_ownership_map,
+    classify_grant_error,
     create,
     default_scope_from_config,
+    find_service_principal,
     grant,
+    grant_all,
     provision,
+    provision_all,
     resolve_principal_from_config,
     resolve_secret_target,
+    resolve_sp_targets,
+    resource_owner,
+    secret_keys_present,
     store,
 )
 
@@ -346,7 +362,11 @@ def test_grant_lakebase_role_resolves_by_key_not_project(monkeypatch) -> None:
     plan = grant(w, principal=PRINCIPAL, config=config, dry_run=False)
 
     # Exactly one role created, and it's the model whose client_id == principal.
-    provider.create_lakebase_autoscaling_role.assert_called_once_with(match_db)
+    # ``client_id=None`` on the single-SP path: no ownership map, so the provider
+    # falls back to reading DatabaseModel.client_id itself (legacy behaviour).
+    provider.create_lakebase_autoscaling_role.assert_called_once_with(
+        match_db, client_id=None
+    )
     lb = {g.resource_key: g for g in plan.grants if g.kind == "lakebase_role"}
     assert lb["match"].applied is True and lb["match"].note is None
     assert lb["mismatch"].applied is None and lb["mismatch"].note
@@ -747,3 +767,967 @@ def test_resolve_secret_target_override_wins() -> None:
         config, scope_override="flag-scope"
     )
     assert scope == "flag-scope"  # override wins over config
+
+
+# =============================================================================
+# classify_grant_error — absent vs denied vs error
+# =============================================================================
+
+
+def test_classify_grant_error_absent_from_sdk_not_found() -> None:
+    from databricks.sdk.errors import NotFound
+
+    assert classify_grant_error(NotFound("nope")) == GRANT_FAILURE_ABSENT
+
+
+def test_classify_grant_error_absent_from_resource_does_not_exist() -> None:
+    """``ResourceDoesNotExist`` subclasses ``NotFound`` — same bucket."""
+    from databricks.sdk.errors import ResourceDoesNotExist
+
+    assert classify_grant_error(ResourceDoesNotExist("gone")) == GRANT_FAILURE_ABSENT
+
+
+def test_classify_grant_error_absent_from_catalog_does_not_exist_message() -> None:
+    """The real-world shape: a UC PATCH against a catalog that isn't there."""
+    err = RuntimeError("Catalog 'hardware_store' does not exist.")
+    assert classify_grant_error(err) == GRANT_FAILURE_ABSENT
+
+
+def test_classify_grant_error_denied_from_sdk_permission_denied() -> None:
+    from databricks.sdk.errors import PermissionDenied
+
+    assert classify_grant_error(PermissionDenied("no")) == GRANT_FAILURE_DENIED
+
+
+def test_classify_grant_error_denied_from_not_authorized_message() -> None:
+    """The Lakebase 'Can Manage' shape, which is not an SDK-typed error here."""
+    err = RuntimeError(
+        "The user is not authorized to make the request, please contact the "
+        "workspace admin to assign 'Can Manage' for Database project"
+    )
+    assert classify_grant_error(err) == GRANT_FAILURE_DENIED
+
+
+def test_classify_grant_error_falls_back_to_generic() -> None:
+    assert classify_grant_error(RuntimeError("kaboom")) == GRANT_FAILURE_ERROR
+
+
+def test_grant_records_failure_kind_absent_for_missing_catalog() -> None:
+    """A failed grant carries both the error text and its classification."""
+    from databricks.sdk.errors import NotFound
+
+    w = MagicMock()
+    w.api_client.do.side_effect = NotFound("Catalog 'nope' does not exist.")
+    config = AppConfig(schemas={"s": _schema()})
+    plan = grant(w, principal=PRINCIPAL, config=config, dry_run=False)
+
+    catalog_grant = next(g for g in plan.grants if g.securable_type == "catalog")
+    assert catalog_grant.applied is False
+    assert catalog_grant.failure_kind == GRANT_FAILURE_ABSENT
+    assert "does not exist" in catalog_grant.error
+
+
+def test_grant_records_failure_kind_denied() -> None:
+    from databricks.sdk.errors import PermissionDenied
+
+    w = MagicMock()
+    w.api_client.do.side_effect = PermissionDenied("PERMISSION_DENIED on catalog")
+    config = AppConfig(schemas={"s": _schema()})
+    plan = grant(w, principal=PRINCIPAL, config=config, dry_run=False)
+
+    catalog_grant = next(g for g in plan.grants if g.securable_type == "catalog")
+    assert catalog_grant.failure_kind == GRANT_FAILURE_DENIED
+
+
+# =============================================================================
+# ownership — which declared SP owns which resource
+# =============================================================================
+
+
+def _target(
+    name: str,
+    scope: str = "sc",
+    cid_key: str = "CID",
+    csec_key: str = "CSEC",
+    model: object = None,
+    configured: str | None = None,
+    resolved: str | None = None,
+) -> ServicePrincipalTarget:
+    return ServicePrincipalTarget(
+        name=name,
+        display_name=f"app-{name}",
+        model=model,
+        scope=scope,
+        client_id_key=cid_key,
+        client_secret_key=csec_key,
+        client_id_ref=SecretRef(scope=scope, key=cid_key),
+        client_secret_ref=SecretRef(scope=scope, key=csec_key),
+        configured_client_id=configured,
+        resolved_client_id=resolved,
+    )
+
+
+def test_ownership_matches_resource_by_secret_ref() -> None:
+    """The load-bearing case: same (scope, key) → same owner. No API calls."""
+    schema = _schema()
+    table = TableModel(
+        schema=schema,
+        name="t",
+        client_id=SecretVariableModel(scope="sc", secret="CID"),
+        client_secret=SecretVariableModel(scope="sc", secret="CSEC"),
+    )
+    targets = [_target("memory_sp"), _target("tools_sp", cid_key="T_CID")]
+    assert resource_owner(table, targets) == "memory_sp"
+
+
+def test_ownership_matches_resource_by_shared_service_principal_model() -> None:
+    """A shared YAML anchor re-validates into distinct objects but compares equal."""
+    sp = ServicePrincipalModel(
+        client_id=SecretVariableModel(scope="sc", secret="CID"),
+        client_secret=SecretVariableModel(scope="sc", secret="CSEC"),
+    )
+    schema = _schema()
+    table = TableModel(schema=schema, name="t", service_principal=sp)
+    targets = [_target("tools_sp", cid_key="T_CID"), _target("memory_sp", model=sp)]
+    assert resource_owner(table, targets) == "memory_sp"
+
+
+def test_ownership_matches_resource_by_literal_client_id() -> None:
+    """A literal client_id falls through to value comparison."""
+    schema = _schema()
+    table = TableModel(schema=schema, name="t", client_id=PRINCIPAL, client_secret="s")
+    targets = [_target("memory_sp", resolved=PRINCIPAL)]
+    assert resource_owner(table, targets) == "memory_sp"
+
+
+def test_ownership_treats_resource_without_client_id_as_shared() -> None:
+    table = TableModel(schema=_schema(), name="t")
+    assert resource_owner(table, [_target("memory_sp")]) is None
+
+
+def test_ownership_unmatched_secret_ref_is_shared_without_reading_it(
+    monkeypatch,
+) -> None:
+    """A secret-backed client_id matching no target must NOT be resolved.
+
+    This is the case that actually leaks API calls: the ref lookup misses, and a
+    naive implementation falls through to ``value_of`` — a live, uncached
+    ``get_secret`` — for every unowned resource on every target.
+    """
+
+    def _boom(*args, **kwargs):
+        raise AssertionError(
+            "an unmatched secret-backed client_id must not be resolved"
+        )
+
+    monkeypatch.setattr("dao_ai.config.SecretVariableModel.as_value", _boom)
+    table = TableModel(
+        schema=_schema(),
+        name="t",
+        client_id=SecretVariableModel(scope="other", secret="NOPE"),
+        client_secret=SecretVariableModel(scope="other", secret="NOPE2"),
+    )
+    assert resource_owner(table, [_target("memory_sp")]) is None
+
+
+def test_ownership_secret_ref_match_never_reads_the_secret(monkeypatch) -> None:
+    """Guardrail: value_of() on a secret is a live uncached get_secret call.
+
+    Matching by (scope, key) must not trigger it — otherwise one API call
+    becomes N_resources x N_sps per plan.
+    """
+
+    def _boom(*args, **kwargs):
+        raise AssertionError("ownership matching must not read secret values")
+
+    monkeypatch.setattr("dao_ai.config.SecretVariableModel.as_value", _boom)
+    table = TableModel(
+        schema=_schema(),
+        name="t",
+        client_id=SecretVariableModel(scope="sc", secret="CID"),
+        client_secret=SecretVariableModel(scope="sc", secret="CSEC"),
+    )
+    assert resource_owner(table, [_target("memory_sp")]) == "memory_sp"
+
+
+def test_ownership_matches_fresh_sp_before_client_id_is_resolvable() -> None:
+    """A brand-new SP has no id yet; the secret ref still identifies its resources."""
+    table = TableModel(
+        schema=_schema(),
+        name="t",
+        client_id=SecretVariableModel(scope="sc", secret="CID"),
+        client_secret=SecretVariableModel(scope="sc", secret="CSEC"),
+    )
+    fresh = _target("memory_sp", configured=None, resolved=None)
+    assert resource_owner(table, [fresh]) == "memory_sp"
+
+
+def test_ownership_map_records_only_owned_resources() -> None:
+    from dao_ai.config import ResourcesModel
+
+    schema = _schema()
+    owned = TableModel(
+        schema=schema,
+        name="owned",
+        client_id=SecretVariableModel(scope="sc", secret="CID"),
+        client_secret=SecretVariableModel(scope="sc", secret="CSEC"),
+    )
+    shared = TableModel(schema=schema, name="shared")
+    config = AppConfig(
+        schemas={"s": schema},
+        resources=ResourcesModel(tables={"owned": owned, "shared": shared}),
+    )
+    ownership = build_ownership_map(config, [_target("memory_sp")])
+
+    assert ownership.owner_of("tables", "owned") == "memory_sp"
+    assert ownership.owner_of("tables", "shared") is None
+    # Shared resources are granted to every SP; owned ones only to their owner.
+    assert ownership.owns("tables", "shared", "memory_sp")
+    assert ownership.owns("tables", "shared", "tools_sp")
+    assert ownership.owns("tables", "owned", "memory_sp")
+    assert not ownership.owns("tables", "owned", "tools_sp")
+
+
+def test_ownership_map_covers_databases() -> None:
+    from dao_ai.config import ResourcesModel
+
+    db = _lakebase_db(PRINCIPAL)
+    config = AppConfig(resources=ResourcesModel(databases={"d": db}))
+    ownership = build_ownership_map(config, [_target("memory_sp", resolved=PRINCIPAL)])
+    assert ownership.owner_of("databases", "d") == "memory_sp"
+
+
+def test_ownership_rejects_two_sps_sharing_one_client_id_key() -> None:
+    import pytest
+
+    config = AppConfig()
+    targets = [_target("a"), _target("b")]  # same scope + CID key
+    with pytest.raises(ValueError, match="both read"):
+        build_ownership_map(config, targets)
+
+
+def test_ownership_map_empty_when_no_resources() -> None:
+    ownership = build_ownership_map(AppConfig(), [_target("memory_sp")])
+    assert ownership.owners == {}
+    # Everything is shared when nothing is owned.
+    assert ownership.owns("tables", "anything", "memory_sp")
+
+
+# =============================================================================
+# build_grant_plan — ownership filtering (multi-SP)
+# =============================================================================
+
+
+def _owned_table(name: str, cid_key: str = "CID"):
+    schema = _schema()
+    return TableModel(
+        schema=schema,
+        name=name,
+        client_id=SecretVariableModel(scope="sc", secret=cid_key),
+        client_secret=SecretVariableModel(scope="sc", secret="CSEC"),
+    )
+
+
+def test_grant_plan_without_ownership_is_unchanged() -> None:
+    """Backward compat: ownership=None grants the whole config, as before."""
+    from dao_ai.config import ResourcesModel
+
+    schema = _schema()
+    config = AppConfig(
+        schemas={"s": schema},
+        resources=ResourcesModel(
+            tables={
+                "a": _owned_table("a"),
+                "b": TableModel(schema=schema, name="b"),
+            }
+        ),
+    )
+    plan = build_grant_plan(config, PRINCIPAL)
+    targets_granted = {g.target for g in plan.grants}
+    assert "cat.sch.a" in targets_granted
+    assert "cat.sch.b" in targets_granted
+
+
+def test_grant_plan_owned_table_granted_only_to_its_owner() -> None:
+    from dao_ai.config import ResourcesModel
+
+    config = AppConfig(
+        schemas={"s": _schema()},
+        resources=ResourcesModel(tables={"a": _owned_table("a")}),
+    )
+    targets = [_target("memory_sp"), _target("tools_sp", cid_key="T_CID")]
+    ownership = build_ownership_map(config, targets)
+
+    owner_plan = build_grant_plan(
+        config, PRINCIPAL, ownership=ownership, sp_name="memory_sp", targets=targets
+    )
+    other_plan = build_grant_plan(
+        config, PRINCIPAL, ownership=ownership, sp_name="tools_sp", targets=targets
+    )
+    assert "cat.sch.a" in {g.target for g in owner_plan.grants}
+    assert "cat.sch.a" not in {g.target for g in other_plan.grants}
+
+
+def test_grant_plan_shared_resource_granted_to_every_sp() -> None:
+    from dao_ai.config import ResourcesModel
+
+    config = AppConfig(
+        schemas={"s": _schema()},
+        resources=ResourcesModel(
+            tables={"shared": TableModel(schema=_schema(), name="shared")}
+        ),
+    )
+    targets = [_target("memory_sp"), _target("tools_sp", cid_key="T_CID")]
+    ownership = build_ownership_map(config, targets)
+
+    for sp_name in ("memory_sp", "tools_sp"):
+        plan = build_grant_plan(
+            config, PRINCIPAL, ownership=ownership, sp_name=sp_name, targets=targets
+        )
+        assert "cat.sch.shared" in {g.target for g in plan.grants}
+
+
+def test_grant_plan_owned_resource_still_grants_its_catalog_and_schema() -> None:
+    """An owner needs USE_CATALOG/USE_SCHEMA to reach the table it owns."""
+    from dao_ai.config import ResourcesModel
+
+    config = AppConfig(resources=ResourcesModel(tables={"a": _owned_table("a")}))
+    targets = [_target("memory_sp")]
+    ownership = build_ownership_map(config, targets)
+    plan = build_grant_plan(
+        config, PRINCIPAL, ownership=ownership, sp_name="memory_sp", targets=targets
+    )
+    by_type = {g.securable_type for g in plan.grants}
+    assert "catalog" in by_type and "schema" in by_type
+
+
+def test_grant_plan_top_level_schemas_are_shared_across_sps() -> None:
+    """Catalogs/schemas are shared infrastructure — never owned by one SP."""
+    config = AppConfig(schemas={"s": _schema()})
+    targets = [_target("memory_sp"), _target("tools_sp", cid_key="T_CID")]
+    ownership = build_ownership_map(config, targets)
+
+    for sp_name in ("memory_sp", "tools_sp"):
+        plan = build_grant_plan(
+            config, PRINCIPAL, ownership=ownership, sp_name=sp_name, targets=targets
+        )
+        assert ("catalog", "cat") in {(g.securable_type, g.target) for g in plan.grants}
+
+
+def test_grant_plan_lakebase_role_planned_only_for_owning_sp() -> None:
+    """The non-owner gets NO lakebase entry at all — not even a SKIP note.
+
+    With N service principals, a per-SP mismatch note would print N-1 alarming
+    SKIPs per project per run; the owner's grant already tells the story.
+    """
+    from dao_ai.config import ResourcesModel
+
+    db = _lakebase_db(PRINCIPAL)
+    config = AppConfig(resources=ResourcesModel(databases={"d": db}))
+    targets = [
+        _target("memory_sp", resolved=PRINCIPAL),
+        _target(
+            "tools_sp", cid_key="T_CID", resolved="99999999-9999-9999-9999-999999999999"
+        ),
+    ]
+    ownership = build_ownership_map(config, targets)
+
+    owner_plan = build_grant_plan(
+        config, PRINCIPAL, ownership=ownership, sp_name="memory_sp", targets=targets
+    )
+    other_plan = build_grant_plan(
+        config, PRINCIPAL, ownership=ownership, sp_name="tools_sp", targets=targets
+    )
+    owner_lb = [g for g in owner_plan.grants if g.kind == "lakebase_role"]
+    other_lb = [g for g in other_plan.grants if g.kind == "lakebase_role"]
+
+    assert len(owner_lb) == 1 and owner_lb[0].note is None
+    assert other_lb == []
+
+
+def test_grant_plan_lakebase_role_carries_owning_sp_client_id() -> None:
+    """The role subject comes from the target, not from re-reading the config."""
+    from dao_ai.config import ResourcesModel
+
+    db = _lakebase_db(PRINCIPAL)
+    config = AppConfig(resources=ResourcesModel(databases={"d": db}))
+    # The target's resolved id deliberately differs from the ``principal``
+    # argument, so this can only pass if the target — not the argument — is the
+    # source of the role subject.
+    from_target = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+    targets = [_target("memory_sp", resolved=from_target)]
+    ownership = build_ownership_map(config, targets)
+    plan = build_grant_plan(
+        config, PRINCIPAL, ownership=ownership, sp_name="memory_sp", targets=targets
+    )
+    lb = next(g for g in plan.grants if g.kind == "lakebase_role")
+    assert lb.principal_override == from_target
+
+
+def test_grant_plan_lakebase_role_planned_when_scope_unpopulated(monkeypatch) -> None:
+    """THE ONE-PASS PROOF.
+
+    A brand-new SP's client_id is not in the secret scope yet, so
+    ``value_of(database.client_id)`` yields nothing. Under ownership the role is
+    still planned, with the freshly minted id as its subject — no second run.
+    """
+    from dao_ai.config import DatabaseModel, ResourcesModel
+
+    fresh_id = "de6db65b-59f0-4368-87ed-9b06f6054da0"
+    db = DatabaseModel(
+        name="lb",
+        project="my-proj",
+        client_id=SecretVariableModel(scope="sc", secret="CID"),
+        client_secret=SecretVariableModel(scope="sc", secret="CSEC"),
+    )
+    config = AppConfig(resources=ResourcesModel(databases={"d": db}))
+    targets = [_target("memory_sp", configured=None, resolved=fresh_id)]
+    ownership = build_ownership_map(config, targets)
+
+    # Reading the secret would fail here (scope not populated) — the plan must
+    # not need it.
+    def _boom(*args, **kwargs):
+        raise AssertionError("the one-pass path must not read the secret scope")
+
+    monkeypatch.setattr("dao_ai.config.SecretVariableModel.as_value", _boom)
+    plan = build_grant_plan(
+        config, fresh_id, ownership=ownership, sp_name="memory_sp", targets=targets
+    )
+    lb = next(g for g in plan.grants if g.kind == "lakebase_role")
+    assert lb.note is None
+    assert lb.principal_override == fresh_id
+
+
+def test_grant_plan_dry_run_placeholder_principal_emits_no_skip_note() -> None:
+    """A dry run of a not-yet-created SP must not print a bogus mismatch SKIP."""
+    from dao_ai.config import ResourcesModel
+    from dao_ai.service_principal import placeholder_principal
+
+    db = _lakebase_db(PRINCIPAL)
+    config = AppConfig(resources=ResourcesModel(databases={"d": db}))
+    targets = [_target("memory_sp", resolved=None, configured=None)]
+    ownership = build_ownership_map(config, targets)
+    plan = build_grant_plan(
+        config,
+        placeholder_principal("memory_sp"),
+        ownership=ownership,
+        sp_name="memory_sp",
+        targets=targets,
+    )
+    lb = next(g for g in plan.grants if g.kind == "lakebase_role")
+    # It reports "no id yet", which is honest, and never claims an id mismatch.
+    assert lb.note is not None
+    assert "does not exist yet" in lb.note
+    assert "configured for client_id" not in lb.note
+
+
+# =============================================================================
+# secret existence probe + --overwrite + dry-run plumbing
+# =============================================================================
+
+
+def _ws_with_secrets(scope: str = "sc", keys: tuple[str, ...] = ()) -> MagicMock:
+    """A mock WorkspaceClient whose ``scope`` holds ``keys``."""
+    w = MagicMock()
+    w.secrets.list_secrets.return_value = [MagicMock(**{"key": k}) for k in keys]
+    # ``name`` is a reserved MagicMock constructor kwarg (it names the mock), so
+    # the attribute has to be assigned after construction.
+    scope_obj = MagicMock()
+    scope_obj.name = scope
+    w.secrets.list_scopes.return_value = [scope_obj]
+    return w
+
+
+def test_secret_keys_present_lists_existing_keys() -> None:
+    w = _ws_with_secrets(keys=("CID", "CSEC"))
+    assert secret_keys_present(w, "sc") == frozenset({"CID", "CSEC"})
+    # Never reads a value — list_secrets returns metadata only.
+    w.secrets.get_secret.assert_not_called()
+
+
+def test_secret_keys_present_returns_empty_set_for_absent_scope() -> None:
+    from databricks.sdk.errors import ResourceDoesNotExist
+
+    w = MagicMock()
+    w.secrets.list_secrets.side_effect = ResourceDoesNotExist(
+        "Scope nope does not exist!"
+    )
+    assert secret_keys_present(w, "nope") == frozenset()
+
+
+def test_store_overwrites_by_default() -> None:
+    """Default overwrite=True preserves the original unconditional behaviour."""
+    w = _ws_with_secrets(keys=("CID", "CSEC"))
+    result = store(
+        w,
+        scope="sc",
+        client_id_key="CID",
+        client_secret_key="CSEC",
+        client_id="new-id",
+        client_secret="new-secret",
+    )
+    assert result.written == ["CID", "CSEC"]
+    assert result.skipped == []
+    assert w.secrets.put_secret.call_count == 2
+
+
+def test_store_refuses_existing_keys_without_overwrite() -> None:
+    w = _ws_with_secrets(keys=("CID", "CSEC"))
+    result = store(
+        w,
+        scope="sc",
+        client_id_key="CID",
+        client_secret_key="CSEC",
+        client_id="new-id",
+        client_secret="new-secret",
+        overwrite=False,
+    )
+    assert result.written == []
+    assert result.skipped == ["CID", "CSEC"]
+    w.secrets.put_secret.assert_not_called()
+    # A live credential must not be clobbered, and the scope is left alone.
+    w.secrets.create_scope.assert_not_called()
+
+
+def test_store_writes_absent_keys_without_overwrite() -> None:
+    """Only the keys that already hold a value are protected."""
+    w = _ws_with_secrets(keys=("CID",))
+    result = store(
+        w,
+        scope="sc",
+        client_id_key="CID",
+        client_secret_key="CSEC",
+        client_id="i",
+        client_secret="s",
+        overwrite=False,
+    )
+    assert result.written == ["CSEC"]
+    assert result.skipped == ["CID"]
+
+
+def test_store_dry_run_writes_nothing() -> None:
+    w = _ws_with_secrets(keys=())
+    result = store(
+        w,
+        scope="sc",
+        client_id_key="CID",
+        client_secret_key="CSEC",
+        client_id="i",
+        client_secret="s",
+        dry_run=True,
+    )
+    assert result.written == ["CID", "CSEC"]
+    w.secrets.put_secret.assert_not_called()
+    w.secrets.create_scope.assert_not_called()
+
+
+def test_store_dry_run_reports_whether_scope_exists() -> None:
+    w = _ws_with_secrets(scope="sc", keys=())
+    assert store(
+        w,
+        scope="sc",
+        client_id_key="CID",
+        client_secret_key="CSEC",
+        client_id="i",
+        client_secret="s",
+        dry_run=True,
+    ).scope_existed
+    assert not store(
+        w,
+        scope="other",
+        client_id_key="CID",
+        client_secret_key="CSEC",
+        client_id="i",
+        client_secret="s",
+        dry_run=True,
+    ).scope_existed
+
+
+def test_find_service_principal_mints_nothing() -> None:
+    w = MagicMock()
+    w.service_principals.list.return_value = [
+        MagicMock(**{"display_name": "app-sp", "application_id": PRINCIPAL, "id": "42"})
+    ]
+    found = find_service_principal(w, display_name="app-sp")
+    assert found is not None and found.application_id == PRINCIPAL
+    w.service_principals.create.assert_not_called()
+    w.service_principal_secrets_proxy.create.assert_not_called()
+
+
+def test_find_service_principal_returns_none_when_absent() -> None:
+    w = MagicMock()
+    w.service_principals.list.return_value = []
+    assert find_service_principal(w, display_name="nope") is None
+
+
+def test_create_dry_run_mints_no_secret_for_existing_sp() -> None:
+    """Minting registers a new OAuth secret — itself a mutation. Dry run must not."""
+    w = MagicMock()
+    w.service_principals.list.return_value = [
+        MagicMock(**{"display_name": "app-sp", "application_id": PRINCIPAL, "id": "42"})
+    ]
+    result = create(w, display_name="app-sp", dry_run=True)
+
+    assert result.reused is True
+    assert result.client_id == PRINCIPAL
+    assert result.client_secret is None
+    w.service_principals.create.assert_not_called()
+    w.service_principal_secrets_proxy.create.assert_not_called()
+
+
+def test_create_dry_run_reports_would_create_for_absent_sp() -> None:
+    w = MagicMock()
+    w.service_principals.list.return_value = []
+    result = create(w, display_name="brand-new", dry_run=True)
+
+    assert result.reused is False
+    assert result.client_id == ""  # unknown until actually created
+    assert result.client_secret is None
+    w.service_principals.create.assert_not_called()
+    w.service_principal_secrets_proxy.create.assert_not_called()
+
+
+# =============================================================================
+# resolve_sp_targets / provision_all / grant_all — multi-SP
+# =============================================================================
+
+
+def _app(name: str = "myapp", **kwargs) -> AppModel:
+    """A minimal valid AppModel — AppModel requires at least one agent."""
+    from dao_ai.config import AgentModel, InferenceEndpointModel
+
+    return AppModel(
+        name=name,
+        agents=[
+            AgentModel(
+                name="a",
+                description="d",
+                model=InferenceEndpointModel(name="databricks-gpt-5-4-mini"),
+            )
+        ],
+        **kwargs,
+    )
+
+
+def _multi_sp_config() -> AppConfig:
+    """A config declaring two SPs with distinct secret keys in one scope."""
+    from dao_ai.config import ResourcesModel
+
+    memory_sp = ServicePrincipalModel(
+        client_id=SecretVariableModel(scope="sc", secret="M_CID"),
+        client_secret=SecretVariableModel(scope="sc", secret="M_CSEC"),
+    )
+    tools_sp = ServicePrincipalModel(
+        client_id=SecretVariableModel(scope="sc", secret="T_CID"),
+        client_secret=SecretVariableModel(scope="sc", secret="T_CSEC"),
+    )
+    schema = _schema()
+    return AppConfig(
+        schemas={"s": schema},
+        service_principals={"memory_sp": memory_sp, "tools_sp": tools_sp},
+        resources=ResourcesModel(
+            tables={
+                "owned_by_tools": TableModel(
+                    schema=schema, name="tool_table", service_principal=tools_sp
+                ),
+                "shared": TableModel(schema=schema, name="shared_table"),
+            }
+        ),
+        app=_app(),
+    )
+
+
+def _ws_for_provision(
+    existing_sps: dict[str, str] | None = None, existing_keys: tuple[str, ...] = ()
+) -> MagicMock:
+    """Mock client: ``existing_sps`` maps display_name -> application_id."""
+    existing_sps = existing_sps or {}
+    w = MagicMock()
+
+    def _list(filter: str = "", **kwargs):
+        for name, app_id in existing_sps.items():
+            if f'"{name}"' in filter:
+                sp = MagicMock(**{"display_name": name, "application_id": app_id})
+                sp.id = "42"
+                return [sp]
+        return []
+
+    w.service_principals.list.side_effect = _list
+    w.secrets.list_secrets.return_value = [
+        MagicMock(**{"key": k}) for k in existing_keys
+    ]
+    scope_obj = MagicMock()
+    scope_obj.name = "sc"
+    w.secrets.list_scopes.return_value = [scope_obj]
+    created = MagicMock(**{"application_id": "new-app-id"})
+    created.id = "99"
+    w.service_principals.create.return_value = created
+    w.service_principal_secrets_proxy.create.return_value = MagicMock(
+        secret="minted-secret"
+    )
+    return w
+
+
+def test_resolve_sp_targets_one_per_declared_sp() -> None:
+    targets = resolve_sp_targets(_multi_sp_config())
+    assert [t.name for t in targets] == ["memory_sp", "tools_sp"]
+    # Display names derive from app.name + the config key.
+    assert [t.display_name for t in targets] == ["myapp-memory_sp", "myapp-tools_sp"]
+    assert targets[0].client_id_ref == SecretRef(scope="sc", key="M_CID")
+
+
+def test_resolve_sp_targets_prefers_explicit_name() -> None:
+    sp = ServicePrincipalModel(
+        name="pinned-sp",
+        client_id=SecretVariableModel(scope="sc", secret="CID"),
+        client_secret=SecretVariableModel(scope="sc", secret="CSEC"),
+    )
+    config = AppConfig(service_principals={"a": sp}, app=_app())
+    assert resolve_sp_targets(config)[0].display_name == "pinned-sp"
+
+
+def test_resolve_sp_targets_without_block_yields_one_default() -> None:
+    """A config with no service_principals behaves exactly as the single-SP path."""
+    config = AppConfig(
+        variables={
+            "client_id": SecretVariableModel(scope="sc", secret="CID"),
+            "client_secret": SecretVariableModel(scope="sc", secret="CSEC"),
+        },
+        app=_app(),
+    )
+    targets = resolve_sp_targets(config)
+    assert len(targets) == 1
+    assert targets[0].name == "default"
+    assert targets[0].client_id_key == "CID"
+
+
+def test_resolve_sp_targets_only_filters() -> None:
+    targets = resolve_sp_targets(_multi_sp_config(), only=["tools_sp"])
+    assert [t.name for t in targets] == ["tools_sp"]
+
+
+def test_resolve_sp_targets_rejects_unknown_name() -> None:
+    import pytest
+
+    with pytest.raises(ValueError, match="Unknown service principal"):
+        resolve_sp_targets(_multi_sp_config(), only=["nope"])
+
+
+def test_resolve_sp_targets_rejects_overrides_with_multiple_targets() -> None:
+    """One key pair across two SPs would make the second clobber the first."""
+    import pytest
+
+    with pytest.raises(ValueError, match="single"):
+        resolve_sp_targets(_multi_sp_config(), client_id_key_override="CID")
+
+
+def test_provision_all_creates_every_declared_service_principal() -> None:
+    config = _multi_sp_config()
+    w = _ws_for_provision()
+    targets = resolve_sp_targets(config)
+    outcome = provision_all(w, config=config, targets=targets)
+
+    assert [r.name for r in outcome.results] == ["memory_sp", "tools_sp"]
+    assert w.service_principals.create.call_count == 2
+    assert all(r.stored for r in outcome.results)
+
+
+def test_provision_all_grants_each_sp_only_its_own_resources() -> None:
+    config = _multi_sp_config()
+    w = _ws_for_provision()
+    targets = resolve_sp_targets(config)
+    outcome = provision_all(w, config=config, targets=targets)
+
+    plans = {r.name: r.grant_plan for r in outcome.results}
+    memory_targets = {g.target for g in plans["memory_sp"].grants}
+    tools_targets = {g.target for g in plans["tools_sp"].grants}
+
+    # tools_sp owns tool_table; memory_sp must not be granted it.
+    assert "cat.sch.tool_table" in tools_targets
+    assert "cat.sch.tool_table" not in memory_targets
+    # The shared table goes to both.
+    assert "cat.sch.shared_table" in memory_targets
+    assert "cat.sch.shared_table" in tools_targets
+
+
+def test_provision_all_dry_run_makes_no_mutating_calls() -> None:
+    """THE DRY-RUN CONTRACT: nothing that changes state may be reached."""
+    config = _multi_sp_config()
+    w = _ws_for_provision()
+    targets = resolve_sp_targets(config)
+    outcome = provision_all(w, config=config, targets=targets, dry_run=True)
+
+    assert outcome.dry_run
+    w.service_principals.create.assert_not_called()
+    w.service_principal_secrets_proxy.create.assert_not_called()  # no secret minted
+    w.secrets.create_scope.assert_not_called()
+    w.secrets.put_secret.assert_not_called()
+    w.api_client.do.assert_not_called()
+    w.warehouses.update_permissions.assert_not_called()
+    w.permissions.update.assert_not_called()
+    w.serving_endpoints.update_permissions.assert_not_called()
+    # Reads still happen — that is what makes the preview truthful.
+    assert w.service_principals.list.called
+    # And the plan is still complete.
+    assert all(r.grant_plan is not None for r in outcome.results)
+
+
+def test_provision_all_dry_run_reports_create_vs_reuse() -> None:
+    config = _multi_sp_config()
+    w = _ws_for_provision(existing_sps={"myapp-memory_sp": PRINCIPAL})
+    targets = resolve_sp_targets(config)
+    outcome = provision_all(w, config=config, targets=targets, dry_run=True)
+
+    by_name = {r.name: r for r in outcome.results}
+    assert by_name["memory_sp"].reused is True
+    assert by_name["memory_sp"].client_id == PRINCIPAL
+    assert by_name["tools_sp"].reused is False
+
+
+def test_provision_all_dry_run_reports_existing_secret_keys() -> None:
+    config = _multi_sp_config()
+    w = _ws_for_provision(
+        existing_sps={"myapp-memory_sp": PRINCIPAL}, existing_keys=("M_CID", "M_CSEC")
+    )
+    targets = resolve_sp_targets(config)
+    outcome = provision_all(w, config=config, targets=targets, dry_run=True)
+
+    by_name = {r.name: r for r in outcome.results}
+    assert by_name["memory_sp"].secret_action == SECRET_KEEP
+    assert by_name["memory_sp"].existing_keys == ["M_CID", "M_CSEC"]
+    assert by_name["tools_sp"].secret_action == SECRET_WRITE
+
+
+def test_provision_all_skips_minting_when_key_exists_and_no_overwrite() -> None:
+    """THE ORPHAN GUARD.
+
+    ``create`` always mints a fresh OAuth secret. If we minted and then declined
+    to store it, the workspace would hold a live secret nothing references while
+    the scope still held a credential for a possibly-rotated SP. Probing first
+    means the reuse path never mints at all.
+    """
+    config = _multi_sp_config()
+    w = _ws_for_provision(
+        existing_sps={"myapp-memory_sp": PRINCIPAL, "myapp-tools_sp": "tid"},
+        existing_keys=("M_CID", "M_CSEC", "T_CID", "T_CSEC"),
+    )
+    targets = resolve_sp_targets(config)
+    outcome = provision_all(w, config=config, targets=targets, overwrite=False)
+
+    w.service_principal_secrets_proxy.create.assert_not_called()
+    w.secrets.put_secret.assert_not_called()
+    assert all(r.secret_action == SECRET_KEEP for r in outcome.results)
+    # Grants are still re-applied — they're additive and idempotent.
+    assert all(r.grant_plan is not None for r in outcome.results)
+
+
+def test_provision_all_overwrite_rotates_and_stores() -> None:
+    config = _multi_sp_config()
+    w = _ws_for_provision(
+        existing_sps={"myapp-memory_sp": PRINCIPAL, "myapp-tools_sp": "tid"},
+        existing_keys=("M_CID", "M_CSEC", "T_CID", "T_CSEC"),
+    )
+    targets = resolve_sp_targets(config)
+    outcome = provision_all(w, config=config, targets=targets, overwrite=True)
+
+    assert all(r.secret_action == SECRET_ROTATE for r in outcome.results)
+    assert w.service_principal_secrets_proxy.create.call_count == 2
+    assert w.secrets.put_secret.call_count == 4
+
+
+def test_provision_all_blocks_when_key_exists_but_no_such_sp() -> None:
+    """A populated key with no matching SP: refuse rather than guess."""
+    config = _multi_sp_config()
+    w = _ws_for_provision(existing_keys=("M_CID", "M_CSEC"))
+    targets = resolve_sp_targets(config)
+    outcome = provision_all(w, config=config, targets=targets)
+
+    blocked = dict(outcome.blocked)
+    assert "memory_sp" in blocked
+    assert "--overwrite" in blocked["memory_sp"]
+    # tools_sp is unaffected and still provisioned.
+    by_name = {r.name: r for r in outcome.results}
+    assert by_name["tools_sp"].blocked_reason is None
+    assert by_name["memory_sp"].blocked_reason
+
+
+def test_provision_all_validates_before_creating_anything() -> None:
+    """Fail-fast spans all targets — SP #1 must not exist if #2 is unresolvable."""
+    import pytest
+
+    config = AppConfig(
+        service_principals={
+            "a": ServicePrincipalModel(client_id="literal-id", client_secret="literal"),
+        },
+        app=_app(),
+    )
+    w = _ws_for_provision()
+    targets = resolve_sp_targets(config)
+    # Literal (non-secret) credentials give no scope/keys to store under.
+    with pytest.raises(ValueError, match="secret keys"):
+        provision_all(w, config=config, targets=targets)
+    w.service_principals.create.assert_not_called()
+
+
+def test_provision_all_single_target_passes_no_ownership() -> None:
+    """Single-SP configs traverse the same code as before ownership existed."""
+    config = AppConfig(
+        variables={
+            "client_id": SecretVariableModel(scope="sc", secret="CID"),
+            "client_secret": SecretVariableModel(scope="sc", secret="CSEC"),
+        },
+        schemas={"s": _schema()},
+        app=_app(),
+    )
+    w = _ws_for_provision()
+    targets = resolve_sp_targets(config)
+    outcome = provision_all(w, config=config, targets=targets)
+    assert len(outcome.results) == 1
+    assert outcome.results[0].grant_plan is not None
+
+
+def test_grant_all_grants_existing_sps_only() -> None:
+    config = _multi_sp_config()
+    w = _ws_for_provision(existing_sps={"myapp-tools_sp": "tid"})
+    targets = resolve_sp_targets(config)
+    plans = grant_all(w, config=config, targets=targets)
+
+    # memory_sp doesn't exist → empty placeholder plan, nothing applied.
+    by_principal = {p.principal: p for p in plans}
+    assert any(p.startswith("<new-sp:") for p in by_principal)
+    assert "tid" in by_principal
+    w.service_principals.create.assert_not_called()
+
+
+def test_resolve_sp_targets_unresolvable_secret_is_none_not_the_string_None(
+    monkeypatch,
+) -> None:
+    """Regression: ``str(None)`` is the truthy string "None".
+
+    An unreadable secret (the normal case before a first provision) must leave
+    ``configured_client_id`` as None. Coercing before the None check produced
+    "None", which passed every later ``if client_id:`` guard and got used as a
+    real principal — grants were applied for a service principal called "None".
+    """
+    monkeypatch.setattr("dao_ai.config.SecretVariableModel.as_value", lambda self: None)
+    sp = ServicePrincipalModel(
+        client_id=SecretVariableModel(scope="sc", secret="CID"),
+        client_secret=SecretVariableModel(scope="sc", secret="CSEC"),
+    )
+    config = AppConfig(service_principals={"a": sp}, app=_app())
+    target = resolve_sp_targets(config)[0]
+    assert target.configured_client_id is None
+
+
+def test_grant_all_never_grants_a_null_principal() -> None:
+    """No SP and no resolvable id → nothing is applied for that target."""
+    config = _multi_sp_config()
+    w = _ws_for_provision(existing_sps={})
+    targets = resolve_sp_targets(config)
+    for t in targets:
+        t.configured_client_id = None
+    plans = grant_all(w, config=config, targets=targets)
+
+    assert all(p.principal.startswith("<new-sp:") for p in plans)
+    assert all(p.grants == [] for p in plans)
+    w.api_client.do.assert_not_called()
