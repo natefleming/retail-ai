@@ -59,6 +59,11 @@ _CLOUDS = ("azure", "aws", "gcp")
 # (only the bundle name does), so it is expressed once here as data. Each entry
 # is (task_key, notebook, depends_on, extra_base_parameters).
 _PIPELINE_TASKS: tuple[tuple[str, str, tuple[str, ...], dict[str, str]], ...] = (
+    # Runs first and gates the two tasks that need the service principal to
+    # exist: provision-lakebase creates a Postgres role whose subject is the SP's
+    # client_id, and unity-catalog-tools creates the functions the SP needs
+    # EXECUTE on. Idempotent, so it is safe on every pipeline run.
+    ("provision-service-principal", "00_provision_service_principal.py", (), {}),
     ("ingest-and-transform", "01_ingest_and_transform.py", (), {}),
     (
         "provision-vector-search",
@@ -66,11 +71,20 @@ _PIPELINE_TASKS: tuple[tuple[str, str, tuple[str, ...], dict[str, str]], ...] = 
         ("ingest-and-transform",),
         {},
     ),
-    ("provision-lakebase", "03_provision_lakebase.py", (), {}),
+    (
+        "provision-lakebase",
+        "03_provision_lakebase.py",
+        ("provision-service-principal",),
+        {},
+    ),
     (
         "unity-catalog-tools",
         "04_unity_catalog_tools.py",
-        ("provision-vector-search", "provision-lakebase"),
+        (
+            "provision-vector-search",
+            "provision-lakebase",
+            "provision-service-principal",
+        ),
         {},
     ),
     ("provision-genie", "05_provision_genie.py", ("unity-catalog-tools",), {}),
