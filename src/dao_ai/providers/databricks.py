@@ -3564,11 +3564,35 @@ class DatabricksProvider(ServiceProvider):
         )
         return default_branch.name
 
-    def create_lakebase_autoscaling_role(self, database: DatabaseModel) -> None:
+    def create_lakebase_autoscaling_role(
+        self,
+        database: DatabaseModel,
+        *,
+        client_id: str | None = None,
+    ) -> None:
         """
         Create a role for a service principal on an autoscaling Lakebase project.
 
         Roles are created at the branch level in the autoscaling Postgres API.
+
+        Two distinct identities are in play here, and conflating them is a bug:
+
+        * The **caller** — every Postgres control-plane call below
+          (``list_branches`` / ``list_roles`` / ``create_role``) requires
+          ``Can Manage`` on the Database project. A service principal cannot
+          create its own role, so these run as ``self.w``: the identity the
+          caller supplied (e.g. the admin profile behind ``dao-ai -p <profile>``).
+        * The **role subject** — ``postgres_role`` is the service principal the
+          role is created *for*, i.e. the identity the agent later connects to
+          Postgres as. That remains ``client_id``.
+
+        Args:
+            database: The Lakebase ``DatabaseModel`` to create the role on.
+            client_id: Service-principal client id to create the role for. When
+                given it is authoritative — used by ``dao-ai sp provision`` to
+                pass a freshly minted SP's id, so provisioning completes in one
+                pass instead of requiring the secret scope to be populated
+                first. When omitted, falls back to ``database.client_id``.
         """
         from databricks.sdk.service.postgres import (
             Role,
@@ -3579,25 +3603,28 @@ class DatabricksProvider(ServiceProvider):
 
         from dao_ai.config import value_of
 
-        if not database.client_id:
-            logger.warning(
-                "client_id required to create autoscaling role",
-                project=database.project,
-            )
-            return
+        if client_id is None:
+            if not database.client_id:
+                logger.warning(
+                    "client_id required to create autoscaling role",
+                    project=database.project,
+                )
+                return
 
-        client_id: str | None = value_of(database.client_id)
-        if not client_id:
-            logger.warning(
-                "client_id resolved to None; skipping autoscaling role creation. "
-                "Check that the configured source (secret scope, env var, etc.) "
-                "is populated.",
-                project=database.project,
-                client_id_spec=database.client_id,
-            )
-            return
+            client_id = value_of(database.client_id)
+            if not client_id:
+                logger.warning(
+                    "client_id resolved to None; skipping autoscaling role creation. "
+                    "Check that the configured source (secret scope, env var, etc.) "
+                    "is populated.",
+                    project=database.project,
+                    client_id_spec=database.client_id,
+                )
+                return
 
-        workspace_client: WorkspaceClient = database.workspace_client
+        # The caller's client — NOT ``database.workspace_client`` (the SP's own
+        # oauth-m2m client), which cannot grant itself DATABRICKS_SUPERUSER.
+        workspace_client: WorkspaceClient = self.w
 
         # Roles are created on a branch, not on the project
         branch_name = self._resolve_autoscaling_default_branch(

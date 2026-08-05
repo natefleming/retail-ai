@@ -4000,10 +4000,21 @@ class DatabaseModel(IsDatabricksResource):
         return " ".join(parts)
 
     def create(self, w: WorkspaceClient | None = None) -> None:
+        """Provision this database (Lakebase project + service-principal role).
+
+        Args:
+            w: Workspace client to provision *with*. Defaults to ambient
+                authentication (the notebook/CLI caller), NOT
+                ``self.workspace_client`` — creating a Lakebase project and
+                granting a Postgres role require ``Can Manage`` on the project,
+                which the database's own service principal does not have. The
+                SP remains the role *subject*; see
+                :meth:`DatabricksProvider.create_lakebase_autoscaling_role`.
+        """
         from dao_ai.providers.databricks import DatabricksProvider
 
         if w is None:
-            w = self.workspace_client
+            w = WorkspaceClient()
         provider: DatabricksProvider = DatabricksProvider(w=w)
         if self.is_lakebase:
             provider.create_lakebase_autoscaling(self)

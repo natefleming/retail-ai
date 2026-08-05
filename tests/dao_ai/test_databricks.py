@@ -3234,3 +3234,98 @@ def test_create_lakebase_role_creates_when_absent(monkeypatch):
     # The role hint is sanitized from the client_id and 'sp-' prefixed.
     assert kwargs["role_id"] == f"sp-{_LB_CLIENT_ID}"
     assert kwargs["role"].spec.postgres_role == _LB_CLIENT_ID
+
+
+@pytest.mark.unit
+def test_create_lakebase_role_uses_the_caller_client_not_the_sp_client(monkeypatch):
+    """The Postgres control plane runs as the CALLER, never as the SP itself.
+
+    Regression test: the provider used to read ``database.workspace_client``,
+    which builds an oauth-m2m client from the DatabaseModel's own credentials —
+    so the SP tried to create its own role and the workspace rejected it with
+    "not authorized ... assign the user <sp> 'Can Manage' for Database project".
+    Constructing the SP client at all is the bug, so we make it raise.
+    """
+
+    def _explode(**kwargs):
+        raise AssertionError(
+            "create_lakebase_autoscaling_role must not build a service-principal "
+            f"WorkspaceClient; got kwargs={sorted(kwargs)}"
+        )
+
+    w = _mock_lakebase_ws(existing_postgres_roles=[])
+    monkeypatch.setattr("dao_ai.config.WorkspaceClient", _explode)
+    db = DatabaseModel(
+        name="lb", project="proj", client_id=_LB_CLIENT_ID, client_secret="s"
+    )
+    DatabricksProvider(w=w).create_lakebase_autoscaling_role(db)
+
+    # Every control-plane call went through the injected caller client.
+    w.postgres.list_branches.assert_called_once()
+    w.postgres.list_roles.assert_called_once()
+    w.postgres.create_role.assert_called_once()
+
+
+@pytest.mark.unit
+def test_create_lakebase_role_subject_is_still_the_sp_client_id(monkeypatch):
+    """Caller identity changed; the role SUBJECT must remain the SP."""
+    w = _mock_lakebase_ws(existing_postgres_roles=[])
+    monkeypatch.setattr("dao_ai.config.WorkspaceClient", lambda **kwargs: w)
+    db = DatabaseModel(
+        name="lb", project="proj", client_id=_LB_CLIENT_ID, client_secret="s"
+    )
+    DatabricksProvider(w=w).create_lakebase_autoscaling_role(db)
+
+    _, kwargs = w.postgres.create_role.call_args
+    assert kwargs["role"].spec.postgres_role == _LB_CLIENT_ID
+
+
+@pytest.mark.unit
+def test_create_lakebase_role_honours_explicit_client_id_override(monkeypatch):
+    """An explicit client_id wins over the model's — the one-pass provision path.
+
+    ``dao-ai sp provision`` mints an SP and must create its Postgres role in the
+    same run, before the secret scope the config reads ``client_id`` from has
+    been populated. The override carries the freshly minted id.
+    """
+    fresh_id = "de6db65b-59f0-4368-87ed-9b06f6054da0"
+    w = _mock_lakebase_ws(existing_postgres_roles=[])
+    monkeypatch.setattr("dao_ai.config.WorkspaceClient", lambda **kwargs: w)
+    db = DatabaseModel(
+        name="lb", project="proj", client_id=_LB_CLIENT_ID, client_secret="s"
+    )
+    DatabricksProvider(w=w).create_lakebase_autoscaling_role(db, client_id=fresh_id)
+
+    _, kwargs = w.postgres.create_role.call_args
+    assert kwargs["role"].spec.postgres_role == fresh_id
+    assert kwargs["role_id"] == f"sp-{fresh_id}"
+
+
+@pytest.mark.unit
+def test_create_lakebase_role_override_works_when_model_client_id_unset(monkeypatch):
+    """With an override, an unresolvable model client_id no longer blocks the role.
+
+    This is what removes the old two-pass "provision the SP and populate the
+    scope, then re-run" round-trip.
+    """
+    fresh_id = "de6db65b-59f0-4368-87ed-9b06f6054da0"
+    w = _mock_lakebase_ws(existing_postgres_roles=[])
+    monkeypatch.setattr("dao_ai.config.WorkspaceClient", lambda **kwargs: w)
+    db = DatabaseModel(name="lb", project="proj")
+    DatabricksProvider(w=w).create_lakebase_autoscaling_role(db, client_id=fresh_id)
+
+    w.postgres.create_role.assert_called_once()
+    _, kwargs = w.postgres.create_role.call_args
+    assert kwargs["role"].spec.postgres_role == fresh_id
+
+
+@pytest.mark.unit
+def test_create_lakebase_role_without_override_still_skips_unset_client_id(monkeypatch):
+    """Legacy path unchanged: no override + no model client_id → warn and skip."""
+    w = _mock_lakebase_ws(existing_postgres_roles=[])
+    monkeypatch.setattr("dao_ai.config.WorkspaceClient", lambda **kwargs: w)
+    db = DatabaseModel(name="lb", project="proj")
+    DatabricksProvider(w=w).create_lakebase_autoscaling_role(db)
+
+    w.postgres.create_role.assert_not_called()
+    w.postgres.list_roles.assert_not_called()
