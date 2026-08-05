@@ -3348,6 +3348,13 @@ class DatabricksProvider(ServiceProvider):
 
         Handles idempotent project creation, gracefully handling cases where
         the project already exists.
+
+        Runs as ``self.w`` — the caller's identity — for the same reason as
+        :meth:`create_lakebase_autoscaling_role`: creating a Database project is
+        a control-plane operation, and the database's own service principal has
+        no standing to create the project it is about to be granted a role on.
+        Runtime connections continue to authenticate as the configured SP via
+        ``database.workspace_client``.
         """
         import time
 
@@ -3357,7 +3364,7 @@ class DatabricksProvider(ServiceProvider):
             ProjectSpec,
         )
 
-        workspace_client: WorkspaceClient = database.workspace_client
+        workspace_client: WorkspaceClient = self.w
         project_name = f"projects/{database.project}"
 
         try:

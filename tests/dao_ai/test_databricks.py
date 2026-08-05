@@ -3320,6 +3320,32 @@ def test_create_lakebase_role_override_works_when_model_client_id_unset(monkeypa
 
 
 @pytest.mark.unit
+def test_create_lakebase_project_uses_the_caller_client_not_the_sp_client(monkeypatch):
+    """Creating the project is control-plane work → the caller's identity.
+
+    The SP has no standing to create the project it is about to be granted a
+    role on, so building its oauth-m2m client here is the bug. Keeps
+    ``DatabaseModel.create()``'s ``w`` honoured by BOTH provisioning helpers.
+    """
+
+    def _explode(**kwargs):
+        raise AssertionError(
+            "create_lakebase_autoscaling must not build a service-principal "
+            f"WorkspaceClient; got kwargs={sorted(kwargs)}"
+        )
+
+    w = _mock_lakebase_ws(existing_postgres_roles=[])
+    w.postgres.get_project.return_value = None
+    monkeypatch.setattr("dao_ai.config.WorkspaceClient", _explode)
+    db = DatabaseModel(
+        name="lb", project="proj", client_id=_LB_CLIENT_ID, client_secret="s"
+    )
+    DatabricksProvider(w=w).create_lakebase_autoscaling(db)
+
+    w.postgres.get_project.assert_called_once_with("projects/proj")
+
+
+@pytest.mark.unit
 def test_create_lakebase_role_without_override_still_skips_unset_client_id(monkeypatch):
     """Legacy path unchanged: no override + no model client_id → warn and skip."""
     w = _mock_lakebase_ws(existing_postgres_roles=[])
