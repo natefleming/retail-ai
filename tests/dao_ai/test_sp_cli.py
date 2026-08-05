@@ -142,3 +142,125 @@ class TestPrintGrantsFailureReporting:
     def test_empty_plan_reports_nothing_to_grant(self, capsys) -> None:
         _print_grants(_plan(), applied=True)
         assert "no grantable resources found" in capsys.readouterr().out
+
+
+@pytest.mark.unit
+class TestSpParsing:
+    def test_provision_accepts_dry_run_overwrite_and_sp(self) -> None:
+        from dao_ai.cli import parse_args
+
+        opts = parse_args(
+            [
+                "sp",
+                "provision",
+                "-c",
+                "c.yaml",
+                "--dry-run",
+                "--overwrite",
+                "--sp",
+                "memory_sp",
+                "--sp",
+                "tools_sp",
+            ]
+        )
+        assert opts.dry_run is True
+        assert opts.overwrite is True
+        assert opts.sp_names == ["memory_sp", "tools_sp"]
+
+    def test_provision_defaults_are_conservative(self) -> None:
+        """Nothing destructive by default: no overwrite, and all SPs."""
+        from dao_ai.cli import parse_args
+
+        opts = parse_args(["sp", "provision", "-c", "c.yaml"])
+        assert opts.dry_run is False
+        assert opts.overwrite is False
+        assert opts.sp_names is None
+
+    def test_grant_accepts_sp_selector(self) -> None:
+        from dao_ai.cli import parse_args
+
+        opts = parse_args(["sp", "grant", "-c", "c.yaml", "--sp", "tools_sp"])
+        assert opts.sp_names == ["tools_sp"]
+
+    def test_store_accepts_overwrite(self) -> None:
+        from dao_ai.cli import parse_args
+
+        opts = parse_args(
+            ["sp", "store", "-c", "c.yaml", "--client-id", "i", "--client-secret", "s"]
+        )
+        assert opts.overwrite is False
+
+
+@pytest.mark.unit
+class TestProvisionReporting:
+    def _outcome(self, **kwargs):
+        from dao_ai.service_principal import MultiProvisionResult, ProvisionResult
+
+        defaults = dict(
+            display_name="app-memory_sp",
+            client_id="cid-1",
+            reused=True,
+            name="memory_sp",
+        )
+        defaults.update(kwargs)
+        return MultiProvisionResult(results=[ProvisionResult(**defaults)])
+
+    def test_dry_run_says_nothing_changed(self, capsys) -> None:
+        from dao_ai.cli import _print_provision_results
+
+        _print_provision_results(self._outcome(), dry_run=True)
+        out = capsys.readouterr().out
+        assert "would REUSE existing" in out
+        assert "nothing was created, written, or granted" in out
+
+    def test_dry_run_flags_a_new_sp_as_would_create(self, capsys) -> None:
+        from dao_ai.cli import _print_provision_results
+
+        _print_provision_results(
+            self._outcome(reused=False, client_id=""), dry_run=True
+        )
+        out = capsys.readouterr().out
+        assert "would CREATE new" in out
+        assert "assigned at creation" in out
+
+    def test_reports_existing_keys_as_not_overwritten(self, capsys) -> None:
+        from dao_ai.cli import _print_provision_results
+        from dao_ai.service_principal import SECRET_KEEP
+
+        outcome = self._outcome(
+            secret_action=SECRET_KEEP,
+            existing_keys=["M_CID", "M_CSEC"],
+            stored_scope="sc",
+        )
+        _print_provision_results(outcome, dry_run=False)
+        out = capsys.readouterr().out
+        assert "already contains a value" in out
+        assert "--overwrite to replace" in out
+
+    def test_blocked_target_is_reported_and_not_claimed_as_ready(self, capsys) -> None:
+        from dao_ai.cli import _print_provision_results
+        from dao_ai.service_principal import MultiProvisionResult, ProvisionResult
+
+        outcome = MultiProvisionResult(
+            results=[
+                ProvisionResult(
+                    display_name="app-memory_sp",
+                    client_id="",
+                    reused=False,
+                    name="memory_sp",
+                    blocked_reason="keys hold a value but no such SP exists",
+                )
+            ],
+            blocked=[("memory_sp", "keys hold a value but no such SP exists")],
+        )
+        _print_provision_results(outcome, dry_run=False)
+        out = capsys.readouterr().out
+        assert "✗ BLOCKED" in out
+        assert "Not provisioned: memory_sp" in out
+        assert "are ready for this config" not in out
+
+    def test_no_store_is_reported(self, capsys) -> None:
+        from dao_ai.cli import _print_provision_results
+
+        _print_provision_results(self._outcome(secret_action=None), dry_run=False)
+        assert "skipped (--no-store)" in capsys.readouterr().out
