@@ -416,6 +416,22 @@ _OWNABLE_COLLECTIONS: Final[tuple[str, ...]] = (
 )
 
 
+def placeholder_principal(sp_name: str) -> str:
+    """A stand-in client id for an SP that does not exist yet (dry run only).
+
+    A dry run reports what *would* happen, so it must not create the service
+    principal — which means its client id is unknown. Ownership is resolved from
+    the config's secret refs rather than from ids (see :func:`resource_owner`),
+    so the plan is still correct; only the displayed principal is a stand-in.
+    """
+    return f"<new-sp:{sp_name}>"
+
+
+def _is_placeholder_principal(principal: str) -> bool:
+    """True if ``principal`` is a :func:`placeholder_principal` sentinel."""
+    return principal.startswith("<new-sp:")
+
+
 def resource_owner(
     resource: object, targets: Sequence[ServicePrincipalTarget]
 ) -> Optional[str]:
@@ -548,6 +564,11 @@ class Grant:
     # isn't in the workspace" from "you lack GRANT on it", which need different
     # fixes. See :func:`classify_grant_error`.
     failure_kind: Optional[str] = None
+    # For ``lakebase_role``: the client id to create the Postgres role for, when
+    # it is known here but not yet readable from the config's secret scope (a
+    # just-minted SP). Overrides ``value_of(DatabaseModel.client_id)``, which is
+    # what makes single-pass provisioning possible.
+    principal_override: Optional[str] = None
 
 
 @dataclass
@@ -558,15 +579,39 @@ class GrantPlan:
     grants: list[Grant] = field(default_factory=list)
 
 
-def build_grant_plan(config: "AppConfig", principal: str) -> GrantPlan:
+def build_grant_plan(
+    config: "AppConfig",
+    principal: str,
+    *,
+    ownership: Optional[OwnershipMap] = None,
+    sp_name: Optional[str] = None,
+    targets: Optional[Sequence[ServicePrincipalTarget]] = None,
+) -> GrantPlan:
     """Walk an AppConfig and compute the read/execute grants for ``principal``.
 
     Pure (no side effects) so it can back both ``--dry-run`` and the real apply.
     De-dupes catalogs and schemas across every resource that references them.
+
+    Args:
+        config: The config whose declared resources are walked.
+        principal: Client id being granted. May be a ``<new-sp:NAME>`` sentinel
+            during a dry run of a service principal that does not exist yet.
+        ownership: When given, restrict the walk to the resources ``sp_name``
+            owns plus every shared (unowned) resource. Omit it — the default —
+            to grant the whole config to ``principal``, which is exactly the
+            single-SP behaviour and keeps existing callers unchanged.
+        sp_name: Which named service principal this plan is for. Only meaningful
+            alongside ``ownership``.
+        targets: All declared targets, used to resolve the Lakebase role's
+            subject to the owning SP's client id.
     """
     plan = GrantPlan(principal=principal)
     catalogs: set[str] = set()
     schemas: set[str] = set()
+
+    def _owns(collection: str, key: str) -> bool:
+        """True when this plan should include ``collection[key]``."""
+        return ownership is None or ownership.owns(collection, key, sp_name)
 
     def _add_schema(catalog_name: str, schema_name: str) -> None:
         if catalog_name and catalog_name not in catalogs:
@@ -588,7 +633,9 @@ def build_grant_plan(config: "AppConfig", principal: str) -> GrantPlan:
     if resources is not None:
         # Tables → SELECT (+ ensure their schema is granted)
         table: "TableModel"
-        for table in resources.tables.values():
+        for table_key, table in resources.tables.items():
+            if not _owns("tables", table_key):
+                continue
             if table.schema_model is not None:
                 _add_schema(
                     table.schema_model.catalog_name, table.schema_model.schema_name
@@ -598,7 +645,9 @@ def build_grant_plan(config: "AppConfig", principal: str) -> GrantPlan:
 
         # UC functions → EXECUTE
         func: "FunctionModel"
-        for func in resources.functions.values():
+        for func_key, func in resources.functions.items():
+            if not _owns("functions", func_key):
+                continue
             if func.schema_model is not None:
                 _add_schema(
                     func.schema_model.catalog_name, func.schema_model.schema_name
@@ -608,7 +657,9 @@ def build_grant_plan(config: "AppConfig", principal: str) -> GrantPlan:
 
         # Vector-search indexes → SELECT on the backing UC index (a table securable)
         store_model: "AiSearchVectorStoreModel"
-        for store_model in resources.vector_stores.values():
+        for store_key, store_model in resources.vector_stores.items():
+            if not _owns("vector_stores", store_key):
+                continue
             index = store_model.index
             index_name = value_of(index.full_name) if index is not None else None
             if index_name and str(index_name).count(".") == 2:
@@ -616,7 +667,9 @@ def build_grant_plan(config: "AppConfig", principal: str) -> GrantPlan:
 
         # Volumes → READ_VOLUME (+ ensure their schema is granted)
         volume: "VolumeModel"
-        for volume in resources.volumes.values():
+        for volume_key, volume in resources.volumes.items():
+            if not _owns("volumes", volume_key):
+                continue
             if volume.schema_model is not None:
                 _add_schema(
                     volume.schema_model.catalog_name, volume.schema_model.schema_name
@@ -628,7 +681,9 @@ def build_grant_plan(config: "AppConfig", principal: str) -> GrantPlan:
 
         # Connections → USE_CONNECTION (connection names are top-level, unqualified)
         connection: "ConnectionModel"
-        for connection in resources.connections.values():
+        for conn_key, connection in resources.connections.items():
+            if not _owns("connections", conn_key):
+                continue
             if connection.full_name:
                 plan.grants.append(
                     Grant("uc", connection.full_name, ["USE_CONNECTION"], "connection")
@@ -636,14 +691,18 @@ def build_grant_plan(config: "AppConfig", principal: str) -> GrantPlan:
 
         # Warehouses → CAN_USE (workspace permission, not UC)
         warehouse: "WarehouseModel"
-        for warehouse in resources.warehouses.values():
+        for wh_key, warehouse in resources.warehouses.items():
+            if not _owns("warehouses", wh_key):
+                continue
             wid = value_of(warehouse.warehouse_id) if warehouse.warehouse_id else None
             if wid:
                 plan.grants.append(Grant("warehouse", str(wid), ["CAN_USE"]))
 
         # Genie rooms → CAN_RUN (workspace permission)
         room: "GenieRoomModel"
-        for room in resources.genie_rooms.values():
+        for room_key, room in resources.genie_rooms.items():
+            if not _owns("genie_rooms", room_key):
+                continue
             space_id = value_of(room.space_id) if room.space_id else None
             if space_id:
                 plan.grants.append(Grant("genie", str(space_id), ["CAN_RUN"]))
@@ -663,23 +722,66 @@ def build_grant_plan(config: "AppConfig", principal: str) -> GrantPlan:
             # ``is_lakebase`` is defined as ``project is not None``, so project
             # is always set here.
             project = str(database.project)
-            configured = value_of(database.client_id) if database.client_id else None
             note: Optional[str] = None
-            if not configured:
-                note = (
-                    "SKIP: DatabaseModel.client_id is unset or resolved to None "
-                    "(secret scope populated?). A Postgres role can only be created "
-                    "for a concrete service-principal client id — provision the SP "
-                    "and populate the scope, then re-run."
+            principal_override: Optional[str] = None
+
+            if ownership is not None:
+                owner = ownership.owner_of("databases", db_key)
+                if owner is not None and owner != sp_name:
+                    # Another declared SP owns this project. Emit nothing: with N
+                    # service principals a per-SP mismatch note would print N-1
+                    # alarming SKIPs per project per run, and the owner's own
+                    # grant already tells the whole story.
+                    continue
+                # Owned by us, or shared. Either way the role subject is this
+                # SP's real client id — which, for a freshly minted SP, is only
+                # known here and NOT yet readable from the secret scope. Passing
+                # it explicitly is what lets provisioning finish in one pass.
+                if targets is not None:
+                    principal_override = next(
+                        (
+                            t.resolved_client_id
+                            for t in targets
+                            if t.name == sp_name and t.resolved_client_id
+                        ),
+                        None,
+                    )
+                if principal_override is None and not _is_placeholder_principal(
+                    principal
+                ):
+                    principal_override = principal
+                if principal_override is None:
+                    note = (
+                        f"SKIP: no client id resolved yet for service principal "
+                        f"'{sp_name}', so the Postgres role has no subject. This is "
+                        f"expected in a dry run of an SP that does not exist yet."
+                    )
+            else:
+                # Single-SP path (no ownership map): the role is keyed on the
+                # DatabaseModel's own client_id, so only create it when the SP
+                # being granted matches. Otherwise the agent would connect to
+                # Postgres as one identity while the role belongs to another.
+                configured = (
+                    value_of(database.client_id) if database.client_id else None
                 )
-            elif configured != principal:
-                note = (
-                    f"SKIP: granting SP '{principal}' but this Lakebase project is "
-                    f"configured for client_id '{configured}'. The Postgres role is "
-                    f"created for the configured id, so '{principal}' would fail at "
-                    f"connect time. Grant the configured SP (--app-sp) or align "
-                    f"DatabaseModel.client_id."
-                )
+                if not configured:
+                    note = (
+                        "SKIP: DatabaseModel.client_id is unset or resolved to "
+                        "None (secret scope populated?). A Postgres role can "
+                        "only be created for a concrete service-principal "
+                        "client id — provision the SP and populate the scope, "
+                        "then re-run."
+                    )
+                elif configured != principal:
+                    note = (
+                        f"SKIP: granting SP '{principal}' but this Lakebase "
+                        f"project is configured for client_id '{configured}'. "
+                        f"The Postgres role is created for the configured id, "
+                        f"so '{principal}' would fail at connect time. Grant "
+                        f"the configured SP (sp grant --principal <client-id>) "
+                        f"or align DatabaseModel.client_id."
+                    )
+
             plan.grants.append(
                 Grant(
                     "lakebase_role",
@@ -687,6 +789,7 @@ def build_grant_plan(config: "AppConfig", principal: str) -> GrantPlan:
                     ["DATABRICKS_SUPERUSER"],
                     resource_key=db_key,
                     note=note,
+                    principal_override=principal_override,
                 )
             )
 
@@ -715,13 +818,22 @@ def grant(
     principal: str,
     config: "AppConfig",
     dry_run: bool = False,
+    ownership: Optional[OwnershipMap] = None,
+    sp_name: Optional[str] = None,
+    targets: Optional[Sequence[ServicePrincipalTarget]] = None,
 ) -> GrantPlan:
     """Grant ``principal`` read/execute access to every resource in ``config``.
 
     Returns the :class:`GrantPlan`. When ``dry_run`` is True nothing is applied.
     Individual failures warn-and-continue (consistent with deploy-time granting).
+
+    ``ownership`` / ``sp_name`` / ``targets`` restrict the grant to the resources
+    one named service principal owns; see :func:`build_grant_plan`. Omitting them
+    grants the whole config, which is the single-SP behaviour.
     """
-    plan = build_grant_plan(config, principal)
+    plan = build_grant_plan(
+        config, principal, ownership=ownership, sp_name=sp_name, targets=targets
+    )
 
     if dry_run:
         return plan
@@ -750,7 +862,9 @@ def grant(
                         reason=g.note,
                     )
                     continue
-                _grant_lakebase_role(w, config, g.resource_key)
+                _grant_lakebase_role(
+                    w, config, g.resource_key, client_id=g.principal_override
+                )
             g.applied = True
         except Exception as e:  # noqa: BLE001 — warn-and-continue per resource
             g.applied = False
@@ -776,20 +890,28 @@ def grant(
 
 
 def _grant_lakebase_role(
-    w: "WorkspaceClient", config: "AppConfig", resource_key: Optional[str]
+    w: "WorkspaceClient",
+    config: "AppConfig",
+    resource_key: Optional[str],
+    *,
+    client_id: Optional[str] = None,
 ) -> None:
     """Create the Postgres SUPERUSER role for a Lakebase project's service principal.
 
     Delegates to the existing, idempotent
     :meth:`DatabricksProvider.create_lakebase_autoscaling_role` rather than
-    reinventing the Postgres-API role logic. The provider method reads the
-    ``DatabaseModel``'s own ``client_id`` and connects with its configured
-    credentials, so the caller has already verified (in :func:`build_grant_plan`)
-    that the SP being granted matches that ``client_id``.
+    reinventing the Postgres-API role logic. The Postgres control-plane calls run
+    as ``w`` — the caller's identity — since a service principal cannot create
+    its own role.
 
     Re-resolves the model by its config dict key (not by ``project``) so we act
-    on the exact ``DatabaseModel`` that passed the identity check — two models
-    can share a ``project`` while pinning different ``client_id``s.
+    on the exact ``DatabaseModel`` the plan selected — two models can share a
+    ``project`` while pinning different ``client_id``s.
+
+    Args:
+        client_id: Role subject. Passed when the plan already knows the owning
+            SP's client id (e.g. just minted, so not yet readable from the
+            config's secret scope). Falls back to ``DatabaseModel.client_id``.
     """
     from dao_ai.providers.databricks import DatabricksProvider
 
@@ -799,7 +921,9 @@ def _grant_lakebase_role(
         raise ValueError(
             f"No Lakebase DatabaseModel with key '{resource_key}' found in config"
         )
-    DatabricksProvider(w=w).create_lakebase_autoscaling_role(database)
+    DatabricksProvider(w=w).create_lakebase_autoscaling_role(
+        database, client_id=client_id
+    )
 
 
 def _grant_uc(

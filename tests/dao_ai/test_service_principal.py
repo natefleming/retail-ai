@@ -354,7 +354,11 @@ def test_grant_lakebase_role_resolves_by_key_not_project(monkeypatch) -> None:
     plan = grant(w, principal=PRINCIPAL, config=config, dry_run=False)
 
     # Exactly one role created, and it's the model whose client_id == principal.
-    provider.create_lakebase_autoscaling_role.assert_called_once_with(match_db)
+    # ``client_id=None`` on the single-SP path: no ownership map, so the provider
+    # falls back to reading DatabaseModel.client_id itself (legacy behaviour).
+    provider.create_lakebase_autoscaling_role.assert_called_once_with(
+        match_db, client_id=None
+    )
     lb = {g.resource_key: g for g in plan.grants if g.kind == "lakebase_role"}
     assert lb["match"].applied is True and lb["match"].note is None
     assert lb["mismatch"].applied is None and lb["mismatch"].note
@@ -999,3 +1003,211 @@ def test_ownership_map_empty_when_no_resources() -> None:
     assert ownership.owners == {}
     # Everything is shared when nothing is owned.
     assert ownership.owns("tables", "anything", "memory_sp")
+
+
+# =============================================================================
+# build_grant_plan — ownership filtering (multi-SP)
+# =============================================================================
+
+
+def _owned_table(name: str, cid_key: str = "CID"):
+    schema = _schema()
+    return TableModel(
+        schema=schema,
+        name=name,
+        client_id=SecretVariableModel(scope="sc", secret=cid_key),
+        client_secret=SecretVariableModel(scope="sc", secret="CSEC"),
+    )
+
+
+def test_grant_plan_without_ownership_is_unchanged() -> None:
+    """Backward compat: ownership=None grants the whole config, as before."""
+    from dao_ai.config import ResourcesModel
+
+    schema = _schema()
+    config = AppConfig(
+        schemas={"s": schema},
+        resources=ResourcesModel(
+            tables={
+                "a": _owned_table("a"),
+                "b": TableModel(schema=schema, name="b"),
+            }
+        ),
+    )
+    plan = build_grant_plan(config, PRINCIPAL)
+    targets_granted = {g.target for g in plan.grants}
+    assert "cat.sch.a" in targets_granted
+    assert "cat.sch.b" in targets_granted
+
+
+def test_grant_plan_owned_table_granted_only_to_its_owner() -> None:
+    from dao_ai.config import ResourcesModel
+
+    config = AppConfig(
+        schemas={"s": _schema()},
+        resources=ResourcesModel(tables={"a": _owned_table("a")}),
+    )
+    targets = [_target("memory_sp"), _target("tools_sp", cid_key="T_CID")]
+    ownership = build_ownership_map(config, targets)
+
+    owner_plan = build_grant_plan(
+        config, PRINCIPAL, ownership=ownership, sp_name="memory_sp", targets=targets
+    )
+    other_plan = build_grant_plan(
+        config, PRINCIPAL, ownership=ownership, sp_name="tools_sp", targets=targets
+    )
+    assert "cat.sch.a" in {g.target for g in owner_plan.grants}
+    assert "cat.sch.a" not in {g.target for g in other_plan.grants}
+
+
+def test_grant_plan_shared_resource_granted_to_every_sp() -> None:
+    from dao_ai.config import ResourcesModel
+
+    config = AppConfig(
+        schemas={"s": _schema()},
+        resources=ResourcesModel(
+            tables={"shared": TableModel(schema=_schema(), name="shared")}
+        ),
+    )
+    targets = [_target("memory_sp"), _target("tools_sp", cid_key="T_CID")]
+    ownership = build_ownership_map(config, targets)
+
+    for sp_name in ("memory_sp", "tools_sp"):
+        plan = build_grant_plan(
+            config, PRINCIPAL, ownership=ownership, sp_name=sp_name, targets=targets
+        )
+        assert "cat.sch.shared" in {g.target for g in plan.grants}
+
+
+def test_grant_plan_owned_resource_still_grants_its_catalog_and_schema() -> None:
+    """An owner needs USE_CATALOG/USE_SCHEMA to reach the table it owns."""
+    from dao_ai.config import ResourcesModel
+
+    config = AppConfig(resources=ResourcesModel(tables={"a": _owned_table("a")}))
+    targets = [_target("memory_sp")]
+    ownership = build_ownership_map(config, targets)
+    plan = build_grant_plan(
+        config, PRINCIPAL, ownership=ownership, sp_name="memory_sp", targets=targets
+    )
+    by_type = {g.securable_type for g in plan.grants}
+    assert "catalog" in by_type and "schema" in by_type
+
+
+def test_grant_plan_top_level_schemas_are_shared_across_sps() -> None:
+    """Catalogs/schemas are shared infrastructure — never owned by one SP."""
+    config = AppConfig(schemas={"s": _schema()})
+    targets = [_target("memory_sp"), _target("tools_sp", cid_key="T_CID")]
+    ownership = build_ownership_map(config, targets)
+
+    for sp_name in ("memory_sp", "tools_sp"):
+        plan = build_grant_plan(
+            config, PRINCIPAL, ownership=ownership, sp_name=sp_name, targets=targets
+        )
+        assert ("catalog", "cat") in {(g.securable_type, g.target) for g in plan.grants}
+
+
+def test_grant_plan_lakebase_role_planned_only_for_owning_sp() -> None:
+    """The non-owner gets NO lakebase entry at all — not even a SKIP note.
+
+    With N service principals, a per-SP mismatch note would print N-1 alarming
+    SKIPs per project per run; the owner's grant already tells the story.
+    """
+    from dao_ai.config import ResourcesModel
+
+    db = _lakebase_db(PRINCIPAL)
+    config = AppConfig(resources=ResourcesModel(databases={"d": db}))
+    targets = [
+        _target("memory_sp", resolved=PRINCIPAL),
+        _target(
+            "tools_sp", cid_key="T_CID", resolved="99999999-9999-9999-9999-999999999999"
+        ),
+    ]
+    ownership = build_ownership_map(config, targets)
+
+    owner_plan = build_grant_plan(
+        config, PRINCIPAL, ownership=ownership, sp_name="memory_sp", targets=targets
+    )
+    other_plan = build_grant_plan(
+        config, PRINCIPAL, ownership=ownership, sp_name="tools_sp", targets=targets
+    )
+    owner_lb = [g for g in owner_plan.grants if g.kind == "lakebase_role"]
+    other_lb = [g for g in other_plan.grants if g.kind == "lakebase_role"]
+
+    assert len(owner_lb) == 1 and owner_lb[0].note is None
+    assert other_lb == []
+
+
+def test_grant_plan_lakebase_role_carries_owning_sp_client_id() -> None:
+    """The role subject comes from the target, not from re-reading the config."""
+    from dao_ai.config import ResourcesModel
+
+    db = _lakebase_db(PRINCIPAL)
+    config = AppConfig(resources=ResourcesModel(databases={"d": db}))
+    # The target's resolved id deliberately differs from the ``principal``
+    # argument, so this can only pass if the target — not the argument — is the
+    # source of the role subject.
+    from_target = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+    targets = [_target("memory_sp", resolved=from_target)]
+    ownership = build_ownership_map(config, targets)
+    plan = build_grant_plan(
+        config, PRINCIPAL, ownership=ownership, sp_name="memory_sp", targets=targets
+    )
+    lb = next(g for g in plan.grants if g.kind == "lakebase_role")
+    assert lb.principal_override == from_target
+
+
+def test_grant_plan_lakebase_role_planned_when_scope_unpopulated(monkeypatch) -> None:
+    """THE ONE-PASS PROOF.
+
+    A brand-new SP's client_id is not in the secret scope yet, so
+    ``value_of(database.client_id)`` yields nothing. Under ownership the role is
+    still planned, with the freshly minted id as its subject — no second run.
+    """
+    from dao_ai.config import DatabaseModel, ResourcesModel
+
+    fresh_id = "de6db65b-59f0-4368-87ed-9b06f6054da0"
+    db = DatabaseModel(
+        name="lb",
+        project="my-proj",
+        client_id=SecretVariableModel(scope="sc", secret="CID"),
+        client_secret=SecretVariableModel(scope="sc", secret="CSEC"),
+    )
+    config = AppConfig(resources=ResourcesModel(databases={"d": db}))
+    targets = [_target("memory_sp", configured=None, resolved=fresh_id)]
+    ownership = build_ownership_map(config, targets)
+
+    # Reading the secret would fail here (scope not populated) — the plan must
+    # not need it.
+    def _boom(*args, **kwargs):
+        raise AssertionError("the one-pass path must not read the secret scope")
+
+    monkeypatch.setattr("dao_ai.config.SecretVariableModel.as_value", _boom)
+    plan = build_grant_plan(
+        config, fresh_id, ownership=ownership, sp_name="memory_sp", targets=targets
+    )
+    lb = next(g for g in plan.grants if g.kind == "lakebase_role")
+    assert lb.note is None
+    assert lb.principal_override == fresh_id
+
+
+def test_grant_plan_dry_run_placeholder_principal_emits_no_skip_note() -> None:
+    """A dry run of a not-yet-created SP must not print a bogus mismatch SKIP."""
+    from dao_ai.config import ResourcesModel
+    from dao_ai.service_principal import placeholder_principal
+
+    db = _lakebase_db(PRINCIPAL)
+    config = AppConfig(resources=ResourcesModel(databases={"d": db}))
+    targets = [_target("memory_sp", resolved=None, configured=None)]
+    ownership = build_ownership_map(config, targets)
+    plan = build_grant_plan(
+        config,
+        placeholder_principal("memory_sp"),
+        ownership=ownership,
+        sp_name="memory_sp",
+        targets=targets,
+    )
+    lb = next(g for g in plan.grants if g.kind == "lakebase_role")
+    # It reports "no id yet", which is honest, and never claims an id mismatch.
+    assert lb.note is not None
+    assert "does not exist yet" in lb.note
+    assert "configured for client_id" not in lb.note
