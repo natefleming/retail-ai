@@ -28,6 +28,8 @@ from dao_ai.service_principal import (
     build_ownership_map,
     classify_grant_error,
     create,
+    find_service_principal,
+    secret_keys_present,
     default_scope_from_config,
     grant,
     provision,
@@ -1211,3 +1213,169 @@ def test_grant_plan_dry_run_placeholder_principal_emits_no_skip_note() -> None:
     assert lb.note is not None
     assert "does not exist yet" in lb.note
     assert "configured for client_id" not in lb.note
+
+
+# =============================================================================
+# secret existence probe + --overwrite + dry-run plumbing
+# =============================================================================
+
+
+def _ws_with_secrets(scope: str = "sc", keys: tuple[str, ...] = ()) -> MagicMock:
+    """A mock WorkspaceClient whose ``scope`` holds ``keys``."""
+    w = MagicMock()
+    w.secrets.list_secrets.return_value = [MagicMock(**{"key": k}) for k in keys]
+    # ``name`` is a reserved MagicMock constructor kwarg (it names the mock), so
+    # the attribute has to be assigned after construction.
+    scope_obj = MagicMock()
+    scope_obj.name = scope
+    w.secrets.list_scopes.return_value = [scope_obj]
+    return w
+
+
+def test_secret_keys_present_lists_existing_keys() -> None:
+    w = _ws_with_secrets(keys=("CID", "CSEC"))
+    assert secret_keys_present(w, "sc") == frozenset({"CID", "CSEC"})
+    # Never reads a value — list_secrets returns metadata only.
+    w.secrets.get_secret.assert_not_called()
+
+
+def test_secret_keys_present_returns_empty_set_for_absent_scope() -> None:
+    from databricks.sdk.errors import ResourceDoesNotExist
+
+    w = MagicMock()
+    w.secrets.list_secrets.side_effect = ResourceDoesNotExist(
+        "Scope nope does not exist!"
+    )
+    assert secret_keys_present(w, "nope") == frozenset()
+
+
+def test_store_overwrites_by_default() -> None:
+    """Default overwrite=True preserves the original unconditional behaviour."""
+    w = _ws_with_secrets(keys=("CID", "CSEC"))
+    result = store(
+        w,
+        scope="sc",
+        client_id_key="CID",
+        client_secret_key="CSEC",
+        client_id="new-id",
+        client_secret="new-secret",
+    )
+    assert result.written == ["CID", "CSEC"]
+    assert result.skipped == []
+    assert w.secrets.put_secret.call_count == 2
+
+
+def test_store_refuses_existing_keys_without_overwrite() -> None:
+    w = _ws_with_secrets(keys=("CID", "CSEC"))
+    result = store(
+        w,
+        scope="sc",
+        client_id_key="CID",
+        client_secret_key="CSEC",
+        client_id="new-id",
+        client_secret="new-secret",
+        overwrite=False,
+    )
+    assert result.written == []
+    assert result.skipped == ["CID", "CSEC"]
+    w.secrets.put_secret.assert_not_called()
+    # A live credential must not be clobbered, and the scope is left alone.
+    w.secrets.create_scope.assert_not_called()
+
+
+def test_store_writes_absent_keys_without_overwrite() -> None:
+    """Only the keys that already hold a value are protected."""
+    w = _ws_with_secrets(keys=("CID",))
+    result = store(
+        w,
+        scope="sc",
+        client_id_key="CID",
+        client_secret_key="CSEC",
+        client_id="i",
+        client_secret="s",
+        overwrite=False,
+    )
+    assert result.written == ["CSEC"]
+    assert result.skipped == ["CID"]
+
+
+def test_store_dry_run_writes_nothing() -> None:
+    w = _ws_with_secrets(keys=())
+    result = store(
+        w,
+        scope="sc",
+        client_id_key="CID",
+        client_secret_key="CSEC",
+        client_id="i",
+        client_secret="s",
+        dry_run=True,
+    )
+    assert result.written == ["CID", "CSEC"]
+    w.secrets.put_secret.assert_not_called()
+    w.secrets.create_scope.assert_not_called()
+
+
+def test_store_dry_run_reports_whether_scope_exists() -> None:
+    w = _ws_with_secrets(scope="sc", keys=())
+    assert store(
+        w,
+        scope="sc",
+        client_id_key="CID",
+        client_secret_key="CSEC",
+        client_id="i",
+        client_secret="s",
+        dry_run=True,
+    ).scope_existed
+    assert not store(
+        w,
+        scope="other",
+        client_id_key="CID",
+        client_secret_key="CSEC",
+        client_id="i",
+        client_secret="s",
+        dry_run=True,
+    ).scope_existed
+
+
+def test_find_service_principal_mints_nothing() -> None:
+    w = MagicMock()
+    w.service_principals.list.return_value = [
+        MagicMock(**{"display_name": "app-sp", "application_id": PRINCIPAL, "id": "42"})
+    ]
+    found = find_service_principal(w, display_name="app-sp")
+    assert found is not None and found.application_id == PRINCIPAL
+    w.service_principals.create.assert_not_called()
+    w.service_principal_secrets_proxy.create.assert_not_called()
+
+
+def test_find_service_principal_returns_none_when_absent() -> None:
+    w = MagicMock()
+    w.service_principals.list.return_value = []
+    assert find_service_principal(w, display_name="nope") is None
+
+
+def test_create_dry_run_mints_no_secret_for_existing_sp() -> None:
+    """Minting registers a new OAuth secret — itself a mutation. Dry run must not."""
+    w = MagicMock()
+    w.service_principals.list.return_value = [
+        MagicMock(**{"display_name": "app-sp", "application_id": PRINCIPAL, "id": "42"})
+    ]
+    result = create(w, display_name="app-sp", dry_run=True)
+
+    assert result.reused is True
+    assert result.client_id == PRINCIPAL
+    assert result.client_secret is None
+    w.service_principals.create.assert_not_called()
+    w.service_principal_secrets_proxy.create.assert_not_called()
+
+
+def test_create_dry_run_reports_would_create_for_absent_sp() -> None:
+    w = MagicMock()
+    w.service_principals.list.return_value = []
+    result = create(w, display_name="brand-new", dry_run=True)
+
+    assert result.reused is False
+    assert result.client_id == ""  # unknown until actually created
+    assert result.client_secret is None
+    w.service_principals.create.assert_not_called()
+    w.service_principal_secrets_proxy.create.assert_not_called()

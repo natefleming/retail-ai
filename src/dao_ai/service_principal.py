@@ -34,6 +34,7 @@ from dao_ai.config import value_of
 
 if TYPE_CHECKING:
     from databricks.sdk import WorkspaceClient
+    from databricks.sdk.service.iam import ServicePrincipal
 
     from dao_ai.config import (
         AiSearchVectorStoreModel,
@@ -118,11 +119,37 @@ class CreatedServicePrincipal:
     reused: bool = False
 
 
+def find_service_principal(
+    w: "WorkspaceClient", *, display_name: str
+) -> Optional["ServicePrincipal"]:
+    """Look up a workspace service principal by display name.
+
+    Read-only — mints nothing and creates nothing. Split out of :func:`create`
+    so the provisioning flow can report "would create" vs "would reuse (id …)"
+    during a dry run, and decide whether a secret needs minting at all, without
+    any side effect.
+
+    Returns:
+        The matching service principal, or None when no SP has that name.
+    """
+    return next(
+        (
+            sp
+            for sp in w.service_principals.list(
+                filter=f'displayName eq "{display_name}"'
+            )
+            if sp.display_name == display_name
+        ),
+        None,
+    )
+
+
 def create(
     w: "WorkspaceClient",
     *,
     display_name: str,
     lifetime: Optional[str] = None,
+    dry_run: bool = False,
 ) -> CreatedServicePrincipal:
     """Create (or reuse) a workspace service principal and mint an OAuth secret.
 
@@ -135,20 +162,25 @@ def create(
         display_name: Display name for the service principal.
         lifetime: Optional OAuth secret lifetime (e.g. ``"7776000s"``). Defaults
             to the workspace maximum when omitted.
+        dry_run: Report whether the SP exists without creating it or minting a
+            secret. Note that minting IS a mutation — it registers a new OAuth
+            secret on the principal — so a dry run must not reach it. Returns
+            ``client_secret=None`` and an empty ``client_id`` when the SP does
+            not exist yet.
 
     Returns:
         The created/reused principal plus the one-time client secret.
     """
-    existing = next(
-        (
-            sp
-            for sp in w.service_principals.list(
-                filter=f'displayName eq "{display_name}"'
-            )
-            if sp.display_name == display_name
-        ),
-        None,
-    )
+    existing = find_service_principal(w, display_name=display_name)
+
+    if dry_run:
+        return CreatedServicePrincipal(
+            display_name=display_name,
+            client_id=(existing.application_id or "") if existing else "",
+            sp_id=str(existing.id) if existing else "",
+            client_secret=None,
+            reused=existing is not None,
+        )
 
     if existing is not None:
         logger.info(
@@ -194,20 +226,86 @@ def store(
     client_secret_key: str,
     client_id: str,
     client_secret: str,
-) -> None:
+    overwrite: bool = True,
+    dry_run: bool = False,
+) -> "StoreResult":
     """Write the service-principal credentials into a Databricks secret scope.
 
     Creates the scope if it does not already exist (idempotent).
+
+    Args:
+        overwrite: When False, a key that already holds a value is left alone and
+            reported in :attr:`StoreResult.skipped`. Defaults to True, preserving
+            the original unconditional-write behaviour for existing callers.
+        dry_run: Report what would be written without writing anything.
+
+    Returns:
+        Which keys were (or would be) written, and which were left untouched.
     """
-    _ensure_scope(w, scope)
-    w.secrets.put_secret(scope=scope, key=client_id_key, string_value=client_id)
-    w.secrets.put_secret(scope=scope, key=client_secret_key, string_value=client_secret)
-    logger.info(
-        "Stored service-principal credentials",
-        scope=scope,
-        client_id_key=client_id_key,
-        client_secret_key=client_secret_key,
+    existing = (
+        secret_keys_present(w, scope) if (not overwrite or dry_run) else frozenset()
     )
+    pairs = ((client_id_key, client_id), (client_secret_key, client_secret))
+    written: list[str] = []
+    skipped: list[str] = []
+    for key, secret_value in pairs:
+        if not overwrite and key in existing:
+            skipped.append(key)
+            continue
+        written.append(key)
+        if not dry_run:
+            if len(written) == 1:
+                # Only touch the scope once we know we have something to write.
+                _ensure_scope(w, scope)
+            w.secrets.put_secret(scope=scope, key=key, string_value=secret_value)
+
+    if not dry_run and written:
+        logger.info(
+            "Stored service-principal credentials",
+            scope=scope,
+            keys=written,
+            skipped=skipped or None,
+        )
+    return StoreResult(
+        scope=scope,
+        written=written,
+        skipped=skipped,
+        scope_existed=scope in secret_scopes(w) if dry_run else None,
+    )
+
+
+@dataclass
+class StoreResult:
+    """Which secret keys :func:`store` wrote, and which it left alone."""
+
+    scope: str
+    written: list[str] = field(default_factory=list)
+    skipped: list[str] = field(default_factory=list)
+    # Only populated on a dry run, where "the scope will be created" is worth
+    # reporting; None on a real run (the scope is ensured as a side effect).
+    scope_existed: Optional[bool] = None
+
+
+def secret_keys_present(w: "WorkspaceClient", scope: str) -> frozenset[str]:
+    """Keys that already hold a value in ``scope`` (empty if the scope is absent).
+
+    Uses ``list_secrets``, which returns key names and timestamps only — never a
+    value. The SDK has no exists-check helper, and ``get_secret`` would
+    materialize the credential just to learn whether it is there.
+    """
+    from databricks.sdk.errors import NotFound
+
+    try:
+        return frozenset(
+            s.key for s in w.secrets.list_secrets(scope=scope) if s.key is not None
+        )
+    except NotFound:
+        return frozenset()
+
+
+def secret_scopes(w: "WorkspaceClient") -> frozenset[str]:
+    """Names of every secret scope in the workspace."""
+    return frozenset(s.name for s in w.secrets.list_scopes() if s.name is not None)
 
 
 def _ensure_scope(w: "WorkspaceClient", scope: str) -> None:
