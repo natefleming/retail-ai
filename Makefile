@@ -19,7 +19,15 @@ UV := uv
 # index and, behind the internal mirror, rewrites uv.lock with unreachable proxy
 # URLs. `--frozen` installs the pinned artifacts (public CDN) without touching
 # the lock, and works offline-of-the-index (only the artifact CDN is needed).
-SYNC := $(UV) sync --frozen
+#
+# `--extra all` pulls in every runtime feature extra (a2a, rerank, deepagents,
+# memory, search, excel). A local dev environment is expected to be able to run
+# and validate any example config, and without this an extras-dependent config
+# fails with "requires the 'memory' extra, which is not installed" — a packaging
+# gap rather than a real problem with the config. Deployment artifacts are
+# unaffected: dao_ai._extras still selects the minimal set per config, so the
+# published wheel and generated requirements stay lean.
+SYNC := $(UV) sync --frozen --extra all
 # Deliberate re-lock after a real dependency change. Forced to public PyPI so
 # the lock never picks up the internal mirror host. NOTE: run this where
 # pypi.org is reachable (Databricks sandbox / CI) — the corp mirror blocks the
