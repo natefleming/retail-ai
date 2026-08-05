@@ -2819,30 +2819,89 @@ def _handle_sp_provision(options, config, sp, WorkspaceClient) -> None:
 def _print_grants(plan, *, applied: bool) -> None:
     """Print a readable list of the grants in a plan (secret-free).
 
-    When ``applied`` (real run), reports each grant's success and a failure count;
-    otherwise labels the list as a dry-run plan.
+    When ``applied`` (real run), reports each grant's outcome plus per-bucket
+    counts; otherwise labels the list as a dry-run plan.
+
+    Failures print their actual error and are split into ``ABSENT`` (the target
+    isn't in this workspace) and ``DENIED`` (it is, but the caller lacks GRANT).
+    Those need opposite fixes, and a bare "FAILED" hid the difference — a run
+    against the wrong ``--var catalog=`` reported ten permission-looking
+    failures whose real cause was "that catalog does not exist here".
     """
+    from dao_ai.service_principal import (
+        GRANT_FAILURE_ABSENT,
+        GRANT_FAILURE_DENIED,
+    )
+
     if not applied:
         print(f"  grants (dry-run — nothing applied) ({len(plan.grants)}):")
     else:
-        failed = sum(1 for g in plan.grants if g.applied is False)
         ok = sum(1 for g in plan.grants if g.applied is True)
-        suffix = f"{ok} applied" + (f", {failed} failed" if failed else "")
-        print(f"  grants ({suffix}):")
+        absent = sum(1 for g in plan.grants if g.failure_kind == GRANT_FAILURE_ABSENT)
+        denied = sum(1 for g in plan.grants if g.failure_kind == GRANT_FAILURE_DENIED)
+        # An absent target is not a permissions failure, and _grant_serving_endpoint
+        # already no-ops silently on one, so count it in its own bucket.
+        failed = sum(
+            1
+            for g in plan.grants
+            if g.applied is False
+            and g.failure_kind not in (GRANT_FAILURE_ABSENT, GRANT_FAILURE_DENIED)
+        )
+        parts = [f"{ok} applied"]
+        for count, label in (
+            (absent, "absent"),
+            (denied, "denied"),
+            (failed, "failed"),
+        ):
+            if count:
+                parts.append(f"{count} {label}")
+        print(f"  grants ({', '.join(parts)}):")
     if not plan.grants:
         print("    (no grantable resources found in config)")
         return
+
+    missing_catalogs: list[str] = []
     for g in plan.grants:
         target = f"{g.securable_type} {g.target}" if g.securable_type else g.target
         status = ""
         if applied and g.applied is False:
-            status = "  ✗ FAILED"
+            if g.failure_kind == GRANT_FAILURE_ABSENT:
+                status = "  ⚠ ABSENT"
+                if g.securable_type == "catalog":
+                    missing_catalogs.append(g.target)
+            elif g.failure_kind == GRANT_FAILURE_DENIED:
+                status = "  ✗ DENIED"
+            else:
+                status = "  ✗ FAILED"
         elif g.note:
             # A planned-but-skipped grant (e.g. Lakebase identity mismatch).
             status = "  ⚠ SKIP"
         print(f"    [{g.kind}] {target} -> {', '.join(g.privileges)}{status}")
         if g.note:
             print(f"        {g.note}")
+        if applied and g.applied is False and g.error:
+            print(f"        {g.error}")
+            if g.failure_kind == GRANT_FAILURE_ABSENT:
+                print(
+                    "        hint: not found in this workspace — check the config's "
+                    "--var overrides and the -p profile"
+                )
+            elif g.failure_kind == GRANT_FAILURE_DENIED:
+                print(
+                    "        hint: the calling identity needs GRANT/MANAGE on this "
+                    "securable"
+                )
+
+    if missing_catalogs:
+        names = ", ".join(dict.fromkeys(missing_catalogs))
+        print(
+            f"\n  {len(missing_catalogs)} grant(s) targeted a catalog that does not "
+            f"exist here: {names}"
+        )
+        print(
+            "  If the config parameterizes the catalog, point it at a real one, "
+            "e.g. --var catalog=<existing_catalog>."
+        )
 
 
 def _handle_sp_create(options, config, sp, WorkspaceClient) -> None:

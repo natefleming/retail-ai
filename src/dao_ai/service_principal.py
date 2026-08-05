@@ -60,6 +60,48 @@ def _looks_like_uuid(value: str) -> bool:
     return bool(_UUID_RE.match(value.strip()))
 
 
+# Why a grant did not apply. ``absent`` means the target isn't in this
+# workspace at all (a config/workspace mismatch — usually a wrong ``--var``
+# override or profile); ``denied`` means it exists but the calling identity
+# lacks GRANT/MANAGE on it. The distinction matters because the remedies are
+# completely different, and reporting every failure as a permissions problem
+# sends users chasing ACLs for a resource that was never there.
+GRANT_FAILURE_ABSENT: Final[str] = "absent"
+GRANT_FAILURE_DENIED: Final[str] = "denied"
+GRANT_FAILURE_ERROR: Final[str] = "error"
+
+
+def classify_grant_error(exc: BaseException) -> str:
+    """Bucket a grant failure into ``absent`` / ``denied`` / ``error``.
+
+    Prefers the SDK's typed exceptions, which are exact: a UC permissions PATCH
+    against a missing catalog raises :class:`NotFound` with
+    ``error_code='CATALOG_DOES_NOT_EXIST'``. Falls back to substring matching
+    only for non-SDK errors raised by provider helpers.
+    """
+    from databricks.sdk.errors import DatabricksError, NotFound, PermissionDenied
+
+    if isinstance(exc, NotFound):  # ResourceDoesNotExist subclasses NotFound
+        return GRANT_FAILURE_ABSENT
+    if isinstance(exc, PermissionDenied):
+        return GRANT_FAILURE_DENIED
+
+    error_code: str = ""
+    if isinstance(exc, DatabricksError):
+        error_code = str(getattr(exc, "error_code", "") or "")
+    if error_code.endswith("_DOES_NOT_EXIST") or error_code == "NOT_FOUND":
+        return GRANT_FAILURE_ABSENT
+    if error_code == "PERMISSION_DENIED":
+        return GRANT_FAILURE_DENIED
+
+    text: str = str(exc).lower()
+    if "does not exist" in text or "not found" in text:
+        return GRANT_FAILURE_ABSENT
+    if "permission_denied" in text or "not authorized" in text:
+        return GRANT_FAILURE_DENIED
+    return GRANT_FAILURE_ERROR
+
+
 # =============================================================================
 # create
 # =============================================================================
@@ -317,6 +359,11 @@ class Grant:
     # None if not attempted (dry-run).
     applied: Optional[bool] = None
     error: Optional[str] = None
+    # Why the grant failed, when ``applied is False`` — one of the
+    # ``GRANT_FAILURE_*`` constants. Lets the report separate "this resource
+    # isn't in the workspace" from "you lack GRANT on it", which need different
+    # fixes. See :func:`classify_grant_error`.
+    failure_kind: Optional[str] = None
 
 
 @dataclass
@@ -524,8 +571,18 @@ def grant(
         except Exception as e:  # noqa: BLE001 — warn-and-continue per resource
             g.applied = False
             g.error = str(e)
+            g.failure_kind = classify_grant_error(e)
+            # Say what actually went wrong. Blaming GRANT rights unconditionally
+            # sends users auditing ACLs for a resource that isn't in the
+            # workspace at all — usually a wrong ``--var`` override or profile.
+            if g.failure_kind == GRANT_FAILURE_ABSENT:
+                message = "Grant target does not exist in this workspace"
+            elif g.failure_kind == GRANT_FAILURE_DENIED:
+                message = "Grant denied — the calling identity lacks GRANT rights"
+            else:
+                message = "Grant failed"
             logger.warning(
-                "Grant failed — verify the calling identity has GRANT rights",
+                message,
                 kind=g.kind,
                 target=g.target,
                 error=str(e),

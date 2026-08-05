@@ -19,7 +19,11 @@ from dao_ai.config import (
     WarehouseModel,
 )
 from dao_ai.service_principal import (
+    GRANT_FAILURE_ABSENT,
+    GRANT_FAILURE_DENIED,
+    GRANT_FAILURE_ERROR,
     build_grant_plan,
+    classify_grant_error,
     create,
     default_scope_from_config,
     grant,
@@ -747,3 +751,73 @@ def test_resolve_secret_target_override_wins() -> None:
         config, scope_override="flag-scope"
     )
     assert scope == "flag-scope"  # override wins over config
+
+
+# =============================================================================
+# classify_grant_error — absent vs denied vs error
+# =============================================================================
+
+
+def test_classify_grant_error_absent_from_sdk_not_found() -> None:
+    from databricks.sdk.errors import NotFound
+
+    assert classify_grant_error(NotFound("nope")) == GRANT_FAILURE_ABSENT
+
+
+def test_classify_grant_error_absent_from_resource_does_not_exist() -> None:
+    """``ResourceDoesNotExist`` subclasses ``NotFound`` — same bucket."""
+    from databricks.sdk.errors import ResourceDoesNotExist
+
+    assert classify_grant_error(ResourceDoesNotExist("gone")) == GRANT_FAILURE_ABSENT
+
+
+def test_classify_grant_error_absent_from_catalog_does_not_exist_message() -> None:
+    """The real-world shape: a UC PATCH against a catalog that isn't there."""
+    err = RuntimeError("Catalog 'hardware_store' does not exist.")
+    assert classify_grant_error(err) == GRANT_FAILURE_ABSENT
+
+
+def test_classify_grant_error_denied_from_sdk_permission_denied() -> None:
+    from databricks.sdk.errors import PermissionDenied
+
+    assert classify_grant_error(PermissionDenied("no")) == GRANT_FAILURE_DENIED
+
+
+def test_classify_grant_error_denied_from_not_authorized_message() -> None:
+    """The Lakebase 'Can Manage' shape, which is not an SDK-typed error here."""
+    err = RuntimeError(
+        "The user is not authorized to make the request, please contact the "
+        "workspace admin to assign 'Can Manage' for Database project"
+    )
+    assert classify_grant_error(err) == GRANT_FAILURE_DENIED
+
+
+def test_classify_grant_error_falls_back_to_generic() -> None:
+    assert classify_grant_error(RuntimeError("kaboom")) == GRANT_FAILURE_ERROR
+
+
+def test_grant_records_failure_kind_absent_for_missing_catalog() -> None:
+    """A failed grant carries both the error text and its classification."""
+    from databricks.sdk.errors import NotFound
+
+    w = MagicMock()
+    w.api_client.do.side_effect = NotFound("Catalog 'nope' does not exist.")
+    config = AppConfig(schemas={"s": _schema()})
+    plan = grant(w, principal=PRINCIPAL, config=config, dry_run=False)
+
+    catalog_grant = next(g for g in plan.grants if g.securable_type == "catalog")
+    assert catalog_grant.applied is False
+    assert catalog_grant.failure_kind == GRANT_FAILURE_ABSENT
+    assert "does not exist" in catalog_grant.error
+
+
+def test_grant_records_failure_kind_denied() -> None:
+    from databricks.sdk.errors import PermissionDenied
+
+    w = MagicMock()
+    w.api_client.do.side_effect = PermissionDenied("PERMISSION_DENIED on catalog")
+    config = AppConfig(schemas={"s": _schema()})
+    plan = grant(w, principal=PRINCIPAL, config=config, dry_run=False)
+
+    catalog_grant = next(g for g in plan.grants if g.securable_type == "catalog")
+    assert catalog_grant.failure_kind == GRANT_FAILURE_DENIED
