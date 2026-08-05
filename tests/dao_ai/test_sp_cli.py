@@ -259,6 +259,25 @@ class TestProvisionReporting:
         assert "Not provisioned: memory_sp" in out
         assert "are ready for this config" not in out
 
+    def test_blocked_target_is_not_labelled_created(self, capsys) -> None:
+        """Regression: a blocked target printed "Created service principal".
+
+        Nothing is created when a target is blocked (verified against the live
+        workspace — the SP really was absent), so claiming otherwise is a lie in
+        the one place a user most needs the truth.
+        """
+        from dao_ai.cli import _print_provision_results
+
+        outcome = self._outcome(
+            reused=False, client_id="", blocked_reason="keys held by something else"
+        )
+        outcome.blocked = [("memory_sp", "keys held by something else")]
+        _print_provision_results(outcome, dry_run=False)
+        out = capsys.readouterr().out
+        assert "Created service principal" not in out
+        assert "Reused service principal" not in out
+        assert "✗ BLOCKED" in out
+
     def test_no_store_is_reported(self, capsys) -> None:
         from dao_ai.cli import _print_provision_results
 

@@ -2881,6 +2881,13 @@ def _print_provision_results(outcome, *, dry_run: bool) -> None:
     )
 
     for result in outcome.results:
+        print(f"\nservice principal '{result.name}' — {result.display_name}")
+
+        if result.blocked_reason:
+            # Nothing happened, so don't claim it was created or reused.
+            print(f"  ✗ BLOCKED: {result.blocked_reason}")
+            continue
+
         if dry_run:
             verb = "would REUSE existing" if result.reused else "would CREATE new"
             suffix = (
@@ -2891,12 +2898,7 @@ def _print_provision_results(outcome, *, dry_run: bool) -> None:
         else:
             verb = "Reused" if result.reused else "Created"
             suffix = f" (client_id {result.client_id})" if result.client_id else ""
-        print(f"\nservice principal '{result.name}' — {result.display_name}")
         print(f"  {verb} service principal{suffix}")
-
-        if result.blocked_reason:
-            print(f"  ✗ BLOCKED: {result.blocked_reason}")
-            continue
 
         if result.stored_scope:
             hidden = "(values hidden)"
@@ -2905,7 +2907,7 @@ def _print_provision_results(outcome, *, dry_run: bool) -> None:
                 for key in result.existing_keys:
                     print(
                         f"    {key}  already contains a value — "
-                        f"{'would NOT' if dry_run else 'NOT'} overwritten "
+                        f"{'would not be' if dry_run else 'not'} overwritten "
                         "(--overwrite to replace)"
                     )
             else:
