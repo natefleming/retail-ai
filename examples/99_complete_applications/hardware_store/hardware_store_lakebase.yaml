@@ -58,6 +58,30 @@ variables:
       secret: RETAIL_AI_DATABRICKS_CLIENT_SECRET
     - env: RETAIL_AI_DATABRICKS_CLIENT_SECRET    # Service principal secret
 
+# =============================================================================
+# SERVICE PRINCIPALS
+# =============================================================================
+# `dao-ai sp provision` creates every service principal declared here, stores its
+# credentials to the secret scope, and grants it the config's resources.
+#
+# One entry is the common case. Declaring several is supported: each resource is
+# then granted only to the service principal that owns it — the one whose secret
+# keys its credentials point at, or that it names via `service_principal:` —
+# while resources matching no service principal are shared and granted to all.
+service_principals:
+  retail_consumer_goods_sp: &retail_consumer_goods_sp
+    # `name` binds this entry to a service principal that already exists, so its
+    # stored credentials are reused as-is. Without it the display name is derived
+    # (`<app.name>-retail_consumer_goods_sp`), which would not match the SP whose
+    # credentials are already in the scope below — provisioning then stops rather
+    # than rotating a credential a deployed agent is using.
+    name: dao-ai-sp
+    description: >-
+      Runs the agent. Owns the Lakebase project backing agent memory and
+      LangGraph checkpoints, so the Postgres SUPERUSER role is created for it.
+    client_id: *client_id
+    client_secret: *client_secret
+
 schemas:
   retail_schema: &retail_schema
     catalog_name: ${var.catalog}                    # Unity Catalog name
@@ -194,8 +218,8 @@ resources:
       name: "Retail and Consumer Goods Database"
       project: ${var.lakebase_project}  # Autoscaling Lakebase project name
       description: "Database for agent memory and checkpoints"
-      client_id: *client_id
-      client_secret: *client_secret
+      service_principal: *retail_consumer_goods_sp
+                                        # Expands to client_id + client_secret
       on_behalf_of_user: false
 
 # =============================================================================
@@ -836,8 +860,8 @@ app:
     name: hardware_store_lakebase_dao
   endpoint_name: hardware_store_lakebase_dao           # Model serving endpoint name
   environment_vars:
-    RETAIL_AI_DATABRICKS_CLIENT_ID: "{{secrets/retail_consumer_goods/RETAIL_AI_DATABRICKS_CLIENT_ID}}"
-    RETAIL_AI_DATABRICKS_CLIENT_SECRET: "{{secrets/retail_consumer_goods/RETAIL_AI_DATABRICKS_CLIENT_SECRET}}"
+    RETAIL_AI_DATABRICKS_CLIENT_ID: *client_id
+    RETAIL_AI_DATABRICKS_CLIENT_SECRET: *client_secret
   tags:                                             # Tags for resource organization
     business: rcg                                   # Business unit identifier
     streaming: true                                 # Indicates streaming capabilities
