@@ -325,9 +325,15 @@ def _ensure_scope(w: "WorkspaceClient", scope: str) -> None:
 # =============================================================================
 
 
+#: What :func:`provision_all` did (or would do) with a target's secret keys.
+SECRET_WRITE: Final[str] = "write"  # keys absent → write them
+SECRET_ROTATE: Final[str] = "rotate"  # keys present + overwrite → replace them
+SECRET_KEEP: Final[str] = "keep"  # keys present, no overwrite → leave them alone
+
+
 @dataclass
 class ProvisionResult:
-    """Outcome of :func:`provision`. The secret is deliberately NOT included."""
+    """Outcome of provisioning one SP. The secret is deliberately NOT included."""
 
     display_name: str
     client_id: str
@@ -337,6 +343,25 @@ class ProvisionResult:
     stored_client_secret_key: Optional[str] = None
     stored: bool = False
     grant_plan: Optional["GrantPlan"] = None
+    # Config key of the service principal in ``service_principals``; "default"
+    # for a config that declares none.
+    name: str = "default"
+    # One of the ``SECRET_*`` constants, or None when storing was skipped.
+    secret_action: Optional[str] = None
+    # Keys that already held a value when we looked.
+    existing_keys: list[str] = field(default_factory=list)
+    # Set when nothing was done because it could not be done safely.
+    blocked_reason: Optional[str] = None
+
+
+@dataclass
+class MultiProvisionResult:
+    """Outcome of :func:`provision_all` across every declared service principal."""
+
+    results: list[ProvisionResult] = field(default_factory=list)
+    dry_run: bool = False
+    # (sp_name, reason) for targets that were deliberately not provisioned.
+    blocked: list[tuple[str, str]] = field(default_factory=list)
 
 
 def provision(
@@ -373,59 +398,396 @@ def provision(
             resolved. Validated BEFORE creating the service principal so a
             misconfigured call never leaves an orphaned SP behind.
     """
-    # Resolve + validate the store target up front — before we create anything —
-    # so an unresolvable config fails fast without orphaning a service principal.
-    resolved_scope: Optional[str] = None
-    cid_key: Optional[str] = None
-    csec_key: Optional[str] = None
-    if do_store:
-        resolved_scope, cid_key, csec_key = resolve_secret_target(
-            config,
-            scope_override=scope,
-            client_id_key_override=client_id_key,
-            client_secret_key_override=client_secret_key,
-        )
-        resolved_scope = resolved_scope or default_scope_from_config(config)
-        if not resolved_scope:
-            raise ValueError(
-                "Cannot determine a secret scope to store credentials. "
-                "Pass --scope, or add a service_principals block to the config."
-            )
-        if not (cid_key and csec_key):
-            raise ValueError(
-                "Cannot determine which secret keys to store the credentials under. "
-                "The config has no service_principals block or client_id/client_secret "
-                "variables to infer them from. Pass --client-id-key and "
-                "--client-secret-key (the keys your config reads its credentials from)."
-            )
+    target = ServicePrincipalTarget(name="default", display_name=display_name)
+    _resolve_secret_target_for(
+        target,
+        config,
+        scope_override=scope,
+        client_id_key_override=client_id_key,
+        client_secret_key_override=client_secret_key,
+    )
+    outcome = provision_all(
+        w,
+        config=config,
+        targets=[target],
+        lifetime=lifetime,
+        do_store=do_store,
+        do_grant=do_grant,
+    )
+    return outcome.results[0]
 
-    created = create(w, display_name=display_name, lifetime=lifetime)
 
-    result = ProvisionResult(
-        display_name=created.display_name,
-        client_id=created.client_id,
-        reused=created.reused,
+def _resolve_secret_target_for(
+    target: ServicePrincipalTarget,
+    config: "AppConfig",
+    *,
+    scope_override: Optional[str] = None,
+    client_id_key_override: Optional[str] = None,
+    client_secret_key_override: Optional[str] = None,
+) -> None:
+    """Fill in ``target``'s secret scope/keys/refs from the config (in place)."""
+    resolved_scope, cid_key, csec_key = resolve_secret_target(
+        config,
+        scope_override=scope_override,
+        client_id_key_override=client_id_key_override,
+        client_secret_key_override=client_secret_key_override,
+    )
+    target.scope = resolved_scope or default_scope_from_config(config)
+    target.client_id_key = cid_key
+    target.client_secret_key = csec_key
+    if target.scope and cid_key:
+        target.client_id_ref = SecretRef(scope=target.scope, key=cid_key)
+    if target.scope and csec_key:
+        target.client_secret_ref = SecretRef(scope=target.scope, key=csec_key)
+
+
+def resolve_sp_targets(
+    config: "AppConfig",
+    *,
+    app_display_name: Optional[str] = None,
+    scope_override: Optional[str] = None,
+    client_id_key_override: Optional[str] = None,
+    client_secret_key_override: Optional[str] = None,
+    only: Optional[Sequence[str]] = None,
+) -> list[ServicePrincipalTarget]:
+    """Work out which service principals a config wants provisioned.
+
+    One target per entry in ``service_principals``. A config that declares none
+    yields exactly one synthetic ``"default"`` target whose secret scope/keys come
+    from :func:`resolve_secret_target` — identical inputs to the single-SP path,
+    so such configs behave exactly as before.
+
+    Args:
+        config: The config to read.
+        app_display_name: Display name for the synthetic default target, and the
+            prefix for derived names (``<app_display_name>-<key>``). Falls back to
+            ``config.app.name``.
+        scope_override / client_id_key_override / client_secret_key_override:
+            Explicit secret target. Only valid for a single target — applying one
+            key pair to several SPs would make each overwrite the last.
+        only: Provision just these named service principals.
+
+    Raises:
+        ValueError: if ``only`` names a service principal the config does not
+            declare, or if overrides are combined with several targets.
+    """
+    app_name = app_display_name or (
+        config.app.name if config.app is not None and config.app.name else None
     )
 
-    if do_store:
-        assert resolved_scope and cid_key and csec_key  # validated above
-        store(
-            w,
-            scope=resolved_scope,
-            client_id_key=cid_key,
-            client_secret_key=csec_key,
-            client_id=created.client_id,
-            client_secret=created.client_secret,
+    declared = config.service_principals or {}
+    if not declared:
+        target = ServicePrincipalTarget(
+            name="default",
+            display_name=app_display_name or (f"{app_name}-sp" if app_name else ""),
         )
-        result.stored_scope = resolved_scope
-        result.stored_client_id_key = cid_key
-        result.stored_client_secret_key = csec_key
-        result.stored = True
+        _resolve_secret_target_for(
+            target,
+            config,
+            scope_override=scope_override,
+            client_id_key_override=client_id_key_override,
+            client_secret_key_override=client_secret_key_override,
+        )
+        return [target]
 
-    if do_grant:
-        result.grant_plan = grant(w, principal=created.client_id, config=config)
+    if only:
+        unknown = [name for name in only if name not in declared]
+        if unknown:
+            raise ValueError(
+                f"Unknown service principal(s): {', '.join(sorted(unknown))}. "
+                f"The config declares: {', '.join(sorted(declared))}."
+            )
 
-    return result
+    overrides = (scope_override, client_id_key_override, client_secret_key_override)
+    selected = {k: v for k, v in declared.items() if not only or k in only}
+    if len(selected) > 1 and any(overrides):
+        raise ValueError(
+            "--scope / --client-id-key / --client-secret-key apply to a single "
+            f"service principal, but {len(selected)} are selected "
+            f"({', '.join(sorted(selected))}). Each service principal needs its "
+            "own secret keys — one shared pair would make each overwrite the "
+            "last. Narrow the run with --sp <name>, or drop the overrides and "
+            "let each SP use the keys its config block declares."
+        )
+
+    targets: list[ServicePrincipalTarget] = []
+    for key, sp in selected.items():
+        default_name = f"{app_name}-{key}" if app_name else key
+        target = ServicePrincipalTarget(
+            name=key,
+            display_name=sp.name or default_name,
+            model=sp,
+        )
+        cid_scope, cid_key = _secret_ref(sp.client_id)
+        csec_scope, csec_key = _secret_ref(sp.client_secret)
+        target.scope = (
+            scope_override
+            or cid_scope
+            or csec_scope
+            or default_scope_from_config(config)
+        )
+        target.client_id_key = client_id_key_override or cid_key
+        target.client_secret_key = client_secret_key_override or csec_key
+        if target.scope and target.client_id_key:
+            target.client_id_ref = SecretRef(
+                scope=target.scope, key=target.client_id_key
+            )
+        if target.scope and target.client_secret_key:
+            target.client_secret_ref = SecretRef(
+                scope=target.scope, key=target.client_secret_key
+            )
+        # Best effort: this is a live secret read that legitimately fails when the
+        # scope isn't populated yet (the common case on a first provision), and
+        # must not abort target resolution. Ownership matching doesn't need it.
+        try:
+            raw = value_of(sp.client_id) if sp.client_id is not None else None
+            # NB: an unresolvable secret yields None, and ``str(None)`` is the
+            # truthy string "None" — which would sail through every later
+            # ``if client_id:`` guard and get used as a real principal. Coerce
+            # only after the None check.
+            target.configured_client_id = str(raw) if raw is not None else None
+        except Exception as e:  # noqa: BLE001 — unreadable secret is expected
+            logger.debug(
+                "Could not resolve configured client_id",
+                service_principal=key,
+                error=str(e),
+            )
+        targets.append(target)
+
+    return targets
+
+
+def provision_all(
+    w: "WorkspaceClient",
+    *,
+    config: "AppConfig",
+    targets: Sequence[ServicePrincipalTarget],
+    lifetime: Optional[str] = None,
+    do_store: bool = True,
+    do_grant: bool = True,
+    dry_run: bool = False,
+    overwrite: bool = False,
+) -> MultiProvisionResult:
+    """Provision every service principal in ``targets``: create, store, grant.
+
+    Library-level and side-effect-reporting rather than printing, so the CLI and a
+    pipeline notebook drive the identical code path. Ordered in four phases so
+    that nothing is mutated until every target is known to be safe:
+
+    1. **Validate** — every target's secret scope/keys must resolve, and no two
+       targets may share a client-id key. Raises before any workspace change, so
+       a misconfigured run never leaves an orphaned service principal behind.
+    2. **Probe** (reads only) — does the SP exist, and do its secret keys already
+       hold values? This is what decides create-vs-reuse and
+       write/rotate/keep, and it is why ``dry_run`` can report the truth.
+    3. **Ownership** (pure) — which target owns which resource. Skipped for a
+       single target, where everything belongs to it anyway.
+    4. **Apply** — skipped entirely when ``dry_run``.
+
+    Args:
+        w: Workspace client. The caller chooses the identity: the CLI passes one
+            built from ``-p/--profile``, a notebook passes ambient auth.
+        config: The config being provisioned for.
+        targets: From :func:`resolve_sp_targets`.
+        lifetime: Optional OAuth secret lifetime.
+        do_store: Write credentials to the secret scope.
+        do_grant: Grant each SP the resources it owns.
+        dry_run: Report what would happen and change nothing.
+        overwrite: Replace secret keys that already hold a value. Without it an
+            existing key is reported and left alone, and no secret is minted —
+            so a re-run never rotates a credential out from under a live agent.
+
+    Raises:
+        ValueError: on an unresolvable secret target or conflicting keys.
+    """
+    outcome = MultiProvisionResult(dry_run=dry_run)
+
+    # ---- Phase 1: validate (no mutation, no reads) -------------------------
+    if do_store:
+        for target in targets:
+            if not target.scope:
+                raise ValueError(
+                    "Cannot determine a secret scope to store credentials. "
+                    "Pass --scope, or add a service_principals block to the config."
+                )
+            if not (target.client_id_key and target.client_secret_key):
+                raise ValueError(
+                    "Cannot determine which secret keys to store the credentials "
+                    "under. The config has no service_principals block or "
+                    "client_id/client_secret variables to infer them from. Pass "
+                    "--client-id-key and --client-secret-key (the keys your "
+                    "config reads its credentials from)."
+                )
+    for target in targets:
+        if not target.display_name:
+            raise ValueError(
+                f"No display name for service principal '{target.name}'. Set "
+                "`name:` on its service_principals entry, pass --name, or give "
+                "the config an app.name to derive one from."
+            )
+
+    # ---- Phase 2: probe (reads only) --------------------------------------
+    present_by_scope: dict[str, frozenset[str]] = {}
+    for target in targets:
+        if do_store and target.scope and target.scope not in present_by_scope:
+            present_by_scope[target.scope] = secret_keys_present(w, target.scope)
+
+        existing_sp = find_service_principal(w, display_name=target.display_name)
+        target.exists = existing_sp is not None
+        target.resolved_client_id = (
+            existing_sp.application_id if existing_sp is not None else None
+        ) or None
+
+        keys = {target.client_id_key, target.client_secret_key} - {None}
+        present = present_by_scope.get(target.scope or "", frozenset())
+        existing_keys = sorted(keys & present)
+
+        if not do_store:
+            secret_action = None
+        elif not existing_keys:
+            secret_action = SECRET_WRITE
+        elif overwrite:
+            secret_action = SECRET_ROTATE
+        else:
+            secret_action = SECRET_KEEP
+
+        result = ProvisionResult(
+            display_name=target.display_name,
+            client_id=target.resolved_client_id or "",
+            reused=bool(target.exists),
+            name=target.name,
+            secret_action=secret_action,
+            existing_keys=list(existing_keys),
+        )
+
+        # A populated key with no matching SP is the one case we refuse to guess
+        # at: the credential belongs to something, and minting a replacement
+        # without being told to would rotate it out from under whatever that is.
+        if secret_action == SECRET_KEEP and not target.exists:
+            result.blocked_reason = (
+                f"secret key(s) {', '.join(existing_keys)} in scope "
+                f"'{target.scope}' already hold a value, but no service "
+                f"principal named '{target.display_name}' exists. Pass "
+                f"--overwrite to replace them, or set `name:` on this "
+                f"service_principals entry to the SP that owns them."
+            )
+            outcome.blocked.append((target.name, result.blocked_reason))
+        outcome.results.append(result)
+
+    # ---- Phase 3: ownership (pure) ---------------------------------------
+    ownership = build_ownership_map(config, targets) if len(targets) > 1 else None
+
+    # ---- Phase 4: apply --------------------------------------------------
+    for target, result in zip(targets, outcome.results):
+        if result.blocked_reason:
+            continue
+
+        if dry_run:
+            principal = target.resolved_client_id or placeholder_principal(target.name)
+            if do_store and target.scope:
+                result.stored_scope = target.scope
+                result.stored_client_id_key = target.client_id_key
+                result.stored_client_secret_key = target.client_secret_key
+            if do_grant:
+                result.grant_plan = grant(
+                    w,
+                    principal=principal,
+                    config=config,
+                    dry_run=True,
+                    ownership=ownership,
+                    sp_name=target.name,
+                    targets=targets,
+                )
+            continue
+
+        if result.secret_action in (SECRET_WRITE, SECRET_ROTATE):
+            created = create(w, display_name=target.display_name, lifetime=lifetime)
+            target.resolved_client_id = created.client_id
+            result.client_id = created.client_id
+            result.reused = created.reused
+            assert target.scope and target.client_id_key and target.client_secret_key
+            store(
+                w,
+                scope=target.scope,
+                client_id_key=target.client_id_key,
+                client_secret_key=target.client_secret_key,
+                client_id=created.client_id,
+                client_secret=created.client_secret,
+                overwrite=True,  # decided in phase 2
+            )
+            result.stored_scope = target.scope
+            result.stored_client_id_key = target.client_id_key
+            result.stored_client_secret_key = target.client_secret_key
+            result.stored = True
+        elif result.secret_action is None and not target.exists:
+            # --no-store on a config whose SP doesn't exist yet: still create it,
+            # so `--no-store` means "don't write secrets", not "do nothing".
+            created = create(w, display_name=target.display_name, lifetime=lifetime)
+            target.resolved_client_id = created.client_id
+            result.client_id = created.client_id
+            result.reused = created.reused
+        # SECRET_KEEP: the SP exists and its credentials are already in place.
+        # Nothing to create, nothing to mint — grants below are still re-applied
+        # (they are additive and idempotent).
+
+        if do_grant:
+            result.grant_plan = grant(
+                w,
+                principal=target.resolved_client_id or result.client_id,
+                config=config,
+                ownership=ownership,
+                sp_name=target.name,
+                targets=targets,
+            )
+
+    return outcome
+
+
+def grant_all(
+    w: "WorkspaceClient",
+    *,
+    config: "AppConfig",
+    targets: Sequence[ServicePrincipalTarget],
+    dry_run: bool = False,
+) -> list[GrantPlan]:
+    """Grant every target the resources it owns, without provisioning anything.
+
+    Resolves each target's client id by looking the SP up — an SP must already
+    exist to be granted. Targets with no such SP get a plan whose grants are all
+    skipped rather than being silently dropped.
+    """
+    for target in targets:
+        existing = find_service_principal(w, display_name=target.display_name)
+        target.exists = existing is not None
+        if existing is not None and existing.application_id:
+            target.resolved_client_id = existing.application_id
+        elif target.configured_client_id:
+            target.resolved_client_id = target.configured_client_id
+
+    ownership = build_ownership_map(config, targets) if len(targets) > 1 else None
+    plans: list[GrantPlan] = []
+    for target in targets:
+        principal = target.resolved_client_id
+        if not principal:
+            logger.warning(
+                "No service principal to grant — skipping",
+                service_principal=target.name,
+                display_name=target.display_name,
+            )
+            plans.append(GrantPlan(principal=placeholder_principal(target.name)))
+            continue
+        plans.append(
+            grant(
+                w,
+                principal=principal,
+                config=config,
+                dry_run=dry_run,
+                ownership=ownership,
+                sp_name=target.name,
+                targets=targets,
+            )
+        )
+    return plans
 
 
 # =============================================================================

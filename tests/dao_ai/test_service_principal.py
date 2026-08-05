@@ -22,20 +22,26 @@ from dao_ai.service_principal import (
     GRANT_FAILURE_ABSENT,
     GRANT_FAILURE_DENIED,
     GRANT_FAILURE_ERROR,
+    SECRET_KEEP,
+    SECRET_ROTATE,
+    SECRET_WRITE,
     SecretRef,
     ServicePrincipalTarget,
     build_grant_plan,
     build_ownership_map,
     classify_grant_error,
     create,
-    find_service_principal,
-    secret_keys_present,
     default_scope_from_config,
+    find_service_principal,
     grant,
+    grant_all,
     provision,
+    provision_all,
     resolve_principal_from_config,
     resolve_secret_target,
+    resolve_sp_targets,
     resource_owner,
+    secret_keys_present,
     store,
 )
 
@@ -1379,3 +1385,349 @@ def test_create_dry_run_reports_would_create_for_absent_sp() -> None:
     assert result.client_secret is None
     w.service_principals.create.assert_not_called()
     w.service_principal_secrets_proxy.create.assert_not_called()
+
+
+# =============================================================================
+# resolve_sp_targets / provision_all / grant_all — multi-SP
+# =============================================================================
+
+
+def _app(name: str = "myapp", **kwargs) -> AppModel:
+    """A minimal valid AppModel — AppModel requires at least one agent."""
+    from dao_ai.config import AgentModel, InferenceEndpointModel
+
+    return AppModel(
+        name=name,
+        agents=[
+            AgentModel(
+                name="a",
+                description="d",
+                model=InferenceEndpointModel(name="databricks-gpt-5-4-mini"),
+            )
+        ],
+        **kwargs,
+    )
+
+
+def _multi_sp_config() -> AppConfig:
+    """A config declaring two SPs with distinct secret keys in one scope."""
+    from dao_ai.config import ResourcesModel
+
+    memory_sp = ServicePrincipalModel(
+        client_id=SecretVariableModel(scope="sc", secret="M_CID"),
+        client_secret=SecretVariableModel(scope="sc", secret="M_CSEC"),
+    )
+    tools_sp = ServicePrincipalModel(
+        client_id=SecretVariableModel(scope="sc", secret="T_CID"),
+        client_secret=SecretVariableModel(scope="sc", secret="T_CSEC"),
+    )
+    schema = _schema()
+    return AppConfig(
+        schemas={"s": schema},
+        service_principals={"memory_sp": memory_sp, "tools_sp": tools_sp},
+        resources=ResourcesModel(
+            tables={
+                "owned_by_tools": TableModel(
+                    schema=schema, name="tool_table", service_principal=tools_sp
+                ),
+                "shared": TableModel(schema=schema, name="shared_table"),
+            }
+        ),
+        app=_app(),
+    )
+
+
+def _ws_for_provision(
+    existing_sps: dict[str, str] | None = None, existing_keys: tuple[str, ...] = ()
+) -> MagicMock:
+    """Mock client: ``existing_sps`` maps display_name -> application_id."""
+    existing_sps = existing_sps or {}
+    w = MagicMock()
+
+    def _list(filter: str = "", **kwargs):
+        for name, app_id in existing_sps.items():
+            if f'"{name}"' in filter:
+                sp = MagicMock(**{"display_name": name, "application_id": app_id})
+                sp.id = "42"
+                return [sp]
+        return []
+
+    w.service_principals.list.side_effect = _list
+    w.secrets.list_secrets.return_value = [
+        MagicMock(**{"key": k}) for k in existing_keys
+    ]
+    scope_obj = MagicMock()
+    scope_obj.name = "sc"
+    w.secrets.list_scopes.return_value = [scope_obj]
+    created = MagicMock(**{"application_id": "new-app-id"})
+    created.id = "99"
+    w.service_principals.create.return_value = created
+    w.service_principal_secrets_proxy.create.return_value = MagicMock(
+        secret="minted-secret"
+    )
+    return w
+
+
+def test_resolve_sp_targets_one_per_declared_sp() -> None:
+    targets = resolve_sp_targets(_multi_sp_config())
+    assert [t.name for t in targets] == ["memory_sp", "tools_sp"]
+    # Display names derive from app.name + the config key.
+    assert [t.display_name for t in targets] == ["myapp-memory_sp", "myapp-tools_sp"]
+    assert targets[0].client_id_ref == SecretRef(scope="sc", key="M_CID")
+
+
+def test_resolve_sp_targets_prefers_explicit_name() -> None:
+    sp = ServicePrincipalModel(
+        name="pinned-sp",
+        client_id=SecretVariableModel(scope="sc", secret="CID"),
+        client_secret=SecretVariableModel(scope="sc", secret="CSEC"),
+    )
+    config = AppConfig(service_principals={"a": sp}, app=_app())
+    assert resolve_sp_targets(config)[0].display_name == "pinned-sp"
+
+
+def test_resolve_sp_targets_without_block_yields_one_default() -> None:
+    """A config with no service_principals behaves exactly as the single-SP path."""
+    config = AppConfig(
+        variables={
+            "client_id": SecretVariableModel(scope="sc", secret="CID"),
+            "client_secret": SecretVariableModel(scope="sc", secret="CSEC"),
+        },
+        app=_app(),
+    )
+    targets = resolve_sp_targets(config)
+    assert len(targets) == 1
+    assert targets[0].name == "default"
+    assert targets[0].client_id_key == "CID"
+
+
+def test_resolve_sp_targets_only_filters() -> None:
+    targets = resolve_sp_targets(_multi_sp_config(), only=["tools_sp"])
+    assert [t.name for t in targets] == ["tools_sp"]
+
+
+def test_resolve_sp_targets_rejects_unknown_name() -> None:
+    import pytest
+
+    with pytest.raises(ValueError, match="Unknown service principal"):
+        resolve_sp_targets(_multi_sp_config(), only=["nope"])
+
+
+def test_resolve_sp_targets_rejects_overrides_with_multiple_targets() -> None:
+    """One key pair across two SPs would make the second clobber the first."""
+    import pytest
+
+    with pytest.raises(ValueError, match="single"):
+        resolve_sp_targets(_multi_sp_config(), client_id_key_override="CID")
+
+
+def test_provision_all_creates_every_declared_service_principal() -> None:
+    config = _multi_sp_config()
+    w = _ws_for_provision()
+    targets = resolve_sp_targets(config)
+    outcome = provision_all(w, config=config, targets=targets)
+
+    assert [r.name for r in outcome.results] == ["memory_sp", "tools_sp"]
+    assert w.service_principals.create.call_count == 2
+    assert all(r.stored for r in outcome.results)
+
+
+def test_provision_all_grants_each_sp_only_its_own_resources() -> None:
+    config = _multi_sp_config()
+    w = _ws_for_provision()
+    targets = resolve_sp_targets(config)
+    outcome = provision_all(w, config=config, targets=targets)
+
+    plans = {r.name: r.grant_plan for r in outcome.results}
+    memory_targets = {g.target for g in plans["memory_sp"].grants}
+    tools_targets = {g.target for g in plans["tools_sp"].grants}
+
+    # tools_sp owns tool_table; memory_sp must not be granted it.
+    assert "cat.sch.tool_table" in tools_targets
+    assert "cat.sch.tool_table" not in memory_targets
+    # The shared table goes to both.
+    assert "cat.sch.shared_table" in memory_targets
+    assert "cat.sch.shared_table" in tools_targets
+
+
+def test_provision_all_dry_run_makes_no_mutating_calls() -> None:
+    """THE DRY-RUN CONTRACT: nothing that changes state may be reached."""
+    config = _multi_sp_config()
+    w = _ws_for_provision()
+    targets = resolve_sp_targets(config)
+    outcome = provision_all(w, config=config, targets=targets, dry_run=True)
+
+    assert outcome.dry_run
+    w.service_principals.create.assert_not_called()
+    w.service_principal_secrets_proxy.create.assert_not_called()  # no secret minted
+    w.secrets.create_scope.assert_not_called()
+    w.secrets.put_secret.assert_not_called()
+    w.api_client.do.assert_not_called()
+    w.warehouses.update_permissions.assert_not_called()
+    w.permissions.update.assert_not_called()
+    w.serving_endpoints.update_permissions.assert_not_called()
+    # Reads still happen — that is what makes the preview truthful.
+    assert w.service_principals.list.called
+    # And the plan is still complete.
+    assert all(r.grant_plan is not None for r in outcome.results)
+
+
+def test_provision_all_dry_run_reports_create_vs_reuse() -> None:
+    config = _multi_sp_config()
+    w = _ws_for_provision(existing_sps={"myapp-memory_sp": PRINCIPAL})
+    targets = resolve_sp_targets(config)
+    outcome = provision_all(w, config=config, targets=targets, dry_run=True)
+
+    by_name = {r.name: r for r in outcome.results}
+    assert by_name["memory_sp"].reused is True
+    assert by_name["memory_sp"].client_id == PRINCIPAL
+    assert by_name["tools_sp"].reused is False
+
+
+def test_provision_all_dry_run_reports_existing_secret_keys() -> None:
+    config = _multi_sp_config()
+    w = _ws_for_provision(
+        existing_sps={"myapp-memory_sp": PRINCIPAL}, existing_keys=("M_CID", "M_CSEC")
+    )
+    targets = resolve_sp_targets(config)
+    outcome = provision_all(w, config=config, targets=targets, dry_run=True)
+
+    by_name = {r.name: r for r in outcome.results}
+    assert by_name["memory_sp"].secret_action == SECRET_KEEP
+    assert by_name["memory_sp"].existing_keys == ["M_CID", "M_CSEC"]
+    assert by_name["tools_sp"].secret_action == SECRET_WRITE
+
+
+def test_provision_all_skips_minting_when_key_exists_and_no_overwrite() -> None:
+    """THE ORPHAN GUARD.
+
+    ``create`` always mints a fresh OAuth secret. If we minted and then declined
+    to store it, the workspace would hold a live secret nothing references while
+    the scope still held a credential for a possibly-rotated SP. Probing first
+    means the reuse path never mints at all.
+    """
+    config = _multi_sp_config()
+    w = _ws_for_provision(
+        existing_sps={"myapp-memory_sp": PRINCIPAL, "myapp-tools_sp": "tid"},
+        existing_keys=("M_CID", "M_CSEC", "T_CID", "T_CSEC"),
+    )
+    targets = resolve_sp_targets(config)
+    outcome = provision_all(w, config=config, targets=targets, overwrite=False)
+
+    w.service_principal_secrets_proxy.create.assert_not_called()
+    w.secrets.put_secret.assert_not_called()
+    assert all(r.secret_action == SECRET_KEEP for r in outcome.results)
+    # Grants are still re-applied — they're additive and idempotent.
+    assert all(r.grant_plan is not None for r in outcome.results)
+
+
+def test_provision_all_overwrite_rotates_and_stores() -> None:
+    config = _multi_sp_config()
+    w = _ws_for_provision(
+        existing_sps={"myapp-memory_sp": PRINCIPAL, "myapp-tools_sp": "tid"},
+        existing_keys=("M_CID", "M_CSEC", "T_CID", "T_CSEC"),
+    )
+    targets = resolve_sp_targets(config)
+    outcome = provision_all(w, config=config, targets=targets, overwrite=True)
+
+    assert all(r.secret_action == SECRET_ROTATE for r in outcome.results)
+    assert w.service_principal_secrets_proxy.create.call_count == 2
+    assert w.secrets.put_secret.call_count == 4
+
+
+def test_provision_all_blocks_when_key_exists_but_no_such_sp() -> None:
+    """A populated key with no matching SP: refuse rather than guess."""
+    config = _multi_sp_config()
+    w = _ws_for_provision(existing_keys=("M_CID", "M_CSEC"))
+    targets = resolve_sp_targets(config)
+    outcome = provision_all(w, config=config, targets=targets)
+
+    blocked = dict(outcome.blocked)
+    assert "memory_sp" in blocked
+    assert "--overwrite" in blocked["memory_sp"]
+    # tools_sp is unaffected and still provisioned.
+    by_name = {r.name: r for r in outcome.results}
+    assert by_name["tools_sp"].blocked_reason is None
+    assert by_name["memory_sp"].blocked_reason
+
+
+def test_provision_all_validates_before_creating_anything() -> None:
+    """Fail-fast spans all targets — SP #1 must not exist if #2 is unresolvable."""
+    import pytest
+
+    config = AppConfig(
+        service_principals={
+            "a": ServicePrincipalModel(client_id="literal-id", client_secret="literal"),
+        },
+        app=_app(),
+    )
+    w = _ws_for_provision()
+    targets = resolve_sp_targets(config)
+    # Literal (non-secret) credentials give no scope/keys to store under.
+    with pytest.raises(ValueError, match="secret keys"):
+        provision_all(w, config=config, targets=targets)
+    w.service_principals.create.assert_not_called()
+
+
+def test_provision_all_single_target_passes_no_ownership() -> None:
+    """Single-SP configs traverse the same code as before ownership existed."""
+    config = AppConfig(
+        variables={
+            "client_id": SecretVariableModel(scope="sc", secret="CID"),
+            "client_secret": SecretVariableModel(scope="sc", secret="CSEC"),
+        },
+        schemas={"s": _schema()},
+        app=_app(),
+    )
+    w = _ws_for_provision()
+    targets = resolve_sp_targets(config)
+    outcome = provision_all(w, config=config, targets=targets)
+    assert len(outcome.results) == 1
+    assert outcome.results[0].grant_plan is not None
+
+
+def test_grant_all_grants_existing_sps_only() -> None:
+    config = _multi_sp_config()
+    w = _ws_for_provision(existing_sps={"myapp-tools_sp": "tid"})
+    targets = resolve_sp_targets(config)
+    plans = grant_all(w, config=config, targets=targets)
+
+    # memory_sp doesn't exist → empty placeholder plan, nothing applied.
+    by_principal = {p.principal: p for p in plans}
+    assert any(p.startswith("<new-sp:") for p in by_principal)
+    assert "tid" in by_principal
+    w.service_principals.create.assert_not_called()
+
+
+def test_resolve_sp_targets_unresolvable_secret_is_none_not_the_string_None(
+    monkeypatch,
+) -> None:
+    """Regression: ``str(None)`` is the truthy string "None".
+
+    An unreadable secret (the normal case before a first provision) must leave
+    ``configured_client_id`` as None. Coercing before the None check produced
+    "None", which passed every later ``if client_id:`` guard and got used as a
+    real principal — grants were applied for a service principal called "None".
+    """
+    monkeypatch.setattr("dao_ai.config.SecretVariableModel.as_value", lambda self: None)
+    sp = ServicePrincipalModel(
+        client_id=SecretVariableModel(scope="sc", secret="CID"),
+        client_secret=SecretVariableModel(scope="sc", secret="CSEC"),
+    )
+    config = AppConfig(service_principals={"a": sp}, app=_app())
+    target = resolve_sp_targets(config)[0]
+    assert target.configured_client_id is None
+
+
+def test_grant_all_never_grants_a_null_principal() -> None:
+    """No SP and no resolvable id → nothing is applied for that target."""
+    config = _multi_sp_config()
+    w = _ws_for_provision(existing_sps={})
+    targets = resolve_sp_targets(config)
+    for t in targets:
+        t.configured_client_id = None
+    plans = grant_all(w, config=config, targets=targets)
+
+    assert all(p.principal.startswith("<new-sp:") for p in plans)
+    assert all(p.grants == [] for p in plans)
+    w.api_client.do.assert_not_called()
