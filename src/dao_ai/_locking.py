@@ -17,6 +17,7 @@ technique applied to the dao-ai repo's own lock.
 
 from __future__ import annotations
 
+import re
 import shutil
 import subprocess
 import tempfile
@@ -24,11 +25,27 @@ from pathlib import Path
 
 from loguru import logger
 
-# The internal mirror host and its public-CDN equivalent. The mirror mirrors the
-# public CDN's ``/packages/<hash-path>/<wheel>`` layout verbatim, so a host swap
-# yields a portable lock without changing any package, version, or hash.
-_MIRROR_HOST = "pypi-proxy.dev.databricks.com"
+# The internal mirror host pattern and its public-CDN equivalent. The mirror
+# mirrors the public CDN's ``/packages/<hash-path>/<wheel>`` layout verbatim, so
+# a host swap yields a portable lock without changing any package, version, or
+# hash.
+#
+# The mirror is reachable under several ``pypi-proxy`` subdomains of
+# ``databricks.com`` depending on the workspace's network —
+# ``pypi-proxy.dev.databricks.com``, ``pypi-proxy.cloud.databricks.com``, and
+# regional ``pypi-proxy.<region>.cloud.databricks.com``. Rather than enumerate
+# them (the original bug hardcoded only ``.dev.`` and silently left ``.cloud.``
+# URLs, which then 404 in the Apps build container), match ANY ``pypi-proxy``
+# mirror host generically: a ``pypi-proxy``-prefixed subdomain of
+# ``databricks.com``.
 _PUBLIC_HOST = "files.pythonhosted.org"
+
+# General pattern: any ``pypi-proxy`` mirror subdomain of ``databricks.com``.
+_MIRROR_HOST_RE = re.compile(r"pypi-proxy[\w.-]*\.databricks\.com")
+
+# Independent survivor guard (same general shape) so a future regression in the
+# rewrite still fails loudly instead of shipping an unresolvable lock.
+_MIRROR_GUARD_RE = re.compile(r"pypi-proxy[\w.-]*\.databricks\.com")
 
 
 def generate_bundle_lock(bundle_dir: Path) -> None:
@@ -74,20 +91,22 @@ def generate_bundle_lock(bundle_dir: Path) -> None:
         raise RuntimeError(f"uv lock did not produce {lock_path}")
 
     original = lock_path.read_text()
-    rewritten = original.replace(f"https://{_MIRROR_HOST}/", f"https://{_PUBLIC_HOST}/")
+    rewritten = _MIRROR_HOST_RE.sub(_PUBLIC_HOST, original)
     if rewritten != original:
         lock_path.write_text(rewritten)
         logger.info(
-            "Rewrote internal mirror host in bundle uv.lock to public CDN",
-            mirror=_MIRROR_HOST,
+            "Rewrote internal mirror host(s) in bundle uv.lock to public CDN",
             public=_PUBLIC_HOST,
         )
 
-    if _MIRROR_HOST in lock_path.read_text():
+    # Clean-check: assert no mirror host survived the rewrite (defense-in-depth
+    # via an independent guard regex) rather than shipping an unresolvable lock.
+    surviving = _MIRROR_GUARD_RE.search(lock_path.read_text())
+    if surviving:
         raise RuntimeError(
-            f"{lock_path} still references the internal mirror ({_MIRROR_HOST}) "
-            "after rewrite; the lock would not resolve in the Apps container or "
-            "for customers. Aborting."
+            f"{lock_path} still references an internal mirror "
+            f"({surviving.group()}) after rewrite; the lock would not resolve in "
+            "the Apps container or for customers. Aborting."
         )
 
     logger.info("Generated portable bundle uv.lock", path=str(lock_path))

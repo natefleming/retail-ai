@@ -223,7 +223,7 @@ class TestGenerateAppResourcesPartition:
 
 @pytest.mark.unit
 class TestSdkExtractorObOFilter:
-    """The SDK-format extractors are used by ``AppConfig.deploy_agent(target=APPS)``
+    """The SDK-format extractors are used by ``AppConfig.deploy_agent(mode=APPS)``
     via ``apps.create/update`` (not the bundle path). They must apply the same
     OBO filter as the flat-dict family so both deploy paths agree."""
 
@@ -289,7 +289,7 @@ class TestSdkExtractorObOFilter:
 class TestSportingGoodsSdkResourcesPartition:
     """Integration: ``generate_sdk_resources`` on canonical sporting_goods config.
 
-    The SDK-format output is what ``AppConfig.deploy_agent(target=APPS)`` sends
+    The SDK-format output is what ``AppConfig.deploy_agent(mode=APPS)`` sends
     to ``apps.create/update`` (not the bundle path). Verifies OBO LLMs don't
     leak into SDK resources either.
     """

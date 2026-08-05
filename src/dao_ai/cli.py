@@ -5531,8 +5531,8 @@ def _deploy_run_destroy_app_bundle(
 
     1. ``--direct`` (SDK path, no bundle on disk): call the SDK directly for any
        mode. For ``model_serving`` this is ``config.create_agent`` then
-       ``config.deploy_agent(target=MODEL_SERVING)`` (register + deploy the
-       endpoint); for apps/mcp it is ``config.deploy_agent(target=mode)``.
+       ``config.deploy_agent(mode=MODEL_SERVING)`` (register + deploy the
+       endpoint); for apps/mcp it is ``config.deploy_agent(mode=mode)``.
        Inherently syncs+starts (there is no separate staged artifact).
     2. Bundle path (default): if ``databricks.yaml`` is absent AND ``deploy=True``,
        auto-build via :func:`_stage_app_bundle` (CDK/SAM norm), then sync.
@@ -5565,7 +5565,7 @@ def _deploy_run_destroy_app_bundle(
             # the deploy would target a stale-or-nonexistent model version.
             config.create_agent(development=development)
             config.deploy_agent(
-                target=ServingMode.MODEL_SERVING, development=development
+                mode=ServingMode.MODEL_SERVING, development=development
             )
             # `--wait`: `deploy_agent` (agents.deploy) returns once the update is
             # issued; block until the endpoint is READY + served model
@@ -5580,7 +5580,7 @@ def _deploy_run_destroy_app_bundle(
                 )
         else:
             # Apps/MCP deploy directly from config + wheel (no MLflow model).
-            config.deploy_agent(target=ServingMode(mode), development=development)
+            config.deploy_agent(mode=ServingMode(mode), development=development)
             # `--wait`: the provider's `apps.deploy_and_wait` only blocks until the
             # DEPLOYMENT is SUCCEEDED — the app PROCESS can still be booting and
             # 502 on the first request. Gate on compute ACTIVE + GET /health 200

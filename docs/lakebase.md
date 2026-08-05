@@ -172,7 +172,7 @@ docs = tool.invoke({"query": "How do I reset my password?"})
   Lakebase entries under `resources.vector_stores` emit no
   `vector-search-index` resource (the App SP authenticates via
   `database.client_id` / `client_secret` at runtime).
-- **Model Serving** (`config.deploy_agent(target=ServingMode.MODEL_SERVING)`) —
+- **Model Serving** (`config.deploy_agent(mode=ServingMode.MODEL_SERVING)`) —
   Lakebase entries delegate their `as_resources()` call to the nested
   `DatabaseModel`. For autoscaling Lakebase projects the delegate returns
   `[]` (MLflow doesn't have a matching resource type yet — tracked at

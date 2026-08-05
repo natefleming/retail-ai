@@ -247,7 +247,6 @@ tools:
 # - template: The prompt template text, with optional {variable} placeholders
 # - description: Human-readable description of the prompt
 # - schema: Optional Unity Catalog schema qualifying the prompt name
-# - tags: Metadata and organization
 # ==============================================================================
 
 prompts:
@@ -255,7 +254,6 @@ prompts:
   # General Agent Prompt
   # ---------------------------------------------------------------------------
   general_prompt: &general_prompt
-    schema: *retail_schema
     name: general_prompt
     description: "General retail store assistant prompt for home improvement and hardware store inquiries"
     template: |
@@ -263,18 +261,14 @@ prompts:
       - **User Id**: {user_id}
       - **Store Number**: {store_num}
 
-      You are a helpful general purpose retail store assistant for a home improvement and hardware store. You have access to search tools to find general information 
+      You are a helpful general purpose retail store assistant for a home improvement and hardware store. You have access to search tools to find general information
       which can not be better answered by another agent.
-    tags:
-      environment: production
-      agent_type: general
 
   # ---------------------------------------------------------------------------
   # Agent Prompts
   # ---------------------------------------------------------------------------
 
   orders_prompt: &orders_prompt
-    schema: *retail_schema
     name: orders_prompt
     description: "Order management specialist prompt for tracking orders, delivery status, and order inquiries"
     template: |
@@ -321,12 +315,8 @@ prompts:
       - Offer alternative contact methods for immediate assistance
 
       Remember: Search first for accurate, current order information, then provide helpful, actionable guidance.
-    tags:
-      environment: production
-      agent_type: orders
 
   diy_prompt: &diy_prompt
-    schema: *retail_schema
     name: diy_prompt
     description: "DIY and home improvement expert prompt providing how-to advice, project guidance, and safety recommendations"
     template: |
@@ -375,12 +365,8 @@ prompts:
       - Be clear about limitations in providing product-specific advice
 
       Remember: Safety first, search for current information, then provide clear, helpful guidance.
-    tags:
-      environment: production
-      agent_type: diy
 
   product_prompt: &product_prompt
-    schema: *retail_schema
     name: product_prompt
     description: "Product specialist prompt for providing detailed product information, specifications, and usage guidance"
     template: |
@@ -439,12 +425,8 @@ prompts:
       - Do not speculate about specific product features or pricing
 
       Remember: Search first for accurate product details, then provide clear, helpful information.
-    tags:
-      environment: production
-      agent_type: product
 
   inventory_prompt: &inventory_prompt
-    schema: *retail_schema
     name: inventory_prompt
     description: "Comprehensive inventory specialist prompt with real-time stock checking, restock tracking, and availability management"
     template: |
@@ -501,12 +483,8 @@ prompts:
       - Provide general guidance on typical restock patterns only as context
 
       Remember: Always search for current inventory data first, never guess about availability.
-    tags:
-      environment: production
-      agent_type: inventory
 
   comparison_prompt: &comparison_prompt
-    schema: *retail_schema
     name: comparison_prompt
     description: "Product comparison specialist prompt for analyzing multiple products side-by-side and highlighting key differences"
     template: |
@@ -573,12 +551,8 @@ prompts:
       - Can provide general category guidance only
 
       Remember: Complete, accurate product data from search tools is essential for fair comparisons.
-    tags:
-      environment: production
-      agent_type: comparison
 
   recommendation_prompt: &recommendation_prompt
-    schema: *retail_schema
     name: recommendation_prompt
     description: "Product recommendation specialist prompt for suggesting products based on customer needs, preferences, and budget"
     template: |
@@ -652,9 +626,6 @@ prompts:
       - Can discuss general approach to product selection
 
       Remember: Search for current options first, then recommend based on customer's specific needs.
-    tags:
-      environment: production
-      agent_type: recommendation
 
 
 

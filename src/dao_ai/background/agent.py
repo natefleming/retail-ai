@@ -310,34 +310,16 @@ class BackgroundResponsesAgent(ResponsesAgent):
     def predict(  # type: ignore[override]
         self, request: ResponsesAgentRequest
     ) -> ResponsesAgentResponse:
-        return asyncio.run(self.apredict(request))
+        from dao_ai._async import run_sync
+
+        return run_sync(self.apredict(request))
 
     def predict_stream(  # type: ignore[override]
         self, request: ResponsesAgentRequest
     ) -> Generator[ResponsesAgentStreamEvent, None, None]:
-        try:
-            loop = asyncio.get_event_loop()
-            if loop.is_closed():
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-        except RuntimeError:
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
+        from dao_ai._async import iter_sync
 
-        agen = self.apredict_stream(request)
-        try:
-            while True:
-                try:
-                    yield loop.run_until_complete(agen.__anext__())
-                except StopAsyncIteration:
-                    break
-        finally:
-            try:
-                loop.run_until_complete(agen.aclose())
-            except Exception as exc:  # noqa: BLE001 — best effort teardown
-                logger.warning(
-                    "Error closing background async generator", error=str(exc)
-                )
+        yield from iter_sync(lambda: self.apredict_stream(request))
 
     # ----------------------------------------------------------------- async
 

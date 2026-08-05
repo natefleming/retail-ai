@@ -503,17 +503,14 @@ class LanggraphChatModel(ChatModel):
         custom_inputs: dict[str, Any] = {"configurable": context.model_dump()}
 
         # Use async ainvoke internally for parallel execution
-        import asyncio
+        from dao_ai._async import run_sync
 
         async def _async_invoke():
             return await self.graph.ainvoke(
                 request, context=context, config=custom_inputs
             )
 
-        loop = asyncio.get_event_loop()
-        response: dict[str, Sequence[BaseMessage]] = loop.run_until_complete(
-            _async_invoke()
-        )
+        response: dict[str, Sequence[BaseMessage]] = run_sync(_async_invoke())
 
         logger.trace(
             "Predict response received",
@@ -588,8 +585,6 @@ class LanggraphChatModel(ChatModel):
         custom_inputs: dict[str, Any] = {"configurable": context.model_dump()}
 
         # Use async astream internally for parallel execution
-        import asyncio
-
         async def _async_stream():
             async for nodes, stream_mode, messages_batch in self.graph.astream(
                 request,
@@ -626,19 +621,10 @@ class LanggraphChatModel(ChatModel):
                         content = _extract_text_content(message.content)
                         yield self._create_chat_completion_chunk(content)
 
-        # Convert async generator to sync generator
-        loop = asyncio.get_event_loop()
-        async_gen = _async_stream()
+        # Convert async generator to sync generator on the shared runner loop.
+        from dao_ai._async import iter_sync
 
-        try:
-            while True:
-                try:
-                    item = loop.run_until_complete(async_gen.__anext__())
-                    yield item
-                except StopAsyncIteration:
-                    break
-        finally:
-            loop.run_until_complete(async_gen.aclose())
+        yield from iter_sync(_async_stream)
 
     def _create_chat_completion_chunk(self, content: str) -> ChatCompletionChunk:
         return ChatCompletionChunk(
@@ -1669,14 +1655,14 @@ class LanggraphResponsesAgent(ResponsesAgent):
         Process a ResponsesAgentRequest and return a ResponsesAgentResponse.
         For async contexts (e.g., Databricks Apps), use apredict() directly.
 
-        Note: This method uses asyncio.run() internally, which will fail in contexts
-        where an event loop is already running (e.g., uvloop). For those cases,
-        use apredict() instead.
+        Drives the async graph on dao-ai's shared runner loop (see
+        ``dao_ai._async``) so this works whether or not the calling thread has
+        a running event loop (Model Serving worker, notebook, plain sync code).
         """
-        import asyncio
+        from dao_ai._async import run_sync
 
         logger.debug("ResponsesAgent predict called (sync wrapper)")
-        return asyncio.run(self.apredict(request))
+        return run_sync(self.apredict(request))
 
     def predict_stream(
         self, request: ResponsesAgentRequest
@@ -1687,40 +1673,13 @@ class LanggraphResponsesAgent(ResponsesAgent):
         Process a ResponsesAgentRequest and yield ResponsesAgentStreamEvent objects.
         For async contexts (e.g., Databricks Apps), use apredict_stream() directly.
 
-        Event loop acquisition mirrors nest_asyncio's patched asyncio.run():
-        get the current loop (patched for reentrance when nest_asyncio is active),
-        falling back to a new loop on Python 3.10+ when no loop exists.
+        Drives the async generator on dao-ai's shared runner loop (see
+        ``dao_ai._async``), yielding events on the calling thread.
         """
-        import asyncio
+        from dao_ai._async import iter_sync
 
         logger.debug("ResponsesAgent predict_stream called (sync wrapper)")
-
-        try:
-            loop: asyncio.AbstractEventLoop = asyncio.get_event_loop()
-            if loop.is_closed():
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-        except RuntimeError:
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-
-        async_gen = self.apredict_stream(request)
-
-        try:
-            while True:
-                try:
-                    item = loop.run_until_complete(async_gen.__anext__())
-                    yield item
-                except StopAsyncIteration:
-                    break
-                except Exception as e:
-                    logger.error("Error in streaming", error=str(e))
-                    raise
-        finally:
-            try:
-                loop.run_until_complete(async_gen.aclose())
-            except Exception as e:
-                logger.warning("Error closing async generator", error=str(e))
+        yield from iter_sync(lambda: self.apredict_stream(request))
 
     def _extract_text_from_content(
         self,
@@ -2069,7 +2028,7 @@ def _process_langchain_messages(
     custom_inputs: Optional[dict[str, Any]] = None,
 ) -> dict[str, Any] | Any:
     """Process LangChain messages using async LangGraph calls internally."""
-    import asyncio
+    from dao_ai._async import run_sync
 
     if isinstance(app, LanggraphChatModel):
         app = app.graph
@@ -2078,13 +2037,7 @@ def _process_langchain_messages(
     async def _async_invoke():
         return await app.ainvoke({"messages": messages}, config=custom_inputs)
 
-    try:
-        loop = asyncio.get_event_loop()
-    except RuntimeError:
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-
-    return loop.run_until_complete(_async_invoke())
+    return run_sync(_async_invoke())
 
 
 def _configurable_to_context(configurable: dict[str, Any]) -> Context:
@@ -2116,8 +2069,6 @@ def _process_langchain_messages_stream(
     custom_inputs: Optional[dict[str, Any]] = None,
 ) -> Generator[AIMessageChunk, None, None]:
     """Process LangChain messages in streaming mode using async LangGraph calls internally."""
-    import asyncio
-
     if isinstance(app, LanggraphChatModel):
         app = app.graph
 
@@ -2167,26 +2118,10 @@ def _process_langchain_messages_stream(
                     message.content = _extract_text_content(message.content)
                     yield message
 
-    # Convert async generator to sync generator
+    # Convert async generator to sync generator on the shared runner loop.
+    from dao_ai._async import iter_sync
 
-    try:
-        loop = asyncio.get_event_loop()
-    except RuntimeError:
-        # Handle case where no event loop exists (common in some deployment scenarios)
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-
-    async_gen = _async_stream()
-
-    try:
-        while True:
-            try:
-                item = loop.run_until_complete(async_gen.__anext__())
-                yield item
-            except StopAsyncIteration:
-                break
-    finally:
-        loop.run_until_complete(async_gen.aclose())
+    yield from iter_sync(_async_stream)
 
 
 def _process_mlflow_messages(

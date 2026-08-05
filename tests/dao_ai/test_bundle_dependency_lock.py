@@ -122,13 +122,26 @@ class TestGenerateBundleLock:
         _locking.render_portable_lock(pyproject)
         assert seen.get("stub") is True
 
-    def test_rewrites_mirror_host_to_public_cdn(self, tmp_path, monkeypatch) -> None:
+    @pytest.mark.parametrize(
+        "mirror_host",
+        [
+            "pypi-proxy.dev.databricks.com",
+            "pypi-proxy.cloud.databricks.com",
+            "pypi-proxy.us-east-1.cloud.databricks.com",
+        ],
+    )
+    def test_rewrites_mirror_host_to_public_cdn(
+        self, tmp_path, monkeypatch, mirror_host
+    ) -> None:
+        # Regression: the rewrite must handle any pypi-proxy*.databricks.com
+        # host, not just the .dev. one — an env whose mirror is .cloud. shipped
+        # unreachable URLs and Apps' `uv sync` 404'd at install.
         from dao_ai import _locking
 
         (tmp_path / "pyproject.toml").write_text("[project]\nname='x'\n")
         poisoned = (
             "wheels = [{ url = "
-            '"https://pypi-proxy.dev.databricks.com/packages/aa/bb/x.whl" }]\n'
+            f'"https://{mirror_host}/packages/aa/bb/x.whl" }}]\n'
         )
         monkeypatch.setattr(
             _locking.subprocess,
@@ -137,23 +150,30 @@ class TestGenerateBundleLock:
         )
         _locking.generate_bundle_lock(tmp_path)
         result = (tmp_path / "uv.lock").read_text()
-        assert "pypi-proxy.dev.databricks.com" not in result
+        assert mirror_host not in result
         assert "files.pythonhosted.org" in result
 
     def test_raises_if_mirror_survives(self, tmp_path, monkeypatch) -> None:
-        """A mirror reference that the host-swap can't reach (e.g. a bare host
-        without the trailing slash form) must fail loudly, never ship."""
+        """The independent survivor guard is defense-in-depth: if the REWRITE
+        regex is ever narrowed (the exact shape of the .dev-only bug), a mirror
+        URL it misses must still fail loudly rather than ship.
+
+        Patch only the rewrite regex to a stale ``.dev.``-only pattern, feed a
+        ``.cloud.`` lock: the rewrite leaves it, and the general guard trips."""
+        import re
+
         from dao_ai import _locking
 
         (tmp_path / "pyproject.toml").write_text("[project]\nname='x'\n")
-        # ``source = { registry = "https://pypi-proxy.dev.databricks.com/simple/" }``
-        # is swapped, but an index reference without the https:// prefix isn't —
-        # simulate a residue to prove the guard trips.
-        residue = 'index = "pypi-proxy.dev.databricks.com"\n'
+        residue = (
+            "wheels = [{ url = "
+            '"https://pypi-proxy.cloud.databricks.com/packages/aa/bb/x.whl" }]\n'
+        )
         monkeypatch.setattr(
-            _locking.subprocess,
-            "run",
-            self._fake_uv_lock(tmp_path, residue),
+            _locking.subprocess, "run", self._fake_uv_lock(tmp_path, residue)
+        )
+        monkeypatch.setattr(
+            _locking, "_MIRROR_HOST_RE", re.compile(r"pypi-proxy\.dev\.databricks\.com")
         )
         with pytest.raises(RuntimeError, match="internal mirror"):
             _locking.generate_bundle_lock(tmp_path)

@@ -544,7 +544,6 @@ tools:
 # =============================================================================
 prompts:
   assortment_planning_prompt: &assortment_planning_prompt
-    schema: *sporting_goods_schema
     name: assortment_planning_prompt
     description: "Assortment planning agent prompt for merchandiser 360 sporting goods store"
     template: |
@@ -581,13 +580,8 @@ prompts:
       - Provide data-driven recommendations with specific SKUs and metrics
       - Frame recommendations in terms of business impact (margin, sell-through, turns)
       - Consider regional and store-level differences in assortment needs
-    tags:
-      environment: production
-      agent_name: assortment_planning
-      domain: merchandising
 
   forecasting_prompt: &forecasting_prompt
-    schema: *sporting_goods_schema
     name: forecasting_prompt
     description: "Demand forecasting agent prompt for merchandiser 360 sporting goods store"
     template: |
@@ -625,13 +619,8 @@ prompts:
       - Present forecasts with specific quantities and confidence ranges
       - Highlight key assumptions and risk factors
       - Recommend actionable next steps (reorder, markdown, feature)
-    tags:
-      environment: production
-      agent_name: forecasting
-      domain: merchandising
 
   purchase_order_prompt: &purchase_order_prompt
-    schema: *sporting_goods_schema
     name: purchase_order_prompt
     description: "Purchase order management agent prompt for merchandiser 360 sporting goods store"
     template: |
@@ -674,13 +663,8 @@ prompts:
       - Reference specific PO numbers, vendor names, and SKUs
       - Quantify financial impact of buying decisions (cost, projected margin)
       - Flag urgent items requiring immediate action
-    tags:
-      environment: production
-      agent_name: purchase_order
-      domain: merchandising
 
   pricing_prompt: &pricing_prompt
-    schema: *sporting_goods_schema
     name: pricing_prompt
     description: "Pricing strategy agent prompt for merchandiser 360 sporting goods store"
     template: |
@@ -724,13 +708,8 @@ prompts:
       - Present pricing recommendations with margin impact analysis
       - Show before/after pricing scenarios with projected outcomes
       - Reference pricing history and lessons learned from past actions
-    tags:
-      environment: production
-      agent_name: pricing
-      domain: merchandising
 
   sales_prompt: &sales_prompt
-    schema: *sporting_goods_schema
     name: sales_prompt
     description: "Sales analytics agent prompt for merchandiser 360 sporting goods store"
     template: |
@@ -782,13 +761,8 @@ prompts:
       - Present data in clear, actionable formats with specific numbers
       - Compare metrics against relevant benchmarks (plan, LY, chain average)
       - Highlight actionable insights and recommended next steps
-    tags:
-      environment: production
-      agent_name: sales
-      domain: merchandising
 
   inventory_prompt: &inventory_prompt
-    schema: *sporting_goods_schema
     name: inventory_prompt
     description: "Inventory management agent prompt for merchandiser 360 sporting goods store"
     template: |
@@ -833,13 +807,8 @@ prompts:
       - Provide specific quantities, locations, and aisle information
       - Flag critical stockout risks with recommended actions
       - Suggest alternatives when requested products are unavailable
-    tags:
-      environment: production
-      agent_name: inventory
-      domain: merchandising
 
   general_prompt: &general_prompt
-    schema: *sporting_goods_schema
     name: general_prompt
     description: "General merchandising assistant prompt for sporting goods store"
     template: |
@@ -875,10 +844,6 @@ prompts:
       - Be friendly, knowledgeable, and helpful
       - Provide accurate product information based on search results
       - Clearly indicate when a question should be handled by a specialist
-    tags:
-      environment: production
-      agent_name: general
-      domain: merchandising
 
 # =============================================================================
 # MEMORY (Lakebase)

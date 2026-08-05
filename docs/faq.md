@@ -190,11 +190,11 @@ Two paths, both driven by the same YAML — pick whichever fits your workflow.
 from dao_ai.config import AppConfig, ServingMode
 
 config = AppConfig.from_file("config/my_agent.yaml", params={...})
-config.deploy_agent(target=ServingMode.APPS)
+config.deploy_agent(mode=ServingMode.APPS)
 print(f"Deployed app: {config.app.name}")
 ```
 
-`deploy_agent(target=ServingMode.APPS)` generates the Asset Bundle, uploads source + `pyproject.toml` + `uv.lock` (the Apps build phase runs `uv sync --locked --no-dev`), deploys the app, waits for compute ACTIVE, and (if `app.trace_location:` is set) grants the App SP the OTEL-table permissions.  See [Lab 1 — Your First DAO-AI Agent](https://github.com/natefleming/dao-ai-workshop/tree/main/L100-foundations/lab-01-first-agent) for the shortest working example.
+`deploy_agent(mode=ServingMode.APPS)` generates the Asset Bundle, uploads source + `pyproject.toml` + `uv.lock` (the Apps build phase runs `uv sync --locked --no-dev`), deploys the app, waits for compute ACTIVE, and (if `app.trace_location:` is set) grants the App SP the OTEL-table permissions.  See [Lab 1 — Your First DAO-AI Agent](https://github.com/natefleming/dao-ai-workshop/tree/main/L100-foundations/lab-01-first-agent) for the shortest working example.
 
 **Path 2 — `dao-ai agent build` (Asset Bundle you can inspect / edit / check into Git):**
 

@@ -141,10 +141,10 @@ config.create_agent()
 config.deploy_agent()
 
 # Deploy directly to Databricks Apps (no asset bundle needed)
-config.deploy_agent(target=ServingMode.APPS)
+config.deploy_agent(mode=ServingMode.APPS)
 
 # Deploy to MCP server (Apps with MCP entrypoint)
-config.deploy_agent(target=ServingMode.MCP)
+config.deploy_agent(mode=ServingMode.MCP)
 ```
 
 > Extra pip packages and custom code paths are declared on the config, not passed
@@ -162,7 +162,7 @@ additional tools are needed on your development machine.
 
 All three deploy flows converge on the same runtime behavior:
 
-- `config.deploy_agent(target=ServingMode.APPS)` (programmatic)
+- `config.deploy_agent(mode=ServingMode.APPS)` (programmatic)
 - `dao-ai agent up --mode apps` (CLI — build → sync → start in one command)
 - `dao-ai agent build` + `databricks bundle deploy` (standalone bundle)
 

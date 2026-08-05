@@ -1,0 +1,84 @@
+# yaml-language-server: $schema=../../../schemas/model_config_schema.json
+#
+# Minimal validation config: one Unity Catalog function tool + trace_location.
+# Purpose-built to exercise a real tool-call span end-to-end (Apps + Model
+# Serving) with MLflow traces persisted to UC via trace_location. Backs onto an
+# existing UC function (retail_consumer_goods.hardware_store.find_product_by_sku).
+
+parameters:
+  catalog:
+    description: Unity Catalog catalog name
+    default: retail_consumer_goods
+  schema:
+    description: Schema within the catalog
+    default: hardware_store
+  llm:
+    description: Chat/reasoning serving endpoint for the agent.
+    default: databricks-claude-sonnet-5
+  warehouse_id:
+    description: SQL warehouse id used for UC trace_location export
+    default: d1be2f7fe7faacb1
+
+schemas:
+  retail_schema: &retail_schema
+    catalog_name: ${var.catalog}
+    schema_name: ${var.schema}
+
+resources:
+  models:
+    default_llm: &default_llm
+      name: ${var.llm}
+      max_tokens: 2048
+
+  warehouses:
+    shared_warehouse: &shared_warehouse
+      name: shared_warehouse
+      warehouse_id: ${var.warehouse_id}
+
+  functions:
+    find_product_by_sku: &find_product_by_sku
+      schema: *retail_schema
+      name: find_product_by_sku
+      on_behalf_of_user: false
+
+tools:
+  find_product_by_sku_tool: &find_product_by_sku_tool
+    name: find_product_by_sku_uc
+    function:
+      type: unity_catalog
+      resource: *find_product_by_sku
+
+agents:
+  product_agent: &product_agent
+    name: product_agent
+    description: "Looks up hardware store products by SKU."
+    model: *default_llm
+    tools:
+    - *find_product_by_sku_tool
+    prompt: |
+      You are a hardware store product assistant. When the user gives a SKU,
+      ALWAYS call the find_product_by_sku_uc tool to look it up, then answer
+      with the product name from the tool result.
+
+app:
+  name: uc_fn_trace_val_dao
+  description: "Minimal UC-function tool agent for trace validation"
+  log_level: INFO
+  registered_model:
+    schema: *retail_schema
+    name: uc_fn_trace_val_dao
+  endpoint_name: uc_fn_trace_val_dao
+  agents:
+  - *product_agent
+
+  # MLflow trace persistence: route OTEL spans through a SQL warehouse to UC
+  # tables so traces are durable and queryable from Apps (and MS).
+  trace_location:
+    schema: *retail_schema
+    warehouse: *shared_warehouse
+    table_prefix: uc_fn_trace_val
+
+  input_example:
+    messages:
+    - role: user
+      content: "Look up SKU 00176279"

@@ -2003,10 +2003,10 @@ class TestDeployAutoGenerate:
 
         def fake_deploy_agent(
             self_config: object,
-            target: object = None,
+            mode: object = None,
             development: object = None,
         ) -> None:
-            deploy_agent_calls.append({"target": target, "development": development})
+            deploy_agent_calls.append({"mode": mode, "development": development})
 
         monkeypatch.setattr(cli, "_apply_profile_context", lambda p: None)
         monkeypatch.setattr(
@@ -2035,7 +2035,7 @@ class TestDeployAutoGenerate:
         monkeypatch.setattr(cli, "_apply_profile_context", lambda p: None)
         monkeypatch.setattr(
             "dao_ai.config.AppConfig.deploy_agent",
-            lambda self_config, target=None, development=None: None,
+            lambda self_config, mode=None, development=None: None,
         )
         with (
             patch.object(cli, "deploy_app_bundle"),
@@ -2055,7 +2055,7 @@ class TestDeployAutoGenerate:
         monkeypatch.setattr(cli, "_apply_profile_context", lambda p: None)
         monkeypatch.setattr(
             "dao_ai.config.AppConfig.deploy_agent",
-            lambda self_config, target=None, development=None: None,
+            lambda self_config, mode=None, development=None: None,
         )
         with (
             patch.object(cli, "deploy_app_bundle"),
@@ -2086,11 +2086,11 @@ class TestDeployAutoGenerate:
 
         def fake_deploy_agent(
             self_config: object,
-            target: object = None,
+            mode: object = None,
             development: object = None,
         ) -> None:
             calls.append("deploy")
-            deploy_agent_calls.append({"target": target, "development": development})
+            deploy_agent_calls.append({"mode": mode, "development": development})
 
         monkeypatch.setattr(cli, "_apply_profile_context", lambda p: None)
         monkeypatch.setattr(AppConfig, "_resolve_all_resources", lambda self: None)
@@ -2111,7 +2111,7 @@ class TestDeployAutoGenerate:
         # create_agent (register) must run BEFORE deploy_agent, and NO bundle
         # driver (App or Job) is touched on the --direct path.
         assert calls == ["create", "deploy"], calls
-        assert deploy_agent_calls[0]["target"] == ServingMode.MODEL_SERVING
+        assert deploy_agent_calls[0]["mode"] == ServingMode.MODEL_SERVING
         dep.assert_not_called()
         job_driver.assert_not_called()
 
@@ -2151,7 +2151,7 @@ class TestDeployAutoGenerate:
         )
         monkeypatch.setattr(
             "dao_ai.config.AppConfig.deploy_agent",
-            lambda self, target=None, development=None: sdk_calls.append("deploy"),
+            lambda self, mode=None, development=None: sdk_calls.append("deploy"),
         )
         with (
             patch.object(cli, "_exec_job_bundle") as exec_job,
@@ -2213,7 +2213,7 @@ class TestDeployAutoGenerate:
         )
         monkeypatch.setattr(
             "dao_ai.config.AppConfig.deploy_agent",
-            lambda self, target=None, development=None: called.append("deploy"),
+            lambda self, mode=None, development=None: called.append("deploy"),
         )
 
         opts = parse_args(["agent", "up", "-c", str(cfg), *argv_tail])
@@ -2232,7 +2232,7 @@ class TestDeployAutoGenerate:
         monkeypatch.setattr(AppConfig, "_resolve_all_resources", lambda self: None)
         monkeypatch.setattr(
             "dao_ai.config.AppConfig.deploy_agent",
-            lambda self, target=None, development=None: called.append("deploy"),
+            lambda self, mode=None, development=None: called.append("deploy"),
         )
         opts = parse_args(
             ["agent", "up", "-c", str(cfg), "--direct", "--param", "gsid=01fREAL"]

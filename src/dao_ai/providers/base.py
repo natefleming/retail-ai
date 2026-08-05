@@ -71,14 +71,14 @@ class ServiceProvider(ABC):
     def deploy_agent(
         self,
         config: "AppConfig",
-        target: ServingMode = ServingMode.MODEL_SERVING,
+        mode: ServingMode = ServingMode.MODEL_SERVING,
         development: bool | None = None,
     ) -> Any:
         """
-        Deploy agent to the specified target.
+        Deploy agent using the specified serving mode.
 
         Args:
             config: The AppConfig containing deployment configuration
-            target: The serving mode (MODEL_SERVING or APPS)
+            mode: The serving mode (MODEL_SERVING or APPS)
         """
         ...

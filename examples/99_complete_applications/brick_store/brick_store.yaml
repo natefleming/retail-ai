@@ -690,7 +690,6 @@ tools:
 # =============================================================================
 prompts:
   general_prompt: &general_prompt
-    schema: *brickstore_schema
     name: brickstore_general_prompt
     description: "General-purpose store associate prompt for the brick_store companion"
     template: |
@@ -722,13 +721,8 @@ prompts:
       - When a question clearly belongs to a specialist (product details, deep
         inventory, BOPIS pickup, styling, employee management), defer to that
         agent rather than answering yourself.
-    tags:
-      environment: production
-      agent_name: general
-      domain: store_ops
 
   orders_prompt: &orders_prompt
-    schema: *brickstore_schema
     name: brickstore_orders_prompt
     description: "BOPIS / order management prompt for the brick_store companion"
     template: |
@@ -765,13 +759,8 @@ prompts:
       - Reference order numbers, customer names, and SKUs explicitly.
       - Flag urgent items (overdue pickups, missed delivery windows).
       - Hand off to the inventory agent for stock checks across stores.
-    tags:
-      environment: production
-      agent_name: orders
-      domain: store_ops
 
   product_prompt: &product_prompt
-    schema: *brickstore_schema
     name: brickstore_product_prompt
     description: "Product specialist prompt for the brick_store companion (absorbs comparison + recommendation)"
     template: |
@@ -811,13 +800,8 @@ prompts:
       - For recommendations, justify each pick in one short sentence.
       - Hand off to inventory when the conversation shifts from "what is it" to
         "do we have it".
-    tags:
-      environment: production
-      agent_name: product
-      domain: store_ops
 
   inventory_prompt: &inventory_prompt
-    schema: *brickstore_schema
     name: brickstore_inventory_prompt
     description: "Inventory specialist prompt for the brick_store companion"
     template: |
@@ -857,13 +841,8 @@ prompts:
       - For nearby-store results, lead with distance and quantity.
       - Be honest when nothing's in stock - suggest a hold at a nearby store
         rather than promising what isn't there.
-    tags:
-      environment: production
-      agent_name: inventory
-      domain: store_ops
 
   customer_prompt: &customer_prompt
-    schema: *brickstore_schema
     name: brickstore_customer_prompt
     description: "Customer service / pre-visit prep prompt for the brick_store companion"
     template: |
@@ -905,13 +884,8 @@ prompts:
       - Bullet the preferences that the associate needs at arms-reach.
       - Suggest 2-3 concrete prep actions (pull size 4 dresses in navy, set up
         the dressing room with sparkling water, etc.).
-    tags:
-      environment: production
-      agent_name: customer
-      domain: store_ops
 
   stylist_prompt: &stylist_prompt
-    schema: *brickstore_schema
     name: brickstore_stylist_prompt
     description: "Personal stylist prompt for the brick_store companion"
     template: |
@@ -948,13 +922,8 @@ prompts:
       - Be concrete: SKU, color, size, aisle, price.
       - When confidence is low (e.g., we don't have the customer's size in the
         exact color), say so and offer the nearest match.
-    tags:
-      environment: production
-      agent_name: stylist
-      domain: store_ops
 
   employee_prompt: &employee_prompt
-    schema: *brickstore_schema
     name: brickstore_employee_prompt
     description: "Employee / manager-on-duty prompt for the brick_store companion"
     template: |
@@ -987,10 +956,6 @@ prompts:
       - Include manager contact info (email/phone/Slack) when the requester is
         clearly going to follow up.
       - Surface overdue tasks (`is_overdue = true`) at the top of any task list.
-    tags:
-      environment: production
-      agent_name: employee
-      domain: store_ops
 
 # =============================================================================
 # MEMORY (Lakebase)

@@ -44,7 +44,6 @@ tools:
 
 prompts:
   mcp_agent_prompt: &mcp_agent_prompt
-    schema: *retail_schema
     name: mcp_agent_prompt
     description: "GitHub MCP agent prompt"
     template: |

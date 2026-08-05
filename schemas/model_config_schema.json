@@ -8225,18 +8225,6 @@
       "additionalProperties": false,
       "description": "A named, reusable prompt defined inline in configuration.\n\nPrompts are first-class config objects so they can be declared once and\nreferenced as YAML anchors/aliases by agents, guardrails, and supervisors.\nThe template text is carried inline; there is no registry round-trip.",
       "properties": {
-        "schema": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/SchemaModel"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "description": "Unity Catalog schema qualifying the prompt name (catalog.schema.name)."
-        },
         "name": {
           "description": "Identifier for the prompt, used as a label in logs and traces.",
           "title": "Name",
@@ -8259,19 +8247,6 @@
           "description": "The prompt template text, with optional {variable} placeholders.",
           "title": "Template",
           "type": "string"
-        },
-        "tags": {
-          "anyOf": [
-            {
-              "additionalProperties": true,
-              "type": "object"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "description": "Key-value tags attached to the prompt for documentation.",
-          "title": "Tags"
         }
       },
       "required": [
