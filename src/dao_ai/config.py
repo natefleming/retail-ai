@@ -10765,6 +10765,55 @@ class ResourcesModel(BaseModel):
         return self
 
 
+def _reject_relative_assets_for_remote_config(
+    config: "AppConfig", *, source: str
+) -> None:
+    """Raise if a URL-loaded config declares assets only a local tree could supply.
+
+    A remote config has no directory to resolve relative paths against, so
+    ``ddl: functions/x.sql`` cannot be found. Failing here — naming the field —
+    beats resolving against the process CWD and surfacing a FileNotFoundError
+    several provisioning steps later.
+
+    ``code_paths`` and ``skills`` matter for a second reason: resolving them would
+    put directories named by a remote document onto ``sys.path``.
+    """
+
+    def _is_relative(value: object) -> bool:
+        if not isinstance(value, str) or not value:
+            return False
+        if value.startswith(("/", "dbfs:", "s3:", "abfss:", "gs:")):
+            return False
+        # Inline SQL rather than a path — ``data:`` accepts either.
+        if "\n" in value or value.rstrip().endswith(";"):
+            return False
+        return True
+
+    offenders: list[str] = []
+    for dataset in config.datasets or []:
+        for field_name in ("ddl", "data"):
+            value = getattr(dataset, field_name, None)
+            if _is_relative(value):
+                offenders.append(f"datasets[].{field_name}: {value}")
+    for fn in config.unity_catalog_functions or []:
+        value = getattr(fn, "ddl", None)
+        if _is_relative(value):
+            offenders.append(f"unity_catalog_functions[].ddl: {value}")
+    if config.app is not None:
+        for code_path in config.app.code_paths or []:
+            if _is_relative(code_path):
+                offenders.append(f"app.code_paths: {code_path}")
+
+    if offenders:
+        raise ValueError(
+            f"Config loaded from {source} declares relative paths that cannot be "
+            "resolved — a remote config has no local directory to anchor them to:"
+            + "".join(f"\n  - {o}" for o in offenders)
+            + "\nUse absolute paths, a Unity Catalog Volume reference, or "
+            "download the config and pass its local path."
+        )
+
+
 class AppConfig(BaseModel):
     """Top-level configuration for a DAO AI application.
 
@@ -10983,6 +11032,42 @@ class AppConfig(BaseModel):
         return self
 
     @classmethod
+    def from_url(cls, url: str, **kwargs: Any) -> "AppConfig":
+        """Load an AppConfig from an ``http(s)`` URL.
+
+        A convenience alias for :meth:`from_file`, which accepts URLs directly —
+        useful when the caller wants the intent to be explicit, or wants a URL
+        validated as such rather than falling through to a filesystem read.
+
+        GitHub file-viewer links are rewritten to their raw equivalent, so both
+        of these work::
+
+            https://github.com/<owner>/<repo>/blob/main/config.yaml
+            https://raw.githubusercontent.com/<owner>/<repo>/main/config.yaml
+
+        Only YAML is parsed; remote content is never executed. Because a remote
+        config has no local directory, it cannot resolve relative ``ddl`` /
+        ``data`` / ``code_paths`` entries — declaring one raises ``ValueError``.
+
+        Args:
+            url: The config URL.
+            **kwargs: Forwarded to :meth:`from_file` (``params``,
+                ``task_values``, ``task_key``, ``initialize``).
+
+        Raises:
+            ValueError: if ``url`` is not an http(s) URL, if it cannot be
+                fetched, or if the config declares unresolvable relative paths.
+        """
+        from dao_ai.config_source import is_remote_config
+
+        if not is_remote_config(url):
+            raise ValueError(
+                f"Not an http(s) URL: {url!r}. Use AppConfig.from_file for "
+                "filesystem paths."
+            )
+        return cls.from_file(url, **kwargs)
+
+    @classmethod
     def from_file(
         cls,
         path: PathLike,
@@ -11022,10 +11107,26 @@ class AppConfig(BaseModel):
                 or any reference is undeclared (when a ``parameters:`` block
                 is present).
         """
-        path = Path(path).as_posix()
-        logger.debug(f"Loading config from {path}")
+        from dao_ai.config_source import (
+            fetch_config_text,
+            is_remote_config,
+            normalize_config_url,
+        )
 
-        raw_text: str = Path(path).read_text()
+        # A URL and a filesystem path diverge only here: how the text is read,
+        # and whether there is a local directory to anchor relative assets and
+        # code_paths against. Everything downstream is identical.
+        remote: bool = is_remote_config(path)
+        if remote:
+            path = normalize_config_url(str(path))
+            logger.debug(f"Loading config from {path}")
+            raw_text: str = fetch_config_text(path)
+            base_path: Optional[str] = None
+        else:
+            path = Path(path).as_posix()
+            logger.debug(f"Loading config from {path}")
+            raw_text = Path(path).read_text()
+            base_path = str(Path(path).parent)
 
         # Resolve ${workspace.*} refs first so they can appear inside
         # parameter defaults (e.g. default: /Users/${workspace.current_user.userName}/...).
@@ -11088,30 +11189,39 @@ class AppConfig(BaseModel):
         # relative ``ddl``/``data`` paths resolve against the config location
         # (assets colocated with the config), not the process CWD. Absolute
         # paths and Volume references are unaffected.
-        base_path: str = str(Path(path).parent)
-        for dataset in config.datasets or []:
-            dataset._base_path = base_path
-        for fn in config.unity_catalog_functions or []:
-            fn._base_path = base_path
+        if base_path is not None:
+            for dataset in config.datasets or []:
+                dataset._base_path = base_path
+            for fn in config.unity_catalog_functions or []:
+                fn._base_path = base_path
 
-        # Put custom code (``app.code_paths``) on ``sys.path`` now that the
-        # config directory is known, resolving each entry against it. The
-        # ``add_code_paths_to_sys_path`` validator ran at construction (before
-        # ``_source_config_path`` was set) and could only anchor at the process
-        # CWD; this makes config-relative custom modules importable for every
-        # consumer that loads a config from a file — the deploy notebook's
-        # ``display_graph``/``create_agent``, the Apps runtime, and any tool
-        # resolution via ``load_function`` — regardless of the process CWD.
-        from dao_ai.code_paths import (
-            prepend_code_paths_to_sys_path,
-            prepend_src_to_sys_path,
-        )
+            # Put custom code (``app.code_paths``) on ``sys.path`` now that the
+            # config directory is known, resolving each entry against it. The
+            # ``add_code_paths_to_sys_path`` validator ran at construction (before
+            # ``_source_config_path`` was set) and could only anchor at the process
+            # CWD; this makes config-relative custom modules importable for every
+            # consumer that loads a config from a file — the deploy notebook's
+            # ``display_graph``/``create_agent``, the Apps runtime, and any tool
+            # resolution via ``load_function`` — regardless of the process CWD.
+            from dao_ai.code_paths import (
+                prepend_code_paths_to_sys_path,
+                prepend_src_to_sys_path,
+            )
 
-        prepend_code_paths_to_sys_path(config)
-        # Convention: a colocated ``src/`` dir auto-ships its packages; put it on
-        # sys.path so ``src/foo/bar.py`` imports as ``foo.bar`` for every consumer
-        # (deploy notebook display_graph/create_agent, Apps runtime, load_function).
-        prepend_src_to_sys_path(config)
+            prepend_code_paths_to_sys_path(config)
+            # Convention: a colocated ``src/`` dir auto-ships its packages; put it
+            # on sys.path so ``src/foo/bar.py`` imports as ``foo.bar`` for every
+            # consumer (deploy notebook display_graph/create_agent, Apps runtime,
+            # load_function).
+            prepend_src_to_sys_path(config)
+        else:
+            # A remote config has no local directory, so anything it declares by
+            # relative path is unresolvable. Say so loudly rather than silently
+            # anchoring at the process CWD and failing much later with a
+            # FileNotFoundError. This is also a security boundary: code_paths and
+            # skills from a remote config would otherwise put remote-authored
+            # directories on sys.path.
+            _reject_relative_assets_for_remote_config(config, source=str(path))
         # Stash the pre-substitution dict so tooling can recover which
         # YAML fields were backed by ``${var.X}`` references.
         config._raw_yaml_dict = raw_dict
