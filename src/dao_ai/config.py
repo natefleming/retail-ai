@@ -326,6 +326,25 @@ class ServicePrincipalModel(BaseModel):
         frozen=True,
         use_enum_values=True,
     )
+    name: Optional[str] = Field(
+        default=None,
+        description=(
+            "Workspace display name of the service principal. Used by "
+            "`dao-ai service-principal provision` to create or reuse the SP; "
+            "defaults to '<app.name>-<key>' where <key> is this entry's name "
+            "under `service_principals`. Set it explicitly to bind a config to "
+            "an SP that already exists."
+        ),
+    )
+    description: Optional[str] = Field(
+        default=None,
+        description=(
+            "What this service principal is for — which resources it owns and "
+            "why it is separate from the others. Documentation only: the "
+            "Databricks service-principal API has no description field, so this "
+            "is never sent to the workspace."
+        ),
+    )
     client_id: AnyVariable = Field(
         description="OAuth application (client) ID for the service principal.",
     )
