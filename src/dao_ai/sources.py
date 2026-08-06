@@ -110,7 +110,10 @@ class UrlSource(ConfigSource):
 
 
 class FileSource(ConfigSource):
-    """A config on the local filesystem. The fallback when nothing else claims a spec."""
+    """A config on the local filesystem.
+
+    The fallback when no other source claims a spec.
+    """
 
     def __init__(self, path: str | PathLike[str]) -> None:
         self.path: Path = Path(path)

@@ -11073,9 +11073,7 @@ class AppConfig(BaseModel):
             return resolve_source(source)
 
         if not expected.handles(str(source)):
-            raise ValueError(
-                f"Not a valid {expected.__name__} spec: {str(source)!r}"
-            )
+            raise ValueError(f"Not a valid {expected.__name__} spec: {str(source)!r}")
         return expected(str(source))
 
     @classmethod
@@ -11093,6 +11091,43 @@ class AppConfig(BaseModel):
                 ``task_values``, ``task_key``, ``initialize``).
         """
         return cls.from_file(source, **kwargs)
+
+    @classmethod
+    def from_git(cls, locator: "SourceLike", **kwargs: Any) -> "AppConfig":
+        """Load an AppConfig from a git repository, bringing its whole tree along.
+
+        Where :meth:`from_url` fetches a single YAML — and so cannot resolve
+        relative ``ddl`` / ``data`` / ``code_paths`` — this materializes the repo
+        into a local cache, so every colocated-asset convention resolves exactly
+        as it does for a local project::
+
+            git+https://github.com/<owner>/<repo>@<ref>#path/to/agent.yaml
+            gh:<owner>/<repo>@<ref>#path/to/agent.yaml
+
+        The ref and in-repo path are both optional: the remote's default HEAD is
+        used when no ref is given, and the config is auto-discovered when the path
+        is a directory or omitted (ambiguity is an error naming the candidates).
+
+        Pass a :class:`~dao_ai.git_source.GitSource` instead of a string to set a
+        token, cache directory, or force a refresh.
+
+        A git locator runs the repository's code — a config can ship Python via
+        ``code_paths`` / ``src/`` — exactly as cloning it and running dao-ai
+        locally would. The resolved commit SHA is logged on every load. Pin a tag
+        or SHA for repositories you do not control.
+
+        Args:
+            locator: A git locator, or a :class:`~dao_ai.git_source.GitSource`.
+            **kwargs: Forwarded to :meth:`from_file` (``params``,
+                ``task_values``, ``task_key``, ``initialize``).
+
+        Raises:
+            ValueError: if ``locator`` is not a git locator, if the repository or
+                ref cannot be fetched, or if the config cannot be identified.
+        """
+        from dao_ai.git_source import GitSource
+
+        return cls.from_file(cls._coerce_source(locator, expected=GitSource), **kwargs)
 
     @classmethod
     def from_url(cls, url: str, **kwargs: Any) -> "AppConfig":
