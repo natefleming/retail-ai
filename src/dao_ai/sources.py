@@ -133,6 +133,8 @@ class FileSource(ConfigSource):
         return True
 
     def load(self) -> ResolvedConfig:
+        from dao_ai.git_source import revision_for_checkout_path
+
         # `as_posix()` matches the pre-refactor `_source_config_path` value that
         # every path convention (and its tests) already anchors on.
         return ResolvedConfig(
@@ -140,6 +142,12 @@ class FileSource(ConfigSource):
             origin=self.path.as_posix(),
             base_path=self.path.parent,
             local_path=self.path,
+            # A path inside the checkout cache is still a git-sourced config: the
+            # CLI materializes a locator during parse_args and passes the plain
+            # path downstream, so this is the common case for `dao-ai <noun>`
+            # commands. Recovering the SHA here keeps the bundle checksum
+            # revision-aware regardless of which door the config came through.
+            revision=revision_for_checkout_path(self.path),
         )
 
 

@@ -473,6 +473,43 @@ class TestFromStarSurface:
         config = AppConfig.from_file(str(git_repo / "dao-ai.yaml"), initialize=False)
         assert config._source_git_sha is None
 
+    def test_a_cache_path_still_carries_its_revision(
+        self, git_repo: Path, cache: Path
+    ) -> None:
+        """Loading the materialized path directly must not lose the SHA.
+
+        The CLI resolves a locator once in ``parse_args`` and passes the plain
+        local path downstream, so this — not the locator — is what every
+        ``dao-ai <noun>`` command actually loads. Without the revision the bundle
+        checksum stops being ref-aware, and a ref bump whose only change is a
+        ``ddl``/``data`` asset silently skips the rebuild.
+        """
+        from dao_ai.config import AppConfig
+
+        resolved = GitSource(_locator(git_repo)).load()
+        assert resolved.local_path is not None
+
+        via_path = AppConfig.from_file(str(resolved.local_path), initialize=False)
+        assert via_path._source_git_sha == resolved.revision
+
+    def test_checksum_tracks_the_revision(self, git_repo: Path, cache: Path) -> None:
+        """A ref bump changing only a colocated asset must move the checksum."""
+        from dao_ai.cli import _config_checksum
+        from dao_ai.config import AppConfig
+
+        first = AppConfig.from_git(_locator(git_repo), initialize=False)
+        before: str = _config_checksum(first, development=False)
+
+        # Touch only an asset referenced by relative path: the config text stays
+        # byte-identical, and ddl/data bytes are NOT in _custom_input_digests.
+        (git_repo / "data" / "seed.sql").write_text("SELECT 2;\n")
+        _git("add", "-A", cwd=git_repo)
+        _git("commit", "--quiet", "--message", "seed v2", cwd=git_repo)
+
+        second = AppConfig.from_git(_locator(git_repo), initialize=False)
+        assert second._source_git_sha != first._source_git_sha
+        assert _config_checksum(second, development=False) != before
+
 
 @pytest.mark.unit
 class TestSourceProtocol:

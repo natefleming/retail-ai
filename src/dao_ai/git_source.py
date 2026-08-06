@@ -187,6 +187,35 @@ def parse_git_locator(spec: str | PathLike[str]) -> GitLocator:
     )
 
 
+def revision_for_checkout_path(path: Path | str) -> str | None:
+    """Recover the commit SHA from a path inside the checkout cache.
+
+    The CLI materializes a locator once during ``parse_args`` and hands downstream
+    consumers the plain local path, so ``AppConfig.from_file`` legitimately loads
+    that path via :class:`~dao_ai.sources.FileSource` and never sees the locator.
+    The revision still matters — the bundle checksum folds it in so a ref bump
+    re-stages — and the cache layout already encodes it
+    (``<root>/<host>/<owner>/<repo>/<sha>/...``), so read it back rather than
+    threading it through every call site.
+
+    Returns ``None`` for any path outside the cache, or whose cache-relative
+    segments contain no commit SHA.
+    """
+    resolved: Path = Path(path).resolve()
+    root: Path = cache_root().resolve()
+    try:
+        relative: Path = resolved.relative_to(root)
+    except ValueError:
+        return None
+    # `<host>/<owner>/<repo>/<sha>/<in-repo path...>`: take the first segment that
+    # is a full SHA. Repo path depth varies (a `file://` remote is arbitrarily
+    # deep), so match on shape rather than position.
+    for part in relative.parts:
+        if _FULL_SHA.match(part):
+            return part
+    return None
+
+
 def _token_from_env() -> str | None:
     """First non-empty token env var, or ``None``."""
     for var in _TOKEN_ENV_VARS:
