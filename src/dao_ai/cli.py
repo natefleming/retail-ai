@@ -1038,6 +1038,38 @@ Inspect & utilities:
         metavar="COMMAND",
     )
 
+    # Cache noun: `dao-ai cache <dir|clear>` — manages git checkouts fetched for
+    # a `--config` locator, which otherwise accumulate silently.
+    cache_parser: ArgumentParser = subparsers.add_parser(
+        "cache",
+        help="Inspect or clear the git checkout cache (dir | clear)",
+        description="Manage the local cache of git repositories fetched for a "
+        "--config locator. Location: $DAO_AI_GIT_CACHE, else "
+        "$XDG_CACHE_HOME/dao-ai/git, else ~/.cache/dao-ai/git.",
+        parents=[_GLOBAL],
+    )
+    cache_verbs = cache_parser.add_subparsers(
+        dest="cache_verb", metavar="<dir|clear>", required=True
+    )
+    cache_verbs.add_parser(
+        "dir",
+        help="Print the cache directory and its current size",
+        parents=[_GLOBAL],
+    )
+    cache_clear_parser = cache_verbs.add_parser(
+        "clear",
+        help="Delete cached checkouts",
+        parents=[_GLOBAL],
+    )
+    cache_clear_parser.add_argument(
+        "--repo",
+        type=str,
+        default=None,
+        metavar="LOCATOR",
+        help="Clear only this repository's checkouts (e.g. 'gh:owner/repo'). "
+        "Omit to clear the entire cache.",
+    )
+
     # Version command
     _version_parser: ArgumentParser = subparsers.add_parser(
         "version",
@@ -3913,6 +3945,55 @@ def handle_mcp_command(options: Namespace) -> None:
             sys.exit(1)
 
 
+def handle_cache_command(options: Namespace) -> None:
+    """Inspect or clear the git checkout cache.
+
+    Checkouts are keyed by commit and never expire, so a long-lived cache
+    accumulates one tree per commit ever built. This is the way to see where they
+    live and reclaim the space.
+    """
+    from dao_ai.git_source import cache_root, parse_git_locator, repo_cache_dir
+
+    root: Path = cache_root()
+
+    def _size(path: Path) -> int:
+        return sum(f.stat().st_size for f in path.rglob("*") if f.is_file())
+
+    def _human(size: int) -> str:
+        value: float = float(size)
+        for unit in ("B", "KB", "MB", "GB"):
+            if value < 1024 or unit == "GB":
+                return f"{value:.1f} {unit}" if unit != "B" else f"{int(value)} B"
+            value /= 1024
+        return f"{value:.1f} GB"
+
+    if options.cache_verb == "dir":
+        print(root)
+        if not root.exists():
+            print("(empty — nothing fetched yet)")
+            return
+        checkouts: int = sum(1 for _ in root.glob("*/*/*/*"))
+        print(f"{checkouts} checkout(s), {_human(_size(root))}")
+        return
+
+    # clear
+    target: Path = root
+    if options.repo:
+        try:
+            target = repo_cache_dir(parse_git_locator(options.repo))
+        except ValueError as e:
+            logger.error(str(e))
+            sys.exit(1)
+
+    if not target.exists():
+        print(f"Nothing to clear at {target}")
+        return
+
+    freed: str = _human(_size(target))
+    shutil.rmtree(target)
+    print(f"Cleared {target} ({freed} freed)")
+
+
 def handle_version_command(options: Namespace) -> None:
     """Display the dao-ai version and build metadata.
 
@@ -6359,6 +6440,8 @@ def main() -> None:
             handle_monitor_command(options)
         case "service-principal" | "sp":
             handle_service_principal_command(options)
+        case "cache":
+            handle_cache_command(options)
         case "chat":
             handle_chat_command(options)
         case "mcp":

@@ -300,17 +300,25 @@ def cache_root(override: Path | None = None) -> Path:
     return base / "dao-ai" / "git"
 
 
+def repo_cache_dir(locator: GitLocator, *, root: Path | None = None) -> Path:
+    """Cache directory holding every checkout of one repository.
+
+    ``<root>/<host>/<owner>/<repo>``, with per-commit subdirectories beneath.
+    """
+    parsed = urlparse(locator.remote_url)
+    # Strip userinfo ('git@github.com') so it can't become a path segment.
+    host: str = parsed.netloc.rpartition("@")[2] or "local"
+    repo_path: str = parsed.path.strip("/").removesuffix(".git")
+    return cache_root(root).joinpath(host, *repo_path.split("/"))
+
+
 def _checkout_dir(locator: GitLocator, sha: str, *, root: Path) -> Path:
     """Cache location for one commit: ``<root>/<host>/<owner>/<repo>/<sha>``.
 
     Keyed by commit, so an immutable ref is a pure cache hit and two refs of the
     same repo never clobber one another.
     """
-    parsed = urlparse(locator.remote_url)
-    # Strip userinfo ('git@github.com') so it can't become a path segment.
-    host: str = parsed.netloc.rpartition("@")[2] or "local"
-    repo_path: str = parsed.path.strip("/").removesuffix(".git")
-    return root.joinpath(host, *repo_path.split("/"), sha)
+    return repo_cache_dir(locator, root=root) / sha
 
 
 def _git_env(token: str | None) -> dict[str, str]:
