@@ -61,14 +61,14 @@ app:
 
 @pytest.mark.unit
 class TestPackagedAssets:
-    def test_all_eight_step_notebooks_are_packaged(self) -> None:
+    def test_all_step_notebooks_are_packaged(self) -> None:
         names = sorted(
             p.name
             for p in files("dao_ai.pipeline.notebooks").iterdir()
             if p.name.endswith(".py") and p.name != "__init__.py"
         )
-        assert len(names) == 8, f"expected 8 step notebooks, got {names}"
-        assert names[0].startswith("01_")
+        assert len(names) == 9, f"expected 9 step notebooks, got {names}"
+        assert names[0].startswith("00_")
         assert names[-1].startswith("08_")
 
     def test_notebooks_have_no_source_path_fallback(self) -> None:
@@ -80,6 +80,31 @@ class TestPackagedAssets:
             assert 'sys.path.insert(0, "../src")' not in text, (
                 f"{p.name} still has the ../src fallback"
             )
+
+    def test_service_principal_task_skips_when_none_declared(self) -> None:
+        """The SP task must no-op on a config that declares no service principals.
+
+        It runs unconditionally (it gates provision-lakebase and
+        unity-catalog-tools), but ``resolve_sp_targets`` returns a synthetic
+        "default" target for an undeclared config, and ``provision_all`` then
+        raises because there is no secret scope or key names to store credentials
+        under — failing the task and skipping every downstream one. Service
+        principals are opt-in, like every sibling task's declarations.
+        """
+        notebook = next(
+            p
+            for p in files("dao_ai.pipeline.notebooks").iterdir()
+            if p.name == "00_provision_service_principal.py"
+        )
+        text = notebook.read_text(encoding="utf-8")
+        assert "if not config.service_principals:" in text, (
+            "SP task no longer guards on an empty service_principals mapping"
+        )
+        # The guard must exit successfully, so the tasks gated on this one run.
+        guard = text.split("if not config.service_principals:", 1)[1]
+        assert "dbutils.notebook.exit" in guard.split("# COMMAND")[0], (
+            "the guard must exit the notebook, not fall through to provisioning"
+        )
 
     def test_notebooks_bootstrap_extras_suffix(self) -> None:
         """Each step notebook's ``%uv pip install`` bootstrap must install the
@@ -95,6 +120,7 @@ class TestPackagedAssets:
         # notebook filename prefix -> the extras suffix its bootstrap must append
         # ("" means no suffix — bare core install).
         expected_suffix: dict[str, str] = {
+            "00_": "",
             "01_": "[excel]",
             "02_": "",
             "03_": "",
@@ -189,9 +215,9 @@ class TestGeneratePipelineDatabricksYaml:
             "pipeline_test_app-gcp",
         }
 
-    def test_eight_task_dag_with_dependencies(self) -> None:
+    def test_task_dag_with_dependencies(self) -> None:
         tasks = self._doc(development=False)["resources"]["jobs"]["deploy_job"]["tasks"]
-        assert len(tasks) == 8
+        assert len(tasks) == 9
         by_key = {t["task_key"]: t for t in tasks}
         # run-evaluation fans in from deploy-agents + generate-evaluation-data.
         deps = {d["task_key"] for d in by_key["run-evaluation"]["depends_on"]}
@@ -455,7 +481,7 @@ class TestWritePipelineBundle:
         assert not (out / "requirements.txt").exists()
         assert (out / "config" / "my_config.yaml").exists()
         notebooks = sorted((out / "notebooks").glob("*.py"))
-        assert len(notebooks) == 8
+        assert len(notebooks) == 9
 
     def test_staged_config_written(self, tmp_path: Path) -> None:
         # The config is staged under config/ next to the notebooks so the job
@@ -727,7 +753,7 @@ class TestWritePipelineBundle:
 def test_materialize_notebooks_skips_init(tmp_path: Path) -> None:
     written = _materialize_notebooks(tmp_path, overwrite=True)
     assert all("__init__" not in w for w in written)
-    assert len(written) == 8
+    assert len(written) == 9
 
 
 @pytest.mark.unit

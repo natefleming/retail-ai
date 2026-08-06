@@ -95,6 +95,26 @@ config: AppConfig = AppConfig.from_file(path=config_path)
 
 # COMMAND ----------
 
+# Nothing declared, nothing to provision. This task runs unconditionally (it gates
+# provision-lakebase and unity-catalog-tools, which need the SP to exist), but a
+# config that never asked for a service principal has no secret scope or key names
+# to store credentials under — ``provision_all`` would raise on the synthetic
+# "default" target ``resolve_sp_targets`` returns for such a config, failing the
+# task and skipping every downstream one.
+#
+# Skipping here matches every sibling provisioning task: each iterates its own
+# declarations (``config.resources.databases``, ``.vector_stores``, ``genie_rooms``)
+# and no-ops on an empty mapping. Service principals are opt-in the same way — a
+# Lakebase config declares them because a Postgres role's subject IS the SP's
+# client_id, and an agent that needs none should not have one invented for it.
+if not config.service_principals:
+    print("No service_principals declared in the config — nothing to provision.")
+    # Exits successfully, so the tasks gated on this one still run. No payload:
+    # unlike 05_provision_genie, nothing downstream reads this task's taskValues.
+    dbutils.notebook.exit("no service_principals declared")  # noqa: F821
+
+# COMMAND ----------
+
 # Provision every service principal the config declares, granting each one the
 # resources it owns. Same library entry point the ``dao-ai sp provision`` CLI
 # calls — the CLI is one provisioning surface, this is another.
@@ -125,8 +145,7 @@ for provisioned in result.results:
         continue
     if provisioned.secret_action:
         print(
-            f"  secrets: {provisioned.secret_action} "
-            f"(scope {provisioned.stored_scope})"
+            f"  secrets: {provisioned.secret_action} (scope {provisioned.stored_scope})"
         )
     if provisioned.existing_keys:
         print(f"  already populated: {', '.join(provisioned.existing_keys)}")
