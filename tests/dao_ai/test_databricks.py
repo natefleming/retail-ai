@@ -3355,3 +3355,173 @@ def test_create_lakebase_role_without_override_still_skips_unset_client_id(monke
 
     w.postgres.create_role.assert_not_called()
     w.postgres.list_roles.assert_not_called()
+
+
+# =============================================================================
+# _wait_for_initial_snapshot — bound on stalled progress, not elapsed time
+# =============================================================================
+
+
+def _snapshot_index(states_and_rows):
+    """A mock index whose describe() walks the given (state, rows) sequence."""
+    idx = Mock()
+    seq = list(states_and_rows)
+
+    def _describe():
+        state, rows = seq[0] if len(seq) == 1 else seq.pop(0)
+        return {"status": {"detailed_state": state, "indexed_row_count": rows}}
+
+    idx.describe.side_effect = _describe
+    return idx
+
+
+@pytest.mark.unit
+def test_snapshot_wait_returns_when_snapshot_completes(monkeypatch):
+    """Rising row counts then ONLINE → return the terminal state."""
+    from dao_ai.providers.databricks import _wait_for_initial_snapshot
+
+    monkeypatch.setattr("dao_ai.providers.databricks.time.sleep", lambda s: None)
+    idx = _snapshot_index(
+        [
+            ("PROVISIONING_INITIAL_SNAPSHOT", 100),
+            ("PROVISIONING_INITIAL_SNAPSHOT", 20000),
+            ("ONLINE_NO_PENDING_UPDATE", 38291),
+        ]
+    )
+    state = _wait_for_initial_snapshot(idx, "cat.sch.idx", poll_seconds=0)
+    assert state == "ONLINE_NO_PENDING_UPDATE"
+
+
+@pytest.mark.unit
+def test_snapshot_wait_keeps_waiting_while_rows_climb(monkeypatch):
+    """A long-but-progressing snapshot is not cut short.
+
+    The regression: a full re-embed outlasted the flat 20-minute readiness
+    timeout, so provisioning failed a recovery that was still working — and told
+    the user to recreate the index, which is what it had just done.
+    """
+    from dao_ai.providers.databricks import _wait_for_initial_snapshot
+
+    # Advance a fake clock on every poll so the stall timer is genuinely live:
+    # 40 polls x 60s = 40 min of wall time, well past both the 20-min readiness
+    # timeout and the 15-min stall window. Only resetting the stall timer on each
+    # row increase keeps this alive to completion.
+    clock = {"t": 0.0}
+    monkeypatch.setattr(
+        "dao_ai.providers.databricks.time.monotonic", lambda: clock["t"]
+    )
+
+    def _advance(_s):
+        clock["t"] += 60.0
+
+    monkeypatch.setattr("dao_ai.providers.databricks.time.sleep", _advance)
+    seq = [("PROVISIONING_INITIAL_SNAPSHOT", n * 1000) for n in range(1, 41)]
+    seq.append(("ONLINE_NO_PENDING_UPDATE", 41000))
+    idx = _snapshot_index(seq)
+    assert (
+        _wait_for_initial_snapshot(
+            idx, "cat.sch.idx", stall_timeout_seconds=900, poll_seconds=1
+        )
+        == "ONLINE_NO_PENDING_UPDATE"
+    )
+
+
+@pytest.mark.unit
+def test_snapshot_wait_polls_past_the_readiness_timeout(monkeypatch):
+    """The behaviour that matters: a snapshot may run longer than the flat
+    20-minute readiness timeout, provided it keeps indexing rows.
+
+    Asserted on wall-clock rather than just the return value, since a loop that
+    bailed early would also return ONLINE — it would simply do so too soon.
+    """
+    from dao_ai.providers.databricks import (
+        _VS_INDEX_READY_TIMEOUT_SECONDS,
+        _wait_for_initial_snapshot,
+    )
+
+    clock = {"t": 0.0}
+    monkeypatch.setattr(
+        "dao_ai.providers.databricks.time.monotonic", lambda: clock["t"]
+    )
+
+    def _advance(_s):
+        clock["t"] += 60.0
+
+    monkeypatch.setattr("dao_ai.providers.databricks.time.sleep", _advance)
+    seq = [("PROVISIONING_INITIAL_SNAPSHOT", n * 1000) for n in range(1, 41)]
+    seq.append(("ONLINE_NO_PENDING_UPDATE", 41000))
+    idx = _snapshot_index(seq)
+
+    state = _wait_for_initial_snapshot(
+        idx, "cat.sch.idx", stall_timeout_seconds=900, poll_seconds=1
+    )
+    assert state == "ONLINE_NO_PENDING_UPDATE"
+    # It stayed in the loop well past the timeout that used to fail the task.
+    assert clock["t"] > _VS_INDEX_READY_TIMEOUT_SECONDS
+
+
+@pytest.mark.unit
+def test_snapshot_wait_gives_up_when_progress_stalls(monkeypatch):
+    """Flat row count for the stall window → return, don't wait forever."""
+    from dao_ai.providers.databricks import _wait_for_initial_snapshot
+
+    clock = {"t": 0.0}
+    monkeypatch.setattr(
+        "dao_ai.providers.databricks.time.monotonic", lambda: clock["t"]
+    )
+
+    def _advance(_s):
+        clock["t"] += 60.0
+
+    monkeypatch.setattr("dao_ai.providers.databricks.time.sleep", _advance)
+    idx = _snapshot_index([("PROVISIONING_INITIAL_SNAPSHOT", 500)])
+    state = _wait_for_initial_snapshot(
+        idx, "cat.sch.idx", stall_timeout_seconds=300, poll_seconds=1
+    )
+    assert state == "PROVISIONING_INITIAL_SNAPSHOT"
+
+
+@pytest.mark.unit
+def test_snapshot_wait_returns_a_failed_state_immediately(monkeypatch):
+    """A snapshot that lands in FAILED is terminal — hand it back to the caller."""
+    from dao_ai.providers.databricks import _wait_for_initial_snapshot
+
+    monkeypatch.setattr("dao_ai.providers.databricks.time.sleep", lambda s: None)
+    idx = _snapshot_index([("ONLINE_PIPELINE_FAILED", 38291)])
+    assert (
+        _wait_for_initial_snapshot(idx, "cat.sch.idx", poll_seconds=0)
+        == "ONLINE_PIPELINE_FAILED"
+    )
+
+
+@pytest.mark.unit
+def test_snapshot_wait_honours_the_absolute_ceiling(monkeypatch):
+    """Even with progress every poll, the hard ceiling still applies."""
+    from dao_ai.providers.databricks import _wait_for_initial_snapshot
+
+    clock = {"t": 0.0}
+    monkeypatch.setattr(
+        "dao_ai.providers.databricks.time.monotonic", lambda: clock["t"]
+    )
+
+    def _advance(_s):
+        clock["t"] += 100.0
+
+    monkeypatch.setattr("dao_ai.providers.databricks.time.sleep", _advance)
+    n = {"rows": 0}
+
+    def _describe():
+        n["rows"] += 1000
+        return {
+            "status": {
+                "detailed_state": "PROVISIONING_INITIAL_SNAPSHOT",
+                "indexed_row_count": n["rows"],
+            }
+        }
+
+    idx = Mock()
+    idx.describe.side_effect = _describe
+    state = _wait_for_initial_snapshot(
+        idx, "cat.sch.idx", max_timeout_seconds=500, poll_seconds=1
+    )
+    assert state == "PROVISIONING_INITIAL_SNAPSHOT"
