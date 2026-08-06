@@ -318,6 +318,23 @@ def _warn_if_stale_dev_wheel(dev_wheel: Path | None) -> None:
 # can't hang provisioning indefinitely (the failure mode was a ~2h stall).
 _VS_INDEX_READY_TIMEOUT_SECONDS: int = 1200  # 20 min
 
+# How long a full initial snapshot may run without visible progress before we
+# give up. A recreate re-embeds the entire source table, which for a large table
+# legitimately exceeds the plain readiness timeout above — a 38k-row table was
+# observed taking ~22 min. The bound that matters there is "no rows indexed for
+# this long", not total elapsed, so a big table gets the time it needs while a
+# genuinely stuck index still fails fast.
+_VS_SNAPSHOT_STALL_TIMEOUT_SECONDS: int = 900  # 15 min with no new rows
+
+# Absolute ceiling on an initial snapshot, however much progress it is making.
+_VS_SNAPSHOT_MAX_TIMEOUT_SECONDS: int = 7200  # 2h
+
+# Index states that mean "a full initial snapshot is in flight".
+_VS_SNAPSHOT_STATES: tuple[str, ...] = (
+    "PROVISIONING_INITIAL_SNAPSHOT",
+    "PROVISIONING",
+)
+
 
 def _describe_index_safe(index: VectorSearchIndex) -> dict[str, Any]:
     """``index.describe()`` wrapped so callers never crash on transient errors."""
@@ -454,6 +471,81 @@ def _wait_until_index_absent(
         "Index still present after delete wait — proceeding anyway",
         index_name=index_full_name,
     )
+
+
+def _wait_for_initial_snapshot(
+    index: VectorSearchIndex,
+    index_name: str,
+    *,
+    stall_timeout_seconds: int = _VS_SNAPSHOT_STALL_TIMEOUT_SECONDS,
+    max_timeout_seconds: int = _VS_SNAPSHOT_MAX_TIMEOUT_SECONDS,
+    poll_seconds: int = 15,
+) -> str:
+    """Wait out a full initial snapshot, bounding on *stalled progress* not elapsed.
+
+    A freshly recreated Delta-Sync index re-embeds the whole source table, and for
+    a large table that legitimately runs longer than
+    ``_VS_INDEX_READY_TIMEOUT_SECONDS``. Timing out on total elapsed there fails a
+    task whose recovery is still working — and tells the user to delete and
+    recreate the index, which is exactly what just happened, so following the
+    advice loops.
+
+    Watching ``indexed_row_count`` instead separates the two cases: rising means
+    the snapshot is progressing and deserves more time; flat for
+    ``stall_timeout_seconds`` means it really is stuck.
+
+    Returns:
+        The terminal ``detailed_state`` observed — the caller decides whether it
+        is acceptable.
+    """
+    deadline = time.monotonic() + max_timeout_seconds
+    last_rows = -1
+    last_progress_at = time.monotonic()
+    state = "UNKNOWN"
+
+    while time.monotonic() < deadline:
+        status = _describe_index_safe(index).get("status") or {}
+        state = str(status.get("detailed_state", "UNKNOWN")).upper()
+        rows = int(status.get("indexed_row_count") or 0)
+
+        if not any(s in state for s in _VS_SNAPSHOT_STATES):
+            # Snapshot finished (well or badly) — hand the state back.
+            logger.info(
+                "Initial snapshot settled",
+                index_name=index_name,
+                detailed_state=state,
+                indexed_rows=rows,
+            )
+            return state
+
+        if rows > last_rows:
+            logger.info(
+                "Initial snapshot progressing",
+                index_name=index_name,
+                indexed_rows=rows,
+                detailed_state=state,
+            )
+            last_rows = rows
+            last_progress_at = time.monotonic()
+        elif time.monotonic() - last_progress_at >= stall_timeout_seconds:
+            logger.warning(
+                "Initial snapshot stalled — no new rows indexed",
+                index_name=index_name,
+                indexed_rows=rows,
+                detailed_state=state,
+                stall_timeout_seconds=stall_timeout_seconds,
+            )
+            return state
+
+        time.sleep(poll_seconds)
+
+    logger.warning(
+        "Initial snapshot exceeded its absolute ceiling",
+        index_name=index_name,
+        detailed_state=state,
+        max_timeout_seconds=max_timeout_seconds,
+    )
+    return state
 
 
 def _sync_when_pipeline_idle(
@@ -2933,6 +3025,25 @@ class DatabricksProvider(ServiceProvider):
                     "detailed_state", "UNKNOWN"
                 )
             )
+            # A full initial snapshot re-embeds the entire source table and can
+            # outlast the timeout above while still making progress. Don't fail a
+            # recovery that is working — switch to bounding on stalled progress.
+            if any(s in final_state for s in _VS_SNAPSHOT_STATES):
+                logger.info(
+                    "Readiness timeout hit while an initial snapshot is still "
+                    "progressing — waiting on row progress instead of elapsed time",
+                    index_name=index_name,
+                    detailed_state=final_state,
+                )
+                final_state = _wait_for_initial_snapshot(index, index_name)
+                if "ONLINE" in final_state and "FAILED" not in final_state:
+                    logger.success(
+                        "Vector search index ready after initial snapshot",
+                        index_name=index_name,
+                        source_table=source_table,
+                        detailed_state=final_state,
+                    )
+                    return
             logger.error(
                 "Vector search index failed to reach ONLINE",
                 index_name=index_name,
@@ -2942,12 +3053,16 @@ class DatabricksProvider(ServiceProvider):
                 error=str(exc),
             )
             raise RuntimeError(
-                f"Vector search index {index_name} did not reach ONLINE within "
-                f"{_VS_INDEX_READY_TIMEOUT_SECONDS}s (last state: {final_state}). "
-                f"The source table's Delta history may be unrecoverable from the "
-                f"index checkpoint (e.g. VACUUM / retention exceeded). Delete the "
-                f"index and re-run provisioning: "
-                f"databricks vector-search-indexes delete-index {index_name}"
+                f"Vector search index {index_name} did not reach ONLINE "
+                f"(last state: {final_state}). Provisioning already dropped and "
+                f"recreated the index, so recreating it again will not help. The "
+                f"source table's Delta history is likely unrecoverable — its "
+                f"change data aged out of "
+                f"delta.deletedFileRetentionDuration (default 168h), or the table "
+                f"was replaced. Rewrite {source_table} to give it fresh history, "
+                f"and raise its retention to stop this recurring:\n"
+                f"  ALTER TABLE {source_table} SET TBLPROPERTIES "
+                f"('delta.deletedFileRetentionDuration' = 'interval 30 days');"
             ) from exc
 
         logger.success(
