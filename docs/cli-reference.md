@@ -54,6 +54,18 @@ dao-ai agent up --from 'gh:org/repo@v1.0' -c examples/retail/agent.yaml -p my-pr
 dao-ai validate -c 'git+ssh://git@github.com/org/private@v1#agent.yaml'
 ```
 
+`--from` can only mean a repository, so the `git+` prefix is optional there — paste
+the URL straight from your browser, or use an `scp`-style SSH reference:
+
+```bash
+dao-ai agent up --from 'https://github.com/org/repo@v1.0' -c agent.yaml -p my-profile
+dao-ai agent up --from 'git@github.com:org/repo.git'       -c agent.yaml -p my-profile
+```
+
+In `--config` the prefix **is** required, because there the distinction carries
+meaning: a plain `https://` URL fetches a single YAML (and rejects a config with
+relative assets), while `git+https://` brings the whole tree.
+
 **Quote the locator.** `#` starts a comment in every common shell, so an unquoted
 locator loses its in-repo path.
 
@@ -69,7 +81,7 @@ erroring with the candidates listed if the choice is ambiguous.
 
 | Flag | Purpose |
 |---|---|
-| `--from REPO` | Repository to load from; `-c` is then a repo-relative path |
+| `--from REPO` | Repository to load from (`git+` prefix optional); `-c` is then a repo-relative path |
 | `--refresh` | Re-fetch even if the ref is already cached |
 
 **Trust.** A git locator runs the repository's code — a config can ship Python via

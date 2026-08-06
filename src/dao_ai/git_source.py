@@ -38,6 +38,7 @@ from dao_ai.sources import ConfigSource, ResolvedConfig
 __all__ = [
     "GitLocator",
     "GitSource",
+    "as_git_locator",
     "cache_root",
     "discover_config",
     "is_git_locator",
@@ -67,6 +68,10 @@ _HOST_ALIASES: dict[str, str] = {
 
 #: A full 40-hex commit SHA — immutable, so it never needs re-resolving.
 _FULL_SHA = re.compile(r"^[0-9a-f]{40}$")
+
+#: An ``scp``-style SSH reference (``git@github.com:owner/repo``). Has no scheme,
+#: so it needs recognizing by shape before it can be rewritten to ``ssh://``.
+_SCP_SSH = re.compile(r"^[^/@:]+@[^/@:]+:[^/].*$")
 
 #: Filenames that identify the config in a directory without a scan.
 _CONVENTIONAL_NAMES: tuple[str, ...] = ("dao-ai.yaml", "dao-ai.yml", "dao_ai.yaml")
@@ -106,6 +111,37 @@ class GitLocator:
         is a worse failure than one extra ``ls-remote``.
         """
         return self.ref is not None and bool(_FULL_SHA.match(self.ref))
+
+
+def as_git_locator(spec: str | PathLike[str]) -> str:
+    """Coerce a repository reference into a git locator.
+
+    For a context where only a repository can be meant — ``--from``, which has no
+    other interpretation — a bare URL is unambiguous, so requiring the ``git+``
+    prefix is ceremony. ``https://github.com/o/r@main`` becomes
+    ``git+https://github.com/o/r@main``; an ``scp``-style SSH reference
+    (``git@github.com:o/r``) becomes ``git+ssh://git@github.com/o/r``. Anything
+    already a locator is returned unchanged.
+
+    Deliberately NOT applied to ``--config``, where the distinction carries
+    meaning: a plain ``https://`` URL there fetches a single YAML
+    (:class:`~dao_ai.sources.UrlSource`), while ``git+https://`` clones the tree.
+    """
+    text = str(spec)
+    if is_git_locator(text):
+        return text
+
+    # scp-style SSH (`git@host:owner/repo`) has no scheme for urlparse to read;
+    # git understands it, but the locator grammar needs an explicit one.
+    if _SCP_SSH.match(text):
+        userinfo, _, rest = text.partition("@")
+        host, _, path = rest.partition(":")
+        return f"{_GIT_PREFIX}ssh://{userinfo}@{host}/{path}"
+
+    if urlparse(text).scheme in ("http", "https"):
+        return f"{_GIT_PREFIX}{text}"
+
+    return text
 
 
 def is_git_locator(spec: str | PathLike[str]) -> bool:

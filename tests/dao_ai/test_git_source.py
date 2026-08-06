@@ -142,6 +142,54 @@ class TestIsGitLocator:
 
 
 @pytest.mark.unit
+class TestAsGitLocator:
+    """``--from`` can only mean a repository, so a bare URL is unambiguous there."""
+
+    def test_adds_the_prefix_to_a_plain_url(self) -> None:
+        from dao_ai.git_source import as_git_locator
+
+        assert as_git_locator("https://github.com/o/r@main") == (
+            "git+https://github.com/o/r@main"
+        )
+        assert as_git_locator("http://ghe.corp/o/r") == "git+http://ghe.corp/o/r"
+
+    def test_is_idempotent(self) -> None:
+        from dao_ai.git_source import as_git_locator
+
+        for spec in ("git+https://github.com/o/r@main", "gh:o/r@v1#a.yaml"):
+            assert as_git_locator(spec) == spec
+
+    def test_rewrites_scp_style_ssh(self) -> None:
+        """`git@host:owner/repo` has no scheme for urlparse to read."""
+        from dao_ai.git_source import as_git_locator
+
+        assert as_git_locator("git@github.com:o/r") == "git+ssh://git@github.com/o/r"
+        assert as_git_locator("git@github.com:o/r.git") == (
+            "git+ssh://git@github.com/o/r.git"
+        )
+
+    def test_leaves_a_local_path_alone(self) -> None:
+        """A non-URL is returned unchanged, so the locator check still rejects it."""
+        from dao_ai.git_source import as_git_locator, is_git_locator
+
+        for spec in ("config.yaml", "/abs/config.yaml", "./rel/c.yaml"):
+            assert as_git_locator(spec) == spec
+            assert not is_git_locator(as_git_locator(spec))
+
+    def test_does_not_change_config_source_selection(self) -> None:
+        """The coercion is --from-only; --config keeps its URL-vs-git distinction.
+
+        A plain ``https://`` in ``--config`` means "fetch one YAML"; promoting it
+        to a git locator there would silently change what the flag does.
+        """
+        from dao_ai.sources import UrlSource, resolve_source
+
+        assert isinstance(
+            resolve_source("https://github.com/o/r/blob/main/a.yaml"), UrlSource
+        )
+
+
+@pytest.mark.unit
 class TestParseGitLocator:
     def test_parses_full_locator(self) -> None:
         loc = parse_git_locator("git+https://github.com/o/r@v1.0#dir/agent.yaml")
@@ -692,9 +740,34 @@ class TestUserStateLayout:
         config = AppConfig.from_git(_locator(git_repo), initialize=False)
         base = _git_locator_bundle_base(config)
         assert base is not None
-        # One readable segment: <repo-name>-<digest>.
-        assert base.name.startswith("repo-")
-        assert len(base.name.split("-")) == 2
+        # One segment: <repo-name>-<8-hex digest>.
+        assert base.name.startswith(f"{git_repo.name}-")
+        assert base.parent.name == "bundle"
+
+    def test_the_staging_key_keeps_the_repository_name(
+        self, tmp_path: Path, cache: Path
+    ) -> None:
+        """A hyphenated repo name stays hyphenated, matching the cache dir.
+
+        ``normalize_name`` exists to make Databricks *resource* names
+        identifier-safe; a directory has no such constraint, and normalizing here
+        made the staging path stop matching the locator the user typed.
+        """
+        from dao_ai.cli import _git_locator_bundle_base
+        from dao_ai.config import AppConfig
+
+        repo: Path = tmp_path / "my-cool-repo"
+        repo.mkdir()
+        (repo / "dao-ai.yaml").write_text(_MINIMAL_YAML)
+        _git("init", "--quiet", cwd=repo)
+        _git("add", "-A", cwd=repo)
+        _git("commit", "--quiet", "--message", "init", cwd=repo)
+
+        config = AppConfig.from_git(_locator(repo), initialize=False)
+        base = _git_locator_bundle_base(config)
+        assert base is not None
+        assert base.name.startswith("my-cool-repo-"), base.name
+        assert "my_cool_repo" not in base.name
 
     def test_the_same_locator_keys_identically_from_any_cwd(
         self, git_repo: Path, cache: Path, tmp_path: Path, monkeypatch

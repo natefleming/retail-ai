@@ -701,6 +701,10 @@ _DEFAULT_BUNDLE_BASE = ".dao-ai/bundle"
 #: A full commit SHA, used to find the revision segment in a cache path.
 _FULL_SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 
+#: Characters a single path segment cannot hold. Hyphens and dots are fine — a
+#: directory name is not a Databricks resource name.
+_PATH_UNSAFE_RE = re.compile(r"[/\\\0]")
+
 
 def _default_bundle_base(config: AppConfig | None = None) -> Path:
     """Base dir for generated bundles.
@@ -763,7 +767,12 @@ def _git_locator_bundle_base(config: AppConfig) -> Path | None:
 
     identity: str = "/".join([*repo_parts, *config_parts])
     digest: str = hashlib.sha256(identity.encode()).hexdigest()[:8]
-    repo_name: str = normalize_name(repo_parts[-1]) if repo_parts else "repo"
+    # Keep the repository's own name, so the path matches the locator the user
+    # typed and reads the same as the cache dir beside it. Deliberately NOT
+    # ``normalize_name`` — that exists to make Databricks resource names
+    # identifier-safe, and a directory has no such constraint. Only characters a
+    # path segment genuinely cannot hold are replaced.
+    repo_name: str = _PATH_UNSAFE_RE.sub("_", repo_parts[-1].removesuffix(".git"))
 
     return user_state_root() / "bundle" / f"{repo_name}-{digest}"
 
@@ -2279,7 +2288,7 @@ def _materialize_config_locator(options: Namespace) -> None:
     ``options.config_locator`` keeps the locator as typed, so user-facing messages
     can echo that instead of an opaque cache path.
     """
-    from dao_ai.git_source import GitSource, is_git_locator
+    from dao_ai.git_source import GitSource, as_git_locator, is_git_locator
 
     config: str | None = getattr(options, "config", None)
     from_repo: str | None = getattr(options, "from_repo", None)
@@ -2293,6 +2302,9 @@ def _materialize_config_locator(options: Namespace) -> None:
                 "--from, e.g. `--from gh:org/repo@v1 -c path/to/agent.yaml`."
             )
             sys.exit(1)
+        # --from can only mean a repository, so accept a URL as pasted from a
+        # browser (or an scp-style SSH ref) without the `git+` prefix.
+        from_repo = as_git_locator(from_repo)
         # `--from <repo> -c <path>` is sugar for the single-locator spelling.
         locator: str = f"{from_repo}#{config}" if config else from_repo
     elif config and is_git_locator(config):
