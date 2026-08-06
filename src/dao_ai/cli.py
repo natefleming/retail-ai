@@ -840,6 +840,12 @@ def _config_checksum(config: AppConfig, *, development: bool) -> str:
             "config": dumped,
             "development": development,
             "custom_inputs": _custom_input_digests(config),
+            # The source revision, for a git-sourced config. ``custom_inputs``
+            # covers code_paths/src/resource overlays but NOT ``ddl``/``data``
+            # assets, so a ref bump whose only change is a seed file would
+            # otherwise hash identically and skip the rebuild — shipping the
+            # previous commit's staged assets.
+            "source_revision": config._source_git_sha,
         },
         sort_keys=True,
         default=str,
@@ -5726,7 +5732,28 @@ def _resolve_bundle_dir(
         if staging_dir is not None
         else _default_bundle_dir(kind, config.app.name, mode_subdir)
     ).resolve()
+    _reject_staging_dir_in_git_cache(bundle_dir)
     return bundle_dir, is_default_dir
+
+
+def _reject_staging_dir_in_git_cache(bundle_dir: Path) -> None:
+    """Refuse a staging dir inside the git checkout cache.
+
+    The bundle writers generate files into the staging dir and
+    ``_clean_default_staging_dir`` can delete it. Pointed at the cache, that would
+    mutate or destroy a checkout other invocations expect to be a faithful copy of
+    a commit.
+    """
+    from dao_ai.git_source import cache_root
+
+    root: Path = cache_root().resolve()
+    if root == bundle_dir or root in bundle_dir.parents:
+        logger.error(
+            f"Staging dir {bundle_dir} is inside the dao-ai git cache ({root}), "
+            "which holds checkouts that must stay faithful to their commit. "
+            "Choose a different -s/--staging-dir."
+        )
+        sys.exit(1)
 
 
 def _load_app_config(options: Namespace, *, what: str) -> AppConfig:
