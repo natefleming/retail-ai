@@ -567,6 +567,80 @@ class TestFromStarSurface:
 
 
 @pytest.mark.unit
+class TestGitLocatorHint:
+    """The relative-assets rejection should hand back a working locator.
+
+    A URL carries owner, repo, ref, and in-repo path — everything a locator needs
+    — so the suggestion can be exact rather than a generic syntax reminder. The
+    old message told users to download the file, which git sourcing obsoletes.
+    """
+
+    def test_rewrites_a_raw_url(self) -> None:
+        from dao_ai.config import _git_locator_hint
+
+        assert (
+            _git_locator_hint(
+                "https://raw.githubusercontent.com/o/r/main/dir/agent.yaml"
+            )
+            == "git+https://github.com/o/r@main#dir/agent.yaml"
+        )
+
+    def test_rewrites_a_refs_heads_raw_url(self) -> None:
+        """Raw URLs sometimes spell the ref as `refs/heads/<branch>`."""
+        from dao_ai.config import _git_locator_hint
+
+        assert (
+            _git_locator_hint(
+                "https://raw.githubusercontent.com/o/r/refs/heads/main/a.yaml"
+            )
+            == "git+https://github.com/o/r@main#a.yaml"
+        )
+
+    def test_rewrites_a_browser_blob_url(self) -> None:
+        from dao_ai.config import _git_locator_hint
+
+        assert (
+            _git_locator_hint("https://github.com/o/r/blob/v1.0/dir/agent.yaml")
+            == "git+https://github.com/o/r@v1.0#dir/agent.yaml"
+        )
+
+    def test_falls_back_to_generic_syntax_for_other_hosts(self) -> None:
+        from dao_ai.config import _git_locator_hint
+
+        hint = _git_locator_hint("https://gitlab.example.com/o/r/-/raw/main/a.yaml")
+        assert hint.startswith("git+https://<host>")
+
+    def test_the_rejection_message_suggests_a_locator(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from dao_ai.config import AppConfig
+
+        url = "https://raw.githubusercontent.com/o/r/main/dir/agent.yaml"
+        monkeypatch.setattr(
+            "dao_ai.config_source.fetch_config_text",
+            lambda u, **k: (
+                _MINIMAL_YAML
+                + """
+datasets:
+- table:
+    schema:
+      catalog_name: c
+      schema_name: s
+    name: t
+  ddl: ./data/products.sql
+"""
+            ),
+        )
+        with pytest.raises(ValueError) as excinfo:
+            AppConfig.from_url(url, initialize=False)
+
+        message = str(excinfo.value)
+        assert "git+https://github.com/o/r@main#dir/agent.yaml" in message
+        # The obsolete advice is gone.
+        assert "download the config and pass its local path" not in message
+
+
+@pytest.mark.unit
 class TestSourceProtocol:
     def test_every_source_is_a_config_source(self) -> None:
         assert issubclass(GitSource, ConfigSource)

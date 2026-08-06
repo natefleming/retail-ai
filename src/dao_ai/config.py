@@ -10808,11 +10808,42 @@ def _reject_relative_assets_for_remote_config(
     if offenders:
         raise ValueError(
             f"Config loaded from {source} declares relative paths that cannot be "
-            "resolved — a remote config has no local directory to anchor them to:"
+            "resolved — a URL serves one file, with no directory to anchor them to:"
             + "".join(f"\n  - {o}" for o in offenders)
-            + "\nUse absolute paths, a Unity Catalog Volume reference, or "
-            "download the config and pass its local path."
+            + "\nLoad it as a git locator instead, which brings the whole project "
+            "tree along and resolves these normally:"
+            + f"\n  {_git_locator_hint(str(source))}"
+            + "\nAlternatively use absolute paths or a Unity Catalog Volume "
+            "reference, or download the project and pass a local path."
         )
+
+
+def _git_locator_hint(url: str) -> str:
+    """Rewrite a raw/blob GitHub config URL into the equivalent git locator.
+
+    The URL already carries owner, repo, ref, and in-repo path — everything a
+    locator needs — so the suggestion can be exact and copy-pasteable rather than
+    a generic syntax reminder. Falls back to the generic form for other hosts.
+    """
+    from urllib.parse import urlparse
+
+    generic: str = "git+https://<host>/<owner>/<repo>@<ref>#<path/to/config.yaml>"
+    parsed = urlparse(url)
+    parts: list[str] = parsed.path.lstrip("/").split("/")
+
+    if parsed.netloc == "raw.githubusercontent.com" and len(parts) >= 4:
+        owner, repo, ref, *rest = parts
+        # A raw URL may spell the ref as `refs/heads/<branch>`.
+        if ref == "refs" and len(rest) >= 2:
+            ref, rest = rest[1], rest[2:]
+        return f"git+https://github.com/{owner}/{repo}@{ref}#{'/'.join(rest)}"
+
+    if parsed.netloc in ("github.com", "www.github.com") and len(parts) >= 5:
+        owner, repo, kind, ref, *rest = parts
+        if kind in ("blob", "raw"):
+            return f"git+https://github.com/{owner}/{repo}@{ref}#{'/'.join(rest)}"
+
+    return generic
 
 
 class AppConfig(BaseModel):
