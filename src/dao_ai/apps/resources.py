@@ -32,6 +32,7 @@ Usage:
     resources = generate_app_resources(config)
 """
 
+from collections.abc import Iterable
 from typing import Any
 
 from databricks.sdk.service.apps import (
@@ -162,9 +163,24 @@ VALID_USER_API_SCOPES: set[str] = {
 #   - bare ``mcp.*`` strings  (companions are derived from the native scope;
 #                              listing them on a resource is now a no-op)
 API_SCOPE_TO_USER_SCOPES: dict[str, frozenset[str]] = {
-    # SQL family — companion is mcp.functions
+    # SQL family — companion is mcp.functions.
+    #
+    # ``sql.statement-execution`` is what TableModel and FunctionModel declare,
+    # so it also carries the UC read scopes an OBO table/function lookup needs
+    # (``catalog.*:read`` on the Apps platform, translated to the coarser
+    # ``unity-catalog`` for Model Serving by
+    # ``adapt_user_api_scopes_for_model_serving``). Routing them through this map
+    # rather than bolting them on afterwards is what lets them vary by target.
     "sql.warehouses": frozenset({"sql", "mcp.functions"}),
-    "sql.statement-execution": frozenset({"sql", "mcp.functions"}),
+    "sql.statement-execution": frozenset(
+        {
+            "sql",
+            "mcp.functions",
+            "catalog.catalogs:read",
+            "catalog.schemas:read",
+            "catalog.tables:read",
+        }
+    ),
     # Vector Search — companion is mcp.vectorsearch
     "vectorsearch.vector-search-indexes": frozenset(
         {"vector-search", "mcp.vectorsearch"}
@@ -188,6 +204,93 @@ API_SCOPE_TO_USER_SCOPES: dict[str, frozenset[str]] = {
     # Lakebase Postgres — now a first-class OBO scope
     "postgres": frozenset({"postgres"}),
 }
+
+# Model Serving's OBO allowlist, which is NOT the same as the Apps platform's.
+# Verbatim from the platform's own rejection message, so the two can be
+# reconciled by intersection rather than by guesswork:
+#
+#   InvalidParameterValue: Invalid user API scope(s) specified for model: ...
+#   Invalid scopes: catalog.catalogs:read, catalog.schemas:read,
+#   catalog.tables:read. Allowed scopes are: <this set>
+#
+# Model Serving expresses OBO Unity Catalog access as the single coarse
+# ``unity-catalog`` scope rather than the Apps platform's per-securable
+# ``catalog.*:read`` triple.
+MODEL_SERVING_USER_API_SCOPES: frozenset[str] = frozenset(
+    {
+        "sql",
+        "sql.statement-execution",
+        "sql.warehouses",
+        "mcp.genie",
+        "mcp.external",
+        "mcp.sql",
+        "mcp.vectorsearch",
+        "mcp.functions",
+        "catalog.connections",
+        "vector-search",
+        "vectorsearch.vector-search-indexes",
+        "vectorsearch.vector-search-endpoints",
+        "iam.current-user:read",
+        "iam.access-control:read",
+        "dashboards.genie",
+        "genie",
+        "ai-gateway",
+        "unity-catalog",
+        "apps.apps",
+        "apps",
+        "model-serving",
+        "serving.serving-endpoints",
+        "workspace.workspace",
+    }
+)
+
+# Apps scopes with a Model Serving equivalent. The ``catalog.*:read`` triple is
+# how the Apps platform grants OBO reads on UC securables; Model Serving takes
+# ``unity-catalog`` for the same thing. Dropping them without substituting would
+# produce a deploy that succeeds and then fails at inference time when the
+# forwarded user token tries to reach a table or function.
+_MODEL_SERVING_SCOPE_SUBSTITUTIONS: dict[str, str] = {
+    "catalog.catalogs:read": "unity-catalog",
+    "catalog.schemas:read": "unity-catalog",
+    "catalog.tables:read": "unity-catalog",
+}
+
+
+def adapt_user_api_scopes_for_model_serving(scopes: Iterable[str]) -> list[str]:
+    """Translate Apps-platform OBO scopes into the set Model Serving accepts.
+
+    The two planes' allowlists genuinely differ in both directions, so scopes are
+    substituted where an equivalent exists and dropped where none does, rather
+    than passed through and rejected at deploy time.
+
+    Args:
+        scopes: User API scopes as generated for the Apps platform.
+
+    Returns:
+        Sorted scopes valid for a Model Serving ``UserAuthPolicy``.
+    """
+    adapted: set[str] = set()
+    dropped: set[str] = set()
+    for scope in scopes:
+        substitute = _MODEL_SERVING_SCOPE_SUBSTITUTIONS.get(scope)
+        if substitute is not None:
+            adapted.add(substitute)
+        elif scope in MODEL_SERVING_USER_API_SCOPES:
+            adapted.add(scope)
+        else:
+            dropped.add(scope)
+
+    if dropped:
+        logger.warning(
+            "Dropped user API scopes that Model Serving does not accept",
+            dropped=sorted(dropped),
+            note=(
+                "No Model Serving equivalent is known for these. If the deployed "
+                "agent needs the access they represent, add a substitution to "
+                "_MODEL_SERVING_SCOPE_SUBSTITUTIONS."
+            ),
+        )
+    return sorted(adapted)
 
 
 def _extract_llm_resources(
@@ -894,11 +997,12 @@ def generate_user_api_scopes(config: AppConfig) -> list[str]:
             scopes.add("ai-gateway")
             break
 
-    # Always add catalog read scopes if we have any table or function access
-    if any(isinstance(r, (TableModel, FunctionModel)) for r in obo_resources):
-        scopes.add("catalog.catalogs:read")
-        scopes.add("catalog.schemas:read")
-        scopes.add("catalog.tables:read")
+    # NOTE: the catalog read scopes a UC table/function needs are declared by
+    # ``TableModel.api_scopes`` / ``FunctionModel.api_scopes`` and mapped through
+    # API_SCOPE_TO_USER_SCOPES above, like every other resource. They used to be
+    # bolted on here with an isinstance check, which bypassed that map and so
+    # could not vary by deployment target — the cause of Model Serving deploys
+    # failing with "Invalid scopes: catalog.catalogs:read, ...".
 
     # Sort for consistent ordering
     result = sorted(scopes)

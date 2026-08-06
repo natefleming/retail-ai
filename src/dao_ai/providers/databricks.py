@@ -253,14 +253,23 @@ def build_auth_policy(config: AppConfig) -> AuthPolicy:
 
     # Translate resource-level api_scopes to canonical OBO user scopes — the
     # same translation used by the Databricks Apps path — so the deployed
-    # model's forwarded user token carries the strings the Apps platform
-    # recognizes (e.g. ``sql``, ``genie``, ``files``, ``vector-search``).
-    # Without this, the user token would claim dao-ai's internal
-    # ``sql.warehouses`` / ``dashboards.genie`` strings, which the platform
-    # rejects.
-    from dao_ai.apps.resources import generate_user_api_scopes
+    # model's forwarded user token carries the strings the platform recognizes
+    # (e.g. ``sql``, ``genie``, ``files``, ``vector-search``). Without this, the
+    # user token would claim dao-ai's internal ``sql.warehouses`` /
+    # ``dashboards.genie`` strings, which the platform rejects.
+    #
+    # Then adapt for Model Serving, whose OBO allowlist differs from the Apps
+    # platform's: it takes the single coarse ``unity-catalog`` scope where Apps
+    # takes the per-securable ``catalog.*:read`` triple. Passing the Apps set
+    # through unchanged fails the deploy outright with InvalidParameterValue.
+    from dao_ai.apps.resources import (
+        adapt_user_api_scopes_for_model_serving,
+        generate_user_api_scopes,
+    )
 
-    api_scopes: list[str] = generate_user_api_scopes(config)
+    api_scopes: list[str] = adapt_user_api_scopes_for_model_serving(
+        generate_user_api_scopes(config)
+    )
 
     return AuthPolicy(
         system_auth_policy=SystemAuthPolicy(resources=system_resources),
