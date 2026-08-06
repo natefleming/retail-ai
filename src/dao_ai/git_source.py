@@ -42,6 +42,8 @@ __all__ = [
     "discover_config",
     "is_git_locator",
     "parse_git_locator",
+    "repo_cache_dir",
+    "user_state_root",
 ]
 
 #: Override for the checkout cache root.
@@ -331,19 +333,26 @@ def discover_config(checkout: Path, in_repo_path: str | None, *, locator: str) -
     return candidates[0]
 
 
-def cache_root(override: Path | None = None) -> Path:
-    """Root of the checkout cache.
+def user_state_root() -> Path:
+    """Root for dao-ai state that belongs to the user rather than a project.
 
-    ``$DAO_AI_GIT_CACHE`` wins, then ``$XDG_CACHE_HOME/dao-ai/git``, then
-    ``~/.cache/dao-ai/git``.
+    ``~/.dao-ai``, mirroring the project-local ``.dao-ai/`` name so both are
+    recognizable. Deliberately not under ``$XDG_CACHE_HOME``: a checkout is not
+    disposable in the way a cache is (losing one costs a re-clone), and grouping
+    it with the name users already associate with dao-ai makes it discoverable.
+    Each subdirectory keeps its own env override for anyone who needs to relocate
+    it (``$DAO_AI_GIT_CACHE``, ``$DAO_AI_BUNDLE_DIR``).
     """
+    return Path.home() / ".dao-ai"
+
+
+def cache_root(override: Path | None = None) -> Path:
+    """Root of the checkout cache: ``$DAO_AI_GIT_CACHE``, else ``~/.dao-ai/git``."""
     if override is not None:
         return override
     if env_root := os.environ.get(_CACHE_ENV_VAR):
         return Path(env_root).expanduser()
-    xdg: str | None = os.environ.get("XDG_CACHE_HOME")
-    base: Path = Path(xdg).expanduser() if xdg else Path.home() / ".cache"
-    return base / "dao-ai" / "git"
+    return user_state_root() / "git"
 
 
 def repo_cache_dir(locator: GitLocator, *, root: Path | None = None) -> Path:

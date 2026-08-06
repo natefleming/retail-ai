@@ -58,13 +58,19 @@ bundle is self-contained, so nothing needs `git` at deploy or run time.
 dao-ai locally would. The resolved commit SHA is logged on every load. Pin a tag
 or SHA for repositories you do not control.
 
-Checkouts are cached per commit under `$DAO_AI_GIT_CACHE`, else
-`$XDG_CACHE_HOME/dao-ai/git`, else `~/.cache/dao-ai/git`. A full 40-character SHA
-is immutable and never re-fetched; a branch or tag is re-resolved with
-`git ls-remote` each load and re-fetched only when it moved. Private repositories
-authenticate through git itself (ssh-agent, credential helpers); for headless use
-set `DAO_AI_GIT_TOKEN` or `GITHUB_TOKEN`, which is passed to git without ever
-being written to disk or appearing in a command line.
+Checkouts are cached per commit under `~/.dao-ai/git` (override with
+`$DAO_AI_GIT_CACHE`). A full 40-character SHA is immutable and never re-fetched; a
+branch or tag is re-resolved with `git ls-remote` each load and re-fetched only
+when it moved. Private repositories authenticate through git itself (ssh-agent,
+credential helpers); for headless use set `DAO_AI_GIT_TOKEN` or `GITHUB_TOKEN`,
+which is passed to git without ever being written to disk or appearing in a
+command line.
+
+`~/.dao-ai` is deliberately not under `$XDG_CACHE_HOME`: a checkout is not
+disposable the way a cache is (losing one costs a re-clone), and it mirrors the
+project-local `.dao-ai/` name. See the
+[CLI reference](cli-reference.md#config-sources-local-url-or-git) for how staging
+directories are placed.
 
 ## Parameter Substitution (Python API)
 

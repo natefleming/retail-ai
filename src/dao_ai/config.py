@@ -10950,6 +10950,10 @@ class AppConfig(BaseModel):
     # re-stages even when the config text is byte-identical and only a colocated
     # asset (ddl/data) changed.
     _source_git_sha: str | None = None
+    # The config's actual path on disk. Identical to ``_source_config_path`` for a
+    # local file, but for a git source that field holds the locator (what the user
+    # typed) while this holds the file inside the checkout.
+    _local_config_path: str | None = None
     _rendered_yaml: str | None = None
     _substitution_vars: dict[str, str] | None = None
     _raw_yaml_dict: dict[str, Any] | None = None
@@ -11307,6 +11311,13 @@ class AppConfig(BaseModel):
 
         config._source_config_path = path
         config._source_git_sha = resolved.revision
+        # The config's real location on disk, which for a git source is the file
+        # inside the checkout while `_source_config_path` keeps the locator (what
+        # the user typed, and what messages should echo). Consumers that need the
+        # actual path — e.g. deriving a staging dir keyed by repo — use this.
+        config._local_config_path = (
+            str(resolved.local_path) if resolved.local_path is not None else None
+        )
         config._rendered_yaml = rendered_text
         config._substitution_vars = dict(merged_params) if merged_params else None
         # Preserve inputs the workflow staging path needs to re-render with a

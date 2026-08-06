@@ -698,26 +698,88 @@ def _add_noun_verb_parsers(
 _BUNDLE_DIR_ENV_VAR = "DAO_AI_BUNDLE_DIR"
 _DEFAULT_BUNDLE_BASE = ".dao-ai/bundle"
 
+#: A full commit SHA, used to find the revision segment in a cache path.
+_FULL_SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 
-def _default_bundle_base() -> Path:
-    """Base dir for generated bundles: ``$DAO_AI_BUNDLE_DIR`` or ``.dao-ai/bundle``.
 
-    The built-in default is gitignored. If you point the env var at a path that
-    is NOT gitignored, deploys still work — each generated ``databricks.yaml``
-    carries an explicit ``sync.include`` for its own source, so App source syncs
-    regardless of whether the staging dir is git-ignored.
+def _default_bundle_base(config: AppConfig | None = None) -> Path:
+    """Base dir for generated bundles.
+
+    ``$DAO_AI_BUNDLE_DIR`` wins. Otherwise a config loaded from the filesystem
+    stages into the project-local ``.dao-ai/bundle`` (gitignored, and sitting next
+    to the project it belongs to), while a config loaded from a **git locator**
+    stages under :func:`~dao_ai.git_source.user_state_root` instead — see
+    :func:`_git_locator_bundle_base`.
+
+    If you point the env var at a path that is NOT gitignored, deploys still work
+    — each generated ``databricks.yaml`` carries an explicit ``sync.include`` for
+    its own source, so App source syncs regardless of git-ignore state.
     """
-    return Path(os.environ.get(_BUNDLE_DIR_ENV_VAR) or _DEFAULT_BUNDLE_BASE)
+    if env_base := os.environ.get(_BUNDLE_DIR_ENV_VAR):
+        return Path(env_base)
+    if config is not None and (git_base := _git_locator_bundle_base(config)):
+        return git_base
+    return Path(_DEFAULT_BUNDLE_BASE)
+
+
+def _git_locator_bundle_base(config: AppConfig) -> Path | None:
+    """Machine-level staging base for a git-sourced config, or None if local.
+
+    A git locator has no project directory, so there is nothing for a CWD-relative
+    ``.dao-ai/bundle`` to sit beside: the same locator run from two directories
+    would stage twice and neither run's idempotent-skip would see the other's
+    work. Anchoring on ``~/.dao-ai/bundle`` instead makes one locator mean one
+    staging dir wherever it runs.
+
+    Keyed by the repo plus the in-repo config path — not by app name — because
+    ``_default_bundle_dir`` only appends ``<kind>/<app>``, so two unrelated
+    projects that happen to name their app the same thing would otherwise share
+    (and clobber) one staging dir.
+
+    The key is ``<repo-name>-<8-char digest>``: readable enough to recognize, but
+    a fixed depth. Mirroring the cache's ``<host>/<owner>/<repo>/`` layout here
+    would be unbounded — a ``git+file:///Users/me/…`` remote turns its whole
+    filesystem path into nested directories.
+    """
+    from dao_ai.git_source import revision_for_checkout_path, user_state_root
+
+    # `_local_config_path`, not `_source_config_path`: the latter holds the locator
+    # when loaded via `from_git`, and only the real on-disk path can be tested for
+    # being inside the checkout cache.
+    source: str | None = config._local_config_path or config._source_config_path
+    if source is None or revision_for_checkout_path(source) is None:
+        return None
+
+    # Inside the cache the path is <root>/<host>/<owner>/<repo>/<sha>/<config...>.
+    # Drop the SHA from the key so a ref bump reuses (and correctly invalidates via
+    # the checksum) the same staging dir rather than orphaning one per commit.
+    from dao_ai.git_source import cache_root
+
+    relative: Path = Path(source).resolve().relative_to(cache_root().resolve())
+    parts: list[str] = list(relative.parts)
+    sha_index: int = next(i for i, p in enumerate(parts) if _FULL_SHA_RE.match(p))
+    repo_parts: list[str] = parts[:sha_index]
+    config_parts: list[str] = parts[sha_index + 1 :]
+
+    identity: str = "/".join([*repo_parts, *config_parts])
+    digest: str = hashlib.sha256(identity.encode()).hexdigest()[:8]
+    repo_name: str = normalize_name(repo_parts[-1]) if repo_parts else "repo"
+
+    return user_state_root() / "bundle" / f"{repo_name}-{digest}"
 
 
 def _default_bundle_dir(
-    kind: str, app_name: str, mode_subdir: str | None = None
+    kind: str,
+    app_name: str,
+    mode_subdir: str | None = None,
+    config: AppConfig | None = None,
 ) -> Path:
     """Default per-app bundle staging dir.
 
     ``<base>/<kind>/<app>`` by default, or ``<base>/<kind>/<app>/<mode_subdir>``
     when a mode subdir is given. ``<base>`` is :func:`_default_bundle_base`
-    (``$DAO_AI_BUNDLE_DIR`` or the built-in ``.dao-ai/bundle``).
+    (``$DAO_AI_BUNDLE_DIR``, else project-local ``.dao-ai/bundle``, else the
+    machine-level location for a git-sourced config).
 
     The ``agent`` noun nests the serving mode under the app
     (``agent/<app>/{apps,mcp,ms}``) because each mode produces a materially
@@ -726,7 +788,7 @@ def _default_bundle_dir(
     deployed in more than one mode. The ``workflow`` noun passes no
     ``mode_subdir`` (its artifact is mode-agnostic; mode is a runtime job var).
     """
-    base = _default_bundle_base() / kind / normalize_name(app_name)
+    base = _default_bundle_base(config) / kind / normalize_name(app_name)
     return base / mode_subdir if mode_subdir else base
 
 
@@ -925,17 +987,28 @@ def _clean_default_staging_dir(bundle_dir: Path, *, is_default: bool) -> None:
     ``--development`` run's ``dist/`` wheel + dev ``pyproject.toml`` from mixing
     into a later ``--no-development`` published layout.
 
-    Only touches an ``is_default`` path dao-ai chose under
-    :func:`_default_bundle_base` — never a user-supplied ``-o`` dir (that is user
-    territory; the writer's per-file overwrite semantics apply there). Guarded to
-    only ever remove a path strictly under the resolved default base.
+    Only touches an ``is_default`` path dao-ai chose — never a user-supplied
+    ``-s`` dir (that is user territory; the writer's per-file overwrite semantics
+    apply there). Guarded to only ever remove a path strictly under one of the
+    bases dao-ai stages into.
     """
     if not is_default or not bundle_dir.exists():
         return
-    base = _default_bundle_base().resolve()
+
+    from dao_ai.git_source import user_state_root
+
+    # Every base dao-ai may have chosen: the env override, the project-local
+    # default, and the machine-level location used for a git-sourced config. All
+    # three are checked because the caller does not say which one produced
+    # `bundle_dir`, and a config-less `_default_bundle_base()` would miss the
+    # git-sourced base and silently skip the clean.
+    bases: list[Path] = [
+        Path(os.environ.get(_BUNDLE_DIR_ENV_VAR) or _DEFAULT_BUNDLE_BASE).resolve(),
+        (user_state_root() / "bundle").resolve(),
+    ]
     resolved = bundle_dir.resolve()
-    # safety: only wipe paths strictly under the owned base dir
-    if base not in resolved.parents:
+    # safety: only wipe paths strictly under an owned base dir
+    if not any(base in resolved.parents for base in bases):
         return
     shutil.rmtree(bundle_dir)
 
@@ -1061,13 +1134,20 @@ Inspect & utilities:
         help="Delete cached checkouts",
         parents=[_GLOBAL],
     )
-    cache_clear_parser.add_argument(
+    cache_clear_group = cache_clear_parser.add_mutually_exclusive_group()
+    cache_clear_group.add_argument(
         "--repo",
         type=str,
         default=None,
         metavar="LOCATOR",
         help="Clear only this repository's checkouts (e.g. 'gh:owner/repo'). "
-        "Omit to clear the entire cache.",
+        "Omit to clear every checkout.",
+    )
+    cache_clear_group.add_argument(
+        "--bundles",
+        action="store_true",
+        help="Clear the staging dirs generated for git-sourced configs instead "
+        "of the checkouts (they are rebuilt on the next build).",
     )
 
     # Version command
@@ -3968,30 +4048,55 @@ def handle_cache_command(options: Namespace) -> None:
         return f"{value:.1f} GB"
 
     if options.cache_verb == "dir":
-        print(root)
-        if not root.exists():
-            print("(empty — nothing fetched yet)")
-            return
-        checkouts: int = sum(1 for _ in root.glob("*/*/*/*"))
-        print(f"{checkouts} checkout(s), {_human(_size(root))}")
+        from dao_ai.git_source import user_state_root
+
+        print(f"dao-ai user state: {user_state_root()}")
+        if root.exists():
+            checkouts: int = sum(1 for _ in root.glob("*/*/*/*"))
+            print(f"  git checkouts : {root}  ({checkouts}, {_human(_size(root))})")
+        else:
+            print(f"  git checkouts : {root}  (empty — nothing fetched yet)")
+
+        # Staging dirs for git-sourced configs live here too, and are the larger
+        # of the two in practice (each carries a wheel + locked dependency set).
+        bundles: Path = user_state_root() / "bundle"
+        if bundles.exists():
+            count: int = sum(1 for p in bundles.iterdir() if p.is_dir())
+            print(f"  git bundles   : {bundles}  ({count}, {_human(_size(bundles))})")
+        else:
+            print(f"  git bundles   : {bundles}  (empty)")
         return
 
     # clear
-    target: Path = root
+    from dao_ai.git_source import user_state_root
+
+    targets: list[Path] = [root]
     if options.repo:
         try:
-            target = repo_cache_dir(parse_git_locator(options.repo))
+            targets = [repo_cache_dir(parse_git_locator(options.repo))]
         except ValueError as e:
             logger.error(str(e))
             sys.exit(1)
+    elif options.bundles:
+        # Staging dirs for git-sourced configs. Regenerated on the next build, so
+        # removing them costs a rebuild, never any authored content.
+        targets = [user_state_root() / "bundle"]
 
-    if not target.exists():
-        print(f"Nothing to clear at {target}")
+    total: int = 0
+    cleared: list[Path] = []
+    for target in targets:
+        if not target.exists():
+            continue
+        total += _size(target)
+        shutil.rmtree(target)
+        cleared.append(target)
+
+    if not cleared:
+        print(f"Nothing to clear at {targets[0]}")
         return
-
-    freed: str = _human(_size(target))
-    shutil.rmtree(target)
-    print(f"Cleared {target} ({freed} freed)")
+    for target in cleared:
+        print(f"Cleared {target}")
+    print(f"({_human(total)} freed)")
 
 
 def handle_version_command(options: Namespace) -> None:
@@ -4828,7 +4933,9 @@ def run_databricks_command(
     if staging_dir_arg is not None:
         staging_dir = Path(staging_dir_arg).resolve()
     elif normalized_name:
-        staging_dir = _default_bundle_dir("workflow", app_config.app.name).resolve()
+        staging_dir = _default_bundle_dir(
+            "workflow", app_config.app.name, config=app_config
+        ).resolve()
     else:
         staging_dir = (_default_bundle_base() / "workflow").resolve()
 
@@ -5811,7 +5918,7 @@ def _resolve_bundle_dir(
     bundle_dir: Path = (
         Path(staging_dir)
         if staging_dir is not None
-        else _default_bundle_dir(kind, config.app.name, mode_subdir)
+        else _default_bundle_dir(kind, config.app.name, mode_subdir, config=config)
     ).resolve()
     _reject_staging_dir_in_git_cache(bundle_dir)
     return bundle_dir, is_default_dir

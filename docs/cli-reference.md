@@ -77,17 +77,34 @@ erroring with the candidates listed if the choice is ambiguous.
 `dao-ai agent up` would. The resolved commit SHA is reported on every load. Pin a
 tag or SHA for repositories you do not control.
 
-**Caching.** Checkouts are keyed by commit under `$DAO_AI_GIT_CACHE`, else
-`$XDG_CACHE_HOME/dao-ai/git`, else `~/.cache/dao-ai/git`. A full SHA is immutable
-and never re-fetched. A branch or tag is re-resolved via `git ls-remote` on each
-run and re-fetched only when it moved, so `up` on a branch always deploys its
-current HEAD; if the remote is unreachable, the newest cached checkout is used with
-a warning.
+**Where things land.** A git locator has no project directory, so it uses
+`~/.dao-ai` for both the checkout and the bundle it stages:
+
+| | Path | Scope |
+|---|---|---|
+| Checkouts | `~/.dao-ai/git/<host>/<owner>/<repo>/<sha>/` | machine |
+| Staging (locator) | `~/.dao-ai/bundle/<repo>-<digest>/<kind>/<app>/` | machine |
+| Staging (local config) | `./.dao-ai/bundle/<kind>/<app>/` | project |
+
+A **local** config still stages beside its project, which is where you want build
+output you're iterating on. A **locator** stages machine-level and is keyed by
+repository plus in-repo config path, so the same locator reuses one staging dir
+(and its idempotent-skip) no matter which directory you run it from — and two
+projects that happen to name their app the same thing can't collide.
+`$DAO_AI_GIT_CACHE` and `$DAO_AI_BUNDLE_DIR` override each; `-s/--staging-dir`
+overrides everything.
+
+**Caching.** Checkouts are keyed by commit, so a full SHA is immutable and never
+re-fetched. A branch or tag is re-resolved via `git ls-remote` on each run and
+re-fetched only when it moved, so `up` on a branch always deploys its current
+HEAD; if the remote is unreachable, the newest cached checkout is used with a
+warning. Nothing expires on its own:
 
 ```bash
-dao-ai cache dir                      # where checkouts live, and how much space
-dao-ai cache clear                    # remove all of them
+dao-ai cache dir                      # both locations, with counts and sizes
+dao-ai cache clear                    # remove every checkout
 dao-ai cache clear --repo gh:org/repo # remove just one repository's
+dao-ai cache clear --bundles          # remove the staged bundles instead
 ```
 
 **Private repositories.** Auth is delegated to `git`, so ssh-agent and credential

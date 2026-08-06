@@ -641,6 +641,99 @@ datasets:
 
 
 @pytest.mark.unit
+class TestUserStateLayout:
+    """``~/.dao-ai`` holds the two things that are the machine's, not a project's."""
+
+    def test_cache_defaults_under_the_user_state_root(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from dao_ai.git_source import cache_root, user_state_root
+
+        monkeypatch.delenv("DAO_AI_GIT_CACHE", raising=False)
+        # Deliberately set: the checkout root must NOT follow XDG_CACHE_HOME, since
+        # a checkout is not disposable the way a cache is.
+        monkeypatch.setenv("XDG_CACHE_HOME", "/tmp/some-xdg-cache")
+        assert cache_root() == user_state_root() / "git"
+
+    def test_env_var_still_overrides_the_cache(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        from dao_ai.git_source import cache_root
+
+        monkeypatch.setenv("DAO_AI_GIT_CACHE", str(tmp_path / "elsewhere"))
+        assert cache_root() == tmp_path / "elsewhere"
+
+    def test_a_local_config_stages_project_relative(self, git_repo: Path) -> None:
+        """A local config keeps the project-local staging dir it always had."""
+        from dao_ai.cli import _git_locator_bundle_base
+        from dao_ai.config import AppConfig
+
+        config = AppConfig.from_file(str(git_repo / "dao-ai.yaml"), initialize=False)
+        assert _git_locator_bundle_base(config) is None
+
+    def test_a_git_config_stages_under_the_user_state_root(
+        self, git_repo: Path, cache: Path
+    ) -> None:
+        """A locator has no project dir, so CWD-relative staging is meaningless."""
+        from dao_ai.cli import _git_locator_bundle_base
+        from dao_ai.config import AppConfig
+        from dao_ai.git_source import user_state_root
+
+        config = AppConfig.from_git(_locator(git_repo), initialize=False)
+        base = _git_locator_bundle_base(config)
+        assert base is not None
+        assert base.parent == user_state_root() / "bundle"
+
+    def test_the_staging_key_is_fixed_depth(self, git_repo: Path, cache: Path) -> None:
+        """A `git+file:///Users/...` remote must not become nested directories."""
+        from dao_ai.cli import _git_locator_bundle_base
+        from dao_ai.config import AppConfig
+
+        config = AppConfig.from_git(_locator(git_repo), initialize=False)
+        base = _git_locator_bundle_base(config)
+        assert base is not None
+        # One readable segment: <repo-name>-<digest>.
+        assert base.name.startswith("repo-")
+        assert len(base.name.split("-")) == 2
+
+    def test_the_same_locator_keys_identically_from_any_cwd(
+        self, git_repo: Path, cache: Path, tmp_path: Path, monkeypatch
+    ) -> None:
+        """The whole point: one locator means one staging dir, wherever it runs."""
+        from dao_ai.cli import _git_locator_bundle_base
+        from dao_ai.config import AppConfig
+
+        elsewhere: Path = tmp_path / "somewhere-else"
+        elsewhere.mkdir()
+
+        first = _git_locator_bundle_base(
+            AppConfig.from_git(_locator(git_repo), initialize=False)
+        )
+        monkeypatch.chdir(elsewhere)
+        second = _git_locator_bundle_base(
+            AppConfig.from_git(_locator(git_repo), initialize=False)
+        )
+        assert first == second
+
+    def test_a_different_config_in_the_same_repo_keys_differently(
+        self, git_repo: Path, cache: Path
+    ) -> None:
+        """Keyed by config path, not app name, so same-named apps can't collide."""
+        from dao_ai.cli import _git_locator_bundle_base
+        from dao_ai.config import AppConfig
+
+        root_cfg = _git_locator_bundle_base(
+            AppConfig.from_git(_locator(git_repo), initialize=False)
+        )
+        nested_cfg = _git_locator_bundle_base(
+            AppConfig.from_git(
+                _locator(git_repo, path="nested/agent.yaml"), initialize=False
+            )
+        )
+        assert root_cfg != nested_cfg
+
+
+@pytest.mark.unit
 class TestSourceProtocol:
     def test_every_source_is_a_config_source(self) -> None:
         assert issubclass(GitSource, ConfigSource)
