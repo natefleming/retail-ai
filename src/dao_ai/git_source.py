@@ -69,6 +69,15 @@ _FULL_SHA = re.compile(r"^[0-9a-f]{40}$")
 #: Filenames that identify the config in a directory without a scan.
 _CONVENTIONAL_NAMES: tuple[str, ...] = ("dao-ai.yaml", "dao-ai.yml", "dao_ai.yaml")
 
+#: Top-level keys a dao-ai config never has, which mark a YAML file as something
+#: else. ``bundle``/``targets``/``artifacts`` are Databricks Asset Bundles (whose
+#: top-level ``resources:`` otherwise mimics a config); ``command``/``env`` are an
+#: Apps ``app.yaml``; ``client``/``dependencies`` are a serverless environment
+#: spec. All of these commonly sit in a repo root next to a real config.
+_FOREIGN_TOP_LEVEL_KEYS: frozenset[str] = frozenset(
+    {"bundle", "targets", "artifacts", "command", "env", "client"}
+)
+
 
 @dataclass(frozen=True)
 class GitLocator:
@@ -255,12 +264,20 @@ def _looks_like_dao_ai_config(path: Path) -> bool:
     for a top-level key that only a config would carry, rather than attempting
     full validation: a config using ``${var.X}`` in a typed field will not
     validate until its parameters are substituted, which happens later.
+
+    Files carrying a key that a dao-ai config never has at the top level are
+    excluded outright. This matters most for a Databricks Asset Bundle
+    (``databricks.yml``), which also has a top-level ``resources:`` and so would
+    otherwise look like a config — and often sits in the repo root, exactly where
+    a locator with no ``#path`` looks.
     """
     try:
         loaded = yaml.safe_load(path.read_text())
     except (yaml.YAMLError, OSError):
         return False
     if not isinstance(loaded, dict):
+        return False
+    if _FOREIGN_TOP_LEVEL_KEYS & loaded.keys():
         return False
     return bool({"app", "agents", "resources", "tools", "retrievers"} & loaded.keys())
 

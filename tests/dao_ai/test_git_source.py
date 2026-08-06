@@ -297,6 +297,61 @@ class TestDiscoverConfig:
         (tmp_path / "examples.yaml").write_text("prompts:\n- hello\n")
         assert discover_config(tmp_path, None, locator="gh:o/r").name == "agent.yaml"
 
+    def test_a_databricks_bundle_is_not_a_config(self, tmp_path: Path) -> None:
+        """A DAB has a top-level `resources:` too, so key-presence alone is not enough.
+
+        Found live: a repo root holding only `databricks.yml` was "discovered" as
+        that file, which then failed to parse as an AppConfig.
+        """
+        (tmp_path / "databricks.yml").write_text(
+            "bundle:\n  name: b\ntargets:\n  default: {}\nresources:\n  apps: {}\n"
+        )
+        with pytest.raises(ValueError, match="No dao-ai config found"):
+            discover_config(tmp_path, None, locator="gh:o/r")
+
+    def test_a_bundle_beside_a_config_does_not_create_ambiguity(
+        self, tmp_path: Path
+    ) -> None:
+        """The common repo-root layout: a DAB and the real config side by side."""
+        (tmp_path / "databricks.yml").write_text("bundle:\n  name: b\nresources: {}\n")
+        (tmp_path / "agent.yaml").write_text(_MINIMAL_YAML)
+        assert discover_config(tmp_path, None, locator="gh:o/r").name == "agent.yaml"
+
+    @pytest.mark.parametrize(
+        "name,body",
+        [
+            ("app.yaml", "command:\n- python\n- app.py\nenv: []\n"),
+            ("environment.yaml", "client: '5'\ndependencies:\n- dao-ai\n"),
+        ],
+    )
+    def test_other_databricks_yaml_files_are_not_configs(
+        self, tmp_path: Path, name: str, body: str
+    ) -> None:
+        """An Apps `app.yaml` / serverless env spec also lives beside a config."""
+        (tmp_path / name).write_text(body)
+        (tmp_path / "agent.yaml").write_text(_MINIMAL_YAML)
+        assert discover_config(tmp_path, None, locator="gh:o/r").name == "agent.yaml"
+
+    def test_every_shipped_example_config_is_recognized(self) -> None:
+        """Guards the exclusion list against rejecting a real config.
+
+        The foreign-key check is a denylist, so a key that a config legitimately
+        uses at the top level would silently make it undiscoverable.
+        """
+        from dao_ai.git_source import _looks_like_dao_ai_config
+
+        examples: Path = Path(__file__).parents[2] / "examples"
+        if not examples.is_dir():
+            pytest.skip("examples/ not present in this checkout")
+
+        not_configs = {"examples.yaml", "app.yaml", "environment.yaml"}
+        rejected = [
+            path
+            for path in examples.rglob("*.yaml")
+            if path.name not in not_configs and not _looks_like_dao_ai_config(path)
+        ]
+        assert not rejected, f"real configs rejected by discovery: {rejected}"
+
     def test_ambiguity_lists_the_candidates(self, tmp_path: Path) -> None:
         for name in ("one.yaml", "two.yaml", "three.yaml"):
             (tmp_path / name).write_text(_MINIMAL_YAML)
