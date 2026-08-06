@@ -261,6 +261,49 @@ def _global_parent_parser() -> ArgumentParser:
 _DEFAULT_WAIT_SECONDS = 1200
 
 
+#: Help text for ``--config``, which accepts a path, a URL, or a git locator.
+_CONFIG_HELP = (
+    "dao-ai configuration file: a local path, an http(s) URL, or a git locator "
+    "('git+https://host/owner/repo@ref#path/to/agent.yaml' or "
+    "'gh:owner/repo@ref#path/to/agent.yaml'). Repo-relative when --from is given."
+)
+
+
+def _add_config_argument(parser: ArgumentParser, *, required: bool = True) -> None:
+    """Add ``-c/--config`` plus the git-source flags that modify how it resolves.
+
+    ``--from`` and ``--refresh`` live alongside ``--config`` everywhere it appears,
+    so every command that takes a config can take one from a repository.
+    """
+    parser.add_argument(
+        "-c",
+        "--config",
+        type=str,
+        required=required,
+        metavar="FILE|LOCATOR",
+        help=_CONFIG_HELP,
+    )
+    _add_git_source_arguments(parser)
+
+
+def _add_git_source_arguments(parser: ArgumentParser) -> None:
+    """Add ``--from`` and ``--refresh`` for resolving a config out of a git repo."""
+    parser.add_argument(
+        "--from",
+        dest="from_repo",
+        type=str,
+        default=None,
+        metavar="REPO",
+        help="Git repository to load the config from, e.g. "
+        "'gh:owner/repo@v1.0'. --config is then a repo-relative path.",
+    )
+    parser.add_argument(
+        "--refresh",
+        action="store_true",
+        help="Re-fetch the git repository even if the ref is already cached.",
+    )
+
+
 def _add_bundle_common_args(parser: ArgumentParser, *, kind: str) -> None:
     """Add the flags every bundle verb shares: -c/-s/-p/--dry-run/--param.
 
@@ -269,14 +312,7 @@ def _add_bundle_common_args(parser: ArgumentParser, *, kind: str) -> None:
     dry-run switch are spelled identically everywhere. ``kind`` only customizes
     the ``--staging-dir`` help text (``<base>/<kind>/<app>``).
     """
-    parser.add_argument(
-        "-c",
-        "--config",
-        type=str,
-        required=True,
-        metavar="FILE",
-        help="Path to the dao-ai configuration file",
-    )
+    _add_config_argument(parser)
     parser.add_argument(
         "-s",
         "--staging-dir",
@@ -898,9 +934,21 @@ def _clean_default_staging_dir(bundle_dir: Path, *, is_default: bool) -> None:
     shutil.rmtree(bundle_dir)
 
 
+#: Materialized checkout path -> the git locator the user actually typed. A cache
+#: path is meaningless to whoever passed a locator, so messages echo the locator.
+_MATERIALIZED_LOCATORS: dict[str, str] = {}
+
+
+def _display_config(path: str | Path | None) -> str:
+    """How to name a config in output: the locator when it came from git."""
+    if path is None:
+        return "<config>"
+    return _MATERIALIZED_LOCATORS.get(str(path), str(path))
+
+
 def _print_config_variable_error(err: ConfigVariableError) -> None:
     """Render a ConfigVariableError to stderr in a user-friendly form."""
-    print(f"\nConfig parameter error in {err.path}:", file=sys.stderr)
+    print(f"\nConfig parameter error in {_display_config(err.path)}:", file=sys.stderr)
     if err.missing_required:
         print("  Missing required parameters:", file=sys.stderr)
         for name in err.missing_required:
@@ -1047,9 +1095,10 @@ Examples:
         "--config",
         type=str,
         required=True,
-        metavar="FILE",
+        metavar="FILE|LOCATOR",
         help="Path to the model configuration file to validate (default: ./config/model_config.yaml)",
     )
+    _add_git_source_arguments(validation_parser)
 
     # Trace noun: `dao-ai trace <create|link|grant>`
     trace_parser: ArgumentParser = subparsers.add_parser(
@@ -1184,9 +1233,10 @@ Notes:
         "--config",
         type=str,
         required=True,
-        metavar="FILE",
+        metavar="FILE|LOCATOR",
         help="Path to the model configuration file (must set app.trace_location).",
     )
+    _add_git_source_arguments(trace_link_parser)
     trace_link_parser.add_argument(
         "--experiment-id",
         type=str,
@@ -1255,9 +1305,10 @@ Examples:
         "--config",
         type=str,
         required=True,
-        metavar="FILE",
+        metavar="FILE|LOCATOR",
         help="Path to the model configuration file (must set app.trace_location).",
     )
+    _add_git_source_arguments(trace_grant_parser)
     trace_grant_parser.add_argument(
         "--experiment-id",
         type=str,
@@ -1309,9 +1360,10 @@ Examples:
         "--config",
         type=str,
         required=True,
-        metavar="FILE",
+        metavar="FILE|LOCATOR",
         help="Path to the model configuration file to visualize",
     )
+    _add_git_source_arguments(graph_parser)
 
     # --- Bundle nouns: `dao-ai <noun> <up|build|sync|start|down>` -------------
     # Each noun owns the full up/build/sync/start/down lifecycle as discrete
@@ -1468,9 +1520,10 @@ Examples:
         type=str,
         default="./config/model_config.yaml",
         required=False,
-        metavar="FILE",
+        metavar="FILE|LOCATOR",
         help="Path to the model configuration file (default: ./config/model_config.yaml)",
     )
+    _add_git_source_arguments(mcp_tools_parser)
     mcp_tools_parser.add_argument(
         "--apply-filters",
         action="store_true",
@@ -1603,9 +1656,10 @@ Examples:
         "--config",
         type=str,
         required=True,
-        metavar="FILE",
+        metavar="FILE|LOCATOR",
         help="Path to the model configuration file",
     )
+    _add_git_source_arguments(monitor_scorers_parser)
     monitor_scorers_parser.add_argument(
         "action",
         choices=["enable", "status", "disable"],
@@ -1644,9 +1698,10 @@ Examples:
         "-c",
         "--config",
         type=str,
-        metavar="FILE",
+        metavar="FILE|LOCATOR",
         help="Path to the model configuration file (derives the app/endpoint name)",
     )
+    _add_git_source_arguments(monitor_logs_parser)
     monitor_logs_source.add_argument(
         "--name",
         type=str,
@@ -1727,9 +1782,10 @@ Examples (CONFIG=config/model_config.yaml):
         "-c",
         "--config",
         type=str,
-        metavar="FILE",
+        metavar="FILE|LOCATOR",
         help="Config file; app.name provides the default service-principal name",
     )
+    _add_git_source_arguments(sp_create_parser)
     sp_create_parser.add_argument(
         "--name",
         type=str,
@@ -1759,9 +1815,10 @@ Examples (CONFIG=config/model_config.yaml):
         "-c",
         "--config",
         type=str,
-        metavar="FILE",
+        metavar="FILE|LOCATOR",
         help="Config file; its service_principals block provides default scope + key names",
     )
+    _add_git_source_arguments(sp_store_parser)
     sp_store_parser.add_argument(
         "--client-id",
         type=str,
@@ -1810,9 +1867,10 @@ Examples (CONFIG=config/model_config.yaml):
         "--config",
         type=str,
         required=True,
-        metavar="FILE",
+        metavar="FILE|LOCATOR",
         help="Config file whose resources are granted to the service principal",
     )
+    _add_git_source_arguments(sp_grant_parser)
     sp_grant_parser.add_argument(
         "--principal",
         "--client-id",
@@ -1857,9 +1915,10 @@ The client secret is written straight to the secret scope and is never printed.
         "--config",
         type=str,
         required=True,
-        metavar="FILE",
+        metavar="FILE|LOCATOR",
         help="Config to provision the service principal for",
     )
+    _add_git_source_arguments(sp_provision_parser)
     sp_provision_parser.add_argument(
         "--name",
         type=str,
@@ -1953,9 +2012,10 @@ Examples:
         "--config",
         type=str,
         required=True,
-        metavar="FILE",
+        metavar="FILE|LOCATOR",
         help="Path to the model configuration file to validate",
     )
+    _add_git_source_arguments(chat_parser)
     chat_parser.add_argument(
         "--custom-input",
         action="append",
@@ -2030,9 +2090,10 @@ Examples:
         "--config",
         type=str,
         required=True,
-        metavar="FILE",
+        metavar="FILE|LOCATOR",
         help="Path to the dao-ai config file whose parameters: block to inspect.",
     )
+    _add_git_source_arguments(vars_parser)
 
     # Add --param/--var to the non-bundle subcommands (bundle verbs get it from
     # _add_bundle_common_args; trace verbs add it inline above).
@@ -2082,7 +2143,57 @@ Examples:
 
         options.thread_id = str(uuid.uuid4())
 
+    _materialize_config_locator(options)
+
     return options
+
+
+def _materialize_config_locator(options: Namespace) -> None:
+    """Turn a ``--config`` git locator (or ``--from``) into a local checkout path.
+
+    Resolved once, here, rather than at each of the ~14 ``--config`` sites, because
+    several coerce the value through ``Path()`` before ``AppConfig.from_file`` ever
+    runs — ``run_databricks_command`` rejects it with an ``exists()`` check, and
+    the workflow bundle derives the staged config filename from ``Path(...).name``.
+    Setting ``options.config`` to the real path inside the checkout means every
+    downstream consumer keeps working on a plain local file.
+
+    ``options.config_locator`` keeps the locator as typed, so user-facing messages
+    can echo that instead of an opaque cache path.
+    """
+    from dao_ai.git_source import GitSource, is_git_locator
+
+    config: str | None = getattr(options, "config", None)
+    from_repo: str | None = getattr(options, "from_repo", None)
+    options.config_locator = None
+
+    if from_repo:
+        if config and (is_git_locator(config) or Path(config).is_absolute()):
+            logger.error(
+                "--from and a git locator in --config are two spellings of the "
+                "same thing. Pass a repo-relative path to --config when using "
+                "--from, e.g. `--from gh:org/repo@v1 -c path/to/agent.yaml`."
+            )
+            sys.exit(1)
+        # `--from <repo> -c <path>` is sugar for the single-locator spelling.
+        locator: str = f"{from_repo}#{config}" if config else from_repo
+    elif config and is_git_locator(config):
+        locator = config
+    else:
+        return
+
+    try:
+        source = GitSource(locator, refresh=bool(getattr(options, "refresh", False)))
+        resolved = source.load()
+    except ValueError as e:
+        logger.error(str(e))
+        sys.exit(1)
+
+    options.config_locator = locator
+    # GitSource always resolves to a real file inside the checkout.
+    assert resolved.local_path is not None
+    options.config = str(resolved.local_path)
+    _MATERIALIZED_LOCATORS[options.config] = locator
 
 
 def handle_chat_command(options: Namespace) -> None:
@@ -2122,7 +2233,7 @@ def handle_chat_command(options: Namespace) -> None:
 
         # Show current configuration
         print("📋 Session Configuration:")
-        print(f"   Config file: {options.config}")
+        print(f"   Config file: {_display_config(options.config)}")
         print(f"   Thread ID: {options.thread_id}")
         print(f"   User ID: {options.user_id}")
         if options.custom_input:
@@ -4566,6 +4677,8 @@ def run_databricks_command(
             + the already-staged ``dist/`` so the bundle verb has what it needs.
             Errors if nothing is staged there.
     """
+    # Always a local path by here: a git locator was materialized into the cache
+    # by _materialize_config_locator during parse_args.
     config_path = Path(config) if config else None
 
     if config_path and not config_path.exists():
@@ -4673,10 +4786,13 @@ def run_databricks_command(
             # Standalone sync/start/down on an unstaged dir: nothing to run.
             # Primitives never build — `up` is the sole orchestrator/builder.
             _s: str = f" -s {staging_dir_arg}" if staging_dir_arg else ""
+            # Echo the locator, not the cache path, so the suggested command is
+            # copy-pasteable for a git-sourced config.
+            _c: str = _display_config(config)
             logger.error(
                 f"No staged workflow bundle at {staging_dir}. "
-                f"Run `dao-ai workflow build -c {config}{_s}` first "
-                f"(or `dao-ai workflow up -c {config}{_s}` to build, sync, and run)."
+                f"Run `dao-ai workflow build -c {_c}{_s}` first "
+                f"(or `dao-ai workflow up -c {_c}{_s}` to build, sync, and run)."
             )
             sys.exit(1)
 

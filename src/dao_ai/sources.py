@@ -46,6 +46,9 @@ class ResolvedConfig:
             error messages, so it must stay recognizable to whoever typed it.
         base_path: Directory that relative assets resolve against, or ``None``
             when no local tree backs the config.
+        local_path: The config's own path on disk, when it has one. For a git
+            source this is the file inside the checkout, which the CLI needs so
+            that consumers doing ``Path(config)`` keep working.
         revision: Immutable identifier of the fetched revision (a git commit SHA)
             when the source has one. Folded into the bundle checksum so bumping a
             ref re-stages even if the config text is byte-identical.
@@ -54,6 +57,7 @@ class ResolvedConfig:
     text: str
     origin: str
     base_path: Path | None
+    local_path: Path | None = None
     revision: str | None = None
 
 
@@ -135,6 +139,7 @@ class FileSource(ConfigSource):
             text=self.path.read_text(),
             origin=self.path.as_posix(),
             base_path=self.path.parent,
+            local_path=self.path,
         )
 
 

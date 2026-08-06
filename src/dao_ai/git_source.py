@@ -435,6 +435,7 @@ class GitSource(ConfigSource):
             # messages, and a cache path means nothing to whoever typed the locator.
             origin=self.locator.original,
             base_path=config_file.parent,
+            local_path=config_file,
             revision=sha,
         )
 
