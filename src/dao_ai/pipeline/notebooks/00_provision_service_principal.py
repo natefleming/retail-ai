@@ -11,7 +11,7 @@
 # ``[extras]`` survive shell glob/bracket expansion.
 import glob
 
-_dao_ai_dep = next(
+_dao_ai_dep: str = next(
     iter(sorted(glob.glob("../dist/dao_ai-*.whl"), reverse=True)), "dao-ai"
 )
 
@@ -31,32 +31,13 @@ print(f"mlflow=={version('mlflow')}")
 
 # COMMAND ----------
 
-import os
-from typing import Sequence
-
-
-def find_yaml_files_os_walk(base_path: str) -> Sequence[str]:
-    # Tolerate a missing/non-dir base path: when the pipeline runs from a
-    # wheel-only bundle an explicit `config-path` is always supplied, so the
-    # `../config` discovery dropdown is optional. Return [] instead of raising.
-    if not os.path.isdir(base_path):
-        return []
-
-    yaml_files = []
-
-    for root, dirs, files in os.walk(base_path):
-        for file in files:
-            if file.lower().endswith((".yaml", ".yml")):
-                yaml_files.append(os.path.join(root, file))
-
-    return sorted(yaml_files)
-
+from dao_ai.utils import find_config_files
 
 # COMMAND ----------
 
 dbutils.widgets.text(name="config-path", defaultValue="")
 
-config_files: Sequence[str] = find_yaml_files_os_walk("../config")
+config_files: list[str] = find_config_files("../config")
 dbutils.widgets.dropdown(
     name="config-paths", choices=config_files, defaultValue=next(iter(config_files), "")
 )
@@ -68,10 +49,25 @@ dbutils.widgets.dropdown(
     name="overwrite", choices=["false", "true"], defaultValue="false"
 )
 
-config_path: str | None = dbutils.widgets.get("config-path") or None
-project_path: str = dbutils.widgets.get("config-paths") or None
+explicit_path: str | None = dbutils.widgets.get("config-path") or None
+discovered_path: str | None = dbutils.widgets.get("config-paths") or None
 
-config_path: str = config_path or project_path
+# An explicit `config-path` always wins; the `../config` dropdown is the fallback
+# for an interactive run. Re-binding `config_path` to a second type (as the
+# sibling notebooks do) makes the annotation a lie, so the inputs get their own
+# names and the result is annotated once.
+resolved_path: str | None = explicit_path or discovered_path
+if not resolved_path:
+    # Neither the explicit widget nor `../config` discovery yielded a path, so
+    # there is nothing to load. Fail here naming both inputs, rather than at the
+    # read with a bare TypeError/FileNotFoundError on an empty path.
+    raise ValueError(
+        "No config to provision from: the `config-path` widget is empty and no "
+        "YAML was found under ../config. Set `config-path` to the staged config "
+        "(the pipeline bundle always passes it)."
+    )
+
+config_path: str = resolved_path
 overwrite: bool = dbutils.widgets.get("overwrite") == "true"
 
 print(config_path)
@@ -85,7 +81,7 @@ print(config_path)
 
 from dotenv import find_dotenv, load_dotenv
 
-_ = load_dotenv(find_dotenv())
+_loaded: bool = load_dotenv(find_dotenv())
 
 # COMMAND ----------
 
@@ -124,20 +120,29 @@ if not config.service_principals:
 # task fails with a permissions error, that identity is what to grant.
 from databricks.sdk import WorkspaceClient
 
-from dao_ai.service_principal import provision_all, resolve_sp_targets
+from dao_ai.service_principal import (
+    Grant,
+    GrantPlan,
+    MultiProvisionResult,
+    ProvisionResult,
+    ServicePrincipalTarget,
+    provision_all,
+    resolve_sp_targets,
+)
 
 w: WorkspaceClient = WorkspaceClient()
 
-targets = resolve_sp_targets(config)
-result = provision_all(
+targets: list[ServicePrincipalTarget] = resolve_sp_targets(config)
+result: MultiProvisionResult = provision_all(
     w,
     config=config,
     targets=targets,
     overwrite=overwrite,
 )
 
+provisioned: ProvisionResult
 for provisioned in result.results:
-    verb = "reused" if provisioned.reused else "created"
+    verb: str = "reused" if provisioned.reused else "created"
     print(f"\nservice principal '{provisioned.name}' — {provisioned.display_name}")
     print(f"  {verb}: client_id={provisioned.client_id or '(none)'}")
     if provisioned.blocked_reason:
@@ -149,15 +154,16 @@ for provisioned in result.results:
         )
     if provisioned.existing_keys:
         print(f"  already populated: {', '.join(provisioned.existing_keys)}")
-    plan = provisioned.grant_plan
+    plan: GrantPlan | None = provisioned.grant_plan
     if plan is not None:
-        applied = sum(1 for g in plan.grants if g.applied is True)
+        applied: int = sum(1 for g in plan.grants if g.applied is True)
         print(f"  grants: {applied}/{len(plan.grants)} applied")
-        for g in plan.grants:
-            if g.applied is False:
-                print(f"    FAILED [{g.kind}] {g.target}: {g.error}")
-            elif g.note:
-                print(f"    SKIP [{g.kind}] {g.target}: {g.note}")
+        grant: Grant
+        for grant in plan.grants:
+            if grant.applied is False:
+                print(f"    FAILED [{grant.kind}] {grant.target}: {grant.error}")
+            elif grant.note:
+                print(f"    SKIP [{grant.kind}] {grant.target}: {grant.note}")
 
 # COMMAND ----------
 
@@ -166,7 +172,8 @@ for provisioned in result.results:
 # its Postgres role subject; unity-catalog-tools creates functions the SP needs
 # EXECUTE on) do not run against a half-provisioned identity.
 if result.blocked:
+    blocked: list[tuple[str, str]] = result.blocked
     raise RuntimeError(
         "Service-principal provisioning was blocked for: "
-        + "; ".join(f"{name}: {reason}" for name, reason in result.blocked)
+        + "; ".join(f"{name}: {reason}" for name, reason in blocked)
     )

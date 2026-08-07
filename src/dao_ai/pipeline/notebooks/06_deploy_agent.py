@@ -22,26 +22,7 @@ _dao_ai_dep = (
 
 # COMMAND ----------
 
-import os
-from typing import Sequence
-
-
-def find_yaml_files_os_walk(base_path: str) -> Sequence[str]:
-    # Tolerate a missing/non-dir base path: when the pipeline runs from a
-    # wheel-only bundle an explicit `config-path` is always supplied, so the
-    # `../config` discovery dropdown is optional. Return [] instead of raising.
-    if not os.path.isdir(base_path):
-        return []
-
-    yaml_files = []
-
-    for root, dirs, files in os.walk(base_path):
-        for file in files:
-            if file.lower().endswith((".yaml", ".yml")):
-                yaml_files.append(os.path.join(root, file))
-
-    return sorted(yaml_files)
-
+from dao_ai.utils import find_config_files
 
 # COMMAND ----------
 
@@ -57,7 +38,7 @@ dbutils.widgets.dropdown(
     defaultValue="auto",
 )
 
-config_files: Sequence[str] = find_yaml_files_os_walk("../config")
+config_files: list[str] = find_config_files("../config")
 dbutils.widgets.dropdown(
     name="config-paths", choices=config_files, defaultValue=next(iter(config_files), "")
 )
