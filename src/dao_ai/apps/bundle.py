@@ -856,9 +856,18 @@ def write_bundle(
     # the app source and reachable by deepagents' SkillsMiddleware at
     # runtime. Volume-backed skills are NOT copied (they live on UC volumes
     # and are read directly via the ``/Volumes/...`` path).
-    from dao_ai.skills import _project_root, collect_local_skill_dirs
+    from dao_ai.skills import _skill_base_dir, collect_local_skill_dirs
 
-    project_root: Path = _project_root()
+    # Anchor on the config's own directory — the same anchor
+    # ``collect_local_skill_dirs`` resolved these paths against — rather than
+    # ``_project_root()``, which walks up from the CWD. For a config outside the
+    # CWD tree (a git checkout in the cache, most obviously) the CWD-based root
+    # can never contain the skill dirs, so ``relative_to`` below would always
+    # raise and flatten ``skills/<vertical>/<skill>`` to ``skills/<skill>`` while
+    # the rendered config still named the nested path — leaving the skill
+    # unreachable at runtime. ``_skill_base_dir`` falls back to
+    # ``_project_root()`` when the config has no source path.
+    project_root: Path = _skill_base_dir(config)
     for skill_dir_str in collect_local_skill_dirs(config):
         src_dir: Path = Path(skill_dir_str)
         if not src_dir.exists():

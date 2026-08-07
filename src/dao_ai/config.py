@@ -107,6 +107,7 @@ from dao_ai.resource_protocol import (
     ManagedResource,
     Provisionable,
 )
+from dao_ai.sources import ConfigSource, ResolvedConfig, SourceLike
 from dao_ai.utils import normalize_name
 
 
@@ -10807,11 +10808,42 @@ def _reject_relative_assets_for_remote_config(
     if offenders:
         raise ValueError(
             f"Config loaded from {source} declares relative paths that cannot be "
-            "resolved — a remote config has no local directory to anchor them to:"
+            "resolved — a URL serves one file, with no directory to anchor them to:"
             + "".join(f"\n  - {o}" for o in offenders)
-            + "\nUse absolute paths, a Unity Catalog Volume reference, or "
-            "download the config and pass its local path."
+            + "\nLoad it as a git locator instead, which brings the whole project "
+            "tree along and resolves these normally:"
+            + f"\n  {_git_locator_hint(str(source))}"
+            + "\nAlternatively use absolute paths or a Unity Catalog Volume "
+            "reference, or download the project and pass a local path."
         )
+
+
+def _git_locator_hint(url: str) -> str:
+    """Rewrite a raw/blob GitHub config URL into the equivalent git locator.
+
+    The URL already carries owner, repo, ref, and in-repo path — everything a
+    locator needs — so the suggestion can be exact and copy-pasteable rather than
+    a generic syntax reminder. Falls back to the generic form for other hosts.
+    """
+    from urllib.parse import urlparse
+
+    generic: str = "git+https://<host>/<owner>/<repo>@<ref>#<path/to/config.yaml>"
+    parsed = urlparse(url)
+    parts: list[str] = parsed.path.lstrip("/").split("/")
+
+    if parsed.netloc == "raw.githubusercontent.com" and len(parts) >= 4:
+        owner, repo, ref, *rest = parts
+        # A raw URL may spell the ref as `refs/heads/<branch>`.
+        if ref == "refs" and len(rest) >= 2:
+            ref, rest = rest[1], rest[2:]
+        return f"git+https://github.com/{owner}/{repo}@{ref}#{'/'.join(rest)}"
+
+    if parsed.netloc in ("github.com", "www.github.com") and len(parts) >= 5:
+        owner, repo, kind, ref, *rest = parts
+        if kind in ("blob", "raw"):
+            return f"git+https://github.com/{owner}/{repo}@{ref}#{'/'.join(rest)}"
+
+    return generic
 
 
 class AppConfig(BaseModel):
@@ -10913,6 +10945,15 @@ class AppConfig(BaseModel):
 
     # Private attributes set by from_file
     _source_config_path: str | None = None
+    # Immutable revision of the source the config was loaded from (a git commit
+    # SHA), when it has one. Folded into the bundle checksum so bumping a git ref
+    # re-stages even when the config text is byte-identical and only a colocated
+    # asset (ddl/data) changed.
+    _source_git_sha: str | None = None
+    # The config's actual path on disk. Identical to ``_source_config_path`` for a
+    # local file, but for a git source that field holds the locator (what the user
+    # typed) while this holds the file inside the checkout.
+    _local_config_path: str | None = None
     _rendered_yaml: str | None = None
     _substitution_vars: dict[str, str] | None = None
     _raw_yaml_dict: dict[str, Any] | None = None
@@ -11032,6 +11073,98 @@ class AppConfig(BaseModel):
         return self
 
     @classmethod
+    def _coerce_source(
+        cls,
+        source: "SourceLike",
+        *,
+        expected: type["ConfigSource"] | None,
+    ) -> "ConfigSource":
+        """Normalize a spec-or-source to a :class:`ConfigSource`.
+
+        Every ``from_*`` method accepts either a spec string (classified here) or
+        an already-constructed source (useful when it needs options a bare string
+        cannot express, e.g. ``GitSource(spec, token=...)``). They differ only in
+        the ``expected`` type they pin.
+
+        Args:
+            source: A path, URL, git locator, or a :class:`ConfigSource`.
+            expected: The source type the calling method accepts, or ``None`` to
+                accept any (``from_file``/``from_source``).
+
+        Raises:
+            ValueError: if ``source`` is not the ``expected`` kind.
+        """
+        from dao_ai.sources import ConfigSource, resolve_source
+
+        if isinstance(source, ConfigSource):
+            if expected is not None and not isinstance(source, expected):
+                raise ValueError(
+                    f"Expected {expected.__name__}, got {type(source).__name__}. "
+                    "Use AppConfig.from_source to accept any source type."
+                )
+            return source
+
+        if expected is None:
+            return resolve_source(source)
+
+        if not expected.handles(str(source)):
+            raise ValueError(f"Not a valid {expected.__name__} spec: {str(source)!r}")
+        return expected(str(source))
+
+    @classmethod
+    def from_source(cls, source: "SourceLike", **kwargs: Any) -> "AppConfig":
+        """Load an AppConfig from any supported source.
+
+        Accepts a filesystem path, an ``http(s)`` URL, a git locator, or an
+        explicitly-constructed :class:`ConfigSource`. The named ``from_file`` /
+        ``from_url`` / ``from_git`` methods are typed front doors onto this,
+        each validating that the source is the kind it advertises.
+
+        Args:
+            source: A path, URL, git locator, or :class:`ConfigSource`.
+            **kwargs: Forwarded to :meth:`from_file` (``params``,
+                ``task_values``, ``task_key``, ``initialize``).
+        """
+        return cls.from_file(source, **kwargs)
+
+    @classmethod
+    def from_git(cls, locator: "SourceLike", **kwargs: Any) -> "AppConfig":
+        """Load an AppConfig from a git repository, bringing its whole tree along.
+
+        Where :meth:`from_url` fetches a single YAML — and so cannot resolve
+        relative ``ddl`` / ``data`` / ``code_paths`` — this materializes the repo
+        into a local cache, so every colocated-asset convention resolves exactly
+        as it does for a local project::
+
+            git+https://github.com/<owner>/<repo>@<ref>#path/to/agent.yaml
+            gh:<owner>/<repo>@<ref>#path/to/agent.yaml
+
+        The ref and in-repo path are both optional: the remote's default HEAD is
+        used when no ref is given, and the config is auto-discovered when the path
+        is a directory or omitted (ambiguity is an error naming the candidates).
+
+        Pass a :class:`~dao_ai.git_source.GitSource` instead of a string to set a
+        token, cache directory, or force a refresh.
+
+        A git locator runs the repository's code — a config can ship Python via
+        ``code_paths`` / ``src/`` — exactly as cloning it and running dao-ai
+        locally would. The resolved commit SHA is logged on every load. Pin a tag
+        or SHA for repositories you do not control.
+
+        Args:
+            locator: A git locator, or a :class:`~dao_ai.git_source.GitSource`.
+            **kwargs: Forwarded to :meth:`from_file` (``params``,
+                ``task_values``, ``task_key``, ``initialize``).
+
+        Raises:
+            ValueError: if ``locator`` is not a git locator, if the repository or
+                ref cannot be fetched, or if the config cannot be identified.
+        """
+        from dao_ai.git_source import GitSource
+
+        return cls.from_file(cls._coerce_source(locator, expected=GitSource), **kwargs)
+
+    @classmethod
     def from_url(cls, url: str, **kwargs: Any) -> "AppConfig":
         """Load an AppConfig from an ``http(s)`` URL.
 
@@ -11050,7 +11183,7 @@ class AppConfig(BaseModel):
         ``data`` / ``code_paths`` entries — declaring one raises ``ValueError``.
 
         Args:
-            url: The config URL.
+            url: The config URL, or a :class:`UrlSource`.
             **kwargs: Forwarded to :meth:`from_file` (``params``,
                 ``task_values``, ``task_key``, ``initialize``).
 
@@ -11059,21 +11192,26 @@ class AppConfig(BaseModel):
                 fetched, or if the config declares unresolvable relative paths.
         """
         from dao_ai.config_source import is_remote_config
+        from dao_ai.sources import ConfigSource, UrlSource
 
-        if not is_remote_config(url):
+        # Keep the long-standing message for a plain non-URL string; _coerce_source
+        # handles the wrong-source-type case.
+        if not isinstance(url, ConfigSource) and not is_remote_config(url):
             raise ValueError(
                 f"Not an http(s) URL: {url!r}. Use AppConfig.from_file for "
                 "filesystem paths."
             )
-        return cls.from_file(url, **kwargs)
+        return cls.from_file(cls._coerce_source(url, expected=UrlSource), **kwargs)
 
     @classmethod
     def from_file(
         cls,
-        # `str | PathLike`, not bare `PathLike`: every caller in the pipeline
-        # notebooks passes a plain string (a widget value), and `str` is not a
-        # `PathLike` — the narrower annotation was a type error at all 11 of them.
-        path: str | PathLike,
+        # `SourceLike` (= str | PathLike | ConfigSource), not bare `PathLike`:
+        # every caller in the pipeline notebooks passes a plain string (a widget
+        # value), and `str` is not a `PathLike` — the narrower annotation was a
+        # type error at all 11 of them. The `ConfigSource` arm additionally lets a
+        # caller pass a constructed source (see :meth:`from_source`).
+        path: SourceLike,
         *,
         params: Optional[Mapping[str, str]] = None,
         task_values: Optional[TaskValuesLike] = None,
@@ -11081,6 +11219,13 @@ class AppConfig(BaseModel):
         initialize: bool = True,
     ) -> "AppConfig":
         """Load an AppConfig from a YAML file with optional parameter substitution.
+
+        The general-purpose loader, and the single implementation every other
+        ``from_*`` delegates to. Accepts a filesystem path, an ``http(s)`` URL, a
+        git locator, or an explicit :class:`~dao_ai.sources.ConfigSource`; the
+        source is classified by :func:`~dao_ai.sources.resolve_source`. Unlike
+        :meth:`from_url` / :meth:`from_git` it validates nothing, since it has
+        always accepted whatever it was handed.
 
         Top-level ``parameters:`` declarations are parsed first and used to
         resolve ``${param.NAME}`` and ``${var.NAME}`` references in the rest
@@ -11090,7 +11235,8 @@ class AppConfig(BaseModel):
         > error.
 
         Args:
-            path: Path to the YAML config file.
+            path: Path to the YAML config file, a URL, a git locator, or a
+                :class:`~dao_ai.sources.ConfigSource`.
             params: Optional mapping of parameter name to literal string value,
                 used to override env-var and default lookups for
                 ``${param.NAME}`` / ``${var.NAME}`` references.
@@ -11110,26 +11256,18 @@ class AppConfig(BaseModel):
                 or any reference is undeclared (when a ``parameters:`` block
                 is present).
         """
-        from dao_ai.config_source import (
-            fetch_config_text,
-            is_remote_config,
-            normalize_config_url,
-        )
+        # Sources differ in exactly two ways — how the text is read, and whether
+        # there is a local directory to anchor relative assets and code_paths
+        # against. Everything downstream is identical. See dao_ai.sources.
+        source: ConfigSource = cls._coerce_source(path, expected=None)
+        logger.debug(f"Loading config from {source}")
+        resolved: ResolvedConfig = source.load()
 
-        # A URL and a filesystem path diverge only here: how the text is read,
-        # and whether there is a local directory to anchor relative assets and
-        # code_paths against. Everything downstream is identical.
-        remote: bool = is_remote_config(path)
-        if remote:
-            path = normalize_config_url(str(path))
-            logger.debug(f"Loading config from {path}")
-            raw_text: str = fetch_config_text(path)
-            base_path: Optional[str] = None
-        else:
-            path = Path(path).as_posix()
-            logger.debug(f"Loading config from {path}")
-            raw_text = Path(path).read_text()
-            base_path = str(Path(path).parent)
+        raw_text: str = resolved.text
+        path = resolved.origin
+        base_path: Optional[str] = (
+            str(resolved.base_path) if resolved.base_path is not None else None
+        )
 
         # Resolve ${workspace.*} refs first so they can appear inside
         # parameter defaults (e.g. default: /Users/${workspace.current_user.userName}/...).
@@ -11177,6 +11315,14 @@ class AppConfig(BaseModel):
         config: AppConfig = AppConfig(**model_config.to_dict())
 
         config._source_config_path = path
+        config._source_git_sha = resolved.revision
+        # The config's real location on disk, which for a git source is the file
+        # inside the checkout while `_source_config_path` keeps the locator (what
+        # the user typed, and what messages should echo). Consumers that need the
+        # actual path — e.g. deriving a staging dir keyed by repo — use this.
+        config._local_config_path = (
+            str(resolved.local_path) if resolved.local_path is not None else None
+        )
         config._rendered_yaml = rendered_text
         config._substitution_vars = dict(merged_params) if merged_params else None
         # Preserve inputs the workflow staging path needs to re-render with a

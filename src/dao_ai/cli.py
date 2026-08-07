@@ -261,6 +261,49 @@ def _global_parent_parser() -> ArgumentParser:
 _DEFAULT_WAIT_SECONDS = 1200
 
 
+#: Help text for ``--config``, which accepts a path, a URL, or a git locator.
+_CONFIG_HELP = (
+    "dao-ai configuration file: a local path, an http(s) URL, or a git locator "
+    "('git+https://host/owner/repo@ref#path/to/agent.yaml' or "
+    "'gh:owner/repo@ref#path/to/agent.yaml'). Repo-relative when --from is given."
+)
+
+
+def _add_config_argument(parser: ArgumentParser, *, required: bool = True) -> None:
+    """Add ``-c/--config`` plus the git-source flags that modify how it resolves.
+
+    ``--from`` and ``--refresh`` live alongside ``--config`` everywhere it appears,
+    so every command that takes a config can take one from a repository.
+    """
+    parser.add_argument(
+        "-c",
+        "--config",
+        type=str,
+        required=required,
+        metavar="FILE|LOCATOR",
+        help=_CONFIG_HELP,
+    )
+    _add_git_source_arguments(parser)
+
+
+def _add_git_source_arguments(parser: ArgumentParser) -> None:
+    """Add ``--from`` and ``--refresh`` for resolving a config out of a git repo."""
+    parser.add_argument(
+        "--from",
+        dest="from_repo",
+        type=str,
+        default=None,
+        metavar="REPO",
+        help="Git repository to load the config from, e.g. "
+        "'gh:owner/repo@v1.0'. --config is then a repo-relative path.",
+    )
+    parser.add_argument(
+        "--refresh",
+        action="store_true",
+        help="Re-fetch the git repository even if the ref is already cached.",
+    )
+
+
 def _add_bundle_common_args(parser: ArgumentParser, *, kind: str) -> None:
     """Add the flags every bundle verb shares: -c/-s/-p/--dry-run/--param.
 
@@ -269,14 +312,7 @@ def _add_bundle_common_args(parser: ArgumentParser, *, kind: str) -> None:
     dry-run switch are spelled identically everywhere. ``kind`` only customizes
     the ``--staging-dir`` help text (``<base>/<kind>/<app>``).
     """
-    parser.add_argument(
-        "-c",
-        "--config",
-        type=str,
-        required=True,
-        metavar="FILE",
-        help="Path to the dao-ai configuration file",
-    )
+    _add_config_argument(parser)
     parser.add_argument(
         "-s",
         "--staging-dir",
@@ -662,26 +698,97 @@ def _add_noun_verb_parsers(
 _BUNDLE_DIR_ENV_VAR = "DAO_AI_BUNDLE_DIR"
 _DEFAULT_BUNDLE_BASE = ".dao-ai/bundle"
 
+#: A full commit SHA, used to find the revision segment in a cache path.
+_FULL_SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 
-def _default_bundle_base() -> Path:
-    """Base dir for generated bundles: ``$DAO_AI_BUNDLE_DIR`` or ``.dao-ai/bundle``.
+#: Characters a single path segment cannot hold. Hyphens and dots are fine — a
+#: directory name is not a Databricks resource name.
+_PATH_UNSAFE_RE = re.compile(r"[/\\\0]")
 
-    The built-in default is gitignored. If you point the env var at a path that
-    is NOT gitignored, deploys still work — each generated ``databricks.yaml``
-    carries an explicit ``sync.include`` for its own source, so App source syncs
-    regardless of whether the staging dir is git-ignored.
+
+def _default_bundle_base(config: AppConfig | None = None) -> Path:
+    """Base dir for generated bundles.
+
+    ``$DAO_AI_BUNDLE_DIR`` wins. Otherwise a config loaded from the filesystem
+    stages into the project-local ``.dao-ai/bundle`` (gitignored, and sitting next
+    to the project it belongs to), while a config loaded from a **git locator**
+    stages under :func:`~dao_ai.git_source.user_state_root` instead — see
+    :func:`_git_locator_bundle_base`.
+
+    If you point the env var at a path that is NOT gitignored, deploys still work
+    — each generated ``databricks.yaml`` carries an explicit ``sync.include`` for
+    its own source, so App source syncs regardless of git-ignore state.
     """
-    return Path(os.environ.get(_BUNDLE_DIR_ENV_VAR) or _DEFAULT_BUNDLE_BASE)
+    if env_base := os.environ.get(_BUNDLE_DIR_ENV_VAR):
+        return Path(env_base)
+    if config is not None and (git_base := _git_locator_bundle_base(config)):
+        return git_base
+    return Path(_DEFAULT_BUNDLE_BASE)
+
+
+def _git_locator_bundle_base(config: AppConfig) -> Path | None:
+    """Machine-level staging base for a git-sourced config, or None if local.
+
+    A git locator has no project directory, so there is nothing for a CWD-relative
+    ``.dao-ai/bundle`` to sit beside: the same locator run from two directories
+    would stage twice and neither run's idempotent-skip would see the other's
+    work. Anchoring on ``~/.dao-ai/bundle`` instead makes one locator mean one
+    staging dir wherever it runs.
+
+    Keyed by the repo plus the in-repo config path — not by app name — because
+    ``_default_bundle_dir`` only appends ``<kind>/<app>``, so two unrelated
+    projects that happen to name their app the same thing would otherwise share
+    (and clobber) one staging dir.
+
+    The key is ``<repo-name>-<8-char digest>``: readable enough to recognize, but
+    a fixed depth. Mirroring the cache's ``<host>/<owner>/<repo>/`` layout here
+    would be unbounded — a ``git+file:///Users/me/…`` remote turns its whole
+    filesystem path into nested directories.
+    """
+    from dao_ai.git_source import revision_for_checkout_path, user_state_root
+
+    # `_local_config_path`, not `_source_config_path`: the latter holds the locator
+    # when loaded via `from_git`, and only the real on-disk path can be tested for
+    # being inside the checkout cache.
+    source: str | None = config._local_config_path or config._source_config_path
+    if source is None or revision_for_checkout_path(source) is None:
+        return None
+
+    # Inside the cache the path is <root>/<host>/<owner>/<repo>/<sha>/<config...>.
+    # Drop the SHA from the key so a ref bump reuses (and correctly invalidates via
+    # the checksum) the same staging dir rather than orphaning one per commit.
+    from dao_ai.git_source import cache_root
+
+    relative: Path = Path(source).resolve().relative_to(cache_root().resolve())
+    parts: list[str] = list(relative.parts)
+    sha_index: int = next(i for i, p in enumerate(parts) if _FULL_SHA_RE.match(p))
+    repo_parts: list[str] = parts[:sha_index]
+    config_parts: list[str] = parts[sha_index + 1 :]
+
+    identity: str = "/".join([*repo_parts, *config_parts])
+    digest: str = hashlib.sha256(identity.encode()).hexdigest()[:8]
+    # Keep the repository's own name, so the path matches the locator the user
+    # typed and reads the same as the cache dir beside it. Deliberately NOT
+    # ``normalize_name`` — that exists to make Databricks resource names
+    # identifier-safe, and a directory has no such constraint. Only characters a
+    # path segment genuinely cannot hold are replaced.
+    repo_name: str = _PATH_UNSAFE_RE.sub("_", repo_parts[-1].removesuffix(".git"))
+
+    return user_state_root() / "bundle" / f"{repo_name}-{digest}"
 
 
 def _default_bundle_dir(
-    kind: str, app_name: str, mode_subdir: str | None = None
+    kind: str,
+    app_name: str,
+    mode_subdir: str | None = None,
+    config: AppConfig | None = None,
 ) -> Path:
     """Default per-app bundle staging dir.
 
     ``<base>/<kind>/<app>`` by default, or ``<base>/<kind>/<app>/<mode_subdir>``
     when a mode subdir is given. ``<base>`` is :func:`_default_bundle_base`
-    (``$DAO_AI_BUNDLE_DIR`` or the built-in ``.dao-ai/bundle``).
+    (``$DAO_AI_BUNDLE_DIR``, else project-local ``.dao-ai/bundle``, else the
+    machine-level location for a git-sourced config).
 
     The ``agent`` noun nests the serving mode under the app
     (``agent/<app>/{apps,mcp,ms}``) because each mode produces a materially
@@ -690,7 +797,7 @@ def _default_bundle_dir(
     deployed in more than one mode. The ``workflow`` noun passes no
     ``mode_subdir`` (its artifact is mode-agnostic; mode is a runtime job var).
     """
-    base = _default_bundle_base() / kind / normalize_name(app_name)
+    base = _default_bundle_base(config) / kind / normalize_name(app_name)
     return base / mode_subdir if mode_subdir else base
 
 
@@ -804,6 +911,12 @@ def _config_checksum(config: AppConfig, *, development: bool) -> str:
             "config": dumped,
             "development": development,
             "custom_inputs": _custom_input_digests(config),
+            # The source revision, for a git-sourced config. ``custom_inputs``
+            # covers code_paths/src/resource overlays but NOT ``ddl``/``data``
+            # assets, so a ref bump whose only change is a seed file would
+            # otherwise hash identically and skip the rebuild — shipping the
+            # previous commit's staged assets.
+            "source_revision": config._source_git_sha,
         },
         sort_keys=True,
         default=str,
@@ -883,24 +996,47 @@ def _clean_default_staging_dir(bundle_dir: Path, *, is_default: bool) -> None:
     ``--development`` run's ``dist/`` wheel + dev ``pyproject.toml`` from mixing
     into a later ``--no-development`` published layout.
 
-    Only touches an ``is_default`` path dao-ai chose under
-    :func:`_default_bundle_base` — never a user-supplied ``-o`` dir (that is user
-    territory; the writer's per-file overwrite semantics apply there). Guarded to
-    only ever remove a path strictly under the resolved default base.
+    Only touches an ``is_default`` path dao-ai chose — never a user-supplied
+    ``-s`` dir (that is user territory; the writer's per-file overwrite semantics
+    apply there). Guarded to only ever remove a path strictly under one of the
+    bases dao-ai stages into.
     """
     if not is_default or not bundle_dir.exists():
         return
-    base = _default_bundle_base().resolve()
+
+    from dao_ai.git_source import user_state_root
+
+    # Every base dao-ai may have chosen: the env override, the project-local
+    # default, and the machine-level location used for a git-sourced config. All
+    # three are checked because the caller does not say which one produced
+    # `bundle_dir`, and a config-less `_default_bundle_base()` would miss the
+    # git-sourced base and silently skip the clean.
+    bases: list[Path] = [
+        Path(os.environ.get(_BUNDLE_DIR_ENV_VAR) or _DEFAULT_BUNDLE_BASE).resolve(),
+        (user_state_root() / "bundle").resolve(),
+    ]
     resolved = bundle_dir.resolve()
-    # safety: only wipe paths strictly under the owned base dir
-    if base not in resolved.parents:
+    # safety: only wipe paths strictly under an owned base dir
+    if not any(base in resolved.parents for base in bases):
         return
     shutil.rmtree(bundle_dir)
 
 
+#: Materialized checkout path -> the git locator the user actually typed. A cache
+#: path is meaningless to whoever passed a locator, so messages echo the locator.
+_MATERIALIZED_LOCATORS: dict[str, str] = {}
+
+
+def _display_config(path: str | Path | None) -> str:
+    """How to name a config in output: the locator when it came from git."""
+    if path is None:
+        return "<config>"
+    return _MATERIALIZED_LOCATORS.get(str(path), str(path))
+
+
 def _print_config_variable_error(err: ConfigVariableError) -> None:
     """Render a ConfigVariableError to stderr in a user-friendly form."""
-    print(f"\nConfig parameter error in {err.path}:", file=sys.stderr)
+    print(f"\nConfig parameter error in {_display_config(err.path)}:", file=sys.stderr)
     if err.missing_required:
         print("  Missing required parameters:", file=sys.stderr)
         for name in err.missing_required:
@@ -984,6 +1120,45 @@ Inspect & utilities:
         metavar="COMMAND",
     )
 
+    # Cache noun: `dao-ai cache <dir|clear>` — manages git checkouts fetched for
+    # a `--config` locator, which otherwise accumulate silently.
+    cache_parser: ArgumentParser = subparsers.add_parser(
+        "cache",
+        help="Inspect or clear the git checkout cache (dir | clear)",
+        description="Manage the local cache of git repositories fetched for a "
+        "--config locator. Location: $DAO_AI_GIT_CACHE, else "
+        "$XDG_CACHE_HOME/dao-ai/git, else ~/.cache/dao-ai/git.",
+        parents=[_GLOBAL],
+    )
+    cache_verbs = cache_parser.add_subparsers(
+        dest="cache_verb", metavar="<dir|clear>", required=True
+    )
+    cache_verbs.add_parser(
+        "dir",
+        help="Print the cache directory and its current size",
+        parents=[_GLOBAL],
+    )
+    cache_clear_parser = cache_verbs.add_parser(
+        "clear",
+        help="Delete cached checkouts",
+        parents=[_GLOBAL],
+    )
+    cache_clear_group = cache_clear_parser.add_mutually_exclusive_group()
+    cache_clear_group.add_argument(
+        "--repo",
+        type=str,
+        default=None,
+        metavar="LOCATOR",
+        help="Clear only this repository's checkouts (e.g. 'gh:owner/repo'). "
+        "Omit to clear every checkout.",
+    )
+    cache_clear_group.add_argument(
+        "--bundles",
+        action="store_true",
+        help="Clear the staging dirs generated for git-sourced configs instead "
+        "of the checkouts (they are rebuilt on the next build).",
+    )
+
     # Version command
     _version_parser: ArgumentParser = subparsers.add_parser(
         "version",
@@ -1047,9 +1222,10 @@ Examples:
         "--config",
         type=str,
         required=True,
-        metavar="FILE",
+        metavar="FILE|LOCATOR",
         help="Path to the model configuration file to validate (default: ./config/model_config.yaml)",
     )
+    _add_git_source_arguments(validation_parser)
 
     # Trace noun: `dao-ai trace <create|link|grant>`
     trace_parser: ArgumentParser = subparsers.add_parser(
@@ -1184,9 +1360,10 @@ Notes:
         "--config",
         type=str,
         required=True,
-        metavar="FILE",
+        metavar="FILE|LOCATOR",
         help="Path to the model configuration file (must set app.trace_location).",
     )
+    _add_git_source_arguments(trace_link_parser)
     trace_link_parser.add_argument(
         "--experiment-id",
         type=str,
@@ -1255,9 +1432,10 @@ Examples:
         "--config",
         type=str,
         required=True,
-        metavar="FILE",
+        metavar="FILE|LOCATOR",
         help="Path to the model configuration file (must set app.trace_location).",
     )
+    _add_git_source_arguments(trace_grant_parser)
     trace_grant_parser.add_argument(
         "--experiment-id",
         type=str,
@@ -1309,9 +1487,10 @@ Examples:
         "--config",
         type=str,
         required=True,
-        metavar="FILE",
+        metavar="FILE|LOCATOR",
         help="Path to the model configuration file to visualize",
     )
+    _add_git_source_arguments(graph_parser)
 
     # --- Bundle nouns: `dao-ai <noun> <up|build|sync|start|down>` -------------
     # Each noun owns the full up/build/sync/start/down lifecycle as discrete
@@ -1468,9 +1647,10 @@ Examples:
         type=str,
         default="./config/model_config.yaml",
         required=False,
-        metavar="FILE",
+        metavar="FILE|LOCATOR",
         help="Path to the model configuration file (default: ./config/model_config.yaml)",
     )
+    _add_git_source_arguments(mcp_tools_parser)
     mcp_tools_parser.add_argument(
         "--apply-filters",
         action="store_true",
@@ -1603,9 +1783,10 @@ Examples:
         "--config",
         type=str,
         required=True,
-        metavar="FILE",
+        metavar="FILE|LOCATOR",
         help="Path to the model configuration file",
     )
+    _add_git_source_arguments(monitor_scorers_parser)
     monitor_scorers_parser.add_argument(
         "action",
         choices=["enable", "status", "disable"],
@@ -1644,9 +1825,10 @@ Examples:
         "-c",
         "--config",
         type=str,
-        metavar="FILE",
+        metavar="FILE|LOCATOR",
         help="Path to the model configuration file (derives the app/endpoint name)",
     )
+    _add_git_source_arguments(monitor_logs_parser)
     monitor_logs_source.add_argument(
         "--name",
         type=str,
@@ -1727,9 +1909,10 @@ Examples (CONFIG=config/model_config.yaml):
         "-c",
         "--config",
         type=str,
-        metavar="FILE",
+        metavar="FILE|LOCATOR",
         help="Config file; app.name provides the default service-principal name",
     )
+    _add_git_source_arguments(sp_create_parser)
     sp_create_parser.add_argument(
         "--name",
         type=str,
@@ -1759,9 +1942,10 @@ Examples (CONFIG=config/model_config.yaml):
         "-c",
         "--config",
         type=str,
-        metavar="FILE",
+        metavar="FILE|LOCATOR",
         help="Config file; its service_principals block provides default scope + key names",
     )
+    _add_git_source_arguments(sp_store_parser)
     sp_store_parser.add_argument(
         "--client-id",
         type=str,
@@ -1810,9 +1994,10 @@ Examples (CONFIG=config/model_config.yaml):
         "--config",
         type=str,
         required=True,
-        metavar="FILE",
+        metavar="FILE|LOCATOR",
         help="Config file whose resources are granted to the service principal",
     )
+    _add_git_source_arguments(sp_grant_parser)
     sp_grant_parser.add_argument(
         "--principal",
         "--client-id",
@@ -1857,9 +2042,10 @@ The client secret is written straight to the secret scope and is never printed.
         "--config",
         type=str,
         required=True,
-        metavar="FILE",
+        metavar="FILE|LOCATOR",
         help="Config to provision the service principal for",
     )
+    _add_git_source_arguments(sp_provision_parser)
     sp_provision_parser.add_argument(
         "--name",
         type=str,
@@ -1953,9 +2139,10 @@ Examples:
         "--config",
         type=str,
         required=True,
-        metavar="FILE",
+        metavar="FILE|LOCATOR",
         help="Path to the model configuration file to validate",
     )
+    _add_git_source_arguments(chat_parser)
     chat_parser.add_argument(
         "--custom-input",
         action="append",
@@ -2030,9 +2217,10 @@ Examples:
         "--config",
         type=str,
         required=True,
-        metavar="FILE",
+        metavar="FILE|LOCATOR",
         help="Path to the dao-ai config file whose parameters: block to inspect.",
     )
+    _add_git_source_arguments(vars_parser)
 
     # Add --param/--var to the non-bundle subcommands (bundle verbs get it from
     # _add_bundle_common_args; trace verbs add it inline above).
@@ -2082,7 +2270,60 @@ Examples:
 
         options.thread_id = str(uuid.uuid4())
 
+    _materialize_config_locator(options)
+
     return options
+
+
+def _materialize_config_locator(options: Namespace) -> None:
+    """Turn a ``--config`` git locator (or ``--from``) into a local checkout path.
+
+    Resolved once, here, rather than at each of the ~14 ``--config`` sites, because
+    several coerce the value through ``Path()`` before ``AppConfig.from_file`` ever
+    runs — ``run_databricks_command`` rejects it with an ``exists()`` check, and
+    the workflow bundle derives the staged config filename from ``Path(...).name``.
+    Setting ``options.config`` to the real path inside the checkout means every
+    downstream consumer keeps working on a plain local file.
+
+    ``options.config_locator`` keeps the locator as typed, so user-facing messages
+    can echo that instead of an opaque cache path.
+    """
+    from dao_ai.git_source import GitSource, as_git_locator, is_git_locator
+
+    config: str | None = getattr(options, "config", None)
+    from_repo: str | None = getattr(options, "from_repo", None)
+    options.config_locator = None
+
+    if from_repo:
+        if config and (is_git_locator(config) or Path(config).is_absolute()):
+            logger.error(
+                "--from and a git locator in --config are two spellings of the "
+                "same thing. Pass a repo-relative path to --config when using "
+                "--from, e.g. `--from gh:org/repo@v1 -c path/to/agent.yaml`."
+            )
+            sys.exit(1)
+        # --from can only mean a repository, so accept a URL as pasted from a
+        # browser (or an scp-style SSH ref) without the `git+` prefix.
+        from_repo = as_git_locator(from_repo)
+        # `--from <repo> -c <path>` is sugar for the single-locator spelling.
+        locator: str = f"{from_repo}#{config}" if config else from_repo
+    elif config and is_git_locator(config):
+        locator = config
+    else:
+        return
+
+    try:
+        source = GitSource(locator, refresh=bool(getattr(options, "refresh", False)))
+        resolved = source.load()
+    except ValueError as e:
+        logger.error(str(e))
+        sys.exit(1)
+
+    options.config_locator = locator
+    # GitSource always resolves to a real file inside the checkout.
+    assert resolved.local_path is not None
+    options.config = str(resolved.local_path)
+    _MATERIALIZED_LOCATORS[options.config] = locator
 
 
 def handle_chat_command(options: Namespace) -> None:
@@ -2122,7 +2363,7 @@ def handle_chat_command(options: Namespace) -> None:
 
         # Show current configuration
         print("📋 Session Configuration:")
-        print(f"   Config file: {options.config}")
+        print(f"   Config file: {_display_config(options.config)}")
         print(f"   Thread ID: {options.thread_id}")
         print(f"   User ID: {options.user_id}")
         if options.custom_input:
@@ -3796,6 +4037,80 @@ def handle_mcp_command(options: Namespace) -> None:
             sys.exit(1)
 
 
+def handle_cache_command(options: Namespace) -> None:
+    """Inspect or clear the git checkout cache.
+
+    Checkouts are keyed by commit and never expire, so a long-lived cache
+    accumulates one tree per commit ever built. This is the way to see where they
+    live and reclaim the space.
+    """
+    from dao_ai.git_source import cache_root, parse_git_locator, repo_cache_dir
+
+    root: Path = cache_root()
+
+    def _size(path: Path) -> int:
+        return sum(f.stat().st_size for f in path.rglob("*") if f.is_file())
+
+    def _human(size: int) -> str:
+        value: float = float(size)
+        for unit in ("B", "KB", "MB", "GB"):
+            if value < 1024 or unit == "GB":
+                return f"{value:.1f} {unit}" if unit != "B" else f"{int(value)} B"
+            value /= 1024
+        return f"{value:.1f} GB"
+
+    if options.cache_verb == "dir":
+        from dao_ai.git_source import user_state_root
+
+        print(f"dao-ai user state: {user_state_root()}")
+        if root.exists():
+            checkouts: int = sum(1 for _ in root.glob("*/*/*/*"))
+            print(f"  git checkouts : {root}  ({checkouts}, {_human(_size(root))})")
+        else:
+            print(f"  git checkouts : {root}  (empty — nothing fetched yet)")
+
+        # Staging dirs for git-sourced configs live here too, and are the larger
+        # of the two in practice (each carries a wheel + locked dependency set).
+        bundles: Path = user_state_root() / "bundle"
+        if bundles.exists():
+            count: int = sum(1 for p in bundles.iterdir() if p.is_dir())
+            print(f"  git bundles   : {bundles}  ({count}, {_human(_size(bundles))})")
+        else:
+            print(f"  git bundles   : {bundles}  (empty)")
+        return
+
+    # clear
+    from dao_ai.git_source import user_state_root
+
+    targets: list[Path] = [root]
+    if options.repo:
+        try:
+            targets = [repo_cache_dir(parse_git_locator(options.repo))]
+        except ValueError as e:
+            logger.error(str(e))
+            sys.exit(1)
+    elif options.bundles:
+        # Staging dirs for git-sourced configs. Regenerated on the next build, so
+        # removing them costs a rebuild, never any authored content.
+        targets = [user_state_root() / "bundle"]
+
+    total: int = 0
+    cleared: list[Path] = []
+    for target in targets:
+        if not target.exists():
+            continue
+        total += _size(target)
+        shutil.rmtree(target)
+        cleared.append(target)
+
+    if not cleared:
+        print(f"Nothing to clear at {targets[0]}")
+        return
+    for target in cleared:
+        print(f"Cleared {target}")
+    print(f"({_human(total)} freed)")
+
+
 def handle_version_command(options: Namespace) -> None:
     """Display the dao-ai version and build metadata.
 
@@ -4566,6 +4881,8 @@ def run_databricks_command(
             + the already-staged ``dist/`` so the bundle verb has what it needs.
             Errors if nothing is staged there.
     """
+    # Always a local path by here: a git locator was materialized into the cache
+    # by _materialize_config_locator during parse_args.
     config_path = Path(config) if config else None
 
     if config_path and not config_path.exists():
@@ -4628,7 +4945,9 @@ def run_databricks_command(
     if staging_dir_arg is not None:
         staging_dir = Path(staging_dir_arg).resolve()
     elif normalized_name:
-        staging_dir = _default_bundle_dir("workflow", app_config.app.name).resolve()
+        staging_dir = _default_bundle_dir(
+            "workflow", app_config.app.name, config=app_config
+        ).resolve()
     else:
         staging_dir = (_default_bundle_base() / "workflow").resolve()
 
@@ -4673,10 +4992,13 @@ def run_databricks_command(
             # Standalone sync/start/down on an unstaged dir: nothing to run.
             # Primitives never build — `up` is the sole orchestrator/builder.
             _s: str = f" -s {staging_dir_arg}" if staging_dir_arg else ""
+            # Echo the locator, not the cache path, so the suggested command is
+            # copy-pasteable for a git-sourced config.
+            _c: str = _display_config(config)
             logger.error(
                 f"No staged workflow bundle at {staging_dir}. "
-                f"Run `dao-ai workflow build -c {config}{_s}` first "
-                f"(or `dao-ai workflow up -c {config}{_s}` to build, sync, and run)."
+                f"Run `dao-ai workflow build -c {_c}{_s}` first "
+                f"(or `dao-ai workflow up -c {_c}{_s}` to build, sync, and run)."
             )
             sys.exit(1)
 
@@ -5608,9 +5930,30 @@ def _resolve_bundle_dir(
     bundle_dir: Path = (
         Path(staging_dir)
         if staging_dir is not None
-        else _default_bundle_dir(kind, config.app.name, mode_subdir)
+        else _default_bundle_dir(kind, config.app.name, mode_subdir, config=config)
     ).resolve()
+    _reject_staging_dir_in_git_cache(bundle_dir)
     return bundle_dir, is_default_dir
+
+
+def _reject_staging_dir_in_git_cache(bundle_dir: Path) -> None:
+    """Refuse a staging dir inside the git checkout cache.
+
+    The bundle writers generate files into the staging dir and
+    ``_clean_default_staging_dir`` can delete it. Pointed at the cache, that would
+    mutate or destroy a checkout other invocations expect to be a faithful copy of
+    a commit.
+    """
+    from dao_ai.git_source import cache_root
+
+    root: Path = cache_root().resolve()
+    if root == bundle_dir or root in bundle_dir.parents:
+        logger.error(
+            f"Staging dir {bundle_dir} is inside the dao-ai git cache ({root}), "
+            "which holds checkouts that must stay faithful to their commit. "
+            "Choose a different -s/--staging-dir."
+        )
+        sys.exit(1)
 
 
 def _load_app_config(options: Namespace, *, what: str) -> AppConfig:
@@ -6216,6 +6559,8 @@ def main() -> None:
             handle_monitor_command(options)
         case "service-principal" | "sp":
             handle_service_principal_command(options)
+        case "cache":
+            handle_cache_command(options)
         case "chat":
             handle_chat_command(options)
         case "mcp":

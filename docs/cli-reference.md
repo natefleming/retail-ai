@@ -32,6 +32,102 @@ the current process so the profile is authoritative. This prevents a stray token
 or host in your shell or a `.env` file from silently overriding the profile and
 targeting the wrong workspace. If you rely on env-var auth, omit `--profile`.
 
+## Config Sources: local, URL, or git
+
+Every command that takes `-c/--config` accepts a local path, an `http(s)` URL, or
+a **git locator** — so a project that isn't on your machine runs like one that is.
+
+```bash
+# Local path
+dao-ai validate -c config/my_config.yaml
+
+# Git locator: repo, optional @ref, optional #path-in-repo
+dao-ai validate -c 'git+https://github.com/org/repo@v1.0#examples/retail/agent.yaml'
+
+# gh: shorthand
+dao-ai agent up -c 'gh:org/repo@main#examples/retail/agent.yaml' -p my-profile
+
+# Split spelling — handy when a repo ships several config variants
+dao-ai agent up --from 'gh:org/repo@v1.0' -c examples/retail/agent.yaml -p my-profile
+
+# SSH remote (auth via ssh-agent)
+dao-ai validate -c 'git+ssh://git@github.com/org/private@v1#agent.yaml'
+```
+
+`--from` can only mean a repository, so the `git+` prefix is optional there — paste
+the URL straight from your browser, or use an `scp`-style SSH reference:
+
+```bash
+dao-ai agent up --from 'https://github.com/org/repo@v1.0' -c agent.yaml -p my-profile
+dao-ai agent up --from 'git@github.com:org/repo.git'       -c agent.yaml -p my-profile
+```
+
+In `--config` the prefix **is** required, because there the distinction carries
+meaning: a plain `https://` URL fetches a single YAML (and rejects a config with
+relative assets), while `git+https://` brings the whole tree.
+
+**Quote the locator.** `#` starts a comment in every common shell, so an unquoted
+locator loses its in-repo path.
+
+Unlike a URL — which fetches a single YAML and therefore *rejects* a config
+declaring relative `ddl` / `data` / `code_paths` — a git locator brings the whole
+project tree, so colocated assets, `src/`, `skills/`, and `resources/` all resolve
+exactly as they do locally.
+
+`@ref` may be a branch, tag, or full 40-character commit SHA; omit it for the
+remote's default branch. `#path` may name a file or a directory; omit it (or point
+at a directory) and dao-ai discovers the config, preferring `dao-ai.yaml` and
+erroring with the candidates listed if the choice is ambiguous.
+
+| Flag | Purpose |
+|---|---|
+| `--from REPO` | Repository to load from (`git+` prefix optional); `-c` is then a repo-relative path |
+| `--refresh` | Re-fetch even if the ref is already cached |
+
+**Trust.** A git locator runs the repository's code — a config can ship Python via
+`code_paths` / `src/` and inline tool code — exactly as `git clone` followed by
+`dao-ai agent up` would. The resolved commit SHA is reported on every load. Pin a
+tag or SHA for repositories you do not control.
+
+**Where things land.** A git locator has no project directory, so it uses
+`~/.dao-ai` for both the checkout and the bundle it stages:
+
+| | Path | Scope |
+|---|---|---|
+| Checkouts | `~/.dao-ai/git/<host>/<owner>/<repo>/<sha>/` | machine |
+| Staging (locator) | `~/.dao-ai/bundle/<repo>-<digest>/<kind>/<app>/` | machine |
+| Staging (local config) | `./.dao-ai/bundle/<kind>/<app>/` | project |
+
+A **local** config still stages beside its project, which is where you want build
+output you're iterating on. A **locator** stages machine-level and is keyed by
+repository plus in-repo config path, so the same locator reuses one staging dir
+(and its idempotent-skip) no matter which directory you run it from — and two
+projects that happen to name their app the same thing can't collide.
+`$DAO_AI_GIT_CACHE` and `$DAO_AI_BUNDLE_DIR` override each; `-s/--staging-dir`
+overrides everything.
+
+**Caching.** Checkouts are keyed by commit, so a full SHA is immutable and never
+re-fetched. A branch or tag is re-resolved via `git ls-remote` on each run and
+re-fetched only when it moved, so `up` on a branch always deploys its current
+HEAD; if the remote is unreachable, the newest cached checkout is used with a
+warning. Nothing expires on its own:
+
+```bash
+dao-ai cache dir                      # both locations, with counts and sizes
+dao-ai cache clear                    # remove every checkout
+dao-ai cache clear --repo gh:org/repo # remove just one repository's
+dao-ai cache clear --bundles          # remove the staged bundles instead
+```
+
+**Private repositories.** Auth is delegated to `git`, so ssh-agent and credential
+helpers work with no dao-ai configuration. For headless use (a notebook, CI) set
+`DAO_AI_GIT_TOKEN` or `GITHUB_TOKEN`; it is handed to git through a credential
+helper and never written to disk, never placed in a remote URL, and never in a
+command line.
+
+Requires `git` on `PATH`. Resolution is client-side only — the generated bundle is
+self-contained, so nothing needs `git` at deploy or run time.
+
 ## Validate Configuration
 
 Check your configuration for errors:

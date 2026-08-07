@@ -15,6 +15,63 @@ config = AppConfig.from_file(
 )
 ```
 
+### Config sources
+
+A config can come from three places. `from_file` accepts any of them; the named
+methods validate their own kind, which is useful when you want a mistake to be
+caught immediately rather than fall through to a filesystem read.
+
+| Method | Source | Relative `ddl` / `data` / `code_paths` |
+|---|---|---|
+| `from_file(path)` | Local path — also accepts the other two | Resolved against the config's directory |
+| `from_url(url)` | An `http(s)` URL (single YAML) | **Rejected** — no directory to anchor to |
+| `from_git(locator)` | A git repository, with its whole tree | Resolved against the config's directory in the checkout |
+| `from_source(spec)` | Any of the above, classified for you | Depends on the source |
+
+```python
+# A git repository: the project's assets come along, so a config with
+# `ddl: data/products.sql` works — which a URL cannot do.
+config = AppConfig.from_git(
+    "git+https://github.com/org/repo@v1.0#examples/retail/agent.yaml",
+    params={"catalog": "my_catalog"},
+)
+
+# gh: shorthand; ref and in-repo path are both optional. When the path is a
+# directory (or omitted), the config is discovered — ambiguity is an error
+# listing the candidates.
+config = AppConfig.from_git("gh:org/repo@main#examples/retail")
+
+# Accepts a spec string or a typed source. Construct the source when you need
+# options a string can't express.
+from dao_ai.git_source import GitSource
+
+config = AppConfig.from_git(
+    GitSource("gh:org/private-repo@main", token=my_token, refresh=True)
+)
+```
+
+`from_git` requires `git` on `PATH`. Resolution is client-side only: a generated
+bundle is self-contained, so nothing needs `git` at deploy or run time.
+
+**Trust.** A git locator runs the repository's code — a config can ship Python via
+`code_paths` / `src/` and inline tool code — exactly as cloning it and running
+dao-ai locally would. The resolved commit SHA is logged on every load. Pin a tag
+or SHA for repositories you do not control.
+
+Checkouts are cached per commit under `~/.dao-ai/git` (override with
+`$DAO_AI_GIT_CACHE`). A full 40-character SHA is immutable and never re-fetched; a
+branch or tag is re-resolved with `git ls-remote` each load and re-fetched only
+when it moved. Private repositories authenticate through git itself (ssh-agent,
+credential helpers); for headless use set `DAO_AI_GIT_TOKEN` or `GITHUB_TOKEN`,
+which is passed to git without ever being written to disk or appearing in a
+command line.
+
+`~/.dao-ai` is deliberately not under `$XDG_CACHE_HOME`: a checkout is not
+disposable the way a cache is (losing one costs a re-clone), and it mirrors the
+project-local `.dao-ai/` name. See the
+[CLI reference](cli-reference.md#config-sources-local-url-or-git) for how staging
+directories are placed.
+
 ## Parameter Substitution (Python API)
 
 DAO AI configs can declare a `parameters:` block and reference values
