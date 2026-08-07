@@ -39,7 +39,15 @@ import atexit
 import contextvars
 import threading
 from concurrent.futures import Future
-from typing import Any, AsyncGenerator, Callable, Coroutine, Generator, Optional, TypeVar
+from typing import (
+    Any,
+    AsyncGenerator,
+    Callable,
+    Coroutine,
+    Generator,
+    Optional,
+    TypeVar,
+)
 
 R = TypeVar("R")
 T = TypeVar("T")

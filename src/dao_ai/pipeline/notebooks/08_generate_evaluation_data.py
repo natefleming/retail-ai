@@ -5,8 +5,8 @@
 # installed it; this reinstall is harmless. ``%restart_python`` makes the freshly
 # installed package importable in the cells below.
 # No extras suffix: this notebook only calls core APIs (databricks.agents eval
-# generation). Notebooks that build the agent graph (06_deploy_agent,
-# 08_run_evaluation) install ``[all]``; 01_ingest_and_transform installs
+# generation). Notebooks that build the agent graph (07_deploy_agent,
+# 09_run_evaluation) install ``[all]``; 01_ingest_and_transform installs
 # ``[excel]``. The install spec is single-quoted in the magic so a dev wheel's
 # ``+local`` version tag and any ``[extras]`` survive shell glob/bracket expansion.
 import glob

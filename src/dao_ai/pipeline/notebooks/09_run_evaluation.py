@@ -102,7 +102,7 @@ print(f"Custom inputs (source={_custom_inputs_source}): {custom_inputs}")
 #
 # The eval source is driven by the same ``mode`` the deploy task used, not a
 # free-standing knob — only ``model_serving`` logs/registers an MLflow model
-# (see 06_deploy_agent.py), so only it can be evaluated from the UC registry:
+# (see 07_deploy_agent.py), so only it can be evaluated from the UC registry:
 #
 #   - model_serving → "registry": load the deployed UC artifact via
 #     ``mlflow.pyfunc.load_model`` — the most honest eval (test what shipped).

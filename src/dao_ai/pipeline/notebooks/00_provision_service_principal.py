@@ -5,7 +5,7 @@
 # installed it; this reinstall is harmless. ``%restart_python`` makes the freshly
 # installed package importable in the cells below.
 # No extras suffix: this provisioning notebook only calls core APIs. Notebooks
-# that build the agent graph (06_deploy_agent, 08_run_evaluation) install
+# that build the agent graph (07_deploy_agent, 09_run_evaluation) install
 # ``[all]``; 01_ingest_and_transform installs ``[excel]``. The install spec is
 # single-quoted in the magic so a dev wheel's ``+local`` version tag and any
 # ``[extras]`` survive shell glob/bracket expansion.
@@ -92,9 +92,9 @@ config: AppConfig = AppConfig.from_file(path=config_path)
 # COMMAND ----------
 
 # Nothing declared, nothing to provision. This task runs unconditionally (it gates
-# provision-lakebase and unity-catalog-tools, which need the SP to exist), but a
-# config that never asked for a service principal has no secret scope or key names
-# to store credentials under — ``provision_all`` would raise on the synthetic
+# provision-lakebase, whose Postgres role takes the SP's client_id as its subject),
+# but a config that never asked for a service principal has no secret scope or key
+# names to store credentials under — ``provision_all`` would raise on the synthetic
 # "default" target ``resolve_sp_targets`` returns for such a config, failing the
 # task and skipping every downstream one.
 #
@@ -111,18 +111,24 @@ if not config.service_principals:
 
 # COMMAND ----------
 
-# Provision every service principal the config declares, granting each one the
-# resources it owns. Same library entry point the ``dao-ai sp provision`` CLI
-# calls — the CLI is one provisioning surface, this is another.
+# Create every service principal the config declares and store its credentials.
+# Same library entry point the ``dao-ai sp provision`` CLI calls — the CLI is one
+# provisioning surface, this is another.
+#
+# ``do_grant=False`` on purpose: granting is 06_grant_service_principal's job.
+# Every grant target is created by a LATER task — tables (01/02), the Lakebase
+# project (03), UC functions (04), the Genie space (05) — so granting here would
+# fail "absent" on all of them, and nothing re-grants afterwards. Splitting also
+# separates the privileges: creating an identity is an account-level operation,
+# authorizing it is a per-resource one.
 #
 # The WorkspaceClient is ambient: the job's identity. Creating service principals
 # and writing secret scopes need more privilege than reading a table, so if this
-# task fails with a permissions error, that identity is what to grant.
+# reports a permissions failure, that identity is what to grant. It no longer
+# fails the task — see ``provision_all``'s warn-and-continue.
 from databricks.sdk import WorkspaceClient
 
 from dao_ai.service_principal import (
-    Grant,
-    GrantPlan,
     MultiProvisionResult,
     ProvisionResult,
     ServicePrincipalTarget,
@@ -138,39 +144,42 @@ result: MultiProvisionResult = provision_all(
     config=config,
     targets=targets,
     overwrite=overwrite,
+    do_grant=False,
 )
 
 provisioned: ProvisionResult
 for provisioned in result.results:
     verb: str = "reused" if provisioned.reused else "created"
     print(f"\nservice principal '{provisioned.name}' — {provisioned.display_name}")
-    print(f"  {verb}: client_id={provisioned.client_id or '(none)'}")
     if provisioned.blocked_reason:
         print(f"  BLOCKED: {provisioned.blocked_reason}")
         continue
+    if provisioned.provision_error:
+        # Attempted and failed — most often a missing create-SP privilege. Reported
+        # rather than raised so the rest of the workflow still provisions; the
+        # grant task will report the resources it consequently could not authorize.
+        print(f"  NOT PROVISIONED ({provisioned.provision_failure_kind}):")
+        print(f"    {provisioned.provision_error}")
+        continue
+    print(f"  {verb}: client_id={provisioned.client_id or '(none)'}")
     if provisioned.secret_action:
         print(
             f"  secrets: {provisioned.secret_action} (scope {provisioned.stored_scope})"
         )
     if provisioned.existing_keys:
         print(f"  already populated: {', '.join(provisioned.existing_keys)}")
-    plan: GrantPlan | None = provisioned.grant_plan
-    if plan is not None:
-        applied: int = sum(1 for g in plan.grants if g.applied is True)
-        print(f"  grants: {applied}/{len(plan.grants)} applied")
-        grant: Grant
-        for grant in plan.grants:
-            if grant.applied is False:
-                print(f"    FAILED [{grant.kind}] {grant.target}: {grant.error}")
-            elif grant.note:
-                print(f"    SKIP [{grant.kind}] {grant.target}: {grant.note}")
+
+print("\nGrants are applied by the grant-service-principal task, after the")
+print("resources they target exist.")
 
 # COMMAND ----------
 
-# Fail the task when a service principal could not be provisioned, so the
-# downstream tasks that depend on it (provision-lakebase needs the client_id as
-# its Postgres role subject; unity-catalog-tools creates functions the SP needs
-# EXECUTE on) do not run against a half-provisioned identity.
+# Fail the task only when provisioning was *refused* because it could not be done
+# safely — today, a secret key that already holds a value with no matching service
+# principal. Rotating it would break whatever currently authenticates with it, so
+# the operator has to choose. A missing PRIVILEGE is deliberately not fatal (see
+# ``provision_all``): it degrades the run instead of blocking the infrastructure
+# work that has nothing to do with the service principal.
 if result.blocked:
     blocked: list[tuple[str, str]] = result.blocked
     raise RuntimeError(

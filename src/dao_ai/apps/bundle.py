@@ -224,7 +224,7 @@ def _retain_only_parameters(rendered_yaml: str, keep: set[str]) -> str:
 
     Used by the workflow staging path when a Genie room's ``space_id`` is bound
     to a deferred ``${var.X}`` reference: the deferred params' declarations must
-    survive into the staged config so ``06_deploy_agent`` can probe them against
+    survive into the staged config so ``07_deploy_agent`` can probe them against
     the provisioning task's taskValues (``AppConfig.from_file`` loops
     ``for name in declarations``). All other declarations are dropped, matching
     :func:`_strip_parameters_block`.

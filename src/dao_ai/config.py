@@ -11070,7 +11070,10 @@ class AppConfig(BaseModel):
     @classmethod
     def from_file(
         cls,
-        path: PathLike,
+        # `str | PathLike`, not bare `PathLike`: every caller in the pipeline
+        # notebooks passes a plain string (a widget value), and `str` is not a
+        # `PathLike` — the narrower annotation was a type error at all 11 of them.
+        path: str | PathLike,
         *,
         params: Optional[Mapping[str, str]] = None,
         task_values: Optional[TaskValuesLike] = None,

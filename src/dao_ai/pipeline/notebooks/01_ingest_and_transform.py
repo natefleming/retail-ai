@@ -7,7 +7,7 @@
 # This notebook ingests datasets, which may be EXCEL-format (pd.read_excel needs
 # openpyxl). The dataset format is not known until the config loads below, so it
 # installs the ``[excel]`` extra unconditionally. Notebooks that build the agent
-# graph (06_deploy_agent, 08_run_evaluation) install ``[all]``. The install spec
+# graph (07_deploy_agent, 09_run_evaluation) install ``[all]``. The install spec
 # is single-quoted in the magic so a dev wheel's ``+local`` version tag and the
 # ``[excel]`` bracket survive shell glob/bracket expansion.
 import glob
