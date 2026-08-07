@@ -43,11 +43,23 @@ dbutils.widgets.dropdown(
     name="config-paths", choices=config_files, defaultValue=next(iter(config_files), "")
 )
 
-config_path: str | None = dbutils.widgets.get("config-path") or None
-project_path: str = dbutils.widgets.get("config-paths") or None
+explicit_path: str | None = dbutils.widgets.get("config-path") or None
+discovered_path: str | None = dbutils.widgets.get("config-paths") or None
 mode_str: str | None = dbutils.widgets.get("mode") or None
 
-config_path: str = config_path or project_path
+# An explicit `config-path` always wins; the `../config` dropdown is the fallback
+# for an interactive run. Re-binding `config_path` from `str | None` to `str` would
+# make the annotation a lie (and hide that `from_file` rejects None), so the inputs
+# get their own names and the result is annotated once.
+resolved_path: str | None = explicit_path or discovered_path
+if not resolved_path:
+    raise ValueError(
+        "No config to deploy: the `config-path` widget is empty and no YAML was "
+        "found under ../config. Set `config-path` to the staged config (the "
+        "pipeline bundle always passes it)."
+    )
+
+config_path: str = resolved_path
 
 print(f"Config path: {config_path}")
 print(f"Serving mode: {mode_str or '(using config default)'}")
@@ -86,10 +98,9 @@ nest_asyncio.apply()
 
 from dao_ai.config import AppConfig, ServingMode
 
-config_path: str = dbutils.widgets.get("config-path") or dbutils.widgets.get(
-    "config-paths"
-)
-mode_str: str | None = dbutils.widgets.get("mode") or None
+# `config_path` and `mode_str` were already resolved (and validated) in the widget
+# cell above. Re-reading the widgets here would bypass that empty-path guard and
+# re-introduce the `str | None` the guard exists to rule out.
 
 # Source selection tri-state forwarded by `dao-ai generate-workflow` via the
 # `development` bundle var: "true" ships local dao-ai source/wheel, "false"

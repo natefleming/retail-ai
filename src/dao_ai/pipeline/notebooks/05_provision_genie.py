@@ -47,9 +47,21 @@ dbutils.widgets.dropdown(
     defaultValue=next(iter(config_files), ""),
 )
 
-config_path: str | None = dbutils.widgets.get("config-path") or None
-project_path: str | None = dbutils.widgets.get("config-paths") or None
-config_path: str = config_path or project_path or ""
+explicit_path: str | None = dbutils.widgets.get("config-path") or None
+discovered_path: str | None = dbutils.widgets.get("config-paths") or None
+
+# An explicit `config-path` always wins; the `../config` dropdown is the fallback
+# for an interactive run. Falling back to `""` (as this did) only defers the
+# failure to the read, where it surfaces as a confusing empty-path error.
+resolved_path: str | None = explicit_path or discovered_path
+if not resolved_path:
+    raise ValueError(
+        "No config to load: the `config-path` widget is empty and no YAML was "
+        "found under ../config. Set `config-path` to the staged config (the "
+        "pipeline bundle always passes it)."
+    )
+
+config_path: str = resolved_path
 
 print(f"Config path: {config_path}")
 
