@@ -11206,6 +11206,11 @@ class AppConfig(BaseModel):
     @classmethod
     def from_file(
         cls,
+        # `SourceLike` (= str | PathLike | ConfigSource), not bare `PathLike`:
+        # every caller in the pipeline notebooks passes a plain string (a widget
+        # value), and `str` is not a `PathLike` — the narrower annotation was a
+        # type error at all 11 of them. The `ConfigSource` arm additionally lets a
+        # caller pass a constructed source (see :meth:`from_source`).
         path: SourceLike,
         *,
         params: Optional[Mapping[str, str]] = None,

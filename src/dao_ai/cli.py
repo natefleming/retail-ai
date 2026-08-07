@@ -5040,13 +5040,13 @@ def run_databricks_command(
     )
 
     # `bundle destroy` only removes the provisioning Job. The workflow's
-    # `06_deploy_agent` step deployed the agent IMPERATIVELY (App for apps/mcp,
+    # `07_deploy_agent` step deployed the agent IMPERATIVELY (App for apps/mcp,
     # serving endpoint for model_serving) — not a DAB resource of the Job — so
     # destroy orphans it. Remove it too, so `workflow down` fully tears the
     # deployment down (mirrors `agent --mode model_serving` down). Provisioned
     # DATA infra (Vector Search, Lakebase, Genie, UC) is intentionally kept.
     if command is not None and command[:2] == ["bundle", "destroy"] and app_config:
-        # The notebook defaults an unset mode to apps (06_deploy_agent.py), so
+        # The notebook defaults an unset mode to apps (07_deploy_agent.py), so
         # resolve the deployed mode as `apps` when unspecified — NOT the
         # model_serving fallback the Job's runtime var uses above.
         deployed_mode: str = mode or "apps"
@@ -5067,7 +5067,7 @@ def run_databricks_command(
                 purge=purge,
             )
 
-    # `workflow up --wait`: the provisioning job's `06_deploy_agent` step deploys
+    # `workflow up --wait`: the provisioning job's `07_deploy_agent` step deploys
     # the agent IMPERATIVELY (App for apps/mcp, serving endpoint for
     # model_serving), and `bundle run deploy_job` returns when the job finishes —
     # but the App/endpoint may still be starting. Block until it is READY to serve
@@ -5706,7 +5706,7 @@ def _delete_app(
 ) -> None:
     """Delete the Databricks App a workflow `down` leaves behind.
 
-    The workflow DAB only manages the provisioning Job; its ``06_deploy_agent``
+    The workflow DAB only manages the provisioning Job; its ``07_deploy_agent``
     step creates the App imperatively (``config.deploy_agent``), so ``bundle
     destroy`` on the Job orphans it. This removes it so ``workflow down`` fully
     tears the deployment down — the App analogue of :func:`_delete_serving_endpoint`
