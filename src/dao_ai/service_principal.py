@@ -352,6 +352,14 @@ class ProvisionResult:
     existing_keys: list[str] = field(default_factory=list)
     # Set when nothing was done because it could not be done safely.
     blocked_reason: Optional[str] = None
+    # Set when create/store was ATTEMPTED and failed — most often because the
+    # calling identity lacks service-principal creation rights. Distinct from
+    # ``blocked_reason``: that one means "refused to act", this means "tried and
+    # could not". Kept off ``MultiProvisionResult.blocked`` so a missing privilege
+    # degrades the run instead of failing it.
+    provision_error: Optional[str] = None
+    # ``absent`` / ``denied`` / ``error`` from :func:`classify_grant_error`.
+    provision_failure_kind: Optional[str] = None
 
 
 @dataclass
@@ -700,35 +708,72 @@ def provision_all(
                 )
             continue
 
-        if result.secret_action in (SECRET_WRITE, SECRET_ROTATE):
-            created = create(w, display_name=target.display_name, lifetime=lifetime)
-            target.resolved_client_id = created.client_id
-            result.client_id = created.client_id
-            result.reused = created.reused
-            assert target.scope and target.client_id_key and target.client_secret_key
-            store(
-                w,
-                scope=target.scope,
-                client_id_key=target.client_id_key,
-                client_secret_key=target.client_secret_key,
-                client_id=created.client_id,
-                client_secret=created.client_secret,
-                overwrite=True,  # decided in phase 2
+        # Creating a service principal and writing a secret scope need more
+        # privilege than the rest of provisioning, so a caller who cannot do it
+        # must not take the whole run down with them: in a pipeline this task
+        # gates every downstream one, and none of the data/Vector Search/Genie
+        # work needs the SP. Record why and move to the next target, mirroring the
+        # grant loop's warn-and-continue (see :func:`grant`). Deliberately NOT
+        # appended to ``outcome.blocked`` — that is the caller's fail signal, and
+        # is reserved for the secret-key conflict it was built for.
+        try:
+            if result.secret_action in (SECRET_WRITE, SECRET_ROTATE):
+                created = create(w, display_name=target.display_name, lifetime=lifetime)
+                target.resolved_client_id = created.client_id
+                result.client_id = created.client_id
+                result.reused = created.reused
+                assert (
+                    target.scope and target.client_id_key and target.client_secret_key
+                )
+                store(
+                    w,
+                    scope=target.scope,
+                    client_id_key=target.client_id_key,
+                    client_secret_key=target.client_secret_key,
+                    client_id=created.client_id,
+                    client_secret=created.client_secret,
+                    overwrite=True,  # decided in phase 2
+                )
+                result.stored_scope = target.scope
+                result.stored_client_id_key = target.client_id_key
+                result.stored_client_secret_key = target.client_secret_key
+                result.stored = True
+            elif result.secret_action is None and not target.exists:
+                # --no-store on a config whose SP doesn't exist yet: still create
+                # it, so `--no-store` means "don't write secrets", not "do
+                # nothing".
+                created = create(w, display_name=target.display_name, lifetime=lifetime)
+                target.resolved_client_id = created.client_id
+                result.client_id = created.client_id
+                result.reused = created.reused
+            # SECRET_KEEP: the SP exists and its credentials are already in place.
+            # Nothing to create, nothing to mint — grants below are still
+            # re-applied (they are additive and idempotent).
+        except Exception as e:  # noqa: BLE001 — warn-and-continue per target
+            failure_kind: str = classify_grant_error(e)
+            result.provision_failure_kind = failure_kind
+            if failure_kind == GRANT_FAILURE_DENIED:
+                reason = (
+                    f"the calling identity lacks permission to create the service "
+                    f"principal '{target.display_name}' or write its credentials "
+                    f"to scope '{target.scope}'. Grant it account-level "
+                    f"service-principal creation and WRITE on that scope, or "
+                    f"pre-create the SP and store its credentials."
+                )
+            else:
+                reason = (
+                    f"could not provision service principal "
+                    f"'{target.display_name}': {e}"
+                )
+            result.provision_error = reason
+            logger.warning(
+                "Service-principal provisioning failed — continuing",
+                service_principal=target.name,
+                display_name=target.display_name,
+                failure_kind=failure_kind,
+                error=str(e),
             )
-            result.stored_scope = target.scope
-            result.stored_client_id_key = target.client_id_key
-            result.stored_client_secret_key = target.client_secret_key
-            result.stored = True
-        elif result.secret_action is None and not target.exists:
-            # --no-store on a config whose SP doesn't exist yet: still create it,
-            # so `--no-store` means "don't write secrets", not "do nothing".
-            created = create(w, display_name=target.display_name, lifetime=lifetime)
-            target.resolved_client_id = created.client_id
-            result.client_id = created.client_id
-            result.reused = created.reused
-        # SECRET_KEEP: the SP exists and its credentials are already in place.
-        # Nothing to create, nothing to mint — grants below are still re-applied
-        # (they are additive and idempotent).
+            continue
 
         if do_grant:
             result.grant_plan = grant(

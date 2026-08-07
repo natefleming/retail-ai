@@ -1731,3 +1731,96 @@ def test_grant_all_never_grants_a_null_principal() -> None:
     assert all(p.principal.startswith("<new-sp:") for p in plans)
     assert all(p.grants == [] for p in plans)
     w.api_client.do.assert_not_called()
+
+
+# =============================================================================
+# provision_all — a missing privilege degrades the run instead of failing it
+# =============================================================================
+
+
+def _sp_config() -> AppConfig:
+    """A config declaring one service principal with an explicit secret target."""
+    return AppConfig(
+        service_principals={
+            "main": ServicePrincipalModel(
+                client_id=SecretVariableModel(scope="myscope", secret="CID"),
+                client_secret=SecretVariableModel(scope="myscope", secret="CSEC"),
+            )
+        }
+    )
+
+
+def test_provision_all_continues_when_sp_creation_is_denied() -> None:
+    """A caller without service-principal creation rights must not fail the run.
+
+    In the provisioning pipeline this task gates every downstream one, and none of
+    the data / Vector Search / Genie / UC-function work needs the SP — so a missing
+    privilege has to degrade the run, not block it.
+    """
+    from unittest.mock import patch
+
+    from databricks.sdk.errors import PermissionDenied
+
+    from dao_ai import service_principal as sp_mod
+
+    config: AppConfig = _sp_config()
+    targets = resolve_sp_targets(config)
+    w = MagicMock()
+
+    with (
+        patch.object(sp_mod, "find_service_principal", return_value=None),
+        patch.object(sp_mod, "create", side_effect=PermissionDenied("not authorized")),
+    ):
+        outcome = sp_mod.provision_all(w, config=config, targets=targets)
+
+    result = outcome.results[0]
+    assert result.provision_failure_kind == GRANT_FAILURE_DENIED
+    assert result.provision_error and "lacks permission" in result.provision_error
+    # `blocked` is the caller's fail signal (notebook 00 raises on it) and must
+    # stay empty: a missing privilege is reported, never fatal.
+    assert outcome.blocked == []
+
+
+def test_provision_all_classifies_a_non_permission_failure() -> None:
+    """Any other create failure is recorded as ``error``, still without raising."""
+    from unittest.mock import patch
+
+    from dao_ai import service_principal as sp_mod
+
+    config: AppConfig = _sp_config()
+    targets = resolve_sp_targets(config)
+    w = MagicMock()
+
+    with (
+        patch.object(sp_mod, "find_service_principal", return_value=None),
+        patch.object(sp_mod, "create", side_effect=RuntimeError("boom")),
+    ):
+        outcome = sp_mod.provision_all(w, config=config, targets=targets)
+
+    result = outcome.results[0]
+    assert result.provision_failure_kind == GRANT_FAILURE_ERROR
+    assert result.provision_error and "boom" in result.provision_error
+    assert outcome.blocked == []
+
+
+def test_provision_all_skips_the_grant_when_creation_failed() -> None:
+    """Granting a principal that was never created is meaningless — don't try."""
+    from unittest.mock import patch
+
+    from databricks.sdk.errors import PermissionDenied
+
+    from dao_ai import service_principal as sp_mod
+
+    config: AppConfig = _sp_config()
+    targets = resolve_sp_targets(config)
+    w = MagicMock()
+
+    with (
+        patch.object(sp_mod, "find_service_principal", return_value=None),
+        patch.object(sp_mod, "create", side_effect=PermissionDenied("nope")),
+        patch.object(sp_mod, "grant") as mock_grant,
+    ):
+        outcome = sp_mod.provision_all(w, config=config, targets=targets, do_grant=True)
+
+    mock_grant.assert_not_called()
+    assert outcome.results[0].grant_plan is None

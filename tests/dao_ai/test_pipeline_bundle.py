@@ -61,15 +61,15 @@ app:
 
 @pytest.mark.unit
 class TestPackagedAssets:
-    def test_all_eight_step_notebooks_are_packaged(self) -> None:
+    def test_all_step_notebooks_are_packaged(self) -> None:
         names = sorted(
             p.name
             for p in files("dao_ai.pipeline.notebooks").iterdir()
             if p.name.endswith(".py") and p.name != "__init__.py"
         )
-        assert len(names) == 8, f"expected 8 step notebooks, got {names}"
-        assert names[0].startswith("01_")
-        assert names[-1].startswith("08_")
+        assert len(names) == 10, f"expected 10 step notebooks, got {names}"
+        assert names[0].startswith("00_")
+        assert names[-1].startswith("09_")
 
     def test_notebooks_have_no_source_path_fallback(self) -> None:
         """The wheel-only refactor drops the `../src` sys.path fallback."""
@@ -81,11 +81,36 @@ class TestPackagedAssets:
                 f"{p.name} still has the ../src fallback"
             )
 
+    def test_service_principal_task_skips_when_none_declared(self) -> None:
+        """The SP task must no-op on a config that declares no service principals.
+
+        It runs unconditionally (it gates provision-lakebase and
+        unity-catalog-tools), but ``resolve_sp_targets`` returns a synthetic
+        "default" target for an undeclared config, and ``provision_all`` then
+        raises because there is no secret scope or key names to store credentials
+        under — failing the task and skipping every downstream one. Service
+        principals are opt-in, like every sibling task's declarations.
+        """
+        notebook = next(
+            p
+            for p in files("dao_ai.pipeline.notebooks").iterdir()
+            if p.name == "00_provision_service_principal.py"
+        )
+        text = notebook.read_text(encoding="utf-8")
+        assert "if not config.service_principals:" in text, (
+            "SP task no longer guards on an empty service_principals mapping"
+        )
+        # The guard must exit successfully, so the tasks gated on this one run.
+        guard = text.split("if not config.service_principals:", 1)[1]
+        assert "dbutils.notebook.exit" in guard.split("# COMMAND")[0], (
+            "the guard must exit the notebook, not fall through to provisioning"
+        )
+
     def test_notebooks_bootstrap_extras_suffix(self) -> None:
         """Each step notebook's ``%uv pip install`` bootstrap must install the
         feature extras its own body can exercise.
 
-        Graph-building notebooks (06_deploy_agent, 08_run_evaluation) build the
+        Graph-building notebooks (07_deploy_agent, 09_run_evaluation) build the
         agent before the config is known, so they install ``[all]``;
         01_ingest_and_transform may read EXCEL datasets so it installs
         ``[excel]``; the pure provisioning notebooks install bare dao-ai. Every
@@ -95,14 +120,16 @@ class TestPackagedAssets:
         # notebook filename prefix -> the extras suffix its bootstrap must append
         # ("" means no suffix — bare core install).
         expected_suffix: dict[str, str] = {
+            "00_": "",
             "01_": "[excel]",
             "02_": "",
             "03_": "",
             "04_": "",
             "05_": "",
-            "06_": "[all]",
-            "07_": "",
-            "08_": "[all]",
+            "06_": "",
+            "07_": "[all]",
+            "08_": "",
+            "09_": "[all]",
         }
         seen: set[str] = set()
         for p in files("dao_ai.pipeline.notebooks").iterdir():
@@ -189,9 +216,9 @@ class TestGeneratePipelineDatabricksYaml:
             "pipeline_test_app-gcp",
         }
 
-    def test_eight_task_dag_with_dependencies(self) -> None:
+    def test_task_dag_with_dependencies(self) -> None:
         tasks = self._doc(development=False)["resources"]["jobs"]["deploy_job"]["tasks"]
-        assert len(tasks) == 8
+        assert len(tasks) == 10
         by_key = {t["task_key"]: t for t in tasks}
         # run-evaluation fans in from deploy-agents + generate-evaluation-data.
         deps = {d["task_key"] for d in by_key["run-evaluation"]["depends_on"]}
@@ -206,6 +233,53 @@ class TestGeneratePipelineDatabricksYaml:
         # which register no model.
         eval_params = by_key["run-evaluation"]["notebook_task"]["base_parameters"]
         assert eval_params["mode"] == "${var.mode}"
+
+    def test_grants_run_after_every_resource_and_before_deploy(self) -> None:
+        """The service principal must be granted after its targets exist, and
+        before the agent goes live.
+
+        Granting used to happen inside provision-service-principal at the FRONT of
+        the DAG, where the tables (01/02), Lakebase project (03), UC functions (04)
+        and Genie space (05) did not exist yet — so every grant failed "absent",
+        was warned, and nothing re-granted. It must also precede deploy-agents: a
+        deployed agent needs its permissions at startup, so granting afterwards
+        means a live agent failing on its first tool call.
+        """
+        tasks = self._doc(development=False)["resources"]["jobs"]["deploy_job"]["tasks"]
+        by_key = {t["task_key"]: t for t in tasks}
+
+        assert "grant-service-principal" in by_key
+
+        grant_deps = {
+            d["task_key"] for d in by_key["grant-service-principal"]["depends_on"]
+        }
+        # Every task that creates something the SP is granted on.
+        assert grant_deps == {
+            "provision-service-principal",
+            "provision-lakebase",
+            "unity-catalog-tools",
+            "provision-genie",
+        }
+
+        deploy_deps = {d["task_key"] for d in by_key["deploy-agents"]["depends_on"]}
+        assert deploy_deps == {"grant-service-principal"}
+
+    def test_unity_catalog_tools_no_longer_depends_on_the_service_principal(
+        self,
+    ) -> None:
+        """That edge existed only so grants could run; notebook 04 never used it."""
+        tasks = self._doc(development=False)["resources"]["jobs"]["deploy_job"]["tasks"]
+        by_key = {t["task_key"]: t for t in tasks}
+        deps = {d["task_key"] for d in by_key["unity-catalog-tools"]["depends_on"]}
+        assert deps == {"provision-vector-search", "provision-lakebase"}
+
+    def test_lakebase_still_depends_on_the_service_principal(self) -> None:
+        """DatabaseModel.create() makes a Postgres role whose subject IS the SP's
+        client_id, so the SP must exist before Lakebase is provisioned."""
+        tasks = self._doc(development=False)["resources"]["jobs"]["deploy_job"]["tasks"]
+        by_key = {t["task_key"]: t for t in tasks}
+        deps = {d["task_key"] for d in by_key["provision-lakebase"]["depends_on"]}
+        assert deps == {"provision-service-principal"}
 
     def test_development_includes_wheel_in_sync(self) -> None:
         assert "dist/*.whl" in self._doc(development=True)["sync"]["include"]
@@ -297,7 +371,7 @@ class TestGenerateModelServingAgentDatabricksYaml:
         task = tasks[0]
         assert task["task_key"] == "deploy-agent"
         assert (
-            task["notebook_task"]["notebook_path"] == "./notebooks/06_deploy_agent.py"
+            task["notebook_task"]["notebook_path"] == "./notebooks/07_deploy_agent.py"
         )
         # A lone task has no upstream dependency.
         assert "depends_on" not in task
@@ -351,10 +425,10 @@ class TestWriteModelServingAgentBundle:
         out = tmp_path / "ms_out"
         write_model_serving_agent_bundle(self._config(tmp_path), out, overwrite=True)
         staged_notebooks = sorted(p.name for p in (out / "notebooks").glob("*.py"))
-        assert staged_notebooks == ["06_deploy_agent.py"], staged_notebooks
+        assert staged_notebooks == ["07_deploy_agent.py"], staged_notebooks
         # databricks.yaml + the one notebook + the staged config are all written.
         assert (out / "databricks.yaml").exists()
-        assert (out / "notebooks" / "06_deploy_agent.py").exists()
+        assert (out / "notebooks" / "07_deploy_agent.py").exists()
         assert (out / "config" / "ms.yaml").exists()
 
     def test_baked_config_has_no_parameters_block(self, tmp_path: Path) -> None:
@@ -455,7 +529,7 @@ class TestWritePipelineBundle:
         assert not (out / "requirements.txt").exists()
         assert (out / "config" / "my_config.yaml").exists()
         notebooks = sorted((out / "notebooks").glob("*.py"))
-        assert len(notebooks) == 8
+        assert len(notebooks) == 10
 
     def test_staged_config_written(self, tmp_path: Path) -> None:
         # The config is staged under config/ next to the notebooks so the job
@@ -727,14 +801,14 @@ class TestWritePipelineBundle:
 def test_materialize_notebooks_skips_init(tmp_path: Path) -> None:
     written = _materialize_notebooks(tmp_path, overwrite=True)
     assert all("__init__" not in w for w in written)
-    assert len(written) == 8
+    assert len(written) == 10
 
 
 @pytest.mark.unit
 class TestGenieProvisioningStaging:
     """Workflow staging must PRESERVE a Genie room's ``space_id: ${var.X}`` binding
     (+ its declaration) when the operator did NOT supply X, so
-    05_provision_genie can provision and 06_deploy_agent can inject the id.
+    05_provision_genie can provision and 07_deploy_agent can inject the id.
     A supplied X bakes to a literal (reuse). Non-genie params always bake."""
 
     _CFG = (

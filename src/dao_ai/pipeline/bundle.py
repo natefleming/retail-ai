@@ -59,10 +59,10 @@ _CLOUDS = ("azure", "aws", "gcp")
 # (only the bundle name does), so it is expressed once here as data. Each entry
 # is (task_key, notebook, depends_on, extra_base_parameters).
 _PIPELINE_TASKS: tuple[tuple[str, str, tuple[str, ...], dict[str, str]], ...] = (
-    # Runs first and gates the two tasks that need the service principal to
-    # exist: provision-lakebase creates a Postgres role whose subject is the SP's
-    # client_id, and unity-catalog-tools creates the functions the SP needs
-    # EXECUTE on. Idempotent, so it is safe on every pipeline run.
+    # Creates the service principal and stores its credentials — no grants (see
+    # grant-service-principal below). Runs first because provision-lakebase needs
+    # the SP to exist: DatabaseModel.create() makes a Postgres role whose subject
+    # is the SP's client_id. Idempotent, so it is safe on every pipeline run.
     ("provision-service-principal", "00_provision_service_principal.py", (), {}),
     ("ingest-and-transform", "01_ingest_and_transform.py", (), {}),
     (
@@ -80,29 +80,42 @@ _PIPELINE_TASKS: tuple[tuple[str, str, tuple[str, ...], dict[str, str]], ...] = 
     (
         "unity-catalog-tools",
         "04_unity_catalog_tools.py",
-        (
-            "provision-vector-search",
-            "provision-lakebase",
-            "provision-service-principal",
-        ),
+        ("provision-vector-search", "provision-lakebase"),
         {},
     ),
     ("provision-genie", "05_provision_genie.py", ("unity-catalog-tools",), {}),
+    # Authorizes the service principal AFTER every resource it needs exists —
+    # tables (01/02), the Lakebase project (03), UC functions (04), the Genie
+    # space (05) — and BEFORE the agent goes live, because a deployed agent needs
+    # its permissions at startup. Granting used to happen inside
+    # provision-service-principal, at the front of the DAG, where every target was
+    # still absent.
+    (
+        "grant-service-principal",
+        "06_grant_service_principal.py",
+        (
+            "provision-service-principal",
+            "provision-lakebase",
+            "unity-catalog-tools",
+            "provision-genie",
+        ),
+        {},
+    ),
     (
         "deploy-agents",
-        "06_deploy_agent.py",
-        ("provision-genie",),
+        "07_deploy_agent.py",
+        ("grant-service-principal",),
         {"mode": "${var.mode}", "development": "${var.development}"},
     ),
     (
         "generate-evaluation-data",
-        "07_generate_evaluation_data.py",
+        "08_generate_evaluation_data.py",
         ("provision-vector-search",),
         {},
     ),
     (
         "run-evaluation",
-        "08_run_evaluation.py",
+        "09_run_evaluation.py",
         ("deploy-agents", "generate-evaluation-data"),
         {"mode": "${var.mode}"},
     ),
@@ -121,7 +134,7 @@ _MODEL_SERVING_AGENT_TASKS: tuple[
 ] = (
     (
         "deploy-agent",
-        "06_deploy_agent.py",
+        "07_deploy_agent.py",
         (),
         {"mode": "${var.mode}", "development": "${var.development}"},
     ),
@@ -319,7 +332,7 @@ def generate_model_serving_agent_databricks_yaml(
 
     Same Job bundle shape as the provisioning pipeline
     (:func:`_build_job_bundle_yaml`), but the DAG is a single ``deploy-agent``
-    task that runs ``06_deploy_agent.py`` to register the MLflow model and deploy
+    task that runs ``07_deploy_agent.py`` to register the MLflow model and deploy
     the serving endpoint — no ingest/vector-search/lakebase/genie/eval tasks. The
     ``mode`` variable defaults to ``model_serving`` and extras resolve for the
     Model Serving target (a leaner serving image than the full pipeline).
@@ -341,7 +354,7 @@ def _materialize_notebooks(
     Only the wired ``NN_*.py`` step notebooks are materialized; the package
     ``__init__.py`` marker is skipped. When ``only`` is given, restrict to those
     filenames (the thin model_serving agent bundle stages just
-    ``06_deploy_agent.py``); otherwise materialize every step notebook.
+    ``07_deploy_agent.py``); otherwise materialize every step notebook.
     """
     notebooks_dir = staging_dir / "notebooks"
     notebooks_dir.mkdir(parents=True, exist_ok=True)
@@ -475,7 +488,7 @@ def _stage_code_paths(
     """Copy ``config.app.code_paths`` files into the staged bundle under ``config/``.
 
     Custom code stages next to the staged config (``config/<dest>``) so that when
-    ``06_deploy_agent.py`` reloads the staged config, ``add_code_paths_to_sys_path``
+    ``07_deploy_agent.py`` reloads the staged config, ``add_code_paths_to_sys_path``
     inserts the staged parent and ``create_agent``'s ``collect_code_paths`` resolves
     against the staged config directory.
 
@@ -508,7 +521,7 @@ def _stage_src_packages(
     """Copy colocated ``src/<pkg>`` packages into the staged bundle under ``config/src``.
 
     The ``src/`` convention: packages stage under ``config/src/<pkg>`` (next to
-    the staged config), so when ``06_deploy_agent.py`` reloads the staged config
+    the staged config), so when ``07_deploy_agent.py`` reloads the staged config
     its ``src/`` anchor is ``config/src`` — ``collect_serving_code_paths`` passes
     each ``config/src/<pkg>`` to ``log_model`` (MLflow -> ``code/<pkg>``) and
     ``prepend_src_to_sys_path`` puts ``config/src`` on ``sys.path``, both yielding
@@ -605,7 +618,7 @@ def _deferred_provided_params(config: AppConfig) -> set[str]:
 
     A parameter declared ``provided: true`` gets its value dynamically at run
     time — e.g. ``05_provision_genie`` creates a Genie space and forwards its id
-    via taskValues keyed by the param name, which ``06_deploy_agent`` then injects
+    via taskValues keyed by the param name, which ``07_deploy_agent`` then injects
     via ``AppConfig.from_file(task_values=...)``. For that to work the staged
     config must keep the ``${var.X}`` reference (and its declaration) rather than
     bake it.
@@ -637,7 +650,7 @@ def _staged_config_text(
     ``provided: true`` params to defer (see :func:`_deferred_provided_params`),
     re-render the pre-substitution source leaving those refs in place and retain
     ONLY their declarations, so ``05_provision_genie`` can provision and
-    ``06_deploy_agent`` can inject the forwarded id. Returns None if the config
+    ``07_deploy_agent`` can inject the forwarded id. Returns None if the config
     was not loaded via ``AppConfig.from_file`` (no rendered text available).
 
     ``defer_provided=False`` bakes every param to a literal (no ``${var.X}``
@@ -703,7 +716,7 @@ def write_model_serving_agent_bundle(
 
     The ``dao-ai agent --mode model_serving`` DAB analogue of the Apps/MCP
     bundles: a Lakeflow Job whose one ``deploy-agent`` task runs
-    ``06_deploy_agent.py`` to register the MLflow model and deploy the serving
+    ``07_deploy_agent.py`` to register the MLflow model and deploy the serving
     endpoint. No provisioning tasks and no upstream ``provided``-param filler, so
     the config is baked fully (``defer_provided=False``, like the Apps bundle);
     the CLI asserts all ``provided`` params are satisfied before staging.
@@ -715,7 +728,7 @@ def write_model_serving_agent_bundle(
         overwrite=overwrite,
         development=development,
         yaml_generator=generate_model_serving_agent_databricks_yaml,
-        notebook_only={"06_deploy_agent.py"},
+        notebook_only={"07_deploy_agent.py"},
         defer_provided=False,
         label="Model serving agent",
     )
