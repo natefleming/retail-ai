@@ -34,7 +34,7 @@ from dao_ai.apps.resources import (
     generate_user_api_scopes,
 )
 from dao_ai.code_paths import _SRC_DIRNAME, code_path_sync_globs
-from dao_ai.config import AppConfig, value_of
+from dao_ai.config import AppConfig, app_name_for, value_of
 
 
 def dump_bundle_yaml(doc: dict[str, Any]) -> str:
@@ -421,7 +421,7 @@ def _build_app_block(
     Returns:
         (app_name, experiments_block, apps_block)
     """
-    app_name: str = config.app.resource_name_for(as_mcp=as_mcp)
+    app_name: str = app_name_for(config.app.name, as_mcp=as_mcp)
 
     enable_chat_proxy: bool = (
         config.app.enable_chat_proxy

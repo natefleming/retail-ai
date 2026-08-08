@@ -140,8 +140,7 @@ class TestGenerateBundleLock:
 
         (tmp_path / "pyproject.toml").write_text("[project]\nname='x'\n")
         poisoned = (
-            "wheels = [{ url = "
-            f'"https://{mirror_host}/packages/aa/bb/x.whl" }}]\n'
+            f'wheels = [{{ url = "https://{mirror_host}/packages/aa/bb/x.whl" }}]\n'
         )
         monkeypatch.setattr(
             _locking.subprocess,

@@ -671,6 +671,37 @@ class ServingMode(str, Enum):
     MCP server when the deploy sets ``as_mcp``."""
 
 
+#: Prefix applied to the deployed App name when serving over MCP. The chat App
+#: and the MCP server are both Databricks Apps built from the SAME config, so
+#: without a distinct name one would silently replace the other. The ``mcp-``
+#: form is also what Databricks Multi-Agent Supervisor pattern-matches on when
+#: auto-discovering MCP-hosted Apps across an account.
+MCP_APP_PREFIX: str = "mcp-"
+
+
+def app_name_for(name: str, *, as_mcp: bool = False) -> str:
+    """Normalize a config ``app.name`` to its deployed Databricks App name.
+
+    Lowercases and hyphenates (the form every Apps API call must use), then
+    applies :data:`MCP_APP_PREFIX` when the deployment serves MCP. Single source
+    of truth for the deployed name — the bundle writers, the SDK deploy path, log
+    retrieval, the readiness pollers, and teardown all resolve through here.
+
+    Prefixing is **idempotent**: a config that already names its app ``mcp-*``
+    (the convention dao-ai's own docs recommend, since Multi-Agent Supervisor
+    pattern-matches it) is returned unchanged rather than becoming
+    ``mcp-mcp-*``.
+
+    Deliberately a function over a raw name rather than a method on
+    :class:`AppModel`, so callers holding only a name (and the duck-typed app
+    objects used in tests) can resolve it without constructing a full model.
+    """
+    normalized: str = name.lower().replace("_", "-")
+    if not as_mcp or normalized.startswith(MCP_APP_PREFIX):
+        return normalized
+    return f"{MCP_APP_PREFIX}{normalized}"
+
+
 class Privilege(str, Enum):
     """Unity Catalog privilege types for granting access to resources."""
 
@@ -9927,25 +9958,11 @@ class AppModel(BaseModel):
         Lowercased with underscores replaced by hyphens. This is the name the
         app is deployed under (see ``dao_ai.apps.bundle``); log retrieval and
         any other App API call must use this form, not the raw ``name``.
+
+        Chat-protocol name only. For an MCP deployment call
+        :func:`app_name_for(name, as_mcp=True)`, which adds the ``mcp-`` prefix.
         """
-        return self.name.lower().replace("_", "-")
-
-    def resource_name_for(self, *, as_mcp: bool = False) -> str:
-        """Workspace Databricks App name for a given serving protocol.
-
-        The chat App and the MCP server are both Databricks Apps deployed from
-        the same config, so they need distinct names or one would silently
-        replace the other. MCP deployments get an ``mcp-`` prefix, which also
-        matches what Databricks Multi-Agent Supervisor pattern-matches on when
-        auto-discovering MCP-hosted Apps across an account.
-
-        This is the single source of truth for the prefix — the bundle writer,
-        the SDK deploy path, log retrieval, and the readiness pollers all
-        resolve the deployed name through here.
-        """
-        if as_mcp:
-            return f"mcp-{self.app_resource_name}"
-        return self.app_resource_name
+        return app_name_for(self.name)
 
     @model_validator(mode="after")
     def set_default_agent(self) -> Self:

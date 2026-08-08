@@ -87,12 +87,29 @@ class TestMonitorLogsDispatch:
     ) -> None:
         # app.name "minimal_dao" -> workspace app "minimal-dao" (underscore->hyphen)
         cfg = MagicMock()
-        cfg.app.app_resource_name = "minimal-dao"
+        cfg.app.name = "minimal_dao"
         mock_from_file.return_value = cfg
         exc = self._run(["monitor", "logs", "-c", "config.yaml", "-p", "fevm"])
         assert exc.code == 0
         mock_stream.assert_called_once_with(
             app_name="minimal-dao", lines=200, follow=False, profile="fevm"
+        )
+
+    @patch("dao_ai.monitoring.stream_app_logs", return_value=0)
+    @patch("dao_ai.config.AppConfig.from_file")
+    def test_as_mcp_derives_prefixed_name(
+        self, mock_from_file: MagicMock, mock_stream: MagicMock
+    ) -> None:
+        # --as-mcp must stream the MCP server's logs, not the chat App's.
+        cfg = MagicMock()
+        cfg.app.name = "minimal_dao"
+        mock_from_file.return_value = cfg
+        exc = self._run(
+            ["monitor", "logs", "-c", "config.yaml", "-p", "fevm", "--as-mcp"]
+        )
+        assert exc.code == 0
+        mock_stream.assert_called_once_with(
+            app_name="mcp-minimal-dao", lines=200, follow=False, profile="fevm"
         )
 
     def test_negative_lines_rejected(self) -> None:

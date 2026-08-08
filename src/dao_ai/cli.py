@@ -18,7 +18,7 @@ from typing import TYPE_CHECKING, Any, Optional, Sequence
 from dotenv import find_dotenv, load_dotenv
 from loguru import logger
 
-from dao_ai.config import AppConfig
+from dao_ai.config import AppConfig, app_name_for
 
 if TYPE_CHECKING:
     from dao_ai.config import McpFunctionModel
@@ -702,7 +702,8 @@ def _add_noun_verb_parsers(
             _add_workflow_target_args(verb_parser)
         # Both serving platforms are valid on every verb for both nouns (uniform
         # surface — see the build parser above). start/down resolve the staged
-        # dir per mode+protocol (agent: apps/mcp/ms; workflow: mode-agnostic
+        # dir per platform+protocol (agent: apps/{chat,mcp}, model_serving;
+        # workflow: mode-agnostic
         # bundle + job var); no verb rejects a mode another verb on the same noun
         # accepts. `--as-mcp` must be present on start/down too, since it selects
         # which staged bundle those verbs act on.
@@ -824,7 +825,8 @@ def _default_bundle_dir(
     machine-level location for a git-sourced config).
 
     The ``agent`` noun nests the serving mode under the app
-    (``agent/<app>/{apps,mcp,ms}``) because each mode produces a materially
+    (``agent/<app>/<platform>[/<protocol>]``) because each combination produces a
+    materially
     different bundle — apps/mcp are Databricks *App* bundles, model_serving is a
     *Job* bundle — so they must not clobber one another when the same agent is
     deployed in more than one mode. The ``workflow`` noun passes no
@@ -2913,7 +2915,7 @@ def _grant_trace_writes_to_app_sp(
 
     Resolution order for the App SP:
       1. ``sp_override`` (``--app-sp`` flag).
-      2. ``apps.get(config.app.resource_name_for(as_mcp)).service_principal_client_id``.
+      2. ``apps.get(app_name_for(config.app.name, as_mcp)).service_principal_client_id``.
 
     ``as_mcp`` selects which deployed App to resolve the SP from: the chat App
     and the MCP server have SEPARATE auto-created service principals, so
@@ -2934,11 +2936,11 @@ def _grant_trace_writes_to_app_sp(
         return
 
     sp_id: Optional[str] = sp_override
-    # The deployed Databricks App is named per ``resource_name_for`` (lowercased,
+    # The deployed Databricks App is named per ``app_name_for`` (lowercased,
     # underscores → hyphens, ``mcp-`` prefixed for MCP), NOT the raw ``app.name``.
     # ``apps.get`` must use that form or it raises NotFound and the grant is
     # silently skipped.
-    app_name: str = config.app.resource_name_for(as_mcp=as_mcp)
+    app_name: str = app_name_for(config.app.name, as_mcp=as_mcp)
     if not sp_id:
         try:
             from databricks.sdk import WorkspaceClient
@@ -3033,7 +3035,7 @@ def _resolve_experiment_id_for_link(
     # `[dev <sanitized-user>]` — try both the unprefixed name (prod-mode
     # deploys) and the dev-prefixed name (personal dev deploys) so the
     # CLI works in either mode without the operator having to specify.
-    app_name = config.app.resource_name_for(as_mcp=as_mcp)
+    app_name = app_name_for(config.app.name, as_mcp=as_mcp)
     try:
         from databricks.sdk import WorkspaceClient
         from mlflow.tracking import MlflowClient
@@ -3611,8 +3613,8 @@ def _handle_monitor_logs(options: Namespace) -> None:
             sys.exit(0)
 
         # apps mode (chat App, or the mcp- prefixed MCP server with --as-mcp)
-        app_name: str = options.name or config.app.resource_name_for(
-            as_mcp=getattr(options, "as_mcp", False)
+        app_name: str = options.name or app_name_for(
+            config.app.name, as_mcp=getattr(options, "as_mcp", False)
         )
         sys.exit(
             stream_app_logs(
@@ -5177,7 +5179,7 @@ def run_databricks_command(
         else:
             _wait_for_resource_ready(
                 "app",
-                app_config.app.resource_name_for(as_mcp=as_mcp),
+                app_name_for(app_config.app.name, as_mcp=as_mcp),
                 profile,
                 wait_timeout,
             )
@@ -5539,7 +5541,7 @@ def deploy_app_bundle(
     """
     if config.app is None:
         raise ValueError("Config must have an 'app' section to deploy a bundle.")
-    app_name = config.app.resource_name_for(as_mcp=as_mcp)
+    app_name = app_name_for(config.app.name, as_mcp=as_mcp)
     target = "dev"
 
     if destroy:
@@ -5605,7 +5607,8 @@ def _run_ms_job_bundle(
     wait_timeout: Optional[int] = None,
     purge: bool = False,
 ) -> None:
-    """Deploy/run/destroy a staged model_serving *Job* bundle (``agent/<app>/ms``).
+    """Deploy/run/destroy a staged model_serving *Job* bundle
+    (``agent/<app>/model_serving``).
 
     The model_serving DAB is a Lakeflow Job (single deploy-agent task), so it is
     driven like the ``workflow`` noun — per-cloud target ``<app>-<cloud>``,
@@ -5823,7 +5826,7 @@ def _delete_app(
     destroy``.
     """
     app_name: Optional[str] = (
-        config.app.resource_name_for(as_mcp=as_mcp) if config.app else None
+        app_name_for(config.app.name, as_mcp=as_mcp) if config.app else None
     )
     if dry_run:
         if app_name:
@@ -6034,7 +6037,8 @@ def _resolve_bundle_dir(
     was chosen by dao-ai (``<base>/<kind>/<app>[/<mode_subdir>]``) rather than
     supplied via ``-s``. Both ``<noun> build`` and the standalone
     ``sync``/``start``/``down`` verbs call this so they always agree on the
-    same directory. The agent noun passes ``mode_subdir`` (apps/mcp/ms) so each
+    same directory. The agent noun passes ``mode_subdir``
+    (``apps/chat``, ``apps/mcp``, ``model_serving``) so each
     serving mode gets its own dir under ``agent/<app>/``.
     """
     is_default_dir: bool = staging_dir is None
@@ -6254,7 +6258,7 @@ def _deploy_run_destroy_app_bundle(
             if wait_timeout is not None:
                 _wait_for_resource_ready(
                     "app",
-                    config.app.resource_name_for(as_mcp=as_mcp),
+                    app_name_for(config.app.name, as_mcp=as_mcp),
                     options.profile,
                     wait_timeout,
                 )
@@ -6391,7 +6395,7 @@ def _deploy_run_destroy_app_bundle(
 
     if run and not deploy and not destroy and not dry_run:
         _verify_app_deployed_or_exit(
-            config.app.resource_name_for(as_mcp=as_mcp),
+            app_name_for(config.app.name, as_mcp=as_mcp),
             kind=kind,
             config=options.config,
         )
@@ -6439,26 +6443,34 @@ def _verify_app_deployed_or_exit(app_name: str, *, kind: str, config: str) -> No
 
 
 def _mode_subdir(mode: str, as_mcp: bool = False) -> str:
-    """Staging subdir under ``agent/<app>/`` for a serving mode + protocol.
+    """Staging subdir under ``agent/<app>/`` for a serving platform + protocol.
 
-    All agent bundles live under the ``agent`` kind; the mode nests beneath the
-    app (``agent/<app>/{apps,mcp,ms}``) so an agent deployed more than one way
-    never clobbers its own other bundle. The three produce materially different
-    bundles — ``apps`` and ``mcp`` are Databricks *App* bundles (differing in
-    container command and extras), ``model_serving`` is a *Job* bundle — so
-    isolation is required, not cosmetic.
+    The path mirrors the two CLI axes exactly — ``<platform>[/<protocol>]``::
+
+        agent/<app>/apps/chat         # --mode apps
+        agent/<app>/apps/mcp          # --mode apps --as-mcp
+        agent/<app>/model_serving     # --mode model_serving
+
+    Isolation is required, not cosmetic: each leaf holds a materially different
+    bundle (the two ``apps`` protocols are Databricks *App* bundles differing in
+    container command, extras, and declared App name; ``model_serving`` is a
+    Lakeflow *Job* bundle), so an agent deployed more than one way must never
+    clobber its own other bundle. Nesting the protocol *under* the platform keeps
+    the two vocabularies from colliding at the same level — the ``workflow``
+    noun passes no subdir at all, since its bundle is mode-agnostic.
     """
-    if as_mcp:
-        return "mcp"
-    return {"apps": "apps", "model_serving": "ms"}[mode]
+    if mode == "apps":
+        return f"apps/{'mcp' if as_mcp else 'chat'}"
+    return {"model_serving": "model_serving"}[mode]
 
 
 def _is_job_bundle_mode(mode: str) -> bool:
-    """True for serving modes whose DAB is a Lakeflow *Job* (not an *App*).
+    """True for serving platforms whose DAB is a Lakeflow *Job* (not an *App*).
 
-    Only ``model_serving`` stages a Job bundle (single deploy-agent task); apps
-    and mcp stage App bundles. Governs which deploy driver runs the staged
-    bundle (:func:`_run_ms_job_bundle` vs :func:`deploy_app_bundle`).
+    Only ``model_serving`` stages a Job bundle (single deploy-agent task); the
+    ``apps`` platform stages App bundles for both protocols. Governs which deploy
+    driver runs the staged bundle (:func:`_run_ms_job_bundle` vs
+    :func:`deploy_app_bundle`).
     """
     return mode == "model_serving"
 
@@ -6486,11 +6498,11 @@ def handle_agent_command(options: Namespace) -> None:
     """Dispatch `dao-ai agent <up|build|sync|start|down>`.
 
     ``up``           → build (if needed) → sync → start (one-command path).
-    ``--mode apps``  → chat-agent App bundle  (staging dir ``agent/<app>/apps``)
+    ``--mode apps``  → chat-agent App bundle (staging dir ``agent/<app>/apps/chat``)
     ``--mode apps --as-mcp`` → MCP-server App bundle, deployed as ``mcp-<app>``
-                       (staging dir ``agent/<app>/mcp``)
+                       (staging dir ``agent/<app>/apps/mcp``)
     ``--mode model_serving`` → thin deploy-agent Job bundle
-                       (staging dir ``agent/<app>/ms``); registers the MLflow
+                       (staging dir ``agent/<app>/model_serving``); registers the MLflow
                        model + deploys the serving endpoint on ``start``.
     ``--direct``     → SDK path without a bundle on disk (both modes;
                        model_serving = the register+deploy SDK path).
@@ -6502,7 +6514,8 @@ def handle_agent_command(options: Namespace) -> None:
     mode: str = getattr(options, "mode", "apps") or "apps"
     as_mcp: bool = getattr(options, "as_mcp", False)
     # Every agent bundle lives under the ``agent`` kind; the mode + protocol
-    # nests beneath the app (apps/mcp/ms) so they never clobber each other.
+    # nests beneath the app (apps/{chat,mcp}, model_serving) so they never
+    # clobber each other.
     kind: str = "agent"
     writer = _mode_writer(mode, as_mcp)
     what: str = "an MCP bundle" if as_mcp else "a bundle"

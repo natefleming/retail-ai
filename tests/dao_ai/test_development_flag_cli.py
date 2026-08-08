@@ -101,10 +101,11 @@ class TestNounVerbParsing:
             parse_args(["agent", "sync", "-c", "c.yaml", "--direct"])
 
     def test_up_verb_parses(self) -> None:
-        opts = parse_args(["agent", "up", "-c", "c.yaml", "--mode", "mcp"])
+        opts = parse_args(["agent", "up", "-c", "c.yaml", "--mode", "apps", "--as-mcp"])
         assert opts.command == "agent"
         assert opts.subcommand == "up"
-        assert opts.mode == "mcp"
+        assert opts.mode == "apps"
+        assert opts.as_mcp is True
 
     def test_up_verb_direct_flag(self) -> None:
         opts = parse_args(["agent", "up", "-c", "c.yaml", "--direct"])
@@ -180,18 +181,18 @@ class TestDefaultBundleDir:
             assert cli._default_bundle_dir(kind, "app") == Path(f"artifacts/{kind}/app")
 
     def test_agent_mode_nests_under_app(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Agent bundles nest the serving mode under the app so apps/mcp/ms
-        never clobber one another (mode subdir from _mode_subdir)."""
+        """Agent bundles nest the serving mode + protocol under the app so
+        apps/mcp/ms never clobber one another (subdir from _mode_subdir)."""
         monkeypatch.delenv("DAO_AI_BUNDLE_DIR", raising=False)
         assert cli._default_bundle_dir(
             "agent", "my_app", cli._mode_subdir("apps")
-        ) == Path(".dao-ai/bundle/agent/my_app/apps")
+        ) == Path(".dao-ai/bundle/agent/my_app/apps/chat")
         assert cli._default_bundle_dir(
-            "agent", "my_app", cli._mode_subdir("mcp")
-        ) == Path(".dao-ai/bundle/agent/my_app/mcp")
+            "agent", "my_app", cli._mode_subdir("apps", as_mcp=True)
+        ) == Path(".dao-ai/bundle/agent/my_app/apps/mcp")
         assert cli._default_bundle_dir(
             "agent", "my_app", cli._mode_subdir("model_serving")
-        ) == Path(".dao-ai/bundle/agent/my_app/ms")
+        ) == Path(".dao-ai/bundle/agent/my_app/model_serving")
 
     def test_workflow_dir_has_no_mode_subdir(
         self, monkeypatch: pytest.MonkeyPatch
@@ -738,9 +739,26 @@ def _app_config(*, trace: bool) -> AppConfig:
 
 @pytest.mark.unit
 class TestModeChoices:
-    def test_sync_accepts_all_three(self) -> None:
-        for m in ("model_serving", "apps", "mcp"):
+    def test_sync_accepts_both_platforms(self) -> None:
+        for m in ("model_serving", "apps"):
             assert parse_args(["agent", "sync", "-c", "c.yaml", "--mode", m]).mode == m
+
+    def test_mode_mcp_is_rejected(self) -> None:
+        # MCP is a protocol (--as-mcp), not a platform: argparse rejects it as a
+        # --mode value rather than failing later in the deploy.
+        with pytest.raises(SystemExit):
+            parse_args(["agent", "sync", "-c", "c.yaml", "--mode", "mcp"])
+
+    def test_as_mcp_requires_apps_mode(self) -> None:
+        # MCP is served by the Apps runtime; there is no Model Serving MCP
+        # surface, so the combination exits 1 with a diagnostic.
+        with pytest.raises(SystemExit):
+            parse_args(
+                ["agent", "up", "-c", "c.yaml", "--mode", "model_serving", "--as-mcp"]
+            )
+
+    def test_as_mcp_defaults_false(self) -> None:
+        assert parse_args(["agent", "sync", "-c", "c.yaml"]).as_mcp is False
 
     def test_build_accepts_model_serving(self) -> None:
         # Agent build now stages a bundle for every mode, including the thin
@@ -752,9 +770,14 @@ class TestModeChoices:
             == "model_serving"
         )
 
-    def test_build_accepts_apps_and_mcp(self) -> None:
-        for m in ("apps", "mcp"):
-            assert parse_args(["agent", "build", "-c", "c.yaml", "--mode", m]).mode == m
+    def test_build_accepts_apps_with_and_without_as_mcp(self) -> None:
+        assert parse_args(
+            ["agent", "build", "-c", "c.yaml", "--mode", "apps"]
+        ).mode == ("apps")
+        opts = parse_args(
+            ["agent", "build", "-c", "c.yaml", "--mode", "apps", "--as-mcp"]
+        )
+        assert opts.mode == "apps" and opts.as_mcp is True
 
     @pytest.mark.parametrize("verb", ["build", "start", "down"])
     def test_agent_verbs_accept_model_serving(self, verb: str) -> None:
@@ -768,7 +791,9 @@ class TestModeChoices:
         assert parse_args(["agent", "sync", "-c", "c.yaml"]).mode == "apps"
 
     def test_short_alias_m(self) -> None:
-        assert parse_args(["agent", "sync", "-c", "c.yaml", "-m", "mcp"]).mode == "mcp"
+        assert (
+            parse_args(["agent", "sync", "-c", "c.yaml", "-m", "apps"]).mode == "apps"
+        )
 
     @pytest.mark.parametrize("alias", ["ms", "model-serving", "model_serving"])
     def test_model_serving_aliases_normalize_on_sync(self, alias: str) -> None:
@@ -790,24 +815,31 @@ class TestModeChoices:
 
 @pytest.mark.unit
 class TestWorkflowModeChoices:
-    """Every workflow verb accepts the same three modes as every agent verb —
+    """Every workflow verb accepts the same platforms as every agent verb —
     a uniform surface (ADR §2.7: workflow deploys the agent in any valid mode,
     incl. model_serving, forwarding `--mode` to the deploy-agent job step). No
-    verb may reject a mode another verb on the same noun accepts.
+    verb may reject a mode another verb on the same noun accepts. `--as-mcp` is
+    likewise available on every verb of both nouns.
     """
 
     @pytest.mark.parametrize("verb", ["up", "build", "sync", "start", "down"])
-    @pytest.mark.parametrize("mode", ["model_serving", "apps", "mcp"])
+    @pytest.mark.parametrize("mode", ["model_serving", "apps"])
     def test_workflow_verb_accepts_all_modes(self, verb: str, mode: str) -> None:
         assert (
             parse_args(["workflow", verb, "-c", "c.yaml", "--mode", mode]).mode == mode
         )
 
     @pytest.mark.parametrize("verb", ["up", "build", "sync", "start", "down"])
-    @pytest.mark.parametrize("mode", ["model_serving", "apps", "mcp"])
+    @pytest.mark.parametrize("mode", ["model_serving", "apps"])
     def test_agent_verb_accepts_all_modes(self, verb: str, mode: str) -> None:
         # Agent parity — the two nouns expose identical mode choices per verb.
         assert parse_args(["agent", verb, "-c", "c.yaml", "--mode", mode]).mode == mode
+
+    @pytest.mark.parametrize("noun", ["agent", "workflow"])
+    @pytest.mark.parametrize("verb", ["up", "build", "sync", "start", "down"])
+    def test_as_mcp_accepted_on_every_noun_and_verb(self, noun: str, verb: str) -> None:
+        # start/down need it too: it selects which staged bundle they act on.
+        assert parse_args([noun, verb, "-c", "c.yaml", "--as-mcp"]).as_mcp is True
 
     @pytest.mark.parametrize("noun", ["agent", "workflow"])
     @pytest.mark.parametrize("verb", ["up", "build", "sync", "start", "down"])
@@ -874,7 +906,7 @@ class TestAgentModeWriterSelection:
     def test_agent_generate_mcp_uses_mcp_writer(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """--mode mcp must call write_mcp_bundle, not write_bundle."""
+        """--as-mcp must call write_mcp_bundle, not write_bundle."""
         called: dict[str, bool] = {}
         monkeypatch.setattr(
             "dao_ai.mcp.generate.write_mcp_bundle",
@@ -896,8 +928,7 @@ class TestAgentModeWriterSelection:
                 str(cfg),
                 "-s",
                 str(tmp_path / "out"),
-                "--mode",
-                "mcp",
+                "--as-mcp",
             ]
         )
         cli.handle_agent_command(opts)
@@ -935,7 +966,7 @@ class TestAgentModeWriterSelection:
     def test_agent_deploy_mcp_uses_mcp_staging_dir(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """agent deploy --mode mcp resolves the agent/<app>/mcp staging dir."""
+        """agent sync --as-mcp resolves the agent/<app>/mcp staging dir."""
         cfg = self._write_config(tmp_path)
         # Capture the mode_subdir _resolve_bundle_dir is asked for.
         resolved: dict[str, Path] = {}
@@ -958,14 +989,14 @@ class TestAgentModeWriterSelection:
             cli, "_resolve_bundle_dir", side_effect=mock_resolve_bundle_dir
         ):
             with patch.object(cli, "deploy_app_bundle"):
-                opts = parse_args(["agent", "sync", "-c", str(cfg), "--mode", "mcp"])
+                opts = parse_args(["agent", "sync", "-c", str(cfg), "--as-mcp"])
                 cli.handle_agent_command(opts)
 
-        assert "mcp" in resolved, (
-            "deploy must resolve the mcp mode subdir when --mode mcp"
+        assert "apps/mcp" in resolved, (
+            f"sync must resolve the apps/mcp subdir with --as-mcp; got {resolved}"
         )
-        assert "/mcp" in str(resolved["mcp"]), (
-            f"Expected mcp staging dir path to contain /mcp, got {resolved['mcp']}"
+        assert str(resolved["apps/mcp"]).endswith("/apps/mcp"), (
+            f"Expected staging dir to end in /apps/mcp, got {resolved['apps/mcp']}"
         )
 
     def test_agent_up_model_serving_uses_ms_writer_and_job_driver(
@@ -1133,9 +1164,17 @@ class TestStrictPrimitivesErrorWhenUnstaged:
         return cfg
 
     @pytest.mark.parametrize("verb", ["sync", "start", "down"])
-    @pytest.mark.parametrize("mode", ["apps", "mcp", "model_serving"])
+    @pytest.mark.parametrize(
+        "mode,as_mcp",
+        [("apps", False), ("apps", True), ("model_serving", False)],
+    )
     def test_agent_primitive_errors_when_unstaged(
-        self, verb: str, mode: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+        self,
+        verb: str,
+        mode: str,
+        as_mcp: bool,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         cfg = self._cfg(tmp_path)
         out = tmp_path / "out"  # no databricks.yaml
@@ -1149,18 +1188,26 @@ class TestStrictPrimitivesErrorWhenUnstaged:
             patch.object(cli, "deploy_app_bundle") as dep,
             patch.object(cli, "_run_ms_job_bundle") as job,
         ):
-            opts = parse_args(
-                ["agent", verb, "-c", str(cfg), "-s", str(out), "--mode", mode]
-            )
+            argv = ["agent", verb, "-c", str(cfg), "-s", str(out), "--mode", mode]
+            if as_mcp:
+                argv.append("--as-mcp")
+            opts = parse_args(argv)
             with pytest.raises(SystemExit) as exc:
                 cli.handle_agent_command(opts)
         assert exc.value.code == 1
         dep.assert_not_called()
         job.assert_not_called()
 
-    @pytest.mark.parametrize("mode", ["apps", "mcp", "model_serving"])
+    @pytest.mark.parametrize(
+        "mode,as_mcp",
+        [("apps", False), ("apps", True), ("model_serving", False)],
+    )
     def test_agent_up_autobuilds_when_unstaged(
-        self, mode: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+        self,
+        mode: str,
+        as_mcp: bool,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         cfg = self._cfg(tmp_path)
         out = tmp_path / "out"
@@ -1192,11 +1239,15 @@ class TestStrictPrimitivesErrorWhenUnstaged:
             patch.object(cli, "deploy_app_bundle"),
             patch.object(cli, "_run_ms_job_bundle"),
         ):
-            opts = parse_args(
-                ["agent", "up", "-c", str(cfg), "-s", str(out), "--mode", mode]
-            )
+            argv = ["agent", "up", "-c", str(cfg), "-s", str(out), "--mode", mode]
+            if as_mcp:
+                argv.append("--as-mcp")
+            opts = parse_args(argv)
             cli.handle_agent_command(opts)
-        assert built.get("yes"), f"up --mode {mode} must auto-build when unstaged"
+        assert built.get("yes"), (
+            f"up --mode {mode}{' --as-mcp' if as_mcp else ''} must auto-build "
+            "when unstaged"
+        )
 
     @pytest.mark.parametrize("verb", ["sync", "start", "down"])
     def test_workflow_primitive_errors_when_unstaged(
@@ -2005,8 +2056,11 @@ class TestDeployAutoGenerate:
             self_config: object,
             mode: object = None,
             development: object = None,
+            as_mcp: bool = False,
         ) -> None:
-            deploy_agent_calls.append({"mode": mode, "development": development})
+            deploy_agent_calls.append(
+                {"mode": mode, "development": development, "as_mcp": as_mcp}
+            )
 
         monkeypatch.setattr(cli, "_apply_profile_context", lambda p: None)
         monkeypatch.setattr(
@@ -2035,7 +2089,7 @@ class TestDeployAutoGenerate:
         monkeypatch.setattr(cli, "_apply_profile_context", lambda p: None)
         monkeypatch.setattr(
             "dao_ai.config.AppConfig.deploy_agent",
-            lambda self_config, mode=None, development=None: None,
+            lambda self_config, mode=None, development=None, as_mcp=False: None,
         )
         with (
             patch.object(cli, "deploy_app_bundle"),
@@ -2055,7 +2109,7 @@ class TestDeployAutoGenerate:
         monkeypatch.setattr(cli, "_apply_profile_context", lambda p: None)
         monkeypatch.setattr(
             "dao_ai.config.AppConfig.deploy_agent",
-            lambda self_config, mode=None, development=None: None,
+            lambda self_config, mode=None, development=None, as_mcp=False: None,
         )
         with (
             patch.object(cli, "deploy_app_bundle"),
@@ -2088,9 +2142,12 @@ class TestDeployAutoGenerate:
             self_config: object,
             mode: object = None,
             development: object = None,
+            as_mcp: bool = False,
         ) -> None:
             calls.append("deploy")
-            deploy_agent_calls.append({"mode": mode, "development": development})
+            deploy_agent_calls.append(
+                {"mode": mode, "development": development, "as_mcp": as_mcp}
+            )
 
         monkeypatch.setattr(cli, "_apply_profile_context", lambda p: None)
         monkeypatch.setattr(AppConfig, "_resolve_all_resources", lambda self: None)
@@ -2151,7 +2208,9 @@ class TestDeployAutoGenerate:
         )
         monkeypatch.setattr(
             "dao_ai.config.AppConfig.deploy_agent",
-            lambda self, mode=None, development=None: sdk_calls.append("deploy"),
+            lambda self, mode=None, development=None, as_mcp=False: sdk_calls.append(
+                "deploy"
+            ),
         )
         with (
             patch.object(cli, "_exec_job_bundle") as exec_job,
@@ -2213,7 +2272,9 @@ class TestDeployAutoGenerate:
         )
         monkeypatch.setattr(
             "dao_ai.config.AppConfig.deploy_agent",
-            lambda self, mode=None, development=None: called.append("deploy"),
+            lambda self, mode=None, development=None, as_mcp=False: called.append(
+                "deploy"
+            ),
         )
 
         opts = parse_args(["agent", "up", "-c", str(cfg), *argv_tail])
@@ -2232,7 +2293,9 @@ class TestDeployAutoGenerate:
         monkeypatch.setattr(AppConfig, "_resolve_all_resources", lambda self: None)
         monkeypatch.setattr(
             "dao_ai.config.AppConfig.deploy_agent",
-            lambda self, mode=None, development=None: called.append("deploy"),
+            lambda self, mode=None, development=None, as_mcp=False: called.append(
+                "deploy"
+            ),
         )
         opts = parse_args(
             ["agent", "up", "-c", str(cfg), "--direct", "--param", "gsid=01fREAL"]

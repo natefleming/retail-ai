@@ -50,6 +50,7 @@ from unitycatalog.ai.core.databricks import DatabricksFunctionClient
 
 import dao_ai
 from dao_ai.config import (
+    app_name_for,
     AppConfig,
     ConnectionModel,
     DatabaseModel,
@@ -1974,7 +1975,7 @@ class DatabricksProvider(ServiceProvider):
         # Resolve the deployed App name: lowercased/hyphenated, and ``mcp-``
         # prefixed for MCP deployments so the two protocols don't collide.
         raw_name: str = config.app.name
-        app_name: str = config.app.resource_name_for(as_mcp=as_mcp)
+        app_name: str = app_name_for(config.app.name, as_mcp=as_mcp)
         if app_name != raw_name:
             logger.info(
                 "Normalized app name for Databricks Apps",

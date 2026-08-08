@@ -44,7 +44,7 @@ from dao_ai.apps.bundle import (
     generate_databricks_yaml,
     generate_resources_app_yaml,
 )
-from dao_ai.config import AppConfig
+from dao_ai.config import AppConfig, app_name_for
 from dao_ai.mcp.agent_tool import _slugify
 
 DEFAULT_CONFIG_FILENAME = "dao_ai.yaml"
@@ -304,13 +304,13 @@ def write_mcp_bundle(
 def _derive_app_name(config: AppConfig) -> str:
     """Return the deployed Databricks App name for the MCP server.
 
-    ``mcp-`` prefixed (via :meth:`AppModel.resource_name_for`) so an MCP server
+    ``mcp-`` prefixed (via :func:`dao_ai.config.app_name_for`) so an MCP server
     and a chat App generated from the same config deploy to DIFFERENT Apps
     instead of replacing one another. The prefix also matches what Databricks
     Multi-Agent Supervisor pattern-matches on when auto-discovering MCP Apps.
     """
     assert config.app is not None and config.app.name  # enforced by caller
-    return config.app.resource_name_for(as_mcp=True)
+    return app_name_for(config.app.name, as_mcp=True)
 
 
 def _render_pyproject(

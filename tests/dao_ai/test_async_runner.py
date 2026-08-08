@@ -249,9 +249,9 @@ def test_concurrent_run_sync_is_io_concurrent():
 def test_runner_is_lazy_and_import_safe():
     """No runner thread/loop exists until the first run_sync/iter_sync call."""
     assert _Runner._instance is None
-    assert not any(
-        t.name == "dao_ai-sync-runner" for t in threading.enumerate()
-    ), "runner thread created before first use"
+    assert not any(t.name == "dao_ai-sync-runner" for t in threading.enumerate()), (
+        "runner thread created before first use"
+    )
 
     async def noop() -> int:
         return 1
