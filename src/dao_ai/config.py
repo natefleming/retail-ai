@@ -653,17 +653,22 @@ class IsDatabricksResource(ABC, BaseModel):
 
 
 class ServingMode(str, Enum):
-    """Target platform for agent deployment (a deploy-action parameter — NOT a
-    field on AppConfig)."""
+    """Hosting PLATFORM for agent deployment (a deploy-action parameter — NOT a
+    field on AppConfig).
+
+    This is the ``--mode`` axis: *where* the agent runs. The wire protocol is a
+    separate axis — see the ``as_mcp`` deploy parameter (CLI ``--as-mcp``), which
+    serves the agent over MCP on the Apps platform instead of the chat UI. MCP is
+    deliberately NOT a member here: it is not a third platform, it is the same
+    Databricks Apps runtime speaking a different protocol.
+    """
 
     MODEL_SERVING = "model_serving"
     """Deploy to a Databricks Model Serving endpoint (no DAB bundle)."""
 
     APPS = "apps"
-    """Deploy as a Databricks App (chat UI) from a DAB bundle."""
-
-    MCP = "mcp"
-    """Deploy the MCP server as a Databricks App from a DAB bundle."""
+    """Deploy as a Databricks App from a DAB bundle — chat UI by default, or the
+    MCP server when the deploy sets ``as_mcp``."""
 
 
 class Privilege(str, Enum):
@@ -9634,7 +9639,7 @@ class AppModel(BaseModel):
         default=None,
         description=(
             "Server-side MCP capabilities exposed when dao-ai is deployed as an "
-            "MCP server (``dao-ai agent generate --mode mcp``). Declares static resources, "
+            "MCP server (``dao-ai agent build --as-mcp``). Declares static resources, "
             "prompt templates, and whether progress + logging notifications are "
             "emitted from the agent tool. When None the server publishes only "
             "the single agent-as-tool surface with no notifications."
@@ -9924,6 +9929,23 @@ class AppModel(BaseModel):
         any other App API call must use this form, not the raw ``name``.
         """
         return self.name.lower().replace("_", "-")
+
+    def resource_name_for(self, *, as_mcp: bool = False) -> str:
+        """Workspace Databricks App name for a given serving protocol.
+
+        The chat App and the MCP server are both Databricks Apps deployed from
+        the same config, so they need distinct names or one would silently
+        replace the other. MCP deployments get an ``mcp-`` prefix, which also
+        matches what Databricks Multi-Agent Supervisor pattern-matches on when
+        auto-discovering MCP-hosted Apps across an account.
+
+        This is the single source of truth for the prefix — the bundle writer,
+        the SDK deploy path, log retrieval, and the readiness pollers all
+        resolve the deployed name through here.
+        """
+        if as_mcp:
+            return f"mcp-{self.app_resource_name}"
+        return self.app_resource_name
 
     @model_validator(mode="after")
     def set_default_agent(self) -> Self:
@@ -11566,6 +11588,7 @@ class AppConfig(BaseModel):
         client_secret: str | None = None,
         workspace_host: str | None = None,
         development: bool | None = None,
+        as_mcp: bool = False,
     ) -> None:
         """
         Deploy the agent using the specified serving mode.
@@ -11574,7 +11597,7 @@ class AppConfig(BaseModel):
         If not provided, defaults to MODEL_SERVING.
 
         Args:
-            mode: The serving mode (MODEL_SERVING, APPS, or MCP). If None,
+            mode: The serving platform (MODEL_SERVING or APPS). If None,
                 defaults to MODEL_SERVING.
             w: Optional WorkspaceClient instance
             vsc: Optional VectorSearchClient instance
@@ -11584,6 +11607,9 @@ class AppConfig(BaseModel):
             workspace_host: Optional workspace host URL
             development: Ship local dao-ai source/wheel (True), the PyPI package
                 (False), or auto-detect from the install type (None).
+            as_mcp: Serve the agent over MCP instead of the chat UI. Valid only
+                with ``mode=APPS`` (MCP runs on the Apps runtime); deploys under
+                the ``mcp-`` prefixed App name.
         """
         from dao_ai.providers.base import ServiceProvider
         from dao_ai.providers.databricks import DatabricksProvider
@@ -11600,7 +11626,9 @@ class AppConfig(BaseModel):
             client_secret=client_secret,
             workspace_host=workspace_host,
         )
-        provider.deploy_agent(self, mode=resolved_mode, development=development)
+        provider.deploy_agent(
+            self, mode=resolved_mode, development=development, as_mcp=as_mcp
+        )
 
     def find_agents(
         self, predicate: Callable[[AgentModel], bool] | None = None

@@ -475,10 +475,14 @@ def _normalize_mode(value: str) -> str:
 
 
 def _add_mode_argument(parser: ArgumentParser, *, choices: list[str]) -> None:
-    """Add the serving-mode flag. Choices are per-verb so an unusable value is
-    rejected at parse time (never offered when it cannot succeed). Input aliases
-    (``ms``/``model-serving`` -> ``model_serving``) are accepted where the
-    canonical value is valid and normalized in :func:`parse_args`.
+    """Add the serving-platform flag. Choices are per-verb so an unusable value
+    is rejected at parse time (never offered when it cannot succeed). Input
+    aliases (``ms``/``model-serving`` -> ``model_serving``) are accepted where
+    the canonical value is valid and normalized in :func:`parse_args`.
+
+    ``--mode`` is the PLATFORM axis (where the agent runs). It is deliberately
+    kept distinct from ``--target`` (the DAB bundle *environment*) and from
+    ``--as-mcp`` (the wire *protocol*), so no two axes share vocabulary.
     """
     accepted: list[str] = _canonical_modes(choices)
     _mode_choices_str = " | ".join(choices)
@@ -494,7 +498,31 @@ def _add_mode_argument(parser: ArgumentParser, *, choices: list[str]) -> None:
         default="apps",
         metavar="{" + ",".join(choices) + "}",
         help=(
-            f"Serving target: {_mode_choices_str} (default: apps).{_mode_aliases_note}"
+            f"Serving platform: {_mode_choices_str} (default: apps)."
+            f"{_mode_aliases_note}"
+        ),
+    )
+
+
+def _add_as_mcp_argument(parser: ArgumentParser) -> None:
+    """Add the ``--as-mcp`` protocol modifier.
+
+    MCP is not a serving platform — it is a wire protocol served on the same
+    Databricks Apps runtime as the chat UI (identical App bundle; only the
+    container command, extras, and chat-UI env vars differ). So it is a modifier
+    on ``--mode apps`` rather than a third ``--mode`` value. Rejected for
+    ``--mode model_serving`` in :func:`parse_args` (there is no Model Serving
+    MCP surface). Deploys under the ``mcp-`` prefixed App name so an MCP server
+    and a chat App from one config can coexist.
+    """
+    parser.add_argument(
+        "--as-mcp",
+        dest="as_mcp",
+        action="store_true",
+        default=False,
+        help=(
+            "Serve the agent as an MCP tool server instead of the chat UI "
+            "(requires --mode apps; deploys on the Apps runtime as mcp-<app>)."
         ),
     )
 
@@ -567,7 +595,8 @@ def _add_noun_verb_parsers(
     _add_bundle_source_args(up_parser)
     if is_workflow:
         _add_workflow_target_args(up_parser)
-    _add_mode_argument(up_parser, choices=["model_serving", "apps", "mcp"])
+    _add_mode_argument(up_parser, choices=["model_serving", "apps"])
+    _add_as_mcp_argument(up_parser)
     # `up --wait [SECONDS]` blocks until the App/endpoint is READY to serve
     # inference (App: compute ACTIVE + GET /health 200; endpoint: READY +
     # served-model DEPLOYMENT_READY), exiting non-zero on failure/timeout. The
@@ -602,14 +631,15 @@ def _add_noun_verb_parsers(
     _add_bundle_source_args(build_parser)
     if is_workflow:
         _add_workflow_target_args(build_parser)
-    # Both nouns accept all three serving modes on every verb (uniform surface).
-    # Agent's bundle SHAPE varies by mode (apps/mcp App bundle vs ms Job bundle);
+    # Both nouns accept both serving platforms on every verb (uniform surface).
+    # Agent's bundle SHAPE varies by mode (apps App bundle vs ms Job bundle);
     # workflow's bundle is mode-agnostic and forwards `--mode` to the deploy-agent
     # job step as a runtime var (ADR §2.7 — workflow deploys the agent in any
     # valid mode, incl. model_serving). Offering the same choices everywhere keeps
     # the CLI consistent: a verb never rejects a mode another verb on the same
-    # noun accepts.
-    _add_mode_argument(build_parser, choices=["model_serving", "apps", "mcp"])
+    # noun accepts. `--as-mcp` rides alongside as the protocol modifier.
+    _add_mode_argument(build_parser, choices=["model_serving", "apps"])
+    _add_as_mcp_argument(build_parser)
 
     for verb, verb_help in (
         (
@@ -670,11 +700,14 @@ def _add_noun_verb_parsers(
         _add_bundle_common_args(verb_parser, kind=noun)
         if is_workflow:
             _add_workflow_target_args(verb_parser)
-        # All three serving modes are valid on every verb for both nouns (uniform
+        # Both serving platforms are valid on every verb for both nouns (uniform
         # surface — see the build parser above). start/down resolve the staged
-        # dir per mode (agent: apps/mcp/ms; workflow: mode-agnostic bundle + job
-        # var); no verb rejects a mode another verb on the same noun accepts.
-        _add_mode_argument(verb_parser, choices=["model_serving", "apps", "mcp"])
+        # dir per mode+protocol (agent: apps/mcp/ms; workflow: mode-agnostic
+        # bundle + job var); no verb rejects a mode another verb on the same noun
+        # accepts. `--as-mcp` must be present on start/down too, since it selects
+        # which staged bundle those verbs act on.
+        _add_mode_argument(verb_parser, choices=["model_serving", "apps"])
+        _add_as_mcp_argument(verb_parser)
         if verb == "sync":
             # Source-selection flags: sync can auto-build (needs development for
             # the bundle writer) and handles --mode model_serving (needs
@@ -1077,7 +1110,7 @@ Bring an agent up (build → sync → start):
   dao-ai agent up -c config.yaml -p fevm                       # live agent (Apps, default --mode apps)
   dao-ai agent up -c config.yaml --mode model_serving -p fevm  # go live on a Model Serving endpoint
   dao-ai agent up -c config.yaml -m ms -p fevm                 # same, using the -m ms alias
-  dao-ai agent up -c config.yaml --mode mcp -p fevm            # bring up an MCP server
+  dao-ai agent up -c config.yaml --as-mcp -p fevm              # bring up an MCP server
   dao-ai agent up -c config.yaml --direct -p fevm              # SDK fast-path (no bundle on disk)
   dao-ai -p fevm agent up -c config.yaml                       # -p accepted at the top level too
 
@@ -1377,12 +1410,13 @@ Notes:
         help=(
             "Service principal client_id (UUID) of the Databricks App runtime "
             "identity to grant experiment CAN_EDIT and UC OTEL table SELECT+MODIFY. "
-            "When omitted, auto-resolved via ``apps.get(config.app.app_resource_name)`` — pass "
+            "When omitted, auto-resolved via ``apps.get(<app-name>)`` — pass "
             "explicitly to override or to grant a non-default principal. "
             "Set ``app.manage_permissions: false`` in the config to skip grants "
             "entirely (admin-provisioned scenarios)."
         ),
     )
+    _add_as_mcp_argument(trace_link_parser)
     _add_var_argument(trace_link_parser)
 
     # trace grant (was: grant-trace-permissions)
@@ -1412,7 +1446,8 @@ Experiment resolution order matches ``dao-ai trace link``:
 
 App SP resolution:
   1. ``--app-sp`` flag (explicit)
-  2. ``apps.get(config.app.app_resource_name).service_principal_client_id``
+  2. ``apps.get(<app-name>).service_principal_client_id`` (``mcp-`` prefixed
+     with ``--as-mcp``)
 
 No-op when ``config.app.trace_location`` is not set.
         """,
@@ -1448,9 +1483,10 @@ Examples:
         metavar="CLIENT_ID",
         help=(
             "Service principal client_id (UUID) to grant. When omitted, "
-            "auto-resolved via ``apps.get(config.app.app_resource_name)``."
+            "auto-resolved via ``apps.get(<app-name>)``."
         ),
     )
+    _add_as_mcp_argument(trace_grant_parser)
     _add_var_argument(trace_grant_parser)
 
     # Graph command
@@ -1542,7 +1578,7 @@ Examples:
   dao-ai agent up -c config.yaml -p fevm
 
   # One command for an MCP server
-  dao-ai agent up -c config.yaml --mode mcp -p fevm
+  dao-ai agent up -c config.yaml --as-mcp -p fevm
 
   # Sync staged bundle only (auto-builds if nothing is staged yet; not live)
   dao-ai agent sync -c config.yaml -p fevm
@@ -1592,7 +1628,7 @@ Examples:
     )
 
     # MCP noun: `dao-ai mcp <tools|inspect|call>` — MCP inspection/test utilities.
-    # NOTE: MCP *deployment* is NOT here — it lives on `agent --mode mcp`. This
+    # NOTE: MCP *deployment* is NOT here — it lives on `agent --as-mcp`. This
     # noun groups read-only/test utilities only.
     mcp_parser: ArgumentParser = subparsers.add_parser(
         "mcp",
@@ -1604,7 +1640,7 @@ Two distinct surfaces, told apart by their flags:
   -c/--config  → the MCP tools an agent CONFIG declares (what your agent sees)
   --url/--app  → a LIVE MCP server (what a running server exposes)
 
-To DEPLOY a dao-ai agent as an MCP server, use `agent --mode mcp` — deployment
+To DEPLOY a dao-ai agent as an MCP server, use `agent --as-mcp` — deployment
 is intentionally not part of this noun.
         """,
         epilog="""
@@ -1664,7 +1700,7 @@ Examples:
         description="""
 Connect to a live MCP server and show its health (best-effort /healthz) plus
 the tools it exposes. Point at any MCP server with --url, or at a Databricks App
-with --app (e.g. a dao-ai agent deployed via `agent --mode mcp`).
+with --app (e.g. a dao-ai agent deployed via `agent --as-mcp`).
         """,
         epilog="""
 Examples:
@@ -1837,6 +1873,7 @@ Examples:
         "literally. Mutually exclusive with --config.",
     )
     _add_mode_argument(monitor_logs_parser, choices=["apps", "model_serving"])
+    _add_as_mcp_argument(monitor_logs_parser)
     monitor_logs_parser.add_argument(
         "--lines",
         type=int,
@@ -2263,6 +2300,21 @@ Examples:
     # so options.mode is always the canonical ServingMode value downstream.
     if getattr(options, "mode", None) is not None:
         options.mode = _normalize_mode(options.mode)
+
+    # --as-mcp is a modifier on the Apps platform: MCP is served by the Apps
+    # runtime, so there is no Model Serving MCP surface. argparse can't express a
+    # cross-flag constraint, so reject it here with a crisp message rather than
+    # failing deep in a deploy (same pattern as `monitor logs --follow` +
+    # --mode model_serving).
+    if getattr(options, "as_mcp", False) and getattr(options, "mode", None) not in (
+        None,
+        "apps",
+    ):
+        logger.error(
+            f"--as-mcp requires --mode apps (MCP is served on the Databricks "
+            f"Apps runtime); got mode={options.mode}"
+        )
+        sys.exit(1)
 
     # Generate a new thread_id UUID if not provided (only for chat command)
     if hasattr(options, "thread_id") and options.thread_id is None:
@@ -2772,7 +2824,7 @@ def handle_link_trace_destination_command(options: Namespace) -> None:
         return
 
     experiment_id: Optional[str] = _resolve_experiment_id_for_link(
-        config, options.experiment_id
+        config, options.experiment_id, as_mcp=getattr(options, "as_mcp", False)
     )
     if experiment_id is None:
         sys.exit(1)  # _resolve_* already printed a diagnostic
@@ -2800,7 +2852,12 @@ def handle_link_trace_destination_command(options: Namespace) -> None:
         )
     )
 
-    _grant_trace_writes_to_app_sp(config, experiment_id, sp_override=options.app_sp)
+    _grant_trace_writes_to_app_sp(
+        config,
+        experiment_id,
+        sp_override=options.app_sp,
+        as_mcp=getattr(options, "as_mcp", False),
+    )
 
 
 def handle_grant_trace_permissions_command(options: Namespace) -> None:
@@ -2828,18 +2885,24 @@ def handle_grant_trace_permissions_command(options: Namespace) -> None:
         return
 
     experiment_id: Optional[str] = _resolve_experiment_id_for_link(
-        config, options.experiment_id
+        config, options.experiment_id, as_mcp=getattr(options, "as_mcp", False)
     )
     if experiment_id is None:
         sys.exit(1)
 
-    _grant_trace_writes_to_app_sp(config, experiment_id, sp_override=options.app_sp)
+    _grant_trace_writes_to_app_sp(
+        config,
+        experiment_id,
+        sp_override=options.app_sp,
+        as_mcp=getattr(options, "as_mcp", False),
+    )
 
 
 def _grant_trace_writes_to_app_sp(
     config: AppConfig,
     experiment_id: str,
     sp_override: Optional[str],
+    as_mcp: bool = False,
 ) -> None:
     """Resolve the App SP and grant it the trace-write privileges.
 
@@ -2850,7 +2913,11 @@ def _grant_trace_writes_to_app_sp(
 
     Resolution order for the App SP:
       1. ``sp_override`` (``--app-sp`` flag).
-      2. ``apps.get(config.app.app_resource_name).service_principal_client_id``.
+      2. ``apps.get(config.app.resource_name_for(as_mcp)).service_principal_client_id``.
+
+    ``as_mcp`` selects which deployed App to resolve the SP from: the chat App
+    and the MCP server have SEPARATE auto-created service principals, so
+    granting the wrong one leaves the running app unable to persist traces.
 
     Both grant calls WARN-and-continue on failure inside the provider
     helpers, so a deployer without GRANT rights sees diagnostics but the
@@ -2867,10 +2934,11 @@ def _grant_trace_writes_to_app_sp(
         return
 
     sp_id: Optional[str] = sp_override
-    # The deployed Databricks App is named ``app_resource_name`` (lowercased,
-    # underscores → hyphens), NOT the raw ``app.name``. ``apps.get`` must use
-    # that form or it raises NotFound and the grant is silently skipped.
-    app_name: str = config.app.app_resource_name
+    # The deployed Databricks App is named per ``resource_name_for`` (lowercased,
+    # underscores → hyphens, ``mcp-`` prefixed for MCP), NOT the raw ``app.name``.
+    # ``apps.get`` must use that form or it raises NotFound and the grant is
+    # silently skipped.
+    app_name: str = config.app.resource_name_for(as_mcp=as_mcp)
     if not sp_id:
         try:
             from databricks.sdk import WorkspaceClient
@@ -2927,6 +2995,7 @@ def _grant_trace_writes_to_app_sp(
 def _resolve_experiment_id_for_link(
     config: AppConfig,
     override: Optional[str],
+    as_mcp: bool = False,
 ) -> Optional[str]:
     """Resolve the MLflow experiment id for dao-ai trace link.
 
@@ -2936,6 +3005,10 @@ def _resolve_experiment_id_for_link(
       3. Bundle-declared name ``/Users/<current-user>/<app-name>`` looked up
          via ``MlflowClient.get_experiment_by_name`` (path B — the default
          auto-declared bundle experiment).
+
+    ``as_mcp`` selects the MCP bundle's ``mcp-`` prefixed app name for path B,
+    mirroring ``_build_app_block`` — the MCP App declares its own experiment, so
+    looking up the unprefixed name would link the wrong one.
 
     Returns ``None`` on failure after printing a diagnostic to stderr. The
     caller exits(1); we don't raise so the CLI's user-facing output stays
@@ -2960,7 +3033,7 @@ def _resolve_experiment_id_for_link(
     # `[dev <sanitized-user>]` — try both the unprefixed name (prod-mode
     # deploys) and the dev-prefixed name (personal dev deploys) so the
     # CLI works in either mode without the operator having to specify.
-    app_name = config.app.name.lower().replace("_", "-")
+    app_name = config.app.resource_name_for(as_mcp=as_mcp)
     try:
         from databricks.sdk import WorkspaceClient
         from mlflow.tracking import MlflowClient
@@ -3537,8 +3610,10 @@ def _handle_monitor_logs(options: Namespace) -> None:
             )
             sys.exit(0)
 
-        # apps mode
-        app_name: str = options.name or config.app.app_resource_name
+        # apps mode (chat App, or the mcp- prefixed MCP server with --as-mcp)
+        app_name: str = options.name or config.app.resource_name_for(
+            as_mcp=getattr(options, "as_mcp", False)
+        )
         sys.exit(
             stream_app_logs(
                 app_name=app_name,
@@ -3896,7 +3971,7 @@ def _handle_mcp_inspect(options: Namespace) -> None:
     """Connect to a live MCP server and show its health + available tools.
 
     Accepts either ``--url`` (any MCP server) or ``--app`` (a Databricks App,
-    e.g. a dao-ai agent deployed with ``agent --mode mcp``). Health is
+    e.g. a dao-ai agent deployed with ``agent --as-mcp``). Health is
     best-effort — arbitrary MCP servers need not expose ``/healthz``.
     """
     _apply_profile_context(options.profile)
@@ -3956,7 +4031,7 @@ def _handle_mcp_inspect(options: Namespace) -> None:
                 "\n   ⚠️  Could not list tools — this endpoint did not respond as "
                 "an MCP server.\n   If this is a dao-ai agent App (not an MCP "
                 "server), inspect it via its\n   agent API instead; only "
-                "`agent --mode mcp` deployments expose MCP tools.\n"
+                "`agent --as-mcp` deployments expose MCP tools.\n"
                 f"\n   Detail: {_root_cause(e)}"
             )
             print(f"\n{'=' * 80}\n")
@@ -4650,7 +4725,7 @@ def _exec_bundle_command(
     """Run ``databricks bundle <command>`` from ``cwd`` and stream its output.
 
     Shared executor for every dao-ai DAB generator (``agent generate``,
-    ``agent generate --mode mcp``, ``workflow generate``). Assembles ``databricks [--profile P]
+    ``agent build --as-mcp``, ``workflow generate``). Assembles ``databricks [--profile P]
     <command...> [--target T] [--var ...]``, runs it with ``cwd`` set to the
     staged/generated bundle dir, streams stdout, and ``sys.exit(1)`` on failure.
 
@@ -4767,11 +4842,13 @@ def _exec_job_bundle(
     dao_ai_dep: str,
     dry_run: bool,
     stage_only_msg: str,
+    as_mcp: bool = False,
 ) -> None:
     """Run a ``databricks bundle`` verb against a staged Job (``deploy_job``) bundle.
 
     Assembles the ``--var`` overrides (config_path, overlapping config vars, mode,
-    development, dao_ai_dep) then execs, printing the job URL after a bare deploy.
+    as_mcp, development, dao_ai_dep) then execs, printing the job URL after a bare
+    deploy.
     Shared by the ``workflow`` noun and the ``agent --mode model_serving`` DAB
     path — the two Job-bundle producers — so their var-forwarding stays in one
     place. ``target`` is resolved by the caller (per-cloud ``<app>-<cloud>``).
@@ -4793,6 +4870,10 @@ def _exec_job_bundle(
 
     # Serving mode for the deploy notebook (already resolved by the caller).
     extra_vars.append(f'--var="mode={mode}"')
+
+    # Protocol modifier for the deploy notebook. Always emit (mirrors mode) so
+    # the notebook widget default never diverges from the CLI intent.
+    extra_vars.append(f'--var="as_mcp={str(as_mcp).lower()}"')
 
     # Forward the development tri-state to the deploy notebook via a bundle var.
     # Always emit (mirrors mode) so the notebook widget default never diverges
@@ -4844,6 +4925,7 @@ def run_databricks_command(
     stage: bool = True,
     wait_timeout: Optional[int] = None,
     purge: bool = False,
+    as_mcp: bool = False,
 ) -> None:
     """Execute a databricks CLI command with optional profile, target, and cloud.
 
@@ -4855,8 +4937,12 @@ def run_databricks_command(
         cloud: Optional cloud provider ('azure', 'aws', 'gcp'). Auto-detected
             from the workspace URL; required only if detection fails.
         dry_run: If True, print the command without executing
-        mode: Optional agent serving mode ('model_serving', 'apps', or 'mcp').
+        mode: Optional agent serving platform ('model_serving' or 'apps').
             Passed to the deploy notebook via bundle variable.
+        as_mcp: Serve the agent over MCP instead of the chat UI (requires
+            ``mode='apps'``). Passed to the deploy notebook via the ``as_mcp``
+            bundle variable, and used here to resolve the deployed App name
+            (``mcp-`` prefixed) for the readiness/teardown paths.
         development: Optional tri-state source selection passed to the deploy
             notebook via the ``development`` bundle variable — ``True`` ships
             local dao-ai source/wheel, ``False`` the published PyPI package,
@@ -5033,6 +5119,7 @@ def run_databricks_command(
         config_rel_to_notebooks=config_rel_to_notebooks,
         config_vars=config_vars,
         mode=mode or "model_serving",
+        as_mcp=as_mcp,
         development=development,
         dao_ai_dep=dao_ai_dep,
         dry_run=dry_run,
@@ -5065,6 +5152,7 @@ def run_databricks_command(
                 dry_run=dry_run,
                 wait_timeout=wait_timeout,
                 purge=purge,
+                as_mcp=as_mcp,
             )
 
     # `workflow up --wait`: the provisioning job's `07_deploy_agent` step deploys
@@ -5088,7 +5176,10 @@ def run_databricks_command(
                 )
         else:
             _wait_for_resource_ready(
-                "app", app_config.app.app_resource_name, profile, wait_timeout
+                "app",
+                app_config.app.resource_name_for(as_mcp=as_mcp),
+                profile,
+                wait_timeout,
             )
 
 
@@ -5134,6 +5225,7 @@ def _link_and_grant_trace(
     config: AppConfig,
     *,
     dry_run: bool,
+    as_mcp: bool = False,
 ) -> None:
     """Link the experiment trace destination and grant the App SP, if configured.
 
@@ -5143,6 +5235,9 @@ def _link_and_grant_trace(
     (the app's own runtime link is rejected on re-deploys with "already contains
     traces", causing silent trace loss). Reuses the existing helpers so there is
     a single implementation of the link + grant steps.
+
+    ``as_mcp`` picks which deployed App's service principal receives the grant
+    (the chat App and the MCP server have distinct auto-created SPs).
     """
     if not (config.app and config.app.trace_location):
         return
@@ -5154,7 +5249,9 @@ def _link_and_grant_trace(
         )
         return
 
-    experiment_id: Optional[str] = _resolve_experiment_id_for_link(config, None)
+    experiment_id: Optional[str] = _resolve_experiment_id_for_link(
+        config, None, as_mcp=as_mcp
+    )
     if experiment_id is None:
         # Diagnostic already printed; don't abort the deploy — the operator can
         # run `dao-ai trace link` manually.
@@ -5180,7 +5277,9 @@ def _link_and_grant_trace(
         )
         return
 
-    _grant_trace_writes_to_app_sp(config, experiment_id, sp_override=None)
+    _grant_trace_writes_to_app_sp(
+        config, experiment_id, sp_override=None, as_mcp=as_mcp
+    )
 
 
 def _wait_for_resource_deleted(
@@ -5412,6 +5511,7 @@ def deploy_app_bundle(
     dry_run: bool = False,
     wait_timeout: Optional[int] = None,
     purge: bool = False,
+    as_mcp: bool = False,
 ) -> None:
     """Sync/start/down an already-staged App bundle (agent or MCP).
 
@@ -5434,10 +5534,12 @@ def deploy_app_bundle(
             set from ``down --wait [SECONDS]``.
         purge: on destroy, also PERMANENTLY delete the MLflow experiment (not just
             soft-delete/trash it). Set from ``down --purge``.
+        as_mcp: whether this bundle is the MCP server, which deploys under the
+            ``mcp-`` prefixed App name (the bundle's app-resource key).
     """
     if config.app is None:
         raise ValueError("Config must have an 'app' section to deploy a bundle.")
-    app_name = config.app.name.lower().replace("_", "-")
+    app_name = config.app.resource_name_for(as_mcp=as_mcp)
     target = "dev"
 
     if destroy:
@@ -5467,7 +5569,7 @@ def deploy_app_bundle(
         )
         # Between deploy and run: link the trace destination + grant the App SP
         # so spans actually persist (otherwise silently dropped on Apps).
-        _link_and_grant_trace(config, dry_run=dry_run)
+        _link_and_grant_trace(config, dry_run=dry_run, as_mcp=as_mcp)
 
     if run:
         _exec_bundle_command(
@@ -5703,6 +5805,7 @@ def _delete_app(
     dry_run: bool,
     wait_timeout: Optional[int] = None,
     purge: bool = False,
+    as_mcp: bool = False,
 ) -> None:
     """Delete the Databricks App a workflow `down` leaves behind.
 
@@ -5719,7 +5822,9 @@ def _delete_app(
     runtime, so purge finds it by name-search rather than relying on ``bundle
     destroy``.
     """
-    app_name: Optional[str] = config.app.app_resource_name if config.app else None
+    app_name: Optional[str] = (
+        config.app.resource_name_for(as_mcp=as_mcp) if config.app else None
+    )
     if dry_run:
         if app_name:
             logger.info(f"[DRY RUN] Would delete App '{app_name}'.")
@@ -5817,6 +5922,7 @@ def _exec_workflow_verb(options: Namespace, command: list[str]) -> None:
         cloud=options.cloud,
         dry_run=options.dry_run,
         mode=getattr(options, "mode", None),
+        as_mcp=getattr(options, "as_mcp", False),
         config_vars=_parse_var_args(options.var),
         staging_dir=options.staging_dir,
         stage=False,
@@ -5837,6 +5943,7 @@ def handle_generate_workflow_command(options: Namespace) -> None:
     cloud: Optional[str] = options.cloud
     dry_run: bool = options.dry_run
     mode: Optional[str] = getattr(options, "mode", None)
+    as_mcp: bool = getattr(options, "as_mcp", False)
     development: bool | None = getattr(options, "development", None)
     config_vars: dict[str, str] = _parse_var_args(options.var)
     staging_dir: str | None = getattr(options, "staging_dir", None)
@@ -5854,6 +5961,7 @@ def handle_generate_workflow_command(options: Namespace) -> None:
         cloud=cloud,
         dry_run=dry_run,
         mode=mode,
+        as_mcp=as_mcp,
         development=development,
         config_vars=config_vars,
         staging_dir=staging_dir,
@@ -5870,6 +5978,7 @@ def _handle_up_workflow_command(options: Namespace) -> None:
     cloud: Optional[str] = options.cloud
     dry_run: bool = options.dry_run
     mode: Optional[str] = getattr(options, "mode", None)
+    as_mcp: bool = getattr(options, "as_mcp", False)
     development: bool | None = getattr(options, "development", None)
     config_vars: dict[str, str] = _parse_var_args(options.var)
     staging_dir: str | None = getattr(options, "staging_dir", None)
@@ -5884,6 +5993,7 @@ def _handle_up_workflow_command(options: Namespace) -> None:
         cloud=cloud,
         dry_run=dry_run,
         mode=mode,
+        as_mcp=as_mcp,
         development=development,
         config_vars=config_vars,
         staging_dir=staging_dir,
@@ -5898,6 +6008,7 @@ def _handle_up_workflow_command(options: Namespace) -> None:
         cloud=cloud,
         dry_run=dry_run,
         mode=mode,
+        as_mcp=as_mcp,
         development=development,
         config_vars=config_vars,
         staging_dir=staging_dir,
@@ -6029,6 +6140,7 @@ def _generate_app_bundle(options: Namespace, *, kind: str, writer, what: str) ->
     development: bool = resolve_use_local_source(options.development)
     config: AppConfig = _load_app_config(options, what=what)
     mode: str = getattr(options, "mode", "apps") or "apps"
+    as_mcp: bool = getattr(options, "as_mcp", False)
 
     # Checksum the UNRESOLVED config before _resolve_all_resources() mutates it,
     # so the stamp matches the deploy-time staleness check (which also hashes the
@@ -6043,7 +6155,7 @@ def _generate_app_bundle(options: Namespace, *, kind: str, writer, what: str) ->
     config.assert_provided_params_satisfied()
 
     bundle_dir, is_default_dir = _resolve_bundle_dir(
-        kind, config, options.staging_dir, _mode_subdir(mode)
+        kind, config, options.staging_dir, _mode_subdir(mode, as_mcp)
     )
     # Idempotent build (parity with workflow build + both nouns' `up`): a default
     # dir already built from this exact config is left as-is unless --overwrite.
@@ -6094,9 +6206,10 @@ def _deploy_run_destroy_app_bundle(
     """
     from dao_ai.utils import resolve_use_local_source
 
-    what: str = "a bundle" if kind == "agent" else "an MCP bundle"
     mode: str = getattr(options, "mode", "apps") or "apps"
+    as_mcp: bool = getattr(options, "as_mcp", False)
     direct: bool = getattr(options, "direct", False)
+    what: str = "an MCP bundle" if as_mcp else "a bundle"
 
     # --- Route 1: --direct (SDK path, no bundle on disk; all modes) ---
     if deploy and direct:
@@ -6128,8 +6241,11 @@ def _deploy_run_destroy_app_bundle(
                     wait_timeout,
                 )
         else:
-            # Apps/MCP deploy directly from config + wheel (no MLflow model).
-            config.deploy_agent(mode=ServingMode(mode), development=development)
+            # Apps deploy directly from config + wheel (no MLflow model), serving
+            # either the chat UI or the MCP server.
+            config.deploy_agent(
+                mode=ServingMode(mode), development=development, as_mcp=as_mcp
+            )
             # `--wait`: the provider's `apps.deploy_and_wait` only blocks until the
             # DEPLOYMENT is SUCCEEDED — the app PROCESS can still be booting and
             # 502 on the first request. Gate on compute ACTIVE + GET /health 200
@@ -6138,7 +6254,7 @@ def _deploy_run_destroy_app_bundle(
             if wait_timeout is not None:
                 _wait_for_resource_ready(
                     "app",
-                    config.app.app_resource_name,
+                    config.app.resource_name_for(as_mcp=as_mcp),
                     options.profile,
                     wait_timeout,
                 )
@@ -6147,7 +6263,7 @@ def _deploy_run_destroy_app_bundle(
     # --- Route 2: bundle path (default; apps/mcp App bundle, MS Job bundle) ---
     config = _load_app_config(options, what=what)
     bundle_dir, is_default_dir = _resolve_bundle_dir(
-        kind, config, options.staging_dir, _mode_subdir(mode)
+        kind, config, options.staging_dir, _mode_subdir(mode, as_mcp)
     )
     is_staged: bool = (bundle_dir / "databricks.yaml").exists()
 
@@ -6235,7 +6351,7 @@ def _deploy_run_destroy_app_bundle(
             # or the thin model_serving Job bundle) — fail loudly on any
             # unsatisfied `provided` param rather than ship a broken binding.
             config.assert_provided_params_satisfied()
-            writer: Callable[..., Any] = _mode_writer(mode)
+            writer: Callable[..., Any] = _mode_writer(mode, as_mcp)
             _stage_app_bundle(
                 config,
                 bundle_dir,
@@ -6274,7 +6390,11 @@ def _deploy_run_destroy_app_bundle(
         return
 
     if run and not deploy and not destroy and not dry_run:
-        _verify_app_deployed_or_exit(config.app.name, kind=kind, config=options.config)
+        _verify_app_deployed_or_exit(
+            config.app.resource_name_for(as_mcp=as_mcp),
+            kind=kind,
+            config=options.config,
+        )
 
     deploy_app_bundle(
         config,
@@ -6289,6 +6409,7 @@ def _deploy_run_destroy_app_bundle(
         wait_timeout=_wait_timeout_of(options),
         # `--purge` (down only) permanently deletes the MLflow experiment.
         purge=_purge_of(options),
+        as_mcp=as_mcp,
     )
 
 
@@ -6317,16 +6438,19 @@ def _verify_app_deployed_or_exit(app_name: str, *, kind: str, config: str) -> No
         return
 
 
-def _mode_subdir(mode: str) -> str:
-    """Staging subdir under ``agent/<app>/`` for a serving mode.
+def _mode_subdir(mode: str, as_mcp: bool = False) -> str:
+    """Staging subdir under ``agent/<app>/`` for a serving mode + protocol.
 
-    All agent bundles live under the ``agent`` kind; the serving mode nests
-    beneath the app (``agent/<app>/{apps,mcp,ms}``) so an agent deployed in more
-    than one mode never clobbers its own other-mode bundle. Modes produce
-    materially different bundles — apps/mcp are Databricks *App* bundles,
-    model_serving is a *Job* bundle — so isolation is required, not cosmetic.
+    All agent bundles live under the ``agent`` kind; the mode nests beneath the
+    app (``agent/<app>/{apps,mcp,ms}``) so an agent deployed more than one way
+    never clobbers its own other bundle. The three produce materially different
+    bundles — ``apps`` and ``mcp`` are Databricks *App* bundles (differing in
+    container command and extras), ``model_serving`` is a *Job* bundle — so
+    isolation is required, not cosmetic.
     """
-    return {"apps": "apps", "mcp": "mcp", "model_serving": "ms"}[mode]
+    if as_mcp:
+        return "mcp"
+    return {"apps": "apps", "model_serving": "ms"}[mode]
 
 
 def _is_job_bundle_mode(mode: str) -> bool:
@@ -6339,13 +6463,13 @@ def _is_job_bundle_mode(mode: str) -> bool:
     return mode == "model_serving"
 
 
-def _mode_writer(mode: str) -> Callable[..., Any]:
-    """Bundle writer function for the given serving mode.
+def _mode_writer(mode: str, as_mcp: bool = False) -> Callable[..., Any]:
+    """Bundle writer function for the given serving mode + protocol.
 
     Each writer stages the bundle into the given directory (generating owned
     files and copying user-owned code/overlays).
     """
-    if mode == "mcp":
+    if as_mcp:
         from dao_ai.mcp.generate import write_mcp_bundle
 
         return write_mcp_bundle
@@ -6363,11 +6487,12 @@ def handle_agent_command(options: Namespace) -> None:
 
     ``up``           → build (if needed) → sync → start (one-command path).
     ``--mode apps``  → chat-agent App bundle  (staging dir ``agent/<app>/apps``)
-    ``--mode mcp``   → MCP-server App bundle   (staging dir ``agent/<app>/mcp``)
+    ``--mode apps --as-mcp`` → MCP-server App bundle, deployed as ``mcp-<app>``
+                       (staging dir ``agent/<app>/mcp``)
     ``--mode model_serving`` → thin deploy-agent Job bundle
                        (staging dir ``agent/<app>/ms``); registers the MLflow
                        model + deploys the serving endpoint on ``start``.
-    ``--direct``     → SDK path without a bundle on disk (all three modes;
+    ``--direct``     → SDK path without a bundle on disk (both modes;
                        model_serving = the register+deploy SDK path).
 
     Verbs map to the internal driver flags: ``sync`` → deploy=True,
@@ -6375,11 +6500,12 @@ def handle_agent_command(options: Namespace) -> None:
     underlying ``databricks bundle deploy``/``run``/``destroy``).
     """
     mode: str = getattr(options, "mode", "apps") or "apps"
-    # Every agent bundle lives under the ``agent`` kind; the serving mode nests
-    # beneath the app (apps/mcp/ms) so they never clobber each other.
+    as_mcp: bool = getattr(options, "as_mcp", False)
+    # Every agent bundle lives under the ``agent`` kind; the mode + protocol
+    # nests beneath the app (apps/mcp/ms) so they never clobber each other.
     kind: str = "agent"
-    writer = _mode_writer(mode)
-    what: str = "an MCP bundle" if mode == "mcp" else "a bundle"
+    writer = _mode_writer(mode, as_mcp)
+    what: str = "an MCP bundle" if as_mcp else "a bundle"
 
     match options.subcommand:
         case "up":

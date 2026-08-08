@@ -44,7 +44,7 @@ DEFAULT_PORT = 8000
 
 # Aligned with ``dao_ai.apps.handlers`` and ``dao_ai.apps.server`` so a
 # single env var drives config discovery whether the runtime is the chat
-# proxy, the responses server, or this MCP server. ``generate-mcp`` also
+# proxy, the responses server, or this MCP server. ``agent build --as-mcp`` also
 # emits this name via the shared ``_build_app_block`` path.
 CONFIG_PATH_ENV = "DAO_AI_CONFIG_PATH"
 

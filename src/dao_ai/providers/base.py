@@ -62,9 +62,14 @@ class ServiceProvider(ABC):
 
     @abstractmethod
     def deploy_apps_agent(
-        self, config: "AppConfig", development: bool | None = None
+        self,
+        config: "AppConfig",
+        *,
+        as_mcp: bool = False,
+        development: bool | None = None,
     ) -> Any:
-        """Deploy agent as a Databricks App."""
+        """Deploy agent as a Databricks App (chat UI, or MCP server when
+        ``as_mcp``)."""
         ...
 
     @abstractmethod
@@ -73,12 +78,14 @@ class ServiceProvider(ABC):
         config: "AppConfig",
         mode: ServingMode = ServingMode.MODEL_SERVING,
         development: bool | None = None,
+        as_mcp: bool = False,
     ) -> Any:
         """
-        Deploy agent using the specified serving mode.
+        Deploy agent using the specified serving platform.
 
         Args:
             config: The AppConfig containing deployment configuration
-            mode: The serving mode (MODEL_SERVING or APPS)
+            mode: The serving platform (MODEL_SERVING or APPS)
+            as_mcp: Serve over MCP instead of the chat UI (requires APPS)
         """
         ...
