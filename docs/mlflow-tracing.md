@@ -9,7 +9,7 @@ dao-ai supports three deploy targets and each drives MLflow tracing differently:
 | Target | Startup entrypoint | Trace destination binding |
 |---|---|---|
 | Databricks Apps (`dao-ai agent build`) | `src/dao_ai/apps/handlers.py` | `link_experiment_trace_location` at import time + `apply_runtime_trace_destination` populates `_MLFLOW_TRACE_USER_DESTINATION` ContextVar so the OTEL exporter picks the correct UC table. |
-| MCP server on Apps (`dao-ai agent build --mode mcp`) | `src/dao_ai/mcp/server.py` | Same as Databricks Apps — imports `apply_runtime_trace_destination` after `mlflow.set_experiment`. |
+| MCP server on Apps (`dao-ai agent build --as-mcp`) | `src/dao_ai/mcp/server.py` | Same as Databricks Apps — imports `apply_runtime_trace_destination` after `mlflow.set_experiment`. |
 | Model Serving (`agents.deploy`) | `src/dao_ai/apps/model_serving.py` | **No** in-container MLflow calls. `agents.deploy()` sets `MLFLOW_EXPERIMENT_ID`, `MLFLOW_TRACING_DESTINATION`, and `MLFLOW_TRACING_SQL_WAREHOUSE_ID` on the endpoint; MLflow's `_get_span_processors` resolves the destination from those env vars. See the header comment in `model_serving.py` for the rationale (MS containers can't reliably call `mlflow.set_experiment` without OAuth-config crashes). |
 
 The Apps and MCP-server paths intentionally diverge from Model Serving: they call `mlflow.set_experiment(trace_location=UnityCatalog(...))` because their containers have ambient OAuth. Model Serving relies purely on env-driven routing so the container can boot even when the model wasn't logged with the experiment as a resource dependency.

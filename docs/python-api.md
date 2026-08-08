@@ -201,7 +201,7 @@ config.deploy_agent()
 config.deploy_agent(mode=ServingMode.APPS)
 
 # Deploy to MCP server (Apps with MCP entrypoint)
-config.deploy_agent(mode=ServingMode.MCP)
+config.deploy_agent(mode=ServingMode.APPS, as_mcp=True)
 ```
 
 > Extra pip packages and custom code paths are declared on the config, not passed

@@ -79,7 +79,7 @@ DAO AI Builder generates valid YAML configurations that work seamlessly with thi
 - **[Configuration Reference](docs/configuration-reference.md)** - Complete YAML configuration guide
 - **[Examples](docs/examples.md)** - Ready-to-use example configurations
 - **[A2A Protocol](docs/a2a_protocol.md)** - Google Agent2Agent endpoints on every Apps deployment
-- **[MCP Server](docs/mcp_server.md)** - Expose a dao-ai agent as a single MCP tool via `dao-ai agent build --mode mcp` — for integrating dao-ai into external agent frameworks (Claude Desktop, Cursor, MAS, ADK, etc.)
+- **[MCP Server](docs/mcp_server.md)** - Expose a dao-ai agent as a single MCP tool via `dao-ai agent build --as-mcp` — for integrating dao-ai into external agent frameworks (Claude Desktop, Cursor, MAS, ADK, etc.)
 - **[Background Agents](docs/background_agents.md)** - kickoff/poll/cancel for multi-minute graph runs
 - **[Auditable Tool Invocations](docs/audit.md)** - Tamper-evident approval receipts + agent-driven audit-trail queries (SOX / SOC2 / HIPAA-ready)
 
@@ -364,7 +364,7 @@ dao-ai agent up -c config/my_agent.yaml --profile azure-retail
 > prior `build`/`up`), `start` **makes it live** (`bundle run` — no re-sync: starts the
 > app / runs the job), and `down` tears it down. `up` is the idempotent one-command
 > path: build (if unchanged, skipped) → sync (convergent re-sync) → start — safe to
-> re-run. Use `--mode mcp` on the `agent` noun to build the
+> re-run. Use `--as-mcp` on the `agent` noun to build the
 > MCP-server App instead, or `--mode model_serving` for a Model Serving
 > endpoint. The old flat `generate-agent`, `generate-mcp`, `generate-workflow`, and
 > `dao-ai mcp` commands — the pre-v3 `generate/deploy/run/destroy` verbs — and the
