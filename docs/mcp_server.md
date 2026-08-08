@@ -24,7 +24,7 @@ Search, UC functions) already have first-class Databricks MCP surfaces or
 UC exposure; publishing them a second time from a dao-ai MCP server is
 duplicative.
 
-`dao-ai agent build --mode mcp` bundles a Databricks App that runs the same graph
+`dao-ai agent build --as-mcp` bundles a Databricks App that runs the same graph
 `dao-ai agent build` deploys — but with an MCP entrypoint instead of an
 MLflow AgentServer HTTP entrypoint. OBO tokens from the caller flow
 through the graph unchanged: downstream Genie / Vector Search / UC
@@ -47,13 +47,13 @@ pip install 'dao-ai[mcp]'
 
 # 2. Generate a deploy-ready bundle from your dao-ai config
 dao-ai agent build \
-  --mode mcp \
+  --as-mcp \
   -c my_agent.yaml \
   -s ./my-agent-mcp \
   -p <profile>
 
 # 3. Deploy + run in one step (or drive databricks bundle by hand, below)
-dao-ai agent up --mode mcp -c my_agent.yaml -s ./my-agent-mcp -p <profile>
+dao-ai agent up --as-mcp -c my_agent.yaml -s ./my-agent-mcp -p <profile>
 
 # 3b. ...or drive the bundle manually
 cd my-agent-mcp
@@ -62,10 +62,13 @@ databricks bundle deploy -t dev -p <profile>
 databricks bundle run <app-name> -t dev -p <profile>
 ```
 
-The deployed App name is `config.app.name`. The MCP tool exposed at
-`/mcp` is a slugified form of the same value; its description is
-`config.app.description`. Point any MCP client at
-`https://<app-url>/mcp`.
+The deployed App name is `mcp-<config.app.name>` (normalized: lowercased,
+underscores hyphenated). The `mcp-` prefix is added automatically so the MCP
+server and a chat App built from the *same* config are separate Databricks Apps
+instead of one replacing the other; if `app.name` already starts with `mcp-` it
+is left as-is rather than doubled. The MCP tool exposed at `/mcp` is a slugified
+form of `app.name` itself (unprefixed); its description is
+`config.app.description`. Point any MCP client at `https://<app-url>/mcp`.
 
 ---
 
@@ -73,16 +76,17 @@ The deployed App name is `config.app.name`. The MCP tool exposed at
 
 Your dao-ai config needs:
 
-- `app.name` — Databricks App name **and** MCP tool name (slugified).
+- `app.name` — basis for the Databricks App name (deployed as `mcp-<name>`)
+  **and** the MCP tool name (slugified, unprefixed).
 - `app.description` — recommended; surfaced as the MCP tool description.
 - At least one agent (or an `orchestration.deep_agent` block) — the
   server calls `AppConfig.as_responses_agent()` at boot.
 - Any resources the agent needs (Genie rooms, Vector Search indexes,
   Lakebase, warehouses, models) — same as `dao-ai agent build`.
 
-The MCP server prefers `mcp-`-prefixed app names because Databricks
-Multi-Agent Supervisor pattern-matches that prefix when auto-discovering
-MCP-hosted Apps across an account.
+dao-ai applies the `mcp-` prefix for you — you no longer need to hand-name your
+app `mcp-something`. The prefix matters because Databricks Multi-Agent Supervisor
+pattern-matches it when auto-discovering MCP-hosted Apps across an account.
 
 ---
 
@@ -141,7 +145,7 @@ Every `tools/call` response is a `CallToolResult` with:
 
 ### Experiment provisioning
 
-`dao-ai agent build --mode mcp` emits an MLflow experiment resource in the DAB — parity
+`dao-ai agent build --as-mcp` emits an MLflow experiment resource in the DAB — parity
 with `dao-ai agent build`. Behaviour:
 
 - If `config.app.experiment` is set → binds by literal experiment id
@@ -430,7 +434,7 @@ with **no code changes** in the agent config beyond the usual
 
 ## Deployment artifacts
 
-`dao-ai agent build --mode mcp` emits:
+`dao-ai agent build --as-mcp` emits:
 
 ```
 output/
@@ -461,7 +465,7 @@ launches the server via module invocation — no console script required.
 
 ### App resource bindings
 
-`dao-ai agent build --mode mcp` derives App resource bindings via
+`dao-ai agent build --as-mcp` derives App resource bindings via
 `dao_ai.apps.resources.generate_app_resources` and converts them with
 `dao_ai.apps.bundle._convert_to_bundle_resources`. The resulting
 `databricks.yml` declares whatever bindings the agent needs — genie

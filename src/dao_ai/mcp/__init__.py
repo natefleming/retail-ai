@@ -15,7 +15,7 @@ Public entrypoints:
   tests.
 
 Deployment artifacts (``databricks.yml``, ``app.yaml``, etc.) are produced by
-``dao-ai generate-mcp`` — see :func:`dao_ai.mcp.generate.write_mcp_bundle`.
+``dao-ai agent build --as-mcp`` — see :func:`dao_ai.mcp.generate.write_mcp_bundle`.
 
 Optional install: ``pip install 'dao-ai[mcp]'`` pulls fastapi + uvicorn.
 """

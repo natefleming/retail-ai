@@ -34,14 +34,14 @@ from dao_ai.apps.resources import (
     generate_user_api_scopes,
 )
 from dao_ai.code_paths import _SRC_DIRNAME, code_path_sync_globs
-from dao_ai.config import AppConfig, value_of
+from dao_ai.config import AppConfig, app_name_for, value_of
 
 
 def dump_bundle_yaml(doc: dict[str, Any]) -> str:
     """Serialize a Databricks Asset Bundle document to YAML.
 
     Single serialization convention shared by every dao-ai DAB generator
-    (``generate-agent``, ``generate-mcp``, and ``dao-ai generate-workflow``): block
+    (``agent build`` with or without ``--as-mcp``, and ``workflow build``): block
     style, insertion order preserved (``sort_keys=False``) so the emitted
     ``databricks.yaml`` reads top-down like the bundle spec.
     """
@@ -394,6 +394,7 @@ def _build_app_block(
     *,
     app_command: list[str] | None = None,
     include_chat_ui: bool = True,
+    as_mcp: bool = False,
 ) -> tuple[str, dict[str, Any], dict[str, Any]]:
     """Build the App + experiment dicts shared by `databricks.yaml` and
     `resources/app.yml`.
@@ -405,17 +406,22 @@ def _build_app_block(
         app_command: Optional override for the App's runtime command. When
             unset, defaults to ``python -m dao_ai.apps.{start_app,server}``
             based on ``config.app.enable_chat_proxy``. Alternate hosts
-            (e.g. ``dao-ai generate-mcp``) pass their own command here so
-            everything else — env vars, resources, experiment binding —
+            (e.g. ``dao-ai agent build --as-mcp``) pass their own command here
+            so everything else — env vars, resources, experiment binding —
             can be reused verbatim.
         include_chat_ui: When False, skip the chat-proxy UI env vars
             (``dao_ai.apps.chat_ui.chat_ui_env_vars``). Alternate hosts
             without a bundled chat UI (e.g. the MCP server) opt out here.
+        as_mcp: When True, name the App resource with the ``mcp-`` prefix so an
+            MCP bundle and a chat bundle from the same config declare DIFFERENT
+            Apps (otherwise deploying one would replace the other). The MLflow
+            experiment stays keyed off the unprefixed name so both protocols
+            share one experiment and traces land together.
 
     Returns:
         (app_name, experiments_block, apps_block)
     """
-    app_name: str = config.app.app_resource_name
+    app_name: str = app_name_for(config.app.name, as_mcp=as_mcp)
 
     enable_chat_proxy: bool = (
         config.app.enable_chat_proxy
@@ -607,6 +613,7 @@ def generate_databricks_yaml(
     app_command: list[str] | None = None,
     include_chat_ui: bool = True,
     include_artifacts: bool = True,
+    as_mcp: bool = False,
 ) -> str:
     """Generate the trimmed root `databricks.yaml` for a dao-ai bundle.
 
@@ -622,29 +629,28 @@ def generate_databricks_yaml(
     dao-ai wheel is uploaded as a regular source file (not intercepted as
     an artifact).
 
-    Note on serving mode:
+    Note on serving platform and protocol:
         The emitted bundle is always Databricks-Apps-shaped
         (``resources.apps.<name>`` with its ``resources`` list and optional
-        ``user_api_scopes``). This bundle works regardless of serving mode:
+        ``user_api_scopes``). ``--mode`` (the *platform*) does not change the
+        bundle layout:
 
         - ``apps``           → the App IS the deployment target.
-        - ``model_serving``  → the App process registers the MLflow model
-                               and creates the serving endpoint at runtime
-                               (via ``dao_ai.apps.server``). No separate
-                               bundle is needed; users who only want the
-                               serving endpoint typically use
-                               ``dao-ai deploy-agent`` instead of
-                               ``generate-agent`` + ``databricks bundle deploy``.
+        - ``model_serving``  → stages a thin deploy-agent *Job* bundle instead
+                               (see ``dao_ai.pipeline.bundle``); this generator
+                               is not used for that path.
 
-        ``generate-agent`` therefore intentionally ignores the serving mode;
-        the ``--mode`` CLI flag selects the runtime code path,
-        not the bundle layout.
+        ``as_mcp`` (the *protocol*) does affect this bundle, but only in the
+        App's ``command``, its extras, the chat-UI env vars, and the resource /
+        bundle / experiment NAME (``mcp-`` prefixed) — never the shape. That is
+        why the MCP writer can reuse this generator verbatim.
     """
     app_name, _experiments_block, _apps_block = _build_app_block(
         config,
         config_filename,
         app_command=app_command,
         include_chat_ui=include_chat_ui,
+        as_mcp=as_mcp,
     )
 
     # Explicit sync.include for the App's own source. Databricks bundle sync
@@ -709,22 +715,24 @@ def generate_resources_app_yaml(
     *,
     app_command: list[str] | None = None,
     include_chat_ui: bool = True,
+    as_mcp: bool = False,
 ) -> str:
     """Generate ``resources/app.yml`` — the App + experiment block.
 
-    This file is owned by ``generate-agent``; sibling ``resources/*.yml``
+    This file is owned by ``dao-ai agent build``; sibling ``resources/*.yml``
     files (e.g. ``resources/jobs.yml``, ``resources/pipelines.yml``) are
     written by users and are never touched by the generator.
 
-    See :func:`_build_app_block` for ``app_command`` / ``include_chat_ui``
-    semantics — alternate hosts (e.g. ``dao-ai generate-mcp``) forward
-    both here to reuse the App resource shape verbatim.
+    See :func:`_build_app_block` for ``app_command`` / ``include_chat_ui`` /
+    ``as_mcp`` semantics — alternate hosts (e.g. ``dao-ai agent build
+    --as-mcp``) forward all three here to reuse the App resource shape verbatim.
     """
     _app_name, experiments_block, apps_block = _build_app_block(
         config,
         config_filename,
         app_command=app_command,
         include_chat_ui=include_chat_ui,
+        as_mcp=as_mcp,
     )
 
     resources_doc: dict[str, Any] = {

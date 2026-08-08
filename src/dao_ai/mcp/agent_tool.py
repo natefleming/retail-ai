@@ -380,7 +380,7 @@ def register_agent_as_tool(mcp: FastMCP, config: AppConfig) -> str:
     """
     if config.app is None or not config.app.name:
         raise ValueError(
-            "generate-mcp requires config.app.name to derive the MCP tool "
+            "agent build --as-mcp requires config.app.name to derive the MCP tool "
             "name. Set the top-level `app.name` field in your dao-ai config."
         )
 

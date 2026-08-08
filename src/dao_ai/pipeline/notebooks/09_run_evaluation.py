@@ -127,7 +127,7 @@ mlflow.set_registry_uri("databricks-uc")
 mlflow.langchain.autolog(run_tracer_inline=True)
 
 dbutils.widgets.dropdown(
-    name="mode", choices=["", "model_serving", "apps", "mcp"], defaultValue=""
+    name="mode", choices=["", "model_serving", "apps"], defaultValue=""
 )
 mode_str: str = dbutils.widgets.get("mode") or ServingMode.APPS.value
 mode: ServingMode = ServingMode(mode_str)
@@ -169,11 +169,14 @@ else:
     app = config.as_responses_agent()
     agent_source = "config"
     mlflow_client = MlflowClient()
-    # No registered model on the apps/mcp path — resolve the experiment the
+    # No registered model on the apps path — resolve the experiment the
     # app writes to: its configured MLflow experiment if set, else the
     # deploy-time bundle experiment ``/Users/<current-user>/<app_resource_name>``.
     # ``set_experiment`` is get-or-create, so the eval run + traces always have
-    # a home even on the first apps deploy.
+    # a home even on the first apps deploy. Deliberately UNPREFIXED even when the
+    # agent is also deployed as an MCP server: eval builds the agent in-process
+    # from the config (``as_responses_agent``) rather than calling a deployed
+    # App, so it belongs with the chat App's experiment.
     resolved: str | None = (
         config.app.experiment.resolved_id if config.app.experiment is not None else None
     )

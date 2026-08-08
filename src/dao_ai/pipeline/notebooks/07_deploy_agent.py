@@ -29,8 +29,13 @@ from dao_ai.utils import find_config_files
 dbutils.widgets.text(name="config-path", defaultValue="")
 dbutils.widgets.dropdown(
     name="mode",
-    choices=["", "model_serving", "apps", "mcp"],
+    choices=["", "model_serving", "apps"],
     defaultValue="",
+)
+dbutils.widgets.dropdown(
+    name="as_mcp",
+    choices=["false", "true"],
+    defaultValue="false",
 )
 dbutils.widgets.dropdown(
     name="development",
@@ -46,6 +51,7 @@ dbutils.widgets.dropdown(
 explicit_path: str | None = dbutils.widgets.get("config-path") or None
 discovered_path: str | None = dbutils.widgets.get("config-paths") or None
 mode_str: str | None = dbutils.widgets.get("mode") or None
+as_mcp: bool = (dbutils.widgets.get("as_mcp") or "false").lower() == "true"
 
 # An explicit `config-path` always wins; the `../config` dropdown is the fallback
 # for an interactive run. Re-binding `config_path` from `str | None` to `str` would
@@ -133,10 +139,20 @@ print(f"Substituted parameters: {config.substitution_vars}")
 mode: ServingMode
 if mode_str:
     mode = ServingMode(mode_str)
-    print(f"Using widget-specified serving mode: {mode.value}")
+    print(f"Using widget-specified serving platform: {mode.value}")
 else:
     mode = ServingMode.APPS
-    print("Using default serving mode: apps")
+    print("Using default serving platform: apps")
+
+if as_mcp:
+    if mode is not ServingMode.MODEL_SERVING:
+        print("Serving over MCP instead of the chat UI (deploys as mcp-<app>)")
+    else:
+        # MCP runs on the Apps runtime; there is no Model Serving MCP surface.
+        raise ValueError(
+            "as_mcp=true requires mode=apps (MCP is served on the Databricks "
+            f"Apps runtime); got mode={mode.value}"
+        )
 
 # COMMAND ----------
 
@@ -144,11 +160,12 @@ config.display_graph()
 
 # COMMAND ----------
 
-# Only log/register the MLflow model for Model Serving deployments.
-# Apps and MCP deploy directly from the config + PyPI package (no MLflow model registration).
-if mode not in (ServingMode.APPS, ServingMode.MCP):
+# Only log/register the MLflow model for Model Serving deployments. Apps deploy
+# directly from the config + PyPI package (no MLflow model registration), whether
+# they serve the chat UI or the MCP server.
+if mode == ServingMode.MODEL_SERVING:
     config.create_agent(development=development)
 
 # COMMAND ----------
 
-config.deploy_agent(mode=mode, development=development)
+config.deploy_agent(mode=mode, development=development, as_mcp=as_mcp)

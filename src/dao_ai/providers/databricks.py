@@ -50,6 +50,7 @@ from unitycatalog.ai.core.databricks import DatabricksFunctionClient
 
 import dao_ai
 from dao_ai.config import (
+    app_name_for,
     AppConfig,
     ConnectionModel,
     DatabaseModel,
@@ -1211,20 +1212,27 @@ class DatabricksProvider(ServiceProvider):
         self._dfs = value
         self._dfs_initialized = True
 
-    def experiment_name(self, config: AppConfig) -> str:
+    def experiment_name(self, config: AppConfig, *, as_mcp: bool = False) -> str:
         """Resolve the experiment path from ``app.experiment.name``, or
         fall back to ``/Users/<deployer_email>/<app.name>`` when not set.
 
         The id-based ``app.experiment.id`` branch never lands here — it
         short-circuits ``get_or_create_experiment`` directly.
+
+        ``as_mcp`` prefixes the fallback name with ``mcp-``, matching what the
+        MCP bundle declares (``_build_app_block`` derives the experiment path
+        from the same prefixed app name). Without this the SDK ``--direct`` path
+        and the bundle path would bind different experiments for one deployment.
         """
         if config.app.experiment is not None and config.app.experiment.resolved_name:
             return config.app.experiment.resolved_name
         current_user: User = self.w.current_user.me()
-        name: str = config.app.name
+        name: str = f"mcp-{config.app.name}" if as_mcp else config.app.name
         return f"/Users/{current_user.user_name}/{name}"
 
-    def get_or_create_experiment(self, config: AppConfig) -> Experiment:
+    def get_or_create_experiment(
+        self, config: AppConfig, *, as_mcp: bool = False
+    ) -> Experiment:
         """Resolve to an MLflow ``Experiment``.
 
         * ``app.experiment`` set → delegate to ``self.create_experiment``
@@ -1232,12 +1240,12 @@ class DatabricksProvider(ServiceProvider):
           per the dao-ai ``Model.create(w)`` convention).
         * otherwise → fall back to the historical default
           ``/Users/<deployer_email>/<app.name>`` with restore-if-deleted,
-          create-if-missing.
+          create-if-missing (``mcp-`` prefixed when ``as_mcp``).
         """
         if config.app.experiment is not None:
             return self.create_experiment(config.app.experiment)
 
-        experiment_name: str = self.experiment_name(config)
+        experiment_name: str = self.experiment_name(config, as_mcp=as_mcp)
         experiment: Experiment | None = mlflow.get_experiment_by_name(experiment_name)
 
         if experiment is not None and experiment.lifecycle_stage == "deleted":
@@ -1919,13 +1927,14 @@ class DatabricksProvider(ServiceProvider):
         app_command: list[str],
         extras: set[str],
         include_chat_ui: bool,
+        as_mcp: bool = False,
         development: bool | None = None,
     ) -> None:
         """
         Deploy a dao-ai app to Databricks Apps via the SDK-native path.
 
-        Shared machinery for both the chat App (:meth:`deploy_apps_agent`) and
-        the MCP server (:meth:`deploy_mcp_agent`). Creates or updates a
+        Shared machinery for both protocols served by :meth:`deploy_apps_agent`
+        — the chat UI and the MCP server. Creates or updates a
         Databricks App, uploading config + code + a portable pyproject/uv.lock,
         then deploys and waits, links the trace destination, and grants the
         App SP the trace-persistence privileges.
@@ -1943,6 +1952,9 @@ class DatabricksProvider(ServiceProvider):
             extras: The dao-ai optional-feature extras to install.
             include_chat_ui: Whether the generated app.yaml should inject the
                 chat-UI proxy env vars.
+            as_mcp: Whether this is an MCP-server deployment. Selects the
+                deployed App name (``mcp-`` prefixed) so an MCP server and a
+                chat App from the same config don't replace one another.
             development: When True, ship local dao-ai source/wheel; when False,
                 the published PyPI package; when None, auto-detect.
 
@@ -1960,9 +1972,10 @@ class DatabricksProvider(ServiceProvider):
             ApplicationState,
         )
 
-        # Normalize app name: lowercase, replace underscores with dashes
+        # Resolve the deployed App name: lowercased/hyphenated, and ``mcp-``
+        # prefixed for MCP deployments so the two protocols don't collide.
         raw_name: str = config.app.name
-        app_name: str = raw_name.lower().replace("_", "-")
+        app_name: str = app_name_for(config.app.name, as_mcp=as_mcp)
         if app_name != raw_name:
             logger.info(
                 "Normalized app name for Databricks Apps",
@@ -2000,7 +2013,7 @@ class DatabricksProvider(ServiceProvider):
         # Get or create experiment for this app (for tracing and tracking)
         from mlflow.entities import Experiment
 
-        experiment: Experiment = self.get_or_create_experiment(config)
+        experiment: Experiment = self.get_or_create_experiment(config, as_mcp=as_mcp)
         logger.info(
             "Using MLflow experiment for app",
             experiment_name=experiment.name,
@@ -2559,7 +2572,9 @@ class DatabricksProvider(ServiceProvider):
                         app_name=app_name,
                     )
                 else:
-                    experiment: Experiment = self.get_or_create_experiment(config)
+                    experiment: Experiment = self.get_or_create_experiment(
+                        config, as_mcp=as_mcp
+                    )
                     experiment_id: str = str(experiment.experiment_id)
 
                     _grant_experiment_permissions_to_principal(
@@ -2592,10 +2607,34 @@ class DatabricksProvider(ServiceProvider):
                 )
 
     def deploy_apps_agent(
-        self, config: AppConfig, development: bool | None = None
+        self,
+        config: AppConfig,
+        *,
+        as_mcp: bool = False,
+        development: bool | None = None,
     ) -> None:
-        """Deploy the agent as a Databricks App (chat UI) via the SDK path."""
-        from dao_ai._extras import resolve_required_extras_or_all
+        """Deploy the agent as a Databricks App via the SDK path.
+
+        Serves the chat UI by default, or the dao-ai MCP server when
+        ``as_mcp``. Both are the same Apps runtime and share ``_deploy_app``;
+        only the container command, the extras, the chat-UI env vars, and the
+        deployed App name differ.
+        """
+        from dao_ai._extras import expand_all, resolve_required_extras_or_all
+
+        if as_mcp:
+            self._deploy_app(
+                config,
+                app_command=["python", "-m", "dao_ai.mcp.server"],
+                extras={
+                    "mcp",
+                    *expand_all(resolve_required_extras_or_all(config, target="mcp")),
+                },
+                include_chat_ui=False,
+                as_mcp=True,
+                development=development,
+            )
+            return
 
         enable_chat_proxy: bool = (
             config.app.enable_chat_proxy
@@ -2610,23 +2649,7 @@ class DatabricksProvider(ServiceProvider):
             app_command=["python", "-m", entrypoint],
             extras=set(resolve_required_extras_or_all(config, target="apps")),
             include_chat_ui=enable_chat_proxy,
-            development=development,
-        )
-
-    def deploy_mcp_agent(
-        self, config: AppConfig, development: bool | None = None
-    ) -> None:
-        """Deploy the dao-ai MCP server as a Databricks App via the SDK path."""
-        from dao_ai._extras import expand_all, resolve_required_extras_or_all
-
-        self._deploy_app(
-            config,
-            app_command=["python", "-m", "dao_ai.mcp.server"],
-            extras={
-                "mcp",
-                *expand_all(resolve_required_extras_or_all(config, target="mcp")),
-            },
-            include_chat_ui=False,
+            as_mcp=False,
             development=development,
         )
 
@@ -2635,26 +2658,33 @@ class DatabricksProvider(ServiceProvider):
         config: AppConfig,
         mode: ServingMode = ServingMode.MODEL_SERVING,
         development: bool | None = None,
+        as_mcp: bool = False,
     ) -> None:
         """
-        Deploy agent using the specified serving mode.
+        Deploy agent using the specified serving platform.
 
         This is the main deployment method that routes to the appropriate
-        deployment implementation based on the serving mode.
+        deployment implementation based on the serving platform.
 
         Args:
             config: The AppConfig containing deployment configuration
-            mode: The serving mode (MODEL_SERVING, APPS, or MCP)
+            mode: The serving platform (MODEL_SERVING or APPS)
             development: When True, ship local dao-ai source/wheel; when False,
                 the published PyPI package; when None, auto-detect from the
                 install type. Only the Apps path consumes this today.
+            as_mcp: Serve the agent over MCP instead of the chat UI. Requires
+                ``mode=APPS`` — MCP runs on the Apps runtime, so there is no
+                Model Serving equivalent.
         """
         if mode == ServingMode.MODEL_SERVING:
+            if as_mcp:
+                raise ValueError(
+                    "as_mcp requires mode=APPS (MCP is served on the Databricks "
+                    "Apps runtime); got mode=MODEL_SERVING"
+                )
             self.deploy_model_serving_agent(config)
         elif mode == ServingMode.APPS:
-            self.deploy_apps_agent(config, development=development)
-        elif mode == ServingMode.MCP:
-            self.deploy_mcp_agent(config, development=development)
+            self.deploy_apps_agent(config, as_mcp=as_mcp, development=development)
         else:
             raise ValueError(f"Unknown serving mode: {mode}")
 

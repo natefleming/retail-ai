@@ -653,17 +653,53 @@ class IsDatabricksResource(ABC, BaseModel):
 
 
 class ServingMode(str, Enum):
-    """Target platform for agent deployment (a deploy-action parameter — NOT a
-    field on AppConfig)."""
+    """Hosting PLATFORM for agent deployment (a deploy-action parameter — NOT a
+    field on AppConfig).
+
+    This is the ``--mode`` axis: *where* the agent runs. The wire protocol is a
+    separate axis — see the ``as_mcp`` deploy parameter (CLI ``--as-mcp``), which
+    serves the agent over MCP on the Apps platform instead of the chat UI. MCP is
+    deliberately NOT a member here: it is not a third platform, it is the same
+    Databricks Apps runtime speaking a different protocol.
+    """
 
     MODEL_SERVING = "model_serving"
     """Deploy to a Databricks Model Serving endpoint (no DAB bundle)."""
 
     APPS = "apps"
-    """Deploy as a Databricks App (chat UI) from a DAB bundle."""
+    """Deploy as a Databricks App from a DAB bundle — chat UI by default, or the
+    MCP server when the deploy sets ``as_mcp``."""
 
-    MCP = "mcp"
-    """Deploy the MCP server as a Databricks App from a DAB bundle."""
+
+#: Prefix applied to the deployed App name when serving over MCP. The chat App
+#: and the MCP server are both Databricks Apps built from the SAME config, so
+#: without a distinct name one would silently replace the other. The ``mcp-``
+#: form is also what Databricks Multi-Agent Supervisor pattern-matches on when
+#: auto-discovering MCP-hosted Apps across an account.
+MCP_APP_PREFIX: str = "mcp-"
+
+
+def app_name_for(name: str, *, as_mcp: bool = False) -> str:
+    """Normalize a config ``app.name`` to its deployed Databricks App name.
+
+    Lowercases and hyphenates (the form every Apps API call must use), then
+    applies :data:`MCP_APP_PREFIX` when the deployment serves MCP. Single source
+    of truth for the deployed name — the bundle writers, the SDK deploy path, log
+    retrieval, the readiness pollers, and teardown all resolve through here.
+
+    Prefixing is **idempotent**: a config that already names its app ``mcp-*``
+    (the convention dao-ai's own docs recommend, since Multi-Agent Supervisor
+    pattern-matches it) is returned unchanged rather than becoming
+    ``mcp-mcp-*``.
+
+    Deliberately a function over a raw name rather than a method on
+    :class:`AppModel`, so callers holding only a name (and the duck-typed app
+    objects used in tests) can resolve it without constructing a full model.
+    """
+    normalized: str = name.lower().replace("_", "-")
+    if not as_mcp or normalized.startswith(MCP_APP_PREFIX):
+        return normalized
+    return f"{MCP_APP_PREFIX}{normalized}"
 
 
 class Privilege(str, Enum):
@@ -9634,7 +9670,7 @@ class AppModel(BaseModel):
         default=None,
         description=(
             "Server-side MCP capabilities exposed when dao-ai is deployed as an "
-            "MCP server (``dao-ai agent generate --mode mcp``). Declares static resources, "
+            "MCP server (``dao-ai agent build --as-mcp``). Declares static resources, "
             "prompt templates, and whether progress + logging notifications are "
             "emitted from the agent tool. When None the server publishes only "
             "the single agent-as-tool surface with no notifications."
@@ -9922,8 +9958,11 @@ class AppModel(BaseModel):
         Lowercased with underscores replaced by hyphens. This is the name the
         app is deployed under (see ``dao_ai.apps.bundle``); log retrieval and
         any other App API call must use this form, not the raw ``name``.
+
+        Chat-protocol name only. For an MCP deployment call
+        :func:`app_name_for(name, as_mcp=True)`, which adds the ``mcp-`` prefix.
         """
-        return self.name.lower().replace("_", "-")
+        return app_name_for(self.name)
 
     @model_validator(mode="after")
     def set_default_agent(self) -> Self:
@@ -11566,6 +11605,7 @@ class AppConfig(BaseModel):
         client_secret: str | None = None,
         workspace_host: str | None = None,
         development: bool | None = None,
+        as_mcp: bool = False,
     ) -> None:
         """
         Deploy the agent using the specified serving mode.
@@ -11574,7 +11614,7 @@ class AppConfig(BaseModel):
         If not provided, defaults to MODEL_SERVING.
 
         Args:
-            mode: The serving mode (MODEL_SERVING, APPS, or MCP). If None,
+            mode: The serving platform (MODEL_SERVING or APPS). If None,
                 defaults to MODEL_SERVING.
             w: Optional WorkspaceClient instance
             vsc: Optional VectorSearchClient instance
@@ -11584,6 +11624,9 @@ class AppConfig(BaseModel):
             workspace_host: Optional workspace host URL
             development: Ship local dao-ai source/wheel (True), the PyPI package
                 (False), or auto-detect from the install type (None).
+            as_mcp: Serve the agent over MCP instead of the chat UI. Valid only
+                with ``mode=APPS`` (MCP runs on the Apps runtime); deploys under
+                the ``mcp-`` prefixed App name.
         """
         from dao_ai.providers.base import ServiceProvider
         from dao_ai.providers.databricks import DatabricksProvider
@@ -11600,7 +11643,9 @@ class AppConfig(BaseModel):
             client_secret=client_secret,
             workspace_host=workspace_host,
         )
-        provider.deploy_agent(self, mode=resolved_mode, development=development)
+        provider.deploy_agent(
+            self, mode=resolved_mode, development=development, as_mcp=as_mcp
+        )
 
     def find_agents(
         self, predicate: Callable[[AgentModel], bool] | None = None

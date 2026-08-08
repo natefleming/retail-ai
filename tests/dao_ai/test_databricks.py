@@ -986,13 +986,15 @@ def test_deploy_agent_routes_to_apps_when_specified():
             _stamp_extras_resolvable(mock_config)
             provider.deploy_agent(config=mock_config, mode=ServingMode.APPS)
 
-            mock_apps.assert_called_once_with(mock_config, development=None)
+            mock_apps.assert_called_once_with(
+                mock_config, as_mcp=False, development=None
+            )
             mock_model_serving.assert_not_called()
 
 
 @pytest.mark.unit
-def test_deploy_agent_routes_mcp(monkeypatch):
-    """deploy_agent routes mode=MCP to deploy_mcp_agent."""
+def test_deploy_agent_routes_as_mcp_to_apps(monkeypatch):
+    """as_mcp routes through deploy_apps_agent (MCP runs on the Apps runtime)."""
     from dao_ai.config import ServingMode
     from dao_ai.providers.databricks import DatabricksProvider
 
@@ -1006,22 +1008,30 @@ def test_deploy_agent_routes_mcp(monkeypatch):
     monkeypatch.setattr(
         p,
         "deploy_apps_agent",
-        lambda c, development=None: calls.append("apps"),
+        lambda c, as_mcp=False, development=None: calls.append(
+            "mcp" if as_mcp else "apps"
+        ),
         raising=False,
     )
-    monkeypatch.setattr(
-        p,
-        "deploy_mcp_agent",
-        lambda c, development=None: calls.append("mcp"),
-        raising=False,
-    )
-    p.deploy_agent(config=object(), mode=ServingMode.MCP)
+    p.deploy_agent(config=object(), mode=ServingMode.APPS, as_mcp=True)
     assert calls == ["mcp"]
 
 
 @pytest.mark.unit
-def test_deploy_mcp_agent_command_and_extras(monkeypatch):
-    """deploy_mcp_agent forwards the MCP command, mcp extras, and chat-UI off."""
+def test_deploy_agent_rejects_as_mcp_with_model_serving(monkeypatch):
+    """as_mcp + MODEL_SERVING raises — there is no Model Serving MCP surface."""
+    from dao_ai.config import ServingMode
+    from dao_ai.providers.databricks import DatabricksProvider
+
+    p = DatabricksProvider.__new__(DatabricksProvider)
+    monkeypatch.setattr(p, "deploy_model_serving_agent", lambda c: None, raising=False)
+    with pytest.raises(ValueError, match="as_mcp requires mode=APPS"):
+        p.deploy_agent(config=object(), mode=ServingMode.MODEL_SERVING, as_mcp=True)
+
+
+@pytest.mark.unit
+def test_deploy_apps_agent_as_mcp_command_and_extras(monkeypatch):
+    """as_mcp forwards the MCP command, mcp extras, chat-UI off, and mcp- name."""
     import dao_ai._extras as _extras
     from dao_ai.providers.databricks import DatabricksProvider
 
@@ -1032,9 +1042,14 @@ def test_deploy_mcp_agent_command_and_extras(monkeypatch):
     p = DatabricksProvider.__new__(DatabricksProvider)
     captured = {}
 
-    def _fake_deploy_app(config, *, app_command, extras, include_chat_ui, development):
+    def _fake_deploy_app(
+        config, *, app_command, extras, include_chat_ui, as_mcp, development
+    ):
         captured.update(
-            app_command=app_command, extras=extras, include_chat_ui=include_chat_ui
+            app_command=app_command,
+            extras=extras,
+            include_chat_ui=include_chat_ui,
+            as_mcp=as_mcp,
         )
 
     monkeypatch.setattr(p, "_deploy_app", _fake_deploy_app, raising=False)
@@ -1045,10 +1060,11 @@ def test_deploy_mcp_agent_command_and_extras(monkeypatch):
     class _Cfg:
         app = _App()
 
-    p.deploy_mcp_agent(_Cfg())
+    p.deploy_apps_agent(_Cfg(), as_mcp=True)
     assert captured["app_command"] == ["python", "-m", "dao_ai.mcp.server"]
     assert "mcp" in captured["extras"]
     assert captured["include_chat_ui"] is False
+    assert captured["as_mcp"] is True
 
 
 @pytest.mark.unit
@@ -1470,8 +1486,12 @@ def test_serving_mode_enum_values():
 def test_serving_mode_members():
     from dao_ai.config import ServingMode
 
-    assert {t.value for t in ServingMode} == {"model_serving", "apps", "mcp"}
-    assert ServingMode("mcp") is ServingMode.MCP
+    assert {t.value for t in ServingMode} == {"model_serving", "apps"}
+    # MCP is a protocol (as_mcp), not a platform — deliberately not a member.
+    with pytest.raises(ValueError):
+        ServingMode("mcp")
+    with pytest.raises(AttributeError):
+        _ = ServingMode.MCP
     with pytest.raises(ValueError):
         ServingMode("both")
     with pytest.raises(AttributeError):
@@ -3525,3 +3545,30 @@ def test_snapshot_wait_honours_the_absolute_ceiling(monkeypatch):
         idx, "cat.sch.idx", max_timeout_seconds=500, poll_seconds=1
     )
     assert state == "PROVISIONING_INITIAL_SNAPSHOT"
+
+
+@pytest.mark.unit
+def test_app_name_for_normalizes_and_prefixes():
+    """app_name_for is the single source of truth for the deployed App name."""
+    from dao_ai.config import MCP_APP_PREFIX, app_name_for
+
+    # Chat protocol: lowercase + hyphenate only.
+    assert app_name_for("My_Agent") == "my-agent"
+    # MCP protocol: mcp- prefixed so it cannot collide with the chat App.
+    assert app_name_for("My_Agent", as_mcp=True) == f"{MCP_APP_PREFIX}my-agent"
+
+
+@pytest.mark.unit
+def test_app_name_for_mcp_prefix_is_idempotent():
+    """A config already named mcp-* must not become mcp-mcp-*.
+
+    docs/mcp_server.md recommends naming MCP apps with the ``mcp-`` prefix
+    (Multi-Agent Supervisor pattern-matches it), so users following that advice
+    would otherwise get a double prefix.
+    """
+    from dao_ai.config import app_name_for
+
+    assert app_name_for("mcp-dao-ai-test", as_mcp=True) == "mcp-dao-ai-test"
+    assert app_name_for("MCP_Agent", as_mcp=True) == "mcp-agent"
+    # Without as_mcp the name passes through untouched either way.
+    assert app_name_for("mcp-agent") == "mcp-agent"

@@ -105,7 +105,11 @@ _PIPELINE_TASKS: tuple[tuple[str, str, tuple[str, ...], dict[str, str]], ...] = 
         "deploy-agents",
         "07_deploy_agent.py",
         ("grant-service-principal",),
-        {"mode": "${var.mode}", "development": "${var.development}"},
+        {
+            "mode": "${var.mode}",
+            "as_mcp": "${var.as_mcp}",
+            "development": "${var.development}",
+        },
     ),
     (
         "generate-evaluation-data",
@@ -136,7 +140,11 @@ _MODEL_SERVING_AGENT_TASKS: tuple[
         "deploy-agent",
         "07_deploy_agent.py",
         (),
-        {"mode": "${var.mode}", "development": "${var.development}"},
+        {
+            "mode": "${var.mode}",
+            "as_mcp": "${var.as_mcp}",
+            "development": "${var.development}",
+        },
     ),
 )
 
@@ -235,8 +243,15 @@ def _build_job_bundle_yaml(
                 "description": "Cloud provider (azure, aws, gcp) - set per target.",
             },
             "mode": {
-                "description": "Agent serving mode (model_serving, apps, mcp).",
+                "description": "Agent serving platform (model_serving, apps).",
                 "default": default_mode,
+            },
+            "as_mcp": {
+                "description": (
+                    "Serve the agent over MCP instead of the chat UI "
+                    "(true/false; requires mode=apps). Deploys as mcp-<app>."
+                ),
+                "default": "false",
             },
             "development": {
                 "description": (

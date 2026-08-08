@@ -182,7 +182,7 @@ This is what you want most of the time.
 dao-ai agent up -c config/my_config.yaml --profile fevm
 
 # Bring up the MCP-server App
-dao-ai agent up -c config/my_config.yaml --mode mcp --profile fevm
+dao-ai agent up -c config/my_config.yaml --as-mcp --profile fevm
 
 # Bring up on Model Serving (builds a thin deploy-agent Job, runs it to
 # register the model + create the endpoint)
@@ -281,7 +281,7 @@ what you're shipping, then a verb for the lifecycle step:
 
 | Noun | What it ships |
 |------|---------------|
-| `dao-ai agent` | A Databricks App running the agent graph (default: `--mode apps`). Use `--mode mcp` to emit the MCP-server App instead, or `--mode model_serving` on `sync` to go SDK-direct. |
+| `dao-ai agent` | A Databricks App running the agent graph (default: `--mode apps`). Use `--as-mcp` to emit the MCP-server App instead, or `--mode model_serving` on `sync` to go SDK-direct. |
 | `dao-ai workflow` | A multi-task Databricks Job that provisions the backing infra (schemas, Vector Search, Lakebase, Genie, UC functions) *and* deploys the agent. |
 
 Each noun takes the same five verbs:
@@ -387,7 +387,7 @@ there.
 
 > **Migration:** the flat commands `generate-agent`, `generate-mcp`, and
 > `generate-workflow` have been removed. Use `dao-ai agent build`,
-> `dao-ai agent build --mode mcp`, and `dao-ai workflow build` instead.
+> `dao-ai agent build --as-mcp`, and `dao-ai workflow build` instead.
 > See [Migration reference](#migration-from-pre-v2-cli) below.
 
 ## Workflow: Provision and Deploy
@@ -479,24 +479,42 @@ dao-ai agent sync -c config/retail.yaml -p fevm
 dao-ai agent start    -c config/retail.yaml -p fevm
 ```
 
-MCP server bundles use `dao-ai agent build --mode mcp` (not a separate noun). Use `dao-ai agent start` to `databricks bundle run <app>` an already-deployed bundle, and `dao-ai agent down` to tear it down. See [Bundle Generators](#bundle-generators-agent-workflow) for the full lifecycle.
+MCP server bundles use `dao-ai agent build --as-mcp` (a protocol modifier on `--mode apps`, not a separate mode or noun). Use `dao-ai agent start` to `databricks bundle run <app>` an already-deployed bundle, and `dao-ai agent down` to tear it down. See [Bundle Generators](#bundle-generators-agent-workflow) for the full lifecycle.
 
-> **One config serves one mode at a time.** `apps` and `mcp` from the same config deploy to the **same** Databricks App resource (named from `app.name`), differing only in the runtime command — so `agent up --mode mcp` after `agent up --mode apps` **replaces** the chat App with the MCP server (it does not create a second app). The staging dirs are separate (`agent/<app>/apps` vs `.../mcp`) so you can build/inspect both, but a workspace has one app per `app.name`. To run a chat App **and** an MCP server from the same agent simultaneously, give them distinct `app.name` values (two configs). This mirrors `model_serving`, which keys its endpoint off `app.name`/`endpoint_name`.
+> **A chat App and an MCP server can coexist from one config.** `--as-mcp`
+> deploys under an `mcp-`-prefixed App name (`mcp-<app>`), so it does **not**
+> replace the chat App built from the same `app.name` — the two are separate App
+> resources with separate bundles, service principals, and MLflow experiments.
+> (The prefix is idempotent: an `app.name` that already starts with `mcp-` is
+> left alone rather than becoming `mcp-mcp-…`.) Multi-Agent Supervisor
+> pattern-matches the `mcp-` prefix when auto-discovering MCP-hosted Apps, so
+> this is also the naming convention MAS expects. `model_serving` is unaffected —
+> it keys its endpoint off `app.name`/`endpoint_name`.
 
 ### Output location
 
-All three generators (`agent`, `mcp`, `workflow`)
-resolve where to write the bundle in this order:
+Both generators (`agent`, `workflow`) resolve where to write the bundle in this
+order:
 
 1. `-s/--staging-dir <dir>` — used verbatim.
 2. `DAO_AI_BUNDLE_DIR` env var — bundles land at `$DAO_AI_BUNDLE_DIR/<kind>/<app>`
-   (`<kind>` is `agent`, `mcp`, or `workflow`). Set this for a central location,
+   (`<kind>` is `agent` or `workflow`). Set this for a central location,
    e.g. `export DAO_AI_BUNDLE_DIR=~/.dao-ai/bundle`.
 3. Default — `./.dao-ai/bundle/<kind>/<app>` (per-app, so multiple configs never
    collide; gitignored).
 
 The per-app `<kind>/<app>` structure is always appended to the env-var/default
-base, so deploying many configs stays isolated. Each generated `databricks.yaml`
+base, so deploying many configs stays isolated. Under the `agent` noun the path
+continues with the serving **platform** and, for Apps, the **protocol** — mirroring
+the `--mode` / `--as-mcp` flags, so each combination is isolated and never
+clobbers another:
+
+| Command | Staging dir |
+|---|---|
+| `agent … --mode apps` | `agent/<app>/apps/chat` |
+| `agent … --mode apps --as-mcp` | `agent/<app>/apps/mcp` |
+| `agent … --mode model_serving` | `agent/<app>/model_serving` |
+| `workflow …` | `workflow/<app>` (mode-agnostic) | Each generated `databricks.yaml`
 force-includes its own source via `sync.include`, so App deploys work even when
 the bundle is staged under a git-ignored directory.
 
@@ -876,7 +894,7 @@ flags:
 - `-c/--config` → the MCP tools an agent **config** declares (what your agent sees)
 - `--url`/`--app` → a **live** MCP server (what a running server exposes)
 
-> To **deploy** a dao-ai agent as an MCP server, use `agent --mode mcp`.
+> To **deploy** a dao-ai agent as an MCP server, use `agent --as-mcp`.
 > Deployment is intentionally not part of this noun.
 
 | Verb | Purpose |
@@ -907,7 +925,7 @@ dao-ai mcp tools -c config/my_config.yaml --apply-filters
 
 Connect to a running MCP server and show its health (best-effort `/healthz`)
 plus the tools it exposes. Target any MCP server with `--url`, or a Databricks
-App (e.g. a dao-ai agent deployed via `agent --mode mcp`) with `--app`:
+App (e.g. a dao-ai agent deployed via `agent --as-mcp`) with `--app`:
 
 ```bash
 # A deployed dao-ai MCP App, resolved by name via the SDK
@@ -1129,7 +1147,7 @@ dao-ai agent build -c config/my_config.yaml [OPTIONS]
 dao-ai agent sync  -c config/my_config.yaml [OPTIONS]
 dao-ai agent start -c config/my_config.yaml [OPTIONS]
 dao-ai agent down  -c config/my_config.yaml [OPTIONS]
-# Use --mode mcp to build the MCP-server bundle instead of the chat-agent bundle
+# Use --as-mcp to build the MCP-server bundle instead of the chat-agent bundle
 ```
 
 `up` builds (if needed) → syncs → starts in one command. `build` stages the
@@ -1140,7 +1158,7 @@ build — run `build` (or `up`) first, else they error with the next command. Fo
 | Option | Description | Verbs |
 |--------|-------------|-------|
 | `-c, --config FILE` | Path to the dao-ai configuration file (required) | all |
-| `-s, --staging-dir DIR` | Bundle staging dir (default: `$DAO_AI_BUNDLE_DIR/<kind>/<app>` or `./.dao-ai/bundle/<kind>/<app>`, where `<kind>` is `agent` or `mcp`) | all |
+| `-s, --staging-dir DIR` | Bundle staging dir (default: `$DAO_AI_BUNDLE_DIR/<kind>/<app>` or `./.dao-ai/bundle/<kind>/<app>`, where `<kind>` is `agent` or `workflow`; the agent noun appends `<platform>[/<protocol>]`) | all |
 | `-p, --profile NAME` | Databricks profile for config loading and sync | all |
 | `--param KEY=VALUE` / `--var KEY=VALUE` | Config parameter overrides (repeatable) | all |
 | `--mode {apps,mcp,model_serving}` | Serving target (default: `apps`; `ms`/`model-serving` accepted as aliases) | all |
@@ -1151,7 +1169,7 @@ build — run `build` (or `up`) first, else they error with the next command. Fo
 
 The flat `generate-agent` / `generate-mcp` commands and the one-shot
 `generate --deploy/--run` flags have been removed — use `dao-ai agent up` (or
-`build` → `sync` → `start`), with `--mode mcp` for the MCP-server bundle.
+`build` → `sync` → `start`), with `--as-mcp` for the MCP-server bundle.
 
 ### Chat Options
 
@@ -1290,9 +1308,11 @@ The deploy-model v2 release removed several commands and renamed others. Use thi
 | `dao-ai deploy -c ... --target apps` | `dao-ai agent sync -c ... --mode apps` |
 | `dao-ai deploy -c ... --target both` | Run `dao-ai agent sync --mode model_serving` then `dao-ai agent sync --mode apps` |
 | `dao-ai generate-agent ...` | `dao-ai agent build ...` |
-| `dao-ai generate-mcp ...` | `dao-ai agent build --mode mcp ...` |
+| `dao-ai generate-mcp ...` | `dao-ai agent build --as-mcp ...` |
 | `dao-ai generate-workflow ...` | `dao-ai workflow build ...` |
-| `dao-ai mcp generate\|deploy\|run\|destroy` | `dao-ai agent build\|sync\|start\|down --mode mcp` |
+| `dao-ai mcp generate\|deploy\|run\|destroy` | `dao-ai agent build\|sync\|start\|down --as-mcp` |
+| `dao-ai agent <verb> --mode mcp` | `dao-ai agent <verb> --as-mcp` (MCP is a protocol on the `apps` platform, not a `--mode` value) |
+| `ServingMode.MCP` (Python API) | `deploy_agent(mode=ServingMode.APPS, as_mcp=True)` |
 | `dao-ai agent generate --deploy --run ...` | `dao-ai agent up ...` (one command: build → sync → start) |
 | `dao-ai agent generate --deploy ...` | `dao-ai agent up ...`, or `build` then `sync` for a staged/hand-editable bundle |
 | `dao-ai agent deploy --run ...` | `dao-ai agent up ...`, or `sync` then `start` |
