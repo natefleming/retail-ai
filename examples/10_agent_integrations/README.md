@@ -78,7 +78,10 @@ specialist" a supervisor can route to. Contrast `type: genie` (the tool), which
 is atomic and returns one `ToolMessage`. Key points:
 
 - **Assignment** — `model: *genie_room_anchor` (bare room auto-wraps) or the
-  explicit `model: {genie_room: *anchor, timeout_seconds: N}` wrapper.
+  explicit `model: {genie_room: *anchor, timeout_seconds: N}` wrapper. A room
+  with only a `name` and no `agent_id`/`space_id` cannot auto-wrap — `{name: X}`
+  is a valid serving-endpoint shape too — so it must use the explicit wrapper;
+  config-load says so rather than silently resolving to an endpoint.
 - **Registration** — the room MUST be under `resources.genie_rooms` (deploy
   grant + OBO scope); config-load fails otherwise.
 - **Multi-turn / OBO** — `GenieAgentMiddleware` caches the Genie

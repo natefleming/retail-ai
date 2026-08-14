@@ -1739,6 +1739,275 @@ def test_strip_parameters_block_handles_top_level_list() -> None:
 
 
 # ---------------------------------------------------------------------------
+# _bake_genie_room_details: back-fill discoverable Genie room fields into the
+# YAML the Apps bundle ships, since that bundle carries text rather than a
+# resolved config and an app's Genie grant is too narrow to discover in-container.
+# ---------------------------------------------------------------------------
+
+# Stand-in for the live spaces. Only ids present here are "readable".
+_FAKE_SPACES: dict[str, dict[str, object]] = {
+    "space-a": {
+        "name": "Orders Space",
+        "description": "Answers questions about retail orders.",
+        "sample_questions": ["How many orders shipped late?", "Revenue by region?"],
+    },
+    "space-b": {"name": "Bare Space"},
+}
+
+
+@pytest.fixture
+def fake_genie_discovery(monkeypatch: pytest.MonkeyPatch) -> list[str]:
+    """Replace live Genie discovery with `_FAKE_SPACES`.
+
+    Patches ``ensure_resolved`` — the seam the baker actually uses — so no
+    workspace client is constructed. Returns the list of looked-up space ids so
+    tests can assert the lookup is deduped per distinct space.
+    """
+    from dao_ai.config import GenieRoomModel
+
+    looked_up: list[str] = []
+
+    def _fake_ensure_resolved(self: GenieRoomModel) -> None:
+        space_id = self.space_id
+        looked_up.append(str(space_id))
+        details = _FAKE_SPACES.get(str(space_id))
+        if details is None:
+            raise ValueError(f"space {space_id} is not readable")
+        for field, value in details.items():
+            setattr(self, field, value)
+
+    monkeypatch.setattr(GenieRoomModel, "ensure_resolved", _fake_ensure_resolved)
+    return looked_up
+
+
+def _assert_additive_only(before: object, after: object, path: str = "") -> None:
+    """Every value present before must survive unchanged; keys may only be added."""
+    if isinstance(before, dict):
+        assert isinstance(after, dict), f"{path}: mapping became {type(after)}"
+        for key, value in before.items():
+            assert key in after, f"{path}.{key} was dropped"
+            _assert_additive_only(value, after[key], f"{path}.{key}")
+    elif isinstance(before, list):
+        assert isinstance(after, list), f"{path}: list became {type(after)}"
+        assert len(before) == len(after), f"{path}: list length changed"
+        for index, value in enumerate(before):
+            _assert_additive_only(value, after[index], f"{path}[{index}]")
+    else:
+        assert before == after, f"{path}: {before!r} became {after!r}"
+
+
+@pytest.mark.unit
+def test_bake_genie_room_fills_discoverable_fields(
+    fake_genie_discovery: list[str],
+) -> None:
+    """A bare `space_id` room — the common shape, since Genie titles are not
+    unique — gains the space's name, description and sample questions."""
+    from dao_ai.apps.bundle import _bake_genie_room_details
+
+    src = dedent(
+        """
+        resources:
+          genie_rooms:
+            orders:
+              space_id: space-a
+        """
+    ).lstrip()
+    room = yaml.safe_load(_bake_genie_room_details(src))["resources"]["genie_rooms"][
+        "orders"
+    ]
+    assert room["name"] == "Orders Space"
+    assert room["description"] == "Answers questions about retail orders."
+    assert room["sample_questions"] == [
+        "How many orders shipped late?",
+        "Revenue by region?",
+    ]
+    assert room["space_id"] == "space-a"
+
+
+@pytest.mark.unit
+def test_bake_genie_room_does_not_overwrite_declared_fields(
+    fake_genie_discovery: list[str],
+) -> None:
+    """What the user wrote always wins; only absent fields are filled in."""
+    from dao_ai.apps.bundle import _bake_genie_room_details
+
+    src = dedent(
+        """
+        resources:
+          genie_rooms:
+            orders:
+              space_id: space-a
+              description: MY-OWN-DESCRIPTION
+        """
+    ).lstrip()
+    room = yaml.safe_load(_bake_genie_room_details(src))["resources"]["genie_rooms"][
+        "orders"
+    ]
+    assert room["description"] == "MY-OWN-DESCRIPTION"
+    # The fields the user left out are still filled in.
+    assert room["name"] == "Orders Space"
+    assert room["sample_questions"]
+
+
+@pytest.mark.unit
+def test_bake_genie_room_bakes_partial_details(
+    fake_genie_discovery: list[str],
+) -> None:
+    """A space that only exposes a title contributes only `name`; the absent
+    fields must not be emitted as empty values."""
+    from dao_ai.apps.bundle import _bake_genie_room_details
+
+    src = "resources:\n  genie_rooms:\n    bare:\n      space_id: space-b\n"
+    room = yaml.safe_load(_bake_genie_room_details(src))["resources"]["genie_rooms"][
+        "bare"
+    ]
+    assert room["name"] == "Bare Space"
+    assert "description" not in room
+    assert "sample_questions" not in room
+
+
+@pytest.mark.unit
+def test_bake_genie_room_honours_agent_id_alias(
+    fake_genie_discovery: list[str],
+) -> None:
+    """`agent_id` is a validation alias for `space_id`, so rooms written that
+    way must be baked too."""
+    from dao_ai.apps.bundle import _bake_genie_room_details
+
+    src = "resources:\n  genie_rooms:\n    orders:\n      agent_id: space-a\n"
+    room = yaml.safe_load(_bake_genie_room_details(src))["resources"]["genie_rooms"][
+        "orders"
+    ]
+    assert room["description"] == "Answers questions about retail orders."
+
+
+@pytest.mark.unit
+def test_bake_genie_room_skips_deferred_space_id(
+    fake_genie_discovery: list[str],
+) -> None:
+    """A `${var.X}` space id names a space that does not exist yet (it is
+    provisioned later in the same run), so it must not be looked up."""
+    from dao_ai.apps.bundle import _bake_genie_room_details
+
+    src = "resources:\n  genie_rooms:\n    later:\n      space_id: ${var.genie_space_id}\n"
+    out = _bake_genie_room_details(src)
+    assert out == src
+    assert fake_genie_discovery == []
+
+
+@pytest.mark.unit
+def test_bake_genie_room_leaves_unreadable_space_untouched(
+    fake_genie_discovery: list[str],
+) -> None:
+    """Discovery is best-effort: a space the deployer cannot read leaves that
+    room exactly as written rather than failing the deploy."""
+    from dao_ai.apps.bundle import _bake_genie_room_details
+
+    src = "resources:\n  genie_rooms:\n    secret:\n      space_id: no-such-space\n"
+    assert _bake_genie_room_details(src) == src
+    assert fake_genie_discovery == ["no-such-space"]
+
+
+@pytest.mark.unit
+def test_bake_genie_room_looks_each_space_up_once(
+    fake_genie_discovery: list[str],
+) -> None:
+    """Baked values are properties of the space, so N rooms on one space cost
+    one lookup — and an anchored room reached twice is still one node."""
+    from dao_ai.apps.bundle import _bake_genie_room_details
+
+    src = dedent(
+        """
+        resources:
+          genie_rooms:
+            orders: &orders
+              space_id: space-a
+            orders_again:
+              space_id: space-a
+        tools:
+          ask_orders:
+            function:
+              type: genie
+              genie_room: *orders
+        """
+    ).lstrip()
+    parsed = yaml.safe_load(_bake_genie_room_details(src))
+    assert fake_genie_discovery == ["space-a"]
+    rooms = parsed["resources"]["genie_rooms"]
+    assert rooms["orders"]["description"] == "Answers questions about retail orders."
+    assert rooms["orders_again"]["description"] == (
+        "Answers questions about retail orders."
+    )
+    # The aliased room and the anchor are the same node, baked once.
+    assert parsed["tools"]["ask_orders"]["function"]["genie_room"] == rooms["orders"]
+
+
+@pytest.mark.unit
+def test_bake_genie_room_no_op_without_genie_rooms(
+    fake_genie_discovery: list[str],
+) -> None:
+    from dao_ai.apps.bundle import _bake_genie_room_details
+
+    src = "app:\n  name: x\nagents:\n  a:\n    name: a\n"
+    assert _bake_genie_room_details(src) == src
+    assert fake_genie_discovery == []
+
+
+@pytest.mark.unit
+def test_bake_genie_room_returns_input_on_parse_error(
+    fake_genie_discovery: list[str],
+) -> None:
+    """Malformed YAML comes back unchanged rather than corrupted."""
+    from dao_ai.apps.bundle import _bake_genie_room_details
+
+    bad = "key: [unclosed\n"
+    assert _bake_genie_room_details(bad) == bad
+
+
+@pytest.mark.unit
+def test_bake_genie_room_preserves_comments_anchors_and_is_additive(
+    fake_genie_discovery: list[str],
+) -> None:
+    """The bake rides on the same round-trip guarantees as the rest of the
+    bundler: anchors, aliases, merge keys and comments survive, and nothing
+    that was already in the document changes."""
+    from dao_ai.apps.bundle import _bake_genie_room_details
+
+    src = dedent(
+        """
+        # top of file
+        schemas:
+          s: &s
+            catalog_name: c
+            schema_name: d
+        resources:
+          genie_rooms:
+            # the orders room
+            orders: &orders
+              space_id: space-a  # trailing comment on the id
+            clothing:
+              <<: *s
+              space_id: space-b
+        tools:
+          ask_orders:
+            function:
+              type: genie
+              genie_room: *orders
+        """
+    ).lstrip()
+    out = _bake_genie_room_details(src)
+
+    assert "# top of file" in out
+    assert "# the orders room" in out
+    assert "# trailing comment on the id" in out
+    assert "&orders" in out
+    assert "*orders" in out
+    assert "<<: *s" in out
+
+    _assert_additive_only(yaml.safe_load(src), yaml.safe_load(out))
+
+
+# ---------------------------------------------------------------------------
 # CLI integration: parse_args + handler call against tmp configs.
 # ---------------------------------------------------------------------------
 

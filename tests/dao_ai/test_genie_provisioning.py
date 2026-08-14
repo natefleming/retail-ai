@@ -1081,3 +1081,169 @@ class TestProvisionGenieNotebookGuard:
         config = AppConfig(resources=None)
         # The outer guard `if config.resources is not None and ...` is False.
         assert config.resources is None
+
+
+# ---------------------------------------------------------------------------
+# ensure_resolved() hydration of sample questions
+# ---------------------------------------------------------------------------
+
+
+class TestSampleQuestionHydration:
+    """``ensure_resolved()`` back-fills a bare room's sample questions.
+
+    Customers overwhelmingly declare rooms by ``space_id`` rather than ``name``
+    (Genie titles are not unique), so those rooms carry no local text at all.
+    Hydrating here — the same place ``name``/``description`` are already
+    back-filled — is what makes the Genie tool description identical whether the
+    agent runs locally, in Apps, or in Model Serving: deploy resolves it, and
+    ``model_dump`` bakes it into the logged ``model_config``.
+    """
+
+    SPACE_ID: str = "a" * 32
+
+    @staticmethod
+    def _space_details(
+        *,
+        title: str = "Retail Sales",
+        description: str | None = "Store sales, inventory and returns.",
+        sample_questions: list[str] | None = None,
+    ) -> Mock:
+        """A stub ``GenieSpace`` carrying a ``serialized_space`` payload."""
+        payload: dict = {"version": 2}
+        if sample_questions is not None:
+            payload["config"] = {
+                "sample_questions": [
+                    {"id": f"id{i}", "question": [q]}
+                    for i, q in enumerate(sample_questions)
+                ]
+            }
+        details = Mock()
+        details.title = title
+        details.description = description
+        details.serialized_space = json.dumps(payload)
+        return details
+
+    def _room(self, **kwargs) -> GenieRoomModel:
+        return GenieRoomModel(space_id=self.SPACE_ID, **kwargs)
+
+    def test_hydrates_description_and_questions_from_live_space(self) -> None:
+        """The bare-``space_id`` path customers actually use.
+
+        Nothing is declared locally, so both the description and the sample
+        questions must come from the space and reach the tool description.
+        """
+        room = self._room()
+        details = self._space_details(
+            sample_questions=["How many stores per state?", "Top 5 SKUs last quarter?"]
+        )
+        with patch.object(GenieRoomModel, "_get_space_details", return_value=details):
+            room.ensure_resolved()
+
+        assert room.name == "Retail Sales"
+        assert room.description == "Store sales, inventory and returns."
+        assert room.sample_questions == [
+            "How many stores per state?",
+            "Top 5 SKUs last quarter?",
+        ]
+
+        from dao_ai.tools.genie import create_genie_tool
+
+        tool = create_genie_tool(genie_room=room)
+        assert "Store sales, inventory and returns." in tool.description
+        assert "- How many stores per state?" in tool.description
+        assert "- Top 5 SKUs last quarter?" in tool.description
+
+    def test_declared_questions_are_not_overwritten(self) -> None:
+        """User-declared values always win over discovered ones."""
+        room = self._room(sample_questions=["MY OWN QUESTION"])
+        details = self._space_details(sample_questions=["FROM THE SPACE"])
+        with patch.object(GenieRoomModel, "_get_space_details", return_value=details):
+            room.ensure_resolved()
+
+        assert room.sample_questions == ["MY OWN QUESTION"]
+
+    def test_hydration_touches_only_question_fields(self) -> None:
+        """Guard against drifting into full ``refresh()`` behavior.
+
+        ``refresh()`` also rewrites ``table_sources``/``function_sources``,
+        which are provisioning *inputs* — rewriting them here would bloat the
+        baked ``model_config`` and risk perturbing a later re-provision.
+        """
+        room = self._room()
+        payload = {
+            "version": 2,
+            "config": {
+                "sample_questions": [{"id": "i1", "question": ["Discovered?"]}]
+            },
+            "data_sources": {
+                "tables": [{"identifier": "cat.sch.tbl"}],
+                "metric_views": [{"identifier": "cat.sch.mv"}],
+            },
+            "instructions": {
+                "text_instructions": [{"content": ["Never do that."]}],
+                "sql_functions": [{"identifier": "cat.sch.fn"}],
+                "join_specs": [{"sql": "a.id = b.id"}],
+            },
+        }
+        details = Mock()
+        details.title = "Retail Sales"
+        details.description = "Store sales."
+        details.serialized_space = json.dumps(payload)
+
+        with patch.object(GenieRoomModel, "_get_space_details", return_value=details):
+            room.ensure_resolved()
+
+        assert room.sample_questions == ["Discovered?"]
+        assert room.table_sources is None
+        assert room.metric_view_sources is None
+        assert room.function_sources is None
+        assert room.join_specs is None
+        assert room.text_instructions is None
+        assert room.benchmarks is None
+
+    def test_unavailable_space_is_not_fatal(self) -> None:
+        """The Model Serving case: ``_get_space_details`` returns ``None``.
+
+        Hydration must fail soft — no exception, and the tool simply carries no
+        example-question block.
+        """
+        room = self._room()
+        with patch.object(GenieRoomModel, "_get_space_details", return_value=None):
+            room.ensure_resolved()
+
+        assert room.sample_questions is None
+
+        from dao_ai.tools.genie import create_genie_tool
+
+        tool = create_genie_tool(genie_room=room)
+        assert "Example questions" not in tool.description
+        assert "<topic>" not in tool.description
+
+    def test_hydrated_values_survive_the_model_config_bake(self) -> None:
+        """The local / Apps / Model Serving parity guarantee.
+
+        Deploy dumps the resolved config into the MLflow artifact; the serving
+        container rebuilds from that dict. So a room rebuilt from the dump must
+        still produce the same tool description with **no** further Genie call.
+        """
+        room = self._room()
+        details = self._space_details(sample_questions=["How many stores per state?"])
+        with patch.object(GenieRoomModel, "_get_space_details", return_value=details):
+            room.ensure_resolved()
+
+        baked = room.model_dump(mode="json", by_alias=True, exclude_none=True)
+        assert baked["sample_questions"] == ["How many stores per state?"]
+
+        rebuilt = GenieRoomModel.model_validate(baked)
+
+        from dao_ai.tools.genie import create_genie_tool
+
+        with patch.object(
+            GenieRoomModel,
+            "_get_space_details",
+            side_effect=AssertionError("Genie API called in the serving container"),
+        ):
+            tool = create_genie_tool(genie_room=rebuilt)
+
+        assert "Store sales, inventory and returns." in tool.description
+        assert "- How many stores per state?" in tool.description

@@ -243,7 +243,8 @@ agents:
     model: *model_name          # InferenceEndpointModel (serving endpoint) OR a
                                 # GenieAgentModel (Genie Agent as a streaming brain —
                                 # see "Genie Agent as a model" below). A bare Genie
-                                # room anchor is auto-wrapped into a GenieAgentModel.
+                                # room anchor is auto-wrapped into a GenieAgentModel;
+                                # a name-only room cannot be (see that section).
     tools: [*tool_name]
     guardrails: [*guardrail_ref]
     prompt: string | *prompt_ref
@@ -1103,6 +1104,136 @@ See [`examples/99_complete_applications/procurement_supplier_a2a/README.md`](htt
 
 ---
 
+## Genie tool descriptions
+
+The description of a `type: genie` tool is what a supervisor reads to decide
+whether to route a question to *that* Genie space. It is resolved in this order:
+
+1. the tool's own `description`, when set;
+2. the room's `description` — either declared under `resources.genie_rooms` or
+   back-filled from the live Genie space by discovery (see below), which never
+   overwrites a value you declared;
+3. a generic fallback naming the space (`"…chat with tabular data about <space name>"`),
+   or naming nothing if the space has no name.
+
+**Why this matters.** With neither (1) nor (2), every description-less Genie tool
+in a config used to advertise the same subject-free text, so a supervisor with two
+Genie tools had no signal to route on and picked more or less at random. Giving
+each space a `description` — or letting it be discovered — is the fix.
+
+**Example questions.** When the room has `sample_questions` (else the `question`
+of each `example_sqls` pair), up to ten are appended as few-shot routing hints:
+
+```
+Example questions this tool can answer:
+- How many stores are in each state?
+- Which SKUs led revenue last quarter?
+```
+
+SQL bodies are deliberately never included: the description is read by the
+calling LLM for routing, Genie already holds the SQL on its own space, and the
+bodies would cost hundreds of tokens on every LLM call for no routing gain.
+
+**Writing the tool's `description` suppresses the block.** That string is the
+prompt surface, so authoring it means "this is my text, don't editorialize". A
+*room* description keeps the questions: it is resource metadata that the
+questions exist to enrich, and suppressing there would hand the customer who
+documented their space *less* routing signal than one who documented nothing,
+while silently discarding `sample_questions` written into the config.
+
+`include_example_questions` overrides that in either direction — it is tri-state,
+and unset is not the same as `false`:
+
+| tool `description` | `include_example_questions` | base text | example block |
+|---|---|---|---|
+| set | unset (default) | your text | **no** — your string wins |
+| set | `true` | your text | **yes**, if questions exist |
+| set | `false` | your text | no |
+| — | unset (default) | room / discovered / fallback | **yes**, if questions exist |
+| — | `true` | room / discovered / fallback | yes |
+| — | `false` | room / discovered / fallback | no |
+
+`true` is the state the flag exists for: your own wording *and* the auto-appended
+questions.
+
+```yaml
+tools:
+  store_sales_genie:
+    name: store_sales_genie
+    function:
+      type: genie
+      genie_room: *retail_genie
+      description: Store sales, inventory and returns for North America.
+      include_example_questions: true    # keep my wording, append the questions too
+```
+
+The flag is deliberately tri-state rather than a boolean defaulting to true
+because intent has to survive the deploy bake. Model Serving dumps the config
+with `exclude_none=True` into the logged `model_config` and Apps ships rendered
+YAML text, so `model_fields_set` — which is how a plain boolean would tell "unset"
+from "explicitly true" — does not round-trip. A tri-state carries the intent as a
+*value*: unset drops out and re-parses as the default, while `true`/`false` are
+preserved literally, and the tool description comes out byte-identical in local,
+Apps, and Model Serving.
+
+**`preserve_question`** (default `false`) is a separate knob on the same tool. It
+constrains the question sent *to* Genie, not Genie's answer: when Genie is a tool,
+the calling LLM writes the `question` argument, and stronger models rephrase or
+decompose it — quietly dropping a refining qualifier and changing the scope Genie
+answers. Setting it stamps a preserve-exact instruction onto both surfaces the
+model reads (the tool description and the `question` argument annotation), while
+still allowing a genuinely multi-tool request to be split across tools.
+
+```yaml
+      preserve_question: true            # send the user's wording through unedited
+```
+
+**Discovery, and why it is identical in all three runtimes.** A room declared
+with only a `space_id` — the common case, since Genie titles are not unique —
+carries no local text at all. `GenieRoomModel.ensure_resolved()` back-fills
+`name`, `description`, and `sample_questions` from the live space. Each runtime
+gets that same result, by a different route:
+
+| Runtime | How the discovered text reaches the tool |
+|---|---|
+| Local | `ensure_resolved()` runs during `AppConfig.from_file(initialize=True)`. |
+| Model Serving | Discovery runs at deploy time and the resolved config is baked into the logged MLflow `model_config`; the container needs **no** Genie call at model load. |
+| Databricks Apps | Discovery runs at **bundle** time and the three fields are written into the config YAML the bundle ships. |
+
+Apps needs its own bake because the bundle carries the rendered config as *text*,
+not as a resolved object — nothing `ensure_resolved()` produced at deploy time
+would otherwise reach the container. So `dao-ai agent up -m apps` looks each
+distinct `space_id` up once with the deploying identity's credentials and writes
+the result into the emitted YAML. Fields you declared are never overwritten, a
+`${var.…}` space id (one provisioned later in the same run) is skipped, and a
+space that cannot be read leaves its room exactly as written — the deploy is
+never blocked by discovery.
+
+**What each Genie permission level can discover.** The two halves of discovery
+need different grants, which is why the deploy-time bake matters even though the
+container can read *something*:
+
+| Grant | `title` / `description` | `sample_questions` |
+|---|---|---|
+| `CAN_EDIT` | yes | yes (needs the serialized space) |
+| `CAN_RUN` | yes | **no** |
+
+A deployed identity usually holds `CAN_RUN` — that is all an app's Genie resource
+confers. `_get_space_details()` asks for the serialized space (the only source of
+sample questions) and retries without it when that read is denied, so a
+`CAN_RUN`-only identity still recovers the space's own description instead of
+losing everything to one failed call. The questions still come from the bake.
+
+Tool construction itself never calls the Genie API; if discovery was unavailable,
+the fallback text is used rather than an error.
+
+Locally-declared `sample_questions` and `example_sqls` always win over discovered
+ones. Only the question fields are hydrated — the other provisioning inputs
+(`table_sources`, `function_sources`, …) are left alone, unlike
+`GenieRoomModel.refresh()`.
+
+---
+
 ## Genie Agent as a model
 
 The Databricks **Genie Agent Mode API** (`POST /api/2.0/genie/agents/{agent_id}/responses`,
@@ -1139,12 +1270,26 @@ agents:
 ```
 
 **Assignment forms.** `model:` accepts either a bare Genie room (a
-`genie_rooms` anchor or a dict with `agent_id`/`space_id` — auto-wrapped into a
+`genie_rooms` anchor, or a dict carrying any room-only key — `agent_id`/`space_id`
+as well as the provisioning fields `warehouse`, `table_sources`,
+`text_instructions`, `sample_questions`, … — auto-wrapped into a
 `GenieAgentModel` with default `timeout_seconds`) or the explicit
 `{genie_room: <room>, timeout_seconds: <int>}` wrapper. A `{name: <endpoint>}`
-config has no `agent_id`/`space_id` and stays an `InferenceEndpointModel`, so
-there is no ambiguity. A `GenieAgentModel` is **not** a serving endpoint — do
-not place it under `resources.models`.
+config carries no room-only key and stays an `InferenceEndpointModel`. A
+`GenieAgentModel` is **not** a serving endpoint — do not place it under
+`resources.models`.
+
+**One shape stays ambiguous: a name-only room.** `{name: X}` is valid for *both*
+union members, so it cannot be coerced by shape and resolves to an
+`InferenceEndpointModel`. If that name matches a room registered under
+`resources.genie_rooms`, config-load fails with an explanatory error rather than
+letting the agent point at a serving endpoint that does not exist. Use the
+explicit `model: {genie_room: *your_room_anchor}` wrapper, or give the room an
+`agent_id`/`space_id` so it can be assigned bare. Note that a room used as a
+model resolves its id **statically** (`space_id`/`agent_id`, else
+`DATABRICKS_GENIE_SPACE_ID`) — a name is resolved to an id during
+`AppConfig.initialize()`, which is why the room must be registered and shared by
+anchor.
 
 **Room registration (required).** A `GenieAgentModel` is a wrapper, not a
 deploy resource. Its `genie_room` **must** be registered under

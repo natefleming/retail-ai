@@ -24,7 +24,7 @@ from __future__ import annotations
 import asyncio
 import json
 from typing import Any, Iterable
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import httpx
 import pytest
@@ -503,4 +503,218 @@ class TestGenieRoomRegistrationValidator:
             }
         }
         # A non-Genie model is never subject to the genie_rooms check.
+        AppConfig(**cfg)
+
+
+# ---------------------------------------------------------------------------
+# Bare-room coercion: shape test breadth
+# ---------------------------------------------------------------------------
+
+
+class TestBareRoomCoercion:
+    """``AgentModel.model`` coerces a bare Genie room into a ``GenieAgentModel``.
+
+    The coercion is by *shape*: a dict carrying any key only a room can have.
+    Testing ``space_id``/``agent_id`` alone is not enough — a managed room is
+    declared with provisioning fields and may legitimately have neither, and a
+    YAML anchor expands to a plain dict, so those rooms take the dict path.
+    """
+
+    @staticmethod
+    def _model_for(shape: object) -> object:
+        return AgentModel.model_validate(
+            {"name": "a", "model": shape, "tools": []}
+        ).model
+
+    def test_provisioning_room_without_space_id_is_wrapped(self) -> None:
+        """A managed room declared by table_sources/warehouse — no space_id."""
+        model = self._model_for(
+            {
+                "name": "Retail Genie",
+                "warehouse": {"name": "shared-wh"},
+                "table_sources": [{"table": {"name": "cat.sch.sales"}}],
+            }
+        )
+        assert isinstance(model, GenieAgentModel)
+
+    def test_text_instructions_only_room_is_wrapped(self) -> None:
+        model = self._model_for(
+            {"name": "Retail Genie", "text_instructions": ["Prefer aggregates."]}
+        )
+        assert isinstance(model, GenieAgentModel)
+
+    def test_sample_questions_room_is_wrapped(self) -> None:
+        model = self._model_for(
+            {"name": "Retail Genie", "sample_questions": ["How many stores?"]}
+        )
+        assert isinstance(model, GenieAgentModel)
+
+    def test_plain_endpoint_name_still_resolves_to_endpoint(self) -> None:
+        """The shared-key shape must not be stolen from serving endpoints."""
+        model = self._model_for({"name": "databricks-claude-sonnet-4"})
+        assert isinstance(model, InferenceEndpointModel)
+
+    def test_endpoint_with_inference_knobs_still_resolves_to_endpoint(self) -> None:
+        model = self._model_for(
+            {"name": "databricks-claude-sonnet-4", "temperature": 0.1, "max_tokens": 100}
+        )
+        assert isinstance(model, InferenceEndpointModel)
+
+    def test_room_only_keys_exclude_shared_keys(self) -> None:
+        """The derived key set must never contain a key both classes accept.
+
+        Deriving it from ``model_fields`` keeps it from drifting as fields are
+        added; this pins the property that makes it safe to test against.
+        """
+        from dao_ai.config import _genie_room_only_keys
+
+        room_only = _genie_room_only_keys()
+        for shared in (
+            "name",
+            "description",
+            "on_behalf_of_user",
+            "pat",
+            "service_principal",
+            "client_id",
+            "client_secret",
+            "workspace_host",
+        ):
+            assert shared not in room_only
+        # And the keys the coercion depends on are present.
+        for room_key in ("space_id", "agent_id", "table_sources", "warehouse"):
+            assert room_key in room_only
+
+
+# ---------------------------------------------------------------------------
+# Chat-model surface lives on GenieRoomModel; the wrapper only overrides timeout
+# ---------------------------------------------------------------------------
+
+
+class TestRoomChatModelSurface:
+    def test_room_builds_chat_model_with_default_timeout(self) -> None:
+        from dao_ai.config import GENIE_AGENT_DEFAULT_TIMEOUT_SECONDS
+
+        room = GenieRoomModel(space_id=AGENT_ID)
+        chat = room.chat_model_for_workspace_client(_fake_workspace_client())
+        assert isinstance(chat, GenieAgentChatModel)
+        assert chat.agent_id == AGENT_ID
+        assert chat.timeout_seconds == GENIE_AGENT_DEFAULT_TIMEOUT_SECONDS
+
+    def test_as_chat_model_uses_room_client(self) -> None:
+        room = GenieRoomModel(space_id=AGENT_ID)
+        ws = _fake_workspace_client()
+        with patch.object(
+            GenieRoomModel, "workspace_client", new_callable=lambda: property(lambda s: ws)
+        ):
+            chat = room.as_chat_model()
+        assert isinstance(chat, GenieAgentChatModel)
+        assert chat.workspace_client is ws
+
+    def test_wrapper_forwards_its_timeout_override(self) -> None:
+        agent = AgentModel.model_validate(
+            {
+                "name": "g",
+                "model": {"genie_room": {"agent_id": AGENT_ID}, "timeout_seconds": 600},
+                "tools": [],
+            }
+        )
+        chat = agent.model.chat_model_for_workspace_client(_fake_workspace_client())
+        assert chat.timeout_seconds == 600
+
+    def test_wrapper_name_is_agent_id_not_room_title(self) -> None:
+        """``nodes.py`` and trace ``ResourceInfo`` log this — it must stay the id."""
+        m = GenieAgentModel(
+            genie_room=GenieRoomModel(name="Retail Sales", space_id=AGENT_ID)
+        )
+        assert m.name == AGENT_ID
+
+    def test_room_agent_id_does_not_fall_back_to_name_lookup(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Resolution is static-only: no Genie API call on the model-build path.
+
+        A name-only room therefore cannot serve as a model, which is why
+        ``AppConfig`` reports the bare-assignment case loudly instead.
+        """
+        monkeypatch.delenv("DATABRICKS_GENIE_SPACE_ID", raising=False)
+        room = GenieRoomModel(name="Some Room")
+        with patch.object(
+            GenieRoomModel,
+            "_resolve_space_id_by_name",
+            side_effect=AssertionError("live lookup on the model-build path"),
+        ):
+            with pytest.raises(ValueError, match="unable to resolve agent_id"):
+                _ = room._agent_id
+
+
+# ---------------------------------------------------------------------------
+# AppConfig catches the shape coercion cannot decide
+# ---------------------------------------------------------------------------
+
+
+class TestBareNameOnlyRoomRejected:
+    """``{name: X}`` is valid for both union members, so shape cannot decide it.
+
+    It silently resolves to an ``InferenceEndpointModel`` — the config loads
+    clean and the agent then points at a serving endpoint that does not exist.
+    ``AppConfig`` sees the room registry, so it can catch this.
+    """
+
+    def test_name_only_room_bare_assigned_raises(self) -> None:
+        from dao_ai.config import AppConfig
+
+        cfg = {
+            "resources": {"genie_rooms": {"retail": {"name": "Retail Genie"}}},
+            "agents": {
+                "g": {"name": "g", "model": {"name": "Retail Genie"}, "tools": []}
+            },
+        }
+        with pytest.raises(ValueError, match="indistinguishable from a serving"):
+            AppConfig(**cfg)
+
+    def test_explicit_wrapper_is_not_flagged(self) -> None:
+        from dao_ai.config import AppConfig
+
+        cfg = {
+            "resources": {"genie_rooms": {"retail": {"name": "Retail Genie"}}},
+            "agents": {
+                "g": {
+                    "name": "g",
+                    "model": {"genie_room": {"name": "Retail Genie"}},
+                    "tools": [],
+                }
+            },
+        }
+        # Name-only rooms cannot be id-matched, so the registration check skips.
+        AppConfig(**cfg)
+
+    def test_unrelated_endpoint_name_is_untouched(self) -> None:
+        from dao_ai.config import AppConfig
+
+        cfg = {
+            "resources": {"genie_rooms": {"retail": {"name": "Retail Genie"}}},
+            "agents": {
+                "g": {
+                    "name": "g",
+                    "model": {"name": "databricks-claude-sonnet-4"},
+                    "tools": [],
+                }
+            },
+        }
+        AppConfig(**cfg)
+
+    def test_endpoint_with_knobs_sharing_a_room_name_is_untouched(self) -> None:
+        """Any endpoint-specific key means the user meant an endpoint."""
+        from dao_ai.config import AppConfig
+
+        cfg = {
+            "resources": {"genie_rooms": {"retail": {"name": "Retail Genie"}}},
+            "agents": {
+                "g": {
+                    "name": "g",
+                    "model": {"name": "Retail Genie", "temperature": 0.1},
+                    "tools": [],
+                }
+            },
+        }
         AppConfig(**cfg)
