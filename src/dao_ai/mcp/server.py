@@ -22,6 +22,7 @@ from fastapi.responses import JSONResponse
 from loguru import logger
 from mcp.server.fastmcp import FastMCP
 
+from dao_ai._tracing import install_trace_redaction
 from dao_ai.config import AppConfig
 from dao_ai.logging import configure_logging, suppress_autolog_context_warnings
 from dao_ai.mcp import __version__
@@ -98,6 +99,10 @@ def _configure_mlflow(config: AppConfig) -> None:
 
     mlflow.langchain.autolog(run_tracer_inline=True)
     suppress_autolog_context_warnings()
+
+    # Must follow autolog: keeps OBO bearers forwarded by an MCP client out of
+    # the span payloads this server exports.
+    install_trace_redaction()
 
 
 def build_app(config: AppConfig) -> FastAPI:

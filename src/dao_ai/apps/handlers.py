@@ -22,6 +22,7 @@ from mlflow.types.responses import (
     ResponsesAgentStreamEvent,
 )
 
+from dao_ai._tracing import install_trace_redaction
 from dao_ai.config import AppConfig
 from dao_ai.logging import configure_logging, suppress_autolog_context_warnings
 from dao_ai.models import LanggraphResponsesAgent
@@ -121,6 +122,12 @@ if _experiment_id:
 
 mlflow.langchain.autolog(run_tracer_inline=True)
 suppress_autolog_context_warnings()
+
+# Must follow autolog: this registers the span processor that strips the caller's
+# forwarded bearer out of span payloads. `_inject_headers_into_request` below puts
+# that bearer on the request precisely so tools can use it, and the traced
+# `apredict` call would otherwise serialize it into the span's inputs.
+install_trace_redaction()
 
 # Create the ResponsesAgent - cast to LanggraphResponsesAgent to access async methods
 _responses_agent: LanggraphResponsesAgent = config.as_responses_agent()  # type: ignore[assignment]

@@ -18,7 +18,7 @@ from loguru import logger
 
 from dao_ai.messages import last_human_message
 from dao_ai.middleware.base import AgentMiddleware
-from dao_ai.state import AgentState, Context
+from dao_ai.state import AgentState, Context, context_configurable_fields
 
 __all__ = [
     "MessageValidationMiddleware",
@@ -31,7 +31,13 @@ __all__ = [
     "create_thread_id_validation_middleware",
     "create_custom_field_validation_middleware",
     "create_filter_last_human_message_middleware",
+    "KEEP_PROVIDED_VALUE",
 ]
+
+# Stand-in for a field the caller *did* provide but that is filtered out of the
+# echoed `configurable` block as credential-shaped. See
+# ``CustomFieldValidationMiddleware.validate``.
+KEEP_PROVIDED_VALUE: str = "(keep the value you already sent)"
 
 
 class MessageValidationMiddleware(AgentMiddleware[AgentState, Context]):
@@ -102,13 +108,7 @@ class UserIdValidationMiddleware(MessageValidationMiddleware):
             logger.error("User ID is required but not provided in configuration")
 
             thread_val = context.thread_id or "<your_thread_id>"
-            # Get extra fields from context (excluding user_id and thread_id)
-            context_dict = context.model_dump()
-            extra_fields = {
-                k: v
-                for k, v in context_dict.items()
-                if k not in {"user_id", "thread_id"} and v is not None
-            }
+            extra_fields = context_configurable_fields(context)
 
             corrected_config: dict[str, Any] = {
                 "configurable": {
@@ -150,13 +150,7 @@ Please update your configuration and try again.
 
             corrected_user_id = user_id.replace(".", "_")
             thread_val = context.thread_id or "<your_thread_id>"
-            # Get extra fields from context (excluding user_id and thread_id)
-            context_dict = context.model_dump()
-            extra_fields = {
-                k: v
-                for k, v in context_dict.items()
-                if k not in {"user_id", "thread_id"} and v is not None
-            }
+            extra_fields = context_configurable_fields(context)
 
             corrected_config: dict[str, Any] = {
                 "configurable": {
@@ -207,13 +201,7 @@ class ThreadIdValidationMiddleware(MessageValidationMiddleware):
         if not thread_id:
             logger.error("Thread ID / Conversation ID is required but not provided")
 
-            # Get extra fields from context (excluding user_id and thread_id)
-            context_dict = context.model_dump()
-            extra_fields = {
-                k: v
-                for k, v in context_dict.items()
-                if k not in {"user_id", "thread_id"} and v is not None
-            }
+            extra_fields = context_configurable_fields(context)
 
             corrected_config: dict[str, Any] = {
                 "configurable": {
@@ -340,13 +328,16 @@ class CustomFieldValidationMiddleware(MessageValidationMiddleware):
 
         context: Context = runtime.context or Context()
 
-        # Find all missing required fields
-        missing_fields: list[RequiredField] = []
-        for field in self.fields:
-            if field.is_required:
-                field_value: Any = getattr(context, field.name, None)
-                if field_value is None:
-                    missing_fields.append(field)
+        # Presence is decided against the *unfiltered* context. `Context` is
+        # extra="allow", so custom fields land as extras and only the dump gives
+        # a typed mapping to look them up in.
+        provided: dict[str, Any] = context.model_dump()
+
+        missing_fields: list[RequiredField] = [
+            field
+            for field in self.fields
+            if field.is_required and provided.get(field.name) is None
+        ]
 
         if not missing_fields:
             return None
@@ -369,15 +360,23 @@ class CustomFieldValidationMiddleware(MessageValidationMiddleware):
             configurable["user_id"] = "<your_user_id>"
 
         # Add all extra values the user already provided
-        context_dict = context.model_dump()
-        for k, v in context_dict.items():
-            if k not in {"user_id", "thread_id"} and v is not None:
-                configurable[k] = v
+        configurable.update(context_configurable_fields(context))
 
         # Then add our defined fields (provided values take precedence)
         for field in self.fields:
             if field.name in configurable:
                 # Field was provided by user - keep their value
+                continue
+
+            if provided.get(field.name) is not None:
+                # Provided, but held back from the echo because the field name is
+                # credential-shaped (`api_key`, `access_token`, …). Falling through
+                # to `example_value` here would hand the caller a block telling
+                # them to paste `sk-proj-xxxxxxxxxxxxx` over a key they already
+                # sent correctly. Plain parentheses rather than angle brackets:
+                # HTML-rendering surfaces strip angle-bracketed spans, which would
+                # delete exactly this instruction.
+                configurable[field.name] = KEEP_PROVIDED_VALUE
                 continue
 
             if field.is_required:
