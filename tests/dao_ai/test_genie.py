@@ -19,6 +19,7 @@ if TYPE_CHECKING:
 
 from dao_ai.config import (
     GenieContextAwareCacheParametersModel,
+    GenieExampleSql,
     GenieLRUCacheParametersModel,
     GenieRoomModel,
 )
@@ -197,18 +198,14 @@ def test_create_genie_tool_parameters() -> None:
     # Create tool with defaults (no name or description override)
     tool_default = create_genie_tool(genie_room=genie_room_default)
 
-    # Verify defaults were applied
+    # Verify defaults were applied. With no tool-level description, the room's
+    # own description becomes the tool description.
     assert isinstance(tool_default, StructuredTool)
     assert tool_default.name == "genie_tool"  # Default name from function
-    assert (
-        "This tool lets you have a conversation and chat with tabular data"
-        in tool_default.description
-    )
+    assert "Minimal configuration test" in tool_default.description
     assert "question" in tool_default.args_schema.model_fields
-    assert "ask simple clear questions" in tool_default.description
-    assert (
-        "multiple times rather than asking a complex question"
-        in tool_default.description
+    assert "question (str): The question to ask to ask Genie" in (
+        tool_default.description
     )
 
     # Test 2: Custom parameters
@@ -242,86 +239,110 @@ def _question_arg_description(tool: StructuredTool) -> str:
     return getattr(field, "description", "") or ""
 
 
-def test_create_genie_tool_verbatim_default_off() -> None:
-    """Default (verbatim=False) must not add any verbatim wording — the
+def test_create_genie_tool_preserve_question_default_off() -> None:
+    """Default (preserve_question=False) must not add any preserve wording — the
     tool description and question-arg annotation stay byte-for-byte as before."""
-    from dao_ai.tools.genie import _QUESTION_ARG_VERBATIM, _VERBATIM_TOOL_CLAUSE
+    from dao_ai.tools.genie import (
+        _PRESERVE_QUESTION_TOOL_CLAUSE,
+        _QUESTION_ARG_PRESERVE,
+    )
 
     room = GenieRoomModel(name="Room", space_id="0" * 32)
 
     tool = create_genie_tool(genie_room=room, name="ask_genie")
     assert isinstance(tool, StructuredTool)
-    assert _VERBATIM_TOOL_CLAUSE not in tool.description
-    assert _QUESTION_ARG_VERBATIM not in _question_arg_description(tool)
+    assert _PRESERVE_QUESTION_TOOL_CLAUSE not in tool.description
+    assert _QUESTION_ARG_PRESERVE not in _question_arg_description(tool)
     # The default question-arg wording is preserved.
     assert "The question to ask Genie about your data" == _question_arg_description(
         tool
     )
 
 
-def test_create_genie_tool_verbatim_on_simple_path() -> None:
-    """verbatim=True stamps the preserve-exact instruction onto BOTH the tool
-    description and the question-arg annotation (uncached simple-tool path)."""
-    from dao_ai.tools.genie import _QUESTION_ARG_VERBATIM, _VERBATIM_TOOL_CLAUSE
+def test_create_genie_tool_preserve_question_on_simple_path() -> None:
+    """preserve_question=True stamps the preserve-exact instruction onto BOTH the
+    tool description and the question-arg annotation (uncached simple-tool path)."""
+    from dao_ai.tools.genie import (
+        _PRESERVE_QUESTION_TOOL_CLAUSE,
+        _QUESTION_ARG_PRESERVE,
+    )
 
     room = GenieRoomModel(name="Room", space_id="0" * 32)
 
-    tool = create_genie_tool(genie_room=room, name="ask_genie", verbatim=True)
+    tool = create_genie_tool(genie_room=room, name="ask_genie", preserve_question=True)
     assert isinstance(tool, StructuredTool)
-    assert _VERBATIM_TOOL_CLAUSE in tool.description
-    assert _QUESTION_ARG_VERBATIM == _question_arg_description(tool)
+    assert _PRESERVE_QUESTION_TOOL_CLAUSE in tool.description
+    assert _QUESTION_ARG_PRESERVE == _question_arg_description(tool)
     # Multi-tool routing is still explicitly permitted (not a hard "never split").
-    assert "multiple tools" in tool.description or "spans multiple tools" in (
-        tool.description
-    )
+    # That permission lives on the question annotation, where the model writes the
+    # value; the description clause is only a pointer to it.
+    assert "spans several tools" in _question_arg_description(tool)
 
 
-def test_create_genie_tool_verbatim_on_toolkit_path() -> None:
-    """verbatim=True flows through the toolkit path too (enable_feedback forces
-    toolkit mode). The query tool carries the verbatim wording."""
+def test_create_genie_tool_preserve_question_on_toolkit_path() -> None:
+    """preserve_question=True flows through the toolkit path too (enable_feedback
+    forces toolkit mode). The query tool carries the preserve wording."""
     from dao_ai.tools.genie import (
-        _QUESTION_ARG_VERBATIM,
-        _VERBATIM_TOOL_CLAUSE,
+        _PRESERVE_QUESTION_TOOL_CLAUSE,
+        _QUESTION_ARG_PRESERVE,
         GenieToolkit,
     )
 
     room = GenieRoomModel(name="Room", space_id="0" * 32)
 
     result = create_genie_tool(
-        genie_room=room, name="ask_genie", verbatim=True, enable_feedback=True
+        genie_room=room, name="ask_genie", preserve_question=True, enable_feedback=True
     )
     assert isinstance(result, GenieToolkit)
     query_tool = result.get_tools()[0]
-    assert _VERBATIM_TOOL_CLAUSE in query_tool.description
-    assert _QUESTION_ARG_VERBATIM == _question_arg_description(query_tool)
+    assert _PRESERVE_QUESTION_TOOL_CLAUSE in query_tool.description
+    assert _QUESTION_ARG_PRESERVE == _question_arg_description(query_tool)
 
 
-def test_create_genie_tool_verbatim_appends_to_custom_description() -> None:
-    """A user-supplied description still gets the verbatim clause appended, so
+def test_create_genie_tool_preserve_question_appends_to_custom_description() -> None:
+    """A user-supplied description still gets the preserve clause appended, so
     the flag always takes effect regardless of custom wording."""
-    from dao_ai.tools.genie import _VERBATIM_TOOL_CLAUSE
+    from dao_ai.tools.genie import _PRESERVE_QUESTION_TOOL_CLAUSE
 
     room = GenieRoomModel(name="Room", space_id="0" * 32)
     custom = "Answers questions about GSS indirect procurement spend."
 
     tool = create_genie_tool(
-        genie_room=room, name="ask_genie", description=custom, verbatim=True
+        genie_room=room, name="ask_genie", description=custom, preserve_question=True
     )
     assert custom in tool.description
-    assert _VERBATIM_TOOL_CLAUSE in tool.description
+    assert _PRESERVE_QUESTION_TOOL_CLAUSE in tool.description
 
 
-def test_genie_tool_model_verbatim_field() -> None:
-    """GenieToolModel exposes verbatim (default False) and passes it through."""
+def test_genie_tool_model_preserve_question_field() -> None:
+    """GenieToolModel exposes preserve_question (default False) and passes it on."""
     from dao_ai.config import GenieToolModel
 
     m = GenieToolModel(genie_room=GenieRoomModel(name="Room", space_id="0" * 32))
-    assert m.verbatim is False
+    assert m.preserve_question is False
 
     m_on = GenieToolModel(
-        genie_room=GenieRoomModel(name="Room", space_id="0" * 32), verbatim=True
+        genie_room=GenieRoomModel(name="Room", space_id="0" * 32),
+        preserve_question=True,
     )
-    assert m_on.verbatim is True
+    assert m_on.preserve_question is True
+
+
+def test_genie_tool_model_rejects_legacy_verbatim_key() -> None:
+    """``verbatim`` was renamed with no alias — the old key must not load.
+
+    ``extra="forbid"`` turns a stale config into a load-time error rather than a
+    silently ignored flag.
+    """
+    from pydantic import ValidationError
+
+    from dao_ai.config import GenieToolModel
+
+    with pytest.raises(ValidationError):
+        GenieToolModel(
+            genie_room=GenieRoomModel(name="Room", space_id="0" * 32),
+            verbatim=True,
+        )
 
 
 @pytest.mark.integration
@@ -3335,3 +3356,371 @@ class TestLRUPlusContextAwareCacheIntegration:
 
         assert result.cache_hit is False
         assert mock_genie_service.call_count == 1  # Had to call Genie
+
+
+# ---------------------------------------------------------------------------
+# Tool-description derivation (room description + few-shot example questions)
+# ---------------------------------------------------------------------------
+#
+# A description-less Genie tool used to fall back to a single topic-free
+# constant, so every such tool in a config advertised byte-identical text and a
+# supervisor had no signal to route on. These cover the precedence chain and the
+# example-question block that replaced it.
+
+
+SPACE_ID: str = "0" * 32
+
+
+def _description_of(
+    room: GenieRoomModel, **kwargs: object
+) -> str:
+    """Build a Genie tool from ``room`` and return its description."""
+    tool = create_genie_tool(genie_room=room, **kwargs)  # type: ignore[arg-type]
+    assert isinstance(tool, StructuredTool)
+    return tool.description
+
+
+def test_room_description_used_when_tool_description_omitted() -> None:
+    """Precedence step 2: the space's own description describes the tool."""
+    room = GenieRoomModel(
+        space_id=SPACE_ID,
+        name="Retail Sales",
+        description="Answers questions about store sales, inventory and returns.",
+    )
+    description = _description_of(room)
+    assert "Answers questions about store sales, inventory and returns." in description
+    # The generic fallback is not also glued on.
+    assert "This tool lets you have a conversation" not in description
+
+
+def test_explicit_tool_description_wins_over_room_description() -> None:
+    """Precedence step 1: an explicit description suppresses the room's."""
+    room = GenieRoomModel(
+        space_id=SPACE_ID, name="Retail Sales", description="ROOM TEXT"
+    )
+    description = _description_of(room, description="EXPLICIT TEXT")
+    assert "EXPLICIT TEXT" in description
+    assert "ROOM TEXT" not in description
+
+
+def test_default_description_names_the_room_and_drops_placeholder() -> None:
+    """Precedence step 3 substitutes the room name for the ``<topic>`` slot.
+
+    The literal placeholder must never reach the LLM — it was the reason every
+    description-less Genie tool read identically.
+    """
+    room = GenieRoomModel(space_id=SPACE_ID, name="Retail Sales")
+    description = _description_of(room)
+    assert "<topic>" not in description
+    assert "chat with tabular data about Retail Sales" in description
+
+
+def test_default_description_omits_topic_clause_when_room_unnamed() -> None:
+    """With no name to substitute, the ``about ...`` clause is dropped whole."""
+    room = GenieRoomModel(space_id=SPACE_ID)
+    description = _description_of(room)
+    assert "<topic>" not in description
+    assert "chat with tabular data. You should ask" in description
+
+
+def test_sample_questions_appended_and_sql_never_leaks() -> None:
+    """``sample_questions`` win over ``example_sqls``, and no SQL body appears.
+
+    The description is read by the *calling* LLM for routing; Genie already
+    holds the SQL on its own space, so bodies would cost tokens on every call
+    for no routing gain.
+    """
+    room = GenieRoomModel(
+        space_id=SPACE_ID,
+        description="Retail sales.",
+        sample_questions=["How many stores per state?", "Top 5 SKUs last quarter?"],
+        example_sqls=[
+            GenieExampleSql(
+                question="What is total revenue?",
+                sql="SELECT sum(amount) FROM sales",
+            )
+        ],
+    )
+    description = _description_of(room)
+    assert "Example questions this tool can answer:" in description
+    assert "- How many stores per state?" in description
+    assert "- Top 5 SKUs last quarter?" in description
+    # sample_questions take precedence, and the SQL never appears either way.
+    assert "What is total revenue?" not in description
+    assert "SELECT sum(amount)" not in description
+    assert "FROM sales" not in description
+
+
+def test_example_sql_questions_used_when_no_sample_questions() -> None:
+    """Fallback source: the ``question`` of each example pair, never its ``sql``."""
+    room = GenieRoomModel(
+        space_id=SPACE_ID,
+        description="Retail sales.",
+        example_sqls=[
+            GenieExampleSql(
+                question="What is total revenue?", sql="SELECT sum(amount) FROM sales"
+            ),
+            GenieExampleSql(
+                question="Which store leads?", sql="SELECT store FROM sales LIMIT 1"
+            ),
+        ],
+    )
+    description = _description_of(room)
+    assert "- What is total revenue?" in description
+    assert "- Which store leads?" in description
+    assert "SELECT" not in description
+
+
+def test_example_questions_are_capped_and_deduplicated() -> None:
+    """The block cannot grow unboundedly, and repeats are collapsed."""
+    from dao_ai.tools.genie import _MAX_EXAMPLE_QUESTIONS
+
+    room = GenieRoomModel(
+        space_id=SPACE_ID,
+        description="Retail sales.",
+        sample_questions=["dupe", "dupe", *[f"q{i}" for i in range(20)]],
+    )
+    description = _description_of(room)
+    assert description.count("- dupe") == 1
+    listed = [line for line in description.splitlines() if line.startswith("- ")]
+    assert len(listed) == _MAX_EXAMPLE_QUESTIONS
+
+
+def test_no_question_block_when_room_has_no_questions() -> None:
+    """Regression guard: rooms without questions keep the previous shape."""
+    room = GenieRoomModel(space_id=SPACE_ID, description="Retail sales.")
+    description = _description_of(room)
+    assert "Example questions" not in description
+
+
+def test_two_rooms_yield_distinct_tool_descriptions() -> None:
+    """The reported bug: description-less tools were indistinguishable.
+
+    Two rooms, no tool descriptions — the supervisor must have different text
+    to route on.
+    """
+    sales = GenieRoomModel(
+        space_id="1" * 32,
+        name="Retail Sales",
+        description="Store sales, inventory and returns.",
+    )
+    finance = GenieRoomModel(
+        space_id="2" * 32,
+        name="Finance",
+        description="General ledger, AP/AR and cost centers.",
+    )
+    sales_description = _description_of(sales)
+    finance_description = _description_of(finance)
+
+    assert sales_description != finance_description
+    assert "<topic>" not in sales_description
+    assert "<topic>" not in finance_description
+
+
+def test_description_derivation_reaches_the_toolkit_path() -> None:
+    """Both builders share ``_build_tool_description`` — cover the cached one."""
+    room = GenieRoomModel(
+        space_id=SPACE_ID,
+        description="Store sales, inventory and returns.",
+        sample_questions=["How many stores per state?"],
+    )
+    result = create_genie_tool(genie_room=room, enable_feedback=True)
+    assert isinstance(result, GenieToolkit)
+    query_description = result.get_tools()[0].description
+    assert "Store sales, inventory and returns." in query_description
+    assert "- How many stores per state?" in query_description
+
+
+def test_tool_build_makes_no_genie_api_call() -> None:
+    """Building a tool must never hit the Genie API.
+
+    This is the serving-container guarantee: descriptions are resolved at deploy
+    time and baked into the logged ``model_config``, so tool construction stays
+    offline. A room whose client raises must still produce its description.
+    """
+    room = GenieRoomModel(
+        space_id=SPACE_ID,
+        name="Retail Sales",
+        description="Store sales, inventory and returns.",
+        sample_questions=["How many stores per state?"],
+    )
+    with patch.object(
+        GenieRoomModel,
+        "workspace_client",
+        new_callable=lambda: property(
+            lambda self: (_ for _ in ()).throw(AssertionError("Genie API called"))
+        ),
+    ):
+        description = _description_of(room)
+
+    assert "Store sales, inventory and returns." in description
+    assert "- How many stores per state?" in description
+
+
+# ---------------------------------------------------------------------------
+# Example-question gating (include_example_questions)
+# ---------------------------------------------------------------------------
+#
+# The tool ``description`` is the prompt surface: authoring it means "this is my
+# text, don't editorialize", so the example block is suppressed. A room/space
+# description is resource metadata that the questions are there to enrich, so it
+# keeps them. ``include_example_questions`` overrides that in either direction.
+
+
+def test_explicit_tool_description_suppresses_example_questions() -> None:
+    """Writing the tool description suppresses the block by default."""
+    room = GenieRoomModel(
+        space_id=SPACE_ID,
+        description="ROOM TEXT",
+        sample_questions=["How many stores per state?"],
+    )
+    description = _description_of(room, description="EXPLICIT TEXT")
+    assert "EXPLICIT TEXT" in description
+    assert "Example questions" not in description
+    assert "How many stores per state?" not in description
+
+
+def test_room_description_keeps_example_questions() -> None:
+    """A config-declared room description still gets the questions appended.
+
+    Suppressing here would give the customer who documented their space *less*
+    routing signal than one who documented nothing, and would silently discard
+    ``sample_questions`` written into the config.
+    """
+    room = GenieRoomModel(
+        space_id=SPACE_ID,
+        description="Store sales, inventory and returns.",
+        sample_questions=["How many stores per state?"],
+    )
+    description = _description_of(room)
+    assert "Store sales, inventory and returns." in description
+    assert "- How many stores per state?" in description
+
+
+def test_room_description_with_example_sqls_only_keeps_questions() -> None:
+    """Same rule for the fallback question source, and still no SQL."""
+    room = GenieRoomModel(
+        space_id=SPACE_ID,
+        description="Store sales, inventory and returns.",
+        example_sqls=[
+            GenieExampleSql(
+                question="What is total revenue?", sql="SELECT sum(amount) FROM sales"
+            )
+        ],
+    )
+    description = _description_of(room)
+    assert "- What is total revenue?" in description
+    assert "SELECT" not in description
+
+
+def test_include_example_questions_true_overrides_explicit_description() -> None:
+    """``True`` appends the block even alongside a hand-written description.
+
+    This is the case the tri-state exists for: my own wording *plus* the
+    questions.
+    """
+    room = GenieRoomModel(
+        space_id=SPACE_ID,
+        description="ROOM TEXT",
+        sample_questions=["How many stores per state?"],
+    )
+    description = _description_of(
+        room, description="EXPLICIT TEXT", include_example_questions=True
+    )
+    assert "EXPLICIT TEXT" in description
+    assert "- How many stores per state?" in description
+    assert "ROOM TEXT" not in description
+
+
+def test_include_example_questions_false_suppresses_everywhere() -> None:
+    """``False`` wins over both description sources."""
+    room = GenieRoomModel(
+        space_id=SPACE_ID,
+        description="Store sales, inventory and returns.",
+        sample_questions=["How many stores per state?"],
+    )
+    from_room = _description_of(room, include_example_questions=False)
+    assert "Store sales, inventory and returns." in from_room
+    assert "Example questions" not in from_room
+
+    explicit = _description_of(
+        room, description="EXPLICIT TEXT", include_example_questions=False
+    )
+    assert "Example questions" not in explicit
+
+
+def test_include_example_questions_gating_reaches_the_toolkit_path() -> None:
+    """Both builders share ``_build_tool_description`` — cover the cached one."""
+    room = GenieRoomModel(
+        space_id=SPACE_ID,
+        description="Store sales, inventory and returns.",
+        sample_questions=["How many stores per state?"],
+    )
+    suppressed = create_genie_tool(
+        genie_room=room,
+        description="EXPLICIT TEXT",
+        enable_feedback=True,
+    )
+    assert isinstance(suppressed, GenieToolkit)
+    assert "Example questions" not in suppressed.get_tools()[0].description
+
+    forced = create_genie_tool(
+        genie_room=room,
+        description="EXPLICIT TEXT",
+        include_example_questions=True,
+        enable_feedback=True,
+    )
+    assert isinstance(forced, GenieToolkit)
+    assert "- How many stores per state?" in forced.get_tools()[0].description
+
+
+def test_genie_tool_model_include_example_questions_defaults_to_none() -> None:
+    """The field is tri-state, and ``as_tools()`` carries all three values."""
+    from dao_ai.config import GenieToolModel
+
+    room = GenieRoomModel(
+        space_id=SPACE_ID,
+        description="ROOM TEXT",
+        sample_questions=["How many stores per state?"],
+    )
+
+    unset = GenieToolModel(genie_room=room, description="EXPLICIT TEXT")
+    assert unset.include_example_questions is None
+    assert "Example questions" not in unset.as_tools()[0].description
+
+    forced = GenieToolModel(
+        genie_room=room, description="EXPLICIT TEXT", include_example_questions=True
+    )
+    assert "- How many stores per state?" in forced.as_tools()[0].description
+
+    off = GenieToolModel(genie_room=room, include_example_questions=False)
+    assert "Example questions" not in off.as_tools()[0].description
+
+
+@pytest.mark.parametrize("flag", [None, True, False])
+def test_include_example_questions_survives_the_config_bake(flag: bool | None) -> None:
+    """The tri-state must round-trip through the deploy bake.
+
+    Deploy dumps the config with ``exclude_none=True`` into the logged
+    ``model_config`` (Model Serving) / rendered YAML (Apps), so intent has to
+    travel as a *value*: ``None`` drops out and re-parses as the default, while
+    ``True``/``False`` are preserved. (``model_fields_set`` would not survive,
+    which is why the field is tri-state rather than a bool defaulting to true.)
+    """
+    from dao_ai.config import GenieToolModel
+
+    room = GenieRoomModel(
+        space_id=SPACE_ID,
+        description="ROOM TEXT",
+        sample_questions=["How many stores per state?"],
+    )
+    model = GenieToolModel(
+        genie_room=room,
+        description="EXPLICIT TEXT",
+        include_example_questions=flag,
+    )
+    baked = model.model_dump(mode="json", by_alias=True, exclude_none=True)
+    rebuilt = GenieToolModel(**baked)
+
+    assert rebuilt.include_example_questions == flag
+    assert rebuilt.as_tools()[0].description == model.as_tools()[0].description

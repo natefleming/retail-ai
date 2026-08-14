@@ -259,6 +259,119 @@ def _retain_only_parameters(rendered_yaml: str, keep: set[str]) -> str:
     return buf.getvalue()
 
 
+def _bake_genie_room_details(rendered_yaml: str) -> str:
+    """Back-fill each Genie room's ``name``/``description``/``sample_questions``
+    from its live space, so the deployed app does not have to discover them.
+
+    Why this is needed for Apps specifically. Those three fields feed the Genie
+    *tool* description, which is how a supervisor tells two Genie tools apart.
+    :meth:`GenieRoomModel.ensure_resolved` back-fills them from the space, and
+    for Model Serving the result is baked into the logged ``model_config``. The
+    Apps bundle instead ships the rendered YAML *text*, so nothing resolved at
+    deploy time reaches the container — and in-container discovery cannot cover
+    for it, because an app's Genie resource grants only ``CAN_RUN`` while
+    reading space details requires ``CAN_EDIT``. Without this bake, a room
+    declared by bare ``space_id`` — the common shape, since Genie titles are not
+    unique — advertises only generic text once deployed.
+
+    Baked values are properties of the *space*, so they are looked up once per
+    distinct ``space_id`` using the deploying identity's credentials. Fields the
+    user declared are never overwritten, and a space that cannot be read is
+    skipped, leaving that room exactly as written.
+
+    Args:
+        rendered_yaml: YAML text after ``${param.NAME}`` substitution.
+
+    Returns:
+        YAML text with the discoverable fields filled in. On any failure the
+        input is returned unchanged so a deploy is never blocked by discovery.
+    """
+    from collections.abc import MutableMapping
+
+    from dao_ai.config import GenieRoomModel
+
+    rt = YAML(typ="rt")
+    rt.preserve_quotes = True
+    rt.width = 4096
+
+    try:
+        data = rt.load(rendered_yaml)
+    except Exception as exc:
+        logger.warning(f"ruamel parse failed; emitting rendered YAML unchanged: {exc}")
+        return rendered_yaml
+
+    # Collect every mapping that names a Genie space. Rooms appear both under
+    # `resources.genie_rooms` and inline under a tool's `genie_room`, and YAML
+    # anchors mean the same node can be reached more than once — dedupe by id().
+    rooms: dict[int, MutableMapping] = {}
+
+    def _walk(node: Any) -> None:
+        if isinstance(node, MutableMapping):
+            if ("space_id" in node or "agent_id" in node) and id(node) not in rooms:
+                rooms[id(node)] = node
+            for value in node.values():
+                _walk(value)
+        elif isinstance(node, list):
+            for item in node:
+                _walk(item)
+
+    _walk(data)
+    if not rooms:
+        return rendered_yaml
+
+    # One lookup per distinct space, not per room.
+    details: dict[str, GenieRoomModel] = {}
+
+    def _details_for(space_id: str) -> GenieRoomModel | None:
+        if space_id not in details:
+            probe = GenieRoomModel(space_id=space_id)
+            try:
+                probe.ensure_resolved()
+            except Exception as exc:  # noqa: BLE001 - discovery is best-effort
+                logger.debug(f"Could not resolve Genie space {space_id}: {exc}")
+            details[space_id] = probe
+        return details[space_id]
+
+    baked: int = 0
+    for room in rooms.values():
+        space_id = room.get("space_id", room.get("agent_id"))
+        # A deferred `${var.X}` space_id is not resolvable yet (the space is
+        # provisioned later in the same run), and neither is a composite
+        # env/secret reference. Only literal ids are looked up.
+        if not isinstance(space_id, str) or "${" in space_id:
+            continue
+        probe = _details_for(space_id)
+        if probe is None:
+            continue
+        # Insert at the top of the block rather than appending. ruamel attaches
+        # a block's trailing comment to its *last* key, and a bare room's last
+        # key is the space_id we are baking onto — so appending would displace
+        # that comment into the middle of the block.
+        position = 0
+        for field in ("name", "description", "sample_questions"):
+            if room.get(field):
+                continue  # user-declared wins
+            value = getattr(probe, field, None)
+            if not value:
+                continue
+            try:
+                room.insert(position, field, value)
+            except AttributeError:  # plain dict, not a ruamel CommentedMap
+                room[field] = value
+            position += 1
+            baked += 1
+
+    if not baked:
+        return rendered_yaml
+
+    logger.info(
+        f"Baked {baked} discovered Genie room field(s) into the deployed config"
+    )
+    buf = io.StringIO()
+    rt.dump(data, buf)
+    return buf.getvalue()
+
+
 def _convert_single_resource(resource: dict[str, Any]) -> dict[str, Any] | None:
     """Convert a single flat app.yaml resource dict to bundle nested format."""
     resource_type: str = resource.get("type", "")
@@ -849,7 +962,9 @@ def write_bundle(
             # a plain copy if the config wasn't loaded via from_file.
             rendered: str | None = config._rendered_yaml
             if rendered is not None:
-                dest.write_text(_strip_parameters_block(rendered))
+                dest.write_text(
+                    _bake_genie_room_details(_strip_parameters_block(rendered))
+                )
                 logger.info(
                     f"Wrote rendered config as {config_filename} (parameters baked in)"
                 )

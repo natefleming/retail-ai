@@ -404,6 +404,53 @@ class TestGenieRoomModelSerialization:
             assert len(tables1) == len(tables2)
             assert tables1[0].name == tables2[0].name
 
+    def test_space_details_falls_back_when_serialized_read_is_denied(
+        self, mock_workspace_client
+    ):
+        """CAN_RUN can read a space's title and description but not its
+        serialized payload, so a denied serialized read must be retried without
+        it — the description is the whole point of discovery, and losing it to an
+        all-or-nothing call is what left deployed tools advertising generic text.
+        """
+        from databricks.sdk.service.dashboards import GenieSpace
+
+        plain = GenieSpace(
+            space_id="test-space-123",
+            title="Discovered Title",
+            description="Discovered description.",
+        )
+
+        def _get_space(space_id: str, include_serialized_space: bool = False):
+            if include_serialized_space:
+                raise PermissionError('You need "Can Edit" permission')
+            return plain
+
+        with patch("dao_ai.config.WorkspaceClient", return_value=mock_workspace_client):
+            mock_workspace_client.genie.get_space.side_effect = _get_space
+
+            genie_room = GenieRoomModel(space_id="test-space-123")
+            genie_room.ensure_resolved()
+
+            assert genie_room.name == "Discovered Title"
+            assert genie_room.description == "Discovered description."
+            # No serialized payload means no questions, not an error.
+            assert not genie_room.sample_questions
+
+    def test_space_details_returns_none_when_both_reads_are_denied(
+        self, mock_workspace_client
+    ):
+        """When even the plain read fails, discovery stays soft — the room is
+        left as declared rather than raising."""
+        with patch("dao_ai.config.WorkspaceClient", return_value=mock_workspace_client):
+            mock_workspace_client.genie.get_space.side_effect = PermissionError("denied")
+
+            genie_room = GenieRoomModel(space_id="test-space-123")
+            genie_room.ensure_resolved()
+
+            assert genie_room._get_space_details() is None
+            assert genie_room.name is None
+            assert genie_room.description is None
+
     def test_genie_room_model_api_scopes(self, mock_workspace_client):
         """Test that GenieRoomModel returns correct API scopes."""
         with patch("dao_ai.config.WorkspaceClient", return_value=mock_workspace_client):
@@ -639,15 +686,20 @@ class TestGenieRoomModelSerialization:
             assert genie_room.name is None
             assert genie_room.description is None
 
-    def test_populate_name_and_description_not_called_when_both_provided(
+    def test_populate_not_called_when_all_discoverable_fields_provided(
         self, mock_workspace_client
     ):
-        """Test that API is not called when both name and description are provided."""
+        """No API call when everything discovery would supply is already declared.
+
+        Discovery back-fills name, description *and* sample questions — all three
+        feed the Genie tool description — so all three must be present for the
+        fetch to be skippable.
+        """
         with patch("dao_ai.config.WorkspaceClient", return_value=mock_workspace_client):
-            # Create with both name and description
             genie_room = GenieRoomModel(
                 name="Custom Name",
                 description="Custom Description",
+                sample_questions=["Custom question?"],
                 space_id="test-space-123",
             )
             genie_room.ensure_resolved()
@@ -656,6 +708,24 @@ class TestGenieRoomModelSerialization:
             mock_workspace_client.genie.get_space.assert_not_called()
 
             # Values should be preserved
+            assert genie_room.name == "Custom Name"
+            assert genie_room.description == "Custom Description"
+            assert genie_room.sample_questions == ["Custom question?"]
+
+    def test_populate_still_fetches_for_missing_sample_questions(
+        self, mock_workspace_client
+    ):
+        """Name and description declared, questions absent → still one fetch, and
+        the declared text is not overwritten by the space's."""
+        with patch("dao_ai.config.WorkspaceClient", return_value=mock_workspace_client):
+            genie_room = GenieRoomModel(
+                name="Custom Name",
+                description="Custom Description",
+                space_id="test-space-123",
+            )
+            genie_room.ensure_resolved()
+
+            mock_workspace_client.genie.get_space.assert_called_once()
             assert genie_room.name == "Custom Name"
             assert genie_room.description == "Custom Description"
 

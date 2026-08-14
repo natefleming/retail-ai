@@ -5722,11 +5722,24 @@
           "title": "Truncate Results",
           "type": "boolean"
         },
-        "verbatim": {
+        "preserve_question": {
           "default": false,
-          "description": "When true, instruct the calling LLM to pass the user's question to Genie exactly as asked \u2014 no rephrasing, decomposition, or added qualifiers. Shapes the tool description and the question-argument annotation. Default false preserves the existing 'ask simple, clear questions' behavior.",
-          "title": "Verbatim",
+          "description": "When true, instruct the calling LLM to pass the user's question to Genie exactly as asked \u2014 no rephrasing, decomposition, or added qualifiers. Constrains the question sent *to* Genie, not Genie's answer. Shapes the tool description and the question-argument annotation. Default false preserves the existing 'ask simple, clear questions' behavior.",
+          "title": "Preserve Question",
           "type": "boolean"
+        },
+        "include_example_questions": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Whether the Genie space's example questions are appended to the tool description, giving the supervisor concrete routing signal. Null (default) appends them only when no 'description' is set on this tool \u2014 that string is the prompt surface, so authoring it means 'this is my text'. True appends them even alongside your own description; false never appends them.",
+          "title": "Include Example Questions"
         },
         "lru_cache": {
           "anyOf": [

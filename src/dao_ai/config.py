@@ -5,6 +5,7 @@ import re
 import sys
 from abc import ABC, abstractmethod
 from contextlib import asynccontextmanager, contextmanager
+from functools import cache
 from enum import Enum
 from os import PathLike
 from pathlib import Path
@@ -1785,6 +1786,15 @@ _GENIE_SORT_KEY_PRIORITY: tuple[str, ...] = (
 )
 
 
+GENIE_AGENT_DEFAULT_TIMEOUT_SECONDS: int = 300
+"""Default httpx client timeout for the Genie Agent Mode streaming call.
+
+The Databricks server-side response timeout is 90 minutes; this bounds the
+client only. Shared by :meth:`GenieRoomModel.as_chat_model` and the
+:attr:`GenieAgentModel.timeout_seconds` field default so the two cannot drift.
+"""
+
+
 class GenieRoomModel(IsDatabricksResource, ManagedResource):
     """Databricks Genie space configuration for natural-language SQL exploration.
 
@@ -1929,7 +1939,24 @@ class GenieRoomModel(IsDatabricksResource, ManagedResource):
                     space_id=self.space_id,
                     error=str(e),
                 )
-                return None
+                # The serialized payload requires CAN_EDIT, while ``title`` and
+                # ``description`` need only CAN_RUN — the level a deployed
+                # identity typically holds. Retry without it so the tool
+                # description still gets the space's own text; only the sample
+                # questions are lost, and ``_parse_serialized_space`` already
+                # treats an absent payload as "no questions".
+                try:
+                    self._space_details = self.workspace_client.genie.get_space(
+                        space_id=self.space_id
+                    )
+                except Exception as retry_error:
+                    logger.debug(
+                        "Could not fetch Genie space details without the "
+                        "serialized payload either",
+                        space_id=self.space_id,
+                        error=str(retry_error),
+                    )
+                    return None
         return self._space_details
 
     def _resolve_space_id_by_name(self, name: str) -> str:
@@ -2244,8 +2271,15 @@ class GenieRoomModel(IsDatabricksResource, ManagedResource):
                     )
                 else:
                     raise
-        # Populate name and description from space details if missing
-        if self.space_id and (not self.name or not self.description):
+        # Populate name, description and sample questions from space details if
+        # missing. All three feed the Genie *tool* description, which is how a
+        # supervisor tells two Genie tools apart — so back-filling them lets a
+        # bare-``space_id`` room still advertise itself usefully. This also runs
+        # at deploy time, which bakes the values into the logged model_config so
+        # Model Serving needs no Genie call at model load.
+        if self.space_id and (
+            not self.name or not self.description or not self.sample_questions
+        ):
             try:
                 space_details = self._get_space_details()
                 if space_details:
@@ -2253,8 +2287,71 @@ class GenieRoomModel(IsDatabricksResource, ManagedResource):
                         self.name = space_details.title
                     if not self.description and space_details.description:
                         self.description = space_details.description
+                if not self.sample_questions:
+                    # Reads the same cached _space_details, so no extra API call.
+                    discovered: list[str] | None = self._sample_questions_from_payload(
+                        self._parse_serialized_space()
+                    )
+                    if discovered:
+                        self.sample_questions = discovered
             except Exception as e:
                 logger.debug(f"Could not fetch details from Genie space: {e}")
+
+    @property
+    def _agent_id(self) -> str:
+        """Resolve this room's Genie agent/space id, or raise if unset.
+
+        Static-only by design: ``space_id`` (or its ``agent_id`` alias), else
+        the ``DATABRICKS_GENIE_SPACE_ID`` env var. Deliberately does *not* fall
+        back to :meth:`_resolve_space_id_by_name` — that is a live Genie call,
+        and this runs on the chat-model build path, including Model Serving
+        startup where it cannot authenticate.
+        """
+        space_id: AnyVariable = self.space_id or os.environ.get(
+            "DATABRICKS_GENIE_SPACE_ID"
+        )
+        if isinstance(space_id, dict):
+            space_id = CompositeVariableModel(**space_id)
+        resolved: Any = value_of(space_id)
+        if not resolved:
+            raise ValueError(
+                "GenieRoomModel: unable to resolve agent_id. Set space_id (or "
+                "its alias agent_id), or the DATABRICKS_GENIE_SPACE_ID env var."
+            )
+        return str(resolved)
+
+    def chat_model_for_workspace_client(
+        self,
+        workspace_client: WorkspaceClient,
+        *,
+        conversation_id: "str | None" = None,
+        timeout_seconds: int = GENIE_AGENT_DEFAULT_TIMEOUT_SECONDS,
+    ) -> LanguageModelLike:
+        """Build a Genie Agent chat model bound to a specific workspace client.
+
+        Consumed via :class:`GenieAgentModel` by
+        :class:`dao_ai.middleware.genie_agent.GenieAgentMiddleware`, which swaps
+        in a user-scoped client (OBO) and the prior Genie ``conversation_id``
+        per request, in one step.
+        """
+        from dao_ai.genie.agent_chat_model import GenieAgentChatModel
+
+        return GenieAgentChatModel(
+            agent_id=self._agent_id,
+            workspace_client=workspace_client,
+            conversation_id=conversation_id,
+            timeout_seconds=timeout_seconds,
+        )
+
+    def as_chat_model(
+        self,
+        *,
+        timeout_seconds: int = GENIE_AGENT_DEFAULT_TIMEOUT_SECONDS,
+    ) -> LanguageModelLike:
+        """Build the streaming Genie chat model using the ambient/room client."""
+        return self.chat_model_for_workspace_client(
+            self.workspace_client, timeout_seconds=timeout_seconds
+        )
 
     def _build_serialized_space(self) -> dict[str, Any]:
         """Build the ``serialized_space`` JSON payload from this model's fields.
@@ -2505,21 +2602,34 @@ class GenieRoomModel(IsDatabricksResource, ManagedResource):
         self._apply_serialized_space(payload)
         return self
 
+    @staticmethod
+    def _sample_questions_from_payload(payload: dict[str, Any]) -> list[str] | None:
+        """Read ``config.sample_questions`` out of a ``serialized_space`` payload.
+
+        Returns ``None`` when the payload carries no sample-question block, so
+        callers can tell "not present" from "present but empty". Shared by
+        :meth:`_apply_serialized_space` and :meth:`ensure_resolved` so the two
+        cannot drift.
+        """
+        cfg = payload.get("config")
+        if not isinstance(cfg, dict):
+            return None
+        sample = cfg.get("sample_questions")
+        if not isinstance(sample, list):
+            return None
+        questions: list[str | None] = [
+            _unwrap_text(item.get("question")) if isinstance(item, dict) else None
+            for item in sample
+        ]
+        return [q for q in questions if q]
+
     def _apply_serialized_space(self, payload: dict[str, Any]) -> None:
         """Write a parsed ``serialized_space`` payload into the model fields."""
 
         # config.sample_questions
-        cfg = payload.get("config")
-        if isinstance(cfg, dict):
-            sample = cfg.get("sample_questions")
-            if isinstance(sample, list):
-                self.sample_questions = [
-                    _unwrap_text(item.get("question"))
-                    if isinstance(item, dict)
-                    else None
-                    for item in sample
-                ]
-                self.sample_questions = [q for q in self.sample_questions if q]
+        sample_questions = self._sample_questions_from_payload(payload)
+        if sample_questions is not None:
+            self.sample_questions = sample_questions
 
         data_sources = payload.get("data_sources")
         if isinstance(data_sources, dict):
@@ -2888,7 +2998,7 @@ class GenieAgentModel(BaseModel):
         ),
     )
     timeout_seconds: int = Field(
-        default=300,
+        default=GENIE_AGENT_DEFAULT_TIMEOUT_SECONDS,
         description=(
             "httpx client timeout in seconds for the streaming call. The "
             "Databricks server-side response timeout is 90 minutes."
@@ -2898,19 +3008,7 @@ class GenieAgentModel(BaseModel):
     @property
     def _agent_id(self) -> str:
         """Resolve the wrapped room's agent/space id, or raise if unset."""
-        space_id: AnyVariable = self.genie_room.space_id or os.environ.get(
-            "DATABRICKS_GENIE_SPACE_ID"
-        )
-        if isinstance(space_id, dict):
-            space_id = CompositeVariableModel(**space_id)
-        resolved: Any = value_of(space_id)
-        if not resolved:
-            raise ValueError(
-                "GenieAgentModel: unable to resolve agent_id. Set "
-                "genie_room.space_id (or its alias agent_id), or the "
-                "DATABRICKS_GENIE_SPACE_ID env var."
-            )
-        return str(resolved)
+        return self.genie_room._agent_id
 
     @property
     def name(self) -> str:
@@ -2938,20 +3036,18 @@ class GenieAgentModel(BaseModel):
 
         Consumed by :class:`dao_ai.middleware.genie_agent.GenieAgentMiddleware`
         to swap in a user-scoped client (OBO) and the prior Genie
-        ``conversation_id`` per request, in one step.
+        ``conversation_id`` per request, in one step. Delegates to the room,
+        adding only this wrapper's ``timeout_seconds`` override.
         """
-        from dao_ai.genie.agent_chat_model import GenieAgentChatModel
-
-        return GenieAgentChatModel(
-            agent_id=self._agent_id,
-            workspace_client=workspace_client,
+        return self.genie_room.chat_model_for_workspace_client(
+            workspace_client,
             conversation_id=conversation_id,
             timeout_seconds=self.timeout_seconds,
         )
 
     def as_chat_model(self) -> LanguageModelLike:
         """Build the streaming Genie chat model using the ambient/room client."""
-        return self.chat_model_for_workspace_client(self.genie_room.workspace_client)
+        return self.genie_room.as_chat_model(timeout_seconds=self.timeout_seconds)
 
 
 def _unwrap_text(value: Any) -> str | None:
@@ -6619,14 +6715,26 @@ class GenieToolModel(BaseFunctionModel):
         default=False,
         description="Truncate large query results returned by Genie.",
     )
-    verbatim: bool = Field(
+    preserve_question: bool = Field(
         default=False,
         description=(
             "When true, instruct the calling LLM to pass the user's question to "
             "Genie exactly as asked — no rephrasing, decomposition, or added "
-            "qualifiers. Shapes the tool description and the question-argument "
+            "qualifiers. Constrains the question sent *to* Genie, not Genie's "
+            "answer. Shapes the tool description and the question-argument "
             "annotation. Default false preserves the existing 'ask simple, clear "
             "questions' behavior."
+        ),
+    )
+    include_example_questions: Optional[bool] = Field(
+        default=None,
+        description=(
+            "Whether the Genie space's example questions are appended to the tool "
+            "description, giving the supervisor concrete routing signal. Null "
+            "(default) appends them only when no 'description' is set on this "
+            "tool — that string is the prompt surface, so authoring it means "
+            "'this is my text'. True appends them even alongside your own "
+            "description; false never appends them."
         ),
     )
     lru_cache: Optional[GenieLRUCacheParametersModel] = Field(
@@ -6668,7 +6776,8 @@ class GenieToolModel(BaseFunctionModel):
             description=self.description,
             persist_conversation=self.persist_conversation,
             truncate_results=self.truncate_results,
-            verbatim=self.verbatim,
+            preserve_question=self.preserve_question,
+            include_example_questions=self.include_example_questions,
             lru_cache_parameters=self.lru_cache,
             context_aware_cache_parameters=self.context_aware_cache,
             in_memory_context_aware_cache_parameters=self.in_memory_context_aware_cache,
@@ -7757,6 +7866,38 @@ class ResponseFormatModel(BaseModel):
         return isinstance(self.response_schema, str)
 
 
+def _accepted_keys(field_name: str, field: Any) -> set[str]:
+    """Every YAML key that populates ``field`` — its name plus any alias."""
+    keys: set[str] = {field_name}
+    alias: Any = getattr(field, "validation_alias", None)
+    if isinstance(alias, str):
+        keys.add(alias)
+    elif isinstance(alias, AliasChoices):
+        keys.update(choice for choice in alias.choices if isinstance(choice, str))
+    return keys
+
+
+@cache
+def _genie_room_only_keys() -> frozenset[str]:
+    """Keys that can only belong to a ``GenieRoomModel``, never an endpoint.
+
+    Derived from the two models' fields — including each field's accepted
+    aliases, which is what contributes ``agent_id`` (the alias of
+    ``space_id``) — so the set cannot drift as fields are added to either
+    class. Shared keys (``name``, ``description``, ``on_behalf_of_user``, the
+    auth fields) are excluded by construction: they cannot disambiguate.
+    """
+    endpoint_keys: set[str] = set()
+    for field_name, field in InferenceEndpointModel.model_fields.items():
+        endpoint_keys |= _accepted_keys(field_name, field)
+
+    room_keys: set[str] = set()
+    for field_name, field in GenieRoomModel.model_fields.items():
+        room_keys |= _accepted_keys(field_name, field)
+
+    return frozenset(room_keys - endpoint_keys)
+
+
 class AgentModel(BaseModel):
     """
     Configuration model for an agent in the DAO AI framework.
@@ -7908,20 +8049,28 @@ class AgentModel(BaseModel):
         Coercion is by shape, not by smart-union guessing:
 
         * a :class:`GenieRoomModel` instance, or
-        * a dict carrying ``agent_id`` / ``space_id`` but not already the
-          wrapper key ``genie_room`` (and not a serving-endpoint ``name``-only
-          shape),
+        * a dict that is not already the wrapper shape (no ``genie_room`` key)
+          and carries at least one key only a room can have — see
+          :func:`_genie_room_only_keys`, which covers ``space_id``/``agent_id``
+          as well as the provisioning fields (``table_sources``, ``warehouse``,
+          ``text_instructions``, …) that a managed room is declared with,
 
-        is rewritten to ``{"genie_room": value}``. Everything else (notably a
-        ``{"name": ...}`` serving-endpoint config, which has no
-        ``agent_id``/``space_id``) is left untouched for the normal union to
-        resolve. The bare form uses the default ``timeout_seconds``; use the
-        explicit ``{genie_room: ...}`` wrapper to set invocation knobs.
+        is rewritten to ``{"genie_room": value}``. Everything else is left
+        untouched for the normal union to resolve.
+
+        A dict of only *shared* keys (notably ``{"name": ...}``, valid for both
+        classes) stays ambiguous and resolves to ``InferenceEndpointModel``;
+        :meth:`AppConfig._validate_genie_agent_rooms_registered` catches that
+        case by cross-referencing ``resources.genie_rooms``, since shape alone
+        cannot decide it.
+
+        The bare form uses the default ``timeout_seconds``; use the explicit
+        ``{genie_room: ...}`` wrapper to set invocation knobs.
         """
         if isinstance(value, GenieRoomModel):
             return {"genie_room": value}
         if isinstance(value, dict) and "genie_room" not in value:
-            if "agent_id" in value or "space_id" in value:
+            if _genie_room_only_keys() & value.keys():
                 return {"genie_room": value}
         return value
 
@@ -11070,14 +11219,26 @@ class AppConfig(BaseModel):
         written inline with the same id. Rooms whose id cannot be resolved
         statically (name-only, resolved by a live lookup) are skipped — they
         cannot be checked without an API call.
+
+        Also catches the inverse mistake: a name-only room assigned bare to
+        ``model:``. ``{name: X}`` is a valid shape for *both* union members, so
+        :meth:`AgentModel._wrap_bare_genie_room` cannot coerce it and it lands
+        as an ``InferenceEndpointModel`` pointing at a serving endpoint that
+        does not exist — clean at load, a runtime failure later. Here the room
+        registry is visible, so a name that matches a registered room is
+        reported instead.
         """
         registered_ids: set[str] = set()
+        registered_names: set[str] = set()
         if self.resources and self.resources.genie_rooms:
             for room in self.resources.genie_rooms.values():
                 raw_id: Any = room.space_id
                 resolved: Any = value_of(raw_id) if raw_id is not None else None
                 if resolved:
                     registered_ids.add(str(resolved))
+                room_name: Any = value_of(room.name) if room.name is not None else None
+                if room_name:
+                    registered_names.add(str(room_name))
 
         seen: set[int] = set()
 
@@ -11086,6 +11247,25 @@ class AppConfig(BaseModel):
                 return
             seen.add(id(agent))
             model = agent.model
+            if isinstance(model, InferenceEndpointModel):
+                # Only the genuinely ambiguous shape: a bare ``{name: X}``. Any
+                # endpoint-specific key (temperature, max_tokens, …) means the
+                # user meant an endpoint, so leave those alone.
+                if model.model_fields_set == {"name"} and (
+                    str(value_of(model.name)) in registered_names
+                ):
+                    raise ValueError(
+                        f"Agent '{agent.name}' assigns model: "
+                        f"{{name: '{value_of(model.name)}'}}, which matches the "
+                        f"Genie room of that name under resources.genie_rooms — "
+                        f"but a bare {{name: ...}} is indistinguishable from a "
+                        f"serving endpoint, so it resolved to an inference "
+                        f"endpoint and will fail at runtime. Write "
+                        f"'model: {{genie_room: *your_room_anchor}}' to use the "
+                        f"room as a Genie Agent, or give the room an "
+                        f"agent_id/space_id so it can be assigned bare."
+                    )
+                return
             if not isinstance(model, GenieAgentModel):
                 return
             raw_id = model.genie_room.space_id

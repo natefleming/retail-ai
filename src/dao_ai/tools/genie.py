@@ -217,13 +217,26 @@ def _response_to_json_with_cache(
     return json.dumps(data)
 
 
-_DEFAULT_DESCRIPTION: str = dedent("""
-    This tool lets you have a conversation and chat with tabular data about <topic>. You should ask
+_DEFAULT_DESCRIPTION_TEMPLATE: str = dedent("""
+    This tool lets you have a conversation and chat with tabular data{topic}. You should ask
     questions about the data and the tool will try to answer them.
     Please ask simple clear questions that can be answer by sql queries. If you need to do statistics or other forms of testing defer to using another tool.
     Try to ask for aggregations on the data and ask very simple questions.
     Prefer to call this tool multiple times rather than asking a complex question.
     """)
+
+
+def _default_description(topic: str | None) -> str:
+    """Last-resort tool description, naming ``topic`` when one is known.
+
+    Reached only when neither the tool nor the Genie space supplies a
+    description. The topic slot is filled from the space's display name; with
+    no name the clause is dropped entirely rather than left as an unfilled
+    placeholder.
+    """
+    return _DEFAULT_DESCRIPTION_TEMPLATE.format(
+        topic=f" about {topic}" if topic else ""
+    )
 
 _FUNCTION_DOCS: str = """
 
@@ -234,44 +247,114 @@ Returns:
 GenieResponse: A response object containing the conversation ID and result from Genie."""
 
 # Question-argument annotations. The default nudges the model to shape the
-# question; the verbatim variant instructs it to preserve every qualifier and
-# scope statement that belongs to the portion routed to THIS tool — while still
-# allowing a genuinely multi-tool request to be split across tools.
+# question; the preserve variant tells it to pass the user's own wording through
+# untouched for the portion routed to THIS tool — while still allowing a
+# genuinely multi-tool request to be split across tools.
 _QUESTION_ARG_DEFAULT: str = "The question to ask Genie about your data"
-_QUESTION_ARG_VERBATIM: str = (
-    "The user's question for this tool, kept COMPLETE and word-for-word. "
-    "Preserve every qualifier, scope statement, constraint, and clarification "
-    "the user attached to it (e.g. 'include the entire team organization, not "
-    "just direct reports') — do NOT drop, rephrase, or summarize that refining "
-    "context. If the overall request spans multiple tools, you may route each "
-    "part to its tool, but the part sent here must stay verbatim and complete."
+_QUESTION_ARG_PRESERVE: str = (
+    "The user's question for this tool, word-for-word and complete. Keep every "
+    "qualifier, scope, and constraint; do not rephrase, summarize, or trim. If "
+    "the request spans several tools, route each part to its tool but send this "
+    "part unchanged."
 )
 
-# Appended to the tool description when ``verbatim=True`` so the preserve-exact
-# instruction is present on both surfaces the LLM reads at tool-call time.
-_VERBATIM_TOOL_CLAUSE: str = (
-    "IMPORTANT — question handling: send this tool the user's COMPLETE question "
-    "for its topic, preserving every qualifier, scope statement, constraint, and "
-    "clarification exactly as written (e.g. a trailing 'this should include the "
-    "entire team organization, not just direct reports' must be kept, not "
-    "dropped). Do NOT summarize, truncate, or strip refining context. You MAY "
-    "split a request that genuinely spans multiple tools and route each part to "
-    "the appropriate tool — but the portion you pass here must remain verbatim "
-    "and complete, never reduced to a shorter paraphrase."
+# Appended to the tool description when ``preserve_question=True``. Deliberately
+# only a pointer: this clause and the question-argument annotation above land in
+# the *same* serialized tool schema, re-sent on every LLM call for the whole
+# conversation, so restating the full instruction here bought redundancy rather
+# than reinforcement.
+_PRESERVE_QUESTION_TOOL_CLAUSE: str = (
+    "Pass this tool the user's own words for its part of the request — complete "
+    "and unedited (see the `question` argument)."
 )
 
 
-def _build_tool_description(description: str | None, verbatim: bool) -> str:
+_MAX_EXAMPLE_QUESTIONS: int = 10
+
+_EXAMPLE_QUESTIONS_HEADER: str = "Example questions this tool can answer:"
+
+
+def _example_questions(genie_room: GenieRoomModel | None) -> list[str]:
+    """Few-shot example questions to advertise, in preference order.
+
+    Prefers the space's ``sample_questions``, falling back to the *questions*
+    of its trusted ``example_sqls`` pairs. SQL bodies are deliberately never
+    included: this text is read by the calling LLM to decide routing, and Genie
+    already holds the SQL on its own space, so the bodies would cost hundreds
+    of tokens on every LLM call for no routing gain.
+    """
+    if genie_room is None:
+        return []
+
+    candidates: list[Any] = list(genie_room.sample_questions or [])
+    if not candidates:
+        candidates = [
+            getattr(example, "question", None)
+            for example in genie_room.example_sqls or []
+        ]
+
+    questions: list[str] = []
+    for candidate in candidates:
+        if not isinstance(candidate, str):
+            continue
+        question: str = candidate.strip()
+        if question and question not in questions:
+            questions.append(question)
+        if len(questions) == _MAX_EXAMPLE_QUESTIONS:
+            break
+    return questions
+
+
+def _build_tool_description(
+    description: str | None,
+    preserve_question: bool,
+    genie_room: GenieRoomModel | None = None,
+    include_example_questions: bool | None = None,
+) -> str:
     """Assemble the ``@tool`` description string.
 
-    Starts from the caller-supplied ``description`` (or ``_DEFAULT_DESCRIPTION``),
-    appends the verbatim clause when ``verbatim`` is set — even for a
-    user-supplied description, so the flag always takes effect — then the
-    function-args docs. Shared by both tool-builder impls.
+    Base text precedence: the caller-supplied ``description``, else the Genie
+    space's own ``description``, else :func:`_default_description`. Falling back
+    to the space description is what lets a supervisor tell two Genie tools
+    apart — with neither set, every description-less Genie tool in a config
+    advertises byte-identical, subject-free text and routing becomes a coin
+    flip.
+
+    Example questions are appended by default only when no ``description`` was
+    supplied: that string is the prompt surface, so authoring it means "this is
+    my text, don't editorialize", whereas a room/space description is resource
+    metadata that the questions are meant to enrich.
+    ``include_example_questions`` overrides that either way — ``True`` appends
+    them even alongside a hand-written description, ``False`` never appends.
+
+    Then appends the preserve-question clause when ``preserve_question`` is set
+    — even for a user-supplied description, so the flag always takes effect —
+    and finally the function-args docs. Shared by both tool-builder impls.
     """
-    base: str = description if description is not None else _DEFAULT_DESCRIPTION
-    if verbatim:
-        base = base + "\n" + _VERBATIM_TOOL_CLAUSE
+    room_description: str | None = getattr(genie_room, "description", None)
+    base: str = (
+        description
+        if description is not None
+        else room_description or _default_description(getattr(genie_room, "name", None))
+    )
+
+    append_questions: bool = (
+        include_example_questions
+        if include_example_questions is not None
+        else description is None
+    )
+    questions: list[str] = _example_questions(genie_room) if append_questions else []
+    if questions:
+        base = "\n".join(
+            [
+                base.rstrip("\n") + "\n",
+                _EXAMPLE_QUESTIONS_HEADER,
+                *(f"- {q}" for q in questions),
+            ]
+        )
+
+    if preserve_question:
+        base = base + "\n" + _PRESERVE_QUESTION_TOOL_CLAUSE
     return base + _FUNCTION_DOCS
 
 
@@ -302,7 +385,8 @@ def create_genie_tool(
     description: str | None = None,
     persist_conversation: bool = True,
     truncate_results: bool = False,
-    verbatim: bool = False,
+    preserve_question: bool = False,
+    include_example_questions: bool | None = None,
     lru_cache_parameters: GenieLRUCacheParametersModel | dict[str, Any] | None = None,
     context_aware_cache_parameters: (
         GenieContextAwareCacheParametersModel | dict[str, Any] | None
@@ -341,11 +425,15 @@ def create_genie_tool(
         description: Custom tool description. Defaults to a generic prompt.
         persist_conversation: Persist conversation IDs across calls for multi-turn.
         truncate_results: Truncate large query results.
-        verbatim: When ``True``, instruct the calling LLM (via the tool
+        preserve_question: When ``True``, instruct the calling LLM (via the tool
             description and the ``question`` argument annotation) to pass the
             user's question through exactly as asked — no rephrasing,
             decomposition, or added qualifiers. Default ``False`` preserves the
             existing behavior.
+        include_example_questions: Whether the Genie space's example questions
+            are appended to the tool description. ``None`` (default) appends
+            them only when no ``description`` was supplied; ``True`` appends them
+            even alongside a supplied description; ``False`` never appends.
         lru_cache_parameters: LRU cache config for fast exact-match SQL caching.
         context_aware_cache_parameters: PostgreSQL/Lakebase context-aware cache config.
         in_memory_context_aware_cache_parameters: In-memory context-aware cache config.
@@ -376,7 +464,8 @@ def create_genie_tool(
             description=description,
             persist_conversation=persist_conversation,
             truncate_results=truncate_results,
-            verbatim=verbatim,
+            preserve_question=preserve_question,
+            include_example_questions=include_example_questions,
         )
 
     return _create_genie_toolkit_impl(
@@ -385,7 +474,8 @@ def create_genie_tool(
         description=description,
         persist_conversation=persist_conversation,
         truncate_results=truncate_results,
-        verbatim=verbatim,
+        preserve_question=preserve_question,
+        include_example_questions=include_example_questions,
         lru_cache_parameters=lru_cache_parameters,
         context_aware_cache_parameters=context_aware_cache_parameters,
         in_memory_context_aware_cache_parameters=in_memory_context_aware_cache_parameters,
@@ -399,7 +489,8 @@ def create_genie_toolkit(
     description: str | None = None,
     persist_conversation: bool = True,
     truncate_results: bool = False,
-    verbatim: bool = False,
+    preserve_question: bool = False,
+    include_example_questions: bool | None = None,
     lru_cache_parameters: GenieLRUCacheParametersModel | dict[str, Any] | None = None,
     context_aware_cache_parameters: (
         GenieContextAwareCacheParametersModel | dict[str, Any] | None
@@ -421,7 +512,8 @@ def create_genie_toolkit(
         description=description,
         persist_conversation=persist_conversation,
         truncate_results=truncate_results,
-        verbatim=verbatim,
+        preserve_question=preserve_question,
+        include_example_questions=include_example_questions,
         lru_cache_parameters=lru_cache_parameters,
         context_aware_cache_parameters=context_aware_cache_parameters,
         in_memory_context_aware_cache_parameters=in_memory_context_aware_cache_parameters,
@@ -443,7 +535,8 @@ def _create_simple_genie_tool(
     description: str | None,
     persist_conversation: bool,
     truncate_results: bool,
-    verbatim: bool = False,
+    preserve_question: bool = False,
+    include_example_questions: bool | None = None,
 ) -> Callable[..., Command]:
     """Build the uncached single-tool variant (no cache, no feedback tool)."""
     logger.debug(
@@ -451,14 +544,19 @@ def _create_simple_genie_tool(
         genie_room_type=type(genie_room).__name__,
         persist_conversation=persist_conversation,
         name=name,
-        verbatim=verbatim,
+        preserve_question=preserve_question,
+        include_example_questions=include_example_questions,
     )
 
     genie_room_model, space_id_str = _resolve_genie_room(genie_room)
 
     tool_name: str = name if name is not None else "genie_tool"
-    tool_description: str = _build_tool_description(description, verbatim)
-    question_desc: str = _QUESTION_ARG_VERBATIM if verbatim else _QUESTION_ARG_DEFAULT
+    tool_description: str = _build_tool_description(
+        description, preserve_question, genie_room_model, include_example_questions
+    )
+    question_desc: str = (
+        _QUESTION_ARG_PRESERVE if preserve_question else _QUESTION_ARG_DEFAULT
+    )
 
     _cached_genie_service: GenieServiceBase | None = None
 
@@ -549,7 +647,8 @@ def _create_genie_toolkit_impl(
         GenieInMemoryContextAwareCacheParametersModel | dict[str, Any] | None
     ),
     max_consecutive_cache_hits: int | None,
-    verbatim: bool = False,
+    preserve_question: bool = False,
+    include_example_questions: bool | None = None,
 ) -> GenieToolkit:
     """Build the cached toolkit variant (query + feedback, optional cache layers)."""
     logger.debug(
@@ -558,7 +657,8 @@ def _create_genie_toolkit_impl(
         persist_conversation=persist_conversation,
         truncate_results=truncate_results,
         name=name,
-        verbatim=verbatim,
+        preserve_question=preserve_question,
+        include_example_questions=include_example_questions,
         has_lru_cache=lru_cache_parameters is not None,
         has_context_aware_cache=context_aware_cache_parameters is not None,
         has_in_memory_context_aware_cache=in_memory_context_aware_cache_parameters
@@ -582,8 +682,12 @@ def _create_genie_toolkit_impl(
         )
 
     tool_name: str = name if name is not None else "genie_tool"
-    tool_description: str = _build_tool_description(description, verbatim)
-    question_desc: str = _QUESTION_ARG_VERBATIM if verbatim else _QUESTION_ARG_DEFAULT
+    tool_description: str = _build_tool_description(
+        description, preserve_question, genie_room_model, include_example_questions
+    )
+    question_desc: str = (
+        _QUESTION_ARG_PRESERVE if preserve_question else _QUESTION_ARG_DEFAULT
+    )
 
     # ---- Shared service stack (one LRU, one closure) ----
 
