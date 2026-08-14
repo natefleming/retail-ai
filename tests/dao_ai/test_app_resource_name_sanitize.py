@@ -15,9 +15,10 @@ import pytest
 from dao_ai.apps.resources import (
     _extract_function_resources,
     _extract_table_resources,
+    _extract_warehouse_resources,
     _unique_resource_name,
 )
-from dao_ai.config import FunctionModel, TableModel
+from dao_ai.config import FunctionModel, TableModel, WarehouseModel
 
 
 @pytest.mark.unit
@@ -80,3 +81,62 @@ class TestExtractResourcesSanitizeNames:
         names = [r["name"] for r in _extract_table_resources(tables)]
         assert len(names) == len(set(names))  # no collision
         assert all(len(n) <= 30 for n in names)
+
+@pytest.mark.unit
+class TestWarehouseResourceNamesSanitized:
+    """A warehouse derived from a Genie room is keyed ``<room-key>_warehouse``.
+
+    That suffix spends 10 of the 30 characters before the room key is counted, so
+    any room key past 20 chars overflowed the limit and 400'd the deploy. Before
+    Genie warehouse discovery worked, the derived key was never produced on the
+    common bare-``space_id`` path, so this was unreachable; now it is the default.
+    """
+
+    def test_long_derived_key_is_truncated_to_the_limit(self) -> None:
+        warehouses = {
+            "retail_inventory_genie_warehouse": WarehouseModel(
+                name="wh", warehouse_id="abc123"
+            )
+        }
+        resources = _extract_warehouse_resources(warehouses)
+
+        assert len(resources) == 1
+        name = resources[0]["name"]
+        assert 2 <= len(name) <= 30
+        assert resources[0]["sql_warehouse_id"] == "abc123"
+
+    def test_short_key_is_left_alone(self) -> None:
+        """Existing short keys must keep their name — renaming them would break
+        any binding that refers to the resource.
+        """
+        warehouses = {"orders_warehouse": WarehouseModel(name="wh", warehouse_id="w1")}
+        resources = _extract_warehouse_resources(warehouses)
+
+        assert resources[0]["name"] == "orders_warehouse"
+
+    def test_two_long_keys_stay_distinct(self) -> None:
+        """Truncation must not fuse two keys that share a 30-char prefix."""
+        warehouses = {
+            "retail_inventory_genie_room_one_warehouse": WarehouseModel(
+                name="a", warehouse_id="w1"
+            ),
+            "retail_inventory_genie_room_two_warehouse": WarehouseModel(
+                name="b", warehouse_id="w2"
+            ),
+        }
+        resources = _extract_warehouse_resources(warehouses)
+        names = [r["name"] for r in resources]
+
+        assert len(set(names)) == 2
+        assert all(2 <= len(n) <= 30 for n in names)
+
+    def test_obo_warehouse_is_still_skipped(self) -> None:
+        """Sanitizing the name must not disturb the OBO filter."""
+        warehouses = {
+            "obo_warehouse": WarehouseModel(
+                name="wh", warehouse_id="w1", on_behalf_of_user=True
+            )
+        }
+
+        assert _extract_warehouse_resources(warehouses) == []
+

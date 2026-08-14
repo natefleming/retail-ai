@@ -288,6 +288,59 @@ def _use_local_source(development: bool | None) -> bool:
     return resolve_use_local_source(development)
 
 
+def _app_config_content(config: AppConfig) -> tuple[bytes, str]:
+    """Pick the config bytes an Apps deploy uploads, and say where they came from.
+
+    Three input shapes feed this:
+
+    1. ``AppConfig.from_file(path, params={...})`` — the substituted text is on
+       ``config.rendered_yaml``. Preferred.
+    2. Legacy ``from_file`` callers without ``params=`` — read the raw source file
+       off disk.
+    3. An ``AppConfig`` built in pure Python — neither exists, so serialize the
+       in-memory model back to YAML.
+
+    The two *text* shapes carry bytes that predate resolution, so they get
+    ``_bake_genie_room_details`` back-filling each Genie room's
+    ``name``/``description``/``sample_questions`` — the same bake the DABs App
+    bundle does. Without it a ``workflow up --mode apps`` deploy ships an unbaked
+    config and loses the example-questions block: the description survives because
+    the container's ``ensure_resolved`` back-fills it under ``CAN_RUN``, but the
+    serialized space payload needs ``CAN_EDIT``, which a deployed app SP does not
+    hold. Shape 3 needs nothing — it dumps objects ``initialize()`` already
+    resolved with the deployer's credentials.
+
+    Best-effort, like the bake itself: any failure returns the unbaked bytes, so
+    a deploy is never blocked by discovery.
+    """
+    if config.rendered_yaml is not None:
+        content = config.rendered_yaml.encode("utf-8")
+        origin = "rendered_yaml (parameter-substituted)"
+    elif config.source_config_path:
+        with open(config.source_config_path, "rb") as f:
+            content = f.read()
+        origin = f"source file {config.source_config_path}"
+    else:
+        config_dict: dict[str, Any] = config.model_dump(
+            mode="json", by_alias=True, exclude_none=True
+        )
+        return (
+            yaml.safe_dump(
+                config_dict, sort_keys=False, default_flow_style=False
+            ).encode("utf-8"),
+            "in-memory AppConfig (programmatic)",
+        )
+
+    from dao_ai.apps.bundle import _bake_genie_room_details
+
+    try:
+        content = _bake_genie_room_details(content.decode("utf-8")).encode("utf-8")
+    except Exception as e:  # noqa: BLE001 - discovery must never block a deploy
+        logger.debug(f"Could not bake Genie room details into the config: {e}")
+
+    return content, origin
+
+
 def _warn_if_stale_dev_wheel(dev_wheel: Path | None) -> None:
     """Log which local wheel a deploy is about to ship, and warn if it looks
     stale relative to the working-tree source.
@@ -2045,39 +2098,15 @@ class DatabricksProvider(ServiceProvider):
                 scorer_count=len(registered_scorers),
             )
 
-        # Upload the configuration file to the workspace.
-        #
-        # Three input shapes feed this step:
-        #   1. AppConfig.from_file(path, params={...}) — substituted text
-        #      is on config.rendered_yaml. Prefer that.
-        #   2. Legacy AppConfig.from_file callers without params= — fall
-        #      back to reading the raw source file from disk.
-        #   3. AppConfig built in pure Python — neither rendered_yaml nor
-        #      a source file exists, so serialize the in-memory model
-        #      back to YAML and ship that.
-        source_config_path: str | None = config.source_config_path
+        # Upload the configuration file to the workspace. See
+        # ``_app_config_content`` for the three input shapes and which of them
+        # get the Genie bake.
         config_file_name: str = "dao_ai.yaml"
         workspace_config_path: str = f"{source_path}/{config_file_name}"
 
-        rendered: str | None = config.rendered_yaml
         config_content: bytes
         config_origin: str
-        if rendered is not None:
-            config_content = rendered.encode("utf-8")
-            config_origin = "rendered_yaml (parameter-substituted)"
-        elif source_config_path:
-            with open(source_config_path, "rb") as f:
-                config_content = f.read()
-            config_origin = f"source file {source_config_path}"
-        else:
-            # Python-built AppConfig: serialize the in-memory object.
-            config_dict: dict[str, Any] = config.model_dump(
-                mode="json", by_alias=True, exclude_none=True
-            )
-            config_content = yaml.safe_dump(
-                config_dict, sort_keys=False, default_flow_style=False
-            ).encode("utf-8")
-            config_origin = "in-memory AppConfig (programmatic)"
+        config_content, config_origin = _app_config_content(config)
 
         logger.info(
             "Uploading config file to workspace",

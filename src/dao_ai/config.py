@@ -1,4 +1,5 @@
 import atexit
+import hashlib
 import importlib
 import os
 import re
@@ -319,6 +320,26 @@ APP_RESOURCE_DESCRIPTION_MAX_LENGTH: Final[int] = 200
 """Max length for descriptions on IsDatabricksResource subclasses. Matches the
 Databricks Apps platform limit on ``AppResource.description``; overlong values
 are rejected at deploy time, so we reject at config-load time instead."""
+
+
+def clip_resource_description(description: str) -> str:
+    """Clip a *discovered* description to :data:`APP_RESOURCE_DESCRIPTION_MAX_LENGTH`.
+
+    The limit exists to reject an overlong description the operator *wrote*. A
+    description read back off a live workspace object is not theirs to shorten,
+    and it has to survive a round trip: both deploy paths write the resolved
+    value back into a config the container re-validates — Model Serving through
+    the logged ``model_config``, Apps through the baked YAML — so an unclipped
+    200+ char Genie space description would pass at deploy time and then fail
+    the *container's* ``max_length`` at startup with ``string_too_long``.
+
+    Clip rather than drop: the description feeds the Genie tool description a
+    supervisor routes on, so a truncated one is still useful signal. The ellipsis
+    marks it as truncated.
+    """
+    if len(description) <= APP_RESOURCE_DESCRIPTION_MAX_LENGTH:
+        return description
+    return description[: APP_RESOURCE_DESCRIPTION_MAX_LENGTH - 1].rstrip() + "…"
 
 
 class ServicePrincipalModel(BaseModel):
@@ -2286,7 +2307,9 @@ class GenieRoomModel(IsDatabricksResource, ManagedResource):
                     if not self.name and space_details.title:
                         self.name = space_details.title
                     if not self.description and space_details.description:
-                        self.description = space_details.description
+                        self.description = clip_resource_description(
+                            space_details.description
+                        )
                 if not self.sample_questions:
                     # Reads the same cached _space_details, so no extra API call.
                     discovered: list[str] | None = self._sample_questions_from_payload(
@@ -10744,6 +10767,27 @@ class UnityCatalogFunctionSqlModel(BaseModel):
         provider.create_sql_function(self)
 
 
+def _credential_fingerprint(room: "GenieRoomModel") -> str:
+    """A stable, opaque id for the identity ``room`` would look a space up as.
+
+    Used only as a cache key, so it never has to be reversible — and it is
+    hashed precisely so that it cannot become a leak if it is ever logged or
+    serialized. ``pat``/``client_secret`` are normally secret *references*
+    (scope + key), but a config may inline a literal, and a raw token must not
+    survive in a set key.
+    """
+    declaration: str = repr(
+        (
+            room.service_principal,
+            room.client_id,
+            room.client_secret,
+            room.workspace_host,
+            room.pat,
+        )
+    )
+    return hashlib.sha256(declaration.encode()).hexdigest()[:16]
+
+
 class ResourcesModel(BaseModel):
     """Databricks resource declarations used by agents and tools.
 
@@ -10842,48 +10886,172 @@ class ResourcesModel(BaseModel):
         )
         return self.models
 
-    @model_validator(mode="after")
-    def update_genie_warehouses(self) -> Self:
-        """
-        Automatically populate warehouses from genie_rooms.
+    _genie_warehouses_backfilled: set[tuple[str, str]] = PrivateAttr(
+        default_factory=set
+    )
+    """``(space_id, identity)`` pairs whose warehouse the backfill already found.
 
-        Warehouses are extracted from each Genie room and added to the
-        resources if they don't already exist (based on warehouse_id).
+    Keyed on the *identity* too, not the space alone: a room may carry its own
+    ``service_principal``/``client_id``/``pat``/``workspace_host``, so two rooms
+    over one space can look it up as different principals. One that cannot read
+    the space must not stop another that can.
+    """
+
+    def backfill_genie_warehouses(self) -> Self:
+        """Add each Genie room's SQL warehouse to :attr:`warehouses`.
+
+        Prefers the explicitly configured ``warehouse:``; falls back to
+        :meth:`GenieRoomModel.discover_warehouse` for existing-space references
+        that don't declare one inline. Every consumer of a Genie warehouse reads
+        it from here rather than from the room: the service-principal grant plan
+        (the ``CAN_USE`` grant), the Model Serving auth policy, and the generated
+        App resource list.
+
+        Called twice, deliberately. The ``mode="after"`` validator below covers
+        inline warehouses, which need no network. Discovery, though, cannot work
+        during validation — it goes through ``_get_space_details``, which returns
+        ``None`` while the room is unresolved, and rooms are resolved later, in
+        :meth:`AppConfig._resolve_all_resources`. So that method calls this again
+        once resolution has run, which is the only point where discovery can
+        succeed — and it is the choke point every deploy path funnels through,
+        not just ``initialize()``.
+
+        Idempotent, and never raises: a room whose space cannot be inspected is
+        skipped, because a deploy must not fail over a best-effort lookup.
         """
         if not self.genie_rooms:
             return self
 
-        # Process warehouses from all genie rooms. Prefer the explicitly
-        # configured warehouse; fall back to discovery for existing-space
-        # references that don't declare one inline.
-        for genie_room in self.genie_rooms.values():
+        # Discovery is a `get_space` + `warehouses.get` per room. Rooms often
+        # share a space (different tool descriptions over the same data), so
+        # only look the space up for the first room that needs it — and remember
+        # which spaces already yielded a warehouse, so a later call is free
+        # rather than merely harmless. Spaces that yielded *nothing* are
+        # deliberately not remembered: that is exactly the pre-resolution pass,
+        # which the post-resolution one has to retry.
+        seen_spaces: set[tuple[str, str]] = set(self._genie_warehouses_backfilled)
+
+        for room_key, genie_room in self.genie_rooms.items():
             genie_room: GenieRoomModel
-            warehouse: Optional[WarehouseModel] = (
-                genie_room.warehouse or genie_room.discover_warehouse()
-            )
+
+            # An inline ``warehouse:`` is a declaration, not a lookup, so it is
+            # taken before any of the gates below — including for
+            # ``on_behalf_of_user`` rooms, whose warehouse still has to reach
+            # ``warehouses``: ``generate_user_api_scopes`` reads OBO warehouses
+            # from there to emit the ``sql`` scope the forwarded user token needs,
+            # and ``build_auth_policy`` routes them to the ``UserAuthPolicy``.
+            # Dropping it here is what would break OBO Genie.
+            warehouse: Optional[WarehouseModel] = genie_room.warehouse
+            discovered: bool = warehouse is None
+            space_id: Optional[str] = None
+            cache_key: Optional[tuple[str, str]] = None
 
             if warehouse is None:
+                # Everything from here on is a live lookup.
+                #
+                # OBO rooms query as the calling user, whose own warehouse access
+                # applies, so there is nothing to discover a warehouse *for*: the
+                # app's service principal is never granted CAN_USE on their
+                # behalf. (An OBO room that declares no warehouse inline
+                # therefore contributes no ``sql`` scope — unchanged from before
+                # discovery existed. Declare the warehouse inline to get one.)
+                if genie_room.on_behalf_of_user:
+                    continue
+
+                try:
+                    space_id = (
+                        value_of(genie_room.space_id) if genie_room.space_id else None
+                    )
+                    if space_id is not None:
+                        cache_key = (space_id, _credential_fingerprint(genie_room))
+                        if cache_key in seen_spaces:
+                            continue
+                    warehouse = genie_room.discover_warehouse()
+                except Exception as e:
+                    logger.debug(
+                        "Could not determine the warehouse for Genie room",
+                        room=room_key,
+                        error=str(e),
+                    )
+                    continue
+
+            if warehouse is None or not warehouse.warehouse_id:
                 continue
 
-            # Check if warehouse already exists based on warehouse_id
-            warehouse_exists: bool = any(
-                existing_warehouse.warehouse_id == warehouse.warehouse_id
-                for existing_warehouse in self.warehouses.values()
+            # Only *now* is the space known to have yielded something. Marking it
+            # before the lookup would let one room's failure (no permission, a
+            # transient 5xx) suppress the retry another room — or a later pass —
+            # is entitled to.
+            if cache_key is not None:
+                seen_spaces.add(cache_key)
+                self._genie_warehouses_backfilled.add(cache_key)
+
+            # Hand the room the warehouse it just yielded. Without this, discovery
+            # is invisible to anything that re-parses the config: every fresh load
+            # (Model Serving model load, Apps container startup) would re-issue
+            # ``get_space`` + ``warehouses.get`` per room and then throw the answer
+            # away at the dedupe check below, paying cold-start latency — and a
+            # ``logger.warning`` per 403 — for a result the baked config already
+            # holds. It also gives ``_extract_genie_warehouse_resources`` its
+            # documented fallback: that extractor reads ``genie.warehouse``, which
+            # nothing else populates.
+            if discovered:
+                genie_room.warehouse = warehouse
+
+            # Already present (either from a previous call or declared by hand).
+            if any(
+                existing.warehouse_id == warehouse.warehouse_id
+                for existing in self.warehouses.values()
+            ):
+                continue
+
+            # Key off the room's mapping key, not ``genie_room.name`` — the name
+            # is None for a bare-``space_id`` room until resolution runs, while
+            # the key is always present and stable. The ``_warehouse`` suffix is
+            # load-bearing: a warehouse key and a Genie room key both become an
+            # App resource *name*, and the DABs bundle has no uniquify pass — a bare
+            # ``room_key`` would emit two resources called e.g. ``retail_genie``,
+            # one genie-space and one sql-warehouse, with the ``value_from``
+            # bindings then ambiguous. It also matches what
+            # ``_extract_genie_warehouse_resources`` has always named this same
+            # warehouse, so when both paths emit it the existing
+            # dedupe-by-identity pass collapses them.
+            warehouse_key: str = normalize_name(f"{room_key}_warehouse")
+            # A hand-declared resource may already own that key; suffix rather
+            # than clobber it. Genie room keys share the App resource namespace,
+            # so they count as taken too (rooms keyed ``sales`` and
+            # ``sales_warehouse`` in one config). Compare *normalized* forms on
+            # both sides: ``warehouse_key`` is already normalized, so a config
+            # key written ``Sales_Warehouse`` would otherwise slip past the guard
+            # and collide once the App resource namespace folds their case.
+            taken: set[str] = {
+                normalize_name(key)
+                for key in (*self.warehouses.keys(), *self.genie_rooms.keys())
+            }
+            if warehouse_key in taken:
+                warehouse_key = normalize_name(
+                    "_".join([room_key, str(value_of(warehouse.warehouse_id))])
+                )
+
+            self.warehouses[warehouse_key] = warehouse
+            logger.trace(
+                "Added warehouse from Genie room",
+                room=room_key,
+                warehouse=warehouse.warehouse_id,
+                key=warehouse_key,
             )
 
-            if not warehouse_exists:
-                warehouse_key: str = normalize_name(
-                    "_".join([genie_room.name, warehouse.warehouse_id])
-                )
-                self.warehouses[warehouse_key] = warehouse
-                logger.trace(
-                    "Added warehouse from Genie room",
-                    room=genie_room.name,
-                    warehouse=warehouse.warehouse_id,
-                    key=warehouse_key,
-                )
-
         return self
+
+    @model_validator(mode="after")
+    def update_genie_warehouses(self) -> Self:
+        """Populate :attr:`warehouses` from any inline Genie ``warehouse:``.
+
+        See :meth:`backfill_genie_warehouses`, which this delegates to and which
+        ``AppConfig._resolve_all_resources`` calls again once the rooms are
+        resolved.
+        """
+        return self.backfill_genie_warehouses()
 
     @model_validator(mode="after")
     def update_genie_tables(self) -> Self:
@@ -11632,7 +11800,18 @@ class AppConfig(BaseModel):
         return self._substitution_vars
 
     def _resolve_all_resources(self) -> None:
-        """Walk the config tree and call ensure_resolved() on all IsDatabricksResource instances."""
+        """Walk the config tree and call ensure_resolved() on all IsDatabricksResource instances.
+
+        Genie warehouse discovery runs here, at the tail, because it only works
+        *after* resolution: the ``ResourcesModel`` validator runs while the rooms
+        are still unresolved, where ``discover_warehouse`` can only return None.
+        This is the one choke point every deploy path funnels through —
+        ``initialize()``, and the CLI paths that load with ``initialize=False``
+        and call this directly (``agent up --mode apps``, ``--direct``,
+        ``agent build``, ``service-principal grant -c``) — so every consumer
+        downstream sees the discovered warehouse: the SP grant plan's ``CAN_USE``,
+        the Model Serving auth policy, and the App resource + env-var lists.
+        """
 
         def _walk(obj: Any) -> None:
             if isinstance(obj, IsDatabricksResource):
@@ -11652,6 +11831,9 @@ class AppConfig(BaseModel):
                         _walk(value)
 
         _walk(self)
+
+        if self.resources is not None:
+            self.resources.backfill_genie_warehouses()
 
     def assert_provided_params_satisfied(self) -> None:
         """Guard non-workflow deploy paths against unsatisfied ``provided`` params.
@@ -11697,6 +11879,7 @@ class AppConfig(BaseModel):
         if self.app and self.app.log_level:
             configure_logging(level=self.app.log_level)
 
+        # Also back-fills each Genie room's discovered warehouse — see there.
         self._resolve_all_resources()
 
         # ``app`` is Optional — app-less configs (e.g. an ``optimizations``-only
