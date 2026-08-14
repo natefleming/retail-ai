@@ -238,6 +238,7 @@ def _default_description(topic: str | None) -> str:
         topic=f" about {topic}" if topic else ""
     )
 
+
 _FUNCTION_DOCS: str = """
 
 Args:

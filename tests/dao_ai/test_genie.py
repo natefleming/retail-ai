@@ -3371,9 +3371,7 @@ class TestLRUPlusContextAwareCacheIntegration:
 SPACE_ID: str = "0" * 32
 
 
-def _description_of(
-    room: GenieRoomModel, **kwargs: object
-) -> str:
+def _description_of(room: GenieRoomModel, **kwargs: object) -> str:
     """Build a Genie tool from ``room`` and return its description."""
     tool = create_genie_tool(genie_room=room, **kwargs)  # type: ignore[arg-type]
     assert isinstance(tool, StructuredTool)
