@@ -1,40 +1,49 @@
 # Databricks notebook source
-# MAGIC %pip install --quiet --upgrade -r ../requirements.txt
+# Dependency bootstrap, matching the pipeline step notebooks. Install dao-ai —
+# which pulls its own transitive deps — from the newest ../dist wheel if one is
+# there, else the published PyPI package. This notebook only reads config and
+# calls the monitoring APIs, so bare dao-ai is enough. The spec is single-quoted
+# in the magic so a dev wheel's ``+local`` version tag survives shell expansion.
+#
+# Note: with no ../dist wheel this installs the *published* dao-ai, not your
+# working tree. Run ``uv build`` from the repo root first to test local changes.
+import glob, os
+
+from packaging.version import Version
+
+# Newest by *version*, not by filename: a lexical sort puts 0.2.8 above
+# 0.2.10. ``Version`` also parses a dev wheel's ``+local`` tag correctly.
+def _wheel_version(wheel: str) -> Version:
+    return Version(os.path.basename(wheel).split("-")[1])
+
+_wheels = sorted(glob.glob("../dist/dao_ai-*.whl"), key=_wheel_version, reverse=True)
+_dao_ai_dep = _wheels[0] if _wheels else "dao-ai"
+
+# MAGIC %uv pip install --quiet '{_dao_ai_dep}'
 # MAGIC %pip uninstall --quiet -y pyspark pyspark-connect
 # MAGIC %restart_python
 
 # COMMAND ----------
 
-from typing import Sequence
-import os
+# There is no `../config` discovery fallback. That directory does not exist in a
+# repo checkout, and discovery would pick the first YAML it happened to find, so
+# `config-path` is the single input. It defaults to a shipped example; point it at
+# any other config under ../examples.
+dbutils.widgets.text(
+    name="config-path",
+    defaultValue="../examples/99_complete_applications/hardware_store/hardware_store.yaml",
+)
 
-def find_yaml_files_os_walk(base_path: str) -> Sequence[str]:
-    if not os.path.exists(base_path):
-        raise FileNotFoundError(f"Base path does not exist: {base_path}")
-    
-    if not os.path.isdir(base_path):
-        raise NotADirectoryError(f"Base path is not a directory: {base_path}")
-    
-    yaml_files = []
-    
-    for root, dirs, files in os.walk(base_path):
-        for file in files:
-            if file.lower().endswith(('.yaml', '.yml')):
-                yaml_files.append(os.path.join(root, file))
-    
-    return sorted(yaml_files)
+widget_path: str | None = dbutils.widgets.get("config-path") or None
+if not widget_path:
+    raise ValueError(
+        "No config to monitor: the `config-path` widget is empty. Set it to a "
+        "config YAML — relative to this notebook (e.g. "
+        "`../examples/99_complete_applications/hardware_store/hardware_store.yaml`) "
+        "or an absolute workspace path."
+    )
 
-# COMMAND ----------
-
-dbutils.widgets.text(name="config-path", defaultValue="")
-
-config_files: Sequence[str] = find_yaml_files_os_walk("../config")
-dbutils.widgets.dropdown(name="config-paths", choices=config_files, defaultValue=next(iter(config_files), ""))
-
-config_path: str | None = dbutils.widgets.get("config-path") or None
-project_path: str = dbutils.widgets.get("config-paths") or None
-
-config_path: str = config_path or project_path
+config_path: str = widget_path
 
 print(config_path)
 
@@ -43,9 +52,16 @@ print(config_path)
 # DBTITLE 1,Add Source Directory to System Path
 import sys, os, glob, subprocess
 
+from packaging.version import Version
+
+# Newest by *version*, not by filename: a lexical sort puts 0.2.8 above
+# 0.2.10. ``Version`` also parses a dev wheel's ``+local`` tag correctly.
+def _wheel_version(wheel: str) -> Version:
+    return Version(os.path.basename(wheel).split("-")[1])
+
 _wheels = sorted(
     glob.glob("../dist/dao_ai-*.whl") or glob.glob("../../artifacts/.internal/dao_ai-*.whl"),
-    key=os.path.getmtime,
+    key=_wheel_version,
     reverse=True,
 )
 if _wheels:

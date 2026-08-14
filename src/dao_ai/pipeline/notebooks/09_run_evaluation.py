@@ -10,12 +10,17 @@
 # search. Hence ``[all]``. The install spec is single-quoted in the magic so a
 # dev wheel's ``+local`` version tag and the ``[all]`` bracket survive shell
 # glob/bracket expansion.
-import glob
+import glob, os
 
-_dao_ai_dep = (
-    next(iter(sorted(glob.glob("../dist/dao_ai-*.whl"), reverse=True)), "dao-ai")
-    + "[all]"
-)
+from packaging.version import Version
+
+# Newest by *version*, not by filename: a lexical sort puts 0.2.8 above
+# 0.2.10. ``Version`` also parses a dev wheel's ``+local`` tag correctly.
+def _wheel_version(wheel: str) -> Version:
+    return Version(os.path.basename(wheel).split("-")[1])
+
+_wheels = sorted(glob.glob("../dist/dao_ai-*.whl"), key=_wheel_version, reverse=True)
+_dao_ai_dep = (_wheels[0] if _wheels else "dao-ai") + "[all]"
 
 # MAGIC %uv pip install --quiet '{_dao_ai_dep}'
 # MAGIC %restart_python
@@ -36,20 +41,23 @@ print(f"mlflow=={version('mlflow')}")
 
 # COMMAND ----------
 
-from dao_ai.utils import find_config_files
-
-# COMMAND ----------
-
 dbutils.widgets.text(name="config-path", defaultValue="")
 
-config_files: list[str] = find_config_files("../config")
-dbutils.widgets.dropdown(
-    name="config-paths", choices=config_files, defaultValue=next(iter(config_files), "")
-)
+# There is no `../config` discovery fallback. That directory exists only in the
+# staged bundle layout, and the bundle stages exactly one config — the same one
+# the job passes here — so discovery could only ever guess, and guessing is how
+# the wrong config gets loaded. `config-path` is the single input.
+widget_path: str | None = dbutils.widgets.get("config-path") or None
+if not widget_path:
+    raise ValueError(
+        "No config to evaluate against: the `config-path` widget is empty. In a "
+        "staged pipeline bundle the config sits beside this notebook under "
+        "`../config/` and the job always passes it; running this notebook by "
+        "hand, set `config-path` to an absolute workspace path, for example "
+        "`/Workspace/Users/you@example.com/dao-ai/examples/04_genie/genie_basic.yaml`."
+    )
 
-config_path: str = dbutils.widgets.get("config-path") or dbutils.widgets.get(
-    "config-paths"
-)
+config_path: str = widget_path
 print(config_path)
 
 # COMMAND ----------

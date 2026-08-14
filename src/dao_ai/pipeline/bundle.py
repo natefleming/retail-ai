@@ -833,8 +833,10 @@ def _write_job_bundle(
     )
     written.extend(notebook_rels)
 
-    # 4. The resolved config, under config/<name>.yaml so the notebook's
-    #    `../config` discovery and an explicit config-path both resolve. Prefer
+    # 4. The resolved config, under config/<name>.yaml — a sibling of notebooks/,
+    #    so the `../config/<name>.yaml` the job passes as `config-path` resolves
+    #    from a notebook's working directory. Exactly one config is staged; the
+    #    notebooks have no discovery fallback and read `config-path` only. Prefer
     #    the rendered YAML (${param.NAME} substituted, parameters: block
     #    stripped) so the deployed job needs no --var arguments.
     source_config: str | None = config._source_config_path

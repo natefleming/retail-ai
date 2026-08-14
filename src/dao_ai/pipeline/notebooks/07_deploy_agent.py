@@ -10,19 +10,20 @@
 # rerank, or search. Hence ``[all]``. The install spec is single-quoted in the
 # magic so a dev wheel's ``+local`` version tag and the ``[all]`` bracket survive
 # shell glob/bracket expansion.
-import glob
+import glob, os
 
-_dao_ai_dep = (
-    next(iter(sorted(glob.glob("../dist/dao_ai-*.whl"), reverse=True)), "dao-ai")
-    + "[all]"
-)
+from packaging.version import Version
+
+# Newest by *version*, not by filename: a lexical sort puts 0.2.8 above
+# 0.2.10. ``Version`` also parses a dev wheel's ``+local`` tag correctly.
+def _wheel_version(wheel: str) -> Version:
+    return Version(os.path.basename(wheel).split("-")[1])
+
+_wheels = sorted(glob.glob("../dist/dao_ai-*.whl"), key=_wheel_version, reverse=True)
+_dao_ai_dep = (_wheels[0] if _wheels else "dao-ai") + "[all]"
 
 # MAGIC %uv pip install --quiet '{_dao_ai_dep}'
 # MAGIC %restart_python
-
-# COMMAND ----------
-
-from dao_ai.utils import find_config_files
 
 # COMMAND ----------
 
@@ -43,29 +44,24 @@ dbutils.widgets.dropdown(
     defaultValue="auto",
 )
 
-config_files: list[str] = find_config_files("../config")
-dbutils.widgets.dropdown(
-    name="config-paths", choices=config_files, defaultValue=next(iter(config_files), "")
-)
-
-explicit_path: str | None = dbutils.widgets.get("config-path") or None
-discovered_path: str | None = dbutils.widgets.get("config-paths") or None
 mode_str: str | None = dbutils.widgets.get("mode") or None
 as_mcp: bool = (dbutils.widgets.get("as_mcp") or "false").lower() == "true"
 
-# An explicit `config-path` always wins; the `../config` dropdown is the fallback
-# for an interactive run. Re-binding `config_path` from `str | None` to `str` would
-# make the annotation a lie (and hide that `from_file` rejects None), so the inputs
-# get their own names and the result is annotated once.
-resolved_path: str | None = explicit_path or discovered_path
-if not resolved_path:
+# There is no `../config` discovery fallback. That directory exists only in the
+# staged bundle layout, and the bundle stages exactly one config — the same one
+# the job passes here — so discovery could only ever guess, and guessing is how
+# the wrong config gets deployed. `config-path` is the single input.
+widget_path: str | None = dbutils.widgets.get("config-path") or None
+if not widget_path:
     raise ValueError(
-        "No config to deploy: the `config-path` widget is empty and no YAML was "
-        "found under ../config. Set `config-path` to the staged config (the "
-        "pipeline bundle always passes it)."
+        "No config to deploy: the `config-path` widget is empty. In a staged "
+        "pipeline bundle the config sits beside this notebook under `../config/` "
+        "and the job always passes it; running this notebook by hand, set "
+        "`config-path` to an absolute workspace path, for example "
+        "`/Workspace/Users/you@example.com/dao-ai/examples/04_genie/genie_basic.yaml`."
     )
 
-config_path: str = resolved_path
+config_path: str = widget_path
 
 print(f"Config path: {config_path}")
 print(f"Serving mode: {mode_str or '(using config default)'}")

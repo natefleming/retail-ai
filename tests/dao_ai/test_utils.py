@@ -1,6 +1,17 @@
 import pytest
 
+import dao_ai.utils
 from dao_ai.utils import is_lib_provided, load_function
+
+
+@pytest.mark.unit
+def test_find_config_files_is_gone() -> None:
+    """``find_config_files`` existed solely to populate the ``config-paths``
+    dropdown in the pipeline step notebooks. That dropdown crashed every
+    interactive run and could never offer more than the single staged config, so
+    both are removed. Re-adding the helper would invite the dropdown back.
+    """
+    assert not hasattr(dao_ai.utils, "find_config_files")
 
 
 @pytest.mark.unit

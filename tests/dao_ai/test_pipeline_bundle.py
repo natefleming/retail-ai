@@ -16,6 +16,7 @@ tests cover:
 
 from __future__ import annotations
 
+import re
 from importlib.resources import files
 from pathlib import Path
 
@@ -52,6 +53,31 @@ app:
   agents:
     - *greeter
 """
+
+_CELL_SEP = "# COMMAND ----------"
+
+
+def _assert_wheel_selection(name: str, text: str) -> None:
+    """Assert every ``../dist`` wheel glob is sorted by PEP 440 version.
+
+    Twin of the helper in ``test_repo_notebooks.py``, which guards the same
+    thing for the hand-run demos under ``notebooks/``.
+    """
+    for cell in text.split(_CELL_SEP):
+        if "glob.glob(" not in cell or "dao_ai-*.whl" not in cell:
+            continue
+        assert "key=_wheel_version" in cell, (
+            f"{name} sorts the ../dist wheel glob lexically — 0.2.8 would beat "
+            "0.2.10; sort with key=_wheel_version"
+        )
+        # A cell is its own execution unit, so the helper's own dependencies
+        # have to be imported beside it, not in whichever cell came first.
+        assert "from packaging.version import Version" in cell, (
+            f"{name} uses _wheel_version without importing Version in that cell"
+        )
+        assert re.search(r"^import .*\bos\b", cell, re.M), (
+            f"{name} uses _wheel_version without importing os in that cell"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -106,6 +132,66 @@ class TestPackagedAssets:
             "the guard must exit the notebook, not fall through to provisioning"
         )
 
+    def test_notebooks_read_config_path_only(self) -> None:
+        """No step notebook may discover its own config.
+
+        The ``config-paths`` dropdown crashed every interactive run: ``../config``
+        exists only in the staged bundle layout (``config/`` is a sibling of
+        ``notebooks/``), so from a repo checkout discovery returned ``[]`` and
+        ``dbutils.widgets.dropdown`` rejects an empty ``choices`` list — the
+        notebook threw at *widget creation*, before the readable "config-path is
+        empty" ValueError below it could run. And where it did work the bundle
+        stages exactly one config, so it could never offer more than the value
+        ``config-path`` already carries. ``config-path`` is the single input, and
+        each notebook must fail with a message rather than guess at a file.
+        """
+        for p in files("dao_ai.pipeline.notebooks").iterdir():
+            if not p.name.endswith(".py") or p.name == "__init__.py":
+                continue
+            text = p.read_text(encoding="utf-8")
+            assert "config-paths" not in text, (
+                f"{p.name} still declares the config-paths dropdown"
+            )
+            assert "find_config_files" not in text, (
+                f"{p.name} still discovers configs (find_config_files)"
+            )
+            assert 'dbutils.widgets.text(name="config-path"' in text, (
+                f"{p.name} must declare config-path as a plain text widget"
+            )
+            assert 'dbutils.widgets.get("config-path")' in text, (
+                f"{p.name} must read the config-path widget"
+            )
+            # An empty widget must raise here, naming the input — not fall
+            # through to a bare TypeError/FileNotFoundError at the read.
+            guard = text.split('dbutils.widgets.get("config-path")', 1)[1]
+            assert "raise ValueError(" in guard.split("# COMMAND")[0], (
+                f"{p.name} must guard an empty config-path with a ValueError"
+            )
+
+    def test_guard_message_has_no_angle_bracket_placeholders(self) -> None:
+        """The guard message must not use ``<name>``-style placeholders.
+
+        Whatever surfaces the traceback strips angle-bracketed spans: a live
+        run in fevm returned the message as ``../config/.yaml`` and
+        ``/Workspace/Users//dao-ai/examples/.yaml``, so the one line telling
+        the reader what to type arrived with the interesting part deleted. A
+        concrete example path survives verbatim and is copy-pasteable.
+        """
+        for p in files("dao_ai.pipeline.notebooks").iterdir():
+            if not p.name.endswith(".py") or p.name == "__init__.py":
+                continue
+            text = p.read_text(encoding="utf-8")
+            # Anchor on the guard itself, not on the file's first
+            # ``raise ValueError(``: a validation raise added above it would make
+            # this inspect the wrong message and either fail misleadingly or pass
+            # while the guard regresses.
+            guard = text.split('dbutils.widgets.get("config-path")', 1)[1]
+            message = guard.split("raise ValueError(", 1)[1].split(")", 1)[0]
+            assert "<" not in message, (
+                f"{p.name}'s config-path guard message uses an angle-bracket "
+                "placeholder, which is stripped before the reader sees it"
+            )
+
     def test_notebooks_bootstrap_extras_suffix(self) -> None:
         """Each step notebook's ``%uv pip install`` bootstrap must install the
         feature extras its own body can exercise.
@@ -147,15 +233,30 @@ class TestPackagedAssets:
 
             suffix = expected_suffix[prefix]
             if suffix:
-                # Bind the suffix to the concatenation onto the glob fallback
-                # expression (not merely present somewhere, e.g. a comment).
-                assert f'), "dao-ai")\n    + "{suffix}"' in text, (
+                # Bind the suffix to the concatenation onto the wheel/PyPI
+                # fallback expression (not merely present somewhere, e.g. a
+                # comment).
+                assert f'if _wheels else "dao-ai") + "{suffix}"' in text, (
                     f"{p.name} must append {suffix} onto the _dao_ai_dep spec"
                 )
             else:
                 # Core provisioning notebooks must not append any extras suffix.
                 assert '+ "[' not in text, f"{p.name} must not append an extras suffix"
         assert seen == set(expected_suffix), f"notebook set changed: {sorted(seen)}"
+
+    def test_notebooks_pick_the_newest_wheel_by_version(self) -> None:
+        """The ``../dist`` glob must be sorted by PEP 440 version, not by name.
+
+        A lexical sort puts ``0.2.8`` above ``0.2.10``, so a stale wheel wins
+        the moment the minor version reaches double digits. Each bootstrap
+        sorts on a local ``_wheel_version`` helper — which needs ``os`` and
+        ``Version`` imported *in its own cell*, since a notebook cell is its
+        own execution unit.
+        """
+        for p in files("dao_ai.pipeline.notebooks").iterdir():
+            if not p.name.endswith(".py") or p.name == "__init__.py":
+                continue
+            _assert_wheel_selection(p.name, p.read_text(encoding="utf-8"))
 
 
 # ---------------------------------------------------------------------------

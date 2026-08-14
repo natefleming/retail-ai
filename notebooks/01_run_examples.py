@@ -1,5 +1,26 @@
 # Databricks notebook source
-# MAGIC %pip install --quiet --upgrade -r ../requirements.txt
+# Dependency bootstrap, matching the pipeline step notebooks. Install dao-ai —
+# which pulls its own transitive deps, python-dotenv and nest-asyncio included —
+# from the newest ../dist wheel if one is there, else the published PyPI package.
+# This notebook builds agent graphs out of arbitrary examples, so it needs every
+# optional feature extra: ``[all]``. The spec is single-quoted in the magic so a
+# dev wheel's ``+local`` version tag and the bracket survive shell expansion.
+#
+# Note: with no ../dist wheel this installs the *published* dao-ai, not your
+# working tree. Run ``uv build`` from the repo root first to test local changes.
+import glob, os
+
+from packaging.version import Version
+
+# Newest by *version*, not by filename: a lexical sort puts 0.2.8 above
+# 0.2.10. ``Version`` also parses a dev wheel's ``+local`` tag correctly.
+def _wheel_version(wheel: str) -> Version:
+    return Version(os.path.basename(wheel).split("-")[1])
+
+_wheels = sorted(glob.glob("../dist/dao_ai-*.whl"), key=_wheel_version, reverse=True)
+_dao_ai_dep = (_wheels[0] if _wheels else "dao-ai") + "[all]"
+
+# MAGIC %uv pip install --quiet '{_dao_ai_dep}'
 # MAGIC %pip uninstall --quiet -y pyspark pyspark-connect
 # MAGIC %restart_python
 
@@ -18,9 +39,16 @@ _ = load_dotenv(find_dotenv())
 
 import sys, os, glob, subprocess
 
+from packaging.version import Version
+
+# Newest by *version*, not by filename: a lexical sort puts 0.2.8 above
+# 0.2.10. ``Version`` also parses a dev wheel's ``+local`` tag correctly.
+def _wheel_version(wheel: str) -> Version:
+    return Version(os.path.basename(wheel).split("-")[1])
+
 _wheels = sorted(
     glob.glob("../dist/dao_ai-*.whl") or glob.glob("../../artifacts/.internal/dao_ai-*.whl"),
-    key=os.path.getmtime,
+    key=_wheel_version,
     reverse=True,
 )
 if _wheels:
@@ -41,36 +69,25 @@ nest_asyncio.apply()
 
 # COMMAND ----------
 
-from typing import Sequence
-import os
+# There is no `../config` discovery fallback. That directory does not exist in a
+# repo checkout, and discovery would pick the first YAML it happened to find, so
+# `config-path` is the single input. It defaults to a shipped example; point it at
+# any other config under ../examples.
+dbutils.widgets.text(
+    name="config-path",
+    defaultValue="../examples/99_complete_applications/hardware_store/hardware_store.yaml",
+)
 
-def find_yaml_files_os_walk(base_path: str) -> Sequence[str]:
-    if not os.path.exists(base_path):
-        raise FileNotFoundError(f"Base path does not exist: {base_path}")
-    
-    if not os.path.isdir(base_path):
-        raise NotADirectoryError(f"Base path is not a directory: {base_path}")
-    
-    yaml_files = []
-    
-    for root, dirs, files in os.walk(base_path):
-        for file in files:
-            if file.lower().endswith(('.yaml', '.yml')):
-                yaml_files.append(os.path.join(root, file))
-    
-    return sorted(yaml_files)
+widget_path: str | None = dbutils.widgets.get("config-path") or None
+if not widget_path:
+    raise ValueError(
+        "No config to run: the `config-path` widget is empty. Set it to a config "
+        "YAML — relative to this notebook (e.g. "
+        "`../examples/99_complete_applications/hardware_store/hardware_store.yaml`) "
+        "or an absolute workspace path."
+    )
 
-# COMMAND ----------
-
-dbutils.widgets.text(name="config-path", defaultValue="")
-
-config_files: Sequence[str] = find_yaml_files_os_walk("../config")
-dbutils.widgets.dropdown(name="config-paths", choices=config_files, defaultValue=next(iter(config_files), ""))
-
-config_path: str | None = dbutils.widgets.get("config-path") or None
-project_path: str = dbutils.widgets.get("config-paths") or None
-
-config_path: str = config_path or project_path
+config_path: str = widget_path
 
 print(config_path)
 
@@ -106,11 +123,25 @@ from rich import print as pprint
 apps_root: Path = (
     Path.cwd().parent / "examples" / "99_complete_applications"
 )
-projects: Sequence[str] = sorted(
-    item.name
-    for item in apps_root.iterdir()
-    if item.is_dir() and (item / "examples.yaml").exists()
+projects: Sequence[str] = (
+    sorted(
+        item.name
+        for item in apps_root.iterdir()
+        if item.is_dir() and (item / "examples.yaml").exists()
+    )
+    if apps_root.is_dir()
+    else []
 )
+if not projects:
+    # The same trap the `config-path` widget above used to have: `iterdir()`
+    # raises `FileNotFoundError` on a missing directory and `dropdown` rejects an
+    # empty `choices` list, so both cases have to be caught *before* the widget.
+    raise ValueError(
+        f"No inference examples found under {apps_root}: this cell needs the "
+        "repo's `examples/` tree as a sibling of `notebooks/`. Upload the repo "
+        "rather than this notebook alone, or stop here — the agent built above "
+        "is already usable, just call it with your own input."
+    )
 
 dbutils.widgets.dropdown(name="example-project", defaultValue=projects[0], choices=projects)
 project: str = dbutils.widgets.get("example-project")
@@ -125,10 +156,13 @@ if examples_path.exists():
 
   example_names: Sequence[str] = sorted(examples.keys())
 
-  dbutils.widgets.dropdown(name="example", defaultValue=example_names[0], choices=example_names)
-  chosen_example: dict[str, Any] = dbutils.widgets.get("example")
+  # An `examples.yaml` with no `examples:` block would hit the same empty-choices
+  # rejection; leave the widget uncreated and fall through to the empty defaults.
+  if example_names:
+    dbutils.widgets.dropdown(name="example", defaultValue=example_names[0], choices=example_names)
+    chosen_example: dict[str, Any] = dbutils.widgets.get("example")
 
-  chosen_input_example = examples.get(chosen_example, {})
+    chosen_input_example = examples.get(chosen_example, {})
 
 pprint(chosen_example)
 pprint(chosen_input_example)

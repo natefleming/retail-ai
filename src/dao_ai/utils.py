@@ -157,31 +157,6 @@ def dev_local_version(pyproject_path: Path) -> Iterator[None]:
         pyproject_path.write_text(original)
 
 
-def find_config_files(base_path: str | Path) -> list[str]:
-    """Config YAML files under ``base_path``, sorted; ``[]`` if it is not a directory.
-
-    Populates the ``config-paths`` dropdown in every pipeline step notebook, which
-    lets an interactive run pick a config out of the bundle's ``../config`` dir. A
-    deployed job always passes an explicit ``config-path`` widget value instead, so
-    a missing directory is tolerated rather than raised — the dropdown is a
-    convenience, not a requirement.
-
-    Lives here rather than in each notebook because it was copied into all nine of
-    them and had already drifted into four spellings.
-    """
-    if not os.path.isdir(base_path):
-        return []
-
-    yaml_files: list[str] = []
-    for root, _dirs, files in os.walk(base_path):
-        file_name: str
-        for file_name in files:
-            if file_name.lower().endswith((".yaml", ".yml")):
-                yaml_files.append(os.path.join(root, file_name))
-
-    return sorted(yaml_files)
-
-
 def find_dev_wheel() -> Path | None:
     """Find an existing dao-ai wheel in known locations.
 
