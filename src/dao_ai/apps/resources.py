@@ -897,6 +897,17 @@ def generate_app_resources(config: AppConfig) -> list[dict[str, Any]]:
     # Extract secrets from the entire config
     resources.extend(_extract_secrets_from_config(config))
 
+    # Databricks Apps enforces a 2-30 character resource-name rule, and this
+    # path has no uniquify pass of its own, so normalize every name once here
+    # against a single shared set. Doing it centrally lets each extractor use
+    # its natural mapping key, rules out cross-type collisions that the
+    # per-extractor sets above cannot see, and covers any extractor added
+    # later. Resources are walked in extraction order, so the first emitter of
+    # a name keeps it and later ones take the numeric suffix.
+    used_names: set[str] = set()
+    for resource in resources:
+        resource["name"] = _unique_resource_name(resource["name"], used_names)
+
     logger.info(f"Generated {len(resources)} app resources from config")
     return resources
 

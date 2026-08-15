@@ -17,8 +17,23 @@ from dao_ai.apps.resources import (
     _extract_table_resources,
     _extract_warehouse_resources,
     _unique_resource_name,
+    generate_app_resources,
 )
-from dao_ai.config import FunctionModel, TableModel, WarehouseModel
+from dao_ai.config import (
+    AgentModel,
+    AppConfig,
+    AppModel,
+    ConnectionModel,
+    FunctionModel,
+    GenieRoomModel,
+    LLMModel,
+    ResourcesModel,
+    SecretVariableModel,
+    ServicePrincipalModel,
+    TableModel,
+    VolumeModel,
+    WarehouseModel,
+)
 
 
 @pytest.mark.unit
@@ -82,6 +97,7 @@ class TestExtractResourcesSanitizeNames:
         assert len(names) == len(set(names))  # no collision
         assert all(len(n) <= 30 for n in names)
 
+
 @pytest.mark.unit
 class TestWarehouseResourceNamesSanitized:
     """A warehouse derived from a Genie room is keyed ``<room-key>_warehouse``.
@@ -140,3 +156,108 @@ class TestWarehouseResourceNamesSanitized:
 
         assert _extract_warehouse_resources(warehouses) == []
 
+
+@pytest.mark.unit
+class TestGenerateAppResourcesNormalizesEveryName:
+    """``generate_app_resources`` normalizes names centrally.
+
+    Sanitizing inside individual extractors could only ever cover the types that
+    remembered to do it, and each extractor's ``used`` set is blind to the other
+    eleven — two types emitting the same 30-char name would ship two identically
+    named resources, leaving any ``value_from`` binding ambiguous. The single
+    pass over the assembled list is what makes the guarantee global.
+    """
+
+    @staticmethod
+    def _config(**resource_kwargs: object) -> AppConfig:
+        llm = LLMModel(name="databricks-claude-sonnet-4-5")
+        agent = AgentModel(name="a", model=llm)
+        return AppConfig(
+            resources=ResourcesModel(llms={"default_llm": llm}, **resource_kwargs),
+            agents={"a": agent},
+            app=AppModel(name="normalize-test", agents=[agent]),
+        )
+
+    def test_long_genie_room_key_is_brought_within_limit(self) -> None:
+        """``_extract_genie_resources`` emits the mapping key verbatim; a 42-char
+        room key produced a 43-char resource name that the Apps API rejects.
+        """
+        key = "retail_inventory_genie_room_for_the_stores"
+        config = self._config(
+            genie_rooms={key: GenieRoomModel(space_id="01f1539923891")}
+        )
+
+        resources = generate_app_resources(config)
+        genie = [r for r in resources if r.get("type") == "genie-space"]
+
+        assert len(genie) == 1
+        assert 2 <= len(genie[0]["name"]) <= 30
+
+    def test_names_are_unique_across_resource_types(self) -> None:
+        """A warehouse and a volume keyed to the same 30-char prefix must not
+        both claim that name.
+        """
+        shared = "shared_prefix_that_is_quite_long_indeed"
+        config = self._config(
+            warehouses={shared: WarehouseModel(name="wh", warehouse_id="w1")},
+            volumes={shared: VolumeModel(name="cat.sch.vol")},
+        )
+
+        names = [r["name"] for r in generate_app_resources(config)]
+
+        assert len(names) == len(set(names))
+        assert all(2 <= len(n) <= 30 for n in names)
+
+    def test_every_name_obeys_the_limit(self) -> None:
+        long_key = "an_extremely_long_resource_mapping_key_beyond_the_limit"
+        config = self._config(
+            warehouses={f"{long_key}_wh": WarehouseModel(name="w", warehouse_id="w1")},
+            genie_rooms={f"{long_key}_genie": GenieRoomModel(space_id="sp1")},
+            volumes={f"{long_key}_vol": VolumeModel(name="cat.sch.vol")},
+            connections={f"{long_key}_conn": ConnectionModel(name="my_conn")},
+        )
+
+        names = [r["name"] for r in generate_app_resources(config)]
+
+        assert names, "expected resources to be generated"
+        assert all(2 <= len(n) <= 30 for n in names)
+        assert len(names) == len(set(names))
+
+    def test_secret_and_warehouse_wanting_the_same_name_stay_distinct(self) -> None:
+        """The realistic cross-type collision, and the one no per-extractor set
+        could catch: a secret resource is named ``<scope>_<key>``, so a warehouse
+        keyed after that same pair wants the identical name. Both used to ship as
+        ``sc_wh``, leaving two same-named app resources.
+        """
+        llm = LLMModel(name="databricks-claude-sonnet-4-5")
+        agent = AgentModel(name="a", model=llm)
+        service_principal = ServicePrincipalModel(
+            name="dao-ai-sp",
+            client_id=SecretVariableModel(scope="sc", secret="wh"),
+            client_secret=SecretVariableModel(scope="sc", secret="cs"),
+        )
+        config = AppConfig(
+            resources=ResourcesModel(
+                llms={"default_llm": llm},
+                warehouses={"sc_wh": WarehouseModel(name="wh", warehouse_id="w1")},
+            ),
+            agents={"a": agent},
+            app=AppModel(
+                name="normalize-test",
+                agents=[agent],
+                service_principal=service_principal,
+            ),
+        )
+
+        resources = generate_app_resources(config)
+        names = [r["name"] for r in resources]
+        warehouse = next(r for r in resources if r.get("type") == "sql-warehouse")
+
+        assert len(names) == len(set(names))
+        # Extraction order decides the winner: warehouses are extracted before
+        # secrets, so the warehouse keeps the clean name.
+        assert warehouse["name"] == "sc_wh"
+        assert {r["name"] for r in resources if r.get("type") == "secret"} == {
+            "sc_wh_1",
+            "sc_cs",
+        }
