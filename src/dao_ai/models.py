@@ -78,7 +78,7 @@ from dao_ai.messages import (
     has_mlflow_responses_messages,
     last_human_message,
 )
-from dao_ai.state import Context
+from dao_ai.state import Context, context_configurable_fields
 
 
 def _extract_reasoning_text(block: dict[str, Any]) -> str | None:
@@ -1926,11 +1926,11 @@ class LanggraphResponsesAgent(ResponsesAgent):
         if context.user_id:
             configurable["user_id"] = context.user_id
 
-        # Include all extra fields from context (beyond user_id and thread_id)
-        context_dict = context.model_dump()
-        for key, value in context_dict.items():
-            if key not in {"user_id", "thread_id"} and value is not None:
-                configurable[key] = value
+        # Include the caller's extra fields so the block round-trips as the next
+        # request's custom_inputs. Credential-bearing fields — above all the
+        # injected request ``headers``, which carry the caller's live OBO bearer —
+        # are filtered out; see dao_ai.state.context_configurable_fields.
+        configurable.update(context_configurable_fields(context))
 
         # Build session section with accumulated state
         # Note: conversation_id is included here as an alias of thread_id

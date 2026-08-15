@@ -13,6 +13,7 @@ import mlflow  # noqa: E402
 from mlflow.models import ModelConfig  # noqa: E402
 from mlflow.pyfunc import ResponsesAgent  # noqa: E402
 
+from dao_ai._tracing import install_trace_redaction  # noqa: E402
 from dao_ai.config import AppConfig  # noqa: E402
 from dao_ai.logging import (  # noqa: E402
     configure_logging,
@@ -80,6 +81,11 @@ config.initialize()
 
 mlflow.langchain.autolog(run_tracer_inline=True)
 suppress_autolog_context_warnings()
+
+# Must follow autolog: strips credential-shaped entries out of span payloads
+# before export. Model Serving reaches the same traced `apredict` as Apps, and a
+# caller can put a bearer in `custom_inputs.configurable` here too.
+install_trace_redaction()
 
 from loguru import logger  # noqa: E402
 

@@ -19,9 +19,74 @@ DIAGNOSTIC_ENV_FLAG: str = "DAO_AI_TRACE_ENV_DUMP"
 # Keys whose *values* must be redacted. Match on the key name — value
 # heuristics (looking for JWT-looking strings, base64 blobs, etc.) are
 # too noisy to be trustworthy at boot time.
+#
+#
+# ``AUTHORIZATION`` and ``BEARER`` cover config and env keys that name a bearer
+# directly. Note the deliberate absence of a bare ``AUTH``: ``TRACE_RELEVANT_KEYS``
+# below surfaces ``DATABRICKS_AUTH_TYPE`` verbatim on purpose, and ``AUTHORIZATION``
+# does not match ``AUTH_TYPE``.
+#
+# This is a *substring* match, which over-matches by design: over-redacting an
+# env var costs an operator one puzzled moment, while under-redacting prints a
+# credential. Surfaces that cannot absorb a false positive — anything the caller
+# has to get back in order to resend it — want :func:`is_secret_field_name`.
 _SECRET_KEY_PATTERN: re.Pattern[str] = re.compile(
-    r"(SECRET|TOKEN|PASSWORD|KEY|CREDENTIAL|COOKIE|SESSION)",
+    r"(SECRET|TOKEN|PASSWORD|KEY|CREDENTIAL|COOKIE|SESSION|AUTHORIZATION|BEARER)",
     re.IGNORECASE,
+)
+
+# Whole-segment credential markers for *field-name* surfaces. A name is split on
+# separators and camelCase humps, then each segment is matched exactly, so
+# ``api_key`` and ``apiKey`` are caught while ``monkey_wrench`` and ``session_id``
+# survive — both of which the substring pattern above eats.
+#
+# ``session`` is absent on purpose: a caller-supplied ``session_id`` is metadata
+# that has to round-trip, and a session *credential* is caught by ``token`` or
+# ``cookie`` instead.
+_SECRET_NAME_SEGMENTS: frozenset[str] = frozenset(
+    {
+        "apikey",
+        "authorization",
+        "bearer",
+        "cookie",
+        "cookies",
+        "credential",
+        "credentials",
+        "key",
+        "keys",
+        "passwd",
+        "password",
+        "passwords",
+        "pwd",
+        "secret",
+        "secrets",
+        "token",
+        "tokens",
+    }
+)
+
+# Credential names that carry no separator to split on, so segment matching alone
+# misses them. Only unambiguous compounds belong here — the point of this list is
+# to stay precise, so no ``monkey``-catching prefix or suffix matching.
+_SECRET_NAME_COMPOUNDS: frozenset[str] = frozenset(
+    {
+        "accesstoken",
+        "apikeys",
+        "authtoken",
+        "bearertoken",
+        "clientsecret",
+        "idtoken",
+        "privatekey",
+        "refreshtoken",
+        "secretkey",
+        "sessiontoken",
+    }
+)
+
+# Separators and camelCase humps, so ``x-forwarded-access-token``, ``api_key``
+# and ``apiKey`` all split into their words.
+_NAME_SEGMENT_BOUNDARY: re.Pattern[str] = re.compile(
+    r"[^A-Za-z0-9]+|(?<=[a-z0-9])(?=[A-Z])"
 )
 
 # Keys we care about surfacing verbatim for the MS-trace investigation.
@@ -48,6 +113,39 @@ def is_enabled() -> bool:
     return os.environ.get(DIAGNOSTIC_ENV_FLAG, "").lower() in ("1", "true", "yes")
 
 
+def is_secret_key(key: str) -> bool:
+    """Whether ``key``'s *name* marks its value as credential-shaped.
+
+    Substring match, tuned for env-var and config-key dumps where redacting one
+    key too many is harmless. For a field the caller must be able to read back,
+    use :func:`is_secret_field_name`.
+    """
+    return bool(_SECRET_KEY_PATTERN.search(key))
+
+
+def is_secret_field_name(name: str) -> bool:
+    """Whether ``name`` names a credential, matching whole words only.
+
+    For surfaces where a false positive silently deletes a field the caller
+    needs: the ``configurable`` block echoed back by
+    ``dao_ai.state.context_configurable_fields``, and span payloads redacted by
+    ``dao_ai._tracing.redaction``. ``api_key``, ``apiKey`` and
+    ``x-forwarded-access-token`` match; ``session_id``, ``monkey_wrench`` and
+    ``idempotency_key``'s sibling ``store_num`` do not.
+
+    Note that a whole-segment ``key`` *is* treated as credential-shaped, so
+    ``cache_key``-style names are filtered too — catching ``api_key`` and
+    ``openai_key`` is worth that much over-matching, and a caller who needs a
+    cache key echoed can rename it.
+    """
+    segments: list[str] = [
+        segment.lower() for segment in _NAME_SEGMENT_BOUNDARY.split(name) if segment
+    ]
+    if any(segment in _SECRET_NAME_SEGMENTS for segment in segments):
+        return True
+    return "".join(segments) in _SECRET_NAME_COMPOUNDS
+
+
 def redact_value(key: str, value: str) -> str:
     """Return ``value`` unchanged, or a redacted placeholder if ``key`` looks
     like a credential.
@@ -55,7 +153,7 @@ def redact_value(key: str, value: str) -> str:
     Preserves length + first/last two chars so the operator can eyeball
     "did the value round-trip" without leaking the secret itself.
     """
-    if not _SECRET_KEY_PATTERN.search(key):
+    if not is_secret_key(key):
         return value
     if not value:
         return "<empty>"

@@ -18,6 +18,8 @@ from langgraph.graph import MessagesState
 from pydantic import BaseModel, ConfigDict, Field
 from typing_extensions import NotRequired
 
+from dao_ai.diagnostics import is_secret_field_name
+
 
 class GenieSpaceState(BaseModel):
     """State for a single Genie space/conversation.
@@ -276,3 +278,49 @@ class Context(BaseModel):
         """
         configurable = config.get("configurable", {})
         return cls(**configurable)
+
+
+# Declared ``Context`` fields that must never be echoed back to the caller in a
+# ``configurable`` block.
+#
+# ``headers`` is the load-bearing entry. ``dao_ai.apps.handlers`` injects the
+# *entire* inbound header map onto the context so tools can authenticate as the
+# calling user — including the live bearer in ``x-forwarded-access-token``. It is
+# re-injected server-side on every request, so a caller never supplies it and
+# never needs it back; echoing it would put a live token into ``custom_outputs``,
+# into user-facing middleware error text, and from there into the MLflow trace
+# and any saved transcript.
+#
+# ``user_id`` and ``thread_id`` are excluded because every call site emits them
+# explicitly (sometimes as a ``<your_user_id>``-style placeholder).
+_NON_CONFIGURABLE_CONTEXT_FIELDS: frozenset[str] = frozenset(
+    {"user_id", "thread_id", "headers"}
+)
+
+
+def context_configurable_fields(context: Context) -> dict[str, Any]:
+    """Caller-supplied ``configurable`` entries that are safe to echo back.
+
+    ``Context`` is ``extra="allow"`` by design — arbitrary caller fields land as
+    attributes and echoing them is the point (that is how a caller sees which
+    fields it already provided). So this cannot be an allowlist. Instead it drops
+    the declared fields above, plus any extra whose *name* looks credential-shaped
+    (``authorization``, ``api_key``, …), which a caller can otherwise smuggle in
+    through the extras channel.
+
+    The name test is :func:`~dao_ai.diagnostics.is_secret_field_name`, which
+    matches whole words rather than substrings. This surface is the reason that
+    distinction exists: a caller reads its own fields back out of this block, so
+    swallowing ``session_id`` or ``monkey_wrench`` because they contain
+    ``session``/``key`` breaks the round-trip the block is for. Callers that need
+    a filtered field back are handled at the call site — see
+    ``CustomFieldValidationMiddleware``, which marks such a field
+    "keep what you sent" rather than telling the caller to paste a placeholder.
+    """
+    return {
+        key: value
+        for key, value in context.model_dump().items()
+        if key not in _NON_CONFIGURABLE_CONTEXT_FIELDS
+        and value is not None
+        and not is_secret_field_name(key)
+    }
