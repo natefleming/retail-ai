@@ -367,14 +367,22 @@ def _extract_warehouse_resources(
 
     Skips resources where ``on_behalf_of_user=True`` (served via
     ``user_api_scopes``).
+
+    See ``_extract_table_resources``: the dict key becomes the Apps resource
+    *name*, so it has to clear the 2–30 char rule. That used to be a hand-
+    declared config's problem alone; a warehouse derived from a Genie room is
+    keyed ``<room-key>_warehouse``, which spends 10 of the 30 characters before
+    the room key is even considered, so any room key past 20 chars would 400
+    the deploy.
     """
     resources: list[dict[str, Any]] = []
+    used_names: set[str] = set()
     for key, warehouse in warehouses.items():
         if warehouse.on_behalf_of_user:
             continue
         warehouse_id = value_of(warehouse.warehouse_id)
         resource: dict[str, Any] = {
-            "name": key,
+            "name": _unique_resource_name(key, used_names),
             "type": "sql-warehouse",
             "sql_warehouse_id": warehouse_id,
             "permissions": [{"level": p} for p in DEFAULT_PERMISSIONS["sql-warehouse"]],
@@ -445,11 +453,15 @@ def _extract_genie_warehouse_resources(
 
     Each Genie space is backed by a SQL warehouse. The app's service principal
     needs CAN_USE on that warehouse to execute queries through Genie.
-    Skips warehouses already declared in resources.warehouses.
+    Skips warehouses already declared in resources.warehouses, and — like every
+    sibling extractor — rooms served on behalf of the calling user, whose own
+    warehouse access applies instead.
     """
     resources: list[dict[str, Any]] = []
     seen_ids: set[str] = set(existing_warehouse_ids)
     for key, genie in genie_rooms.items():
+        if genie.on_behalf_of_user:
+            continue
         warehouse = genie.warehouse
         if warehouse is None:
             continue
@@ -1629,7 +1641,13 @@ def generate_deployment_resources(
 
     # Add trace location resources (warehouse + OTEL tables)
     if config.app and config.app.trace_location:
-        # Collect existing warehouse IDs to avoid duplicates
+        # Collect existing warehouse IDs to avoid duplicates. A Genie room's
+        # warehouse — declared inline or discovered — is in
+        # ``resources.warehouses`` by the time any deploy path gets here
+        # (``ResourcesModel``'s validator plus the post-resolution pass in
+        # ``_resolve_all_resources``), so it is already among the SDK resources
+        # above; there is nothing extra to extract per room. Scoped to this
+        # branch because the trace-location extractor is its only consumer.
         existing_wh_ids: set[str] = set()
         if config.resources:
             for wh in config.resources.warehouses.values():
@@ -1637,6 +1655,7 @@ def generate_deployment_resources(
                     existing_wh_ids.add(value_of(wh.warehouse_id))
                 except Exception:
                     pass
+
         resources.extend(
             _extract_raw_trace_location_resources(
                 config.app.trace_location,
