@@ -1121,8 +1121,9 @@ in a config used to advertise the same subject-free text, so a supervisor with t
 Genie tools had no signal to route on and picked more or less at random. Giving
 each space a `description` — or letting it be discovered — is the fix.
 
-**Example questions.** When the room has `sample_questions` (else the `question`
-of each `example_sqls` pair), up to ten are appended as few-shot routing hints:
+**Example questions.** Set `include_example_questions: true` and, when the room has
+`sample_questions` (else the `question` of each `example_sqls` pair), up to ten are
+appended to the tool description as few-shot routing hints:
 
 ```
 Example questions this tool can answer:
@@ -1134,27 +1135,20 @@ SQL bodies are deliberately never included: the description is read by the
 calling LLM for routing, Genie already holds the SQL on its own space, and the
 bodies would cost hundreds of tokens on every LLM call for no routing gain.
 
-**Writing the tool's `description` suppresses the block.** That string is the
-prompt surface, so authoring it means "this is my text, don't editorialize". A
-*room* description keeps the questions: it is resource metadata that the
-questions exist to enrich, and suppressing there would hand the customer who
-documented their space *less* routing signal than one who documented nothing,
-while silently discarding `sample_questions` written into the config.
+**The flag is opt-in in every case**, and independent of how the base text was
+chosen — the tool description is prompt surface, so nothing lands there that you
+did not ask for, and up to ten questions per Genie tool do not ride in every LLM
+call by default:
 
-`include_example_questions` overrides that in either direction — it is tri-state,
-and unset is not the same as `false`:
+| `include_example_questions` | base text | example block |
+|---|---|---|
+| `false` (default) | your `description`, else room / discovered / fallback | no |
+| `true` | your `description`, else room / discovered / fallback | **yes**, if questions exist |
 
-| tool `description` | `include_example_questions` | base text | example block |
-|---|---|---|---|
-| set | unset (default) | your text | **no** — your string wins |
-| set | `true` | your text | **yes**, if questions exist |
-| set | `false` | your text | no |
-| — | unset (default) | room / discovered / fallback | **yes**, if questions exist |
-| — | `true` | room / discovered / fallback | yes |
-| — | `false` | room / discovered / fallback | no |
-
-`true` is the state the flag exists for: your own wording *and* the auto-appended
-questions.
+Setting it alongside your own `description` is the combination the flag exists
+for: your wording *and* the auto-appended questions. If the room has example
+questions and the flag is off, dao-ai logs an `INFO` line naming the space, so
+the available signal is discoverable when you are looking for it.
 
 ```yaml
 tools:
@@ -1167,14 +1161,12 @@ tools:
       include_example_questions: true    # keep my wording, append the questions too
 ```
 
-The flag is deliberately tri-state rather than a boolean defaulting to true
-because intent has to survive the deploy bake. Model Serving dumps the config
-with `exclude_none=True` into the logged `model_config` and Apps ships rendered
-YAML text, so `model_fields_set` — which is how a plain boolean would tell "unset"
-from "explicitly true" — does not round-trip. A tri-state carries the intent as a
-*value*: unset drops out and re-parses as the default, while `true`/`false` are
-preserved literally, and the tool description comes out byte-identical in local,
-Apps, and Model Serving.
+Intent survives the deploy bake because `false` and `true` are both ordinary
+values. Model Serving dumps the config with `exclude_none=True` into the logged
+`model_config` and Apps ships rendered YAML text, so `model_fields_set` — which is
+how a boolean would tell "unset" from "explicitly set" — does not round-trip; with
+an unconditional default there is nothing to distinguish, and the tool description
+comes out byte-identical in local, Apps, and Model Serving.
 
 **`preserve_question`** (default `false`) is a separate knob on the same tool. It
 constrains the question sent *to* Genie, not Genie's answer: when Genie is a tool,
@@ -1191,10 +1183,13 @@ still allowing a genuinely multi-tool request to be split across tools.
 **Discovery, and why it is identical in all three runtimes.** A room declared
 with only a `space_id` — the common case, since Genie titles are not unique —
 carries no local text at all. `GenieRoomModel.ensure_resolved()` back-fills
-`name`, `description`, and `sample_questions` from the live space. Each runtime
-gets that same result, by a different route:
+`name`, `description`, and `sample_questions` from the live space. `name` and
+`description` feed the tool description directly; `sample_questions` reach it only
+with `include_example_questions: true`, and are separately what a room writes back
+into its space when it *provisions* one. Each runtime gets the same resolved
+values, by a different route:
 
-| Runtime | How the discovered text reaches the tool |
+| Runtime | How the discovered values reach the container |
 |---|---|
 | Local | `ensure_resolved()` runs during `AppConfig.from_file(initialize=True)`. |
 | Model Serving | Discovery runs at deploy time and the resolved config is baked into the logged MLflow `model_config`; the container needs **no** Genie call at model load. |
@@ -1222,7 +1217,9 @@ A deployed identity usually holds `CAN_RUN` — that is all an app's Genie resou
 confers. `_get_space_details()` asks for the serialized space (the only source of
 sample questions) and retries without it when that read is denied, so a
 `CAN_RUN`-only identity still recovers the space's own description instead of
-losing everything to one failed call. The questions still come from the bake.
+losing everything to one failed call. The questions still come from the bake — the
+only chance to capture them, which is what keeps an opted-in tool's routing hints
+and a provisioning room's declared questions from vanishing once deployed.
 
 Tool construction itself never calls the Genie API; if discovery was unavailable,
 the fallback text is used rather than an error.

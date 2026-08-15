@@ -310,7 +310,7 @@ def _build_tool_description(
     description: str | None,
     preserve_question: bool,
     genie_room: GenieRoomModel | None = None,
-    include_example_questions: bool | None = None,
+    include_example_questions: bool = False,
 ) -> str:
     """Assemble the ``@tool`` description string.
 
@@ -321,30 +321,37 @@ def _build_tool_description(
     advertises byte-identical, subject-free text and routing becomes a coin
     flip.
 
-    Example questions are appended by default only when no ``description`` was
-    supplied: that string is the prompt surface, so authoring it means "this is
-    my text, don't editorialize", whereas a room/space description is resource
-    metadata that the questions are meant to enrich.
-    ``include_example_questions`` overrides that either way — ``True`` appends
-    them even alongside a hand-written description, ``False`` never appends.
+    Example questions are appended only when ``include_example_questions`` is
+    set: they are prompt surface, so the config author opts in rather than
+    inheriting up to ``_MAX_EXAMPLE_QUESTIONS`` of them in every LLM call. The
+    base text above is chosen independently, so adding a ``description`` no
+    longer silently removes the questions block.
 
     Then appends the preserve-question clause when ``preserve_question`` is set
     — even for a user-supplied description, so the flag always takes effect —
     and finally the function-args docs. Shared by both tool-builder impls.
     """
-    room_description: str | None = getattr(genie_room, "description", None)
+    room_description: str | None = genie_room.description if genie_room else None
+    room_name: str | None = genie_room.name if genie_room else None
     base: str = (
         description
         if description is not None
-        else room_description or _default_description(getattr(genie_room, "name", None))
+        else room_description or _default_description(room_name)
     )
 
-    append_questions: bool = (
-        include_example_questions
-        if include_example_questions is not None
-        else description is None
-    )
-    questions: list[str] = _example_questions(genie_room) if append_questions else []
+    questions: list[str] = _example_questions(genie_room)
+    if not include_example_questions:
+        if questions and genie_room is not None:
+            # ``name`` is None for a room referenced by bare ``space_id`` until
+            # it resolves, so fall back to the id — an unnamed space would make
+            # the line unactionable.
+            logger.info(
+                "Genie space has example questions that are not in the tool "
+                "description; set include_example_questions: true to append them "
+                "as routing hints",
+                space=room_name or value_of(genie_room.space_id),
+            )
+        questions = []
     if questions:
         base = "\n".join(
             [
@@ -387,7 +394,7 @@ def create_genie_tool(
     persist_conversation: bool = True,
     truncate_results: bool = False,
     preserve_question: bool = False,
-    include_example_questions: bool | None = None,
+    include_example_questions: bool = False,
     lru_cache_parameters: GenieLRUCacheParametersModel | dict[str, Any] | None = None,
     context_aware_cache_parameters: (
         GenieContextAwareCacheParametersModel | dict[str, Any] | None
@@ -431,10 +438,10 @@ def create_genie_tool(
             user's question through exactly as asked — no rephrasing,
             decomposition, or added qualifiers. Default ``False`` preserves the
             existing behavior.
-        include_example_questions: Whether the Genie space's example questions
-            are appended to the tool description. ``None`` (default) appends
-            them only when no ``description`` was supplied; ``True`` appends them
-            even alongside a supplied description; ``False`` never appends.
+        include_example_questions: When ``True``, append the Genie space's
+            example questions to the tool description as few-shot routing hints.
+            Default ``False`` never appends them, whether or not a
+            ``description`` was supplied.
         lru_cache_parameters: LRU cache config for fast exact-match SQL caching.
         context_aware_cache_parameters: PostgreSQL/Lakebase context-aware cache config.
         in_memory_context_aware_cache_parameters: In-memory context-aware cache config.
@@ -491,7 +498,7 @@ def create_genie_toolkit(
     persist_conversation: bool = True,
     truncate_results: bool = False,
     preserve_question: bool = False,
-    include_example_questions: bool | None = None,
+    include_example_questions: bool = False,
     lru_cache_parameters: GenieLRUCacheParametersModel | dict[str, Any] | None = None,
     context_aware_cache_parameters: (
         GenieContextAwareCacheParametersModel | dict[str, Any] | None
@@ -537,7 +544,7 @@ def _create_simple_genie_tool(
     persist_conversation: bool,
     truncate_results: bool,
     preserve_question: bool = False,
-    include_example_questions: bool | None = None,
+    include_example_questions: bool = False,
 ) -> Callable[..., Command]:
     """Build the uncached single-tool variant (no cache, no feedback tool)."""
     logger.debug(
@@ -649,7 +656,7 @@ def _create_genie_toolkit_impl(
     ),
     max_consecutive_cache_hits: int | None,
     preserve_question: bool = False,
-    include_example_questions: bool | None = None,
+    include_example_questions: bool = False,
 ) -> GenieToolkit:
     """Build the cached toolkit variant (query + feedback, optional cache layers)."""
     logger.debug(

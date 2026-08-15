@@ -1148,7 +1148,10 @@ class TestSampleQuestionHydration:
 
         from dao_ai.tools.genie import create_genie_tool
 
-        tool = create_genie_tool(genie_room=room)
+        # ``include_example_questions`` is opt-in, so the questions only reach
+        # the description when asked for; the *discovery* above is what this
+        # test is about, and it has to work either way.
+        tool = create_genie_tool(genie_room=room, include_example_questions=True)
         assert "Store sales, inventory and returns." in tool.description
         assert "- How many stores per state?" in tool.description
         assert "- Top 5 SKUs last quarter?" in tool.description
@@ -1243,7 +1246,9 @@ class TestSampleQuestionHydration:
             "_get_space_details",
             side_effect=AssertionError("Genie API called in the serving container"),
         ):
-            tool = create_genie_tool(genie_room=rebuilt)
+            tool = create_genie_tool(genie_room=rebuilt, include_example_questions=True)
 
         assert "Store sales, inventory and returns." in tool.description
+        # The questions themselves are the parity claim: they were discovered
+        # before the dump and must be readable out of it, without a Genie call.
         assert "- How many stores per state?" in tool.description
