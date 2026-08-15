@@ -5729,17 +5729,10 @@
           "type": "boolean"
         },
         "include_example_questions": {
-          "anyOf": [
-            {
-              "type": "boolean"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "description": "Whether the Genie space's example questions are appended to the tool description, giving the supervisor concrete routing signal. Null (default) appends them only when no 'description' is set on this tool \u2014 that string is the prompt surface, so authoring it means 'this is my text'. True appends them even alongside your own description; false never appends them.",
-          "title": "Include Example Questions"
+          "default": false,
+          "description": "When true, append the Genie space's example questions to the tool description, giving the supervisor concrete routing signal. Opt-in in every case: default false never appends them, whether or not a 'description' is set on this tool, so nothing reaches the prompt that you did not ask for.",
+          "title": "Include Example Questions",
+          "type": "boolean"
         },
         "lru_cache": {
           "anyOf": [

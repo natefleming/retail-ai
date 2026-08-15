@@ -263,16 +263,20 @@ def _bake_genie_room_details(rendered_yaml: str) -> str:
     """Back-fill each Genie room's ``name``/``description``/``sample_questions``
     from its live space, so the deployed app does not have to discover them.
 
-    Why this is needed for Apps specifically. Those three fields feed the Genie
-    *tool* description, which is how a supervisor tells two Genie tools apart.
-    :meth:`GenieRoomModel.ensure_resolved` back-fills them from the space, and
-    for Model Serving the result is baked into the logged ``model_config``. The
-    Apps bundle instead ships the rendered YAML *text*, so nothing resolved at
-    deploy time reaches the container — and in-container discovery cannot cover
-    for it, because an app's Genie resource grants only ``CAN_RUN`` while
-    reading space details requires ``CAN_EDIT``. Without this bake, a room
-    declared by bare ``space_id`` — the common shape, since Genie titles are not
-    unique — advertises only generic text once deployed.
+    Why this is needed for Apps specifically. ``name`` and ``description`` feed
+    the Genie *tool* description, which is how a supervisor tells two Genie tools
+    apart; ``sample_questions`` feed it as well for a tool that opts in with
+    ``include_example_questions: true``, and are written back into the
+    serialized-space payload when a room *provisions* its space.
+    :meth:`GenieRoomModel.ensure_resolved` back-fills all three, and for Model
+    Serving the result is baked into the logged ``model_config``. The Apps bundle
+    instead ships the rendered YAML *text*, so nothing resolved at deploy time
+    reaches the container. In-container discovery only partly covers for that: an
+    app's Genie resource grants ``CAN_RUN``, which is enough for the space title
+    and description, but ``sample_questions`` come out of the serialized space
+    payload, which needs ``CAN_EDIT``. So for a room declared by bare
+    ``space_id`` — the common shape, since Genie titles are not unique — deploy
+    time is the only time the questions can be captured at all.
 
     Baked values are properties of the *space*, so they are looked up once per
     distinct ``space_id`` using the deploying identity's credentials. Fields the

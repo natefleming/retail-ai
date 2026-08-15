@@ -304,11 +304,15 @@ def _app_config_content(config: AppConfig) -> tuple[bytes, str]:
     ``_bake_genie_room_details`` back-filling each Genie room's
     ``name``/``description``/``sample_questions`` — the same bake the DABs App
     bundle does. Without it a ``workflow up --mode apps`` deploy ships an unbaked
-    config and loses the example-questions block: the description survives because
-    the container's ``ensure_resolved`` back-fills it under ``CAN_RUN``, but the
-    serialized space payload needs ``CAN_EDIT``, which a deployed app SP does not
-    hold. Shape 3 needs nothing — it dumps objects ``initialize()`` already
-    resolved with the deployer's credentials.
+    config and the room loses its ``sample_questions``: ``name`` and
+    ``description`` survive because the container's ``ensure_resolved`` back-fills
+    them under ``CAN_RUN``, but the questions come out of the serialized space
+    payload, which needs ``CAN_EDIT`` — a permission a deployed app SP does not
+    hold. Two consumers need them there: a tool with
+    ``include_example_questions: true``, whose routing hints would silently go
+    missing, and space *provisioning*, which writes the declared questions back
+    into the payload. Shape 3 needs nothing — it dumps objects ``initialize()``
+    already resolved with the deployer's credentials.
 
     Best-effort, like the bake itself: any failure returns the unbaked bytes, so
     a deploy is never blocked by discovery.

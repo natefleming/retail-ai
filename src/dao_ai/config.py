@@ -6749,15 +6749,14 @@ class GenieToolModel(BaseFunctionModel):
             "questions' behavior."
         ),
     )
-    include_example_questions: Optional[bool] = Field(
-        default=None,
+    include_example_questions: bool = Field(
+        default=False,
         description=(
-            "Whether the Genie space's example questions are appended to the tool "
-            "description, giving the supervisor concrete routing signal. Null "
-            "(default) appends them only when no 'description' is set on this "
-            "tool — that string is the prompt surface, so authoring it means "
-            "'this is my text'. True appends them even alongside your own "
-            "description; false never appends them."
+            "When true, append the Genie space's example questions to the tool "
+            "description, giving the supervisor concrete routing signal. Opt-in "
+            "in every case: default false never appends them, whether or not a "
+            "'description' is set on this tool, so nothing reaches the prompt "
+            "that you did not ask for."
         ),
     )
     lru_cache: Optional[GenieLRUCacheParametersModel] = Field(

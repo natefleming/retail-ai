@@ -54,6 +54,7 @@ tools:
       name: my_genie_tool
       description: Answers questions about retail products and inventory
       genie_room: *retail_genie_room                # Reference to Genie room config
+      include_example_questions: true               # Also append the space's example questions as routing hints
 
 
 agents:

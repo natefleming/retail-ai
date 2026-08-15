@@ -3439,7 +3439,7 @@ def test_sample_questions_appended_and_sql_never_leaks() -> None:
             )
         ],
     )
-    description = _description_of(room)
+    description = _description_of(room, include_example_questions=True)
     assert "Example questions this tool can answer:" in description
     assert "- How many stores per state?" in description
     assert "- Top 5 SKUs last quarter?" in description
@@ -3463,7 +3463,7 @@ def test_example_sql_questions_used_when_no_sample_questions() -> None:
             ),
         ],
     )
-    description = _description_of(room)
+    description = _description_of(room, include_example_questions=True)
     assert "- What is total revenue?" in description
     assert "- Which store leads?" in description
     assert "SELECT" not in description
@@ -3478,7 +3478,7 @@ def test_example_questions_are_capped_and_deduplicated() -> None:
         description="Retail sales.",
         sample_questions=["dupe", "dupe", *[f"q{i}" for i in range(20)]],
     )
-    description = _description_of(room)
+    description = _description_of(room, include_example_questions=True)
     assert description.count("- dupe") == 1
     listed = [line for line in description.splitlines() if line.startswith("- ")]
     assert len(listed) == _MAX_EXAMPLE_QUESTIONS
@@ -3522,7 +3522,9 @@ def test_description_derivation_reaches_the_toolkit_path() -> None:
         description="Store sales, inventory and returns.",
         sample_questions=["How many stores per state?"],
     )
-    result = create_genie_tool(genie_room=room, enable_feedback=True)
+    result = create_genie_tool(
+        genie_room=room, include_example_questions=True, enable_feedback=True
+    )
     assert isinstance(result, GenieToolkit)
     query_description = result.get_tools()[0].description
     assert "Store sales, inventory and returns." in query_description
@@ -3549,7 +3551,7 @@ def test_tool_build_makes_no_genie_api_call() -> None:
             lambda self: (_ for _ in ()).throw(AssertionError("Genie API called"))
         ),
     ):
-        description = _description_of(room)
+        description = _description_of(room, include_example_questions=True)
 
     assert "Store sales, inventory and returns." in description
     assert "- How many stores per state?" in description
@@ -3559,14 +3561,13 @@ def test_tool_build_makes_no_genie_api_call() -> None:
 # Example-question gating (include_example_questions)
 # ---------------------------------------------------------------------------
 #
-# The tool ``description`` is the prompt surface: authoring it means "this is my
-# text, don't editorialize", so the example block is suppressed. A room/space
-# description is resource metadata that the questions are there to enrich, so it
-# keeps them. ``include_example_questions`` overrides that in either direction.
+# The tool description is prompt surface, so the example block is opt-in in every
+# case: ``include_example_questions`` defaults to ``False`` and is independent of
+# how the base text was chosen.
 
 
 def test_explicit_tool_description_suppresses_example_questions() -> None:
-    """Writing the tool description suppresses the block by default."""
+    """A tool description alone never carries the block."""
     room = GenieRoomModel(
         space_id=SPACE_ID,
         description="ROOM TEXT",
@@ -3578,12 +3579,12 @@ def test_explicit_tool_description_suppresses_example_questions() -> None:
     assert "How many stores per state?" not in description
 
 
-def test_room_description_keeps_example_questions() -> None:
-    """A config-declared room description still gets the questions appended.
+def test_room_description_alone_does_not_append_example_questions() -> None:
+    """A room description alone does not opt in either.
 
-    Suppressing here would give the customer who documented their space *less*
-    routing signal than one who documented nothing, and would silently discard
-    ``sample_questions`` written into the config.
+    The room text is still the *base* text — proving the base-text choice and the
+    append decision are independent, so adding or removing a tool ``description``
+    no longer silently changes whether the questions are advertised.
     """
     room = GenieRoomModel(
         space_id=SPACE_ID,
@@ -3592,29 +3593,31 @@ def test_room_description_keeps_example_questions() -> None:
     )
     description = _description_of(room)
     assert "Store sales, inventory and returns." in description
-    assert "- How many stores per state?" in description
+    assert "Example questions" not in description
+    assert "How many stores per state?" not in description
 
 
-def test_room_description_with_example_sqls_only_keeps_questions() -> None:
-    """Same rule for the fallback question source, and still no SQL."""
+def test_description_less_tool_does_not_append_example_questions() -> None:
+    """The case that used to append by default: no tool description at all.
+
+    Before the opt-in default this was the implicit "yes" branch, so it is the
+    one behavior change worth pinning directly.
+    """
     room = GenieRoomModel(
         space_id=SPACE_ID,
-        description="Store sales, inventory and returns.",
-        example_sqls=[
-            GenieExampleSql(
-                question="What is total revenue?", sql="SELECT sum(amount) FROM sales"
-            )
-        ],
+        name="Store Sales",
+        sample_questions=["How many stores per state?"],
     )
-    description = _description_of(room)
-    assert "- What is total revenue?" in description
-    assert "SELECT" not in description
+    assert "Example questions" not in _description_of(room)
+    assert "- How many stores per state?" in _description_of(
+        room, include_example_questions=True
+    )
 
 
-def test_include_example_questions_true_overrides_explicit_description() -> None:
-    """``True`` appends the block even alongside a hand-written description.
+def test_include_example_questions_true_alongside_explicit_description() -> None:
+    """``True`` appends the block alongside a hand-written description.
 
-    This is the case the tri-state exists for: my own wording *plus* the
+    This is the combination the flag exists for: my own wording *plus* the
     questions.
     """
     room = GenieRoomModel(
@@ -3631,7 +3634,7 @@ def test_include_example_questions_true_overrides_explicit_description() -> None
 
 
 def test_include_example_questions_false_suppresses_everywhere() -> None:
-    """``False`` wins over both description sources."""
+    """``False`` — the default — suppresses under both description sources."""
     room = GenieRoomModel(
         space_id=SPACE_ID,
         description="Store sales, inventory and returns.",
@@ -3645,6 +3648,35 @@ def test_include_example_questions_false_suppresses_everywhere() -> None:
         room, description="EXPLICIT TEXT", include_example_questions=False
     )
     assert "Example questions" not in explicit
+
+
+def test_suppression_nudge_names_a_bare_space_id_room_by_its_id() -> None:
+    """The nudge has to identify *which* space has unused questions.
+
+    A room referenced by bare ``space_id`` — the common shape — has no ``name``
+    until it resolves, so naming it by ``name`` alone would log the one thing the
+    reader cannot act on.
+    """
+    from loguru import logger as loguru_logger
+
+    captured: list[str] = []
+    sink_id = loguru_logger.add(
+        lambda msg: captured.append(str(msg)),
+        level="INFO",
+        format="{message} {extra}",
+    )
+    try:
+        _description_of(
+            GenieRoomModel(
+                space_id=SPACE_ID, sample_questions=["How many stores per state?"]
+            )
+        )
+    finally:
+        loguru_logger.remove(sink_id)
+
+    nudges = [line for line in captured if "include_example_questions" in line]
+    assert len(nudges) == 1
+    assert SPACE_ID in nudges[0]
 
 
 def test_include_example_questions_gating_reaches_the_toolkit_path() -> None:
@@ -3672,8 +3704,8 @@ def test_include_example_questions_gating_reaches_the_toolkit_path() -> None:
     assert "- How many stores per state?" in forced.get_tools()[0].description
 
 
-def test_genie_tool_model_include_example_questions_defaults_to_none() -> None:
-    """The field is tri-state, and ``as_tools()`` carries all three values."""
+def test_genie_tool_model_include_example_questions_defaults_to_false() -> None:
+    """The field is a plain opt-in bool, and ``as_tools()`` carries both values."""
     from dao_ai.config import GenieToolModel
 
     room = GenieRoomModel(
@@ -3683,7 +3715,7 @@ def test_genie_tool_model_include_example_questions_defaults_to_none() -> None:
     )
 
     unset = GenieToolModel(genie_room=room, description="EXPLICIT TEXT")
-    assert unset.include_example_questions is None
+    assert unset.include_example_questions is False
     assert "Example questions" not in unset.as_tools()[0].description
 
     forced = GenieToolModel(
@@ -3695,15 +3727,15 @@ def test_genie_tool_model_include_example_questions_defaults_to_none() -> None:
     assert "Example questions" not in off.as_tools()[0].description
 
 
-@pytest.mark.parametrize("flag", [None, True, False])
-def test_include_example_questions_survives_the_config_bake(flag: bool | None) -> None:
-    """The tri-state must round-trip through the deploy bake.
+@pytest.mark.parametrize("flag", [True, False])
+def test_include_example_questions_survives_the_config_bake(flag: bool) -> None:
+    """Intent must round-trip through the deploy bake.
 
     Deploy dumps the config with ``exclude_none=True`` into the logged
-    ``model_config`` (Model Serving) / rendered YAML (Apps), so intent has to
-    travel as a *value*: ``None`` drops out and re-parses as the default, while
-    ``True``/``False`` are preserved. (``model_fields_set`` would not survive,
-    which is why the field is tri-state rather than a bool defaulting to true.)
+    ``model_config`` (Model Serving) / rendered YAML (Apps), so ``model_fields_set``
+    does not survive and intent has to travel as a *value*. With an unconditional
+    ``False`` default there is nothing to distinguish: both states are ordinary
+    values, and the rendered description comes out identical on the far side.
     """
     from dao_ai.config import GenieToolModel
 
