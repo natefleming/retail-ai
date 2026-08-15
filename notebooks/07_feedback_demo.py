@@ -16,7 +16,28 @@
 
 # COMMAND ----------
 
-# MAGIC %pip install -q --upgrade -r ../requirements.txt nest-asyncio>=1.6.0
+# Dependency bootstrap, matching the pipeline step notebooks. Install dao-ai —
+# which pulls its own transitive deps, nest-asyncio included — from the newest
+# ../dist wheel if one is there, else the published PyPI package. ``[all]``
+# because the demo invokes a multi-agent supervisor graph. The spec is
+# single-quoted in the magic so a dev wheel's ``+local`` version tag and the
+# bracket survive shell expansion.
+#
+# Note: with no ../dist wheel this installs the *published* dao-ai. This notebook
+# also puts ../src on sys.path below, which wins for a repo checkout.
+import glob, os
+
+from packaging.version import Version
+
+# Newest by *version*, not by filename: a lexical sort puts 0.2.8 above
+# 0.2.10. ``Version`` also parses a dev wheel's ``+local`` tag correctly.
+def _wheel_version(wheel: str) -> Version:
+    return Version(os.path.basename(wheel).split("-")[1])
+
+_wheels = sorted(glob.glob("../dist/dao_ai-*.whl"), key=_wheel_version, reverse=True)
+_dao_ai_dep = (_wheels[0] if _wheels else "dao-ai") + "[all]"
+
+# MAGIC %uv pip install --quiet '{_dao_ai_dep}'
 # MAGIC %restart_python
 
 # COMMAND ----------

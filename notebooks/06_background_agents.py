@@ -30,7 +30,30 @@
 
 # COMMAND ----------
 
-# MAGIC %uv pip install --quiet databricks-sdk databricks-openai openai
+# The demo itself only needs the HTTP clients — it drives an already-deployed app
+# over the Responses API. dao-ai is installed too because the optional
+# "Deploy the target app first" cell below imports ``dao_ai.config``; without it
+# that path raises ImportError. Same bootstrap as the pipeline step notebooks:
+# the newest ../dist wheel if one is there, else the published PyPI package,
+# single-quoted so a dev wheel's ``+local`` version tag and the bracket survive
+# shell expansion. No ``[all]``: the default path never imports dao_ai at all, and
+# the shipped config the deploy path builds (18_background_agents) is a single
+# prompt-only agent with no tools, so pulling every optional extra would cost
+# every run minutes for nothing. Point `config-path` at a config that uses an
+# optional feature and install ``dao-ai[all]`` yourself.
+import glob, os
+
+from packaging.version import Version
+
+# Newest by *version*, not by filename: a lexical sort puts 0.2.8 above
+# 0.2.10. ``Version`` also parses a dev wheel's ``+local`` tag correctly.
+def _wheel_version(wheel: str) -> Version:
+    return Version(os.path.basename(wheel).split("-")[1])
+
+_wheels = sorted(glob.glob("../dist/dao_ai-*.whl"), key=_wheel_version, reverse=True)
+_dao_ai_dep = _wheels[0] if _wheels else "dao-ai"
+
+# MAGIC %uv pip install --quiet '{_dao_ai_dep}' databricks-sdk databricks-openai openai
 # MAGIC %restart_python
 
 # COMMAND ----------
@@ -72,6 +95,11 @@ print("Deploy first:", deploy_app)
 # MAGIC becomes the App **`background-dao`**. Leave `false` if it's already up
 # MAGIC (deploy once from a shell with
 # MAGIC `dao-ai agent up -c examples/18_background_agents/background_research.yaml --mode apps`).
+# MAGIC
+# MAGIC > The bootstrap installs plain `dao-ai` — enough for this example, which is a
+# MAGIC > prompt-only agent with no tools. Point **Config (for deploy)** at a config
+# MAGIC > that uses an optional feature (vector search, rerank, memory, A2A, …) and
+# MAGIC > install `dao-ai[all]` in the first cell instead.
 
 # COMMAND ----------
 

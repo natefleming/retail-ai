@@ -9,11 +9,19 @@
 # ``[all]``; 01_ingest_and_transform installs ``[excel]``. The install spec is
 # single-quoted in the magic so a dev wheel's ``+local`` version tag and any
 # ``[extras]`` survive shell glob/bracket expansion.
-import glob
+import glob, os
 
-_dao_ai_dep: str = next(
-    iter(sorted(glob.glob("../dist/dao_ai-*.whl"), reverse=True)), "dao-ai"
+from packaging.version import Version
+
+# Newest by *version*, not by filename: a lexical sort puts 0.2.8 above
+# 0.2.10. ``Version`` also parses a dev wheel's ``+local`` tag correctly.
+def _wheel_version(wheel: str) -> Version:
+    return Version(os.path.basename(wheel).split("-")[1])
+
+_wheels: list[str] = sorted(
+    glob.glob("../dist/dao_ai-*.whl"), key=_wheel_version, reverse=True
 )
+_dao_ai_dep: str = _wheels[0] if _wheels else "dao-ai"
 
 # MAGIC %uv pip install --quiet '{_dao_ai_dep}'
 # MAGIC %restart_python
@@ -31,16 +39,7 @@ print(f"mlflow=={version('mlflow')}")
 
 # COMMAND ----------
 
-from dao_ai.utils import find_config_files
-
-# COMMAND ----------
-
 dbutils.widgets.text(name="config-path", defaultValue="")
-
-config_files: list[str] = find_config_files("../config")
-dbutils.widgets.dropdown(
-    name="config-paths", choices=config_files, defaultValue=next(iter(config_files), "")
-)
 
 # ``overwrite`` is deliberately a widget rather than always-on. This task runs on
 # every pipeline execution, so rotating credentials by default would replace the
@@ -49,25 +48,21 @@ dbutils.widgets.dropdown(
     name="overwrite", choices=["false", "true"], defaultValue="false"
 )
 
-explicit_path: str | None = dbutils.widgets.get("config-path") or None
-discovered_path: str | None = dbutils.widgets.get("config-paths") or None
-
-# An explicit `config-path` always wins; the `../config` dropdown is the fallback
-# for an interactive run. Re-binding `config_path` to a second type (as the
-# sibling notebooks do) makes the annotation a lie, so the inputs get their own
-# names and the result is annotated once.
-resolved_path: str | None = explicit_path or discovered_path
-if not resolved_path:
-    # Neither the explicit widget nor `../config` discovery yielded a path, so
-    # there is nothing to load. Fail here naming both inputs, rather than at the
-    # read with a bare TypeError/FileNotFoundError on an empty path.
+# There is no `../config` discovery fallback. That directory exists only in the
+# staged bundle layout, and the bundle stages exactly one config — the same one
+# the job passes here — so discovery could only ever guess, and guessing is how
+# the wrong config gets loaded. `config-path` is the single input.
+widget_path: str | None = dbutils.widgets.get("config-path") or None
+if not widget_path:
     raise ValueError(
-        "No config to provision from: the `config-path` widget is empty and no "
-        "YAML was found under ../config. Set `config-path` to the staged config "
-        "(the pipeline bundle always passes it)."
+        "No config to provision from: the `config-path` widget is empty. In a "
+        "staged pipeline bundle the config sits beside this notebook under "
+        "`../config/` and the job always passes it; running this notebook by "
+        "hand, set `config-path` to an absolute workspace path, for example "
+        "`/Workspace/Users/you@example.com/dao-ai/examples/04_genie/genie_basic.yaml`."
     )
 
-config_path: str = resolved_path
+config_path: str = widget_path
 overwrite: bool = dbutils.widgets.get("overwrite") == "true"
 
 print(config_path)
