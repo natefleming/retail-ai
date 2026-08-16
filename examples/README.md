@@ -38,7 +38,7 @@ See `04_genie/genie_basic.yaml` (uncached) and `04_genie/genie_lru_cache.yaml`
 
 ## 🗺️ Learning Path
 
-Follow the numbered directories 01 → 20 for a structured learning experience, then see
+Follow the numbered directories 01 → 21 for a structured learning experience, then see
 `99_complete_applications` for end-to-end reference systems that combine these building blocks:
 
 ```
@@ -46,7 +46,7 @@ Follow the numbered directories 01 → 20 for a structured learning experience, 
     → 06_on_behalf_of_user → 07_human_in_the_loop → 08_guardrails → 09_structured_output
     → 10_agent_integrations → 11_prompt_engineering → 12_middleware → 13_orchestration
     → 14_basic_tools → 15_instructed_retriever → 16_parallel_tools → 17_visualization
-    → 18_background_agents → 19_a2a_protocol → 20_lakebase_search
+    → 18_background_agents → 19_a2a_protocol → 20_lakebase_search → 21_from_git
 
     ⇒ 99_complete_applications  (capstone — production-ready reference apps)
 ```
@@ -265,6 +265,17 @@ Or jump directly to the category that matches your current need.
 
 ---
 
+### [21. Provisioning From Git](21_from_git/)
+**A whole project loaded from a git locator — no clone, no upload**
+- Colocated `ddl` / `data` seeds in two formats (csv via Spark, json via pandas)
+- Unity Catalog function DDL resolved from the checkout
+- `skills/`, colocated `src/`, and `app.code_paths` all anchored on the config
+- Companion notebook provisions, tests in-process, then deploys to Serving + Apps
+
+👉 Provision an end-to-end dao-ai project from a notebook with nothing checked out
+
+---
+
 ### [99. Complete Applications](99_complete_applications/)
 **Production-ready systems** — the capstone; these combine the building blocks above.
 - Executive assistant
@@ -352,6 +363,9 @@ dao-ai agent up -c examples/07_human_in_the_loop/human_in_the_loop.yaml
 **...retrieve from a Lakebase Postgres table**
 → Head to [`20_lakebase_search/`](20_lakebase_search/)
 
+**...provision a whole project from a notebook with nothing checked out**
+→ Head to [`21_from_git/`](21_from_git/)
+
 ---
 
 ## 📖 Documentation
@@ -398,7 +412,7 @@ Have an example to share? We'd love to see it!
 
 ### Adding a New Example
 
-1. **Choose the right category** (`01_getting_started` through `20_lakebase_search`, or `99_complete_applications`)
+1. **Choose the right category** (`01_getting_started` through `21_from_git`, or `99_complete_applications`)
 2. **Use descriptive naming**: `tool_name_variant.yaml` (e.g., `slack_with_threads.yaml`)
 3. **Add inline comments** explaining key concepts
 4. **Test thoroughly** with `dao-ai validate` and `dao-ai chat`
@@ -457,6 +471,7 @@ Use MLflow to track agent performance and costs.
 | 18_background_agents | ⭐⭐⭐ | 1-2 hrs | Lakebase project |
 | 19_a2a_protocol | ⭐⭐⭐ | 1-2 hrs | Category 01 (Lakebase for persisted tasks) |
 | 20_lakebase_search | ⭐⭐⭐ | 1-2 hrs | Lakebase project + `lakebase_vector` / `lakebase_text` extensions enabled |
+| 21_from_git | ⭐⭐ | 1 hr | `git` on PATH + a Vector Search endpoint |
 | 99_complete_applications | ⭐⭐⭐⭐⭐ | 6-8 hrs | All above |
 
 ---

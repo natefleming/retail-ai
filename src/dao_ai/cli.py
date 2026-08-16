@@ -781,10 +781,10 @@ def _git_locator_bundle_base(config: AppConfig) -> Path | None:
     """
     from dao_ai.git_source import revision_for_checkout_path, user_state_root
 
-    # `_local_config_path`, not `_source_config_path`: the latter holds the locator
-    # when loaded via `from_git`, and only the real on-disk path can be tested for
-    # being inside the checkout cache.
-    source: str | None = config._local_config_path or config._source_config_path
+    # `local_config_path`: only the real on-disk path can be tested for being
+    # inside the checkout cache (see the property — `source_config_path` holds the
+    # locator when loaded via `from_git`).
+    source: str | None = config.local_config_path
     if source is None or revision_for_checkout_path(source) is None:
         return None
 

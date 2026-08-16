@@ -72,6 +72,103 @@ project-local `.dao-ai/` name. See the
 [CLI reference](cli-reference.md#config-sources-local-url-or-git) for how staging
 directories are placed.
 
+### Provisioning a whole project from a notebook
+
+`from_git` brings the repository's tree along, so a notebook with no project code
+checked out anywhere can provision the project end to end. Install dao-ai, load
+the config from a locator, and create each resource in dependency order —
+schemas and volumes before the datasets that land in them, datasets before the UC
+functions and vector indexes that read them.
+
+```python
+%pip install dao-ai
+%restart_python
+```
+
+```python
+from databricks.sdk import WorkspaceClient
+
+from dao_ai.config import AppConfig
+
+config = AppConfig.from_git(
+    "gh:org/repo@v1.0#examples/retail/agent.yaml",
+    params={"catalog": "my_catalog", "schema": "my_schema"},
+)
+
+w = WorkspaceClient()
+
+for schema in config.schemas.values():
+    schema.create(w=w)
+for volume in config.resources.volumes.values():
+    volume.create(w=w)
+for dataset in config.datasets or []:
+    dataset.create()
+for fn in config.unity_catalog_functions or []:
+    fn.create()
+for vector_store in config.resources.vector_stores.values():
+    vector_store.create()
+```
+
+This is the same order the generated workflow notebooks use
+(`01_ingest_and_transform`, `02_provision_vector_search`,
+`04_unity_catalog_tools`) — running it inline just skips the bundle and the job.
+
+**Where the checkout lands.** On the **driver's local filesystem**, under
+`~/.dao-ai/git/<host>/<owner>/<repo>/<sha>/`. Nothing is written to Workspace
+Files, DBFS, or a UC volume, and the checkout does not survive a cluster restart.
+Pass `cache_dir` to put it somewhere durable:
+
+```python
+from pathlib import Path
+
+from dao_ai.git_source import GitSource
+
+config = AppConfig.from_git(
+    GitSource(
+        "gh:org/repo@v1.0#examples/retail/agent.yaml",
+        cache_dir=Path("/Volumes/my_catalog/my_schema/my_volume/dao-ai-git"),
+    ),
+    params={"catalog": "my_catalog"},
+)
+```
+
+`$DAO_AI_GIT_CACHE` does the same thing for call sites you do not control. Prefer
+a per-user destination: anyone with write access to a shared one can change code
+that later lands on `sys.path`.
+
+A volume or `/Workspace` destination is a FUSE mount rather than a POSIX
+filesystem, and `git` cannot fetch into one — writing a pack index needs
+random-access writes the mount does not support. dao-ai handles that by fetching
+into a local temporary directory and copying the finished checkout in, so the only
+visible difference is that publication is a copy instead of an atomic rename.
+
+**Relative assets resolve inside the checkout.** A dataset's
+`ddl: functions/products.sql` or `data: data/products.csv` is anchored on the
+config's own directory in the checkout, so a repository's colocated assets work with no
+rewriting. So do `skills/`, `code_paths`, and the colocated `src/` convention —
+`from_git` puts them on `sys.path` at load time.
+
+**Seed files are staged into a volume for Spark.** Serverless executors cannot
+read driver-local files, so a `csv` / `parquet` / `orc` / `delta` dataset is
+copied into a managed volume `<catalog>.<schema>.dao_ai_staging` in the dataset's
+own target schema and Spark is handed the `/Volumes/...` path. `json` and `excel`
+are read on the driver with pandas and need no staging. A `data:` value already
+under `/Volumes/` passes through untouched.
+
+**Requirements.** `git` on the driver's `PATH` and network egress to the git
+host. For a private repository set the token from a secret scope rather than
+inlining it in the locator, which `parse_git_locator` rejects:
+
+```python
+import os
+
+os.environ["DAO_AI_GIT_TOKEN"] = dbutils.secrets.get("my-scope", "git-token")
+```
+
+Everything under *Trust* above applies with more force here: provisioning
+executes the repository's DDL and Python against your catalog. Pin a tag or a
+full SHA for repositories you do not control.
+
 ## Parameter Substitution (Python API)
 
 DAO AI configs can declare a `parameters:` block and reference values

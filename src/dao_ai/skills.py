@@ -57,10 +57,17 @@ def _skill_base_dir(config: "AppConfig") -> Path:
     via ``AppConfig.from_file``. Falls back to :func:`_project_root` when the
     config has no source path (e.g. a programmatically built config).
 
+    ``local_config_path``, not ``source_config_path``: the latter holds the git
+    locator when loaded via ``AppConfig.from_git``, and ``Path(locator).parent``
+    is a directory that does not exist — so a git-sourced project's ``skills/``,
+    ``code_paths``, and ``src/`` silently resolved to nothing. The former is the
+    config's real path inside the checkout, against which they resolve exactly as
+    a local project's do.
+
     Used at bundle/log_model time, NOT at inference time. Use
     :func:`_runtime_anchors` to resolve paths at inference time.
     """
-    source_config: str | None = config._source_config_path
+    source_config: str | None = config.local_config_path
     if source_config is not None:
         return Path(source_config).resolve().parent
     return _project_root()
@@ -338,6 +345,55 @@ def collect_local_skill_dirs(config: "AppConfig") -> list[str]:
                 if child.is_dir() and (child / "SKILL.md").exists():
                     seen.setdefault(str(child.resolve()), None)
     return list(seen.keys())
+
+
+def rebase_relative_skill_sources(config: "AppConfig") -> None:
+    """Re-anchor still-relative skills-middleware ``sources`` on the config's dir.
+
+    :meth:`SkillModel.as_middleware` runs during model validation — before
+    ``AppConfig.from_file`` has stamped the config's own path — so it can only try
+    the runtime anchors (env var, CWD, ``sys.path``). When the config is loaded
+    from anywhere but its own directory, and a git checkout always is, none of
+    those match and it falls back to the raw relative path. The filesystem backend
+    then resolves that against ``root_dir="/"`` (``/skills/<vertical>``), finds
+    nothing, and the agent loses its skill instructions with only a warning.
+
+    This is the same fixup the surrounding ``from_file`` block already performs for
+    ``code_paths`` and ``src/``, for the same reason.
+
+    Only sources that are *still relative* and that *do exist* under the config's
+    directory are rewritten, which makes this purely additive: a source that an
+    inference-time re-parse already resolved to an absolute path (Model Serving
+    prepends ``<model_dir>/code`` to ``sys.path``; the Apps bundle root is the CWD)
+    is left exactly as it was.
+    """
+    if config.app is None or not config.app.agents:
+        return
+
+    base_dir: Path = _skill_base_dir(config)
+
+    for agent in config.app.agents:
+        for middleware in agent.middleware:
+            if middleware.name != SKILLS_MIDDLEWARE_FACTORY:
+                continue
+            sources: list[str] = middleware.args.get("sources") or []
+            rebased: list[str] = []
+            for source in sources:
+                candidate: Path = Path(source)
+                if candidate.is_absolute():
+                    rebased.append(source)
+                    continue
+                anchored: Path = (base_dir / candidate).resolve()
+                if not anchored.is_dir():
+                    rebased.append(source)
+                    continue
+                logger.debug(
+                    "Re-anchored relative skill source on the config directory",
+                    source=source,
+                    resolved=str(anchored),
+                )
+                rebased.append(str(anchored))
+            middleware.args["sources"] = rebased
 
 
 def resolve_skill_runtime_paths(

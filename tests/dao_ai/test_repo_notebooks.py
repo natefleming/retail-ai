@@ -23,6 +23,8 @@ from pathlib import Path
 
 import pytest
 
+from dao_ai.git_source import is_git_locator
+
 _REPO_ROOT: Path = Path(__file__).parents[2]
 _NOTEBOOKS: Path = _REPO_ROOT / "notebooks"
 _CELL_SEP = "# COMMAND ----------"
@@ -83,7 +85,13 @@ class TestRepoNotebooks:
     def test_config_path_widget_has_a_usable_default(self) -> None:
         """These are hand-run demos, so the widget points at a shipped example
         rather than starting empty — the single biggest usability win here. The
-        default must actually resolve from the notebook's own directory.
+        default must actually resolve to a config in this repo.
+
+        Two spellings resolve: a path relative to ``notebooks/``, and a git
+        locator naming an in-repo path (``08_provision_from_git`` demonstrates
+        loading with nothing checked out, so a relative path would defeat it).
+        Either way the target file has to exist, which is what stops a default
+        from rotting when an example is renamed.
         """
         checked: list[str] = []
         for path in _notebook_sources():
@@ -93,13 +101,22 @@ class TestRepoNotebooks:
             checked.append(path.name)
             default = text.split('name="config-path",\n    defaultValue="', 1)[1]
             default = default.split('"', 1)[0]
-            assert default.startswith("../examples/"), (
-                f"{path.name} should default config-path to a shipped example, "
-                f"got {default!r}"
-            )
-            assert (_NOTEBOOKS / default).resolve().is_file(), (
+            if is_git_locator(default):
+                in_repo: str = default.partition("#")[2]
+                assert in_repo, (
+                    f"{path.name} defaults config-path to the locator {default!r} "
+                    "with no `#path`, so it relies on config discovery"
+                )
+                target: Path = (_REPO_ROOT / in_repo).resolve()
+            else:
+                assert default.startswith("../examples/"), (
+                    f"{path.name} should default config-path to a shipped example "
+                    f"or a git locator, got {default!r}"
+                )
+                target = (_NOTEBOOKS / default).resolve()
+            assert target.is_file(), (
                 f"{path.name} defaults config-path to {default!r}, which does not "
-                "exist relative to notebooks/"
+                f"resolve to a config in this repo ({target})"
             )
         # Guard against the string match silently drifting and the loop becoming
         # a no-op.

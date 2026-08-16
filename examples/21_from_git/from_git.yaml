@@ -1,0 +1,243 @@
+# yaml-language-server: $schema=../../schemas/model_config_schema.json
+
+# =============================================================================
+# PROVISIONING A WHOLE PROJECT FROM A GIT LOCATOR
+# =============================================================================
+# Every asset this config references is *colocated with the config in the
+# repository* — nothing is uploaded by hand, and nothing assumes a local clone.
+# Loaded with `AppConfig.from_git("gh:natefleming/dao-ai@<ref>#examples/21_from_git")`
+# the checkout supplies all of it, which makes this example the end-to-end proof
+# for each anchor the config format has:
+#
+#   data/products.sql, data/products.csv     → dataset ddl + csv seed (Spark;
+#                                              staged into `dao_ai_staging`)
+#   data/store_hours.sql, .json              → dataset ddl + json seed (pandas
+#                                              on the driver; no staging)
+#   functions/*.sql                           → Unity Catalog function DDL
+#   skills/from_git/product_lookup/SKILL.md   → resources.skills[*].path
+#   src/from_git_tools/                       → colocated `src/`, auto-discovered
+#   from_git_lib/                             → app.code_paths, declared
+#
+# If any one of those anchors resolved against the wrong directory, the
+# corresponding resource would be missing at provision time or the tool would be
+# absent at inference time — so a working agent is the assertion.
+#
+# See docs/python-api.md → "Provisioning a whole project from a notebook", and
+# notebooks/08_provision_from_git.py for the runnable version.
+
+parameters:
+  catalog:
+    description: Unity Catalog catalog name
+    default: retail_consumer_goods
+  schema:
+    description: Schema within the catalog. Dedicated so the whole example can be dropped in one statement.
+    default: dao_ai_from_git
+  llm:
+    description: Chat/reasoning serving endpoint for the agent.
+    default: databricks-claude-sonnet-4-5
+  embedding_model:
+    description: Embedding serving endpoint backing the vector index.
+    default: databricks-gte-large-en
+  vector_search_endpoint:
+    description: Existing Vector Search endpoint to host the products index.
+    default: dao_ai_workshop_vs
+
+schemas:
+  from_git_schema: &from_git_schema
+    catalog_name: ${var.catalog}
+    schema_name: ${var.schema}
+
+resources:
+  models:
+    default_llm: &default_llm
+      name: ${var.llm}
+      temperature: 0.1
+      max_tokens: 4096
+
+    embedding_model: &embedding_model
+      name: ${var.embedding_model}
+
+  # A volume the example creates for itself. The notebook writes a `seed/`
+  # subdirectory into it to confirm nested volume paths behave, and dao-ai
+  # separately creates a managed `dao_ai_staging` volume in this same schema to
+  # stage the csv seed for Spark.
+  volumes:
+    assets_volume: &assets_volume
+      schema: *from_git_schema
+      name: dao_ai_from_git_assets
+
+  # `path` is relative to the config's directory *inside the checkout*.
+  skills:
+    product_lookup: &product_lookup_skill
+      name: product_lookup
+      description: "Hardware store lookup workflow: SKU or search, then aisle and contractor pricing."
+      path: skills/from_git/product_lookup
+
+  vector_stores:
+    products_vector_store: &products_vector_store
+      embedding_model: *embedding_model
+      endpoint:
+        name: ${var.vector_search_endpoint}
+        type: STANDARD
+      index:
+        schema: *from_git_schema
+        name: products_index
+      source_table:
+        schema: *from_git_schema
+        name: products
+      primary_key: product_id
+      embedding_source_column: description
+      columns:
+      - product_id
+      - sku
+      - brand_name
+      - product_name
+      - merchandise_class
+      - list_price
+      - description
+
+  functions:
+    find_product_by_sku: &find_product_by_sku
+      schema: *from_git_schema
+      name: find_product_by_sku
+    find_store_hours_by_city: &find_store_hours_by_city
+      schema: *from_git_schema
+      name: find_store_hours_by_city
+
+tools:
+  # Reads the vector index built from the csv seed — proves the seed was staged
+  # into a volume and indexed, not merely written to a table.
+  search_products_tool: &search_products_tool
+    name: search_products
+    function:
+      type: vector_search
+      vector_store: *products_vector_store
+      name: search_products
+      description: |
+        Search the product catalog by description. Use for descriptive queries
+        ("cordless hammer drill", "exterior screws") rather than exact SKUs.
+
+  # Both UC functions come from DDL colocated with the config.
+  find_product_by_sku_tool: &find_product_by_sku_tool
+    name: find_product_by_sku_uc
+    function:
+      type: unity_catalog
+      resource: *find_product_by_sku
+
+  find_store_hours_by_city_tool: &find_store_hours_by_city_tool
+    name: find_store_hours_by_city_uc
+    function:
+      type: unity_catalog
+      resource: *find_store_hours_by_city
+
+  # `type: python` — a fully-qualified tool *object*, imported from the
+  # colocated `src/` directory with no package prefix.
+  find_aisle_tool: &find_aisle_tool
+    name: find_aisle
+    function:
+      type: python
+      name: from_git_tools.aisle.find_aisle_tool
+
+  # `type: factory` — a callable invoked with `args:` at agent-build time,
+  # imported from the `app.code_paths` entry below.
+  contractor_discount_tool: &contractor_discount_tool
+    name: apply_contractor_discount
+    function:
+      type: factory
+      name: from_git_lib.pricing.create_discount_tool
+      args:
+        discount_percent: 12.5
+        minimum_price: 5.0
+
+agents:
+  store_associate: &store_associate
+    name: store_associate
+    description: "Hardware store associate: products, in-store location, contractor pricing, and store hours"
+    model: *default_llm
+    skills:
+    - *product_lookup_skill
+    tools:
+    - *search_products_tool
+    - *find_product_by_sku_tool
+    - *find_store_hours_by_city_tool
+    - *find_aisle_tool
+    - *contractor_discount_tool
+    prompt: |
+      You are an associate at a hardware store. Follow the product_lookup skill
+      that has been loaded into your instructions.
+
+      Always answer from your tools rather than from memory: prices, aisle
+      locations, and store hours all come from tools. If a tool returns no
+      result, say so instead of guessing.
+    handoff_prompt: |
+      Product questions, in-store locations, contractor pricing, and store hours.
+
+app:
+  name: from_git_demo
+  description: "Provisioned entirely from a git locator: colocated data, UC function DDL, skills, src/, and code_paths"
+  log_level: INFO
+  registered_model:
+    schema: *from_git_schema
+    name: from_git_demo
+  endpoint_name: from_git_demo_dao
+  tags:
+    demo: from_git
+    feature: config_sources
+  permissions:
+  - principals: [users]
+    entitlements:
+    - CAN_QUERY
+  # Declared project code. Resolved against the config's directory in the
+  # checkout, and its *parent* goes on sys.path — so imports keep the
+  # `from_git_lib.` prefix. Also bundled into the logged model and the app
+  # source, which is what carries the code to Model Serving and Apps.
+  code_paths:
+  - from_git_lib
+  agents:
+  - *store_associate
+  input_example:
+    input:
+    - role: user
+      content: I'm a contractor - what does SKU DRL10045 cost me and where do I find it?
+    custom_inputs:
+      configurable:
+        user_id: demo_user
+      session: {}
+
+# =============================================================================
+# DATASETS
+# =============================================================================
+# Two formats on purpose: csv goes through Spark, which cannot read the
+# driver-local checkout on serverless, so dao-ai stages the file into the
+# managed `<catalog>.<schema>.dao_ai_staging` volume first. json is read on the
+# driver with pandas and is never staged. Both paths are exercised here.
+datasets:
+- table:
+    schema: *from_git_schema
+    name: products
+  ddl: data/products.sql
+  data: data/products.csv
+  format: csv
+  read_options:
+    header: true
+- table:
+    schema: *from_git_schema
+    name: store_hours
+  ddl: data/store_hours.sql
+  data: data/store_hours.json
+  format: json
+
+# =============================================================================
+# UNITY CATALOG FUNCTIONS
+# =============================================================================
+unity_catalog_functions:
+- function: *find_product_by_sku
+  ddl: functions/find_product_by_sku.sql
+  test:
+    parameters:
+      sku: ["DRL10045"]
+- function: *find_store_hours_by_city
+  ddl: functions/find_store_hours_by_city.sql
+  test:
+    parameters:
+      city: "Chicago"

@@ -6,8 +6,8 @@ import re
 import sys
 from abc import ABC, abstractmethod
 from contextlib import asynccontextmanager, contextmanager
-from functools import cache
 from enum import Enum
+from functools import cache
 from os import PathLike
 from pathlib import Path
 from typing import (
@@ -11749,6 +11749,15 @@ class AppConfig(BaseModel):
             # consumer (deploy notebook display_graph/create_agent, Apps runtime,
             # load_function).
             prepend_src_to_sys_path(config)
+
+            # Same fixup, same reason, for skills: ``SkillModel.as_middleware``
+            # ran at construction with only the process CWD to anchor on, so a
+            # config loaded from elsewhere baked a relative source the filesystem
+            # backend resolves against ``/`` and never finds. Only rewrites
+            # sources that are still relative and do exist beside the config.
+            from dao_ai.skills import rebase_relative_skill_sources
+
+            rebase_relative_skill_sources(config)
         else:
             # A remote config has no local directory, so anything it declares by
             # relative path is unresolvable. Say so loudly rather than silently
@@ -11787,6 +11796,21 @@ class AppConfig(BaseModel):
     def source_config_path(self) -> str | None:
         """Get the source config file path if loaded via from_file."""
         return self._source_config_path
+
+    @property
+    def local_config_path(self) -> str | None:
+        """The config's real path on disk, or ``None`` when nothing local backs it.
+
+        Prefer this over :attr:`source_config_path` for anything that touches the
+        filesystem — resolving a colocated asset, anchoring ``skills``/
+        ``code_paths``, testing whether the config came out of the checkout cache.
+        ``source_config_path`` holds the *locator* when loaded via
+        :meth:`from_git` (what the user typed, which messages should echo), and a
+        locator is not a path. For a local file the two are identical; for a URL
+        neither is a path, so the URL falls through and callers fail on it as they
+        always have.
+        """
+        return self._local_config_path or self._source_config_path
 
     @property
     def rendered_yaml(self) -> str | None:

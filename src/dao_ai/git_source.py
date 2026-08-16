@@ -69,6 +69,14 @@ _HOST_ALIASES: dict[str, str] = {
 #: A full 40-hex commit SHA — immutable, so it never needs re-resolving.
 _FULL_SHA = re.compile(r"^[0-9a-f]{40}$")
 
+#: Databricks FUSE mounts, which look like ordinary directories but are not POSIX
+#: filesystems. ``git init`` succeeds inside one and then ``git fetch`` dies in
+#: ``index-pack`` ("cannot pread pack file"), because writing a pack index needs
+#: random-access writes the mount does not support. Verified on serverless v5.
+#: A cache root under one of these is still perfectly usable as a *destination* —
+#: see :meth:`GitSource._fetch`, which stages on local disk and copies in.
+_FUSE_ROOTS: tuple[str, ...] = ("/Volumes/", "/Workspace/", "/dbfs/")
+
 #: An ``scp``-style SSH reference (``git@github.com:owner/repo``). Has no scheme,
 #: so it needs recognizing by shape before it can be rewritten to ``ssh://``.
 _SCP_SSH = re.compile(r"^[^/@:]+@[^/@:]+:[^/].*$")
@@ -403,6 +411,15 @@ def repo_cache_dir(locator: GitLocator, *, root: Path | None = None) -> Path:
     return cache_root(root).joinpath(host, *repo_path.split("/"))
 
 
+def _is_fuse_root(path: Path) -> bool:
+    """Whether ``path`` lives on a Databricks FUSE mount (see :data:`_FUSE_ROOTS`)."""
+    candidate: str = str(path)
+    return any(
+        candidate == root.rstrip("/") or candidate.startswith(root)
+        for root in _FUSE_ROOTS
+    )
+
+
 def _checkout_dir(locator: GitLocator, sha: str, *, root: Path) -> Path:
     """Cache location for one commit: ``<root>/<host>/<owner>/<repo>/<sha>``.
 
@@ -618,9 +635,16 @@ class GitSource(ConfigSource):
 
         Fetches into a temporary sibling and moves it into place, so a concurrent
         invocation can never observe a half-populated checkout.
+
+        On a FUSE-mounted root (a UC volume, ``/Workspace``) git cannot fetch at
+        all, so staging happens on local disk instead and the finished tree is
+        copied in — the same publication the cross-device branch below already
+        handles. That trades the atomic rename for a copy, so it is used only
+        where the rename was never available in the first place.
         """
         root.mkdir(parents=True, exist_ok=True)
-        staging: Path = Path(tempfile.mkdtemp(prefix=".fetch-", dir=str(root)))
+        staging_parent: str | None = None if _is_fuse_root(root) else str(root)
+        staging: Path = Path(tempfile.mkdtemp(prefix=".fetch-", dir=staging_parent))
         try:
             _run(["init", "--quiet"], cwd=staging, token=self.token)
             _run(
