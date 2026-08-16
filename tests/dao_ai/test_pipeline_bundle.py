@@ -274,15 +274,17 @@ class _AppStub:
     """Minimal stand-in — the generator reads ``config.app.name``,
     ``config.app.pip_requirements``, ``config.app.resource_paths``, and (in
     dev mode, via the extras resolver) ``config.app.a2a`` /
-    ``config.app.orchestration``."""
+    ``config.app.orchestration`` / ``config.app.agents``."""
 
     def __init__(self, name: str, pip_requirements: list[str] | None = None) -> None:
         self.name = name
         self.pip_requirements = pip_requirements or []
         self.resource_paths: list[str] = []
-        # Resolver-touched attributes (dev-mode extras resolution).
+        # Resolver-touched attributes (dev-mode extras resolution). ``agents``
+        # is walked for per-agent middleware, which is where agent skills land.
         self.a2a = _A2AStub()
         self.orchestration = None
+        self.agents: list = []
 
 
 @pytest.mark.unit

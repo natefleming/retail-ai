@@ -36,6 +36,11 @@ def _stamp_extras_resolvable(mock_config: MagicMock) -> MagicMock:
     # app.a2a disabled + no orchestration → resolver adds no extras by default.
     mock_config.app.a2a = MagicMock(enabled=False)
     mock_config.app.orchestration = None
+    # The resolver also walks each agent's own ``middleware`` list — that is
+    # where ``agent.skills`` land after AppConfig translates them. Only default
+    # it when the test hasn't supplied real agents.
+    if not isinstance(getattr(mock_config.app, "agents", None), list):
+        mock_config.app.agents = []
     # Custom-dep passthrough surfaces read by the Apps/MS deploy paths. Only
     # default them when the test hasn't set a real list — never clobber a
     # test's own pip_requirements/code_paths values. ``getattr`` tolerates
