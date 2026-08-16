@@ -1411,7 +1411,14 @@ class DatabricksProvider(ServiceProvider):
         model_root_path: Path = Path(dao_ai.__file__).parent
         model_path: Path = model_root_path / "apps" / "model_serving.py"
 
-        pip_requirements: Sequence[str] = config.app.pip_requirements
+        # A *copy*: everything below appends to this list, and the serving-only
+        # additions must not leak back onto the config. ``config.app`` is a live
+        # pydantic model, so ``+=`` on the field itself is an in-place extend —
+        # a `deploy_agent(mode=BOTH)` would then hand the Apps bundle
+        # ``code/dao_ai-<ver>.whl`` (an MLflow-relative wheel path, not a PEP 508
+        # requirement) plus the whole frozen environment, and its ``uv lock``
+        # would fail.
+        pip_requirements: list[str] = list(config.app.pip_requirements)
 
         # Resolve which optional-feature extras this config exercises so the
         # deployed model pins exactly the packages its features need — no more

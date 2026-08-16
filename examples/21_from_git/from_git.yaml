@@ -14,7 +14,7 @@
 #   data/store_hours.sql, .json              → dataset ddl + json seed (pandas
 #                                              on the driver; no staging)
 #   functions/*.sql                           → Unity Catalog function DDL
-#   skills/from_git/product_lookup/SKILL.md   → resources.skills[*].path
+#   skills/from_git/product-lookup/SKILL.md   → resources.skills[*].path
 #   src/from_git_tools/                       → colocated `src/`, auto-discovered
 #   from_git_lib/                             → app.code_paths, declared
 #
@@ -69,9 +69,9 @@ resources:
   # `path` is relative to the config's directory *inside the checkout*.
   skills:
     product_lookup: &product_lookup_skill
-      name: product_lookup
+      name: product-lookup
       description: "Hardware store lookup workflow: SKU or search, then aisle and contractor pricing."
-      path: skills/from_git/product_lookup
+      path: skills/from_git/product-lookup
 
   vector_stores:
     products_vector_store: &products_vector_store
@@ -163,7 +163,7 @@ agents:
     - *find_aisle_tool
     - *contractor_discount_tool
     prompt: |
-      You are an associate at a hardware store. Follow the product_lookup skill
+      You are an associate at a hardware store. Follow the product-lookup skill
       that has been loaded into your instructions.
 
       Always answer from your tools rather than from memory: prices, aisle

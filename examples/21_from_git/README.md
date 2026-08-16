@@ -20,7 +20,7 @@ provision time or the tool absent at inference time.
 | `data/products.sql` + `data/products.csv` | `datasets[].ddl` / `.data` | Config directory in the checkout, **plus** volume staging for Spark | `products` table missing or empty |
 | `data/store_hours.sql` + `.json` | `datasets[].ddl` / `.data` | Same anchor, driver-side pandas read (no staging) | `store_hours` missing or empty |
 | `functions/*.sql` | `unity_catalog_functions[].ddl` | Config directory in the checkout | UC function not created |
-| `skills/from_git/product_lookup/SKILL.md` | `resources.skills[].path` | `_skill_base_dir` | Agent silently loses its workflow instructions |
+| `skills/from_git/product-lookup/SKILL.md` | `resources.skills[].path` | `_skill_base_dir` | Agent silently loses its workflow instructions |
 | `src/from_git_tools/` | *(none — auto-discovered)* | Colocated `src/` on `sys.path` | `find_aisle` tool fails to import |
 | `from_git_lib/` | `app.code_paths` | `code_paths` entry's **parent** on `sys.path` | `apply_contractor_discount` tool fails to import |
 
@@ -43,7 +43,7 @@ examples/21_from_git/
 ├── functions/
 │   ├── find_product_by_sku.sql            # {catalog_name}.{schema_name} placeholders
 │   └── find_store_hours_by_city.sql
-├── skills/from_git/product_lookup/
+├── skills/from_git/product-lookup/
 │   └── SKILL.md
 ├── src/from_git_tools/                    # colocated src/ → imports prefix-free
 │   └── aisle.py                           # `type: python`  (a tool object)

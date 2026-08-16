@@ -585,6 +585,102 @@ def test_create_agent_sets_experiment():
 
 
 @pytest.mark.unit
+def test_create_agent_does_not_mutate_config_pip_requirements():
+    """``create_agent`` adds serving-only requirements to a *copy*.
+
+    ``config.app.pip_requirements`` is a live pydantic list, so a ``+=`` on the
+    field itself extends it in place. A local-wheel deploy appends
+    ``code/dao_ai-<ver>.whl`` — an MLflow-relative path, not a PEP 508
+    requirement — plus the whole frozen environment, and a subsequent Apps
+    deploy in the same process (``deploy_agent(mode=BOTH)``) folds
+    ``pip_requirements`` straight into the generated ``pyproject.toml``. That
+    made ``uv lock`` fail with "Dependency #2 ... Expected semicolon".
+    """
+    from pathlib import Path
+    from unittest.mock import MagicMock, patch
+
+    import mlflow
+
+    from dao_ai.config import AppConfig
+    from dao_ai.providers.databricks import DatabricksProvider
+
+    declared: list[str] = ["my-extra-package==1.2.3"]
+
+    mock_config = MagicMock(spec=AppConfig)
+    mock_app = MagicMock()
+    mock_app.name = "test_app"
+    mock_app.code_paths = []
+    mock_app.pip_requirements = declared
+    mock_app.input_example = None
+    mock_app.trace_location = None
+    mock_config.app = mock_app
+
+    mock_resources = MagicMock()
+    for attr in (
+        "llms",
+        "vector_stores",
+        "warehouses",
+        "genie_rooms",
+        "tables",
+        "functions",
+        "connections",
+        "databases",
+        "volumes",
+    ):
+        setattr(mock_resources, attr, MagicMock(values=lambda: []))
+    mock_config.resources = mock_resources
+    mock_config.guardrails = {}
+    mock_config.agents = {}
+
+    mock_experiment = MagicMock()
+    mock_experiment.experiment_id = "test_experiment_123"
+
+    with (
+        patch.object(
+            DatabricksProvider, "get_or_create_experiment", return_value=mock_experiment
+        ),
+        patch.object(mlflow, "set_experiment"),
+        patch.object(mlflow, "set_registry_uri"),
+        patch.object(mlflow, "start_run") as mock_start_run,
+        patch.object(mlflow, "set_tag"),
+        patch.object(mlflow.pyfunc, "log_model") as mock_log_model,
+        patch.object(mlflow, "register_model"),
+        patch("dao_ai.providers.databricks.MlflowClient"),
+        # The local-wheel branch: this is what appended the bad requirement.
+        patch("dao_ai.providers.databricks._use_local_source", return_value=True),
+        patch(
+            "dao_ai.providers.databricks.find_dev_wheel",
+            return_value=Path("/tmp/dist/dao_ai-9.9.9-py3-none-any.whl"),
+        ),
+        patch("dao_ai.providers.databricks._warn_if_stale_dev_wheel"),
+        patch(
+            "dao_ai.providers.databricks.get_installed_packages",
+            return_value=["some-frozen-dep==0.1.0"],
+        ),
+    ):
+        mock_start_run.return_value.__enter__.return_value = MagicMock()
+        mock_log_model.return_value = MagicMock(model_uri="test_uri")
+
+        _stamp_extras_resolvable(mock_config)
+        DatabricksProvider().create_agent(config=mock_config)
+
+    # Compared against a literal, not against ``declared`` — an in-place extend
+    # grows that same list object, so ``== declared`` would compare it to itself.
+    assert mock_app.pip_requirements == ["my-extra-package==1.2.3"], (
+        "create_agent extended config.app.pip_requirements in place: "
+        f"{mock_app.pip_requirements}"
+    )
+    # It still has to have reached the logged model, or the copy would be a
+    # silent no-op fix.
+    conda_env = mock_log_model.call_args.kwargs["conda_env"]
+    logged = next(
+        dep["pip"] for dep in conda_env["dependencies"] if isinstance(dep, dict)
+    )
+    assert "code/dao_ai-9.9.9-py3-none-any.whl" in logged
+    assert "my-extra-package==1.2.3" in logged
+
+
+@pytest.mark.unit
 def test_create_agent_sets_framework_tags():
     """Test that create_agent sets framework and framework_version tags."""
     from unittest.mock import MagicMock, call, patch

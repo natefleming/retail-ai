@@ -1,5 +1,5 @@
 ---
-name: product_lookup
+name: product-lookup
 description: Hardware store product lookup. Resolves a SKU or a descriptive query to a product card with price, aisle location, and contractor pricing.
 ---
 
