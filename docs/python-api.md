@@ -142,6 +142,13 @@ random-access writes the mount does not support. dao-ai handles that by fetching
 into a local temporary directory and copying the finished checkout in, so the only
 visible difference is that publication is a copy instead of an atomic rename.
 
+That copy is what you pay for durability, and only once per commit. Measured on
+serverless v5 against a UC volume: the first load took ~3.5 minutes, and a later
+run resolving the same ref reused the published checkout in ~1 second
+(`/Workspace` was faster on both counts). So a mounted `cache_dir` is a good
+trade whenever a cluster restart would otherwise re-fetch, and a poor one for a
+single throwaway run — leave `cache_dir` unset there and take the local disk.
+
 **Relative assets resolve inside the checkout.** A dataset's
 `ddl: functions/products.sql` or `data: data/products.csv` is anchored on the
 config's own directory in the checkout, so a repository's colocated assets work with no
