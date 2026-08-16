@@ -106,33 +106,49 @@ def _iter_middleware(config: "AppConfig") -> Iterator["MiddlewareModel"]:
     same object (``config.agents`` and ``config.app.agents``), so dedupe by
     identity — the same traversal the translating validator uses.
     """
+    from dao_ai.config import (
+        AgentModel,
+        DeepAgentModel,
+        SubAgentModel,
+        SupervisorModel,
+        SwarmModel,
+    )
+
     yield from config.middleware.values()
 
-    seen: set[int] = set()
-    holders: list[Any] = list((config.agents or {}).values())
-    app = config.app
-    if app is not None and app.agents:
-        holders.extend(app.agents)
-    orchestration = app.orchestration if app is not None else None
-    if orchestration is not None:
-        # ``swarm: true`` is a Literal, not a model — it carries no middleware.
-        holders.extend(
-            holder
-            for holder in (
-                orchestration.supervisor,
-                orchestration.swarm,
-                orchestration.deep_agent,
-            )
-            if holder is not None and holder is not True
-        )
-        if orchestration.deep_agent is not None:
-            holders.extend(orchestration.deep_agent.subagents or [])
+    # Every model that owns a ``middleware`` list. ``swarm: true`` (a Literal)
+    # and a subagent given as a bare name string own none, so narrowing by type
+    # is what keeps those out.
+    holder_types = (
+        AgentModel,
+        SupervisorModel,
+        SwarmModel,
+        DeepAgentModel,
+        SubAgentModel,
+    )
 
-    for holder in holders:
-        if id(holder) in seen:
+    candidates: list[Any] = list((config.agents or {}).values())
+    app = config.app
+    if app is not None:
+        candidates.extend(app.agents or [])
+        orchestration = app.orchestration
+        if orchestration is not None:
+            candidates.extend(
+                [
+                    orchestration.supervisor,
+                    orchestration.swarm,
+                    orchestration.deep_agent,
+                ]
+            )
+            if isinstance(orchestration.deep_agent, DeepAgentModel):
+                candidates.extend(orchestration.deep_agent.subagents or [])
+
+    seen: set[int] = set()
+    for candidate in candidates:
+        if not isinstance(candidate, holder_types) or id(candidate) in seen:
             continue
-        seen.add(id(holder))
-        yield from holder.middleware or []
+        seen.add(id(candidate))
+        yield from candidate.middleware or []
 
 
 def require_extra(
