@@ -1173,6 +1173,40 @@ class TestBackendGateCoversSubagentSkills:
         )
         assert self._built_backend(config) is None
 
+    def test_the_shipped_subagent_only_example_gets_a_filesystem_backend(self) -> None:
+        """The example we ship for this shape has to keep working.
+
+        ``deep_agent_subagent_skills.yaml`` exists to document the sub-agent-only
+        case, so a regression that broke the gate would ship an example that
+        silently serves without the one skill it is built around — precisely the
+        failure it was written to demonstrate.
+        """
+        from deepagents.backends import FilesystemBackend
+
+        from dao_ai.config import SubAgentModel
+
+        example: Path = (
+            Path(__file__).resolve().parents[2]
+            / "examples"
+            / "13_orchestration"
+            / "deep_agent_subagent_skills.yaml"
+        )
+        config = AppConfig.from_file(example)
+        deep_agent = config.app.orchestration.deep_agent
+
+        assert not deep_agent.skills, "example must declare no top-level skills"
+        assert not deep_agent.instruction_files, (
+            "example must declare no instruction files, or they would force the "
+            "backend on their own and the example would prove nothing"
+        )
+        assert any(
+            isinstance(spec, SubAgentModel) and spec.skills
+            for spec in deep_agent.subagents
+        ), "example must declare a skill on a sub-agent"
+
+        backend = self._built_backend(config)
+        assert isinstance(backend, FilesystemBackend), type(backend).__name__
+
     @staticmethod
     def _built_backend(config: AppConfig) -> object:
         """The ``backend`` that ``create_deep_agent_graph`` actually hands deepagents.

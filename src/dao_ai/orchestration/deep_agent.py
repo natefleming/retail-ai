@@ -256,7 +256,20 @@ def _resolve_backend(
         if needs_filesystem:
             from deepagents.backends import FilesystemBackend
 
+            # Log the swap: it is the decision that determines whether skills and
+            # instruction files can load at all, and leaving it silent means an
+            # operator reading endpoint logs cannot tell a filesystem-backed
+            # agent from deepagents' default one.
+            logger.info(
+                "Defaulting deep_agent backend to FilesystemBackend",
+                virtual_mode=False,
+                reason="skills or instruction files are declared",
+            )
             return FilesystemBackend(virtual_mode=False)
+        logger.debug(
+            "No skills or instruction files declared; leaving the backend to "
+            "deepagents (StateBackend)"
+        )
         return None
     module_name, _, attr = spec.name.rpartition(".")
     if not module_name:
@@ -388,12 +401,24 @@ def create_deep_agent_graph(config: AppConfig) -> CompiledStateGraph:
             "create_deep_agent_graph called but config.app.orchestration.deep_agent is not set"
         )
 
+    # ``skills_count`` alone reads 0 for a config whose skills live only on a
+    # sub-agent, which is a shape that loads skills perfectly well — so report
+    # those too rather than leaving the log implying nothing was declared. Only
+    # ``SubAgentModel`` is counted because ``_agent_to_subagent`` does not carry
+    # an ``AgentModel``'s skills into deepagents, so those never load.
+    subagent_skills_count: int = sum(
+        len(spec.skills or [])
+        for spec in deep_agent.subagents or []
+        if isinstance(spec, SubAgentModel)
+    )
     logger.info(
         "Creating deep_agent graph",
         pattern="deepagents",
         agents_count=len(config.app.agents) if config.app.agents else 0,
         subagents_count=len(deep_agent.subagents or []),
         skills_count=len(deep_agent.skills or []),
+        subagent_skills_count=subagent_skills_count,
+        instruction_files_count=len(deep_agent.instruction_files or []),
         tools_count=len(deep_agent.tools or []),
     )
 

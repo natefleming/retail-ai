@@ -1030,6 +1030,12 @@ def resolve_skill_runtime_paths(
                 anchors_tried=[str(a) for a in _runtime_anchors(anchor)],
             )
             continue
+        logger.info(
+            "Resolved skill directory",
+            name=spec.name,
+            rel_path=spec.path,
+            resolved=str(runtime_dir),
+        )
         seen.setdefault(str(runtime_dir.parent), None)
 
     return list(seen.keys())

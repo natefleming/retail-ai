@@ -43,6 +43,7 @@ flowchart TB
 | [`deep_agent_pattern.yaml`](./deep_agent_pattern.yaml) | 🧠 Deep Agent | Single planner with todo, filesystem, shell, sub-agents (langgraph deepagents) |
 | [`deep_agent_with_subagents.yaml`](./deep_agent_with_subagents.yaml) | 🧠 Deep Agent | Three sub_agent declaration forms: anchor, name, inline |
 | [`deep_agent_with_skills.yaml`](./deep_agent_with_skills.yaml) | 🧠 Deep Agent | Local + volume-backed skills, AGENTS.md memory, permissions, HITL |
+| [`deep_agent_subagent_skills.yaml`](./deep_agent_subagent_skills.yaml) | 🧠 Deep Agent | A skill declared *only* on a sub-agent — the shape that needs the filesystem-backend gate |
 
 ## Pattern Comparison
 
