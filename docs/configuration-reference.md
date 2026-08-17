@@ -696,6 +696,24 @@ If a declared local skill cannot be found at **deploy** time, the deploy fails a
 - **Local skills** are staged by every path that ships a config — the Apps bundler (`agent build`), the MCP bundler (`agent build --as-mcp`), the workflow DAB (under `config/skills/...`, beside the staged config), and the direct Apps deploy, which uploads them beside the config in the app's workspace source — and ship with the model artifact via `code_paths`. No extra grants needed.
 - **Volume-backed skills** are never copied. They emit deployment resources (via the underlying `VolumeModel`) so the app's service principal receives `READ_VOLUME` on the backing volume at deploy time, and are read from `/Volumes/...` at runtime.
 
+#### Instruction files (`deep_agent.instruction_files`)
+
+`orchestration.deep_agent.instruction_files` names `AGENTS.md`-style files whose contents are spliced into the system prompt at startup. They follow exactly the contract above — relative in the config, resolved against the same four anchors when the graph is built, staged by every bundler and by the direct Apps deploy, and shipped with the model artifact — with two differences worth knowing:
+
+- An entry names a **file**, not a directory. `instructions/AGENTS.md` is right; `instructions/` is not, and a directory resolves to nothing.
+- An entry that lives inside a skill directory (`skills/research/AGENTS.md`) is already carried by that skill's staging, so it is not copied twice.
+
+```yaml
+app:
+  orchestration:
+    deep_agent:
+      instruction_files:
+        - instructions/AGENTS.md           # relative to the config file
+        - skills/research/AGENTS.md        # already shipped with the skill
+```
+
+Declaring `instruction_files` also forces a filesystem-capable backend when `backend` is left unset, for the same reason skills do: deepagents' default `StateBackend` reads from graph state, so no path could ever load. As with skills, an unresolvable entry fails the **deploy** by name, and a file missing at **runtime** is a `WARNING` naming every anchor tried while the agent serves without it.
+
 ### Chat UI (`enable_chat_proxy`)
 
 Controls whether the deployed Databricks App includes the interactive chat UI

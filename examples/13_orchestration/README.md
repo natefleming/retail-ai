@@ -95,7 +95,8 @@ orchestration:
       You are a planner. Break complex tasks into todos before answering.
     tools: [*current_time]               # ToolModel anchors or string refs
     skills: [*research_skill]            # SkillModel refs (local or volume-backed)
-    instruction_files: [skills/.../AGENTS.md]   # AGENTS.md instruction files loaded into prompt
+    instruction_files: [instructions/AGENTS.md] # AGENTS.md files spliced into the prompt,
+                                         # relative to the config file
     subagents:                           # three accepted forms
       - *product_specialist              #   1. AgentModel anchor (full carry-over)
       - inventory_specialist             #   2. name lookup in app.agents

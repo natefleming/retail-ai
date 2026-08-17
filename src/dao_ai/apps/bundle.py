@@ -986,15 +986,29 @@ def write_bundle(
     # Layout is preserved under the config's own directory (not ``_project_root()``,
     # which walks up from the CWD) so that ``Path.cwd() / <source>`` resolves at
     # runtime when the bundle root is the app's CWD. See ``stage_skill_dirs``.
-    from dao_ai.skills import assert_skills_resolvable, stage_skill_dirs
+    from dao_ai.skills import (
+        assert_skill_assets_resolvable,
+        stage_instruction_files,
+        stage_skill_dirs,
+    )
 
-    assert_skills_resolvable(config, target="Apps bundle")
+    assert_skill_assets_resolvable(config, target="Apps bundle")
     skills_written, skills_skipped, skills_preserved = stage_skill_dirs(
         config, staging_dir, overwrite=overwrite
     )
     written.extend(skills_written)
     skipped.extend(skills_skipped)
     preserved.extend(skills_preserved)
+
+    # ``instruction_files`` (deepagents' ``memory=``) needs the same treatment for
+    # the same reason — a declared path is only useful if the file it names got
+    # staged beside the config.
+    instr_written, instr_skipped, instr_preserved = stage_instruction_files(
+        config, staging_dir, overwrite=overwrite
+    )
+    written.extend(instr_written)
+    skipped.extend(instr_skipped)
+    preserved.extend(instr_preserved)
 
     # Copy the config's custom code (app.code_paths) into the bundle next to the
     # config so it is importable at runtime: the bundle root is the app CWD and

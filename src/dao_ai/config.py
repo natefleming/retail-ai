@@ -11193,6 +11193,14 @@ def _reject_relative_assets_for_remote_config(
         if _is_relative(declared):
             label: str = spec.name if isinstance(spec, SkillModel) else str(spec)
             offenders.append(f"deep_agent skill {label!r}: {declared}")
+    # ``instruction_files`` are spliced into the system prompt verbatim, so a
+    # remote config naming a relative one is the same untrusted-document-reads-
+    # local-Markdown problem as skills, with none of the indirection.
+    if config.app is not None and config.app.orchestration is not None:
+        deep_agent = config.app.orchestration.deep_agent
+        for entry in (deep_agent.instruction_files if deep_agent else []) or []:
+            if _is_relative(entry):
+                offenders.append(f"deep_agent.instruction_files: {entry}")
 
     if offenders:
         raise ValueError(

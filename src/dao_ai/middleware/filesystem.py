@@ -61,6 +61,7 @@ def create_filesystem_middleware(
     tool_token_limit_before_evict: int | None = 20000,
     system_prompt: str | PromptModel | None = None,
     custom_tool_descriptions: dict[str, str] | None = None,
+    virtual_mode: bool = True,
 ) -> FilesystemMiddleware:
     """
     Create a FilesystemMiddleware for agent file operations.
@@ -94,6 +95,18 @@ def create_filesystem_middleware(
             from the prompt registry.
         custom_tool_descriptions: Optional dict mapping tool names to
             custom descriptions.
+        virtual_mode: Only meaningful with ``backend_type="filesystem"``.
+            Defaults to ``True``, which anchors every path the *model* asks for
+            under ``root_dir``: ``..``/``~`` traversal is refused and a path
+            resolving outside the root is rejected. These tools (``read_file``,
+            ``write_file``, ``edit_file``, ``glob``, ``grep``) take their paths
+            from model output, so declaring a ``root_dir`` is read as intent to
+            confine them to it. Set ``False`` when the agent genuinely needs
+            real host paths outside the root — that is deepagents' legacy
+            behaviour, and deepagents is explicit that it "provides no security
+            even with ``root_dir`` set". Confinement here is path-based only; it
+            is not sandboxing or process isolation, and it does not restrict
+            what the container's own identity can reach through other means.
 
     Returns:
         A configured FilesystemMiddleware instance.
@@ -126,6 +139,7 @@ def create_filesystem_middleware(
         backend_type=backend_type,
         root_dir=root_dir,
         volume_path=volume_path,
+        virtual_mode=virtual_mode,
     )
 
     logger.debug(
@@ -133,6 +147,7 @@ def create_filesystem_middleware(
         backend_type=backend_type,
         tool_token_limit_before_evict=tool_token_limit_before_evict,
         custom_system_prompt=system_prompt is not None,
+        virtual_mode=virtual_mode,
     )
 
     resolved_system_prompt: str | None = (

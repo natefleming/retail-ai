@@ -1483,15 +1483,21 @@ def test_deploy_apps_agent_stages_skills_and_code(tmp_path):
                 return_value=MagicMock(experiment_id="exp-1"),
             ),
             patch.object(provider, "_upload_skill_dirs") as skills_upload,
+            patch.object(provider, "_upload_instruction_files") as instr_upload,
             patch.object(provider, "_upload_code_paths") as code_upload,
         ):
             _stamp_extras_resolvable(mock_config)
             provider.deploy_apps_agent(mock_config)
 
     skills_upload.assert_called_once()
+    instr_upload.assert_called_once()
     # Staged under the same source path as code_paths — the app's CWD, which is
     # what a relative skills source in the uploaded config resolves against.
     assert skills_upload.call_args.args[1] == code_upload.call_args.args[1]
+    # Instruction files anchor on the same CWD for the same reason: an entry
+    # like ``instructions/AGENTS.md`` is handed to deepagents' MemoryMiddleware
+    # as a path, and a wrong anchor loads nothing without saying so.
+    assert instr_upload.call_args.args[1] == code_upload.call_args.args[1]
 
 
 @pytest.mark.unit

@@ -46,7 +46,10 @@ from dao_ai.orchestration import (
     create_checkpointer,
     create_store,
 )
-from dao_ai.skills import resolve_skill_runtime_paths
+from dao_ai.skills import (
+    resolve_instruction_file_runtime_paths,
+    resolve_skill_runtime_paths,
+)
 from dao_ai.tools import create_tools
 
 if TYPE_CHECKING:
@@ -205,26 +208,55 @@ def _resolve_context_schema(spec: str | None) -> type | None:
     return getattr(module, attr)
 
 
-def _resolve_backend(spec: BackendModel | None, *, has_skills: bool = False) -> Any:
+def _resolve_backend(
+    spec: BackendModel | None, *, needs_filesystem: bool = False
+) -> Any:
     """Instantiate a backend factory from its FQN.
 
     When ``spec`` is None:
 
-    * If skills are declared **anywhere** — on the deep_agent or on any one of its
-      sub-agents — default to ``FilesystemBackend()``. deepagents' default
-      ``StateBackend`` cannot read skill files from disk or UC volumes, so a
-      filesystem-aware backend is required for skill discovery to work.
-      ``FilesystemBackend`` with no ``root_dir`` resolves absolute paths
-      directly, which is what dao-ai's runtime resolver returns.
+    * If skills **or instruction files** are declared **anywhere** — on the
+      deep_agent or on any one of its sub-agents — default to
+      ``FilesystemBackend(virtual_mode=False)``. deepagents' default
+      ``StateBackend`` cannot read files from disk or UC volumes, so a
+      filesystem-aware backend is required for skill discovery and for
+      ``MemoryMiddleware`` to load an ``AGENTS.md``.
     * Otherwise, return None so deepagents picks its default StateBackend.
 
-    Override by setting ``orchestration.deep_agent.backend`` explicitly.
+    Instruction files count for the same reason skills do, and forgetting them
+    made a config with ``instruction_files`` and no skills unfixable from the
+    path side: ``StateBackend`` reads from graph state, so no path — however
+    correct — could ever load.
+
+    ``virtual_mode=False`` is passed **explicitly and is load-bearing**, not a
+    restatement of a default. deepagents flipped this default to ``True`` in
+    0.7.0 (its deprecation notice announced 0.6.0, but 0.6.x still defaults to
+    ``False``), and under ``virtual_mode=True`` every incoming path is treated as a
+    *virtual* path anchored at ``root_dir`` (here the CWD): the leading slash is
+    stripped and the remainder joined underneath, so the real absolute path
+    ``/app/src/instructions/AGENTS.md`` is looked up at
+    ``<cwd>/app/src/instructions/AGENTS.md`` and never found. dao-ai's runtime
+    resolvers deal in real host paths — a config directory, an mlflow artifact's
+    ``code`` dir, a ``/Volumes`` mount — none of which are reachable that way,
+    and ``/Volumes`` is rejected outright as "outside root directory". Since
+    ``pyproject.toml`` allows ``deepagents>=0.5.7``, leaving the default implicit
+    means the behaviour changes under the user's feet on upgrade: skills log a
+    load error and instruction files fail in complete silence. Observed exactly
+    that way — the committed lock pins 0.6.12 and works, while a freshly locked
+    Apps bundle resolved 0.7.5 and served an agent with no memory at all.
+
+    Override by setting ``orchestration.deep_agent.backend`` explicitly. An
+    explicit ``FilesystemBackend`` that omits ``virtual_mode`` from its ``args``
+    inherits deepagents' default and so carries the version-dependent behaviour
+    described above into a user's own config, where none of the reasoning above is
+    visible; that case is warned about rather than corrected, because overriding a
+    value the user wrote out by hand is worse than telling them about it.
     """
     if spec is None:
-        if has_skills:
+        if needs_filesystem:
             from deepagents.backends import FilesystemBackend
 
-            return FilesystemBackend()
+            return FilesystemBackend(virtual_mode=False)
         return None
     module_name, _, attr = spec.name.rpartition(".")
     if not module_name:
@@ -233,6 +265,18 @@ def _resolve_backend(spec: BackendModel | None, *, has_skills: bool = False) -> 
         )
     module = importlib.import_module(module_name)
     factory = getattr(module, attr)
+    if attr == "FilesystemBackend" and "virtual_mode" not in spec.args:
+        logger.warning(
+            "backend declares FilesystemBackend without virtual_mode, so the "
+            "value comes from whichever deepagents is installed: <0.7.0 defaults "
+            "to False (real host paths) and >=0.7.0 to True, which re-anchors "
+            "every absolute path under root_dir and cannot reach /Volumes at all. "
+            "Set virtual_mode explicitly in backend.args — False to keep real "
+            "host paths, which is what dao-ai's skill and instruction-file "
+            "resolvers hand the backend.",
+            backend=spec.name,
+            args=sorted(spec.args),
+        )
     return factory(**spec.args) if spec.args else factory()
 
 
@@ -376,6 +420,9 @@ def create_deep_agent_graph(config: AppConfig) -> CompiledStateGraph:
     skills: list[str] = resolve_skill_runtime_paths(
         list(deep_agent.skills or []), config
     )
+    instruction_files: list[str] = resolve_instruction_file_runtime_paths(
+        list(deep_agent.instruction_files or []), config
+    )
 
     graph: CompiledStateGraph = create_deep_agent(
         model=_resolve_model(deep_agent.model),
@@ -389,9 +436,7 @@ def create_deep_agent_graph(config: AppConfig) -> CompiledStateGraph:
         # avoid collision with OrchestrationModel.memory (runtime
         # checkpointer/store/extraction). The keyword we pass to deepagents
         # remains ``memory`` because that's the upstream API name.
-        memory=(
-            list(deep_agent.instruction_files) if deep_agent.instruction_files else None
-        ),
+        memory=instruction_files or None,
         permissions=_resolve_permissions(deep_agent.permissions) or None,
         response_format=_resolve_response_format(deep_agent.response_format),
         context_schema=_resolve_context_schema(deep_agent.context_schema),
@@ -404,7 +449,8 @@ def create_deep_agent_graph(config: AppConfig) -> CompiledStateGraph:
         # rather than the specs, so this asks exactly what deepagents receives.
         backend=_resolve_backend(
             deep_agent.backend,
-            has_skills=bool(skills) or any(sub.get("skills") for sub in subagents),
+            needs_filesystem=bool(skills or instruction_files)
+            or any(sub.get("skills") for sub in subagents),
         ),
         interrupt_on=_resolve_interrupt_on(deep_agent.interrupt_on) or None,
         debug=deep_agent.debug,
