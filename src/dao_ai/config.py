@@ -8143,6 +8143,42 @@ class AgentModel(BaseModel):
             f"got {type(self.response_format)}"
         )
 
+    @model_validator(mode="after")
+    def validate_genie_brain_bindings(self) -> Self:
+        """Reject config a Genie brain would silently discard.
+
+        ``GenieAgentChatModel.bind_tools`` returns the model unchanged — Genie
+        Agent Mode runs its own tool loop server-side and exposes no way to
+        declare client tools — so declared ``tools`` are registered in the
+        agent's ToolNode and can never be called, and a ``response_format``
+        binding is dropped on the floor. Either config builds cleanly and
+        surfaces only as a wrong answer at runtime, so both are refused here,
+        where the message can name the agent and the offending tools.
+        """
+        if not isinstance(self.model, GenieAgentModel):
+            return self
+
+        if self.tools:
+            tool_names: str = ", ".join(tool.name for tool in self.tools)
+            raise ValueError(
+                f"Agent '{self.name}' uses a Genie space as its model, which "
+                f"runs its own tool loop server-side and can never call a "
+                f"client tool — but it declares tools: {tool_names}. Remove "
+                f"them, or give the agent an LLM model and reach Genie through "
+                f"a `type: genie` tool instead."
+            )
+
+        if self.response_format is not None:
+            raise ValueError(
+                f"Agent '{self.name}' uses a Genie space as its model, which "
+                f"streams narrative markdown and cannot be bound to a "
+                f"response_format. Remove response_format, or give the agent "
+                f"an LLM model and reach Genie through a `type: genie` tool "
+                f"instead."
+            )
+
+        return self
+
     def as_runnable(self) -> RunnableLike:
         from dao_ai.nodes import create_agent_node
 
@@ -10129,12 +10165,58 @@ class AppModel(BaseModel):
                     raise ValueError(
                         "No default orchestration: every agent's model is a Genie "
                         "space, so there is no LLM for a supervisor to route with. "
-                        "Declare `orchestration.supervisor.model` (or "
-                        "`orchestration.swarm`) explicitly."
+                        "Declare `orchestration.supervisor.model` explicitly. A "
+                        "swarm of Genie brains routes only with "
+                        "`is_deterministic: true` handoffs — a Genie model "
+                        "discards the agentic handoff tools, so `active_agent` "
+                        "would never be written and every turn would land on the "
+                        "default agent."
                     )
                 self.orchestration.supervisor = SupervisorModel(model=supervisor_model)
             else:
                 self.orchestration.swarm = SwarmModel(default_agent=default_agent)
+
+        return self
+
+    @model_validator(mode="after")
+    def validate_swarm_brain_handoffs(self) -> Self:
+        """Reject an agentic handoff *out of* a Genie-brain agent in a swarm.
+
+        ``_handoffs_for_agent`` gives the source agent its agentic handoff tools
+        as ``additional_tools``. A Genie model discards them, so the brain emits
+        no tool call, ``active_agent`` is never written, and the swarm router
+        lands every later turn back on the same agent — everything past the brain
+        is unreachable, with no error anywhere. A deterministic handoff is a real
+        parent-graph edge and still works; so does a brain with no outbound
+        handoffs, which is simply a leaf that ends the turn.
+        """
+        if self.orchestration is None or self.orchestration.swarm is None:
+            return self
+
+        handoffs = self.orchestration.swarm.handoffs or {}
+        brain_names: set[str] = {
+            agent.name
+            for agent in self.agents
+            if isinstance(agent.model, GenieAgentModel)
+        }
+        if not handoffs or not brain_names:
+            return self
+
+        for source_name, entries in handoffs.items():
+            if source_name not in brain_names:
+                continue
+            for entry in entries or ():
+                if isinstance(entry, HandoffRouteModel) and entry.is_deterministic:
+                    continue
+                raise ValueError(
+                    f"Swarm agent '{source_name}' uses a Genie space as its "
+                    f"model, which discards the agentic handoff tools it is "
+                    f"given — it could never route away, so every later turn "
+                    f"would land back on it and the rest of the swarm would be "
+                    f"unreachable. Declare the handoff with "
+                    f"`is_deterministic: true`, or give the agent an LLM model "
+                    f"and reach Genie through a `type: genie` tool instead."
+                )
 
         return self
 

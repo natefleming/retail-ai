@@ -352,11 +352,22 @@ def create_supervisor_graph(config: AppConfig) -> CompiledStateGraph:
         # loop server-side and never calls a client tool. Its turn ends when it
         # answers, which is the only way control ever leaves that worker anyway,
         # so the tool would be dead weight in its graph and its logs.
+        is_genie_brain: bool = isinstance(registered_agent.model, GenieAgentModel)
         additional_tools: list[BaseTool] = (
-            []
-            if isinstance(registered_agent.model, GenieAgentModel)
-            else [_create_handoff_back_to_supervisor_tool()]
+            [] if is_genie_brain else [_create_handoff_back_to_supervisor_tool()]
         )
+        if is_genie_brain:
+            # Without the handoff tool, and with no worker -> supervisor edge,
+            # this worker is a graph sink. That is correct, but it silently
+            # rules out something a config author may well expect: the
+            # supervisor cannot collect this agent's answer and then route on
+            # to another agent inside the same turn.
+            logger.warning(
+                "Genie-brain worker is a graph sink: it answers and the turn "
+                "ends. The supervisor cannot chain it with another agent in the "
+                "same turn — it re-routes on the next turn instead.",
+                agent=registered_agent.name,
+            )
 
         agent_subgraph: CompiledStateGraph = create_agent_node(
             agent=registered_agent,
