@@ -29,6 +29,7 @@ YAML Config:
 from __future__ import annotations
 
 import os
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from loguru import logger
@@ -142,7 +143,7 @@ def create_skills_middleware(
     )
 
     resolved_sources: list[str] = (
-        _resolve_filesystem_sources(sources)
+        _resolve_filesystem_sources(sources, root_dir)
         if backend_type == "filesystem"
         else list(sources)
     )
@@ -171,7 +172,9 @@ def create_skills_middleware(
     return middleware
 
 
-def _resolve_filesystem_sources(sources: list[str]) -> list[str]:
+def _resolve_filesystem_sources(
+    sources: list[str], root_dir: str | None = None
+) -> list[str]:
     """Anchor each relative source on a real directory; pass absolutes through.
 
     Returns a new list — ``sources`` is the live ``MiddlewareModel.args`` value,
@@ -179,12 +182,29 @@ def _resolve_filesystem_sources(sources: list[str]) -> list[str]:
     ``create_agent`` serializes into the model artifact. That is the very bug this
     resolution exists to fix, so building the graph must leave the config
     byte-identical.
+
+    ``root_dir`` leads the anchor list when the caller declared a real one. The
+    backend it configures is what resolves a relative source when this function
+    passes one through, so ignoring it here meant a hand-written
+    ``root_dir: /workspace/skills_root`` lost to whatever same-named directory
+    happened to sit under the CWD — a *worse* answer than the pass-through it
+    replaced, and the one case where resolving is a regression rather than a fix.
+
+    ``"/"`` is excluded because it is not a declared root: it is the placeholder
+    :meth:`SkillModel.as_middleware` emits for a config-relative source, since
+    ``FilesystemBackend`` requires some root. Honoring it would anchor every
+    source at the filesystem root, where a source of ``"."`` resolves to ``/``
+    itself and a leaf named like a top-level directory quietly wins.
     """
     from dao_ai.skills import _runtime_anchors, resolve_skill_source_dir
 
+    extra_anchors: tuple[Path, ...] = (
+        (Path(root_dir),) if root_dir is not None and root_dir != "/" else ()
+    )
+
     resolved: list[str] = []
     for source in sources:
-        target = resolve_skill_source_dir(source)
+        target = resolve_skill_source_dir(source, extra_anchors)
         if target is not None:
             resolved.append(str(target))
             continue
@@ -194,7 +214,7 @@ def _resolve_filesystem_sources(sources: list[str]) -> list[str]:
                 "Skill source directory not found under any runtime anchor — "
                 "the agent will run WITHOUT the skills under it",
                 source=source,
-                anchors_tried=[str(a) for a in _runtime_anchors()],
+                anchors_tried=[str(a) for a in _runtime_anchors(extra_anchors)],
                 backend_type="filesystem",
             )
     return resolved

@@ -638,3 +638,110 @@ class TestAllBundlersStageSkillContent:
         ), uploaded
         # The volume-backed skill is not local content and must not be uploaded.
         assert not any("skills_library" in path for path in uploaded), uploaded
+
+
+@pytest.mark.unit
+class TestBackendGateCoversSubagentSkills:
+    """The backend chosen for the graph has to account for *every* skill in it.
+
+    deepagents' default ``StateBackend`` reads from graph state, so a skill on
+    disk or in a volume cannot be loaded by any path under it. The gate that
+    upgrades to ``FilesystemBackend`` looked at ``deep_agent.skills`` alone, so a
+    config that declares its skills only on a sub-agent got the state backend and
+    served an agent whose skills could never load — no exception, no log line,
+    exactly the silent degradation this module exists to lock down.
+    """
+
+    @staticmethod
+    def _subagent_only_config() -> AppConfig:
+        from dao_ai.config import (
+            AgentModel,
+            AppModel,
+            DeepAgentModel,
+            LLMModel,
+            OrchestrationModel,
+            SkillModel,
+            SubAgentModel,
+        )
+
+        return AppConfig(
+            agents={"a": AgentModel(name="a", model=LLMModel(name="x"))},
+            app=AppModel(
+                name="test_app",
+                agents=[AgentModel(name="a", model=LLMModel(name="x"))],
+                orchestration=OrchestrationModel(
+                    deep_agent=DeepAgentModel(
+                        name="d",
+                        subagents=[
+                            SubAgentModel(
+                                name="researcher",
+                                description="researches",
+                                system_prompt="p",
+                                skills=[
+                                    SkillModel(name="r", path="/Volumes/c/s/v/research")
+                                ],
+                            )
+                        ],
+                    )
+                ),
+            ),
+        )
+
+    def test_subagent_only_skills_still_get_a_filesystem_backend(self) -> None:
+        from deepagents.backends import FilesystemBackend
+
+        config = self._subagent_only_config()
+        assert not config.app.orchestration.deep_agent.skills, (
+            "fixture must declare no top-level skills"
+        )
+
+        backend = self._built_backend(config)
+        assert isinstance(backend, FilesystemBackend), type(backend).__name__
+
+    def test_no_skills_anywhere_still_defers_to_deepagents(self) -> None:
+        """The gate must stay a gate: a config with no skills at all keeps
+        deepagents' own default rather than paying for a filesystem backend."""
+        from dao_ai.config import (
+            AgentModel,
+            AppModel,
+            DeepAgentModel,
+            LLMModel,
+            OrchestrationModel,
+        )
+
+        config = AppConfig(
+            agents={"a": AgentModel(name="a", model=LLMModel(name="x"))},
+            app=AppModel(
+                name="test_app",
+                agents=[AgentModel(name="a", model=LLMModel(name="x"))],
+                orchestration=OrchestrationModel(deep_agent=DeepAgentModel(name="d")),
+            ),
+        )
+        assert self._built_backend(config) is None
+
+    @staticmethod
+    def _built_backend(config: AppConfig) -> object:
+        """The ``backend`` that ``create_deep_agent_graph`` actually hands deepagents.
+
+        Asserted through the real build rather than by recomputing the gate
+        expression in the test: the bug was in the expression at the call site, so a
+        test that repeats it passes whether or not the call site is fixed.
+        """
+        import deepagents
+
+        from dao_ai.orchestration.deep_agent import create_deep_agent_graph
+
+        captured: dict[str, object] = {}
+
+        def _capture(**kwargs: object) -> object:
+            captured.update(kwargs)
+            return object()
+
+        original = deepagents.create_deep_agent
+        deepagents.create_deep_agent = _capture
+        try:
+            create_deep_agent_graph(config)
+        finally:
+            deepagents.create_deep_agent = original
+
+        return captured["backend"]

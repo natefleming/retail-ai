@@ -579,6 +579,39 @@ class TestUnresolvableSkills:
         )
         assert unresolvable_skills(cfg) == []
 
+    @pytest.mark.parametrize(
+        "path",
+        [
+            "/Volumes/c/s/v/research",
+            "/Workspace/Shared/skills/research",
+            "/dbfs/FileStore/skills/research",
+        ],
+    )
+    def test_fuse_paths_never_flagged(self, path: str, tmp_project: Path) -> None:
+        """Every Databricks FUSE root gets the same exemption, not just /Volumes.
+
+        All three are mounted inside Databricks compute and absent from the laptop
+        running the CLI, so checking whether one exists says nothing about runtime —
+        and failing the deploy over it refuses a config that would have served.
+        """
+        cfg = _config_with_deep_agent(skills=[SkillModel(name="g", path=path)])
+        assert unresolvable_skills(cfg) == []
+
+    @pytest.mark.parametrize(
+        "path", ["/Volumesnotreally/research", "/WorkspaceFoo/research"]
+    )
+    def test_near_miss_prefixes_are_still_checked(
+        self, path: str, tmp_project: Path
+    ) -> None:
+        """The exemption is per path segment, not a substring match."""
+        cfg = _config_with_deep_agent(skills=[SkillModel(name="g", path=path)])
+        assert len(unresolvable_skills(cfg)) == 1
+
+    def test_bare_string_fuse_path_never_flagged(self, tmp_project: Path) -> None:
+        """The inline-string spelling gets the same exemption as the model one."""
+        cfg = _config_with_deep_agent(skills=["/Workspace/Shared/skills/research"])
+        assert unresolvable_skills(cfg) == []
+
     @pytest.mark.parametrize("backend_type", [None, "state", "store", "volume"])
     def test_non_filesystem_sources_are_not_gated(
         self, backend_type: str | None, tmp_project: Path
@@ -673,6 +706,54 @@ class TestRemoteConfigRejectsRelativeSkills:
         )
         lines = self._reject(config)
         assert any("skills/research" in line for line in lines), lines
+
+    def test_relative_bare_string_skill_is_rejected(self) -> None:
+        """The shorter spelling of the same declaration must not be a way around
+        the guard. ``skills: [skills/research]`` is a relative local path just as
+        much as the ``SkillModel`` form is, and narrowing the check to
+        ``SkillModel`` let it through — a remote document naming a local directory,
+        which is the one thing this guard exists to stop."""
+        config = _config_with_deep_agent(skills=["skills/research"])
+        lines = self._reject(config)
+        assert any("skills/research" in line for line in lines), lines
+
+    def test_relative_bare_string_subagent_skill_is_rejected(self) -> None:
+        config = _config_with_deep_agent(skills=[], subagent_skills=["skills/research"])
+        lines = self._reject(config)
+        assert any("skills/research" in line for line in lines), lines
+
+    def test_bare_string_naming_a_registry_entry_is_judged_by_its_target(self) -> None:
+        """A bare string is two different things: a key into ``resources.skills``
+        or an inline path. When it is a key, the path that matters is the one the
+        registered skill carries, so that is what gets checked."""
+        config = _config_with_deep_agent(
+            skills=["research"],
+            resource_skills={
+                "research": SkillModel(name="research", path="skills/research")
+            },
+        )
+        lines = self._reject(config)
+        assert any("skills/research" in line for line in lines), lines
+
+    def test_bare_string_naming_a_volume_registry_entry_is_accepted(self) -> None:
+        config = _config_with_deep_agent(
+            skills=["governed"],
+            resource_skills={
+                "governed": SkillModel(
+                    name="governed",
+                    path=VolumePathModel(
+                        volume=VolumeModel(name="skills_library"), path="research"
+                    ),
+                )
+            },
+        )
+        assert self._reject(config) == []
+
+    def test_absolute_bare_string_skill_is_accepted(self) -> None:
+        """Absolute paths are not the failure mode here — they name a specific
+        location rather than resolving against whatever tree is nearby."""
+        config = _config_with_deep_agent(skills=["/abs/skills/research"])
+        assert self._reject(config) == []
 
     def test_volume_backed_skill_is_accepted(self) -> None:
         """Governed skills are the right way to ship skills with a remote config:

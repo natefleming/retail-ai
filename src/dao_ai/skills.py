@@ -354,14 +354,59 @@ def _iter_deep_agent_skills(config: "AppConfig") -> list["SkillModel | str"]:
     return collected
 
 
+def _is_databricks_fuse_path(entry: str) -> bool:
+    """Whether ``entry`` names a Databricks FUSE mount instead of a local path.
+
+    ``/Volumes``, ``/Workspace``, and ``/dbfs`` are mounted inside Databricks
+    compute and absent from the laptop running the CLI, so a bundle-time existence
+    check on one says nothing about whether it will be there at runtime — and
+    failing the deploy over it refuses a config that would have served correctly.
+    Reuses :data:`dao_ai.git_source._FUSE_ROOTS` rather than restating the
+    prefixes, so the two modules cannot drift on what counts as runtime-only.
+
+    Matching is per path segment, so ``/Volumesnotreally/x`` is still treated as a
+    local path and still checked.
+    """
+    from dao_ai.git_source import _is_fuse_root
+
+    return _is_fuse_root(Path(entry))
+
+
+def _declared_skill_path(spec: "SkillModel | str", config: "AppConfig") -> str | None:
+    """The path a skill spec declares, as written — ``None`` when volume-backed.
+
+    Resolves a bare-string entry through ``resources.skills`` first, because a
+    string is two different things depending on the config: a key into that
+    registry, or an inline path. Callers that need to reason about the *declared*
+    path rather than a resolved local directory (the remote-config guard, which
+    must decide whether the path is relative) would otherwise have to repeat that
+    lookup and would get it wrong for one of the two forms.
+    """
+    from dao_ai.config import SkillModel
+
+    if isinstance(spec, str):
+        named: SkillModel | None = (
+            config.resources.skills.get(spec) if config.resources else None
+        )
+        if named is None:
+            return spec
+        spec = named
+
+    if not isinstance(spec, SkillModel) or spec.is_volume_backed:
+        return None
+    assert isinstance(spec.path, str)
+    return spec.path
+
+
 def _resolve_local_skill_dir(
     spec: "SkillModel | str", config: "AppConfig"
 ) -> Path | None:
     """Resolve a single skill spec to an absolute local directory, if local.
 
     Returns ``None`` for volume-backed skills (those handle their own permissions
-    and are passed through verbatim at runtime). Used at *bundle* time so the
-    project-root anchor is correct.
+    and are passed through verbatim at runtime) and for any other Databricks FUSE
+    mount, which is equally unavailable on the deploying machine. Used at *bundle*
+    time so the project-root anchor is correct.
     """
     if isinstance(spec, str):
         # Inline path string. Look it up in resources.skills first; otherwise
@@ -372,8 +417,8 @@ def _resolve_local_skill_dir(
         if named is not None:
             spec = named
         else:
-            # Raw /Volumes/... strings are volume-backed, not local.
-            if spec.startswith("/Volumes/"):
+            # Raw /Volumes/... and friends are read over FUSE at runtime, not local.
+            if _is_databricks_fuse_path(spec):
                 return None
             return (_skill_base_dir(config) / spec).resolve()
 
@@ -382,6 +427,8 @@ def _resolve_local_skill_dir(
 
     # Local SkillModel: path field is a plain string.
     assert isinstance(spec.path, str)
+    if _is_databricks_fuse_path(spec.path):
+        return None
     return (_skill_base_dir(config) / spec.path).resolve()
 
 
@@ -419,7 +466,7 @@ def collect_skills_code_paths(config: "AppConfig") -> list[str]:
     # counts as "we have at least one local skill" for the mlflow code_paths
     # inclusion decision.
     for source in _iter_agent_skill_sources(config):
-        if not source.startswith("/Volumes/"):
+        if not _is_databricks_fuse_path(source):
             has_local = True
             break
 
@@ -473,7 +520,7 @@ def collect_local_skill_dirs(config: "AppConfig") -> list[str]:
 
     # 2. agent-level skills (translated into middleware ``sources``)
     for source in _iter_agent_skill_sources(config):
-        if source.startswith("/Volumes/"):
+        if _is_databricks_fuse_path(source):
             continue
         # ``as_middleware`` emits relative sources, so this is the normal branch:
         # anchor on the config's own directory, which is where the author wrote
@@ -517,7 +564,7 @@ def unresolvable_skills(config: "AppConfig") -> list[str]:
         problems.append(f"skill {name!r}: no directory at {local_dir}")
 
     for source in _iter_agent_skill_sources(config):
-        if source.startswith("/Volumes/"):
+        if _is_databricks_fuse_path(source):
             continue
         src_path = Path(source)
         candidate: Path = (

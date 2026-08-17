@@ -11172,16 +11172,27 @@ def _reject_relative_assets_for_remote_config(
     # Skills are declared as ``path:`` but stored as middleware ``sources`` by the
     # time this runs, so read them where they end up. Volume-backed skills are
     # absolute and legitimately remote-safe; ``_is_relative`` already excludes them.
-    from dao_ai.skills import _iter_agent_skill_sources, _iter_deep_agent_skills
+    from dao_ai.skills import (
+        _declared_skill_path,
+        _iter_agent_skill_sources,
+        _iter_deep_agent_skills,
+    )
 
     for skill_source in _iter_agent_skill_sources(config):
         if _is_relative(skill_source):
             offenders.append(f"skills[].path: {skill_source}")
-    # deep_agent / subagent skills keep their SkillModel form (they are resolved
-    # at graph build, not translated to middleware), so check them separately.
+    # deep_agent / subagent skills keep their spec form (they are resolved at
+    # graph build, not translated to middleware), so check them separately. Both
+    # forms have to be read through ``_declared_skill_path``: a bare string is
+    # either a key into ``resources.skills`` — whose target carries the path that
+    # matters — or an inline relative path, and narrowing to ``SkillModel`` alone
+    # let ``skills: [skills/research]`` walk straight past a guard whose whole
+    # purpose is to stop a remote document from naming a local directory.
     for spec in _iter_deep_agent_skills(config):
-        if isinstance(spec, SkillModel) and _is_relative(spec.path):
-            offenders.append(f"deep_agent skill {spec.name!r}: {spec.path}")
+        declared: str | None = _declared_skill_path(spec, config)
+        if _is_relative(declared):
+            label: str = spec.name if isinstance(spec, SkillModel) else str(spec)
+            offenders.append(f"deep_agent skill {label!r}: {declared}")
 
     if offenders:
         raise ValueError(
