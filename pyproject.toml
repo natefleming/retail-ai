@@ -309,10 +309,17 @@ exclude = [
     "venv",
 ]
 
-# Databricks notebooks (`# Databricks notebook source`) legitimately break two
+# Databricks notebooks (`# Databricks notebook source`) legitimately break four
 # lint rules: imports live inside `# COMMAND ----------` cells rather than at the
-# top of the module (E402), and the runtime injects globals like `spark`,
-# `dbutils`, `dlt`, and `display` that are undefined to a static checker (F821).
+# top of the module (E402), the runtime injects globals like `spark`, `dbutils`,
+# `dlt`, and `display` that are undefined to a static checker (F821), and each
+# notebook's first cell is a single `import a, b, c` line (E401) that isort would
+# want to split and reorder (I001).
+#
+# E401/I001 matter more than they look: `make check` runs `ruff check --fix`, and
+# both are autofixable — so without these ignores it silently rewrites the import
+# cell of every pipeline notebook. Cell boundaries are load-bearing here.
+#
 # Scope the ignores to the notebooks dir so the rest of the tree stays strict.
 [tool.ruff.lint.per-file-ignores]
-"src/dao_ai/pipeline/notebooks/*.py" = ["E402", "F821"]
+"src/dao_ai/pipeline/notebooks/*.py" = ["E402", "F821", "E401", "I001"]

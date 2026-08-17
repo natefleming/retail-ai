@@ -210,9 +210,10 @@ def _resolve_backend(spec: BackendModel | None, *, has_skills: bool = False) -> 
 
     When ``spec`` is None:
 
-    * If skills are declared, default to ``FilesystemBackend()`` — deepagents'
-      default ``StateBackend`` cannot read skill files from disk or UC volumes,
-      so a filesystem-aware backend is required for skill discovery to work.
+    * If skills are declared **anywhere** — on the deep_agent or on any one of its
+      sub-agents — default to ``FilesystemBackend()``. deepagents' default
+      ``StateBackend`` cannot read skill files from disk or UC volumes, so a
+      filesystem-aware backend is required for skill discovery to work.
       ``FilesystemBackend`` with no ``root_dir`` resolves absolute paths
       directly, which is what dao-ai's runtime resolver returns.
     * Otherwise, return None so deepagents picks its default StateBackend.
@@ -396,7 +397,15 @@ def create_deep_agent_graph(config: AppConfig) -> CompiledStateGraph:
         context_schema=_resolve_context_schema(deep_agent.context_schema),
         checkpointer=checkpointer,
         store=store,
-        backend=_resolve_backend(deep_agent.backend, has_skills=bool(skills)),
+        # Sub-agent skills count too: they are loaded by a SkillsMiddleware that
+        # runs on the backend configured here, so a config whose skills live only
+        # on a sub-agent would otherwise get deepagents' StateBackend and could
+        # never load them by any path. Read off the resolved sub-agent dicts
+        # rather than the specs, so this asks exactly what deepagents receives.
+        backend=_resolve_backend(
+            deep_agent.backend,
+            has_skills=bool(skills) or any(sub.get("skills") for sub in subagents),
+        ),
         interrupt_on=_resolve_interrupt_on(deep_agent.interrupt_on) or None,
         debug=deep_agent.debug,
         name=deep_agent.name,

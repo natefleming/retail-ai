@@ -1873,9 +1873,17 @@ middleware:
     name: dao_ai.middleware.skills.create_skills_middleware
     args:
       sources:
-        - /skills/base/         # Built-in skills
-        - /skills/project/      # Project-specific skills
+        - skills/base           # Built-in skills
+        - skills/project        # Project-specific skills
 ```
+
+Each entry is a *parent* directory whose subdirectories each hold a `SKILL.md`. A relative
+source is resolved when the graph is built — against the config's directory, then
+`$DAO_AI_PROJECT_ROOT`, then the CWD, then `sys.path` — which is what lets one config
+work unchanged locally, on Apps, and in a serving container. An absolute source is used
+verbatim (correct for `/Volumes/...`, wrong for a path that only exists on your machine).
+Prefer declaring skills under `resources.skills` and referencing them; see
+[Skills](configuration-reference.md#skills-resourcesskills) in the configuration reference.
 
 **Memory** loads persistent context from `AGENTS.md` files:
 

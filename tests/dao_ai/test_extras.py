@@ -30,6 +30,7 @@ from dao_ai.config import (
     OrchestrationModel,
     RerankParametersModel,
     SearchToolModel,
+    SkillModel,
     StoreModel,
     ToolModel,
     VectorStoreModel,
@@ -263,6 +264,52 @@ def test_deepagents_middleware_fqn_triggers_deepagents() -> None:
     cfg = _config(
         middleware={"m": MiddlewareModel(name=fqn)},
         app=_app(a2a=A2AModel(enabled=False)),
+    )
+    assert _extras.resolve_required_extras(cfg, target="model_serving") == {
+        "deepagents"
+    }
+
+
+@pytest.mark.unit
+def test_agent_skills_trigger_deepagents() -> None:
+    """The real path: ``agent.skills`` become *agent* middleware.
+
+    ``AppConfig._translate_agent_skills_to_middleware`` rewrites each skill into
+    a ``create_skills_middleware`` entry on the agent and clears
+    ``agent.skills``, so a resolver that only walked the top-level ``middleware``
+    registry saw nothing. Model Serving then deployed ``dao-ai`` without the
+    ``deepagents`` extra and the container died at load with "Skills middleware
+    requires the 'deepagents' extra".
+    """
+    agent = AgentModel(
+        name="ag",
+        model=InferenceEndpointModel(name="databricks-gpt-oss-120b"),
+        skills=[SkillModel(name="product-lookup", path="skills/product-lookup")],
+    )
+    cfg = AppConfig(
+        agents={"ag": agent},
+        app=_app(a2a=A2AModel(enabled=False), agents=[agent]),
+    )
+    # The validator has already emptied `skills` onto `middleware`.
+    assert agent.skills == []
+    assert _extras.resolve_required_extras(cfg, target="model_serving") == {
+        "deepagents"
+    }
+    assert _extras.resolve_required_extras(cfg, target="apps") == {"deepagents"}
+
+
+@pytest.mark.unit
+def test_agent_middleware_is_walked_for_deepagents() -> None:
+    """Per-agent middleware counts even when nothing is in the registry."""
+    fqn = "dao_ai.middleware.filesystem.create_filesystem_middleware"
+    agent = AgentModel(
+        name="ag",
+        model=InferenceEndpointModel(name="databricks-gpt-oss-120b"),
+        middleware=[MiddlewareModel(name=fqn)],
+    )
+    cfg = AppConfig(
+        agents={"ag": agent},
+        app=_app(a2a=A2AModel(enabled=False), agents=[agent]),
     )
     assert _extras.resolve_required_extras(cfg, target="model_serving") == {
         "deepagents"

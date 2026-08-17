@@ -89,6 +89,42 @@ def git_repo(tmp_path: Path) -> Path:
 
 
 @pytest.fixture
+def git_repo_with_code(tmp_path: Path) -> Path:
+    """A repository whose config ships Python and skills beside itself.
+
+    Deliberately a second repository rather than extra files in ``git_repo``:
+    declaring ``code_paths`` in ``_MINIMAL_YAML`` would make the URL tests start
+    rejecting it (a remote config rejects exactly these relative assets), and the
+    config lives in a subdirectory so root-level discovery stays untouched.
+    """
+    repo: Path = tmp_path / "coderepo"
+    project: Path = repo / "project"
+    (project / "lib").mkdir(parents=True)
+    (project / "src" / "mypkg").mkdir(parents=True)
+    (project / "skills" / "greet").mkdir(parents=True)
+    (project / "lib" / "helper.py").write_text("VALUE = 1\n")
+    (project / "src" / "mypkg" / "__init__.py").write_text("")
+    (project / "skills" / "greet" / "SKILL.md").write_text("# greet\n")
+    (project / "agent.yaml").write_text(
+        """
+app:
+  name: git-code-app
+  code_paths:
+  - lib
+  agents:
+  - name: a
+    description: d
+    model:
+      name: databricks-gpt-5-4-mini
+"""
+    )
+    _git("init", "--quiet", cwd=repo)
+    _git("add", "-A", cwd=repo)
+    _git("commit", "--quiet", "--message", "init", cwd=repo)
+    return repo
+
+
+@pytest.fixture
 def cache(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     """Point the checkout cache at a temp dir so tests never touch the real one."""
     root: Path = tmp_path / "cache"
@@ -497,6 +533,169 @@ class TestGitSourceLoad:
     def test_explicit_cache_dir_wins(self, tmp_path: Path, cache: Path) -> None:
         override: Path = tmp_path / "elsewhere"
         assert cache_root(override) == override
+
+
+@pytest.mark.unit
+class TestFuseCacheRoot:
+    """A cache root on a Databricks FUSE mount is a destination, not a workspace.
+
+    ``git init`` succeeds inside a UC volume and then ``git fetch`` dies in
+    ``index-pack`` ("cannot pread pack file"), so a volume ``cache_dir`` — the
+    documented way to keep checkouts across cluster restarts — has to stage on
+    local disk and copy the finished tree in.
+    """
+
+    def test_recognizes_the_databricks_mounts(self) -> None:
+        from dao_ai.git_source import _is_fuse_root
+
+        assert _is_fuse_root(Path("/Volumes/c/s/v/dao-ai-git"))
+        assert _is_fuse_root(Path("/Workspace/Users/me/checkouts"))
+        assert _is_fuse_root(Path("/dbfs/tmp/checkouts"))
+        assert not _is_fuse_root(Path("/tmp/checkouts"))
+        # A local path that merely *contains* a mount name is not one.
+        assert not _is_fuse_root(Path("/home/me/Volumes/checkouts"))
+
+    def test_fetch_publishes_into_a_root_git_cannot_work_in(
+        self,
+        git_repo: Path,
+        cache: Path,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """The whole flow, with a real root standing in for the mount.
+
+        A test cannot create ``/Volumes``, so the *predicate* is what gets
+        redirected — everything downstream of it (local staging, the copy-based
+        publish, the temp-dir cleanup) is the production code path.
+        """
+        import dao_ai.git_source as git_source
+
+        root: Path = tmp_path / "pretend-volume"
+        monkeypatch.setattr(git_source, "_FUSE_ROOTS", (str(root) + "/",))
+
+        resolved: ResolvedConfig = GitSource(_locator(git_repo), cache_dir=root).load()
+
+        assert resolved.base_path is not None
+        assert resolved.base_path.is_relative_to(root)
+        assert (resolved.base_path / "data" / "seed.sql").is_file()
+        # Nothing staged is left behind — the copy publishes, the temp dir goes.
+        assert not list(root.rglob(".fetch-*"))
+
+    def test_a_posix_root_still_stages_in_place(
+        self, git_repo: Path, cache: Path, tmp_path: Path
+    ) -> None:
+        """The fast path keeps its atomic same-device rename.
+
+        Asserted by observing where staging happens: an in-root temp dir means the
+        publish is an ``os.replace``, which is what stops a concurrent invocation
+        from ever seeing a half-populated checkout.
+        """
+        import tempfile as tempfile_module
+
+        root: Path = tmp_path / "posix-cache"
+        seen: list[str | None] = []
+        real_mkdtemp = tempfile_module.mkdtemp
+
+        def _record(*args: object, **kwargs: object) -> str:
+            seen.append(kwargs.get("dir"))  # type: ignore[arg-type]
+            return real_mkdtemp(*args, **kwargs)  # type: ignore[arg-type]
+
+        with pytest.MonkeyPatch.context() as mp:
+            mp.setattr(tempfile_module, "mkdtemp", _record)
+            GitSource(_locator(git_repo), cache_dir=root).load()
+
+        assert seen == [str(root)]
+
+
+@pytest.mark.unit
+class TestGitSourcedCodeAnchors:
+    """``skills`` / ``code_paths`` / ``src`` anchor inside the checkout.
+
+    These resolve via ``skills._skill_base_dir``, which anchored on
+    ``_source_config_path`` — the *locator* for a git source, so
+    ``Path("gh:o/r@main#p/agent.yaml").parent`` was a directory that does not
+    exist and every one of them silently resolved to nothing. Only the in-process
+    API was affected: the CLI rewrites ``--config`` to the checkout path before
+    loading, so it goes through ``FileSource``.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _restore_sys_path(self) -> object:
+        """Loading a config mutates ``sys.path``; don't leak that into other tests."""
+        import sys
+
+        original: list[str] = list(sys.path)
+        yield
+        sys.path[:] = original
+
+    def test_skill_base_dir_is_the_config_dir_in_the_checkout(
+        self, git_repo_with_code: Path, cache: Path
+    ) -> None:
+        from dao_ai.config import AppConfig
+        from dao_ai.skills import _skill_base_dir
+
+        config = AppConfig.from_git(
+            _locator(git_repo_with_code, path="project/agent.yaml"), initialize=False
+        )
+        base: Path = _skill_base_dir(config)
+        assert base.is_dir()
+        assert (base / "skills" / "greet" / "SKILL.md").is_file()
+        # Inside the cache, not the CWD-relative garbage the locator produced.
+        assert base.is_relative_to(cache)
+
+    def test_code_paths_resolve_inside_the_checkout(
+        self, git_repo_with_code: Path, cache: Path
+    ) -> None:
+        from dao_ai.code_paths import resolve_code_path
+        from dao_ai.config import AppConfig
+
+        config = AppConfig.from_git(
+            _locator(git_repo_with_code, path="project/agent.yaml"), initialize=False
+        )
+        resolved: Path | None = resolve_code_path("lib", config)
+        assert resolved is not None, "a git-sourced code_paths entry must resolve"
+        assert (resolved / "helper.py").is_file()
+        assert resolved.is_relative_to(cache)
+
+    def test_src_and_code_paths_land_on_sys_path(
+        self, git_repo_with_code: Path, cache: Path
+    ) -> None:
+        """``from_file`` prepends both at load time, so a shipped module imports."""
+        import sys
+
+        from dao_ai.config import AppConfig
+
+        config = AppConfig.from_git(
+            _locator(git_repo_with_code, path="project/agent.yaml"), initialize=False
+        )
+        project: Path = Path(config.local_config_path or "").parent
+        assert str((project / "src").resolve()) in sys.path
+        # `code_paths: [lib]` puts the entry's *parent* on the path.
+        assert str(project.resolve()) in sys.path
+
+    def test_local_config_path_is_the_checkout_file_not_the_locator(
+        self, git_repo_with_code: Path, cache: Path
+    ) -> None:
+        from dao_ai.config import AppConfig
+
+        locator: str = _locator(git_repo_with_code, path="project/agent.yaml")
+        config = AppConfig.from_git(locator, initialize=False)
+        # `source_config_path` keeps the locator, for messages the user recognizes.
+        assert config.source_config_path == locator
+        assert config.local_config_path is not None
+        assert Path(config.local_config_path).is_file()
+
+    def test_a_local_config_is_unaffected(self, git_repo_with_code: Path) -> None:
+        """The precedence swap must be inert for the common FileSource case."""
+        from dao_ai.code_paths import resolve_code_path
+        from dao_ai.config import AppConfig
+        from dao_ai.skills import _skill_base_dir
+
+        project: Path = git_repo_with_code / "project"
+        config = AppConfig.from_file(str(project / "agent.yaml"), initialize=False)
+        assert config.local_config_path == config.source_config_path
+        assert _skill_base_dir(config) == project.resolve()
+        assert resolve_code_path("lib", config) == (project / "lib").resolve()
 
 
 @pytest.mark.unit

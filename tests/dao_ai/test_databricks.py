@@ -36,6 +36,11 @@ def _stamp_extras_resolvable(mock_config: MagicMock) -> MagicMock:
     # app.a2a disabled + no orchestration → resolver adds no extras by default.
     mock_config.app.a2a = MagicMock(enabled=False)
     mock_config.app.orchestration = None
+    # The resolver also walks each agent's own ``middleware`` list — that is
+    # where ``agent.skills`` land after AppConfig translates them. Only default
+    # it when the test hasn't supplied real agents.
+    if not isinstance(getattr(mock_config.app, "agents", None), list):
+        mock_config.app.agents = []
     # Custom-dep passthrough surfaces read by the Apps/MS deploy paths. Only
     # default them when the test hasn't set a real list — never clobber a
     # test's own pip_requirements/code_paths values. ``getattr`` tolerates
@@ -582,6 +587,102 @@ def test_create_agent_sets_experiment():
         mock_set_experiment.assert_called_once_with(
             experiment_id=mock_experiment.experiment_id
         )
+
+
+@pytest.mark.unit
+def test_create_agent_does_not_mutate_config_pip_requirements():
+    """``create_agent`` adds serving-only requirements to a *copy*.
+
+    ``config.app.pip_requirements`` is a live pydantic list, so a ``+=`` on the
+    field itself extends it in place. A local-wheel deploy appends
+    ``code/dao_ai-<ver>.whl`` — an MLflow-relative path, not a PEP 508
+    requirement — plus the whole frozen environment, and a subsequent Apps
+    deploy in the same process (``deploy_agent(mode=BOTH)``) folds
+    ``pip_requirements`` straight into the generated ``pyproject.toml``. That
+    made ``uv lock`` fail with "Dependency #2 ... Expected semicolon".
+    """
+    from pathlib import Path
+    from unittest.mock import MagicMock, patch
+
+    import mlflow
+
+    from dao_ai.config import AppConfig
+    from dao_ai.providers.databricks import DatabricksProvider
+
+    declared: list[str] = ["my-extra-package==1.2.3"]
+
+    mock_config = MagicMock(spec=AppConfig)
+    mock_app = MagicMock()
+    mock_app.name = "test_app"
+    mock_app.code_paths = []
+    mock_app.pip_requirements = declared
+    mock_app.input_example = None
+    mock_app.trace_location = None
+    mock_config.app = mock_app
+
+    mock_resources = MagicMock()
+    for attr in (
+        "llms",
+        "vector_stores",
+        "warehouses",
+        "genie_rooms",
+        "tables",
+        "functions",
+        "connections",
+        "databases",
+        "volumes",
+    ):
+        setattr(mock_resources, attr, MagicMock(values=lambda: []))
+    mock_config.resources = mock_resources
+    mock_config.guardrails = {}
+    mock_config.agents = {}
+
+    mock_experiment = MagicMock()
+    mock_experiment.experiment_id = "test_experiment_123"
+
+    with (
+        patch.object(
+            DatabricksProvider, "get_or_create_experiment", return_value=mock_experiment
+        ),
+        patch.object(mlflow, "set_experiment"),
+        patch.object(mlflow, "set_registry_uri"),
+        patch.object(mlflow, "start_run") as mock_start_run,
+        patch.object(mlflow, "set_tag"),
+        patch.object(mlflow.pyfunc, "log_model") as mock_log_model,
+        patch.object(mlflow, "register_model"),
+        patch("dao_ai.providers.databricks.MlflowClient"),
+        # The local-wheel branch: this is what appended the bad requirement.
+        patch("dao_ai.providers.databricks._use_local_source", return_value=True),
+        patch(
+            "dao_ai.providers.databricks.find_dev_wheel",
+            return_value=Path("/tmp/dist/dao_ai-9.9.9-py3-none-any.whl"),
+        ),
+        patch("dao_ai.providers.databricks._warn_if_stale_dev_wheel"),
+        patch(
+            "dao_ai.providers.databricks.get_installed_packages",
+            return_value=["some-frozen-dep==0.1.0"],
+        ),
+    ):
+        mock_start_run.return_value.__enter__.return_value = MagicMock()
+        mock_log_model.return_value = MagicMock(model_uri="test_uri")
+
+        _stamp_extras_resolvable(mock_config)
+        DatabricksProvider().create_agent(config=mock_config)
+
+    # Compared against a literal, not against ``declared`` — an in-place extend
+    # grows that same list object, so ``== declared`` would compare it to itself.
+    assert mock_app.pip_requirements == ["my-extra-package==1.2.3"], (
+        "create_agent extended config.app.pip_requirements in place: "
+        f"{mock_app.pip_requirements}"
+    )
+    # It still has to have reached the logged model, or the copy would be a
+    # silent no-op fix.
+    conda_env = mock_log_model.call_args.kwargs["conda_env"]
+    logged = next(
+        dep["pip"] for dep in conda_env["dependencies"] if isinstance(dep, dict)
+    )
+    assert "code/dao_ai-9.9.9-py3-none-any.whl" in logged
+    assert "my-extra-package==1.2.3" in logged
 
 
 @pytest.mark.unit
@@ -1319,6 +1420,78 @@ def test_deploy_apps_agent_uploads_rendered_yaml(tmp_path):
         "deploy must upload rendered YAML, not source"
     )
     assert "${var.catalog}" not in uploaded_text
+
+
+@pytest.mark.unit
+def test_deploy_apps_agent_stages_skills_and_code(tmp_path):
+    """``_deploy_app`` must stage skill content, not just code_paths.
+
+    Skill staging has been forgotten once per deploy target already (MCP, DAB,
+    and this one), and it fails silently every time: the uploaded config still
+    names its skills, the app comes up healthy, and the agent runs without them.
+    This pins the call site rather than the helper.
+    """
+    from unittest.mock import MagicMock, patch
+
+    from databricks.sdk.service.apps import (
+        App,
+        AppDeployment,
+        AppDeploymentState,
+        ApplicationState,
+    )
+    from databricks.sdk.service.iam import User
+
+    from dao_ai.config import AppConfig, AppModel
+    from dao_ai.providers.databricks import DatabricksProvider
+
+    src_file = tmp_path / "dao_ai.yaml"
+    src_file.write_text("app:\n  name: staging-app\n")
+
+    mock_config = MagicMock(spec=AppConfig)
+    mock_app = MagicMock(spec=AppModel)
+    mock_app.name = "staging-app"
+    mock_app.description = ""
+    mock_app.environment_vars = {}
+    mock_app.trace_location = None
+    mock_app.monitoring = None
+    mock_app.enable_chat_proxy = True
+    mock_config.app = mock_app
+    mock_config.source_config_path = str(src_file)
+    mock_config.rendered_yaml = None
+    mock_config.resources = None
+    mock_config.agents = None
+    mock_config.retrievers = None
+
+    mock_existing_app = MagicMock(spec=App)
+    mock_existing_app.app_status = MagicMock(state=ApplicationState.RUNNING)
+    mock_deployment = MagicMock(spec=AppDeployment)
+    mock_deployment.status = MagicMock(state=AppDeploymentState.SUCCEEDED)
+
+    with patch.object(DatabricksProvider, "__init__", return_value=None):
+        provider = DatabricksProvider()
+        provider.w = MagicMock()
+        provider.w.current_user.me.return_value = MagicMock(
+            spec=User, user_name="test.user@example.com"
+        )
+        provider.w.apps.get.return_value = mock_existing_app
+        provider.w.apps.deploy_and_wait.return_value = mock_deployment
+
+        with (
+            patch.object(
+                provider,
+                "get_or_create_experiment",
+                return_value=MagicMock(experiment_id="exp-1"),
+            ),
+            patch.object(provider, "_upload_skill_dirs") as skills_upload,
+            patch.object(provider, "_upload_code_paths") as code_upload,
+        ):
+            _stamp_extras_resolvable(mock_config)
+            provider.deploy_apps_agent(mock_config)
+
+    skills_upload.assert_called_once()
+    # Staged under the same source path as code_paths — the app's CWD, which is
+    # what a relative skills source in the uploaded config resolves against.
+    assert skills_upload.call_args.args[1] == code_upload.call_args.args[1]
 
 
 @pytest.mark.unit

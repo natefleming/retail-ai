@@ -6,10 +6,10 @@ import re
 import sys
 from abc import ABC, abstractmethod
 from contextlib import asynccontextmanager, contextmanager
-from functools import cache
 from enum import Enum
+from functools import cache
 from os import PathLike
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import (
     TYPE_CHECKING,
     Annotated,
@@ -3265,20 +3265,25 @@ class SkillModel(BaseModel):
         :class:`AgentModel` to convert ``agent.skills`` entries into middleware
         on the agent's stack at config-load time.
 
-        Path resolution: ``sources`` is set to the *parent* of the skill leaf
-        (the deepagents SkillsMiddleware source-dir convention — it lists
-        subdirs and reads ``SKILL.md`` from each). For local skills the
-        leaf is resolved against the runtime anchors (env var, CWD, ``sys.path``)
-        at call time so the absolute path is baked into the MiddlewareModel.
-        Volume-backed skills use the volume root.
+        ``sources`` is the *parent* of the skill leaf, per the deepagents
+        SkillsMiddleware source-dir convention — it lists a source's subdirs and
+        reads ``SKILL.md`` from each.
 
-        For the filesystem backend, ``root_dir="/"`` is used because the
-        runtime resolver returns absolute paths.
+        **Pure: no filesystem access.** This runs during model validation, so it
+        runs on whichever machine loaded the config — which for a provisioning
+        job or a git-sourced deploy is not the machine that will run the agent.
+        Probing the filesystem here and storing what it found baked the loader's
+        own directory into the config, and ``create_agent`` then serialized that
+        dead path into the model artifact; the endpoint came up healthy and
+        skill-less. So a local skill's parent stays relative and is resolved at
+        graph build time by ``create_skills_middleware``, against the config's
+        directory among other anchors. ``root_dir="/"`` is retained for the
+        filesystem backend because resolution yields absolute paths, which the
+        backend passes through regardless of root.
+
+        Volume-backed skills use the volume root, which is already absolute and
+        machine-independent, so nothing needs deferring.
         """
-        # Lazy import to avoid touching dao_ai.skills at class definition time
-        # (would create an import cycle via config → skills → config).
-        from dao_ai.skills import _resolve_runtime_path
-
         if isinstance(self.path, VolumePathModel):
             # Parent of /Volumes/.../<skill> is the volume root or a subdir
             # of it — pass that as the source dir.
@@ -3293,12 +3298,12 @@ class SkillModel(BaseModel):
                 },
             )
 
-        # Local skill: resolve to absolute parent dir against runtime anchors.
-        resolved = _resolve_runtime_path(self.path)
-        # Fall back to the raw path if not found (will log a warning at
-        # SkillsMiddleware.ls() time but won't crash agent build).
-        leaf = str(resolved) if resolved is not None else self.path
-        parent = leaf.rstrip("/").rsplit("/", 1)[0] or "/"
+        # Local skill: the parent of the declared leaf, still relative. A leaf
+        # with no directory component ("product-lookup") yields "." — "the
+        # anchor itself is the source dir" — which the resolver understands.
+        # ``PurePosixPath`` and not ``rsplit`` so that case does not collapse to
+        # ``/`` and start naming the filesystem root.
+        parent = str(PurePosixPath(self.path.rstrip("/")).parent)
         return MiddlewareModel(
             name="dao_ai.middleware.skills.create_skills_middleware",
             args={
@@ -11131,8 +11136,12 @@ def _reject_relative_assets_for_remote_config(
     beats resolving against the process CWD and surfacing a FileNotFoundError
     several provisioning steps later.
 
-    ``code_paths`` and ``skills`` matter for a second reason: resolving them would
-    put directories named by a remote document onto ``sys.path``.
+    ``code_paths`` and ``skills`` matter for a second reason. Resolving a remote
+    config's ``code_paths`` would put a directory named by a remote document onto
+    ``sys.path``; resolving its skills would read whichever local ``skills/`` tree
+    the process happened to be standing next to and splice that Markdown into the
+    agent's prompt. Both let a document that cannot be trusted to name local files
+    do exactly that, so both are refused rather than resolved.
     """
 
     def _is_relative(value: object) -> bool:
@@ -11159,6 +11168,31 @@ def _reject_relative_assets_for_remote_config(
         for code_path in config.app.code_paths or []:
             if _is_relative(code_path):
                 offenders.append(f"app.code_paths: {code_path}")
+
+    # Skills are declared as ``path:`` but stored as middleware ``sources`` by the
+    # time this runs, so read them where they end up. Volume-backed skills are
+    # absolute and legitimately remote-safe; ``_is_relative`` already excludes them.
+    from dao_ai.skills import (
+        _declared_skill_path,
+        _iter_agent_skill_sources,
+        _iter_deep_agent_skills,
+    )
+
+    for skill_source in _iter_agent_skill_sources(config):
+        if _is_relative(skill_source):
+            offenders.append(f"skills[].path: {skill_source}")
+    # deep_agent / subagent skills keep their spec form (they are resolved at
+    # graph build, not translated to middleware), so check them separately. Both
+    # forms have to be read through ``_declared_skill_path``: a bare string is
+    # either a key into ``resources.skills`` — whose target carries the path that
+    # matters — or an inline relative path, and narrowing to ``SkillModel`` alone
+    # let ``skills: [skills/research]`` walk straight past a guard whose whole
+    # purpose is to stop a remote document from naming a local directory.
+    for spec in _iter_deep_agent_skills(config):
+        declared: str | None = _declared_skill_path(spec, config)
+        if _is_relative(declared):
+            label: str = spec.name if isinstance(spec, SkillModel) else str(spec)
+            offenders.append(f"deep_agent skill {label!r}: {declared}")
 
     if offenders:
         raise ValueError(
@@ -11749,6 +11783,12 @@ class AppConfig(BaseModel):
             # consumer (deploy notebook display_graph/create_agent, Apps runtime,
             # load_function).
             prepend_src_to_sys_path(config)
+
+            # Skills need no equivalent fixup: their ``sources`` stay relative in
+            # the config and are resolved against the config's directory at graph
+            # build time (``skills.skill_anchors``). Rewriting them here instead
+            # would bake *this* machine's paths into the config that
+            # ``create_agent`` then serializes into the model artifact.
         else:
             # A remote config has no local directory, so anything it declares by
             # relative path is unresolvable. Say so loudly rather than silently
@@ -11787,6 +11827,21 @@ class AppConfig(BaseModel):
     def source_config_path(self) -> str | None:
         """Get the source config file path if loaded via from_file."""
         return self._source_config_path
+
+    @property
+    def local_config_path(self) -> str | None:
+        """The config's real path on disk, or ``None`` when nothing local backs it.
+
+        Prefer this over :attr:`source_config_path` for anything that touches the
+        filesystem — resolving a colocated asset, anchoring ``skills``/
+        ``code_paths``, testing whether the config came out of the checkout cache.
+        ``source_config_path`` holds the *locator* when loaded via
+        :meth:`from_git` (what the user typed, which messages should echo), and a
+        locator is not a path. For a local file the two are identical; for a URL
+        neither is a path, so the URL falls through and callers fail on it as they
+        always have.
+        """
+        return self._local_config_path or self._source_config_path
 
     @property
     def rendered_yaml(self) -> str | None:

@@ -808,6 +808,13 @@ def create_orchestration_graph(config: AppConfig) -> CompiledStateGraph:
     block is set under ``app.orchestration``. The three modes are mutually
     exclusive (validated at config load time).
 
+    The build runs under :func:`skill_anchors`, which makes the config's own
+    directory available to every skills middleware instantiated underneath —
+    whether it hangs off an agent, a subagent, or an orchestration pattern.
+    This is the one universal chokepoint that still has the config in hand;
+    the middleware factories deliberately do not, so relative skill paths would
+    otherwise be resolvable only against the process CWD.
+
     Args:
         config: The application configuration
 
@@ -817,15 +824,17 @@ def create_orchestration_graph(config: AppConfig) -> CompiledStateGraph:
     from dao_ai.orchestration.deep_agent import create_deep_agent_graph
     from dao_ai.orchestration.supervisor import create_supervisor_graph
     from dao_ai.orchestration.swarm import create_swarm_graph
+    from dao_ai.skills import config_skill_anchor, skill_anchors
 
     orchestration: OrchestrationModel = config.app.orchestration
-    if orchestration.supervisor:
-        return create_supervisor_graph(config)
+    with skill_anchors(*config_skill_anchor(config)):
+        if orchestration.supervisor:
+            return create_supervisor_graph(config)
 
-    if orchestration.swarm:
-        return create_swarm_graph(config)
+        if orchestration.swarm:
+            return create_swarm_graph(config)
 
-    if orchestration.deep_agent:
-        return create_deep_agent_graph(config)
+        if orchestration.deep_agent:
+            return create_deep_agent_graph(config)
 
     raise ValueError("No valid orchestration model found in the configuration.")

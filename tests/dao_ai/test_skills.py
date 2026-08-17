@@ -17,6 +17,7 @@ from dao_ai.config import (
     AppModel,
     DeepAgentModel,
     LLMModel,
+    MiddlewareModel,
     OrchestrationModel,
     ResourcesModel,
     SkillModel,
@@ -27,8 +28,14 @@ from dao_ai.config import (
 from dao_ai.skills import (
     _iter_deep_agent_skills,
     _project_root,
+    _runtime_anchors,
+    assert_skills_resolvable,
     collect_skills_code_paths,
+    config_skill_anchor,
     resolve_skill_runtime_paths,
+    resolve_skill_source_dir,
+    skill_anchors,
+    unresolvable_skills,
 )
 
 if TYPE_CHECKING:
@@ -406,3 +413,376 @@ class TestResolveSkillRuntimePaths:
             [SkillModel(name="r", path="skills/missing")], cfg
         )
         assert paths == []
+
+
+@pytest.mark.unit
+class TestAsMiddlewareIsPure:
+    """``SkillModel.as_middleware`` must not touch the filesystem.
+
+    It runs during pydantic validation — i.e. on whichever machine *loaded* the
+    config, which for a provisioning job or a git-sourced deploy is not the
+    machine that will run the agent. When it probed the filesystem and stored what
+    it found, ``create_agent`` serialized the loader's own directory into the model
+    artifact and the endpoint came up healthy with no skills at all.
+    """
+
+    def test_local_source_stays_relative(self, tmp_project: Path) -> None:
+        mw = SkillModel(name="r", path="skills/research").as_middleware()
+        assert mw.args["sources"] == ["skills"]
+        assert mw.args["backend_type"] == "filesystem"
+
+    def test_identical_regardless_of_cwd_or_project_root(
+        self, tmp_project: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The whole point: two machines must serialize the same config."""
+        on_loader = SkillModel(name="r", path="skills/research").as_middleware()
+
+        elsewhere = tmp_path / "nothing_here"
+        elsewhere.mkdir()
+        monkeypatch.chdir(elsewhere)
+        monkeypatch.delenv("DAO_AI_PROJECT_ROOT", raising=False)
+        on_runner = SkillModel(name="r", path="skills/research").as_middleware()
+
+        assert on_loader.args == on_runner.args
+
+    def test_no_absolute_path_even_when_the_dir_exists(self, tmp_project: Path) -> None:
+        """``skills/research`` really is present under ``tmp_project`` — the old
+        code found it and baked it in. Existence must not change the output."""
+        assert (tmp_project / "skills" / "research" / "SKILL.md").is_file()
+        mw = SkillModel(name="r", path="skills/research").as_middleware()
+        assert not Path(mw.args["sources"][0]).is_absolute()
+
+    def test_bare_leaf_yields_dot_not_filesystem_root(self, tmp_project: Path) -> None:
+        """A leaf with no directory component. ``rsplit("/")`` would produce ``/``
+        here and point the middleware at the filesystem root."""
+        mw = SkillModel(name="r", path="research").as_middleware()
+        assert mw.args["sources"] == ["."]
+
+    def test_trailing_slash_ignored(self, tmp_project: Path) -> None:
+        mw = SkillModel(name="r", path="skills/research/").as_middleware()
+        assert mw.args["sources"] == ["skills"]
+
+    def test_volume_backed_still_absolute(self) -> None:
+        """Volume paths are already machine-independent, so nothing is deferred."""
+        mw = SkillModel(name="g", path="/Volumes/c/s/v/research").as_middleware()
+        assert mw.args["sources"] == ["/Volumes/c/s/v"]
+        assert mw.args["backend_type"] == "volume"
+
+
+@pytest.mark.unit
+class TestResolveSkillSourceDir:
+    def test_absolute_returns_none_for_passthrough(self, tmp_project: Path) -> None:
+        """Absolute sources are the caller's to use verbatim."""
+        assert resolve_skill_source_dir("/Volumes/c/s/v/skills") is None
+        assert resolve_skill_source_dir("/abs/elsewhere") is None
+
+    def test_leading_slash_is_not_root_dir_relative(self, tmp_project: Path) -> None:
+        """``/skills`` under a backend rooted elsewhere is not "relative to the
+        root" and cannot be repaired by stripping the slash — it must pass
+        through, or resolution would silently invent a different directory."""
+        assert resolve_skill_source_dir("/skills") is None
+
+    def test_resolves_against_extra_anchor(self, tmp_path: Path) -> None:
+        base = tmp_path / "cfgdir"
+        (base / "skills" / "research").mkdir(parents=True)
+        (base / "skills" / "research" / "SKILL.md").write_text("# s")
+        assert resolve_skill_source_dir("skills", (base,)) == (base / "skills")
+
+    def test_dot_means_the_anchor_itself(self, tmp_path: Path) -> None:
+        base = tmp_path / "cfgdir"
+        (base / "research").mkdir(parents=True)
+        (base / "research" / "SKILL.md").write_text("# s")
+        assert resolve_skill_source_dir(".", (base,)) == base
+
+    def test_miss_returns_none(self, tmp_path: Path) -> None:
+        assert resolve_skill_source_dir("no/such/dir", (tmp_path,)) is None
+
+    def test_prefers_the_anchor_that_actually_holds_skills(
+        self, tmp_path: Path
+    ) -> None:
+        """An empty same-named dir under an earlier anchor must not shadow the
+        real one — a bare CWD in a monorepo is enough to cause this, and the
+        symptom is an agent with no skills and no error."""
+        decoy = tmp_path / "decoy"
+        (decoy / "skills").mkdir(parents=True)
+        real = tmp_path / "real"
+        (real / "skills" / "research").mkdir(parents=True)
+        (real / "skills" / "research" / "SKILL.md").write_text("# s")
+
+        assert resolve_skill_source_dir("skills", (decoy, real)) == (real / "skills")
+
+    def test_falls_back_to_first_existing_when_none_hold_skills(
+        self, tmp_path: Path
+    ) -> None:
+        first = tmp_path / "first"
+        (first / "skills").mkdir(parents=True)
+        second = tmp_path / "second"
+        (second / "skills").mkdir(parents=True)
+        assert resolve_skill_source_dir("skills", (first, second)) == (first / "skills")
+
+
+@pytest.mark.unit
+class TestSkillAnchors:
+    def test_scope_is_restored(self, tmp_path: Path) -> None:
+        """A build must not change how the *next* build resolves."""
+        before = _runtime_anchors()
+        with skill_anchors(tmp_path):
+            assert _runtime_anchors()[0] == tmp_path.resolve()
+        assert _runtime_anchors() == before
+
+    def test_restored_even_on_exception(self, tmp_path: Path) -> None:
+        before = _runtime_anchors()
+        with pytest.raises(RuntimeError):
+            with skill_anchors(tmp_path):
+                raise RuntimeError("boom")
+        assert _runtime_anchors() == before
+
+    def test_config_anchor_empty_without_local_path(self) -> None:
+        """A config with no local path — a URL-loaded one, or one built in
+        Python — must not be anchored on a guessed local directory. That is the
+        boundary ``_reject_relative_assets_for_remote_config`` defends."""
+        cfg = AppConfig()
+        assert cfg.local_config_path is None
+        assert config_skill_anchor(cfg) == ()
+
+
+@pytest.mark.unit
+class TestUnresolvableSkills:
+    """Deploy-time paths fail loudly; serve time only warns."""
+
+    def test_clean_config_reports_nothing(self, tmp_project: Path) -> None:
+        cfg = _config_with_deep_agent(
+            skills=[SkillModel(name="r", path="skills/research")]
+        )
+        assert unresolvable_skills(cfg) == []
+
+    def test_missing_skill_is_named(self, tmp_project: Path) -> None:
+        cfg = _config_with_deep_agent(
+            skills=[SkillModel(name="ghost", path="skills/ghost")]
+        )
+        problems = unresolvable_skills(cfg)
+        assert len(problems) == 1
+        assert "ghost" in problems[0]
+
+    def test_assert_raises_naming_target_and_skill(self, tmp_project: Path) -> None:
+        cfg = _config_with_deep_agent(
+            skills=[SkillModel(name="ghost", path="skills/ghost")]
+        )
+        with pytest.raises(ValueError, match="Model Serving deploy") as err:
+            assert_skills_resolvable(cfg, target="Model Serving deploy")
+        assert "ghost" in str(err.value)
+
+    def test_volume_backed_never_flagged(self, tmp_project: Path) -> None:
+        """A volume path is not checkable from the deploying machine."""
+        cfg = _config_with_deep_agent(
+            skills=[SkillModel(name="g", path="/Volumes/c/s/v/research")]
+        )
+        assert unresolvable_skills(cfg) == []
+
+    @pytest.mark.parametrize(
+        "path",
+        [
+            "/Volumes/c/s/v/research",
+            "/Workspace/Shared/skills/research",
+            "/dbfs/FileStore/skills/research",
+        ],
+    )
+    def test_fuse_paths_never_flagged(self, path: str, tmp_project: Path) -> None:
+        """Every Databricks FUSE root gets the same exemption, not just /Volumes.
+
+        All three are mounted inside Databricks compute and absent from the laptop
+        running the CLI, so checking whether one exists says nothing about runtime —
+        and failing the deploy over it refuses a config that would have served.
+        """
+        cfg = _config_with_deep_agent(skills=[SkillModel(name="g", path=path)])
+        assert unresolvable_skills(cfg) == []
+
+    @pytest.mark.parametrize(
+        "path", ["/Volumesnotreally/research", "/WorkspaceFoo/research"]
+    )
+    def test_near_miss_prefixes_are_still_checked(
+        self, path: str, tmp_project: Path
+    ) -> None:
+        """The exemption is per path segment, not a substring match."""
+        cfg = _config_with_deep_agent(skills=[SkillModel(name="g", path=path)])
+        assert len(unresolvable_skills(cfg)) == 1
+
+    def test_bare_string_fuse_path_never_flagged(self, tmp_project: Path) -> None:
+        """The inline-string spelling gets the same exemption as the model one."""
+        cfg = _config_with_deep_agent(skills=["/Workspace/Shared/skills/research"])
+        assert unresolvable_skills(cfg) == []
+
+    @pytest.mark.parametrize("backend_type", [None, "state", "store", "volume"])
+    def test_non_filesystem_sources_are_not_gated(
+        self, backend_type: str | None, tmp_project: Path
+    ) -> None:
+        """The gate must agree with the runtime about what a "source" means.
+
+        ``create_skills_middleware`` resolves sources against the filesystem for
+        ``backend_type="filesystem"`` only, passing them through verbatim for the
+        rest — under those a source is a key into graph state, a Store namespace, or
+        a volume path, and nothing about it belongs on the deploying machine's disk.
+        Gating them anyway made the gate contradict the runtime and hard-fail
+        ``examples/12_middleware/deepagents_middleware.yaml``, which declares
+        ``sources: [/skills/base/, /skills/user/]`` with the default ``state``
+        backend, blocking every deploy path for a config that serves correctly.
+
+        ``None`` covers the shipped example's shape exactly: no ``backend_type`` at
+        all, so the factory's ``"state"`` default applies.
+        """
+        args: dict = {"sources": ["/skills/base/", "/skills/user/"]}
+        if backend_type is not None:
+            args["backend_type"] = backend_type
+        cfg = AppConfig(
+            agents={"a": AgentModel(name="a", model=LLMModel(name="x"))},
+            app=AppModel(
+                name="test_app",
+                agents=[
+                    AgentModel(
+                        name="a",
+                        model=LLMModel(name="x"),
+                        middleware=[
+                            MiddlewareModel(
+                                name="dao_ai.middleware.skills.create_skills_middleware",
+                                args=args,
+                            )
+                        ],
+                    )
+                ],
+            ),
+        )
+        assert unresolvable_skills(cfg) == []
+
+    def test_filesystem_sources_are_still_gated(self, tmp_project: Path) -> None:
+        """The counterpart: an explicitly filesystem-backed source keeps its gate,
+        which is the whole point of having one."""
+        cfg = AppConfig(
+            agents={"a": AgentModel(name="a", model=LLMModel(name="x"))},
+            app=AppModel(
+                name="test_app",
+                agents=[
+                    AgentModel(
+                        name="a",
+                        model=LLMModel(name="x"),
+                        middleware=[
+                            MiddlewareModel(
+                                name="dao_ai.middleware.skills.create_skills_middleware",
+                                args={
+                                    "sources": ["skills/ghost"],
+                                    "backend_type": "filesystem",
+                                },
+                            )
+                        ],
+                    )
+                ],
+            ),
+        )
+        problems = unresolvable_skills(cfg)
+        assert len(problems) == 1
+        assert "skills/ghost" in problems[0]
+
+
+@pytest.mark.unit
+class TestRemoteConfigRejectsRelativeSkills:
+    """A config fetched over HTTP has no directory of its own, so a relative skill
+    path in it can only be resolved against whatever local tree the process
+    happens to be standing in — and that Markdown goes straight into the agent's
+    prompt. The guard's docstring always claimed to cover skills; now it does."""
+
+    def _reject(self, config: AppConfig) -> list[str]:
+        from dao_ai.config import _reject_relative_assets_for_remote_config
+
+        try:
+            _reject_relative_assets_for_remote_config(
+                config, source="https://example.com/agent.yaml"
+            )
+        except ValueError as exc:
+            return str(exc).splitlines()
+        return []
+
+    def test_relative_deep_agent_skill_is_rejected(self) -> None:
+        config = _config_with_deep_agent(
+            skills=[SkillModel(name="research", path="skills/research")]
+        )
+        lines = self._reject(config)
+        assert any("skills/research" in line for line in lines), lines
+
+    def test_relative_bare_string_skill_is_rejected(self) -> None:
+        """The shorter spelling of the same declaration must not be a way around
+        the guard. ``skills: [skills/research]`` is a relative local path just as
+        much as the ``SkillModel`` form is, and narrowing the check to
+        ``SkillModel`` let it through — a remote document naming a local directory,
+        which is the one thing this guard exists to stop."""
+        config = _config_with_deep_agent(skills=["skills/research"])
+        lines = self._reject(config)
+        assert any("skills/research" in line for line in lines), lines
+
+    def test_relative_bare_string_subagent_skill_is_rejected(self) -> None:
+        config = _config_with_deep_agent(skills=[], subagent_skills=["skills/research"])
+        lines = self._reject(config)
+        assert any("skills/research" in line for line in lines), lines
+
+    def test_bare_string_naming_a_registry_entry_is_judged_by_its_target(self) -> None:
+        """A bare string is two different things: a key into ``resources.skills``
+        or an inline path. When it is a key, the path that matters is the one the
+        registered skill carries, so that is what gets checked."""
+        config = _config_with_deep_agent(
+            skills=["research"],
+            resource_skills={
+                "research": SkillModel(name="research", path="skills/research")
+            },
+        )
+        lines = self._reject(config)
+        assert any("skills/research" in line for line in lines), lines
+
+    def test_bare_string_naming_a_volume_registry_entry_is_accepted(self) -> None:
+        config = _config_with_deep_agent(
+            skills=["governed"],
+            resource_skills={
+                "governed": SkillModel(
+                    name="governed",
+                    path=VolumePathModel(
+                        volume=VolumeModel(name="skills_library"), path="research"
+                    ),
+                )
+            },
+        )
+        assert self._reject(config) == []
+
+    def test_absolute_bare_string_skill_is_accepted(self) -> None:
+        """Absolute paths are not the failure mode here — they name a specific
+        location rather than resolving against whatever tree is nearby."""
+        config = _config_with_deep_agent(skills=["/abs/skills/research"])
+        assert self._reject(config) == []
+
+    def test_volume_backed_skill_is_accepted(self) -> None:
+        """Governed skills are the right way to ship skills with a remote config:
+        the path is absolute and names nothing on the local disk."""
+        config = _config_with_deep_agent(
+            skills=[
+                SkillModel(
+                    name="governed",
+                    path=VolumePathModel(
+                        volume=VolumeModel(name="skills_library"), path="research"
+                    ),
+                )
+            ]
+        )
+        assert self._reject(config) == []
+
+    def test_relative_agent_skill_is_rejected_after_translation(
+        self, tmp_project: Path
+    ) -> None:
+        """Agent-level skills have become middleware ``sources`` by this point, so
+        the guard has to look where they landed, not where they were declared."""
+        config = AppConfig(
+            agents={
+                "researcher": AgentModel(
+                    name="researcher",
+                    model=LLMModel(name="dbx"),
+                    skills=[SkillModel(name="research", path="skills/research")],
+                )
+            }
+        )
+        lines = self._reject(config)
+        assert any("skills" in line for line in lines), lines

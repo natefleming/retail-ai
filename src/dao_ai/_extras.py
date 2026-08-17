@@ -36,8 +36,9 @@ the optional packages present, and :class:`AppConfig` is referenced only under
 from __future__ import annotations
 
 import importlib
+from collections.abc import Iterator
 from types import ModuleType
-from typing import TYPE_CHECKING, Final, Literal
+from typing import TYPE_CHECKING, Any, Final, Literal
 
 from loguru import logger
 
@@ -46,6 +47,7 @@ if TYPE_CHECKING:
         AppConfig,
         BaseRetrieverModel,
         MemoryModel,
+        MiddlewareModel,
     )
 
 # Deployment targets the resolver distinguishes. Only Model Serving omits the
@@ -86,6 +88,74 @@ _DEEPAGENT_MIDDLEWARE_FQNS: Final[frozenset[str]] = frozenset(
         "dao_ai.middleware.summarization.create_deep_summarization_middleware",
     }
 )
+
+
+def _iter_middleware(config: "AppConfig") -> Iterator["MiddlewareModel"]:
+    """Every middleware entry a deploy will actually build.
+
+    The top-level ``middleware`` registry is only half of it. Each agent carries
+    its own ``middleware`` list, and that is where ``agent.skills`` end up —
+    ``AppConfig._translate_agent_skills_to_middleware`` rewrites every skill into
+    a ``create_skills_middleware`` entry on the agent and clears
+    ``agent.skills``. Walking only the registry therefore missed every skill, so
+    a config whose agent uses skills deployed without the ``deepagents`` extra
+    and died at model load with "Skills middleware requires the 'deepagents'
+    extra". Orchestration patterns hold middleware lists of their own.
+
+    Agents are reachable through two registries that a YAML anchor makes the
+    same object (``config.agents`` and ``config.app.agents``), so dedupe by
+    identity — the same traversal the translating validator uses.
+    """
+    from dao_ai.config import (
+        AgentModel,
+        DeepAgentModel,
+        SubAgentModel,
+        SupervisorModel,
+        SwarmModel,
+    )
+
+    yield from config.middleware.values()
+
+    # Every model that owns a ``middleware`` list. ``swarm: true`` (a Literal)
+    # and a subagent given as a bare name string own none, so narrowing by type
+    # is what keeps those out.
+    holder_types = (
+        AgentModel,
+        SupervisorModel,
+        SwarmModel,
+        DeepAgentModel,
+        SubAgentModel,
+    )
+
+    candidates: list[Any] = list((config.agents or {}).values())
+    app = config.app
+    if app is not None:
+        candidates.extend(app.agents or [])
+        orchestration = app.orchestration
+        if orchestration is not None:
+            candidates.extend(
+                [
+                    orchestration.supervisor,
+                    orchestration.swarm,
+                    orchestration.deep_agent,
+                ]
+            )
+            if isinstance(orchestration.deep_agent, DeepAgentModel):
+                candidates.extend(orchestration.deep_agent.subagents or [])
+            # A swarm's entry agent is reached only through ``default_agent``.
+            # Usually a YAML anchor makes it the same object as an entry in
+            # ``app.agents``, and the identity dedupe below then folds it in — but
+            # nothing requires that, and a swarm whose default agent is declared
+            # inline carries middleware reachable no other way.
+            if isinstance(orchestration.swarm, SwarmModel):
+                candidates.append(orchestration.swarm.default_agent)
+
+    seen: set[int] = set()
+    for candidate in candidates:
+        if not isinstance(candidate, holder_types) or id(candidate) in seen:
+            continue
+        seen.add(id(candidate))
+        yield from candidate.middleware or []
 
 
 def require_extra(
@@ -194,7 +264,7 @@ def resolve_required_extras(
     orchestration = app.orchestration if app is not None else None
     if orchestration is not None and orchestration.deep_agent is not None:
         extras.add("deepagents")
-    for mw in config.middleware.values():
+    for mw in _iter_middleware(config):
         if mw.name in _DEEPAGENT_MIDDLEWARE_FQNS:
             extras.add("deepagents")
 

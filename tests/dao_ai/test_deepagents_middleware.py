@@ -10,6 +10,8 @@ Run with:
     pytest tests/dao_ai/test_deepagents_middleware.py -v -m unit
 """
 
+from pathlib import Path
+
 import pytest
 
 # =============================================================================
@@ -478,6 +480,71 @@ class TestSkillsMiddleware:
         from dao_ai.middleware import create_skills_middleware
 
         assert create_skills_middleware is not None
+
+
+@pytest.mark.unit
+class TestDeclaredRootDirWins:
+    """A ``root_dir`` the user wrote down outranks the ambient process.
+
+    Resolution has to honor it, because the backend ``root_dir`` configures is
+    what resolves a relative source when resolution passes one through. Ignoring
+    it makes resolving *worse* than the pass-through it replaced: a same-named
+    directory under the CWD silently takes over from the declared root.
+    """
+
+    @staticmethod
+    def _skill_tree(root: Path, marker: str) -> Path:
+        leaf = root / "skills" / "x"
+        leaf.mkdir(parents=True)
+        (leaf / "SKILL.md").write_text(f"---\nname: x\ndescription: d\n---\n{marker}\n")
+        return root
+
+    def test_declared_root_dir_beats_a_cwd_decoy(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from dao_ai.middleware.skills import _resolve_filesystem_sources
+
+        declared = self._skill_tree(tmp_path / "declared_root", "real")
+        decoy = self._skill_tree(tmp_path / "cwd_decoy", "decoy")
+        monkeypatch.delenv("DAO_AI_PROJECT_ROOT", raising=False)
+        monkeypatch.chdir(decoy)
+
+        resolved = _resolve_filesystem_sources(["skills"], str(declared))
+        assert resolved == [str((declared / "skills").resolve())]
+
+    def test_placeholder_root_dir_is_not_treated_as_declared(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """``root_dir="/"`` is what ``as_middleware`` emits for a config-relative
+        source, since FilesystemBackend requires *some* root. Anchoring on it would
+        resolve every source against the filesystem root — and a source of ``"."``
+        straight to ``/``."""
+        from dao_ai.middleware.skills import _resolve_filesystem_sources
+
+        decoy = self._skill_tree(tmp_path / "cwd_decoy", "decoy")
+        monkeypatch.delenv("DAO_AI_PROJECT_ROOT", raising=False)
+        monkeypatch.chdir(decoy)
+
+        assert _resolve_filesystem_sources(["skills"], "/") == [
+            str((decoy / "skills").resolve())
+        ]
+
+    def test_a_declared_root_does_not_break_the_ambient_anchors(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The declared root *leads*; it does not replace. A source that exists
+        only under the CWD still resolves."""
+        from dao_ai.middleware.skills import _resolve_filesystem_sources
+
+        empty_root = tmp_path / "declared_root"
+        empty_root.mkdir()
+        decoy = self._skill_tree(tmp_path / "cwd_decoy", "only-copy")
+        monkeypatch.delenv("DAO_AI_PROJECT_ROOT", raising=False)
+        monkeypatch.chdir(decoy)
+
+        assert _resolve_filesystem_sources(["skills"], str(empty_root)) == [
+            str((decoy / "skills").resolve())
+        ]
 
 
 # =============================================================================

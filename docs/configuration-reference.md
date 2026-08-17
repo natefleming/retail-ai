@@ -594,7 +594,7 @@ Skills are loaded by deepagents' `SkillsMiddleware`. dao-ai exposes them as a fi
 
 `path` accepts two shapes:
 
-**1. Local (string)** — a relative path under the project root. The directory is bundled with the model artifact via `code_paths` and shipped with both Model Serving and Databricks Apps deployments.
+**1. Local (string)** — a relative path, resolved against the directory holding your config file. The directory is copied into every deploy bundle and into the model artifact via `code_paths`, layout preserved, so the same relative path resolves again on the target.
 
 ```yaml
 resources:
@@ -602,8 +602,10 @@ resources:
     research_skill:
       name: research
       description: Multi-source research with citations
-      path: skills/research                  # relative to project root
+      path: skills/research                  # relative to the config file
 ```
+
+Keep it relative. An absolute path is passed through verbatim and will not exist on the deployment target — see "Path resolution" below.
 
 **2. Volume-backed (VolumePathModel)** — a Unity Catalog volume reference. The skill is read directly from `/Volumes/<cat>/<schema>/<vol>/...` at runtime and the volume is wired as a deployment resource for permission grants. Use this when skills are governed centrally.
 
@@ -668,10 +670,31 @@ app:
           skills: [*research_skill]
 ```
 
+#### Path resolution
+
+A local `path` stays **relative everywhere** — in the config you write, in the config a bundle stages, and in the config baked into a registered model. It is turned into a real directory once, when the agent graph is built, by trying these anchors in order and taking the first that contains the skill:
+
+1. The directory of the config file, when the config was loaded from a local path (`AppConfig.from_file`, `from_git`, `from_source`).
+2. `$DAO_AI_PROJECT_ROOT`, if set.
+3. The current working directory — this is the bundle root under Databricks Apps and the MCP server.
+4. Each `sys.path` entry — this is what covers Model Serving, where mlflow prepends `<model_dir>/code`.
+
+Nothing machine-specific is ever written back into the config, so building the graph and then registering the model (what `dao-ai agent create` and the deploy notebooks do in one process) cannot bake a local path into the artifact.
+
+To see which paths a deployed agent actually resolved, ask it to list its skills with the file path for each — the middleware injects that list into the system prompt, so the answer is the resolved directory as seen from inside the container.
+
+#### Progressive disclosure needs a file-reading agent
+
+Skills load lazily. Only each skill's `name` and `description` go into the system prompt; the body of `SKILL.md` is read on demand, and the injected instructions tell the model to call `read_file` on the listed path. A **deep agent** has that tool, so its skills work end to end. A plain `agents[].skills` entry does not add one: the agent can see that the skill exists and what it is for, but cannot read its instructions unless something else in the config supplies a file-reading tool. Attach detailed procedural skills to a deep agent, or keep the `description` self-sufficient for a plain one.
+
+An **absolute** `path` bypasses resolution entirely and is used as given. That is correct for `/Volumes/...` and for a skill on a mount that exists on the target, and wrong for anything under your home directory or a checkout — the deployed agent will find nothing there.
+
+If a declared local skill cannot be found at **deploy** time, the deploy fails and names each unresolvable skill: `agent create`, `agent build`, `agent build --as-mcp`, the workflow bundler, and the direct Apps deploy (`agent up --mode apps`) all check. At **runtime** a missing directory is a `WARNING` in the endpoint or app log naming the source and every anchor tried, and the agent serves without that skill — a missing skill degrades the agent, it does not take the endpoint down.
+
 #### Deployment behaviour
 
-- **Local skills** ship with the wheel via `code_paths`. No extra grants needed.
-- **Volume-backed skills** emit deployment resources (via the underlying `VolumeModel`) so the app's service principal receives `READ_VOLUME` on the backing volume at deploy time.
+- **Local skills** are staged by every path that ships a config — the Apps bundler (`agent build`), the MCP bundler (`agent build --as-mcp`), the workflow DAB (under `config/skills/...`, beside the staged config), and the direct Apps deploy, which uploads them beside the config in the app's workspace source — and ship with the model artifact via `code_paths`. No extra grants needed.
+- **Volume-backed skills** are never copied. They emit deployment resources (via the underlying `VolumeModel`) so the app's service principal receives `READ_VOLUME` on the backing volume at deploy time, and are read from `/Volumes/...` at runtime.
 
 ### Chat UI (`enable_chat_proxy`)
 

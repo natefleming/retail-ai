@@ -1,0 +1,50 @@
+[
+  {
+    "store_id": 101,
+    "store_name": "Downtown Hardware",
+    "city": "Chicago",
+    "state": "IL",
+    "weekday_hours": "6:00 AM - 9:00 PM",
+    "weekend_hours": "7:00 AM - 8:00 PM"
+  },
+  {
+    "store_id": 102,
+    "store_name": "Northside Builders Supply",
+    "city": "Chicago",
+    "state": "IL",
+    "weekday_hours": "6:30 AM - 8:00 PM",
+    "weekend_hours": "8:00 AM - 6:00 PM"
+  },
+  {
+    "store_id": 201,
+    "store_name": "Riverfront Hardware",
+    "city": "Austin",
+    "state": "TX",
+    "weekday_hours": "7:00 AM - 9:00 PM",
+    "weekend_hours": "8:00 AM - 7:00 PM"
+  },
+  {
+    "store_id": 202,
+    "store_name": "Hill Country Tool & Paint",
+    "city": "Austin",
+    "state": "TX",
+    "weekday_hours": "7:00 AM - 7:00 PM",
+    "weekend_hours": "9:00 AM - 5:00 PM"
+  },
+  {
+    "store_id": 301,
+    "store_name": "Bay Area Contractor Depot",
+    "city": "Oakland",
+    "state": "CA",
+    "weekday_hours": "5:30 AM - 8:00 PM",
+    "weekend_hours": "7:00 AM - 6:00 PM"
+  },
+  {
+    "store_id": 401,
+    "store_name": "Seaport Hardware",
+    "city": "Boston",
+    "state": "MA",
+    "weekday_hours": "7:00 AM - 8:00 PM",
+    "weekend_hours": "8:00 AM - 5:00 PM"
+  }
+]
