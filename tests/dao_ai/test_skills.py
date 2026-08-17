@@ -17,6 +17,7 @@ from dao_ai.config import (
     AppModel,
     DeepAgentModel,
     LLMModel,
+    MiddlewareModel,
     OrchestrationModel,
     ResourcesModel,
     SkillModel,
@@ -577,6 +578,75 @@ class TestUnresolvableSkills:
             skills=[SkillModel(name="g", path="/Volumes/c/s/v/research")]
         )
         assert unresolvable_skills(cfg) == []
+
+    @pytest.mark.parametrize("backend_type", [None, "state", "store", "volume"])
+    def test_non_filesystem_sources_are_not_gated(
+        self, backend_type: str | None, tmp_project: Path
+    ) -> None:
+        """The gate must agree with the runtime about what a "source" means.
+
+        ``create_skills_middleware`` resolves sources against the filesystem for
+        ``backend_type="filesystem"`` only, passing them through verbatim for the
+        rest — under those a source is a key into graph state, a Store namespace, or
+        a volume path, and nothing about it belongs on the deploying machine's disk.
+        Gating them anyway made the gate contradict the runtime and hard-fail
+        ``examples/12_middleware/deepagents_middleware.yaml``, which declares
+        ``sources: [/skills/base/, /skills/user/]`` with the default ``state``
+        backend, blocking every deploy path for a config that serves correctly.
+
+        ``None`` covers the shipped example's shape exactly: no ``backend_type`` at
+        all, so the factory's ``"state"`` default applies.
+        """
+        args: dict = {"sources": ["/skills/base/", "/skills/user/"]}
+        if backend_type is not None:
+            args["backend_type"] = backend_type
+        cfg = AppConfig(
+            agents={"a": AgentModel(name="a", model=LLMModel(name="x"))},
+            app=AppModel(
+                name="test_app",
+                agents=[
+                    AgentModel(
+                        name="a",
+                        model=LLMModel(name="x"),
+                        middleware=[
+                            MiddlewareModel(
+                                name="dao_ai.middleware.skills.create_skills_middleware",
+                                args=args,
+                            )
+                        ],
+                    )
+                ],
+            ),
+        )
+        assert unresolvable_skills(cfg) == []
+
+    def test_filesystem_sources_are_still_gated(self, tmp_project: Path) -> None:
+        """The counterpart: an explicitly filesystem-backed source keeps its gate,
+        which is the whole point of having one."""
+        cfg = AppConfig(
+            agents={"a": AgentModel(name="a", model=LLMModel(name="x"))},
+            app=AppModel(
+                name="test_app",
+                agents=[
+                    AgentModel(
+                        name="a",
+                        model=LLMModel(name="x"),
+                        middleware=[
+                            MiddlewareModel(
+                                name="dao_ai.middleware.skills.create_skills_middleware",
+                                args={
+                                    "sources": ["skills/ghost"],
+                                    "backend_type": "filesystem",
+                                },
+                            )
+                        ],
+                    )
+                ],
+            ),
+        )
+        problems = unresolvable_skills(cfg)
+        assert len(problems) == 1
+        assert "skills/ghost" in problems[0]
 
 
 @pytest.mark.unit

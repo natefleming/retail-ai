@@ -285,13 +285,25 @@ SKILLS_MIDDLEWARE_FACTORY = "dao_ai.middleware.skills.create_skills_middleware"
 
 
 def _iter_agent_skill_sources(config: "AppConfig") -> list[str]:
-    """Yield every skill ``sources`` path declared on any middleware in the config.
+    """Yield every *filesystem-backed* skill ``sources`` path in the config.
 
     After the AppConfig ``_translate_agent_skills_to_middleware`` validator
     runs, ``AgentModel.skills`` has been emptied and the corresponding
     SkillsMiddleware factory entries live in ``agent.middleware``. This
     helper walks those entries and pulls out the ``sources`` list for each
     so the bundle generator and code_paths collector can find them.
+
+    Only entries whose ``backend_type`` is ``"filesystem"`` are yielded, and the
+    default is ``"state"`` — matching :func:`create_skills_middleware`, which
+    resolves sources against the filesystem for that backend alone and passes them
+    through verbatim for ``state``, ``store``, and ``volume``. Under any of those
+    three a "source" is a key into graph state, a LangGraph Store namespace, or a
+    volume path, and nothing about it is expected on the deploying machine's disk.
+    Yielding them anyway made every consumer here disagree with the runtime: the
+    deploy gate refused a shipped example (``examples/12_middleware`` declares
+    ``sources: [/skills/base/, /skills/user/]`` with the default ``state``
+    backend) and blocked ``agent create``, ``agent build``, the workflow bundler,
+    and the Apps deploy for a config that serves correctly.
 
     Delegates the traversal to :func:`dao_ai._extras._iter_middleware`, which is
     the same walker the extras check uses, so a middleware holder can only be
@@ -305,6 +317,8 @@ def _iter_agent_skill_sources(config: "AppConfig") -> list[str]:
     sources: list[str] = []
     for mw in _iter_middleware(config):
         if mw.name != SKILLS_MIDDLEWARE_FACTORY:
+            continue
+        if mw.args.get("backend_type", "state") != "filesystem":
             continue
         raw_sources = mw.args.get("sources") or []
         for s in raw_sources:
