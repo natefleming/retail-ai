@@ -10113,9 +10113,26 @@ class AppModel(BaseModel):
         ):
             default_agent: AgentModel = self.agents[0]
             if len(self.agents) > 1:
-                self.orchestration.supervisor = SupervisorModel(
-                    model=default_agent.model
+                # The supervisor routes with an LLM. A Genie-brain agent
+                # (GenieAgentModel) has none, so borrow the first agent's model
+                # that is one; with no such agent there is nothing to route
+                # with and the config has to say what it wants.
+                supervisor_model: InferenceEndpointModel | None = next(
+                    (
+                        agent.model
+                        for agent in self.agents
+                        if isinstance(agent.model, InferenceEndpointModel)
+                    ),
+                    None,
                 )
+                if supervisor_model is None:
+                    raise ValueError(
+                        "No default orchestration: every agent's model is a Genie "
+                        "space, so there is no LLM for a supervisor to route with. "
+                        "Declare `orchestration.supervisor.model` (or "
+                        "`orchestration.swarm`) explicitly."
+                    )
+                self.orchestration.supervisor = SupervisorModel(model=supervisor_model)
             else:
                 self.orchestration.swarm = SwarmModel(default_agent=default_agent)
 

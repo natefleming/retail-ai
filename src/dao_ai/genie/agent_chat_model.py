@@ -45,7 +45,7 @@ together (see ``GenieAgentModel.chat_model_for_workspace_client``).
 from __future__ import annotations
 
 import json
-from typing import Any, AsyncIterator, Iterator, Optional
+from typing import Any, AsyncIterator, Iterator, Optional, Sequence
 
 import httpx
 import mlflow
@@ -53,6 +53,7 @@ from langchain_core.callbacks import (
     AsyncCallbackManagerForLLMRun,
     CallbackManagerForLLMRun,
 )
+from langchain_core.language_models import LanguageModelInput
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import (
     AIMessage,
@@ -61,6 +62,7 @@ from langchain_core.messages import (
     HumanMessage,
 )
 from langchain_core.outputs import ChatGeneration, ChatGenerationChunk, ChatResult
+from langchain_core.runnables import Runnable
 from loguru import logger
 
 from dao_ai.auth import WorkspaceBearerAuth
@@ -303,6 +305,34 @@ class GenieAgentChatModel(BaseChatModel):
     @property
     def _identifying_params(self) -> dict[str, Any]:
         return {"agent_id": self.agent_id, "timeout_seconds": self.timeout_seconds}
+
+    def bind_tools(
+        self,
+        tools: Sequence[Any],
+        *,
+        tool_choice: Optional[str] = None,
+        **kwargs: Any,
+    ) -> Runnable[LanguageModelInput, AIMessage]:
+        """Return ``self`` unchanged: Genie owns its tool loop.
+
+        Agent Mode runs its own tools (``execute_sql`` and friends) server-side
+        and exposes no way to declare client tools, so there is nothing to bind
+        and this model never emits a client tool call. Orchestration still hands
+        an agent tools it expects it to be able to call — the supervisor's
+        ``handoff_to_supervisor``, a swarm's handoff tools — and langchain's
+        agent loop calls ``bind_tools`` whenever that list is non-empty. Without
+        this override that call lands on ``BaseChatModel.bind_tools``, a bare
+        ``NotImplementedError``, and a Genie-brain agent can only ever be an
+        app's single agent. Ignoring the tools is the correct behavior: the
+        agent answers, no tool call is emitted, the turn ends.
+        """
+        if tools:
+            logger.debug(
+                "Ignoring tools bound to a Genie agent model",
+                agent_id=self.agent_id,
+                tool_count=len(tools),
+            )
+        return self
 
     # -- request helpers ------------------------------------------------
 
