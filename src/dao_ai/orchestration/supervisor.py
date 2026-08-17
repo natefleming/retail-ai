@@ -24,6 +24,7 @@ from loguru import logger
 
 from dao_ai.config import (
     AppConfig,
+    GenieAgentModel,
     MemoryModel,
     OrchestrationModel,
     PromptModel,
@@ -346,16 +347,23 @@ def create_supervisor_graph(config: AppConfig) -> CompiledStateGraph:
             internal_agents=sorted(internal_agents),
         )
     for registered_agent in config.app.agents:
-        # Create handoff back to supervisor tool
-        supervisor_handoff: BaseTool = _create_handoff_back_to_supervisor_tool()
+        # Every worker gets a handoff back to the supervisor — except a
+        # Genie-brain worker (GenieAgentModel), whose model runs its own tool
+        # loop server-side and never calls a client tool. Its turn ends when it
+        # answers, which is the only way control ever leaves that worker anyway,
+        # so the tool would be dead weight in its graph and its logs.
+        additional_tools: list[BaseTool] = (
+            []
+            if isinstance(registered_agent.model, GenieAgentModel)
+            else [_create_handoff_back_to_supervisor_tool()]
+        )
 
-        # Create the worker agent with handoff back to supervisor
         agent_subgraph: CompiledStateGraph = create_agent_node(
             agent=registered_agent,
             memory=memory,
             store=store,
             chat_history=config.app.chat_history,
-            additional_tools=[supervisor_handoff],
+            additional_tools=additional_tools,
             extraction_manager=extraction_manager,
             checkpointer=checkpointer,
         )

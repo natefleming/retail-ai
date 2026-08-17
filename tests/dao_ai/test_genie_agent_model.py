@@ -13,6 +13,9 @@ Covers :class:`dao_ai.genie.agent_chat_model.GenieAgentChatModel` and
    typed surface (``name``, ``on_behalf_of_user``, ``workspace_client_from``,
    ``chat_model_for_workspace_client``, ``as_chat_model``) and parses through
    the ``AgentModel.model`` union.
+6. ``bind_tools`` is a no-op returning the model itself, so a langchain agent
+   loop that hands the brain a tool (supervisor handoff, swarm handoff) runs
+   instead of dying in ``BaseChatModel.bind_tools``.
 
 httpx is driven with a real ``MockTransport`` so the SSE parsing exercises the
 genuine ``iter_lines``/``aiter_lines`` code paths. The WorkspaceClient is a
@@ -28,7 +31,9 @@ from unittest.mock import MagicMock, patch
 
 import httpx
 import pytest
+from langchain.agents import create_agent
 from langchain_core.messages import AIMessage, HumanMessage
+from langchain_core.tools import tool
 
 from dao_ai.config import (
     AgentModel,
@@ -556,7 +561,11 @@ class TestBareRoomCoercion:
 
     def test_endpoint_with_inference_knobs_still_resolves_to_endpoint(self) -> None:
         model = self._model_for(
-            {"name": "databricks-claude-sonnet-4", "temperature": 0.1, "max_tokens": 100}
+            {
+                "name": "databricks-claude-sonnet-4",
+                "temperature": 0.1,
+                "max_tokens": 100,
+            }
         )
         assert isinstance(model, InferenceEndpointModel)
 
@@ -604,7 +613,9 @@ class TestRoomChatModelSurface:
         room = GenieRoomModel(space_id=AGENT_ID)
         ws = _fake_workspace_client()
         with patch.object(
-            GenieRoomModel, "workspace_client", new_callable=lambda: property(lambda s: ws)
+            GenieRoomModel,
+            "workspace_client",
+            new_callable=lambda: property(lambda s: ws),
         ):
             chat = room.as_chat_model()
         assert isinstance(chat, GenieAgentChatModel)
@@ -718,3 +729,56 @@ class TestBareNameOnlyRoomRejected:
             },
         }
         AppConfig(**cfg)
+
+
+# ---------------------------------------------------------------------------
+# bind_tools: Genie owns its tool loop, client tools are ignored
+# ---------------------------------------------------------------------------
+
+
+class TestBindTools:
+    def test_returns_self(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        model = _model_with_transport(
+            lambda req: httpx.Response(200, content=_sse(_happy_events())),
+            monkeypatch,
+        )
+
+        @tool
+        def handoff_to_supervisor() -> str:
+            """Hand control back to the supervisor."""
+            return "ok"
+
+        assert model.bind_tools([handoff_to_supervisor]) is model
+        assert model.bind_tools([]) is model
+        assert model.bind_tools([handoff_to_supervisor], tool_choice="any") is model
+
+    def test_agent_loop_with_a_tool_answers_from_genie(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The failure this guards: ``create_agent(model, tools=[...])`` calls
+        ``bind_tools`` on the first model call whenever the tool list is
+        non-empty. The brain must take that turn, answer with Genie's text and
+        emit no tool call, so the loop ends after one model call."""
+        record: dict[str, Any] = {}
+        model = _model_with_transport(
+            lambda req: httpx.Response(200, content=_sse(_happy_events())),
+            monkeypatch,
+            record=record,
+        )
+        calls: list[str] = []
+
+        @tool
+        def handoff_to_supervisor() -> str:
+            """Hand control back to the supervisor."""
+            calls.append("handoff")
+            return "ok"
+
+        agent = create_agent(model=model, tools=[handoff_to_supervisor])
+        result = agent.invoke({"messages": [HumanMessage("How many stores by state?")]})
+
+        last = result["messages"][-1]
+        assert isinstance(last, AIMessage)
+        assert "California leads with 42 stores." in last.content
+        assert not last.tool_calls
+        assert calls == []
+        assert record["url"].endswith(f"/api/2.0/genie/agents/{AGENT_ID}/responses")
