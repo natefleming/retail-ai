@@ -934,6 +934,22 @@ def _write_job_bundle(
     preserved_user_code.extend(cp_preserved)
     preserved_user_code.extend(src_preserved)
 
+    # Local skill directories, staged under ``config/skills/...`` for the same
+    # reason as code_paths above: ``07_deploy_agent.py`` reloads the *staged*
+    # config, so the skills have to sit beside that copy for its relative sources
+    # to resolve and for ``collect_skills_code_paths`` to find content to ship to
+    # Model Serving. Previously nothing staged them and a DAB deploy produced an
+    # agent with no skill content at all.
+    from dao_ai.skills import assert_skills_resolvable, stage_skill_dirs
+
+    assert_skills_resolvable(config, target="Workflow bundle")
+    sk_copied, sk_skipped, sk_preserved = stage_skill_dirs(
+        config, staging_dir, overwrite=overwrite, prefix="config"
+    )
+    written.extend(sk_copied)
+    preserved_user_code.extend(sk_skipped)
+    preserved_user_code.extend(sk_preserved)
+
     # 6c. DAB resource overlays (app.resource_paths + resources/ convention) into
     # resources/, merged by the bundle's include: [resources/*.yml] — parity with
     # the agent/mcp bundles.

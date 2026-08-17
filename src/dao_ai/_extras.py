@@ -142,6 +142,13 @@ def _iter_middleware(config: "AppConfig") -> Iterator["MiddlewareModel"]:
             )
             if isinstance(orchestration.deep_agent, DeepAgentModel):
                 candidates.extend(orchestration.deep_agent.subagents or [])
+            # A swarm's entry agent is reached only through ``default_agent``.
+            # Usually a YAML anchor makes it the same object as an entry in
+            # ``app.agents``, and the identity dedupe below then folds it in — but
+            # nothing requires that, and a swarm whose default agent is declared
+            # inline carries middleware reachable no other way.
+            if isinstance(orchestration.swarm, SwarmModel):
+                candidates.append(orchestration.swarm.default_agent)
 
     seen: set[int] = set()
     for candidate in candidates:

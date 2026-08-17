@@ -983,51 +983,18 @@ def write_bundle(
     # the app source and reachable by deepagents' SkillsMiddleware at
     # runtime. Volume-backed skills are NOT copied (they live on UC volumes
     # and are read directly via the ``/Volumes/...`` path).
-    from dao_ai.skills import _skill_base_dir, collect_local_skill_dirs
+    # Layout is preserved under the config's own directory (not ``_project_root()``,
+    # which walks up from the CWD) so that ``Path.cwd() / <source>`` resolves at
+    # runtime when the bundle root is the app's CWD. See ``stage_skill_dirs``.
+    from dao_ai.skills import assert_skills_resolvable, stage_skill_dirs
 
-    # Anchor on the config's own directory — the same anchor
-    # ``collect_local_skill_dirs`` resolved these paths against — rather than
-    # ``_project_root()``, which walks up from the CWD. For a config outside the
-    # CWD tree (a git checkout in the cache, most obviously) the CWD-based root
-    # can never contain the skill dirs, so ``relative_to`` below would always
-    # raise and flatten ``skills/<vertical>/<skill>`` to ``skills/<skill>`` while
-    # the rendered config still named the nested path — leaving the skill
-    # unreachable at runtime. ``_skill_base_dir`` falls back to
-    # ``_project_root()`` when the config has no source path.
-    project_root: Path = _skill_base_dir(config)
-    for skill_dir_str in collect_local_skill_dirs(config):
-        src_dir: Path = Path(skill_dir_str)
-        if not src_dir.exists():
-            continue
-        # Preserve the relative layout under the project root (e.g.
-        # skills/<vertical>/<skill>) so that ``Path.cwd() / spec.path`` resolves
-        # at runtime when the bundle root is the app's CWD.
-        try:
-            rel: Path = src_dir.relative_to(project_root)
-        except ValueError:
-            # Skill dir is not under the project root — fall back to copying
-            # under skills/<basename>. The user can still reference the skill
-            # via the rendered absolute path in the deployed config.
-            rel = Path("skills") / src_dir.name
-        dest = staging_dir / rel
-        # In-place (output overlaps the skill source): never rmtree the user's
-        # own skills dir. Belt-and-suspenders behind the overlap hard-error.
-        if dest.resolve() == src_dir.resolve():
-            preserved.append(str(rel))
-            continue
-        if dest.exists() and not overwrite:
-            logger.info(
-                "Skipping skill directory copy (exists; use --overwrite)",
-                skill=str(rel),
-            )
-            skipped.append(str(rel))
-            continue
-        dest.parent.mkdir(parents=True, exist_ok=True)
-        if dest.exists():
-            shutil.rmtree(dest)
-        shutil.copytree(src_dir, dest)
-        logger.info("Copied skill directory into bundle", skill=str(rel))
-        written.append(str(rel))
+    assert_skills_resolvable(config, target="Apps bundle")
+    skills_written, skills_skipped, skills_preserved = stage_skill_dirs(
+        config, staging_dir, overwrite=overwrite
+    )
+    written.extend(skills_written)
+    skipped.extend(skills_skipped)
+    preserved.extend(skills_preserved)
 
     # Copy the config's custom code (app.code_paths) into the bundle next to the
     # config so it is importable at runtime: the bundle root is the app CWD and

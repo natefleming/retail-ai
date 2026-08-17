@@ -276,3 +276,365 @@ class TestRuntimeResolutionMatchesBundleLayout:
         # to middleware, and lives in agent.middleware[*].args['sources'].
         assert len(paths) == 1
         assert paths[0].startswith("/Volumes/")
+
+
+def _load_skills(middleware) -> tuple[list[str], list]:
+    """Discover skills the way a running agent does.
+
+    Asserting on ``middleware.sources`` is what let the Model Serving bug ship:
+    the sources looked plausible and the directory did not exist. Discovery is
+    lazy inside ``before_agent``, so only calling it proves anything.
+
+    ``before_agent`` takes three positionals, and the state must not already
+    carry ``skills_metadata`` or the load short-circuits.
+    """
+    from types import SimpleNamespace
+
+    runtime = SimpleNamespace(context=None, stream_writer=None, store=None)
+    out = middleware.before_agent({"messages": []}, runtime, {}) or {}
+    return (
+        [s["name"] for s in out.get("skills_metadata", [])],
+        # ``skills_load_errors`` only exists in deepagents >= 0.6; the floor in
+        # pyproject.toml is 0.5.7, so treat absent as empty rather than asserting
+        # on it.
+        out.get("skills_load_errors", []),
+    )
+
+
+def _skills_middleware_args(dumped: dict) -> list[dict]:
+    """Every skills-middleware ``args`` block anywhere in a dumped config.
+
+    Walks the whole tree rather than a known list of holders, because the bug was
+    precisely that different copies of the same middleware disagreed — a targeted
+    lookup would have inspected one copy and missed it.
+    """
+    found: list[dict] = []
+
+    def walk(node: object) -> None:
+        if isinstance(node, dict):
+            name = node.get("name")
+            if isinstance(name, str) and name.endswith("create_skills_middleware"):
+                found.append(node.get("args") or {})
+            for value in node.values():
+                walk(value)
+        elif isinstance(node, list):
+            for value in node:
+                walk(value)
+
+    walk(dumped)
+    return found
+
+
+@pytest.mark.unit
+class TestModelServingDictReconstruction:
+    """The regression that would have caught the shipped bug.
+
+    Model Serving is the only target that rebuilds the config from a dict
+    (``AppConfig(**ModelConfig().to_dict())``) rather than ``from_file``, so it
+    is the only one where ``local_config_path`` is ``None`` and nothing can
+    re-anchor a path afterwards. A config that baked the *loading* machine's
+    directory therefore pointed the serving container at a directory that never
+    existed there — and the endpoint came up healthy, with no skills.
+    """
+
+    def _dump(self, cfg: AppConfig) -> dict:
+        """Serialize exactly as ``providers/databricks.py`` does for log_model."""
+        return cfg.model_dump(mode="json", by_alias=True, exclude_none=True)
+
+    def test_every_serialized_copy_agrees_and_is_relative(
+        self, project_root_with_skills: Path
+    ) -> None:
+        """The shipped MLmodel held this middleware three times with two
+        different values, one of them a job driver's ephemeral directory."""
+        cfg = AppConfig.from_file(
+            str(project_root_with_skills / "deep_agent_with_skills.yaml")
+        )
+        arg_blocks = _skills_middleware_args(self._dump(cfg))
+        assert arg_blocks, "expected at least one skills middleware in the config"
+
+        filesystem_sources = [
+            source
+            for block in arg_blocks
+            if block.get("backend_type") == "filesystem"
+            for source in block.get("sources", [])
+        ]
+        assert filesystem_sources
+        assert len(set(filesystem_sources)) == 1, (
+            f"copies disagree: {sorted(set(filesystem_sources))}"
+        )
+        for source in filesystem_sources:
+            assert not Path(source).is_absolute(), (
+                f"{source!r} is absolute — this machine's path would ship to the "
+                "serving container"
+            )
+
+    def test_skill_loads_after_dict_rebuild_with_only_syspath(
+        self,
+        project_root_with_skills: Path,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """The full Model Serving path: dump, rebuild from the dict, and give the
+        process nothing but the ``sys.path`` entry mlflow prepends."""
+        from dao_ai.middleware.skills import create_skills_middleware
+
+        cfg = AppConfig.from_file(
+            str(project_root_with_skills / "deep_agent_with_skills.yaml")
+        )
+        dumped = self._dump(cfg)
+
+        # mlflow copies the colocated skills/ dir to <model_dir>/code/skills/ and
+        # prepends <model_dir>/code to sys.path.
+        code_dir = tmp_path / "served_model" / "code"
+        code_dir.mkdir(parents=True)
+        shutil.copytree(project_root_with_skills / "skills", code_dir / "skills")
+
+        unrelated = tmp_path / "unrelated"
+        unrelated.mkdir()
+        monkeypatch.chdir(unrelated)
+        monkeypatch.delenv("DAO_AI_PROJECT_ROOT", raising=False)
+        monkeypatch.syspath_prepend(str(code_dir))
+
+        rebuilt = AppConfig(**dumped)
+        assert rebuilt.local_config_path is None, (
+            "a dict rebuild has no config path — that is what makes this target "
+            "unable to re-anchor after the fact"
+        )
+
+        blocks = [
+            b
+            for b in _skills_middleware_args(self._dump(rebuilt))
+            if b.get("backend_type") == "filesystem"
+        ]
+        names, errors = _load_skills(create_skills_middleware(**blocks[0]))
+        assert "research" in names, f"skills did not load: {names} errors={errors}"
+
+    def test_stale_absolute_source_loads_nothing(self, tmp_path: Path) -> None:
+        """The negative twin: the exact shape that shipped. Kept so the harness
+        is shown to be capable of detecting the failure it was written for."""
+        from dao_ai.middleware.skills import create_skills_middleware
+
+        stale = "/home/spark-928f77f1-0d5c-42a6/.dao-ai/git/abc/skills/vertical"
+        middleware = create_skills_middleware(
+            sources=[stale], backend_type="filesystem", root_dir="/"
+        )
+        names, _ = _load_skills(middleware)
+        assert names == []
+
+    def test_building_middleware_does_not_mutate_the_config(
+        self, project_root_with_skills: Path
+    ) -> None:
+        """``07_deploy_agent.py`` calls ``display_graph()`` and then
+        ``create_agent()`` in one process. If building the graph wrote resolved
+        paths back into the config, the very next ``model_dump`` would ship them.
+        """
+        import json
+
+        from dao_ai.middleware.skills import create_skills_middleware
+        from dao_ai.skills import config_skill_anchor, skill_anchors
+
+        cfg = AppConfig.from_file(
+            str(project_root_with_skills / "deep_agent_with_skills.yaml")
+        )
+        before = json.dumps(self._dump(cfg), sort_keys=True)
+
+        with skill_anchors(*config_skill_anchor(cfg)):
+            for block in _skills_middleware_args(json.loads(before)):
+                if block.get("backend_type") == "filesystem":
+                    create_skills_middleware(**block)
+
+        assert json.dumps(self._dump(cfg), sort_keys=True) == before
+
+
+@pytest.mark.unit
+class TestSkillsLoadPerDeploymentTarget:
+    """One relative path in the config; every target must load the real files."""
+
+    def _filesystem_block(self, cfg: AppConfig) -> dict:
+        blocks = [
+            b
+            for b in _skills_middleware_args(
+                cfg.model_dump(mode="json", by_alias=True, exclude_none=True)
+            )
+            if b.get("backend_type") == "filesystem"
+        ]
+        assert blocks, "expected a filesystem-backed skills middleware"
+        return blocks[0]
+
+    def test_apps_bundle_root_as_cwd(
+        self,
+        project_root_with_skills: Path,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        from dao_ai.middleware.skills import create_skills_middleware
+
+        cfg = AppConfig.from_file(
+            str(project_root_with_skills / "deep_agent_with_skills.yaml")
+        )
+        out = tmp_path / "bundle_out"
+        write_bundle(cfg, out, overwrite=True)
+
+        deployed = AppConfig.from_file(str(out / "deep_agent_with_skills.yaml"))
+        monkeypatch.chdir(out)
+        monkeypatch.delenv("DAO_AI_PROJECT_ROOT", raising=False)
+
+        names, errors = _load_skills(
+            create_skills_middleware(**self._filesystem_block(deployed))
+        )
+        assert "research" in names, f"{names} errors={errors}"
+
+    def test_local_run_with_cwd_elsewhere(
+        self,
+        project_root_with_skills: Path,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """``dao-ai run -c examples/.../agent.yaml`` from an unrelated directory.
+        Only the config-dir anchor can save this one."""
+        from dao_ai.middleware.skills import create_skills_middleware
+        from dao_ai.skills import config_skill_anchor, skill_anchors
+
+        config_path = project_root_with_skills / "deep_agent_with_skills.yaml"
+        elsewhere = tmp_path / "elsewhere"
+        elsewhere.mkdir()
+        monkeypatch.chdir(elsewhere)
+        monkeypatch.delenv("DAO_AI_PROJECT_ROOT", raising=False)
+
+        cfg = AppConfig.from_file(str(config_path))
+        with skill_anchors(*config_skill_anchor(cfg)):
+            names, errors = _load_skills(
+                create_skills_middleware(**self._filesystem_block(cfg))
+            )
+        assert "research" in names, f"{names} errors={errors}"
+
+    def test_volume_backed_skill_passes_through(
+        self, project_root_with_skills: Path
+    ) -> None:
+        """A governed skill must keep its ``/Volumes/...`` path — resolution must
+        not try to find it on the local disk and drop it."""
+        from dao_ai.skills import resolve_skill_runtime_paths
+
+        cfg = AppConfig.from_file(
+            str(project_root_with_skills / "deep_agent_with_skills.yaml")
+        )
+        paths = resolve_skill_runtime_paths(
+            cfg.app.orchestration.deep_agent.skills, cfg
+        )
+        assert paths == [
+            "/Volumes/retail_consumer_goods/sporting_goods_store/skills_library"
+        ]
+
+
+@pytest.mark.unit
+class TestAllBundlersStageSkillContent:
+    """A staged config that names skills the bundle does not contain produces an
+    agent with no skills. Only the Apps bundler used to copy them."""
+
+    def test_mcp_bundle_contains_skill_files(
+        self,
+        project_root_with_skills: Path,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        from dao_ai.mcp.generate import write_mcp_bundle
+
+        monkeypatch.setattr(
+            "dao_ai.mcp.generate.generate_bundle_lock",
+            lambda bundle_dir: (bundle_dir / "uv.lock").write_text("# stub\n"),
+        )
+        cfg = AppConfig.from_file(
+            str(project_root_with_skills / "deep_agent_with_skills.yaml")
+        )
+        out = tmp_path / "mcp_out"
+        write_mcp_bundle(cfg, out, overwrite=True)
+
+        assert (
+            out / "skills" / "sporting_goods_store" / "research" / "SKILL.md"
+        ).is_file()
+
+    def test_mcp_bundle_skill_loads_with_bundle_root_as_cwd(
+        self,
+        project_root_with_skills: Path,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        from dao_ai.mcp.generate import write_mcp_bundle
+        from dao_ai.middleware.skills import create_skills_middleware
+
+        monkeypatch.setattr(
+            "dao_ai.mcp.generate.generate_bundle_lock",
+            lambda bundle_dir: (bundle_dir / "uv.lock").write_text("# stub\n"),
+        )
+        cfg = AppConfig.from_file(
+            str(project_root_with_skills / "deep_agent_with_skills.yaml")
+        )
+        out = tmp_path / "mcp_out"
+        write_mcp_bundle(cfg, out, overwrite=True)
+
+        deployed = AppConfig.from_file(str(out / "deep_agent_with_skills.yaml"))
+        monkeypatch.chdir(out)
+        monkeypatch.delenv("DAO_AI_PROJECT_ROOT", raising=False)
+
+        blocks = [
+            b
+            for b in _skills_middleware_args(
+                deployed.model_dump(mode="json", by_alias=True, exclude_none=True)
+            )
+            if b.get("backend_type") == "filesystem"
+        ]
+        names, errors = _load_skills(create_skills_middleware(**blocks[0]))
+        assert "research" in names, f"{names} errors={errors}"
+
+    def test_workflow_bundle_stages_skills_beside_the_staged_config(
+        self, project_root_with_skills: Path, tmp_path: Path
+    ) -> None:
+        """The DAB notebooks reload the config from ``config/``, so the skills
+        have to sit beside *that* copy for ``collect_skills_code_paths`` to find
+        content to ship on to Model Serving."""
+        from dao_ai.pipeline.bundle import write_pipeline_bundle
+        from dao_ai.skills import collect_skills_code_paths
+
+        cfg = AppConfig.from_file(
+            str(project_root_with_skills / "deep_agent_with_skills.yaml")
+        )
+        out = tmp_path / "dab_out"
+        write_pipeline_bundle(cfg, out, overwrite=True)
+
+        staged_skill = (
+            out / "config" / "skills" / "sporting_goods_store" / "research" / "SKILL.md"
+        )
+        assert staged_skill.is_file(), "skills were not staged beside the staged config"
+
+        staged_config = out / "config" / "deep_agent_with_skills.yaml"
+        reloaded = AppConfig.from_file(str(staged_config))
+        assert collect_skills_code_paths(reloaded), (
+            "the staged config found no skill content to ship to Model Serving"
+        )
+
+    def test_apps_direct_deploy_uploads_skill_files(
+        self, project_root_with_skills: Path
+    ) -> None:
+        """``deploy_agent(mode=APPS)`` bypasses the Apps *bundler*, so it needs its
+        own upload — the app CWD is the source path, and a relative skills source
+        in the uploaded config resolves only if the content is beside it."""
+        from unittest.mock import MagicMock
+
+        from dao_ai.providers.databricks import DatabricksProvider
+
+        cfg = AppConfig.from_file(
+            str(project_root_with_skills / "deep_agent_with_skills.yaml")
+        )
+        provider = DatabricksProvider(w=MagicMock())
+        source_path = "/Workspace/Users/u/apps/skills-app"
+
+        provider._upload_skill_dirs(cfg, source_path)
+
+        uploaded = {
+            c.kwargs["path"] for c in provider.w.workspace.upload.call_args_list
+        }
+        assert (
+            f"{source_path}/skills/sporting_goods_store/research/SKILL.md" in uploaded
+        ), uploaded
+        # The volume-backed skill is not local content and must not be uploaded.
+        assert not any("skills_library" in path for path in uploaded), uploaded

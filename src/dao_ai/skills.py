@@ -20,9 +20,23 @@ Two deployment targets need to find skill files at runtime:
   YAML path resolves against the entry that the MLflow runtime adds to
   ``sys.path``.
 
-The runtime resolver tries multiple anchors in order — env var, CWD, then
-``sys.path`` entries — and uses the first one where the relative path exists.
-This keeps the same YAML config valid in dev, in Apps, and in Model Serving.
+**The contract: relative in the config, resolved at graph build.** A skill path
+declared in YAML stays relative everywhere it is stored — in ``SkillModel.path``,
+in the ``sources`` of the middleware that :meth:`SkillModel.as_middleware`
+emits, and therefore in the config that ``create_agent`` serializes into the
+model artifact. Nothing ever bakes the *loading* machine's absolute path into a
+config, because the machine that loads a config is routinely not the machine
+that runs the agent: a provisioning job resolves ``skills/x`` to a driver
+directory that does not exist in the serving container, and the agent then comes
+up silently skill-less.
+
+Resolution happens once, at the moment the middleware is instantiated, against
+an ordered list of anchors — the config's own directory (pushed for the duration
+of the build by :func:`skill_anchors`), then ``DAO_AI_PROJECT_ROOT``, then CWD,
+then each ``sys.path`` entry. Those last two are what make the same relative
+path valid in Apps (bundle root is CWD) and in Model Serving (mlflow prepends
+``<model_dir>/code``). Absolute sources are passed through untouched, so a
+hand-written ``/Volumes/...`` or ``/abs/skills`` keeps working.
 
 Volume-backed skills (``/Volumes/...``) are not bundled at all; the underlying
 ``VolumeModel`` is wired into the deployment resource block for permissions and
@@ -32,7 +46,11 @@ the path passes through to ``create_deep_agent`` verbatim.
 from __future__ import annotations
 
 import os
+import shutil
 import sys
+from collections.abc import Iterator, Sequence
+from contextlib import contextmanager
+from contextvars import ContextVar
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -96,15 +114,69 @@ def _project_root() -> Path:
     return cwd
 
 
-def _runtime_anchors() -> list[Path]:
+# Anchors pushed for the duration of a graph build. The config's own directory
+# is the one anchor that cannot be recovered from the ambient process — CWD and
+# ``sys.path`` describe where the *process* started, not where the config came
+# from — and the factory that instantiates the middleware never sees the config.
+_SKILL_ANCHORS: ContextVar[tuple[Path, ...]] = ContextVar(
+    "dao_ai_skill_anchors", default=()
+)
+
+
+@contextmanager
+def skill_anchors(*dirs: Path) -> Iterator[None]:
+    """Prepend ``dirs`` to the runtime anchor list for the duration of the block.
+
+    Set once per graph build by
+    :func:`dao_ai.orchestration.core.create_orchestration_graph`, so that every
+    middleware instantiated underneath it can resolve a relative skill source
+    against the config's own directory without the config having to be threaded
+    through half a dozen factory signatures.
+
+    Scoped rather than global, and read rather than written by the resolvers, so
+    a build never leaves the process in a state that changes how the *next* build
+    resolves. Contextvars propagate into asyncio tasks but **not** into
+    ``ThreadPoolExecutor`` workers; that is fine here because middleware is built
+    eagerly and synchronously inside the ``with`` block, well before any node
+    runs.
+    """
+    token = _SKILL_ANCHORS.set((*dirs, *_SKILL_ANCHORS.get()))
+    try:
+        yield
+    finally:
+        _SKILL_ANCHORS.reset(token)
+
+
+def config_skill_anchor(config: "AppConfig") -> tuple[Path, ...]:
+    """The config's own directory, as an anchor tuple — empty when it has none.
+
+    Deliberately empty unless ``local_config_path`` is set, rather than falling
+    back to :func:`_skill_base_dir`: that helper falls back in turn to
+    :func:`_project_root`, which walks up from the CWD. Anchoring a config that
+    came from a URL on a local directory is exactly the boundary crossing that
+    ``AppConfig._reject_relative_assets_for_remote_config`` exists to prevent —
+    a remote config must not be able to name local files.
+    """
+    if config.local_config_path is None:
+        return ()
+    return (_skill_base_dir(config),)
+
+
+def _runtime_anchors(extra_anchors: Sequence[Path] = ()) -> list[Path]:
     """Yield candidate anchor directories for resolving relative skill paths at runtime.
 
     Order, first-match-wins:
 
-    1. ``DAO_AI_PROJECT_ROOT`` env var, if set
-    2. ``Path.cwd()`` — covers Databricks Apps (bundle root is CWD) and dev
-    3. Each existing ``sys.path`` entry — covers Model Serving (mlflow prepends
+    1. ``extra_anchors``, then any anchors pushed by :func:`skill_anchors` —
+       in practice the config's own directory
+    2. ``DAO_AI_PROJECT_ROOT`` env var, if set
+    3. ``Path.cwd()`` — covers Databricks Apps (bundle root is CWD) and dev
+    4. Each existing ``sys.path`` entry — covers Model Serving (mlflow prepends
        ``<model_dir>/code`` so ``<model_dir>/code/skills/...`` resolves against it)
+
+    The config directory leads because it is the most specific: it is where the
+    author wrote the path down, and it is correct even when the process was
+    started from somewhere else entirely.
 
     Anchors are deduplicated while preserving order.
     """
@@ -124,6 +196,9 @@ def _runtime_anchors() -> list[Path]:
         seen.add(key)
         anchors.append(resolved)
 
+    for anchor in (*extra_anchors, *_SKILL_ANCHORS.get()):
+        _add(anchor)
+
     env_root: str | None = os.environ.get("DAO_AI_PROJECT_ROOT")
     if env_root:
         _add(Path(env_root))
@@ -141,38 +216,100 @@ def _runtime_anchors() -> list[Path]:
     return anchors
 
 
-def _resolve_runtime_path(rel_path: str) -> Path | None:
+def _resolve_runtime_path(
+    rel_path: str, extra_anchors: Sequence[Path] = ()
+) -> Path | None:
     """Find the first runtime anchor under which ``rel_path`` exists."""
-    for anchor in _runtime_anchors():
+    for anchor in _runtime_anchors(extra_anchors):
         candidate = (anchor / rel_path).resolve()
         if candidate.exists():
             return candidate
     return None
 
 
+def _holds_skills(directory: Path) -> bool:
+    """True if ``directory`` is a SkillsMiddleware source dir — i.e. holds skills.
+
+    The middleware's convention is that a source is a *parent*: it lists the
+    source's children and reads ``SKILL.md`` from each. So the question that
+    decides whether a candidate is the right one is whether any child has a
+    ``SKILL.md``, not whether the candidate itself does.
+    """
+    try:
+        return any((child / "SKILL.md").is_file() for child in directory.iterdir())
+    except OSError:
+        return False
+
+
+def resolve_skill_source_dir(
+    source: str, extra_anchors: Sequence[Path] = ()
+) -> Path | None:
+    """Resolve one SkillsMiddleware ``sources`` entry to a real directory.
+
+    Returns ``None`` when the caller should use ``source`` verbatim — either it
+    is already absolute, or no anchor matched. Absolute is decided by
+    :func:`os.path.isabs` and not by a leading-slash test on the string: under a
+    filesystem backend rooted somewhere other than ``/``, a source like
+    ``/skills/x`` is not "relative to the root" and cannot be repaired by
+    stripping the slash, so it has to pass through unchanged.
+
+    Among the anchors, prefers the first whose candidate actually holds skills
+    over the first that merely exists. Without that, an empty or unrelated
+    ``skills/`` under an earlier anchor — a bare CWD in a monorepo is enough —
+    would shadow the real one and the agent would come up with no skills and no
+    error.
+    """
+    if os.path.isabs(source):
+        return None
+
+    # ``as_middleware`` emits the *parent* of the skill leaf, so a leaf declared
+    # with no directory component ("product-lookup") yields "." — meaning "the
+    # anchor itself is the source dir".
+    relative: str = source.strip()
+    if relative in ("", "."):
+        relative = ""
+
+    fallback: Path | None = None
+    for anchor in _runtime_anchors(extra_anchors):
+        candidate: Path = (anchor / relative).resolve() if relative else anchor
+        if not candidate.is_dir():
+            continue
+        if _holds_skills(candidate):
+            return candidate
+        if fallback is None:
+            fallback = candidate
+    return fallback
+
+
 SKILLS_MIDDLEWARE_FACTORY = "dao_ai.middleware.skills.create_skills_middleware"
 
 
 def _iter_agent_skill_sources(config: "AppConfig") -> list[str]:
-    """Yield every skill ``sources`` path declared on any agent's middleware.
+    """Yield every skill ``sources`` path declared on any middleware in the config.
 
     After the AppConfig ``_translate_agent_skills_to_middleware`` validator
     runs, ``AgentModel.skills`` has been emptied and the corresponding
     SkillsMiddleware factory entries live in ``agent.middleware``. This
     helper walks those entries and pulls out the ``sources`` list for each
     so the bundle generator and code_paths collector can find them.
+
+    Delegates the traversal to :func:`dao_ai._extras._iter_middleware`, which is
+    the same walker the extras check uses, so a middleware holder can only be
+    forgotten in one place instead of two. Walking just ``config.app.agents`` —
+    as this did — missed a skills middleware declared on a subagent, an
+    orchestration pattern, or the top-level registry, and a missed holder here
+    means the skill's files are never staged into the bundle.
     """
-    if config.app is None or not config.app.agents:
-        return []
+    from dao_ai._extras import _iter_middleware
+
     sources: list[str] = []
-    for agent in config.app.agents:
-        for mw in agent.middleware:
-            if mw.name != SKILLS_MIDDLEWARE_FACTORY:
-                continue
-            raw_sources = mw.args.get("sources") or []
-            for s in raw_sources:
-                if isinstance(s, str):
-                    sources.append(s)
+    for mw in _iter_middleware(config):
+        if mw.name != SKILLS_MIDDLEWARE_FACTORY:
+            continue
+        raw_sources = mw.args.get("sources") or []
+        for s in raw_sources:
+            if isinstance(s, str):
+                sources.append(s)
     return sources
 
 
@@ -324,22 +461,18 @@ def collect_local_skill_dirs(config: "AppConfig") -> list[str]:
     for source in _iter_agent_skill_sources(config):
         if source.startswith("/Volumes/"):
             continue
-        # ``sources`` may be absolute (as_middleware resolved it at runtime) or
-        # relative (fell back to the raw path when the leaf wasn't found under a
-        # runtime anchor — e.g. resolving at config-construction time before the
-        # source path is known). Resolve relative sources against the config's
-        # colocated skill base dir so they're found at bundle time.
+        # ``as_middleware`` emits relative sources, so this is the normal branch:
+        # anchor on the config's own directory, which is where the author wrote
+        # the path relative to. A hand-written absolute source is used as given.
         src_path = Path(source)
         candidate = (
             src_path.resolve()
             if src_path.is_absolute()
             else (_skill_base_dir(config) / src_path).resolve()
         )
-        # If as_middleware() resolved to an absolute parent dir (e.g.
-        # /project/skills), the parent IS the source. The bundle copy
-        # wants every leaf skill subdir under it — but `collect_local_skill_dirs`
-        # historically returns leaf dirs. To keep that contract we yield
-        # each subdir of the source that contains a SKILL.md.
+        # A source is the *parent* of the skill leaves (deepagents lists a
+        # source's children and reads SKILL.md from each), while this function
+        # contracts to return leaf dirs — so descend one level.
         if candidate.is_dir():
             for child in candidate.iterdir():
                 if child.is_dir() and (child / "SKILL.md").exists():
@@ -347,53 +480,154 @@ def collect_local_skill_dirs(config: "AppConfig") -> list[str]:
     return list(seen.keys())
 
 
-def rebase_relative_skill_sources(config: "AppConfig") -> None:
-    """Re-anchor still-relative skills-middleware ``sources`` on the config's dir.
+def unresolvable_skills(config: "AppConfig") -> list[str]:
+    """Name every declared local skill whose directory is missing at bundle time.
 
-    :meth:`SkillModel.as_middleware` runs during model validation — before
-    ``AppConfig.from_file`` has stamped the config's own path — so it can only try
-    the runtime anchors (env var, CWD, ``sys.path``). When the config is loaded
-    from anywhere but its own directory, and a git checkout always is, none of
-    those match and it falls back to the raw relative path. The filesystem backend
-    then resolves that against ``root_dir="/"`` (``/skills/<vertical>``), finds
-    nothing, and the agent loses its skill instructions with only a warning.
-
-    This is the same fixup the surrounding ``from_file`` block already performs for
-    ``code_paths`` and ``src/``, for the same reason.
-
-    Only sources that are *still relative* and that *do exist* under the config's
-    directory are rewritten, which makes this purely additive: a source that an
-    inference-time re-parse already resolved to an absolute path (Model Serving
-    prepends ``<model_dir>/code`` to ``sys.path``; the Apps bundle root is the CWD)
-    is left exactly as it was.
+    Returns one human-readable line per problem, empty when everything resolves.
+    The counterpart to the warn-and-continue behavior in
+    ``create_skills_middleware``: at serve time a missing skill degrades one
+    agent and raising would take the endpoint down, but at deploy time there is a
+    human watching and the right move is to stop before shipping an artifact
+    whose skills can never load.
     """
-    if config.app is None or not config.app.agents:
-        return
+    from dao_ai.config import SkillModel
 
+    problems: list[str] = []
     base_dir: Path = _skill_base_dir(config)
 
-    for agent in config.app.agents:
-        for middleware in agent.middleware:
-            if middleware.name != SKILLS_MIDDLEWARE_FACTORY:
-                continue
-            sources: list[str] = middleware.args.get("sources") or []
-            rebased: list[str] = []
-            for source in sources:
-                candidate: Path = Path(source)
-                if candidate.is_absolute():
-                    rebased.append(source)
-                    continue
-                anchored: Path = (base_dir / candidate).resolve()
-                if not anchored.is_dir():
-                    rebased.append(source)
-                    continue
-                logger.debug(
-                    "Re-anchored relative skill source on the config directory",
-                    source=source,
-                    resolved=str(anchored),
-                )
-                rebased.append(str(anchored))
-            middleware.args["sources"] = rebased
+    for spec in _iter_deep_agent_skills(config):
+        local_dir: Path | None = _resolve_local_skill_dir(spec, config)
+        if local_dir is None or local_dir.is_dir():
+            continue
+        name: str = spec.name if isinstance(spec, SkillModel) else str(spec)
+        problems.append(f"skill {name!r}: no directory at {local_dir}")
+
+    for source in _iter_agent_skill_sources(config):
+        if source.startswith("/Volumes/"):
+            continue
+        src_path = Path(source)
+        candidate: Path = (
+            src_path.resolve()
+            if src_path.is_absolute()
+            else (base_dir / src_path).resolve()
+        )
+        if candidate.is_dir():
+            continue
+        problems.append(f"skill source {source!r}: no directory at {candidate}")
+
+    return problems
+
+
+def assert_skills_resolvable(config: "AppConfig", *, target: str) -> None:
+    """Raise if any declared local skill is missing. Called before every deploy.
+
+    ``target`` names the deploy path for the error message (e.g. ``"Model
+    Serving"``, ``"Apps bundle"``) so the operator knows which command stopped.
+    """
+    problems: list[str] = unresolvable_skills(config)
+    if not problems:
+        return
+    detail: str = "\n".join(f"  - {p}" for p in problems)
+    raise ValueError(
+        f"{target}: {len(problems)} declared skill(s) cannot be found, so the "
+        f"deployed agent would silently run without them:\n{detail}\n"
+        "Skill paths are resolved relative to the config file's own directory. "
+        "Fix the path, or remove the skill from the config."
+    )
+
+
+def iter_skill_stagings(config: "AppConfig") -> list[tuple[Path, str]]:
+    """Plan how each local skill directory is staged/uploaded next to the config.
+
+    Returns ``(source_abs, bundle_relative_dest)`` pairs, the skills counterpart
+    of :func:`dao_ai.code_paths.iter_code_path_stagings` and shared by the same
+    set of callers: all three bundle generators and the Apps direct-deploy
+    upload.
+
+    The relative dest (``skills/<vertical>/<skill>``) is load-bearing, not
+    cosmetic: it is what lets the same relative source in the deployed config
+    resolve at runtime against the bundle root. Flattening to ``skills/<skill>``
+    would break every nested path. A directory outside the config's own tree
+    cannot keep its declared layout, so it falls back to ``skills/<basename>``.
+    """
+    base_dir: Path = _skill_base_dir(config)
+
+    stagings: list[tuple[Path, str]] = []
+    for skill_dir_str in collect_local_skill_dirs(config):
+        src_dir: Path = Path(skill_dir_str)
+        if not src_dir.exists():
+            continue
+        try:
+            rel: Path = src_dir.relative_to(base_dir)
+        except ValueError:
+            # Outside the config's tree — keep the leaf discoverable rather than
+            # dropping it. The staged config still names the original path.
+            rel = Path(SKILLS_DIRNAME) / src_dir.name
+        stagings.append((src_dir, rel.as_posix()))
+    return stagings
+
+
+def stage_skill_dirs(
+    config: "AppConfig",
+    staging_dir: Path,
+    *,
+    overwrite: bool = False,
+    prefix: str = "",
+) -> tuple[list[str], list[str], list[str]]:
+    """Copy every local skill directory into ``staging_dir``, layout preserved.
+
+    Shared by all three bundlers. Every deploy target that reloads a *staged*
+    config needs the skill content staged beside it, and for a long time only the
+    Apps bundler did it — an MCP or DAB deploy shipped an agent whose config named
+    skills that were nowhere in the bundle, so it came up with no skills and no
+    error, exactly like the Model Serving pointer bug but for content instead of
+    pointers.
+
+    The relative layout comes from :func:`iter_skill_stagings`, shared with the
+    Apps direct-deploy upload.
+
+    Args:
+        config: the config whose skills to stage.
+        staging_dir: bundle root to copy into.
+        overwrite: replace an existing staged copy. Off by default so a user's
+            own files are never clobbered.
+        prefix: subdirectory of ``staging_dir`` to stage under (e.g. ``config``
+            for the DAB pipeline bundle, whose notebooks reload the staged config
+            from ``config/``, making that the directory skills must sit beside).
+
+    Returns:
+        ``(written, skipped, preserved)`` — relative path strings, for the
+        caller's bundle report.
+    """
+    written: list[str] = []
+    skipped: list[str] = []
+    preserved: list[str] = []
+
+    for src_dir, rel_str in iter_skill_stagings(config):
+        rel: Path = Path(rel_str)
+        if prefix:
+            rel = Path(prefix) / rel
+        dest: Path = staging_dir / rel
+        # In-place staging (output overlaps the source): never rmtree a user's
+        # own skills dir.
+        if dest.resolve() == src_dir.resolve():
+            preserved.append(str(rel))
+            continue
+        if dest.exists() and not overwrite:
+            logger.info(
+                "Skipping skill directory copy (exists; use --overwrite)",
+                skill=str(rel),
+            )
+            skipped.append(str(rel))
+            continue
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        if dest.exists():
+            shutil.rmtree(dest)
+        shutil.copytree(src_dir, dest)
+        logger.info("Copied skill directory into bundle", skill=str(rel))
+        written.append(str(rel))
+
+    return written, skipped, preserved
 
 
 def resolve_skill_runtime_paths(
@@ -441,15 +675,19 @@ def resolve_skill_runtime_paths(
             seen.setdefault(parent, None)
             continue
 
-        # Local SkillModel: resolve the leaf, then return its parent.
+        # Local SkillModel: resolve the leaf, then return its parent. The config's
+        # own directory is passed explicitly rather than relied upon through the
+        # ambient anchor stack, so this stays correct when called directly (the
+        # deep_agent graph builder is not the only caller).
         assert isinstance(spec.path, str)
-        runtime_dir: Path | None = _resolve_runtime_path(spec.path)
+        anchor: tuple[Path, ...] = config_skill_anchor(config)
+        runtime_dir: Path | None = _resolve_runtime_path(spec.path, anchor)
         if runtime_dir is None:
             logger.warning(
                 "Skill directory not found under any runtime anchor; skipping",
                 name=spec.name,
                 rel_path=spec.path,
-                anchors_tried=[str(a) for a in _runtime_anchors()],
+                anchors_tried=[str(a) for a in _runtime_anchors(anchor)],
             )
             continue
         seen.setdefault(str(runtime_dir.parent), None)

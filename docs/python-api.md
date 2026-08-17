@@ -152,8 +152,11 @@ single throwaway run — leave `cache_dir` unset there and take the local disk.
 **Relative assets resolve inside the checkout.** A dataset's
 `ddl: functions/products.sql` or `data: data/products.csv` is anchored on the
 config's own directory in the checkout, so a repository's colocated assets work with no
-rewriting. So do `skills/`, `code_paths`, and the colocated `src/` convention —
-`from_git` puts them on `sys.path` at load time.
+rewriting. So do `code_paths` and the colocated `src/` convention — `from_git`
+puts them on `sys.path` at load time. A `skills/` directory resolves on the same
+config-directory anchor, applied when the agent graph is built rather than at
+load time, so the checkout path is never written into the config and never
+travels into a deployed artifact.
 
 **Seed files are staged into a volume for Spark.** Serverless executors cannot
 read driver-local files, so a `csv` / `parquet` / `orc` / `delta` dataset is

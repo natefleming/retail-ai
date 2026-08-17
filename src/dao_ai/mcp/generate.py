@@ -238,6 +238,21 @@ def write_mcp_bundle(
             shutil.copy2(file_src, out)
             written.append(file_dest)
 
+    # Local skill directories, layout preserved, so the MCP server's agent finds
+    # them at runtime: the bundle root is the server's CWD and the staged config
+    # names them by the same relative path. Without this the staged config named
+    # skills the bundle did not contain, and the agent served without them.
+    # Volume-backed skills are read from ``/Volumes/...`` and never copied.
+    from dao_ai.skills import assert_skills_resolvable, stage_skill_dirs
+
+    assert_skills_resolvable(config, target="MCP bundle")
+    skills_written, skills_skipped, skills_preserved = stage_skill_dirs(
+        config, staging_dir, overwrite=overwrite
+    )
+    written.extend(skills_written)
+    skipped.extend(skills_skipped)
+    preserved.extend(skills_preserved)
+
     # Convention: copy colocated ``src/<pkg>`` packages into the bundle's ``src/``
     # so hatch (``packages=["src"]``) builds them prefix-free (``foo.bar``).
     for pkg_dir in discover_src_packages(config):

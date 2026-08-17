@@ -1423,6 +1423,78 @@ def test_deploy_apps_agent_uploads_rendered_yaml(tmp_path):
 
 
 @pytest.mark.unit
+def test_deploy_apps_agent_stages_skills_and_code(tmp_path):
+    """``_deploy_app`` must stage skill content, not just code_paths.
+
+    Skill staging has been forgotten once per deploy target already (MCP, DAB,
+    and this one), and it fails silently every time: the uploaded config still
+    names its skills, the app comes up healthy, and the agent runs without them.
+    This pins the call site rather than the helper.
+    """
+    from unittest.mock import MagicMock, patch
+
+    from databricks.sdk.service.apps import (
+        App,
+        AppDeployment,
+        AppDeploymentState,
+        ApplicationState,
+    )
+    from databricks.sdk.service.iam import User
+
+    from dao_ai.config import AppConfig, AppModel
+    from dao_ai.providers.databricks import DatabricksProvider
+
+    src_file = tmp_path / "dao_ai.yaml"
+    src_file.write_text("app:\n  name: staging-app\n")
+
+    mock_config = MagicMock(spec=AppConfig)
+    mock_app = MagicMock(spec=AppModel)
+    mock_app.name = "staging-app"
+    mock_app.description = ""
+    mock_app.environment_vars = {}
+    mock_app.trace_location = None
+    mock_app.monitoring = None
+    mock_app.enable_chat_proxy = True
+    mock_config.app = mock_app
+    mock_config.source_config_path = str(src_file)
+    mock_config.rendered_yaml = None
+    mock_config.resources = None
+    mock_config.agents = None
+    mock_config.retrievers = None
+
+    mock_existing_app = MagicMock(spec=App)
+    mock_existing_app.app_status = MagicMock(state=ApplicationState.RUNNING)
+    mock_deployment = MagicMock(spec=AppDeployment)
+    mock_deployment.status = MagicMock(state=AppDeploymentState.SUCCEEDED)
+
+    with patch.object(DatabricksProvider, "__init__", return_value=None):
+        provider = DatabricksProvider()
+        provider.w = MagicMock()
+        provider.w.current_user.me.return_value = MagicMock(
+            spec=User, user_name="test.user@example.com"
+        )
+        provider.w.apps.get.return_value = mock_existing_app
+        provider.w.apps.deploy_and_wait.return_value = mock_deployment
+
+        with (
+            patch.object(
+                provider,
+                "get_or_create_experiment",
+                return_value=MagicMock(experiment_id="exp-1"),
+            ),
+            patch.object(provider, "_upload_skill_dirs") as skills_upload,
+            patch.object(provider, "_upload_code_paths") as code_upload,
+        ):
+            _stamp_extras_resolvable(mock_config)
+            provider.deploy_apps_agent(mock_config)
+
+    skills_upload.assert_called_once()
+    # Staged under the same source path as code_paths — the app's CWD, which is
+    # what a relative skills source in the uploaded config resolves against.
+    assert skills_upload.call_args.args[1] == code_upload.call_args.args[1]
+
+
+@pytest.mark.unit
 def test_deploy_apps_agent_falls_back_to_source_when_no_rendered_yaml(tmp_path):
     """If rendered_yaml is missing (legacy callers), fall back to reading the source file."""
     from unittest.mock import MagicMock, patch

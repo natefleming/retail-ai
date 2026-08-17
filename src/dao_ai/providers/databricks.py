@@ -1487,8 +1487,12 @@ class DatabricksProvider(ServiceProvider):
 
             pip_requirements += get_installed_packages(expand_all(required_extras))
 
-        from dao_ai.skills import collect_skills_code_paths
+        from dao_ai.skills import assert_skills_resolvable, collect_skills_code_paths
 
+        # Stop before logging a model whose skills cannot load. At serve time a
+        # missing skill only warns (raising there would turn a degraded agent into
+        # a dead endpoint), so this is the last point with a human watching.
+        assert_skills_resolvable(config, target="Model Serving deploy")
         code_paths.extend(collect_skills_code_paths(config))
 
         code_paths = list(dict.fromkeys(code_paths))
@@ -1933,6 +1937,34 @@ class DatabricksProvider(ServiceProvider):
             source_path=source_path,
         )
 
+    def _upload_skill_dirs(self, config: AppConfig, source_path: str) -> None:
+        """Upload local skill directories under the app ``source_path``.
+
+        The direct-deploy path is the fourth place skill content has to be
+        staged, alongside the three bundle generators. It is easy to miss because
+        nothing fails without it: the uploaded config still *names* its skills,
+        the app comes up healthy, and the agent simply runs without them.
+
+        The config-relative layout (``skills/<vertical>/<skill>``) is what lets
+        the relative source in the uploaded config resolve against the app's CWD,
+        which is ``source_path``.
+        """
+        from dao_ai.skills import iter_skill_stagings
+
+        stagings = iter_skill_stagings(config)
+        if not stagings:
+            return
+
+        uploaded = 0
+        for src, dest in stagings:
+            uploaded += self._upload_dir_files(src, dest, source_path)
+        logger.info(
+            "Uploaded skill directories to app source",
+            file_count=uploaded,
+            skill_count=len(stagings),
+            source_path=source_path,
+        )
+
     def _upload_src_packages(self, config: AppConfig, source_path: str) -> None:
         """Upload colocated ``src/<pkg>`` packages under ``<source_path>/src``.
 
@@ -2109,6 +2141,14 @@ class DatabricksProvider(ServiceProvider):
                 scorer_count=len(registered_scorers),
             )
 
+        # Fail before touching the workspace: the upload below deletes
+        # ``source_path`` recursively, so a config with an unresolvable skill
+        # would otherwise take out a working deployment on its way to a
+        # silently skill-less one.
+        from dao_ai.skills import assert_skills_resolvable
+
+        assert_skills_resolvable(config, target="Apps deploy")
+
         # Upload the configuration file to the workspace. See
         # ``_app_config_content`` for the three input shapes and which of them
         # get the Genie bake.
@@ -2151,6 +2191,11 @@ class DatabricksProvider(ServiceProvider):
         # entry's parent onto sys.path. Same declaration used by Model Serving
         # (log_model code_paths) and the bundle generators.
         self._upload_code_paths(config, source_path)
+
+        # Upload the config's skill directories for the same reason, on the same
+        # anchor: the app CWD is source_path, so a relative skills source in the
+        # uploaded config resolves only if the content sits beside it.
+        self._upload_skill_dirs(config, source_path)
 
         # Upload colocated src/<pkg> packages (the zero-config convention) so the
         # app's uv sync (packages=["src"]) builds them into the app wheel.
