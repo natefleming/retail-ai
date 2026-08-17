@@ -29,12 +29,17 @@ from dao_ai.skills import (
     _iter_deep_agent_skills,
     _project_root,
     _runtime_anchors,
-    assert_skills_resolvable,
+    assert_skill_assets_resolvable,
+    collect_instruction_file_code_paths,
     collect_skills_code_paths,
     config_skill_anchor,
+    iter_instruction_file_stagings,
+    resolve_instruction_file_path,
+    resolve_instruction_file_runtime_paths,
     resolve_skill_runtime_paths,
     resolve_skill_source_dir,
     skill_anchors,
+    unresolvable_instruction_files,
     unresolvable_skills,
 )
 
@@ -569,7 +574,7 @@ class TestUnresolvableSkills:
             skills=[SkillModel(name="ghost", path="skills/ghost")]
         )
         with pytest.raises(ValueError, match="Model Serving deploy") as err:
-            assert_skills_resolvable(cfg, target="Model Serving deploy")
+            assert_skill_assets_resolvable(cfg, target="Model Serving deploy")
         assert "ghost" in str(err.value)
 
     def test_volume_backed_never_flagged(self, tmp_project: Path) -> None:
@@ -682,6 +687,7 @@ class TestUnresolvableSkills:
         assert "skills/ghost" in problems[0]
 
 
+
 @pytest.mark.unit
 class TestRemoteConfigRejectsRelativeSkills:
     """A config fetched over HTTP has no directory of its own, so a relative skill
@@ -786,3 +792,347 @@ class TestRemoteConfigRejectsRelativeSkills:
         )
         lines = self._reject(config)
         assert any("skills" in line for line in lines), lines
+
+
+def _config_with_instruction_files(
+    *, instruction_files: list[str], skills: list | None = None
+) -> AppConfig:
+    deep = DeepAgentModel(skills=skills or [], instruction_files=instruction_files)
+    return AppConfig(
+        agents={"a": AgentModel(name="a", model=LLMModel(name="x"))},
+        app=AppModel(
+            name="test_app",
+            agents=[AgentModel(name="a", model=LLMModel(name="x"))],
+            orchestration=OrchestrationModel(deep_agent=deep),
+        ),
+    )
+
+
+@pytest.fixture
+def tmp_project_with_instructions(tmp_project: Path) -> Path:
+    """Add both instruction-file shapes to the temp project.
+
+    ``instructions/AGENTS.md`` is the standalone case (nothing else stages it),
+    and ``skills/research/AGENTS.md`` is the common one — an ``AGENTS.md`` living
+    inside the skill it documents, which the skill staging already carries.
+    """
+    instructions = tmp_project / "instructions"
+    instructions.mkdir()
+    (instructions / "AGENTS.md").write_text("# house style\nAlways cite sources.\n")
+    (tmp_project / "skills" / "research" / "AGENTS.md").write_text("# research notes\n")
+    (tmp_project / "AGENTS.md").write_text("# root instructions\n")
+    return tmp_project
+
+
+@pytest.mark.unit
+class TestResolveInstructionFilePath:
+    """The file-shaped sibling of ``resolve_skill_source_dir``."""
+
+    def test_absolute_passes_through(self, tmp_project_with_instructions: Path) -> None:
+        """``None`` means "use the source verbatim" — including ``/Volumes/...``."""
+        assert resolve_instruction_file_path("/Volumes/c/s/v/AGENTS.md") is None
+
+    def test_relative_resolves_against_anchor(
+        self, tmp_project_with_instructions: Path
+    ) -> None:
+        found = resolve_instruction_file_path("instructions/AGENTS.md")
+        assert found == tmp_project_with_instructions / "instructions" / "AGENTS.md"
+
+    def test_missing_returns_none(self, tmp_project_with_instructions: Path) -> None:
+        assert resolve_instruction_file_path("instructions/GHOST.md") is None
+
+    def test_directory_is_not_a_match(
+        self, tmp_project_with_instructions: Path
+    ) -> None:
+        """A directory would be accepted by an ``exists()`` test and then dropped
+        by MemoryMiddleware without a word, so the predicate is ``is_file()``."""
+        assert resolve_instruction_file_path("instructions") is None
+
+    def test_config_anchor_wins_over_cwd(
+        self, tmp_project_with_instructions: Path, tmp_path: Path
+    ) -> None:
+        """The config directory leads the anchor list: an unrelated CWD holding a
+        same-named file must not shadow the one the author meant."""
+        elsewhere = tmp_path / "elsewhere" / "instructions"
+        elsewhere.mkdir(parents=True)
+        (elsewhere / "AGENTS.md").write_text("# wrong file\n")
+
+        found = resolve_instruction_file_path(
+            "instructions/AGENTS.md", (tmp_project_with_instructions,)
+        )
+        assert found == tmp_project_with_instructions / "instructions" / "AGENTS.md"
+
+
+@pytest.mark.unit
+class TestResolveInstructionFileRuntimePaths:
+    """What ``create_deep_agent(memory=...)`` actually receives."""
+
+    def test_relative_becomes_absolute(
+        self, tmp_project_with_instructions: Path
+    ) -> None:
+        cfg = _config_with_instruction_files(
+            instruction_files=["instructions/AGENTS.md"]
+        )
+        resolved = resolve_instruction_file_runtime_paths(
+            cfg.app.orchestration.deep_agent.instruction_files, cfg
+        )
+        assert resolved == [
+            str(tmp_project_with_instructions / "instructions" / "AGENTS.md")
+        ]
+
+    def test_absolute_passes_through_unchanged(
+        self, tmp_project_with_instructions: Path
+    ) -> None:
+        cfg = _config_with_instruction_files(
+            instruction_files=["/Volumes/c/s/v/AGENTS.md"]
+        )
+        resolved = resolve_instruction_file_runtime_paths(
+            cfg.app.orchestration.deep_agent.instruction_files, cfg
+        )
+        assert resolved == ["/Volumes/c/s/v/AGENTS.md"]
+
+    def test_missing_is_dropped_not_passed_on(
+        self, tmp_project_with_instructions: Path
+    ) -> None:
+        """Passing a bad path through would have deepagents skip it silently and
+        render ``(No memory loaded)``; dropping it here at least logs the anchors."""
+        cfg = _config_with_instruction_files(
+            instruction_files=["instructions/GHOST.md"]
+        )
+        assert (
+            resolve_instruction_file_runtime_paths(
+                cfg.app.orchestration.deep_agent.instruction_files, cfg
+            )
+            == []
+        )
+
+    def test_duplicates_collapse(self, tmp_project_with_instructions: Path) -> None:
+        cfg = _config_with_instruction_files(
+            instruction_files=["instructions/AGENTS.md", "instructions/AGENTS.md"]
+        )
+        assert (
+            len(
+                resolve_instruction_file_runtime_paths(
+                    cfg.app.orchestration.deep_agent.instruction_files, cfg
+                )
+            )
+            == 1
+        )
+
+
+@pytest.mark.unit
+class TestUnresolvableInstructionFiles:
+    """Fail at deploy, where a human is watching."""
+
+    def test_clean_config_reports_nothing(
+        self, tmp_project_with_instructions: Path
+    ) -> None:
+        cfg = _config_with_instruction_files(
+            instruction_files=["instructions/AGENTS.md"]
+        )
+        assert unresolvable_instruction_files(cfg) == []
+
+    def test_missing_file_is_named(self, tmp_project_with_instructions: Path) -> None:
+        cfg = _config_with_instruction_files(
+            instruction_files=["instructions/GHOST.md"]
+        )
+        problems = unresolvable_instruction_files(cfg)
+        assert len(problems) == 1
+        assert "GHOST.md" in problems[0]
+
+    @pytest.mark.parametrize(
+        "entry",
+        [
+            "/Volumes/c/s/v/AGENTS.md",
+            "/Workspace/Shared/AGENTS.md",
+            "/dbfs/FileStore/AGENTS.md",
+        ],
+    )
+    def test_fuse_paths_never_flagged(
+        self, entry: str, tmp_project_with_instructions: Path
+    ) -> None:
+        """A FUSE mount is not checkable from the deploying machine.
+
+        All three roots are mounted inside Databricks compute and absent from the
+        laptop running the CLI, so a bundle-time existence check on one says
+        nothing about runtime. Exempting only ``/Volumes`` failed the deploy for a
+        ``/Workspace/Shared/AGENTS.md`` that would have loaded fine.
+        """
+        cfg = _config_with_instruction_files(instruction_files=[entry])
+        assert unresolvable_instruction_files(cfg) == []
+
+    @pytest.mark.parametrize(
+        "entry", ["/Volumesnotreally/AGENTS.md", "/WorkspaceFoo/AGENTS.md"]
+    )
+    def test_near_miss_prefixes_are_still_checked(
+        self, entry: str, tmp_project_with_instructions: Path
+    ) -> None:
+        """The exemption is per path segment, not a substring match."""
+        cfg = _config_with_instruction_files(instruction_files=[entry])
+        assert len(unresolvable_instruction_files(cfg)) == 1
+
+    def test_missing_local_absolute_is_named(
+        self, tmp_project_with_instructions: Path
+    ) -> None:
+        """Only ``/Volumes`` is exempt — every other absolute is still checked.
+
+        Exempting all absolutes let the worst case through the gate untouched: a
+        hand-written host path, staged nowhere, that renders ``(No memory loaded)``
+        in the container. A typo in one now stops the deploy.
+        """
+        ghost: Path = tmp_project_with_instructions / "elsewhere" / "GHOST.md"
+        cfg = _config_with_instruction_files(instruction_files=[str(ghost)])
+        problems = unresolvable_instruction_files(cfg)
+        assert len(problems) == 1
+        assert "GHOST.md" in problems[0]
+
+    def test_existing_local_absolute_passes(
+        self, tmp_project_with_instructions: Path
+    ) -> None:
+        """The gate checks existence, not portability.
+
+        An absolute path that exists is the author's call — it works for a local run
+        and a notebook. It still cannot reproduce itself inside a serving container,
+        which is what the staging collectors warn about separately.
+        """
+        real: Path = tmp_project_with_instructions / "instructions" / "AGENTS.md"
+        cfg = _config_with_instruction_files(instruction_files=[str(real)])
+        assert unresolvable_instruction_files(cfg) == []
+
+    def test_deploy_gate_covers_instruction_files(
+        self, tmp_project_with_instructions: Path
+    ) -> None:
+        """One gate for both asset families, so a new deploy path only has to
+        remember one call."""
+        cfg = _config_with_instruction_files(
+            instruction_files=["instructions/GHOST.md"]
+        )
+        with pytest.raises(ValueError, match="Apps deploy") as err:
+            assert_skill_assets_resolvable(cfg, target="Apps deploy")
+        assert "GHOST.md" in str(err.value)
+
+
+@pytest.mark.unit
+class TestInstructionFileCodePaths:
+    """mlflow flattens a file entry to ``code/<basename>``, so what gets shipped
+    is the entry's top-level directory, not the file."""
+
+    def test_nested_entry_ships_its_top_level_dir(
+        self, tmp_project_with_instructions: Path
+    ) -> None:
+        cfg = _config_with_instruction_files(
+            instruction_files=["instructions/AGENTS.md"]
+        )
+        assert collect_instruction_file_code_paths(cfg) == [
+            str(tmp_project_with_instructions / "instructions")
+        ]
+
+    def test_bare_filename_ships_the_file(
+        self, tmp_project_with_instructions: Path
+    ) -> None:
+        """No directory component, so flattening is a no-op and the file itself
+        lands at ``code/AGENTS.md`` — exactly where the config's path looks."""
+        cfg = _config_with_instruction_files(instruction_files=["AGENTS.md"])
+        assert collect_instruction_file_code_paths(cfg) == [
+            str(tmp_project_with_instructions / "AGENTS.md")
+        ]
+
+    def test_absolute_entry_ships_nothing(
+        self, tmp_project_with_instructions: Path
+    ) -> None:
+        cfg = _config_with_instruction_files(
+            instruction_files=["/Volumes/c/s/v/AGENTS.md"]
+        )
+        assert collect_instruction_file_code_paths(cfg) == []
+
+    def test_entry_inside_skills_dedupes_against_the_skills_root(
+        self, tmp_project_with_instructions: Path
+    ) -> None:
+        """An ``AGENTS.md`` inside a skill ships as part of ``skills/`` — which
+        ``collect_skills_code_paths`` already returns, so the deploy site's
+        dedup collapses the two into one entry."""
+        cfg = _config_with_instruction_files(
+            instruction_files=["skills/research/AGENTS.md"],
+            skills=[SkillModel(name="r", path="skills/research")],
+        )
+        instr = collect_instruction_file_code_paths(cfg)
+        assert instr == [str(tmp_project_with_instructions / "skills")]
+        assert instr == collect_skills_code_paths(cfg)
+
+
+@pytest.mark.unit
+class TestInstructionFileStagings:
+    """The plan every bundler and the direct Apps upload share."""
+
+    def test_dest_preserves_the_declared_layout(
+        self, tmp_project_with_instructions: Path
+    ) -> None:
+        cfg = _config_with_instruction_files(
+            instruction_files=["instructions/AGENTS.md"]
+        )
+        stagings = iter_instruction_file_stagings(cfg)
+        assert stagings == [
+            (
+                tmp_project_with_instructions / "instructions" / "AGENTS.md",
+                "instructions/AGENTS.md",
+            )
+        ]
+
+    def test_entry_already_inside_a_staged_skill_is_dropped(
+        self, tmp_project_with_instructions: Path
+    ) -> None:
+        """The common case: the skill staging copied the directory wholesale, so
+        re-planning the file would make the bundle report claim it skipped a file
+        it had just written."""
+        cfg = _config_with_instruction_files(
+            instruction_files=["skills/research/AGENTS.md"],
+            skills=[SkillModel(name="r", path="skills/research")],
+        )
+        assert iter_instruction_file_stagings(cfg) == []
+
+    def test_missing_entry_is_not_planned(
+        self, tmp_project_with_instructions: Path
+    ) -> None:
+        cfg = _config_with_instruction_files(
+            instruction_files=["instructions/GHOST.md"]
+        )
+        assert iter_instruction_file_stagings(cfg) == []
+
+    def test_absolute_entry_is_not_planned(
+        self, tmp_project_with_instructions: Path
+    ) -> None:
+        cfg = _config_with_instruction_files(
+            instruction_files=["/Volumes/c/s/v/AGENTS.md"]
+        )
+        assert iter_instruction_file_stagings(cfg) == []
+
+
+@pytest.mark.unit
+class TestRemoteConfigRejectsRelativeInstructionFiles:
+    """An instruction file is spliced into the system prompt verbatim, so a remote
+    config naming a relative one is the untrusted-document-reads-local-Markdown
+    problem with none of the indirection."""
+
+    def _reject(self, config: AppConfig) -> list[str]:
+        from dao_ai.config import _reject_relative_assets_for_remote_config
+
+        try:
+            _reject_relative_assets_for_remote_config(
+                config, source="https://example.com/agent.yaml"
+            )
+        except ValueError as err:
+            return str(err).splitlines()
+        return []
+
+    def test_relative_instruction_file_is_rejected(self, tmp_project: Path) -> None:
+        cfg = _config_with_instruction_files(
+            instruction_files=["instructions/AGENTS.md"]
+        )
+        lines = self._reject(cfg)
+        assert any("instruction_files" in line for line in lines), lines
+
+    def test_volume_instruction_file_is_allowed(self, tmp_project: Path) -> None:
+        cfg = _config_with_instruction_files(
+            instruction_files=["/Volumes/c/s/v/AGENTS.md"]
+        )
+        assert self._reject(cfg) == []

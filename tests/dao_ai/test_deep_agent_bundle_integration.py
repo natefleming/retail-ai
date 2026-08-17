@@ -24,10 +24,16 @@ from pathlib import Path
 
 import pytest
 import yaml
+from loguru import logger
 
 from dao_ai.apps.bundle import write_bundle
 from dao_ai.config import AppConfig
 from dao_ai.skills import collect_skills_code_paths
+
+# A line that appears only in the example's standalone instruction file — not in
+# any skill, prompt, or tool — so a positive assertion on it proves the file's
+# body actually reached the prompt, rather than the path merely resolving.
+_STANDALONE_MARKER = "Pro Shop Desk"
 
 
 @pytest.fixture(autouse=True)
@@ -63,6 +69,9 @@ def project_root_with_skills(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) ->
     # config (``<config-dir>/skills/...``), so keep them siblings here too.
     shutil.copy(real_example, tmp_path / "deep_agent_with_skills.yaml")
     shutil.copytree(real_skills_dir, tmp_path / "skills")
+    # The example also declares a standalone instruction file outside skills/;
+    # it has to be mirrored or the deploy gate rejects the config, correctly.
+    shutil.copytree(real_example_dir / "instructions", tmp_path / "instructions")
     (tmp_path / "pyproject.toml").write_text("[project]\nname = 'tmp'\n")
 
     monkeypatch.setenv("DAO_AI_PROJECT_ROOT", str(tmp_path))
@@ -640,6 +649,451 @@ class TestAllBundlersStageSkillContent:
         assert not any("skills_library" in path for path in uploaded), uploaded
 
 
+def _load_memory(middleware) -> dict[str, str]:
+    """Drive ``MemoryMiddleware.before_agent`` and return what it loaded.
+
+    The instruction-file counterpart of :func:`_load_skills`. ``before_agent``
+    short-circuits when ``memory_contents`` is already in state, so the state
+    passed in must not carry it. An empty dict back means every source hit
+    ``file_not_found`` — the silent failure this whole change exists to prevent,
+    which renders ``(No memory loaded)`` into the agent's prompt.
+    """
+    from types import SimpleNamespace
+
+    runtime = SimpleNamespace(context=None, stream_writer=None, store=None)
+    out = middleware.before_agent({"messages": []}, runtime, {}) or {}
+    return out.get("memory_contents", {})
+
+
+def _memory_middleware(instruction_files: list[str]):
+    """A ``MemoryMiddleware`` on the same backend a dao-ai deep agent would get."""
+    from deepagents.backends import FilesystemBackend
+    from deepagents.middleware.memory import MemoryMiddleware
+
+    return MemoryMiddleware(
+        backend=FilesystemBackend(virtual_mode=False), sources=instruction_files
+    )
+
+
+@pytest.fixture
+def project_with_standalone_instruction_file(project_root_with_skills: Path) -> Path:
+    """The example, guarded to still declare an instruction file no skill carries.
+
+    The example used to point ``instruction_files`` only at an ``AGENTS.md``
+    *inside* a skill, so the skill staging happened to carry it — which hid the
+    fact that nothing staged instruction files at all. It now ships the
+    standalone shape too, where only the instruction-file staging can put the
+    file in the bundle. Asserted rather than patched in: if the example loses
+    that entry, these tests must fail loudly rather than quietly stop covering
+    the shape that was broken.
+    """
+    cfg = AppConfig.from_file(
+        str(project_root_with_skills / "deep_agent_with_skills.yaml")
+    )
+    declared = list(cfg.app.orchestration.deep_agent.instruction_files)
+    assert "instructions/AGENTS.md" in declared, (
+        "the example must keep a standalone instruction file outside skills/; "
+        f"declared: {declared}"
+    )
+    assert (project_root_with_skills / "instructions" / "AGENTS.md").is_file()
+    return project_root_with_skills
+
+
+@pytest.mark.unit
+class TestAllBundlersStageInstructionFiles:
+    """``instruction_files`` are resolved by declared path, not discovered, so a
+    bundle that lacks the file yields an agent whose prompt says
+    ``(No memory loaded)`` — with no error anywhere."""
+
+    def _declared(self, cfg: AppConfig) -> list[str]:
+        return list(cfg.app.orchestration.deep_agent.instruction_files)
+
+    def test_apps_bundle_contains_the_instruction_file(
+        self, project_with_standalone_instruction_file: Path, tmp_path: Path
+    ) -> None:
+        cfg = AppConfig.from_file(
+            str(
+                project_with_standalone_instruction_file / "deep_agent_with_skills.yaml"
+            )
+        )
+        out = tmp_path / "bundle_out"
+        write_bundle(cfg, out, overwrite=True)
+
+        assert (out / "instructions" / "AGENTS.md").is_file()
+        # The in-skill one still arrives, carried by the skill staging.
+        assert (
+            out / "skills" / "sporting_goods_store" / "research" / "AGENTS.md"
+        ).is_file()
+
+    def test_apps_bundle_instruction_file_loads_with_bundle_root_as_cwd(
+        self,
+        project_with_standalone_instruction_file: Path,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        cfg = AppConfig.from_file(
+            str(
+                project_with_standalone_instruction_file / "deep_agent_with_skills.yaml"
+            )
+        )
+        out = tmp_path / "bundle_out"
+        write_bundle(cfg, out, overwrite=True)
+
+        deployed = AppConfig.from_file(str(out / "deep_agent_with_skills.yaml"))
+        monkeypatch.chdir(out)
+        monkeypatch.delenv("DAO_AI_PROJECT_ROOT", raising=False)
+
+        from dao_ai.skills import resolve_instruction_file_runtime_paths
+
+        resolved = resolve_instruction_file_runtime_paths(
+            self._declared(deployed), deployed
+        )
+        loaded = _load_memory(_memory_middleware(resolved))
+        assert len(loaded) == 2, loaded
+        assert any(_STANDALONE_MARKER in body for body in loaded.values()), loaded
+
+    def test_mcp_bundle_contains_the_instruction_file(
+        self,
+        project_with_standalone_instruction_file: Path,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        from dao_ai.mcp.generate import write_mcp_bundle
+
+        monkeypatch.setattr(
+            "dao_ai.mcp.generate.generate_bundle_lock",
+            lambda bundle_dir: (bundle_dir / "uv.lock").write_text("# stub\n"),
+        )
+        cfg = AppConfig.from_file(
+            str(
+                project_with_standalone_instruction_file / "deep_agent_with_skills.yaml"
+            )
+        )
+        out = tmp_path / "mcp_out"
+        write_mcp_bundle(cfg, out, overwrite=True)
+
+        assert (out / "instructions" / "AGENTS.md").is_file()
+
+    def test_workflow_bundle_stages_beside_the_staged_config(
+        self, project_with_standalone_instruction_file: Path, tmp_path: Path
+    ) -> None:
+        """``07_deploy_agent.py`` reloads the config from ``config/``, so that is
+        the directory the relative instruction path anchors on."""
+        from dao_ai.pipeline.bundle import write_pipeline_bundle
+        from dao_ai.skills import collect_instruction_file_code_paths
+
+        cfg = AppConfig.from_file(
+            str(
+                project_with_standalone_instruction_file / "deep_agent_with_skills.yaml"
+            )
+        )
+        out = tmp_path / "dab_out"
+        write_pipeline_bundle(cfg, out, overwrite=True)
+
+        assert (out / "config" / "instructions" / "AGENTS.md").is_file()
+
+        staged_config = out / "config" / "deep_agent_with_skills.yaml"
+        reloaded = AppConfig.from_file(str(staged_config))
+        shipped = collect_instruction_file_code_paths(reloaded)
+        assert any(p.endswith("/instructions") for p in shipped), shipped
+
+    def test_apps_direct_deploy_uploads_the_instruction_file(
+        self, project_with_standalone_instruction_file: Path
+    ) -> None:
+        from unittest.mock import MagicMock
+
+        from dao_ai.providers.databricks import DatabricksProvider
+
+        cfg = AppConfig.from_file(
+            str(
+                project_with_standalone_instruction_file / "deep_agent_with_skills.yaml"
+            )
+        )
+        provider = DatabricksProvider(w=MagicMock())
+        source_path = "/Workspace/Users/u/apps/skills-app"
+
+        provider._upload_instruction_files(cfg, source_path)
+
+        uploaded = {
+            c.kwargs["path"] for c in provider.w.workspace.upload.call_args_list
+        }
+        assert uploaded == {f"{source_path}/instructions/AGENTS.md"}, uploaded
+
+
+@pytest.mark.unit
+class TestInstructionFilesLoadPerDeploymentTarget:
+    """One relative path in the config; every runtime must load the real file."""
+
+    def _declared(self, cfg: AppConfig) -> list[str]:
+        return list(cfg.app.orchestration.deep_agent.instruction_files)
+
+    def test_local_run_with_cwd_elsewhere(
+        self,
+        project_with_standalone_instruction_file: Path,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """``dao-ai run -c examples/.../agent.yaml`` from an unrelated directory.
+        deepagents resolves a relative source against ``Path.cwd()``, so before the
+        config-dir anchor this loaded nothing at all."""
+        from dao_ai.skills import (
+            config_skill_anchor,
+            resolve_instruction_file_runtime_paths,
+            skill_anchors,
+        )
+
+        config_path = (
+            project_with_standalone_instruction_file / "deep_agent_with_skills.yaml"
+        )
+        elsewhere = tmp_path / "elsewhere"
+        elsewhere.mkdir()
+        monkeypatch.chdir(elsewhere)
+        monkeypatch.delenv("DAO_AI_PROJECT_ROOT", raising=False)
+
+        cfg = AppConfig.from_file(str(config_path))
+        with skill_anchors(*config_skill_anchor(cfg)):
+            resolved = resolve_instruction_file_runtime_paths(self._declared(cfg), cfg)
+        loaded = _load_memory(_memory_middleware(resolved))
+        assert any(_STANDALONE_MARKER in body for body in loaded.values()), loaded
+
+    def test_model_serving_layout_resolves_via_syspath(
+        self,
+        project_with_standalone_instruction_file: Path,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Model Serving rebuilds the config from a dict, so the only help is the
+        ``<model_dir>/code`` entry mlflow prepends to ``sys.path``. Stage the
+        ``code_paths`` the deploy would ship and give the resolver nothing else."""
+        from dao_ai.skills import (
+            collect_instruction_file_code_paths,
+            resolve_instruction_file_runtime_paths,
+        )
+
+        cfg = AppConfig.from_file(
+            str(
+                project_with_standalone_instruction_file / "deep_agent_with_skills.yaml"
+            )
+        )
+        # Reproduce mlflow's copy: each code_paths entry lands at code/<basename>.
+        code_dir = tmp_path / "model" / "code"
+        code_dir.mkdir(parents=True)
+        for entry in collect_instruction_file_code_paths(cfg):
+            shutil.copytree(Path(entry), code_dir / Path(entry).name)
+
+        dumped = cfg.model_dump(mode="json", by_alias=True, exclude_none=True)
+        elsewhere = tmp_path / "elsewhere"
+        elsewhere.mkdir()
+        monkeypatch.chdir(elsewhere)
+        monkeypatch.delenv("DAO_AI_PROJECT_ROOT", raising=False)
+        monkeypatch.syspath_prepend(str(code_dir))
+
+        rebuilt = AppConfig(**dumped)
+        # A dict-rebuilt config has no local_config_path, so the config-dir anchor
+        # is empty by design — sys.path is genuinely the only thing left.
+        from dao_ai.skills import config_skill_anchor
+
+        assert config_skill_anchor(rebuilt) == ()
+
+        resolved = resolve_instruction_file_runtime_paths(
+            self._declared(rebuilt), rebuilt
+        )
+        loaded = _load_memory(_memory_middleware(resolved))
+        assert any(_STANDALONE_MARKER in body for body in loaded.values()), loaded
+
+    def test_declared_path_stays_relative_in_the_serialized_config(
+        self, project_with_standalone_instruction_file: Path
+    ) -> None:
+        """Nothing may bake the loading machine's absolute path into the config —
+        ``display_graph()`` then ``create_agent()`` would ship the driver's path."""
+        import json
+
+        from dao_ai.skills import resolve_instruction_file_runtime_paths
+
+        cfg = AppConfig.from_file(
+            str(
+                project_with_standalone_instruction_file / "deep_agent_with_skills.yaml"
+            )
+        )
+        before = json.dumps(
+            cfg.model_dump(mode="json", by_alias=True, exclude_none=True),
+            sort_keys=True,
+        )
+        resolve_instruction_file_runtime_paths(self._declared(cfg), cfg)
+        after = json.dumps(
+            cfg.model_dump(mode="json", by_alias=True, exclude_none=True),
+            sort_keys=True,
+        )
+        assert before == after
+        assert all(not Path(e).is_absolute() for e in self._declared(cfg))
+
+
+@pytest.mark.unit
+class TestBackendGateCoversInstructionFiles:
+    """A ``StateBackend`` reads from graph state, so with one an instruction file
+    can never load however correct its path is."""
+
+    def test_instruction_files_alone_force_a_filesystem_backend(self) -> None:
+        from deepagents.backends import FilesystemBackend
+
+        from dao_ai.orchestration.deep_agent import _resolve_backend
+
+        assert isinstance(
+            _resolve_backend(None, needs_filesystem=True), FilesystemBackend
+        )
+
+    def test_neither_leaves_the_deepagents_default(self) -> None:
+        from dao_ai.orchestration.deep_agent import _resolve_backend
+
+        assert _resolve_backend(None, needs_filesystem=False) is None
+
+    def test_backend_disables_virtual_mode(self) -> None:
+        """The default backend must resolve *real* host paths, not virtual ones.
+
+        deepagents flipped ``virtual_mode`` to True by default in 0.7.0, and under
+        it an absolute path is reinterpreted as a virtual path under the CWD — the
+        leading slash stripped and the rest joined underneath — so every path
+        dao-ai's resolvers produce (config dir, mlflow ``code`` dir, ``/Volumes``
+        mount) becomes unreadable. Skills log a load error; instruction files fail
+        silently and the agent answers as if no memory existed.
+
+        Asserted on the *constructor call* rather than on the resulting attribute
+        because the attribute has no teeth here: the pinned deepagents (0.6.12)
+        still defaults ``virtual_mode`` to False, so a plain ``FilesystemBackend()``
+        would satisfy an attribute check and the regression would sail through on
+        this version while breaking every install that resolves 0.7.0+. What has
+        to hold for all allowed versions is that dao-ai states the value itself.
+        """
+        from unittest.mock import patch
+
+        import deepagents.backends
+
+        from dao_ai.orchestration.deep_agent import _resolve_backend
+
+        with patch.object(
+            deepagents.backends, "FilesystemBackend", autospec=True
+        ) as fs:
+            _resolve_backend(None, needs_filesystem=True)
+
+        fs.assert_called_once()
+        assert fs.call_args.kwargs.get("virtual_mode") is False
+
+    def test_config_declared_filesystem_backend_also_disables_virtual_mode(
+        self,
+    ) -> None:
+        """Same contract on the skills-middleware backend factory.
+
+        This one is reached with ``root_dir="/"`` for dao-ai-generated entries,
+        where virtual and real paths coincide by luck; a user-supplied
+        ``root_dir`` would silently start rejecting absolute sources instead.
+        """
+        from unittest.mock import patch
+
+        import deepagents.backends.filesystem
+
+        from dao_ai.middleware._backends import resolve_backend
+
+        with patch.object(
+            deepagents.backends.filesystem, "FilesystemBackend", autospec=True
+        ) as fs:
+            resolve_backend("filesystem", root_dir="/")
+
+        fs.assert_called_once()
+        assert fs.call_args.kwargs.get("virtual_mode") is False
+
+    def test_resolve_backend_forwards_an_explicit_virtual_mode(self) -> None:
+        """``False`` is the resolver's default, not a hardcoded constant.
+
+        The asset-reading callers need real host paths, but a caller that wants
+        confinement has to be able to ask for it — the point of the flag being a
+        parameter rather than a literal at the construction site.
+        """
+        from unittest.mock import patch
+
+        import deepagents.backends.filesystem
+
+        from dao_ai.middleware._backends import resolve_backend
+
+        with patch.object(
+            deepagents.backends.filesystem, "FilesystemBackend", autospec=True
+        ) as fs:
+            resolve_backend("filesystem", root_dir="/workspace", virtual_mode=True)
+
+        fs.assert_called_once()
+        assert fs.call_args.kwargs.get("virtual_mode") is True
+
+    def test_filesystem_middleware_confines_model_supplied_paths(self) -> None:
+        """``create_filesystem_middleware`` defaults the *other* way, deliberately.
+
+        Its tools (``read_file``, ``write_file``, ``edit_file``, ``glob``, ``grep``)
+        take their paths from model output, so declaring a ``root_dir`` is read as
+        intent to confine them to it. This is the one caller whose paths do not come
+        from dao-ai's own resolvers, which is what makes the flag a parameter.
+        """
+        from unittest.mock import patch
+
+        import deepagents.backends.filesystem
+
+        from dao_ai.middleware.filesystem import create_filesystem_middleware
+
+        with patch.object(
+            deepagents.backends.filesystem, "FilesystemBackend", autospec=True
+        ) as fs:
+            create_filesystem_middleware(
+                backend_type="filesystem", root_dir="/workspace"
+            )
+        assert fs.call_args.kwargs.get("virtual_mode") is True
+
+        with patch.object(
+            deepagents.backends.filesystem, "FilesystemBackend", autospec=True
+        ) as fs:
+            create_filesystem_middleware(
+                backend_type="filesystem",
+                root_dir="/workspace",
+                virtual_mode=False,
+            )
+        assert fs.call_args.kwargs.get("virtual_mode") is False
+
+    def test_declared_filesystem_backend_without_virtual_mode_warns(self) -> None:
+        """A hand-written backend spec inherits the installed version's default.
+
+        dao-ai cannot fix that without overriding a value the user wrote out, so it
+        says so instead. Silence here is the failure mode: the config looks explicit
+        while its behaviour still depends on which deepagents resolved.
+        """
+        from dao_ai.config import BackendModel
+        from dao_ai.orchestration.deep_agent import _resolve_backend
+
+        records: list[str] = []
+        handle = logger.add(lambda m: records.append(m), level="WARNING")
+        try:
+            _resolve_backend(
+                BackendModel(name="deepagents.backends.filesystem.FilesystemBackend")
+            )
+        finally:
+            logger.remove(handle)
+
+        assert any("virtual_mode" in r for r in records), records
+
+    def test_declared_filesystem_backend_with_virtual_mode_is_quiet(self) -> None:
+        from dao_ai.config import BackendModel
+        from dao_ai.orchestration.deep_agent import _resolve_backend
+
+        records: list[str] = []
+        handle = logger.add(lambda m: records.append(m), level="WARNING")
+        try:
+            _resolve_backend(
+                BackendModel(
+                    name="deepagents.backends.filesystem.FilesystemBackend",
+                    args={"virtual_mode": False},
+                )
+            )
+        finally:
+            logger.remove(handle)
+
+        assert not [r for r in records if "virtual_mode" in r], records
+
+
 @pytest.mark.unit
 class TestBackendGateCoversSubagentSkills:
     """The backend chosen for the graph has to account for *every* skill in it.
@@ -718,6 +1172,40 @@ class TestBackendGateCoversSubagentSkills:
             ),
         )
         assert self._built_backend(config) is None
+
+    def test_the_shipped_subagent_only_example_gets_a_filesystem_backend(self) -> None:
+        """The example we ship for this shape has to keep working.
+
+        ``deep_agent_subagent_skills.yaml`` exists to document the sub-agent-only
+        case, so a regression that broke the gate would ship an example that
+        silently serves without the one skill it is built around — precisely the
+        failure it was written to demonstrate.
+        """
+        from deepagents.backends import FilesystemBackend
+
+        from dao_ai.config import SubAgentModel
+
+        example: Path = (
+            Path(__file__).resolve().parents[2]
+            / "examples"
+            / "13_orchestration"
+            / "deep_agent_subagent_skills.yaml"
+        )
+        config = AppConfig.from_file(example)
+        deep_agent = config.app.orchestration.deep_agent
+
+        assert not deep_agent.skills, "example must declare no top-level skills"
+        assert not deep_agent.instruction_files, (
+            "example must declare no instruction files, or they would force the "
+            "backend on their own and the example would prove nothing"
+        )
+        assert any(
+            isinstance(spec, SubAgentModel) and spec.skills
+            for spec in deep_agent.subagents
+        ), "example must declare a skill on a sub-agent"
+
+        backend = self._built_backend(config)
+        assert isinstance(backend, FilesystemBackend), type(backend).__name__
 
     @staticmethod
     def _built_backend(config: AppConfig) -> object:

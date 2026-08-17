@@ -940,15 +940,28 @@ def _write_job_bundle(
     # to resolve and for ``collect_skills_code_paths`` to find content to ship to
     # Model Serving. Previously nothing staged them and a DAB deploy produced an
     # agent with no skill content at all.
-    from dao_ai.skills import assert_skills_resolvable, stage_skill_dirs
+    from dao_ai.skills import (
+        assert_skill_assets_resolvable,
+        stage_instruction_files,
+        stage_skill_dirs,
+    )
 
-    assert_skills_resolvable(config, target="Workflow bundle")
+    assert_skill_assets_resolvable(config, target="Workflow bundle")
     sk_copied, sk_skipped, sk_preserved = stage_skill_dirs(
         config, staging_dir, overwrite=overwrite, prefix="config"
     )
     written.extend(sk_copied)
     preserved_user_code.extend(sk_skipped)
     preserved_user_code.extend(sk_preserved)
+
+    # ``instruction_files`` under the same ``config/`` prefix: the notebook reloads
+    # the staged config, so that is the directory its relative paths anchor on.
+    in_copied, in_skipped, in_preserved = stage_instruction_files(
+        config, staging_dir, overwrite=overwrite, prefix="config"
+    )
+    written.extend(in_copied)
+    preserved_user_code.extend(in_skipped)
+    preserved_user_code.extend(in_preserved)
 
     # 6c. DAB resource overlays (app.resource_paths + resources/ convention) into
     # resources/, merged by the bundle's include: [resources/*.yml] — parity with

@@ -41,6 +41,13 @@ hand-written ``/Volumes/...`` or ``/abs/skills`` keeps working.
 Volume-backed skills (``/Volumes/...``) are not bundled at all; the underlying
 ``VolumeModel`` is wired into the deployment resource block for permissions and
 the path passes through to ``create_deep_agent`` verbatim.
+
+``deep_agent.instruction_files`` (deepagents' ``memory=``, ``AGENTS.md``-style
+files spliced into the system prompt) travels the same road and is handled here
+for that reason: same anchors, same staging sites, same deploy-time gate. It
+differs in exactly one way that matters — an entry names a **file**, not a
+directory of skills — so it gets its own resolver
+(:func:`resolve_instruction_file_path`) rather than reusing the skill one.
 """
 
 from __future__ import annotations
@@ -281,6 +288,37 @@ def resolve_skill_source_dir(
     return fallback
 
 
+def resolve_instruction_file_path(
+    source: str, extra_anchors: Sequence[Path] = ()
+) -> Path | None:
+    """Resolve one ``instruction_files`` entry to a real file.
+
+    The file-shaped sibling of :func:`resolve_skill_source_dir`, sharing its
+    anchor list and its "``None`` means use the source verbatim" contract.
+    Separate rather than parameterized because the predicate is the whole
+    function: a skills source is a directory whose *children* hold ``SKILL.md``,
+    while an instruction file is a single file, and a resolver that accepted
+    either would happily return a directory to deepagents'
+    ``MemoryMiddleware``, which then reports ``file_not_found`` and drops it
+    without a word.
+
+    Absolute entries (including ``/Volumes/...``) return ``None`` and pass
+    through, keyed on :func:`os.path.isabs` for the same reason as skills.
+    """
+    if os.path.isabs(source):
+        return None
+
+    relative: str = source.strip()
+    if not relative:
+        return None
+
+    for anchor in _runtime_anchors(extra_anchors):
+        candidate: Path = (anchor / relative).resolve()
+        if candidate.is_file():
+            return candidate
+    return None
+
+
 SKILLS_MIDDLEWARE_FACTORY = "dao_ai.middleware.skills.create_skills_middleware"
 
 
@@ -432,6 +470,103 @@ def _resolve_local_skill_dir(
     return (_skill_base_dir(config) / spec.path).resolve()
 
 
+def _iter_instruction_files(config: "AppConfig") -> list[str]:
+    """Every ``instruction_files`` entry declared in the config, in order.
+
+    ``DeepAgentModel`` is the only holder: deepagents exposes ``memory=`` on the
+    top-level agent only, and dao-ai has no sub-agent equivalent field. If one is
+    ever added, this is the single place that has to learn about it — every
+    collector, stager, and deploy gate below reads the config through here.
+    """
+    if config.app is None or config.app.orchestration is None:
+        return []
+    deep_agent: "DeepAgentModel | None" = config.app.orchestration.deep_agent
+    if deep_agent is None:
+        return []
+    return [entry for entry in (deep_agent.instruction_files or []) if entry]
+
+
+def _resolve_local_instruction_file(entry: str, config: "AppConfig") -> Path | None:
+    """Resolve one ``instruction_files`` entry to an absolute local file, if local.
+
+    Returns ``None`` for entries on a Databricks FUSE mount, which are read in
+    place at runtime by the container's own identity and have nothing to stage.
+    Every other entry — relative *or* absolute — comes back as a local path so
+    callers can check it. Exempting all absolutes instead would let
+    ``instruction_files: [/Users/me/proj/instructions/AGENTS.md]`` past the deploy
+    gate untested, stage nothing, and render ``(No memory loaded)`` in the
+    container: the silent failure this module exists to close. Exempting only
+    ``/Volumes`` goes too far the other way and fails the deploy for a perfectly
+    good ``/Workspace/Shared/AGENTS.md``, which exists on the compute that will
+    read it and nowhere near the machine running the deploy.
+
+    A non-FUSE absolute entry still cannot reproduce its declared path inside a
+    serving container, so the collectors below warn and skip it; the point of
+    resolving it here is that a *typo* fails the deploy instead of the deploy
+    succeeding with a mute agent. Bundle-time anchor, same as
+    :func:`_resolve_local_skill_dir`.
+    """
+    if _is_databricks_fuse_path(entry):
+        return None
+    return (_skill_base_dir(config) / entry).resolve()
+
+
+def collect_instruction_file_code_paths(config: "AppConfig") -> list[str]:
+    """Return paths for ``mlflow.pyfunc.log_model(code_paths=...)``.
+
+    ``log_model`` flattens: a *file* entry lands at ``<model_dir>/code/<basename>``,
+    losing any directory component. So an entry like ``instructions/AGENTS.md``
+    cannot be shipped as itself — it would arrive as ``code/AGENTS.md`` and the
+    relative path in the deployed config would resolve nowhere. Ship the entry's
+    **top-level directory** instead (``<config_dir>/instructions``), exactly as
+    :func:`collect_skills_code_paths` ships the whole ``skills/`` tree, so the
+    declared layout survives under ``<model_dir>/code/``. An entry with no
+    directory component (``AGENTS.md``) ships as the file itself, which flattens
+    to the same place it started.
+
+    Entries that are absolute, or climb out of the config directory, are skipped
+    with a warning: nothing this function could ship would make the deployed
+    config's path resolve.
+    """
+    base_dir: Path = _skill_base_dir(config)
+    collected: list[str] = []
+    for entry in _iter_instruction_files(config):
+        local: Path | None = _resolve_local_instruction_file(entry, config)
+        if local is None:
+            continue
+        if not local.is_file():
+            logger.warning(
+                "Instruction file does not exist; skipping. Either fix the path "
+                "or remove it from deep_agent.instruction_files.",
+                entry=entry,
+                path=str(local),
+            )
+            continue
+        try:
+            rel: Path = local.relative_to(base_dir)
+        except ValueError:
+            logger.warning(
+                "Instruction file lives outside the config directory, so Model "
+                "Serving cannot reproduce its declared path — the agent will "
+                "start without it. Move it next to the config.",
+                entry=entry,
+                path=str(local),
+            )
+            continue
+        # ``rel.parts[0]`` is the directory mlflow must copy wholesale to keep the
+        # declared layout; for a bare filename it is the file itself.
+        ship: Path = base_dir / rel.parts[0]
+        collected.append(str(ship))
+
+    deduped: list[str] = list(dict.fromkeys(collected))
+    if deduped:
+        logger.info(
+            "Including instruction file paths in mlflow code_paths",
+            paths=deduped,
+        )
+    return deduped
+
+
 def collect_skills_code_paths(config: "AppConfig") -> list[str]:
     """Return paths for ``mlflow.pyfunc.log_model(code_paths=...)``.
 
@@ -579,21 +714,44 @@ def unresolvable_skills(config: "AppConfig") -> list[str]:
     return problems
 
 
-def assert_skills_resolvable(config: "AppConfig", *, target: str) -> None:
-    """Raise if any declared local skill is missing. Called before every deploy.
+def unresolvable_instruction_files(config: "AppConfig") -> list[str]:
+    """Name every declared instruction file that is missing at bundle time.
 
-    ``target`` names the deploy path for the error message (e.g. ``"Model
-    Serving"``, ``"Apps bundle"``) so the operator knows which command stopped.
+    Same contract and rationale as :func:`unresolvable_skills`, and the failure it
+    guards against is even quieter: deepagents' ``MemoryMiddleware`` treats a
+    ``file_not_found`` source as a no-op and renders ``(No memory loaded)`` into
+    the prompt, so an agent deployed with a bad path behaves like one that was
+    never given instructions at all.
     """
-    problems: list[str] = unresolvable_skills(config)
+    problems: list[str] = []
+    for entry in _iter_instruction_files(config):
+        local: Path | None = _resolve_local_instruction_file(entry, config)
+        if local is None or local.is_file():
+            continue
+        problems.append(f"instruction file {entry!r}: no file at {local}")
+    return problems
+
+
+def assert_skill_assets_resolvable(config: "AppConfig", *, target: str) -> None:
+    """Raise if any declared skill or instruction file is missing.
+
+    Called before every deploy — the single gate for both asset families, so a
+    new deploy path only has to remember one call. ``target`` names the deploy
+    path for the error message (e.g. ``"Model Serving"``, ``"Apps bundle"``) so
+    the operator knows which command stopped.
+    """
+    problems: list[str] = [
+        *unresolvable_skills(config),
+        *unresolvable_instruction_files(config),
+    ]
     if not problems:
         return
     detail: str = "\n".join(f"  - {p}" for p in problems)
     raise ValueError(
-        f"{target}: {len(problems)} declared skill(s) cannot be found, so the "
-        f"deployed agent would silently run without them:\n{detail}\n"
-        "Skill paths are resolved relative to the config file's own directory. "
-        "Fix the path, or remove the skill from the config."
+        f"{target}: {len(problems)} declared skill asset(s) cannot be found, so "
+        f"the deployed agent would silently run without them:\n{detail}\n"
+        "Skill and instruction-file paths are resolved relative to the config "
+        "file's own directory. Fix the path, or remove the entry from the config."
     )
 
 
@@ -691,6 +849,127 @@ def stage_skill_dirs(
     return written, skipped, preserved
 
 
+def iter_instruction_file_stagings(config: "AppConfig") -> list[tuple[Path, str]]:
+    """Plan how each local instruction file is staged/uploaded next to the config.
+
+    Returns ``(source_abs, bundle_relative_dest)`` pairs in the same shape as
+    :func:`iter_skill_stagings` and :func:`dao_ai.code_paths.iter_code_path_stagings`,
+    so every caller stages all three asset families through one loop.
+
+    Entries already covered by a skill staging are dropped. That is the common
+    case, not an edge one: the natural place to put an ``AGENTS.md`` is inside the
+    skill it belongs to (as ``examples/13_orchestration`` does), and the skill
+    staging copies its directory wholesale. Without this the bundle report would
+    claim to skip a file it had in fact just written.
+
+    Entries outside the config's tree are dropped with a warning rather than
+    relocated: unlike a skill directory, whose staged copy is found by anchored
+    resolution, an instruction file is looked up by its declared path — a
+    relocated copy would not be found, so the fallback would be a silent lie.
+    """
+    base_dir: Path = _skill_base_dir(config)
+    skill_dests: list[str] = [dest for _src, dest in iter_skill_stagings(config)]
+
+    stagings: list[tuple[Path, str]] = []
+    for entry in _iter_instruction_files(config):
+        src: Path | None = _resolve_local_instruction_file(entry, config)
+        if src is None or not src.is_file():
+            continue
+        try:
+            rel: Path = src.relative_to(base_dir)
+        except ValueError:
+            logger.warning(
+                "Instruction file lives outside the config directory; not staged. "
+                "Move it next to the config so the deployed agent can find it.",
+                entry=entry,
+                path=str(src),
+            )
+            continue
+        dest: str = rel.as_posix()
+        if any(dest == d or dest.startswith(f"{d}/") for d in skill_dests):
+            continue
+        stagings.append((src, dest))
+    return stagings
+
+
+def stage_instruction_files(
+    config: "AppConfig",
+    staging_dir: Path,
+    *,
+    overwrite: bool = False,
+    prefix: str = "",
+) -> tuple[list[str], list[str], list[str]]:
+    """Copy every local instruction file into ``staging_dir``, layout preserved.
+
+    The instruction-file counterpart of :func:`stage_skill_dirs`, with the same
+    arguments, the same ``(written, skipped, preserved)`` return, and the same
+    reason for existing: a target that reloads a *staged* config needs the content
+    staged beside it.
+    """
+    written: list[str] = []
+    skipped: list[str] = []
+    preserved: list[str] = []
+
+    for src, rel_str in iter_instruction_file_stagings(config):
+        rel: Path = Path(rel_str)
+        if prefix:
+            rel = Path(prefix) / rel
+        dest: Path = staging_dir / rel
+        if dest.resolve() == src.resolve():
+            preserved.append(str(rel))
+            continue
+        if dest.exists() and not overwrite:
+            logger.info(
+                "Skipping instruction file copy (exists; use --overwrite)",
+                instruction_file=str(rel),
+            )
+            skipped.append(str(rel))
+            continue
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(src, dest)
+        logger.info("Copied instruction file into bundle", instruction_file=str(rel))
+        written.append(str(rel))
+
+    return written, skipped, preserved
+
+
+def resolve_instruction_file_runtime_paths(
+    instruction_files: list[str], config: "AppConfig"
+) -> list[str]:
+    """Resolve ``instruction_files`` to real paths for ``create_deep_agent(memory=)``.
+
+    The instruction-file twin of :func:`resolve_skill_runtime_paths`, and it
+    exists for the same reason: the raw YAML string is relative to the *config*,
+    while deepagents resolves a relative source against the backend's ``cwd`` —
+    ``Path.cwd()`` for a ``FilesystemBackend`` with no ``root_dir``. Those agree
+    only when the process happens to have been started from the config directory,
+    which a notebook, a ``from_git`` checkout, and ``dao-ai run -c <path>`` all
+    fail to do.
+
+    Absolute entries pass through verbatim. A relative entry that no anchor
+    locates is dropped with a warning naming the anchors tried — deepagents would
+    otherwise drop it silently and render ``(No memory loaded)``.
+    """
+    anchor: tuple[Path, ...] = config_skill_anchor(config)
+    resolved: list[str] = []
+    for entry in instruction_files or []:
+        if os.path.isabs(entry):
+            resolved.append(entry)
+            continue
+        found: Path | None = resolve_instruction_file_path(entry, anchor)
+        if found is None:
+            logger.warning(
+                "Instruction file not found under any runtime anchor; the agent "
+                "will start WITHOUT it",
+                instruction_file=entry,
+                anchors_tried=[str(a) for a in _runtime_anchors(anchor)],
+            )
+            continue
+        resolved.append(str(found))
+
+    return list(dict.fromkeys(resolved))
+
+
 def resolve_skill_runtime_paths(
     skills: list["SkillModel | str"], config: "AppConfig"
 ) -> list[str]:
@@ -751,6 +1030,12 @@ def resolve_skill_runtime_paths(
                 anchors_tried=[str(a) for a in _runtime_anchors(anchor)],
             )
             continue
+        logger.info(
+            "Resolved skill directory",
+            name=spec.name,
+            rel_path=spec.path,
+            resolved=str(runtime_dir),
+        )
         seen.setdefault(str(runtime_dir.parent), None)
 
     return list(seen.keys())

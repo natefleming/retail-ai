@@ -645,6 +645,10 @@ Skills can be attached at three levels:
 | `orchestration.deep_agent.skills` | `list[SkillModel \| str]` | Same |
 | `orchestration.deep_agent.subagents[].skills` | `list[SkillModel \| str]` | Same |
 
+Skills attached at **any** of those levels force a filesystem-capable backend when `orchestration.deep_agent.backend` is left unset — including a config whose skills live *only* under `subagents[].skills`, with none on the deep_agent itself. deepagents' default `StateBackend` reads from graph state, so a skill on disk could never load through it whichever level declared it. `examples/13_orchestration/deep_agent_subagent_skills.yaml` is that sub-agent-only shape on its own.
+
+One asymmetry to know: an entry in `app.agents` reused as an implicit sub-agent does **not** carry its `skills` into deepagents — only `subagents[].skills` does. Attach the skill to the `subagents` entry if a sub-agent needs it.
+
 When the same skill is referenced from multiple places, declare it once under `resources.skills` and reuse the YAML anchor:
 
 ```yaml
@@ -681,20 +685,44 @@ A local `path` stays **relative everywhere** — in the config you write, in the
 
 Nothing machine-specific is ever written back into the config, so building the graph and then registering the model (what `dao-ai agent create` and the deploy notebooks do in one process) cannot bake a local path into the artifact.
 
-To see which paths a deployed agent actually resolved, ask it to list its skills with the file path for each — the middleware injects that list into the system prompt, so the answer is the resolved directory as seen from inside the container.
+To confirm a deployed agent really loaded its skills, use one of these, in increasing order of strength:
+
+- **Endpoint logs.** `Creating deep_agent graph` reports `skills_count`, `subagent_skills_count`, and `instruction_files_count`; `Resolved skill directory` names each skill and the directory it resolved to inside the container; `Defaulting deep_agent backend to FilesystemBackend` records the backend swap. An unresolvable skill is a `WARNING` naming every anchor tried.
+- **MLflow traces.** The `SkillsMiddleware.before_agent` span carries `outputs.skills_metadata`, a list of `{name, description, path}` with the path as resolved *inside the container*, plus `skills_load_errors` when something failed. For a sub-agent's skill this span is nested under that sub-agent's span, which is also how you confirm delegation happened. An empty list is the silent skills-missing failure.
+- **Asking the agent** to list its skills with a path for each. Weakest of the three: the middleware injects that list into the system prompt, so a plausible answer proves a path reached the prompt, not that the backend read the file.
 
 #### Progressive disclosure needs a file-reading agent
 
 Skills load lazily. Only each skill's `name` and `description` go into the system prompt; the body of `SKILL.md` is read on demand, and the injected instructions tell the model to call `read_file` on the listed path. A **deep agent** has that tool, so its skills work end to end. A plain `agents[].skills` entry does not add one: the agent can see that the skill exists and what it is for, but cannot read its instructions unless something else in the config supplies a file-reading tool. Attach detailed procedural skills to a deep agent, or keep the `description` self-sufficient for a plain one.
 
-An **absolute** `path` bypasses resolution entirely and is used as given. That is correct for `/Volumes/...` and for a skill on a mount that exists on the target, and wrong for anything under your home directory or a checkout — the deployed agent will find nothing there.
+An **absolute** `path` bypasses resolution entirely and is used as given. That is correct for a Databricks FUSE mount — `/Volumes/...`, `/Workspace/...`, `/dbfs/...` — and wrong for anything under your home directory or a checkout, where the deployed agent will find nothing.
 
 If a declared local skill cannot be found at **deploy** time, the deploy fails and names each unresolvable skill: `agent create`, `agent build`, `agent build --as-mcp`, the workflow bundler, and the direct Apps deploy (`agent up --mode apps`) all check. At **runtime** a missing directory is a `WARNING` in the endpoint or app log naming the source and every anchor tried, and the agent serves without that skill — a missing skill degrades the agent, it does not take the endpoint down.
+
+**FUSE paths are exempt from the deploy-time check.** A path under `/Volumes`, `/Workspace`, or `/dbfs` is mounted inside Databricks compute and is normally absent from the machine running the deploy, so whether it exists locally says nothing about whether it will be there at runtime. Those paths are never flagged. The exemption matches per path segment, so a near miss like `/Volumesnotreally/skills` is still treated as a local path and still checked.
 
 #### Deployment behaviour
 
 - **Local skills** are staged by every path that ships a config — the Apps bundler (`agent build`), the MCP bundler (`agent build --as-mcp`), the workflow DAB (under `config/skills/...`, beside the staged config), and the direct Apps deploy, which uploads them beside the config in the app's workspace source — and ship with the model artifact via `code_paths`. No extra grants needed.
 - **Volume-backed skills** are never copied. They emit deployment resources (via the underlying `VolumeModel`) so the app's service principal receives `READ_VOLUME` on the backing volume at deploy time, and are read from `/Volumes/...` at runtime.
+
+#### Instruction files (`deep_agent.instruction_files`)
+
+`orchestration.deep_agent.instruction_files` names `AGENTS.md`-style files whose contents are spliced into the system prompt at startup. They follow exactly the contract above — relative in the config, resolved against the same four anchors when the graph is built, staged by every bundler and by the direct Apps deploy, and shipped with the model artifact — with two differences worth knowing:
+
+- An entry names a **file**, not a directory. `instructions/AGENTS.md` is right; `instructions/` is not, and a directory resolves to nothing.
+- An entry that lives inside a skill directory (`skills/research/AGENTS.md`) is already carried by that skill's staging, so it is not copied twice.
+
+```yaml
+app:
+  orchestration:
+    deep_agent:
+      instruction_files:
+        - instructions/AGENTS.md           # relative to the config file
+        - skills/research/AGENTS.md        # already shipped with the skill
+```
+
+Declaring `instruction_files` also forces a filesystem-capable backend when `backend` is left unset, for the same reason skills do: deepagents' default `StateBackend` reads from graph state, so no path could ever load. As with skills, an unresolvable entry fails the **deploy** by name, and a file missing at **runtime** is a `WARNING` naming every anchor tried while the agent serves without it.
 
 ### Chat UI (`enable_chat_proxy`)
 

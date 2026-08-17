@@ -243,15 +243,27 @@ def write_mcp_bundle(
     # names them by the same relative path. Without this the staged config named
     # skills the bundle did not contain, and the agent served without them.
     # Volume-backed skills are read from ``/Volumes/...`` and never copied.
-    from dao_ai.skills import assert_skills_resolvable, stage_skill_dirs
+    from dao_ai.skills import (
+        assert_skill_assets_resolvable,
+        stage_instruction_files,
+        stage_skill_dirs,
+    )
 
-    assert_skills_resolvable(config, target="MCP bundle")
+    assert_skill_assets_resolvable(config, target="MCP bundle")
     skills_written, skills_skipped, skills_preserved = stage_skill_dirs(
         config, staging_dir, overwrite=overwrite
     )
     written.extend(skills_written)
     skipped.extend(skills_skipped)
     preserved.extend(skills_preserved)
+
+    # ``instruction_files`` sit beside the staged config for the same reason.
+    instr_written, instr_skipped, instr_preserved = stage_instruction_files(
+        config, staging_dir, overwrite=overwrite
+    )
+    written.extend(instr_written)
+    skipped.extend(instr_skipped)
+    preserved.extend(instr_preserved)
 
     # Convention: copy colocated ``src/<pkg>`` packages into the bundle's ``src/``
     # so hatch (``packages=["src"]``) builds them prefix-free (``foo.bar``).

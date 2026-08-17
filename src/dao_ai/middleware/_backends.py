@@ -26,6 +26,7 @@ def resolve_backend(
     backend_type: str = "state",
     root_dir: str | None = None,
     volume_path: str | VolumePathModel | None = None,
+    virtual_mode: bool = False,
 ) -> BackendProtocol | type[BackendProtocol]:
     """
     Resolve a backend type string to a Deep Agents backend instance or
@@ -50,6 +51,23 @@ def resolve_backend(
             Can be a string (e.g. ``"/Volumes/catalog/schema/volume"``)
             or a ``VolumePathModel`` instance. Required when
             ``backend_type="volume"``, ignored otherwise.
+        virtual_mode: Whether the filesystem backend treats incoming paths as
+            *virtual* paths anchored at ``root_dir``. Only meaningful for
+            ``backend_type="filesystem"``; ignored otherwise. Always passed on
+            to deepagents explicitly rather than left to its default, because
+            that default flipped from ``False`` to ``True`` in 0.7.0 and
+            ``pyproject.toml`` allows ``deepagents>=0.5.7`` — leaving it
+            implicit means the behaviour changes under the caller's feet on
+            upgrade. Defaults to ``False`` (real host paths) because that is
+            what dao-ai's own resolvers produce; see
+            :func:`dao_ai.middleware.filesystem.create_filesystem_middleware`
+            for the agent-facing case, which defaults the other way.
+
+            ``True`` additionally blocks ``..``/``~`` traversal and rejects
+            paths resolving outside ``root_dir``. That is path-based
+            confinement, not sandboxing or process isolation — deepagents is
+            explicit that ``virtual_mode=False`` "provides no security even
+            with ``root_dir`` set".
 
     Returns:
         A backend instance or factory callable compatible with deepagents
@@ -95,8 +113,19 @@ def resolve_backend(
             "Resolving backend",
             backend_type=backend_type,
             root_dir=root_dir,
+            virtual_mode=virtual_mode,
         )
-        return FilesystemBackend(root_dir=root_dir)
+        # ``virtual_mode`` is always stated, never left to deepagents' default:
+        # that default flipped to True in 0.7.0, which reinterprets an absolute
+        # path as a *virtual* one anchored at ``root_dir`` (leading slash
+        # stripped, remainder joined underneath) and rejects anything landing
+        # outside it. Since ``deepagents>=0.5.7`` is allowed, an implicit default
+        # would change behaviour on upgrade. The *value* is the caller's call:
+        # dao-ai's skill and instruction-file resolvers hand this backend real
+        # host paths (a config dir, an mlflow ``code`` dir, a ``/Volumes`` mount)
+        # and need False, while agent-facing file tools want the confinement
+        # True brings. See the ``virtual_mode`` arg docs above.
+        return FilesystemBackend(root_dir=root_dir, virtual_mode=virtual_mode)
 
     if backend_type == "store":
         logger.debug("Resolving backend", backend_type=backend_type)

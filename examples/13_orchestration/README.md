@@ -43,6 +43,7 @@ flowchart TB
 | [`deep_agent_pattern.yaml`](./deep_agent_pattern.yaml) | 🧠 Deep Agent | Single planner with todo, filesystem, shell, sub-agents (langgraph deepagents) |
 | [`deep_agent_with_subagents.yaml`](./deep_agent_with_subagents.yaml) | 🧠 Deep Agent | Three sub_agent declaration forms: anchor, name, inline |
 | [`deep_agent_with_skills.yaml`](./deep_agent_with_skills.yaml) | 🧠 Deep Agent | Local + volume-backed skills, AGENTS.md memory, permissions, HITL |
+| [`deep_agent_subagent_skills.yaml`](./deep_agent_subagent_skills.yaml) | 🧠 Deep Agent | A skill declared *only* on a sub-agent — the shape that needs the filesystem-backend gate |
 
 ## Pattern Comparison
 
@@ -95,7 +96,8 @@ orchestration:
       You are a planner. Break complex tasks into todos before answering.
     tools: [*current_time]               # ToolModel anchors or string refs
     skills: [*research_skill]            # SkillModel refs (local or volume-backed)
-    instruction_files: [skills/.../AGENTS.md]   # AGENTS.md instruction files loaded into prompt
+    instruction_files: [instructions/AGENTS.md] # AGENTS.md files spliced into the prompt,
+                                         # relative to the config file
     subagents:                           # three accepted forms
       - *product_specialist              #   1. AgentModel anchor (full carry-over)
       - inventory_specialist             #   2. name lookup in app.agents

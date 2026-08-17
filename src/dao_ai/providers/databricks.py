@@ -1487,13 +1487,18 @@ class DatabricksProvider(ServiceProvider):
 
             pip_requirements += get_installed_packages(expand_all(required_extras))
 
-        from dao_ai.skills import assert_skills_resolvable, collect_skills_code_paths
+        from dao_ai.skills import (
+            assert_skill_assets_resolvable,
+            collect_instruction_file_code_paths,
+            collect_skills_code_paths,
+        )
 
         # Stop before logging a model whose skills cannot load. At serve time a
         # missing skill only warns (raising there would turn a degraded agent into
         # a dead endpoint), so this is the last point with a human watching.
-        assert_skills_resolvable(config, target="Model Serving deploy")
+        assert_skill_assets_resolvable(config, target="Model Serving deploy")
         code_paths.extend(collect_skills_code_paths(config))
+        code_paths.extend(collect_instruction_file_code_paths(config))
 
         code_paths = list(dict.fromkeys(code_paths))
 
@@ -1965,6 +1970,29 @@ class DatabricksProvider(ServiceProvider):
             source_path=source_path,
         )
 
+    def _upload_instruction_files(self, config: AppConfig, source_path: str) -> None:
+        """Upload ``deep_agent.instruction_files`` under the app ``source_path``.
+
+        Files already inside an uploaded skill directory are not re-uploaded —
+        :func:`~dao_ai.skills.iter_instruction_file_stagings` drops them, because
+        the natural home for an ``AGENTS.md`` is the skill it documents and
+        :meth:`_upload_skill_dirs` has already put it there.
+        """
+        from dao_ai.skills import iter_instruction_file_stagings
+
+        stagings = iter_instruction_file_stagings(config)
+        if not stagings:
+            return
+
+        uploaded = 0
+        for src, dest in stagings:
+            uploaded += self._upload_dir_files(src, dest, source_path)
+        logger.info(
+            "Uploaded instruction files to app source",
+            file_count=uploaded,
+            source_path=source_path,
+        )
+
     def _upload_src_packages(self, config: AppConfig, source_path: str) -> None:
         """Upload colocated ``src/<pkg>`` packages under ``<source_path>/src``.
 
@@ -2145,9 +2173,9 @@ class DatabricksProvider(ServiceProvider):
         # ``source_path`` recursively, so a config with an unresolvable skill
         # would otherwise take out a working deployment on its way to a
         # silently skill-less one.
-        from dao_ai.skills import assert_skills_resolvable
+        from dao_ai.skills import assert_skill_assets_resolvable
 
-        assert_skills_resolvable(config, target="Apps deploy")
+        assert_skill_assets_resolvable(config, target="Apps deploy")
 
         # Upload the configuration file to the workspace. See
         # ``_app_config_content`` for the three input shapes and which of them
@@ -2196,6 +2224,11 @@ class DatabricksProvider(ServiceProvider):
         # anchor: the app CWD is source_path, so a relative skills source in the
         # uploaded config resolves only if the content sits beside it.
         self._upload_skill_dirs(config, source_path)
+
+        # And the config's instruction files (deepagents' ``memory=``), which are
+        # resolved by declared path rather than discovered, so they have to land at
+        # exactly the relative location the uploaded config names.
+        self._upload_instruction_files(config, source_path)
 
         # Upload colocated src/<pkg> packages (the zero-config convention) so the
         # app's uv sync (packages=["src"]) builds them into the app wheel.

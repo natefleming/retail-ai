@@ -1,0 +1,94 @@
+# yaml-language-server: $schema=../../../schemas/model_config_schema.json
+
+
+# =============================================================================
+# PARAMETERS
+# =============================================================================
+parameters:
+  catalog:
+    description: Unity Catalog catalog name
+    default: retail_consumer_goods
+  schema:
+    description: Schema within the catalog
+    default: sporting_goods_store
+
+# =============================================================================
+# DEEP_AGENT WITH SKILLS ONLY ON A SUB-AGENT
+# =============================================================================
+# The narrow shape that `deep_agent_with_skills.yaml` does not cover: the
+# planner declares NO skills and NO instruction_files, and the one skill in the
+# config hangs off a single sub-agent.
+#
+# That combination is worth its own example because it is the one that used to
+# fail silently. dao-ai only upgrades from deepagents' default `StateBackend` to
+# a `FilesystemBackend` when the config needs a filesystem, and the check used
+# to read `deep_agent.skills` alone — so this config was served with a backend
+# that reads from graph state and could not load a skill from disk by any path.
+# No exception, no load error, a healthy endpoint, and an agent quietly missing
+# the skill it was built around.
+#
+# Sub-agent skills now count toward that decision, which is the only reason
+# this file works. Note it is `subagents[].skills` specifically: an entry in
+# `app.agents` reused as an implicit sub-agent does not carry its skills into
+# deepagents.
+
+schemas:
+  retail_schema: &retail_schema
+    catalog_name: ${var.catalog}
+    schema_name: ${var.schema}
+
+# =============================================================================
+# RESOURCES
+# =============================================================================
+resources:
+  models:
+    default_llm: &default_llm
+      name: databricks-claude-sonnet-4
+      temperature: 0.1
+      max_tokens: 4096
+
+  skills:
+    product_lookup: &product_lookup_skill
+      name: product_lookup
+      description: "Sporting goods product lookup and card formatting."
+      path: skills/sporting_goods_store/product-lookup
+
+# =============================================================================
+# APPLICATION
+# =============================================================================
+app:
+  name: deep_agent_subagent_skills
+  description: "deep_agent whose only skill is declared on a sub-agent"
+  log_level: INFO
+
+  registered_model:
+    schema: *retail_schema
+    name: deep_agent_subagent_skills
+
+  orchestration:
+    deep_agent:
+      model: *default_llm
+
+      # Deliberately no `skills:` and no `instruction_files:` here. The planner
+      # routes; the sub-agent is what owns a skill.
+      system_prompt: |
+        You are a router for a sporting goods store. You have no product
+        knowledge of your own and no skills of your own. Delegate every
+        product question to the product_specialist sub-agent and return its
+        answer unchanged.
+
+      subagents:
+        product_specialist:
+          description: "Answers product questions using its loaded product-lookup skill"
+          model: *default_llm
+          skills:
+          - *product_lookup_skill
+          system_prompt: |
+            You answer product questions. A skill is available to you: read its
+            SKILL.md with your file-reading tool before answering, then follow
+            the output format it specifies exactly.
+
+  input_example:
+    messages:
+    - role: user
+      content: "Recommend a softball bat under $200 for a 12-year-old."

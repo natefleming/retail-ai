@@ -1929,7 +1929,8 @@ app:
       system_prompt: |
         You are a planner. Break complex tasks into todos before answering.
       skills: [*research_skill]           # local or volume-backed SkillModel
-      instruction_files: [skills/.../AGENTS.md]   # AGENTS.md instruction files
+      instruction_files: [instructions/AGENTS.md] # AGENTS.md files spliced into the
+                                          # prompt; relative to the config file
       subagents:
         - *product_specialist             # AgentModel anchor (full carry-over)
         - inventory_specialist            # name lookup in app.agents

@@ -125,7 +125,11 @@ app:
       - *governed_lookup_skill
 
       # AGENTS.md instruction files loaded into the system prompt at startup.
+      # Both shapes are shown deliberately: the second lives inside a skill
+      # directory, so skill staging already carries it, while the first is a
+      # standalone file that every bundler has to stage on its own.
       instruction_files:
+      - instructions/AGENTS.md
       - skills/sporting_goods_store/research/AGENTS.md
 
       # R2: Dict-form subagents for extras not already in app.agents.
