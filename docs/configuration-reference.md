@@ -45,15 +45,19 @@ resources:
   # `InferenceEndpointModel` in new configs.
   models:
     model_name: &model_name
-      name: string                # Serving endpoint name (e.g. databricks-claude-opus-4-6)
+      name: string                # Serving endpoint name (e.g. databricks-claude-opus-4-6),
+                                  # a UC-securable model name (system.ai.claude-sonnet-4-5),
+                                  # or the short model name when `schema` is set
+      schema: *my_schema          # optional; qualifies `name` as a UC-securable model
+                                  # (Unity AI Gateway). Requires use_ai_gateway: true
       description: string         # optional, human-readable
       temperature: float          # 0.0 - 2.0, default 0.1
       max_tokens: int             # default 8192
       fallbacks: [string]         # Fallback endpoint names (or full InferenceEndpointModel configs)
       on_behalf_of_user: bool     # Forward the caller's identity (OBO)
-      use_responses_api: bool     # Use Responses API for ResponsesAgent endpoints
-      disable_streaming: bool     # Required when output guardrails are enabled; also required when ai_gateway is true and the model uses with_structured_output
-      ai_gateway: bool            # dao-ai 0.1.77+: route via /ai-gateway/mlflow/v1/chat/completions instead of /serving-endpoints/<name>/invocations
+      use_responses_api: bool     # Use Responses API; composes with use_ai_gateway (per-model caveat, see below)
+      disable_streaming: bool     # Required when output guardrails are enabled; also required when use_ai_gateway is true and the model uses with_structured_output
+      use_ai_gateway: bool        # dao-ai 0.1.77+ (was `ai_gateway`, still accepted): route via /ai-gateway/mlflow/v1 instead of /serving-endpoints/<name>/invocations
       best_of_n:                  # optional, dao-ai 0.1.72+
         n: int                    # parallel candidate generations, 1..16
         judge: string | *model_name   # endpoint name or full InferenceEndpointModel
@@ -502,44 +506,106 @@ optimizations:
       # See examples/13_optimization/ for the full schema
 ```
 
-### AI Gateway routing (`ai_gateway`)
+### AI Gateway routing (`use_ai_gateway`)
 
-**`resources.models.<name>.ai_gateway`** *(bool, optional, default `false`,
+**`resources.models.<name>.use_ai_gateway`** *(bool, optional, default `false`,
 dao-ai 0.1.77+)* — Route this model through the Databricks AI Gateway
-(`POST /ai-gateway/mlflow/v1/chat/completions`) instead of the legacy
+(base URL `/ai-gateway/mlflow/v1`) instead of the legacy
 Model Serving path (`POST /serving-endpoints/<name>/invocations`). When
 `true`, `name` is sent as the OpenAI-style model id in the request
-body, and dao-ai constructs a `langchain_openai.ChatOpenAI` client
-(rather than `databricks_langchain.ChatDatabricks`) pointed at the
-gateway base URL. The flag is additive — existing configs are unaffected.
+body, and dao-ai constructs a `ChatUnityAIGateway` client (a
+`databricks_langchain.ChatDatabricks` subclass with `use_ai_gateway=True`
+defaulted) pointed at the gateway base URL. The flag is additive —
+existing configs are unaffected.
 
 ```yaml
 resources:
   models:
     gateway_llm: &gateway_llm
       name: databricks-claude-opus-4-6
-      ai_gateway: true
+      use_ai_gateway: true
       temperature: 0.1
       max_tokens: 1024
 ```
 
-**Why this exists.** `ChatDatabricks` (≤ `databricks-langchain` 0.19.0)
-has no `base_url` override and cannot target the AI Gateway path. AI
-Gateway is OpenAI-compatible, so dao-ai swaps to `ChatOpenAI` whenever
-the flag is set.
+> **Renamed.** This key was `ai_gateway` before dao-ai 0.2.9. The new
+> spelling matches the `use_ai_gateway` kwarg it feeds in
+> `databricks-langchain`, which dao-ai was the only layer to spell
+> differently. The legacy `ai_gateway:` key is still accepted via a
+> validation alias and will be removed in a future major release.
+
+**Why the subclass.** `ChatUnityAIGateway` exists only so MLflow trace
+spans carry a distinct class name (`_llm_type` is
+`chat-unity-ai-gateway`, not `chat-databricks`) — gateway-routed calls
+are then visually distinguishable in the trace UI. It inherits the full
+`ChatDatabricks` behavior.
 
 **Constraints.**
-- **Chat completions only.** AI Gateway exposes `/chat/completions`; it
-  does not implement the Responses API. Combining
-  `ai_gateway: true` with `use_responses_api: true` is rejected by the
-  Pydantic validator at load time.
 - **Structured output requires `disable_streaming: true`.** AI Gateway
   returns `INVALID_PARAMETER_VALUE: Structured output is not currently
   supported with streaming.` when a `with_structured_output` call streams.
   Set `disable_streaming: true` on configs that use structured output.
-- **Not for embedding endpoints.** AI Gateway is chat-only; embedding
-  endpoints (`databricks-gte-large-en` etc.) continue to use the legacy
-  path regardless of the flag.
+- **Not for embedding endpoints.** Embedding endpoints
+  (`databricks-gte-large-en` etc.) continue to use the legacy path
+  regardless of the flag — `as_embeddings_model()` builds a
+  `DatabricksEmbeddings` and never reads it.
+
+**Responses API.** The gateway serves both `/chat/completions` and
+`/responses` under `/ai-gateway/mlflow/v1`, so `use_ai_gateway: true`
+composes with `use_responses_api: true` — the combination POSTs to
+`/ai-gateway/mlflow/v1/responses`. dao-ai does not restrict the pairing.
+Raw HTTP against a live workspace, with `usage_details` meaning the reply
+carried `input_tokens_details` / `output_tokens_details`:
+
+| model | `/chat/completions` | `/responses` | `usage_details` |
+| --- | --- | --- | --- |
+| `databricks-gpt-5-4` | 200 | 200 | yes |
+| `databricks-gpt-5-4-mini` | 200 | 200 | yes |
+| `databricks-gpt-5-mini` | 200 | 200 | yes |
+| `system.ai.gpt-5-4` | 200 | 200 | yes |
+| `databricks-gpt-oss-120b` | 200 | 200 | no |
+| `databricks-claude-sonnet-4-5` | 200 | 200 | no |
+
+Three caveats. Only the first is a property of the pairing itself:
+
+- **A tool call breaks the pairing, on every model.** The gateway's
+  `/responses` translation layer cannot deserialize a `function_call`
+  content item. As soon as a turn contains one, the request fails:
+
+  ```
+  400 INVALID_PARAMETER_VALUE: Failed to parse ContentItem. Invalid Schema:
+  Could not resolve type id 'function_call' into a subtype of
+  [simple type, class com.databricks.fmapiproxy.translation.ContentItem]
+  ```
+
+  Observed live on a deployed app with `system.ai.gpt-5-4-mini` — a model
+  whose `usage` block is complete, so it is unrelated to the caveat below.
+  Every supervisor and swarm handoff is a tool call, as is every `tools:`
+  entry, so in practice pair `use_ai_gateway: true` with
+  `use_responses_api: true` only for a single agent that calls no tools.
+  This is server-side; `/chat/completions` handles tool calls normally.
+- **The `usage` block is what actually decides whether a reply parses.**
+  OpenAI-family models return the `*_details` sub-objects and work end to
+  end. `gpt-oss-120b` and `claude-sonnet-4-5` omit them on every path;
+  langchain-openai maps the absent fields to `None`, `AIMessage` rejects
+  `None` there, and the reply raises `ValidationError` on `usage_metadata`.
+  Use `/chat/completions` (`use_responses_api: false`) for those models.
+  This is a client-side limitation that can disappear on any
+  langchain-openai release, which is part of why dao-ai does not encode it
+  as a config error.
+- **A custom ResponsesAgent endpoint needs the legacy path.** The gateway
+  addresses only Foundation Model and UC-securable models, so a custom
+  endpoint name answers `404 "'<name>' does not exist."` through it. Set
+  `use_responses_api: true` with `use_ai_gateway: false` to reach one — that
+  is the flag's original purpose and it is unaffected by gateway routing.
+
+dao-ai always uses `/ai-gateway/mlflow/v1` and only that base URL. The
+gateway also exposes provider-specific passthroughs
+(`/ai-gateway/openai/v1`, and equivalents for other providers), but those
+cover only the models that provider itself serves. Routing every model
+through one base URL keeps behavior consistent regardless of which vendor
+is behind a given endpoint, so `use_ai_gateway_native_api` is deliberately
+not surfaced in config.
 
 **Auth.** Every credential mode supported on `InferenceEndpointModel`
 (PAT, service principal / OAuth-M2M, `on_behalf_of_user`) flows through
@@ -548,7 +614,7 @@ underlying `openai` SDK re-resolves the bearer token on every request
 via `WorkspaceClient.config.authenticate()` — short-lived OBO and SP
 tokens stay current automatically.
 
-**Fallbacks.** A model with `ai_gateway: true` can fall back to a legacy
+**Fallbacks.** A model with `use_ai_gateway: true` can fall back to a legacy
 Model Serving endpoint (or vice versa). Both clients are LangChain
 `Runnable`s, so `with_fallbacks(...)` composes the heterogeneous list
 without further configuration:
@@ -558,10 +624,92 @@ resources:
   models:
     resilient_llm: &resilient_llm
       name: databricks-claude-opus-4-6
-      ai_gateway: true
+      use_ai_gateway: true
       fallbacks:
       - databricks-claude-sonnet-4   # legacy Model Serving fallback
 ```
+
+### UC-securable model names (`resources.models.<name>.schema`)
+
+**`resources.models.<name>.schema`** *(SchemaModel, optional)* — The Unity AI
+Gateway addresses models as UC securables, so a model id can be a three-level
+name (`system.ai.claude-sonnet-4-5`) rather than a serving endpoint name
+(`databricks-claude-sonnet-4-5`). `schema` supplies the catalog and schema, and
+`InferenceEndpointModel` resolves `full_name` the same way `TableModel`,
+`VolumeModel`, and every other UC-backed config class does.
+
+Three spellings are accepted, and the first two are exactly what they were
+before this field existed:
+
+```yaml
+schemas:
+  system_ai: &system_ai
+    catalog_name: system
+    schema_name: ai
+
+resources:
+  models:
+    # 1. Serving endpoint name — the common case, unchanged.
+    endpoint_llm:
+      name: databricks-claude-sonnet-4-5
+
+    # 2. Fully qualified UC-securable name, no schema needed.
+    qualified_llm:
+      name: system.ai.claude-sonnet-4-5
+      use_ai_gateway: true
+
+    # 3. Schema anchor + short model name — reuse one anchor across models
+    #    instead of repeating `system.ai.` on each.
+    anchored_llm:
+      schema: *system_ai
+      name: claude-sonnet-4-5
+      use_ai_gateway: true
+```
+
+**A UC-securable name requires `use_ai_gateway: true`** — spellings 2 and 3
+alike, since they resolve the same id. A three-level name is only addressable on
+the gateway: `POST /serving-endpoints/system.ai.claude-sonnet-4-5/invocations`
+answers `404 ENDPOINT_NOT_FOUND`, while the same id on
+`/ai-gateway/mlflow/v1/chat/completions` answers `200`. dao-ai rejects the
+combination at config load rather than letting it become a 404 on first
+invocation. Setting `schema` on a `name` that is already fully qualified is
+rejected too — the two spellings would concatenate into
+`system.ai.system.ai.claude-sonnet-4-5`.
+
+**No serving-endpoint resource is emitted.** MLflow has no resource type for a
+UC-securable model, only `DatabricksServingEndpoint`, whose `endpoint_name` the
+platform resolves against `/api/2.0/serving-endpoints` — and neither
+`system.ai.claude-sonnet-4-5` nor the short `claude-sonnet-4-5` resolves there.
+So a model with a three-level `full_name` contributes nothing to the deploy
+manifest or auth policy; access is governed by UC grants on the model instead.
+Grant the deploying service principal (or the OBO user) `EXECUTE` on the model.
+Models addressed by endpoint name keep emitting their resource exactly as
+before.
+
+**Deploy target matters — this works on Apps, not on Model Serving.** Both
+targets were deployed live from the same config, with workers on all three
+spellings:
+
+| target | `databricks-*` name | `system.ai.*` name |
+| --- | --- | --- |
+| Databricks Apps | works | works |
+| Model Serving | works | `404 "'<name>' does not exist."` |
+
+The cause is the interaction between the paragraph above and Model Serving's
+automatic authentication: the endpoint's token is **downscoped to exactly the
+resources declared in the auth policy**. A UC-securable model declares none —
+it cannot — so it is invisible to that token, and the gateway reports the
+absence as `404 NOT_FOUND`, naming a model that demonstrably exists (the same
+id answers `200` under a full-scope token). Databricks Apps is unaffected
+because the app's service principal holds its own workspace identity rather
+than a per-deploy downscoped token.
+
+For a Model Serving deploy, either use the serving-endpoint spelling
+(`databricks-claude-sonnet-4-5` — the same underlying model; both ids resolve
+to the same provider model) or set `on_behalf_of_user: true` so the user's
+forwarded token is used. dao-ai logs a warning at deploy time naming each
+affected model, so this surfaces before the first request rather than as a
+misleading runtime 404.
 
 ### AI Search endpoint capacity (`target_qps`)
 
@@ -1132,7 +1280,7 @@ tools:
       api: completions   # explicit — skips discovery
 ```
 
-- `endpoint:` accepts an endpoint **name string** (sugar; promoted to a minimal `InferenceEndpointModel`) **or** a full `InferenceEndpointModel` when you need `temperature`, `max_tokens`, `ai_gateway`, or `on_behalf_of_user`.
+- `endpoint:` accepts an endpoint **name string** (sugar; promoted to a minimal `InferenceEndpointModel`) **or** a full `InferenceEndpointModel` when you need `temperature`, `max_tokens`, `use_ai_gateway`, or `on_behalf_of_user`.
 - `api:` defaults to lazy SDK probe via `serving_endpoints.get(name).task`. Falls back to `"completions"` when discovery returns no signal (preserves FMAPI behavior).
 
 ### Probe safety

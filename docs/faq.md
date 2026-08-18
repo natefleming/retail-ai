@@ -372,21 +372,23 @@ Create the Genie Space in the workspace UI first and copy its ID from the URL. S
 
 ### How do I use Unity AI Gateway?
 
-Set `ai_gateway: true` on an LLM resource. dao-ai will route chat completions through the Databricks AI Gateway path (`https://<host>/ai-gateway/mlflow/v1/chat/completions`) instead of the direct Model Serving path (`/serving-endpoints/<name>/invocations`). This is the standard way to pick up AI Gateway features — usage tracking, guardrails, PII redaction, and rate limiting — without changing any Python code.
+Set `use_ai_gateway: true` on an LLM resource. dao-ai will route the model through the Databricks AI Gateway (base URL `https://<host>/ai-gateway/mlflow/v1`) instead of the direct Model Serving path (`/serving-endpoints/<name>/invocations`). This is the standard way to pick up AI Gateway features — usage tracking, guardrails, PII redaction, and rate limiting — without changing any Python code.
 
 ```yaml
 resources:
   models:
     default_llm:
       name: databricks-claude-sonnet-4-5
-      ai_gateway: true                # route through AI Gateway
+      use_ai_gateway: true            # route through AI Gateway
       temperature: 0.1
       max_tokens: 2048
 ```
 
-**Constraints (enforced at load time):**
-- `ai_gateway: true` is incompatible with `use_responses_api: true` on the same resource (the AI Gateway path exposes chat-completions only). dao-ai raises a validation error if both are set.
-- OBO (`on_behalf_of_user: true`) + `ai_gateway: true` is permitted but relatively new — verify end-to-end trace propagation in your workspace before shipping.
+**Notes:**
+- The key was `ai_gateway` before dao-ai 0.2.9; the legacy spelling still parses via a validation alias, so existing configs keep working.
+- Composes with `use_responses_api: true` — the gateway serves both `/chat/completions` and `/responses`, and `/ai-gateway/mlflow/v1/responses` answers `200` for every model tested. Two things limit the pairing in practice. **Tool calls fail on every model:** the gateway cannot parse a `function_call` content item, so any turn that calls a tool — including every supervisor/swarm handoff — returns `INVALID_PARAMETER_VALUE`. Use the pairing only for a single agent with no tools. **And whether a reply parses is per-model:** OpenAI-family models (`gpt-5-4`, `gpt-5-4-mini`, `gpt-5-mini`) return the token-details fields langchain needs; `gpt-oss-120b` and `claude-sonnet-4-5` omit them and fail on `usage_metadata`, so use `/chat/completions` for those. To reach a custom ResponsesAgent endpoint, set `use_responses_api: true` with `use_ai_gateway: false` — the gateway serves only Foundation Model and UC-securable models. See [the full matrix](configuration-reference.md#ai-gateway-routing-use_ai_gateway).
+- A three-level `system.ai.*` model id works on Databricks Apps but **not** on Model Serving, whose token is downscoped to the declared resources and cannot see a model no MLflow resource type can declare. Use the `databricks-*` endpoint spelling (same underlying model) or `on_behalf_of_user: true` for a Model Serving deploy; dao-ai warns at deploy time. See [UC-securable model names](configuration-reference.md#uc-securable-model-names-resourcesmodelsnameschema).
+- OBO (`on_behalf_of_user: true`) + `use_ai_gateway: true` is permitted but relatively new — verify end-to-end trace propagation in your workspace before shipping.
 
 Canonical example: [`examples/01_getting_started/ai_gateway.yaml`](https://github.com/natefleming/dao-ai/blob/main/examples/01_getting_started/ai_gateway.yaml). Also used across `examples/99_complete_applications/commerce/`.
 

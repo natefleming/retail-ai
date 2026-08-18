@@ -246,6 +246,41 @@ def build_auth_policy(config: AppConfig) -> AuthPolicy:
         if not r.on_behalf_of_user
     ]
 
+    # A UC-securable model contributes no resource (nothing in MLflow can
+    # declare one), and Model Serving's automatic authentication hands the
+    # container a token downscoped to exactly the declared resources. So the
+    # model is simply invisible at runtime: verified on a live endpoint, the
+    # gateway answers ``404 NOT_FOUND: '<name>' does not exist`` for a name that
+    # returns 200 under a full-scope token. Say so at deploy time — the runtime
+    # 404 names a model that demonstrably exists, which sends people looking in
+    # the wrong place.
+    # Deduped: two keys can address one model (a qualified name and a schema
+    # anchor resolve alike), and this reads as a list of things to go fix.
+    unreachable: list[str] = sorted(
+        {
+            m.full_name
+            for m in config.resources.models.values()
+            if not m.on_behalf_of_user and m.is_uc_securable
+        }
+        if config.resources is not None
+        else set()
+    )
+    if unreachable:
+        logger.warning(
+            "UC-securable models are not reachable from a Model Serving "
+            "endpoint under automatic authentication",
+            models=unreachable,
+            note=(
+                "Model Serving downscopes the endpoint's token to the declared "
+                "resources, and no MLflow resource type can declare a "
+                "UC-securable model, so these will fail at request time with a "
+                "404 that claims the model does not exist. Use the serving "
+                "endpoint spelling (e.g. databricks-claude-sonnet-4-5) for a "
+                "Model Serving deploy, or set on_behalf_of_user: true so the "
+                "user's forwarded token is used instead."
+            ),
+        )
+
     if config.app and config.app.trace_location:
         # Currently a no-op (returns []). Kept as a call site so future
         # non-trace-table resources can attach to trace_location without

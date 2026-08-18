@@ -50,7 +50,7 @@ resources:
 tools:
   # Agent Bricks Customer Support Tool — first-class `type: serving_endpoint` (dao-ai
   # 0.1.97+). `endpoint:` accepts the full InferenceEndpointModel anchor so
-  # temperature / max_tokens / ai_gateway from the resource flow through.
+  # temperature / max_tokens / use_ai_gateway from the resource flow through.
   customer_support_tool: &customer_support_tool
     name: customer_support_agent
     function:

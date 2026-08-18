@@ -73,7 +73,7 @@ def _get_cached_llm(
             "Created OBO LLM client for decomposition",
             model=model_config.name,
             auth_type=workspace_client.config.auth_type,
-            ai_gateway=model_config.ai_gateway,
+            use_ai_gateway=model_config.use_ai_gateway,
         )
         # Force-disable streaming when best_of_n is set: the wrapper has to
         # buffer each candidate fully before judging.

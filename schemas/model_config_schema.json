@@ -4352,7 +4352,7 @@
     },
     "GenieAgentModel": {
       "additionalProperties": false,
-      "description": "A Genie Agent used as an agent's reasoning model (streaming brain).\n\nWraps a :class:`GenieRoomModel` and exposes the same duck-typed surface\n``AgentModel``/``OBOModelMiddleware`` expect from a model resource, so a\nplain agent with no tools becomes a natively-streaming \"Genie specialist\"\nthat a supervisor can route to like any other sub-agent.\n\nUnlike :class:`InferenceEndpointModel`, a Genie Agent is not a serving\nendpoint: :meth:`as_chat_model` returns a\n:class:`dao_ai.genie.agent_chat_model.GenieAgentChatModel` that streams the\nGenie Agent Mode API (``POST /api/2.0/genie/agents/{agent_id}/responses``)\nrather than a ``ChatDatabricks`` pointed at ``/serving-endpoints``. This is\na wrapper (composition), not a subclass of ``InferenceEndpointModel`` \u2014 a\nGenie Agent has no ``temperature``/``max_tokens``/``ai_gateway`` semantics\nand must never be substitutable into embedding/judge/rerank slots.\n\nAuthentication and OBO are delegated wholesale to the wrapped\n``genie_room`` (an :class:`IsDatabricksResource`), so there is exactly one\nOBO flag (``genie_room.on_behalf_of_user``) and no chance of a second flag\ndrifting out of sync.",
+      "description": "A Genie Agent used as an agent's reasoning model (streaming brain).\n\nWraps a :class:`GenieRoomModel` and exposes the same duck-typed surface\n``AgentModel``/``OBOModelMiddleware`` expect from a model resource, so a\nplain agent with no tools becomes a natively-streaming \"Genie specialist\"\nthat a supervisor can route to like any other sub-agent.\n\nUnlike :class:`InferenceEndpointModel`, a Genie Agent is not a serving\nendpoint: :meth:`as_chat_model` returns a\n:class:`dao_ai.genie.agent_chat_model.GenieAgentChatModel` that streams the\nGenie Agent Mode API (``POST /api/2.0/genie/agents/{agent_id}/responses``)\nrather than a ``ChatDatabricks`` pointed at ``/serving-endpoints``. This is\na wrapper (composition), not a subclass of ``InferenceEndpointModel`` \u2014 a\nGenie Agent has no ``temperature``/``max_tokens``/``use_ai_gateway`` semantics\nand must never be substitutable into embedding/judge/rerank slots.\n\nAuthentication and OBO are delegated wholesale to the wrapped\n``genie_room`` (an :class:`IsDatabricksResource`), so there is exactly one\nOBO flag (``genie_room.on_behalf_of_user``) and no chance of a second flag\ndrifting out of sync.",
       "properties": {
         "genie_room": {
           "$ref": "#/$defs/GenieRoomModel",
@@ -6396,8 +6396,20 @@
           "description": "Personal access token for PAT-based authentication.",
           "title": "Pat"
         },
+        "schema": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SchemaModel"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Schema qualifying a UC-securable model name, for models addressed through the Unity AI Gateway as UC securables (e.g. catalog `system`, schema `ai`). When set, `name` is the short model name and `full_name` resolves to `<catalog>.<schema>.<name>`. Omit it to pass a serving endpoint name \u2014 or an already-qualified model name \u2014 in `name` directly. Requires `use_ai_gateway: true`: a three-level name is only addressable on the gateway, and the `/serving-endpoints/<name>/invocations` path answers 404 for one."
+        },
         "name": {
-          "description": "Serving endpoint name (e.g., 'databricks-gpt-5-4-mini').",
+          "description": "Serving endpoint name (e.g. 'databricks-gpt-5-4-mini'), a UC-securable model name (e.g. 'system.ai.claude-sonnet-4-5'), or the short model name when `schema` is set. A UC-securable name requires `use_ai_gateway: true` however it is spelled \u2014 the `/serving-endpoints/<name>/invocations` path answers 404 for a three-level name.",
           "title": "Name",
           "type": "string"
         },
@@ -6487,7 +6499,7 @@
             }
           ],
           "default": false,
-          "description": "Use Responses API for ResponsesAgent endpoints",
+          "description": "Use the Responses API instead of chat completions. Composes with `use_ai_gateway`: /ai-gateway/mlflow/v1/responses answers 200 for every model tested. Caveat, per-model and client-side: OpenAI-family models (gpt-5-4, gpt-5-4-mini, gpt-5-mini) return input_tokens_details/output_tokens_details and work end to end, while gpt-oss-120b and claude-sonnet-4-5 omit them and langchain then fails on usage_metadata \u2014 use /chat/completions for those. Second caveat, server-side and model-independent: the gateway's /responses translation layer cannot parse a `function_call` content item, so any turn that makes a tool call fails with INVALID_PARAMETER_VALUE. That includes every supervisor/swarm handoff, so pair `use_ai_gateway` with `use_responses_api` only for agents that call no tools. To reach a custom ResponsesAgent serving endpoint, leave `use_ai_gateway` false: the gateway serves only Foundation Model and UC-securable models and 404s on a custom endpoint.",
           "title": "Use Responses Api"
         },
         "disable_streaming": {
@@ -6496,10 +6508,10 @@
           "title": "Disable Streaming",
           "type": "boolean"
         },
-        "ai_gateway": {
+        "use_ai_gateway": {
           "default": false,
-          "description": "Route through the Databricks AI Gateway (/ai-gateway/mlflow/v1/chat/completions) instead of /serving-endpoints/<name>/invocations. When True, `name` is sent as the OpenAI-style model id in the request body. AI Gateway is OpenAI-compatible chat completions only \u2014 not for embeddings, Responses API, or non-chat endpoints.",
-          "title": "Ai Gateway",
+          "description": "Route through the Databricks AI Gateway (/ai-gateway/mlflow/v1) instead of /serving-endpoints/<name>/invocations. When True, `name` is sent as the OpenAI-style model id in the request body. Serves both /chat/completions and /responses, so this composes with `use_responses_api` \u2014 see that field for the per-model caveat. Addresses Foundation Model and UC-securable models only, never a custom serving endpoint. Not for embeddings or other non-chat endpoints. Renamed from `ai_gateway` to match the databricks-langchain kwarg it feeds; the legacy key is still accepted and will be removed in a future major release.",
+          "title": "Use Ai Gateway",
           "type": "boolean"
         },
         "best_of_n": {
@@ -8930,7 +8942,7 @@
     },
     "ServingEndpointToolModel": {
       "additionalProperties": false,
-      "description": "First-class tool that calls a Databricks Model Serving endpoint.\n\nSupervisor API ``serving_endpoint`` contract. Covers FMAPI /\nFoundation Model API endpoints (Chat Completions) AND UC-registered\nagents deployed to Model Serving (ResponsesAgent). The wire shape\nis selected by ``api:``.\n\nDefault ``api:`` behavior: when ``api`` is unset (None), the wire\nshape is discovered lazily on first invocation via\n``WorkspaceClient.serving_endpoints.get(name).task``; mapped to\n``\"responses\"`` for ``task=\"agent/v1/responses\"`` and\n``\"completions\"`` for ``task=\"llm/v1/chat\"``. Falls back to\n``\"completions\"`` if discovery returns no signal. Setting ``api:``\nexplicitly skips discovery entirely.\n\n``endpoint`` accepts two shapes:\n\n- **String / variable** (sugar) \u2014 just the endpoint name. dao-ai\n  promotes it to a minimal ``InferenceEndpointModel`` internally.\n- **Full ``InferenceEndpointModel``** \u2014 when you need\n  ``temperature``, ``max_tokens``, ``ai_gateway``, or\n  ``on_behalf_of_user`` on the endpoint itself.",
+      "description": "First-class tool that calls a Databricks Model Serving endpoint.\n\nSupervisor API ``serving_endpoint`` contract. Covers FMAPI /\nFoundation Model API endpoints (Chat Completions) AND UC-registered\nagents deployed to Model Serving (ResponsesAgent). The wire shape\nis selected by ``api:``.\n\nDefault ``api:`` behavior: when ``api`` is unset (None), the wire\nshape is discovered lazily on first invocation via\n``WorkspaceClient.serving_endpoints.get(name).task``; mapped to\n``\"responses\"`` for ``task=\"agent/v1/responses\"`` and\n``\"completions\"`` for ``task=\"llm/v1/chat\"``. Falls back to\n``\"completions\"`` if discovery returns no signal. Setting ``api:``\nexplicitly skips discovery entirely.\n\n``endpoint`` accepts two shapes:\n\n- **String / variable** (sugar) \u2014 just the endpoint name. dao-ai\n  promotes it to a minimal ``InferenceEndpointModel`` internally.\n- **Full ``InferenceEndpointModel``** \u2014 when you need\n  ``temperature``, ``max_tokens``, ``use_ai_gateway``, or\n  ``on_behalf_of_user`` on the endpoint itself.",
       "properties": {
         "type": {
           "const": "serving_endpoint",
@@ -9009,7 +9021,7 @@
               "type": "boolean"
             }
           ],
-          "description": "Model Serving endpoint to call. Accepts either an endpoint name string (sugar) or a full InferenceEndpointModel with temperature / max_tokens / ai_gateway / on_behalf_of_user. For a UC-registered agent endpoint or a Knowledge Assistant this is the endpoint name (e.g., 'ka-customer-reviews', 'hardware_store_dao'). For FMAPI it's the foundation model endpoint name (e.g., 'databricks-claude-sonnet-4-5').",
+          "description": "Model Serving endpoint to call. Accepts either an endpoint name string (sugar) or a full InferenceEndpointModel with temperature / max_tokens / use_ai_gateway / on_behalf_of_user. For a UC-registered agent endpoint or a Knowledge Assistant this is the endpoint name (e.g., 'ka-customer-reviews', 'hardware_store_dao'). For FMAPI it's the foundation model endpoint name (e.g., 'databricks-claude-sonnet-4-5').",
           "title": "Endpoint"
         },
         "api": {

@@ -313,7 +313,7 @@ class TestOBOMiddlewareResourceInfo:
         llm_model.temperature = 0.0
         llm_model.max_tokens = None
         llm_model.use_responses_api = False
-        llm_model.ai_gateway = False
+        llm_model.use_ai_gateway = False
         llm_model.chat_model_for_workspace_client.return_value = MagicMock()
 
         middleware = OBOModelMiddleware(llm_model)
@@ -346,7 +346,7 @@ class TestOBOMiddlewareResourceInfo:
         llm_model.temperature = 0.0
         llm_model.max_tokens = None
         llm_model.use_responses_api = False
-        llm_model.ai_gateway = False
+        llm_model.use_ai_gateway = False
         llm_model.chat_model_for_workspace_client.return_value = MagicMock()
 
         middleware = OBOModelMiddleware(llm_model)

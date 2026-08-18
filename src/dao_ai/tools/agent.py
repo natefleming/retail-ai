@@ -88,7 +88,7 @@ def create_agent_endpoint_tool(
                 "Creating OBO chat client for agent endpoint tool",
                 model=llm.name,
                 auth_type=workspace_client.config.auth_type,
-                ai_gateway=llm.ai_gateway,
+                use_ai_gateway=llm.use_ai_gateway,
                 use_responses_api=llm.use_responses_api,
             )
             model: LanguageModelLike = llm.chat_model_for_workspace_client(

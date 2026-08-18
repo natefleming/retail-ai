@@ -115,13 +115,13 @@ resources:
   models:
     fast_llm: &fast_llm
       name: ${var.fast_llm}
-      ai_gateway: true
+      use_ai_gateway: true
       temperature: 0.1
       max_tokens: 4096
 
     tool_calling_llm: &tool_calling_llm
       name: ${var.llm}
-      ai_gateway: true
+      use_ai_gateway: true
       max_tokens: 4096
       fallbacks:
       - ${var.fallback_llm}

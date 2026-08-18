@@ -54,7 +54,7 @@ class OBOModelMiddleware(AgentMiddleware[AgentState, Context]):
             "OBOModelMiddleware: created OBO chat client",
             model=self.llm_model.name,
             auth_type=workspace_client.config.auth_type,
-            ai_gateway=self.llm_model.ai_gateway,
+            use_ai_gateway=self.llm_model.use_ai_gateway,
         )
         return self.llm_model.chat_model_for_workspace_client(workspace_client)
 
