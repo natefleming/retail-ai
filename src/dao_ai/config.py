@@ -1325,7 +1325,7 @@ class InferenceEndpointModel(IsDatabricksResource, HasFullName):
                     max_tokens=self.max_tokens,
                     extra_params=self.extra_params,
                 )
-            if fallback.name == self.name:
+            if fallback.full_name == self.full_name:
                 continue
             fallback_model: LanguageModelLike = fallback.as_chat_model()
             fallbacks.append(fallback_model)

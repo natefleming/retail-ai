@@ -578,6 +578,56 @@ def test_best_of_n_judge_string_inherits_gateway_from_primary() -> None:
     assert mock_unity.call_args_list[1].kwargs["model"] == "system.ai.claude-sonnet-4-5"
 
 
+def test_fallback_equal_to_the_primary_is_deduped_by_full_name() -> None:
+    """The self-dedup guard must key on ``full_name``, not ``name``. A
+    schema-anchored primary (``system.ai.claude-sonnet-4-5``) with a fallback
+    spelled as the equivalent full id is the *same* endpoint — keying on the
+    short segment (``claude-sonnet-4-5`` != ``system.ai.claude-sonnet-4-5``)
+    would miss it and retry the primary against itself."""
+    primary = InferenceEndpointModel.model_validate(
+        {
+            "schema": {"catalog_name": "system", "schema_name": "ai"},
+            "name": "claude-sonnet-4-5",
+            "use_ai_gateway": True,
+            "fallbacks": ["system.ai.claude-sonnet-4-5"],
+        }
+    )
+
+    with patch("dao_ai.config.ChatUnityAIGateway") as mock_unity:
+        primary.as_chat_model()
+
+    # Only the primary is built; the equivalent fallback is deduped away.
+    assert mock_unity.call_count == 1
+    mock_unity.return_value.with_fallbacks.assert_not_called()
+
+
+def test_distinct_models_sharing_a_short_name_are_not_deduped() -> None:
+    """The inverse: two different securables that share a short segment must
+    both survive. Keying on ``name`` would collapse ``system.ai.claude-...``
+    and ``other.ai.claude-...`` into one and silently drop the fallback."""
+    primary = InferenceEndpointModel.model_validate(
+        {
+            "schema": {"catalog_name": "system", "schema_name": "ai"},
+            "name": "claude-sonnet-4-5",
+            "use_ai_gateway": True,
+            "fallbacks": [
+                {
+                    "schema": {"catalog_name": "other", "schema_name": "ai"},
+                    "name": "claude-sonnet-4-5",
+                    "use_ai_gateway": True,
+                }
+            ],
+        }
+    )
+
+    with patch("dao_ai.config.ChatUnityAIGateway") as mock_unity:
+        primary.as_chat_model()
+
+    # Primary + the genuinely different fallback both built and composed.
+    assert mock_unity.call_count == 2
+    mock_unity.return_value.with_fallbacks.assert_called_once()
+
+
 # ---------------------------------------------------------------------------
 # Subclass identity — the observability contract
 # ---------------------------------------------------------------------------
