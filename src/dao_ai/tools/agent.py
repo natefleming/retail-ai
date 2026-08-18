@@ -75,7 +75,7 @@ def create_agent_endpoint_tool(
         context: Context | None = runtime.context if runtime else None
 
         set_resource_attributes(
-            ResourceInfo("agent_endpoint", llm.on_behalf_of_user, llm.name)
+            ResourceInfo("agent_endpoint", llm.on_behalf_of_user, llm.full_name)
         )
 
         if llm.on_behalf_of_user:
@@ -86,7 +86,7 @@ def create_agent_endpoint_tool(
             )
             logger.debug(
                 "Creating OBO chat client for agent endpoint tool",
-                model=llm.name,
+                model=llm.full_name,
                 auth_type=workspace_client.config.auth_type,
                 use_ai_gateway=llm.use_ai_gateway,
                 use_responses_api=llm.use_responses_api,

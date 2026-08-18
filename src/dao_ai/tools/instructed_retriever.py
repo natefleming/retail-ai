@@ -71,7 +71,7 @@ def _get_cached_llm(
         workspace_client: WorkspaceClient = model_config.workspace_client_from(context)
         logger.debug(
             "Created OBO LLM client for decomposition",
-            model=model_config.name,
+            model=model_config.full_name,
             auth_type=workspace_client.config.auth_type,
             use_ai_gateway=model_config.use_ai_gateway,
         )
@@ -108,7 +108,7 @@ def _get_cached_llm(
     if cache_key not in _llm_cache:
         _llm_cache[cache_key] = model_config.as_chat_model()
         logger.debug(
-            "Created new LLM client for decomposition", model=model_config.name
+            "Created new LLM client for decomposition", model=model_config.full_name
         )
     return _llm_cache[cache_key]
 

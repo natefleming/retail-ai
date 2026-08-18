@@ -62,6 +62,36 @@ def test_every_shipped_example_validates(config_path: Path) -> None:
 
 
 @pytest.mark.unit
+@pytest.mark.parametrize(
+    "config_path", _example_configs(), ids=lambda p: p.relative_to(EXAMPLES).as_posix()
+)
+def test_no_example_provisions_a_schema_in_the_system_catalog(
+    config_path: Path,
+) -> None:
+    """Entries under top-level ``schemas:`` are provisioned (CREATE SCHEMA) and
+    SP-granted at deploy (``01_ingest_and_transform.py``, ``service_principal``).
+    The reserved ``system`` catalog is neither — deploying such an example
+    fails or over-privileges. To qualify a UC-securable model name, the schema
+    belongs *inline* on the model, which is not provisioned. (PR #294 review:
+    the AI Gateway example declared ``system.ai`` here.)"""
+    try:
+        config = AppConfig.from_file(config_path, initialize=False)
+    except WorkspaceVariableError as exc:
+        pytest.skip(f"needs workspace auth: {exc}")
+
+    offenders = [
+        key
+        for key, schema in (config.schemas or {}).items()
+        if (schema.catalog_name or "").lower() == "system"
+    ]
+    assert not offenders, (
+        f"{config_path.relative_to(EXAMPLES)} declares top-level schema(s) "
+        f"{offenders} in the reserved 'system' catalog; put the schema inline "
+        f"on the model instead."
+    )
+
+
+@pytest.mark.unit
 def test_the_example_walk_actually_found_configs() -> None:
     """Guards the guard: an empty parametrize list would make this file green
     while checking nothing."""

@@ -308,12 +308,15 @@ class TestOBOMiddlewareResourceInfo:
         from dao_ai.middleware.obo import OBOModelMiddleware
 
         llm_model = MagicMock(spec=LLMModel)
-        llm_model.name = "my-obo-model"
+        # Schema-qualified: the trace must name the id that reaches the serving
+        # layer (full_name), not the short segment (name) — matching nodes.py.
+        llm_model.name = "claude-sonnet-4-5"
+        llm_model.full_name = "system.ai.claude-sonnet-4-5"
         llm_model.on_behalf_of_user = True
         llm_model.temperature = 0.0
         llm_model.max_tokens = None
         llm_model.use_responses_api = False
-        llm_model.use_ai_gateway = False
+        llm_model.use_ai_gateway = True
         llm_model.chat_model_for_workspace_client.return_value = MagicMock()
 
         middleware = OBOModelMiddleware(llm_model)
@@ -328,7 +331,7 @@ class TestOBOMiddlewareResourceInfo:
         info: ResourceInfo = mock_set.call_args[0][0]
         assert info.resource_type == "model_serving"
         assert info.on_behalf_of_user is True
-        assert info.name == "my-obo-model"
+        assert info.name == "system.ai.claude-sonnet-4-5"
 
     @patch("dao_ai.middleware.obo.set_resource_attributes")
     def test_async_wrap_sets_attributes(
@@ -341,12 +344,13 @@ class TestOBOMiddlewareResourceInfo:
         from dao_ai.middleware.obo import OBOModelMiddleware
 
         llm_model = MagicMock(spec=LLMModel)
-        llm_model.name = "my-obo-model"
+        llm_model.name = "claude-sonnet-4-5"
+        llm_model.full_name = "system.ai.claude-sonnet-4-5"
         llm_model.on_behalf_of_user = True
         llm_model.temperature = 0.0
         llm_model.max_tokens = None
         llm_model.use_responses_api = False
-        llm_model.use_ai_gateway = False
+        llm_model.use_ai_gateway = True
         llm_model.chat_model_for_workspace_client.return_value = MagicMock()
 
         middleware = OBOModelMiddleware(llm_model)
@@ -363,4 +367,4 @@ class TestOBOMiddlewareResourceInfo:
         info: ResourceInfo = mock_set.call_args[0][0]
         assert info.resource_type == "model_serving"
         assert info.on_behalf_of_user is True
-        assert info.name == "my-obo-model"
+        assert info.name == "system.ai.claude-sonnet-4-5"

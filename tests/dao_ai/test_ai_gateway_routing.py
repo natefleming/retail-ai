@@ -20,8 +20,8 @@ Verifies:
 - ``ChatUnityAIGateway`` is a ``ChatDatabricks`` subclass with
   ``use_ai_gateway=True`` defaulted (verifies the trace-observability
   contract)
-- Heterogeneous fallback lists (AI Gateway primary + legacy fallback)
-  compose without raising
+- A bare fallback/judge string inherits the primary's routing, so a
+  UC-securable fallback resolves through the gateway rather than crashing
 - Upstream ``ChatDatabricks`` strips the ``name`` field at the request
   boundary (the behavior dao-ai now relies on; smoke check)
 """
@@ -476,8 +476,8 @@ def test_as_chat_model_returns_runnable_with_bind_tools() -> None:
     )
 
 
-def test_heterogeneous_fallbacks_compose() -> None:
-    """AI Gateway primary + legacy fallback should chain via with_fallbacks."""
+def test_fallbacks_compose_via_with_fallbacks() -> None:
+    """A primary and its string fallback chain via with_fallbacks."""
     primary = InferenceEndpointModel(
         name="databricks-claude-opus-4-6",
         use_ai_gateway=True,
@@ -485,20 +485,97 @@ def test_heterogeneous_fallbacks_compose() -> None:
     )
 
     unity_instance = MagicMock(name="ChatUnityAIGateway-instance")
-    chat_databricks_instance = MagicMock(name="ChatDatabricks-instance")
     chained = MagicMock(name="with_fallbacks-result")
     unity_instance.with_fallbacks.return_value = chained
 
-    with (
-        patch("dao_ai.config.ChatUnityAIGateway", return_value=unity_instance),
-        patch("dao_ai.config.ChatDatabricks", return_value=chat_databricks_instance),
-    ):
+    with patch("dao_ai.config.ChatUnityAIGateway", return_value=unity_instance):
         result = primary.as_chat_model()
 
     unity_instance.with_fallbacks.assert_called_once()
-    (fallback_list,) = unity_instance.with_fallbacks.call_args.args
-    assert fallback_list == [chat_databricks_instance]
     assert result is chained
+
+
+def test_string_fallback_inherits_gateway_from_primary() -> None:
+    """A bare fallback string carries no routing of its own, so it inherits the
+    primary's: a gateway primary's string fallback is promoted with
+    ``use_ai_gateway=True`` and builds a ``ChatUnityAIGateway``, not a legacy
+    ``ChatDatabricks``. (Was mixed-mode before; PR #294 review made routing
+    consistent so a UC-securable fallback string can work at all.)"""
+    primary = InferenceEndpointModel(
+        name="databricks-claude-opus-4-6",
+        use_ai_gateway=True,
+        fallbacks=["databricks-gpt-5-4-mini"],
+    )
+
+    with (
+        patch("dao_ai.config.ChatUnityAIGateway") as mock_unity,
+        patch("dao_ai.config.ChatDatabricks") as mock_chat,
+    ):
+        primary.as_chat_model()
+
+    # Primary + fallback, both via the gateway; no legacy client built.
+    assert mock_unity.call_count == 2
+    mock_chat.assert_not_called()
+    assert mock_unity.call_args_list[1].kwargs["model"] == "databricks-gpt-5-4-mini"
+
+
+def test_uc_securable_fallback_string_does_not_crash() -> None:
+    """Regression (PR #294 review): a dotted UC-securable fallback string loaded
+    fine, then crashed in ``as_chat_model`` because promotion dropped
+    ``use_ai_gateway`` and ``validate_schema_qualification`` then rejected the
+    three-level name. Inheriting the primary's flag lets it build and reach the
+    gateway as the qualified id."""
+    primary = InferenceEndpointModel(
+        name="databricks-claude-opus-4-6",
+        use_ai_gateway=True,
+        fallbacks=["system.ai.claude-sonnet-4-5"],
+    )
+
+    with patch("dao_ai.config.ChatUnityAIGateway") as mock_unity:
+        primary.as_chat_model()
+
+    assert mock_unity.call_count == 2
+    assert mock_unity.call_args_list[1].kwargs["model"] == "system.ai.claude-sonnet-4-5"
+
+
+def test_string_fallback_stays_legacy_when_primary_is_legacy() -> None:
+    """The inverse: a legacy primary's string fallback inherits ``False`` and
+    stays on the ``ChatDatabricks`` path — existing configs are unaffected."""
+    primary = InferenceEndpointModel(
+        name="databricks-claude-opus-4-6",
+        fallbacks=["databricks-gpt-5-4-mini"],
+    )
+
+    with (
+        patch("dao_ai.config.ChatUnityAIGateway") as mock_unity,
+        patch("dao_ai.config.ChatDatabricks") as mock_chat,
+    ):
+        primary.as_chat_model()
+
+    mock_unity.assert_not_called()
+    assert mock_chat.call_count == 2
+
+
+def test_best_of_n_judge_string_inherits_gateway_from_primary() -> None:
+    """The judge is promoted from a string the same way a fallback is, and hits
+    the same crash on a UC-securable name. It inherits the primary's routing."""
+    primary = InferenceEndpointModel.model_validate(
+        {
+            "name": "databricks-claude-opus-4-6",
+            "use_ai_gateway": True,
+            "best_of_n": {"n": 2, "judge": "system.ai.claude-sonnet-4-5"},
+        }
+    )
+
+    with (
+        patch("dao_ai.config.ChatUnityAIGateway") as mock_unity,
+        patch("dao_ai.best_of_n.BestOfNChatModel"),
+    ):
+        primary.as_chat_model()
+
+    # Primary + judge, both via the gateway.
+    assert mock_unity.call_count == 2
+    assert mock_unity.call_args_list[1].kwargs["model"] == "system.ai.claude-sonnet-4-5"
 
 
 # ---------------------------------------------------------------------------

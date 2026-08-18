@@ -1315,6 +1315,12 @@ class InferenceEndpointModel(IsDatabricksResource, HasFullName):
             if isinstance(fallback, str):
                 fallback = InferenceEndpointModel(
                     name=fallback,
+                    # A bare string carries no routing of its own, so it inherits
+                    # the primary's: without this a UC-securable fallback name is
+                    # built with the default False and rejected by
+                    # validate_schema_qualification, and any fallback silently
+                    # drops off the gateway path the primary is on.
+                    use_ai_gateway=self.use_ai_gateway,
                     temperature=self.temperature,
                     max_tokens=self.max_tokens,
                     extra_params=self.extra_params,
@@ -1334,7 +1340,11 @@ class InferenceEndpointModel(IsDatabricksResource, HasFullName):
 
             judge_cfg = self.best_of_n.judge
             if isinstance(judge_cfg, str):
-                judge_cfg = InferenceEndpointModel(name=judge_cfg)
+                # Same as fallbacks: a bare judge string inherits the primary's
+                # routing so a UC-securable name builds and reaches the gateway.
+                judge_cfg = InferenceEndpointModel(
+                    name=judge_cfg, use_ai_gateway=self.use_ai_gateway
+                )
             judge_chat_model = judge_cfg.as_chat_model()
 
             chat_client = BestOfNChatModel.from_components(

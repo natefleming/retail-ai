@@ -58,11 +58,11 @@ schemas:
     catalog_name: ${var.catalog}
     schema_name: ${var.schema}
 
-  # Anchor for UC-securable model names. Reused by `anchored_llm` below so the
-  # `system.ai.` prefix is declared once rather than repeated per model.
-  system_ai: &system_ai
-    catalog_name: system
-    schema_name: ai
+  # NOTE: do not add a `system.ai` schema here. Entries under top-level
+  # `schemas:` are provisioned (CREATE SCHEMA) and SP-granted at deploy — the
+  # reserved `system` catalog is neither creatable nor grantable that way. To
+  # qualify a UC-securable model name, put the schema *inline* on the model
+  # (see `anchored_llm` below), not in this map.
 
 resources:
   models:
@@ -81,10 +81,14 @@ resources:
       use_ai_gateway: true
       max_tokens: 1024
 
-    # Same model, addressed through a schema anchor + the short model name.
+    # Same model, addressed through an inline schema + the short model name.
     # `full_name` resolves to system.ai.claude-sonnet-4-5, exactly as above.
+    # The schema is inline (not a top-level `schemas:` anchor) because that map
+    # is provisioned and granted — see the note under `schemas:`.
     anchored_llm: &anchored_llm
-      schema: *system_ai
+      schema:
+        catalog_name: system
+        schema_name: ai
       name: claude-sonnet-4-5
       use_ai_gateway: true
       max_tokens: 1024
@@ -94,9 +98,11 @@ resources:
       name: ${var.fallback_llm}
       max_tokens: 1024
 
-    # Mixed-mode fallbacks: AI Gateway primary with legacy fallback.
-    # Both clients are LangChain Runnables, so with_fallbacks composes
-    # them without further configuration.
+    # Fallbacks: a bare fallback string inherits the primary's routing, so this
+    # fallback is reached through the AI Gateway too. Both clients are LangChain
+    # Runnables, so with_fallbacks composes them without further configuration.
+    # (For a legacy-path fallback, spell it as a full model with
+    # use_ai_gateway: false rather than a bare string.)
     resilient_llm: &resilient_llm
       name: ${var.llm}
       use_ai_gateway: true
