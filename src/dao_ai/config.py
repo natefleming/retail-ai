@@ -8146,6 +8146,22 @@ class AgentModel(BaseModel):
             return {"run_limit": value}
         return value
 
+    handoff: Optional[bool] = Field(
+        default=None,
+        description=(
+            "Only meaningful when ``model`` is a Genie space (``GenieAgentModel``). "
+            "A Genie brain runs its tool loop server-side and never emits a client "
+            "tool call, so under a supervisor it is normally a graph sink: it "
+            "answers and the turn ends, and the supervisor cannot use its answer "
+            "and then route on. Set ``handoff: true`` to opt this Genie worker into "
+            "a deterministic handback: after it answers, control returns to the "
+            "supervisor (via an injected ``handoff_to_supervisor`` tool call) so the "
+            "supervisor can chain another agent in the same turn. LLM-free. Ignored "
+            "for non-Genie models (they hand off through their own tool loop) and in "
+            "the swarm pattern (use a swarm ``is_deterministic`` handoff route "
+            "instead, which already routes a Genie source at the graph level)."
+        ),
+    )
     requires: list[str] = Field(
         default_factory=list,
         description=(
@@ -8275,6 +8291,13 @@ class AgentModel(BaseModel):
         where the message can name the agent and the offending tools.
         """
         if not isinstance(self.model, GenieAgentModel):
+            if self.handoff is not None:
+                raise ValueError(
+                    f"Agent '{self.name}' sets 'handoff' but its model is not a "
+                    f"Genie space. 'handoff' opts a Genie brain into deterministic "
+                    f"handback to a supervisor; a non-Genie agent already hands off "
+                    f"through its own tool loop. Remove 'handoff'."
+                )
             return self
 
         if self.tools:

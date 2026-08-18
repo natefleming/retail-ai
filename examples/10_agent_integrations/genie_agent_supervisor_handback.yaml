@@ -1,0 +1,154 @@
+# yaml-language-server: $schema=../../../schemas/model_config_schema.json
+
+# ==============================================================================
+# Genie brain under a supervisor — deterministic handback (handoff: true)
+# ==============================================================================
+# A Genie-specialist agent whose reasoning model is a GenieAgentModel, composed
+# under a SUPERVISOR with a second agent that formats the final answer.
+#
+# The problem this solves
+# -----------------------
+# A Genie brain runs its tool loop server-side and never emits a client tool
+# call, so by default it is a graph *sink* under a supervisor: it answers and
+# the turn ends, and the supervisor can never take Genie's answer and route on
+# to another agent in the same turn.
+#
+# Setting `handoff: true` on the Genie agent opts it into a deterministic
+# handback: after Genie answers, GenieAgentMiddleware injects a
+# `handoff_to_supervisor` tool call, so control returns to the supervisor —
+# which can then delegate to the `composer` for a polished reply. LLM-free: no
+# extra model call is made to decide the handoff.
+#
+#   user_msg -> supervisor -> genie_specialist -> supervisor -> composer -> END
+#
+# Note (swarm): the equivalent in a swarm is a normal `is_deterministic: true`
+# handoff route out of the Genie agent — that already works and needs no flag,
+# because swarm deterministic handoffs route at the graph level.
+#
+# Preview status: the Genie Agent Mode API is in Beta. A workspace admin must
+# enable "Genie Agents Agent Mode API" from the Previews menu.
+#
+# Deploy (fevm), both surfaces:
+#   dao-ai agent up -c examples/10_agent_integrations/genie_agent_supervisor_handback.yaml --mode model_serving -p fevm
+#   dao-ai agent up -c examples/10_agent_integrations/genie_agent_supervisor_handback.yaml --mode apps          -p fevm
+# ==============================================================================
+
+parameters:
+  catalog:
+    description: Unity Catalog catalog for the registered model + trace tables
+    default: retail_consumer_goods
+  schema:
+    description: Schema within the catalog for the registered model + trace tables
+    default: dao_ai
+  llm:
+    description: Chat/reasoning serving endpoint for the supervisor and composer
+    default: databricks-claude-sonnet-5
+  genie_space_id:
+    description: Genie space (agent) id backing the Genie specialist brain
+    default: 01f153992389158da23cbf54fd8eb89d
+  warehouse_id:
+    description: SQL warehouse used to export MLflow traces to UC OTEL tables
+    default: d58e5fb998498840
+
+schemas:
+  agent_schema: &agent_schema
+    catalog_name: ${var.catalog}
+    schema_name: ${var.schema}
+
+resources:
+  genie_rooms:
+    # `agent_id` is an alias of `space_id` (Genie Spaces were renamed to Genie
+    # Agents; same 32-char hex). Registering the room here makes the bundle emit
+    # the genie-space grant; a GenieAgentModel config-load fails otherwise.
+    sporting_goods_genie: &sporting_goods_genie
+      name: "Sales and Pricing Analytics - Sporting Goods"
+      description: "Sales performance, pricing, margin, and revenue analytics"
+      agent_id: ${var.genie_space_id}
+
+  llms:
+    default_llm: &default_llm
+      name: ${var.llm}
+
+agents:
+  genie_specialist: &genie_specialist
+    name: genie_specialist
+    description: >-
+      Answers questions about sporting-goods sales, pricing, margins, and
+      revenue by querying the data warehouse with Databricks Genie.
+    # The Genie Agent IS this agent's brain (a GenieAgentModel, defined inline).
+    model:
+      genie_room: *sporting_goods_genie
+      timeout_seconds: 300
+    tools: []
+    # Opt into deterministic handback so the supervisor regains control after
+    # Genie answers and can chain the composer in the same turn.
+    handoff: true
+    prompt: |
+      You are a sporting-goods data specialist backed by Databricks Genie.
+      Relay Genie's answer clearly, preserving any SQL, result tables, and
+      citations Genie includes.
+
+  composer: &composer
+    name: composer
+    description: >-
+      Turns a specialist's raw findings into a concise, well-formatted,
+      customer-facing answer.
+    model: *default_llm
+    tools: []
+    prompt: |
+      You are the composer. Rewrite the prior specialist's findings into a
+      clear, friendly answer for the end user. Keep any figures and tables
+      accurate. When the question is fully answered, stop.
+
+app:
+  name: genie_supervisor_handback_dao
+  description: >
+    A Genie brain composed under a supervisor via deterministic handback,
+    then formatted by a composer agent.
+  log_level: INFO
+
+  # Deploy to BOTH Databricks Apps (chat UI + agent server) AND Model Serving
+  # (UC-registered model). Model Serving traces land in the MLflow experiment
+  # automatically; Apps needs trace_location (below) for durable traces.
+  registered_model:
+    schema: *agent_schema
+    name: genie_supervisor_handback_dao
+
+  endpoint_name: genie_supervisor_handback_dao
+
+  # MLflow trace persistence on Databricks Apps requires trace_location — Apps
+  # containers cannot reach the default control-plane trace storage host, so
+  # exports are routed through a SQL warehouse to UC OTEL tables. Do NOT set
+  # table_prefix (MLflow's V4 search_traces hardcodes the default table name).
+  trace_location:
+    schema: *agent_schema
+    warehouse: ${var.warehouse_id}
+
+  permissions:
+  - principals: [users]
+    entitlements:
+    - CAN_QUERY
+
+  tags:
+    pattern: supervisor
+    streaming: true
+    feature: genie_handback
+
+  agents:
+  - *genie_specialist
+  - *composer
+
+  orchestration:
+    supervisor:
+      model: *default_llm
+      tools: []
+      prompt: |
+        You are the supervisor. Route data questions to `genie_specialist`.
+        When it hands back with an answer, delegate to `composer` to produce
+        the final customer-facing reply, then stop. Do not re-route to
+        `genie_specialist` unless the user asks a new data question.
+
+  input_example:
+    messages:
+    - role: user
+      content: "What were the total sales by store, and which store sold the most?"

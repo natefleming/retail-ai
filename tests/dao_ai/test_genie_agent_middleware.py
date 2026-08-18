@@ -21,6 +21,7 @@ from unittest.mock import MagicMock
 
 from langchain.agents.middleware.types import ExtendedModelResponse, ModelResponse
 from langchain_core.messages import AIMessage
+from langchain_core.tools import BaseTool, tool
 
 from dao_ai.config import GenieAgentModel, GenieRoomModel
 from dao_ai.genie.agent_chat_model import CONVERSATION_ID_METADATA_KEY
@@ -30,7 +31,15 @@ from dao_ai.state import Context, SessionState
 AGENT_ID = "01f05dd06c421ad6b522bf7a517cf6d2"
 
 
-def _middleware(monkeypatch: Any) -> tuple[GenieAgentMiddleware, dict[str, Any]]:
+@tool
+def handoff_to_supervisor(summary: str) -> str:
+    """Hand control back to the supervisor."""
+    return "ok"
+
+
+def _middleware(
+    monkeypatch: Any, handback: bool = False
+) -> tuple[GenieAgentMiddleware, dict[str, Any]]:
     """Build a middleware whose model-build is stubbed to record its args."""
     model = GenieAgentModel(genie_room=GenieRoomModel(space_id=AGENT_ID))
     built: dict[str, Any] = {}
@@ -50,13 +59,16 @@ def _middleware(monkeypatch: Any) -> tuple[GenieAgentMiddleware, dict[str, Any]]
         return MagicMock(name="GenieAgentChatModel")
 
     monkeypatch.setattr(GenieAgentModel, "chat_model_for_workspace_client", _fake_build)
-    return GenieAgentMiddleware(genie_model=model), built
+    return GenieAgentMiddleware(genie_model=model, handback=handback), built
 
 
-def _request(session: SessionState | None) -> MagicMock:
+def _request(
+    session: SessionState | None, tools: list[BaseTool] | None = None
+) -> MagicMock:
     request = MagicMock(name="ModelRequest")
     request.state = {"session": session} if session is not None else {}
     request.runtime.context = Context(user_id="u", thread_id="thr-1")
+    request.tools = tools if tools is not None else []
     request.override.return_value = request
     return request
 
@@ -122,6 +134,93 @@ class TestPersistIssuedId:
         merged: SessionState = result.command.update["session"]
         assert merged.genie.get_conversation_id(AGENT_ID) == "conv-new"
         assert merged.genie.get_conversation_id("other-agent") == "other-conv"
+
+
+def _final_ai_message(result: Any) -> AIMessage:
+    """Pull the last AIMessage off a wrap result (ModelResponse or Extended)."""
+    response = (
+        result.model_response
+        if isinstance(result, ExtendedModelResponse)
+        else result
+    )
+    for message in reversed(response.result):
+        if isinstance(message, AIMessage):
+            return message
+    raise AssertionError("no AIMessage in response")
+
+
+class TestDeterministicHandback:
+    def test_injects_handback_tool_call(self, monkeypatch: Any) -> None:
+        mw, _ = _middleware(monkeypatch, handback=True)
+        request = _request(None, tools=[handoff_to_supervisor])
+        result = mw.wrap_model_call(request, _handler_returning(None))
+
+        message = _final_ai_message(result)
+        assert len(message.tool_calls) == 1
+        call = message.tool_calls[0]
+        assert call["name"] == "handoff_to_supervisor"
+        assert call["args"]["summary"]  # non-empty
+        assert call["id"]
+
+    def test_preserves_content_and_conversation_id(self, monkeypatch: Any) -> None:
+        mw, _ = _middleware(monkeypatch, handback=True)
+        request = _request(None, tools=[handoff_to_supervisor])
+
+        def _handler(_req: Any) -> ModelResponse:
+            return ModelResponse(
+                result=[
+                    AIMessage(
+                        "Top 10 suppliers are ...",
+                        response_metadata={CONVERSATION_ID_METADATA_KEY: "conv-new"},
+                    )
+                ]
+            )
+
+        result = mw.wrap_model_call(request, _handler)
+
+        # Injection must not disturb the conversation-id persistence path.
+        assert isinstance(result, ExtendedModelResponse)
+        assert (
+            result.command.update["session"].genie.get_conversation_id(AGENT_ID)
+            == "conv-new"
+        )
+        message = _final_ai_message(result)
+        assert message.content == "Top 10 suppliers are ..."
+        assert message.response_metadata[CONVERSATION_ID_METADATA_KEY] == "conv-new"
+        assert message.tool_calls[0]["args"]["summary"].startswith("Top 10 suppliers")
+
+    def test_no_injection_when_disabled(self, monkeypatch: Any) -> None:
+        mw, _ = _middleware(monkeypatch, handback=False)
+        request = _request(None, tools=[handoff_to_supervisor])
+        result = mw.wrap_model_call(request, _handler_returning(None))
+        assert _final_ai_message(result).tool_calls == []
+
+    def test_no_injection_when_no_handoff_tool_bound(self, monkeypatch: Any) -> None:
+        mw, _ = _middleware(monkeypatch, handback=True)
+        request = _request(None, tools=[])
+        result = mw.wrap_model_call(request, _handler_returning(None))
+        assert _final_ai_message(result).tool_calls == []
+
+    def test_summary_falls_back_when_answer_empty(self, monkeypatch: Any) -> None:
+        mw, _ = _middleware(monkeypatch, handback=True)
+        request = _request(None, tools=[handoff_to_supervisor])
+
+        def _empty(_req: Any) -> ModelResponse:
+            return ModelResponse(result=[AIMessage("")])
+
+        result = mw.wrap_model_call(request, _empty)
+        assert _final_ai_message(result).tool_calls[0]["args"]["summary"]
+
+    def test_awrap_injects_handback(self, monkeypatch: Any) -> None:
+        mw, _ = _middleware(monkeypatch, handback=True)
+        request = _request(None, tools=[handoff_to_supervisor])
+
+        async def _ahandler(_req: Any) -> ModelResponse:
+            return ModelResponse(result=[AIMessage("async answer")])
+
+        result = asyncio.run(mw.awrap_model_call(request, _ahandler))
+        call = _final_ai_message(result).tool_calls[0]
+        assert call["name"] == "handoff_to_supervisor"
 
 
 class TestAsync:

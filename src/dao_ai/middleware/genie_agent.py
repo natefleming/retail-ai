@@ -35,6 +35,7 @@ Flow per call:
 from __future__ import annotations
 
 from typing import Any, Awaitable, Callable, Optional
+from uuid import uuid4
 
 from langchain.agents.middleware.types import (
     ExtendedModelResponse,
@@ -43,6 +44,7 @@ from langchain.agents.middleware.types import (
 )
 from langchain_core.language_models import LanguageModelLike
 from langchain_core.messages import AIMessage
+from langchain_core.tools import BaseTool
 from langgraph.types import Command
 from loguru import logger
 
@@ -52,13 +54,30 @@ from dao_ai.middleware.base import AgentMiddleware
 from dao_ai.state import AgentState, Context, SessionState
 from dao_ai.tools.tracing import ResourceInfo, set_resource_attributes
 
+# Prefix shared by every handoff tool created by ``create_handoff_tool`` /
+# ``_create_handoff_back_to_supervisor_tool`` (orchestration). The deterministic
+# handback discovers the bound handback tool by this prefix rather than
+# hardcoding its name, so a rename in orchestration cannot silently break it.
+_HANDOFF_TOOL_PREFIX: str = "handoff_to_"
+
+# Fallback summary when Genie's answer has no usable text to summarize.
+_DEFAULT_HANDBACK_SUMMARY: str = "Genie provided a data analysis above."
+
+# Longest summary string synthesized for the injected handback tool call.
+_MAX_HANDBACK_SUMMARY_CHARS: int = 500
+
 
 class GenieAgentMiddleware(AgentMiddleware[AgentState, Context]):
     """Rebuild a Genie chat model per request with OBO + prior conversation_id,
     and persist the newly-issued conversation_id back to ``session``."""
 
-    def __init__(self, genie_model: GenieAgentModel) -> None:
+    def __init__(self, genie_model: GenieAgentModel, handback: bool = False) -> None:
         self.genie_model = genie_model
+        # When True (set from ``AgentModel.handoff`` for a Genie brain under a
+        # supervisor), inject a ``handoff_to_supervisor`` tool call into Genie's
+        # answer so the worker returns control to the supervisor instead of
+        # being a graph sink. LLM-free.
+        self.handback = handback
 
     # -- helpers -------------------------------------------------------
 
@@ -96,6 +115,89 @@ class GenieAgentMiddleware(AgentMiddleware[AgentState, Context]):
                     return str(conv_id)
         return None
 
+    # -- deterministic handback ----------------------------------------
+
+    @staticmethod
+    def _handback_tool_name(request: ModelRequest) -> Optional[str]:
+        """Return the name of the bound handoff/handback tool, if any.
+
+        A Genie worker opted into handback is given exactly one such tool by the
+        supervisor (``_create_handoff_back_to_supervisor_tool``); we discover it
+        by the shared ``handoff_to_`` prefix rather than hardcoding the name.
+        Returns ``None`` when no handoff tool is bound (e.g. the Genie agent is a
+        single-agent app), in which case injection is skipped.
+        """
+        for tool in request.tools or []:
+            if isinstance(tool, BaseTool) and tool.name.startswith(
+                _HANDOFF_TOOL_PREFIX
+            ):
+                return tool.name
+        return None
+
+    @staticmethod
+    def _synthesize_summary(message: AIMessage) -> str:
+        """Build a non-empty ``summary`` arg from Genie's answer text.
+
+        ``handoff_to_supervisor(summary: str)`` rejects an empty summary at
+        ToolNode schema validation, so always return something.
+        """
+        content: Any = message.content
+        text: str = ""
+        if isinstance(content, str):
+            text = content.strip()
+        elif isinstance(content, list):
+            parts: list[str] = [
+                block.get("text", "")
+                for block in content
+                if isinstance(block, dict)
+                and block.get("type") in {"text", "output_text"}
+            ]
+            text = "\n".join(p for p in parts if p).strip()
+        if not text:
+            return _DEFAULT_HANDBACK_SUMMARY
+        return text[:_MAX_HANDBACK_SUMMARY_CHARS]
+
+    def _maybe_inject_handback(
+        self, request: ModelRequest, response: ModelResponse
+    ) -> None:
+        """Attach a handback tool call to Genie's answer, in place.
+
+        Genie never emits a client tool call, so under a supervisor its turn ends
+        unless we route control back. We rewrite the final ``AIMessage`` to carry
+        a ``handoff_to_supervisor`` tool call; langchain's agent loop then routes
+        to the ToolNode, which runs the handback tool → ``Command(goto=...,
+        graph=PARENT)`` — the same return path every normal worker uses.
+        """
+        tool_name: Optional[str] = self._handback_tool_name(request)
+        if tool_name is None:
+            logger.warning(
+                "Genie handback enabled but no handoff tool is bound; "
+                "skipping injection (the worker will remain a graph sink)",
+                agent_id=self.genie_model.name,
+            )
+            return
+
+        result: list[Any] = response.result or []
+        for index in range(len(result) - 1, -1, -1):
+            message: Any = result[index]
+            if not isinstance(message, AIMessage):
+                continue
+            if message.tool_calls:
+                return  # Genie unexpectedly emitted a tool call; leave it be.
+            tool_call: dict[str, Any] = {
+                "name": tool_name,
+                "args": {"summary": self._synthesize_summary(message)},
+                "id": f"genie_handback_{uuid4().hex}",
+                "type": "tool_call",
+            }
+            result[index] = message.model_copy(update={"tool_calls": [tool_call]})
+            logger.debug(
+                "Injected deterministic Genie handback tool call",
+                agent_id=self.genie_model.name,
+                tool=tool_name,
+            )
+            return
+
     def _session_command(
         self,
         state: AgentState,
@@ -130,9 +232,10 @@ class GenieAgentMiddleware(AgentMiddleware[AgentState, Context]):
         prior: Optional[str] = self._prior_conversation_id(request.state)
         model: LanguageModelLike = self._build_model(context, prior)
         response: ModelResponse = handler(request.override(model=model))
-        command: Command | None = self._session_command(
-            request.state, self._issued_conversation_id(response), prior
-        )
+        issued: Optional[str] = self._issued_conversation_id(response)
+        if self.handback:
+            self._maybe_inject_handback(request, response)
+        command: Command | None = self._session_command(request.state, issued, prior)
         if command is None:
             return response
         return ExtendedModelResponse(model_response=response, command=command)
@@ -148,9 +251,10 @@ class GenieAgentMiddleware(AgentMiddleware[AgentState, Context]):
         prior: Optional[str] = self._prior_conversation_id(request.state)
         model: LanguageModelLike = self._build_model(context, prior)
         response: ModelResponse = await handler(request.override(model=model))
-        command: Command | None = self._session_command(
-            request.state, self._issued_conversation_id(response), prior
-        )
+        issued: Optional[str] = self._issued_conversation_id(response)
+        if self.handback:
+            self._maybe_inject_handback(request, response)
+        command: Command | None = self._session_command(request.state, issued, prior)
         if command is None:
             return response
         return ExtendedModelResponse(model_response=response, command=command)
