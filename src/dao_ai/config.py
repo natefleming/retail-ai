@@ -10187,36 +10187,66 @@ class AppModel(BaseModel):
         no tool call, ``active_agent`` is never written, and the swarm router
         lands every later turn back on the same agent — everything past the brain
         is unreachable, with no error anywhere. A deterministic handoff is a real
-        parent-graph edge and still works; so does a brain with no outbound
-        handoffs, which is simply a leaf that ends the turn.
+        parent-graph edge and still works; so does a brain that is a leaf.
+
+        The check must mirror how the runtime resolves handoffs, not just the
+        keys the author spelled out: ``_handoffs_for_agent`` defaults an agent
+        *absent* from the dict (and every agent when the dict is empty) to
+        agentic handoffs to all agents (``handoffs.get(name, config.app.agents)``).
+        So a brain is a leaf only when its outbound list is declared *empty* —
+        omission is the dead-swarm case, and is rejected the same as an explicit
+        agentic handoff. A self-handoff is not a route away, so a lone-brain
+        swarm (whose default resolves to just itself) is left alone.
         """
         if self.orchestration is None or self.orchestration.swarm is None:
             return self
 
-        handoffs = self.orchestration.swarm.handoffs or {}
         brain_names: set[str] = {
             agent.name
             for agent in self.agents
             if isinstance(agent.model, GenieAgentModel)
         }
-        if not handoffs or not brain_names:
+        if not brain_names:
             return self
 
-        for source_name, entries in handoffs.items():
-            if source_name not in brain_names:
-                continue
-            for entry in entries or ():
+        handoffs = self.orchestration.swarm.handoffs or {}
+
+        def _target_names(
+            entry: "AgentModel | str | HandoffRouteModel",
+        ) -> set[str]:
+            def _name(a: "AgentModel | str") -> str:
+                return a.name if isinstance(a, AgentModel) else a
+
+            if isinstance(entry, HandoffRouteModel):
+                if entry.agents:
+                    return {_name(a) for a in entry.agents}
+                return {_name(entry.agent)} if entry.agent is not None else set()
+            return {_name(entry)}
+
+        for brain_name in brain_names:
+            # Resolve exactly as the runtime does: a missing key defaults to
+            # every agent (legacy peer-to-peer swarm), an explicit list is used
+            # verbatim, and an explicit None/[] makes the brain a leaf.
+            effective = handoffs.get(brain_name, self.agents)
+            for entry in effective or ():
                 if isinstance(entry, HandoffRouteModel) and entry.is_deterministic:
                     continue
-                raise ValueError(
-                    f"Swarm agent '{source_name}' uses a Genie space as its "
-                    f"model, which discards the agentic handoff tools it is "
-                    f"given — it could never route away, so every later turn "
-                    f"would land back on it and the rest of the swarm would be "
-                    f"unreachable. Declare the handoff with "
-                    f"`is_deterministic: true`, or give the agent an LLM model "
-                    f"and reach Genie through a `type: genie` tool instead."
-                )
+                # A self-handoff is not a route away, so it does not strand the
+                # swarm; only an agentic handoff to another agent does.
+                if _target_names(entry) - {brain_name}:
+                    raise ValueError(
+                        f"Swarm agent '{brain_name}' uses a Genie space as its "
+                        f"model, which discards the agentic handoff tools it is "
+                        f"given — it could never route away, so every later turn "
+                        f"would land back on it and the rest of the swarm would "
+                        f"be unreachable. Declare each handoff out of it with "
+                        f"`is_deterministic: true`, declare its handoffs empty "
+                        f"(`{brain_name}: []`) to make it a leaf, or give the "
+                        f"agent an LLM model and reach Genie through a "
+                        f"`type: genie` tool instead. (An agent omitted from "
+                        f"`handoffs` defaults to agentic handoffs to every "
+                        f"agent, so omission is not leaf-ness.)"
+                    )
 
         return self
 

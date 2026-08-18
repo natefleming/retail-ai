@@ -254,13 +254,43 @@ class TestSwarmBrainHandoffs:
         )
         assert config.app.orchestration.swarm is not None
 
-    def test_a_brain_with_no_outbound_handoffs_is_allowed(self) -> None:
-        """A brain as a swarm leaf is fine — it answers and the turn ends."""
-        config = self._swarm({"billing": ["sellout"]}, default_agent="billing")
+    def test_a_brain_as_an_explicit_leaf_is_allowed(self) -> None:
+        """A brain as a swarm leaf is fine — but *only* when its outbound
+        handoffs are declared empty. Omission is not leaf-ness (see below)."""
+        config = self._swarm(
+            {"sellout": [], "billing": ["sellout"]}, default_agent="billing"
+        )
+        assert config.app.orchestration.swarm is not None
+
+    def test_a_brain_omitted_from_handoffs_is_rejected(self) -> None:
+        """The hole this closes: ``_handoffs_for_agent`` defaults an agent that
+        is *absent* from the handoffs dict to agentic handoffs to every agent
+        (``handoffs.get(name, config.app.agents)``). So omitting the brain is
+        not leaf-ness — it is the dead-swarm case, and must be rejected exactly
+        like an explicit agentic handoff."""
+        with pytest.raises(ValueError) as excinfo:
+            self._swarm({"billing": ["sellout"]}, default_agent="billing")
+        message = str(excinfo.value)
+        assert "sellout" in message
+        assert "is_deterministic" in message
+
+    def test_an_empty_handoffs_dict_still_rejects_a_brain(self) -> None:
+        """An empty ``handoffs`` dict defaults *every* agent to all-agents
+        agentic — the brain included — so it is not a free pass."""
+        with pytest.raises(ValueError):
+            self._swarm({}, default_agent="sellout")
+
+    def test_a_lone_brain_swarm_is_allowed(self) -> None:
+        """The default resolves to ``config.app.agents``, which for a single
+        brain is just itself — a self-handoff is not a route away, so there is
+        no dead-swarm and nothing to reject."""
+        config = _config([_brain("solo", SPACE_A)])
         assert config.app.orchestration.swarm is not None
 
     def test_agentic_handoff_out_of_an_llm_agent_is_untouched(self) -> None:
-        config = self._swarm({"billing": ["sellout"]}, default_agent="billing")
+        config = self._swarm(
+            {"sellout": [], "billing": ["sellout"]}, default_agent="billing"
+        )
         handoffs = config.app.orchestration.swarm.handoffs or {}
         assert "billing" in handoffs
 
