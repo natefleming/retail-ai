@@ -1460,9 +1460,10 @@ agents:
     # model:                             # explicit wrapper form (custom knobs):
     #   genie_room: *retail_genie
     #   timeout_seconds: 600
-    tools: []                            # Genie IS the brain; no tools
-    prompt: |
-      Relay Genie's answer, preserving SQL, tables, and citations.
+    tools: []                            # Genie IS the brain; no tools (required)
+    # No `prompt:` — Genie receives only the latest user turn, so a system
+    # prompt would be dropped. Steer the answer with the space's own
+    # `text_instructions` instead. Likewise no `response_format:`.
 ```
 
 **Assignment forms.** `model:` accepts either a bare Genie room (a
@@ -1505,6 +1506,51 @@ persisting the newly-issued one after (via the `merge_session` reducer).
 Databricks Apps, or `ModelServingUserCredentials` on Model Serving. When OBO is
 set, also set the room's `workspace_host` unless `DATABRICKS_HOST` is in the
 environment (it is on Apps/MS deploys).
+
+### Under an orchestrator
+
+One fact drives all of the following: Genie Agent Mode runs its **own tool loop
+server-side** and offers no way to declare client tools, so
+`GenieAgentChatModel.bind_tools` returns the model unchanged. Anything handed to
+a Genie brain to *call* is discarded — silently, at runtime, in the middle of a
+graph that compiled cleanly. dao-ai therefore rejects those shapes at config
+load, naming the agent.
+
+**Rejected at config load:**
+
+| Config on a Genie-brain agent | Why |
+| --- | --- |
+| `tools:` non-empty | Registered in the agent's ToolNode and never callable. Use an LLM-backed agent with a `type: genie` tool instead. |
+| `response_format:` | The binding is dropped; Genie streams narrative markdown regardless. |
+| Swarm handoff *out of* the brain without `is_deterministic: true` | The handoff tool is discarded, so no tool call is emitted, `active_agent` is never written, and the swarm router lands **every later turn back on the same agent** — the rest of the swarm becomes unreachable with no error. |
+
+**Silently ignored (not an error):** `prompt:`. Only the latest `HumanMessage`
+reaches Genie — prior turns and system prompts are not replayed, because the
+server owns history via `conversation_id`. Put the guidance in the space's
+`text_instructions`.
+
+**Per orchestration mode:**
+
+- **`supervisor` — works.** The supervisor routes to the brain like any other
+  worker. The brain gets no `handoff_to_supervisor` (it could never call it), and
+  there is no worker→supervisor edge, so it is a **graph sink**: it answers and
+  the turn ends. A supervisor therefore cannot chain a brain with another agent
+  *within one turn* — it re-routes on the next turn. Graph build logs a warning
+  naming each brain worker.
+- **`swarm` — works with deterministic handoffs only.** `is_deterministic: true`
+  compiles to a real parent-graph edge, which needs no tool call. A brain as a
+  swarm **leaf** (no outbound handoffs) is also fine — it ends the turn.
+  Handoffs *into* a brain are unrestricted.
+- **`deep_agent` — not supported.** `_resolve_model` in
+  `src/dao_ai/orchestration/deep_agent.py` is typed
+  `InferenceEndpointModel | str | None`, so a `GenieAgentModel` passes straight
+  through to `deepagents`, which expects `str | BaseChatModel`. Reach Genie from
+  a deep agent with a `type: genie` **tool** instead.
+
+Because a supervisor cannot see inside a brain, give the agent a good
+`description` — it is the only thing the supervisor routes on (`get_handoff_description`
+falls back to `"Handles <name> related tasks and inquiries"`, which carries no
+signal).
 
 ### See Also
 

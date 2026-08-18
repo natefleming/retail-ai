@@ -17,16 +17,36 @@ multi-turn tests (in-memory checkpointer, no store, no extraction, a recorded
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Callable
 from unittest.mock import MagicMock, patch
 
 import pytest
+from loguru import logger
 
 from dao_ai.config import (
     AppConfig,
     GenieAgentModel,
     InferenceEndpointModel,
 )
+
+
+def _capture_warnings(fn: Callable[[], Any]) -> list[str]:
+    """Run ``fn`` with a temporary WARNING sink; return captured messages.
+
+    The sink renders ``{extra}`` explicitly: the agent name is a structured
+    field, and loguru's default format drops it. This mirrors the real stderr
+    sink (``dao_ai.logging.configure_logging``), which also ends in ``{extra}``.
+    """
+    msgs: list[str] = []
+    sink_id = logger.add(
+        lambda m: msgs.append(m), level="WARNING", format="{message}{extra}"
+    )
+    try:
+        fn()
+    finally:
+        logger.remove(sink_id)
+    return msgs
+
 
 SPACE_A: str = "01f05dd06c421ad6b522bf7a517cf6d2"
 SPACE_B: str = "01f05dd06c421ad6b522bf7a517cf6d3"
@@ -129,3 +149,214 @@ class TestDefaultOrchestrationSkipsGenieBrain:
         config = _config([_brain("sellout", SPACE_A)])
         assert config.app.orchestration.supervisor is None
         assert config.app.orchestration.swarm is not None
+
+
+# =============================================================================
+# 3. A brain cannot use what it is handed — say so at config load
+# =============================================================================
+
+
+@pytest.mark.unit
+class TestBrainRejectsUnusableConfig:
+    """``bind_tools`` silently discards everything it is handed, so a config
+    that declares client tools or structured output on a Genie brain builds
+    cleanly and then can never honor either. Both are rejected at config load
+    instead, where the message can name the agent."""
+
+    def test_declared_tools_are_rejected(self) -> None:
+        brain = _brain("sellout", SPACE_A)
+        brain["tools"] = [{"name": "order_lookup", "function": {"name": "a.b.c"}}]
+        with pytest.raises(ValueError, match="sellout"):
+            _config([brain])
+
+    def test_declared_tools_message_names_tools_and_the_alternative(self) -> None:
+        brain = _brain("sellout", SPACE_A)
+        brain["tools"] = [{"name": "order_lookup", "function": {"name": "a.b.c"}}]
+        with pytest.raises(ValueError) as excinfo:
+            _config([brain])
+        message = str(excinfo.value)
+        assert "order_lookup" in message
+        # Points at the shape that does support tools: a `type: genie` tool
+        # hanging off an LLM-backed agent.
+        assert "type: genie" in message
+
+    def test_response_format_is_rejected(self) -> None:
+        brain = _brain("sellout", SPACE_A)
+        brain["response_format"] = {"response_schema": '{"type": "object"}'}
+        with pytest.raises(ValueError, match="response_format"):
+            _config([brain])
+
+    def test_an_llm_agent_keeps_tools_and_response_format(self) -> None:
+        agent = _llm("billing")
+        agent["tools"] = [{"name": "order_lookup", "function": {"name": "a.b.c"}}]
+        agent["response_format"] = {"response_schema": '{"type": "object"}'}
+        config = _config([agent])
+        assert len(config.app.agents[0].tools) == 1
+        assert config.app.agents[0].response_format is not None
+
+
+# =============================================================================
+# 4. The all-brains message must not steer at a swarm that cannot work
+# =============================================================================
+
+
+@pytest.mark.unit
+class TestAllBrainsMessageIsActionable:
+    def test_points_at_supervisor_model(self) -> None:
+        with pytest.raises(ValueError) as excinfo:
+            _config([_brain("sellout", SPACE_A), _brain("inventory", SPACE_B)])
+        assert "orchestration.supervisor.model" in str(excinfo.value)
+
+    def test_any_swarm_suggestion_is_qualified_as_deterministic(self) -> None:
+        """A bare swarm of brains is a silently dead app: the handoff tools are
+        discarded, ``active_agent`` is never written, and every turn routes to
+        the default agent forever. Only deterministic handoffs work."""
+        with pytest.raises(ValueError) as excinfo:
+            _config([_brain("sellout", SPACE_A), _brain("inventory", SPACE_B)])
+        message = str(excinfo.value)
+        if "swarm" in message:
+            assert "is_deterministic" in message
+
+
+# =============================================================================
+# 5. Swarm: an agentic handoff out of a brain is a dead end
+# =============================================================================
+
+
+@pytest.mark.unit
+class TestSwarmBrainHandoffs:
+    """In a swarm, ``_handoffs_for_agent`` passes agentic handoff tools as the
+    worker's ``additional_tools``. A Genie model discards them, so it emits no
+    tool call, ``active_agent`` is never written, and the swarm router sends
+    every subsequent turn back to the same agent — a dead app with no error.
+    A deterministic handoff is a real graph edge, so it still works.
+    """
+
+    def _swarm(self, handoffs: dict[str, Any], default_agent: str) -> AppConfig:
+        return _config(
+            [_brain("sellout", SPACE_A), _llm("billing")],
+            orchestration={
+                "swarm": {"default_agent": default_agent, "handoffs": handoffs}
+            },
+        )
+
+    def test_agentic_handoff_out_of_a_brain_is_rejected(self) -> None:
+        with pytest.raises(ValueError) as excinfo:
+            self._swarm({"sellout": ["billing"]}, default_agent="sellout")
+        message = str(excinfo.value)
+        assert "sellout" in message
+        assert "is_deterministic" in message
+
+    def test_deterministic_handoff_out_of_a_brain_is_allowed(self) -> None:
+        config = self._swarm(
+            {"sellout": [{"agent": "billing", "is_deterministic": True}]},
+            default_agent="sellout",
+        )
+        assert config.app.orchestration.swarm is not None
+
+    def test_a_brain_as_an_explicit_leaf_is_allowed(self) -> None:
+        """A brain as a swarm leaf is fine — but *only* when its outbound
+        handoffs are declared empty. Omission is not leaf-ness (see below)."""
+        config = self._swarm(
+            {"sellout": [], "billing": ["sellout"]}, default_agent="billing"
+        )
+        assert config.app.orchestration.swarm is not None
+
+    def test_a_brain_omitted_from_handoffs_is_rejected(self) -> None:
+        """The hole this closes: ``_handoffs_for_agent`` defaults an agent that
+        is *absent* from the handoffs dict to agentic handoffs to every agent
+        (``handoffs.get(name, config.app.agents)``). So omitting the brain is
+        not leaf-ness — it is the dead-swarm case, and must be rejected exactly
+        like an explicit agentic handoff."""
+        with pytest.raises(ValueError) as excinfo:
+            self._swarm({"billing": ["sellout"]}, default_agent="billing")
+        message = str(excinfo.value)
+        assert "sellout" in message
+        assert "is_deterministic" in message
+
+    def test_an_empty_handoffs_dict_still_rejects_a_brain(self) -> None:
+        """An empty ``handoffs`` dict defaults *every* agent to all-agents
+        agentic — the brain included — so it is not a free pass."""
+        with pytest.raises(ValueError):
+            self._swarm({}, default_agent="sellout")
+
+    def test_a_lone_brain_swarm_is_allowed(self) -> None:
+        """The default resolves to ``config.app.agents``, which for a single
+        brain is just itself — a self-handoff is not a route away, so there is
+        no dead-swarm and nothing to reject."""
+        config = _config([_brain("solo", SPACE_A)])
+        assert config.app.orchestration.swarm is not None
+
+    def test_agentic_handoff_out_of_an_llm_agent_is_untouched(self) -> None:
+        config = self._swarm(
+            {"sellout": [], "billing": ["sellout"]}, default_agent="billing"
+        )
+        handoffs = config.app.orchestration.swarm.handoffs or {}
+        assert "billing" in handoffs
+
+
+# =============================================================================
+# 6. Supervisor: say out loud that a brain worker is a graph sink
+# =============================================================================
+
+
+@pytest.mark.unit
+class TestSupervisorWarnsBrainIsASink:
+    """A brain worker has no ``handoff_to_supervisor`` and no outgoing edge, so
+    control cannot return to the supervisor mid-turn: the brain answers and the
+    turn ends. That is intended, but it means a supervisor cannot compose a
+    brain with another agent inside one turn — and nothing in the build says so.
+    Warn once per brain worker, naming it.
+    """
+
+    def _build(self, agents: list[dict[str, Any]]) -> Callable[[], Any]:
+        from dao_ai.orchestration.supervisor import create_supervisor_graph
+
+        config = _config(
+            agents,
+            orchestration={"supervisor": {"model": {"name": "test-model"}}},
+        )
+
+        def _run() -> None:
+            with (
+                patch(
+                    "dao_ai.orchestration.supervisor.create_checkpointer",
+                    return_value=None,
+                ),
+                patch(
+                    "dao_ai.orchestration.supervisor.create_store", return_value=None
+                ),
+                patch(
+                    "dao_ai.orchestration.supervisor.create_extraction_manager_and_executor",
+                    return_value=(None, None),
+                ),
+                patch(
+                    "dao_ai.orchestration.supervisor.create_agent_node",
+                    side_effect=lambda agent, **kwargs: MagicMock(
+                        name=f"subgraph:{agent.name}"
+                    ),
+                ),
+            ):
+                create_supervisor_graph(config)
+
+        return _run
+
+    def test_brain_worker_is_named_in_a_warning(self) -> None:
+        msgs = _capture_warnings(
+            self._build([_llm("billing"), _brain("sellout", SPACE_A)])
+        )
+        assert any("sellout" in m for m in msgs), msgs
+
+    def test_the_warning_says_control_cannot_return_mid_turn(self) -> None:
+        msgs = _capture_warnings(
+            self._build([_llm("billing"), _brain("sellout", SPACE_A)])
+        )
+        brain_msgs = [m for m in msgs if "sellout" in m]
+        assert brain_msgs, msgs
+        # The point is the consequence, not the mechanism: a reader has to learn
+        # that the turn ends here rather than routing on.
+        assert any("turn" in m for m in brain_msgs), brain_msgs
+
+    def test_an_all_llm_supervisor_names_no_agent(self) -> None:
+        msgs = _capture_warnings(self._build([_llm("billing"), _llm("returns")]))
+        assert not [m for m in msgs if "billing" in m or "returns" in m], msgs
