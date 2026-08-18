@@ -56,6 +56,11 @@ def _brain(name: str, space_id: str) -> dict[str, Any]:
     return {"name": name, "model": {"genie_room": {"agent_id": space_id}}, "tools": []}
 
 
+def _brain_handback(name: str, space_id: str) -> dict[str, Any]:
+    """A Genie brain opted into deterministic handback (``handoff: true``)."""
+    return {**_brain(name, space_id), "handoff": True}
+
+
 def _llm(name: str) -> dict[str, Any]:
     return {"name": name, "model": {"name": "test-model"}, "tools": []}
 
@@ -115,6 +120,45 @@ class TestSupervisorGivesBrainNoHandoffTool:
         assert additional_tools_by_agent == {
             "billing": ["handoff_to_supervisor"],
             "sellout": [],
+        }
+
+    def test_brain_with_handoff_true_gets_the_handback_tool(self) -> None:
+        """Opting in with ``handoff: true`` gives the brain worker the handback
+        tool — which is what creates its ToolNode + model→tools edge so the
+        middleware-injected ``handoff_to_supervisor`` call has somewhere to go."""
+        from dao_ai.orchestration.supervisor import create_supervisor_graph
+
+        config = _config(
+            [_llm("billing"), _brain_handback("sellout", SPACE_A)],
+            orchestration={"supervisor": {"model": {"name": "test-model"}}},
+        )
+        additional_tools_by_agent: dict[str, list[str]] = {}
+
+        def _fake_create_agent_node(agent: Any, **kwargs: Any) -> Any:
+            additional_tools_by_agent[agent.name] = [
+                t.name for t in kwargs.get("additional_tools") or []
+            ]
+            return MagicMock(name=f"subgraph:{agent.name}")
+
+        with (
+            patch(
+                "dao_ai.orchestration.supervisor.create_checkpointer", return_value=None
+            ),
+            patch("dao_ai.orchestration.supervisor.create_store", return_value=None),
+            patch(
+                "dao_ai.orchestration.supervisor.create_extraction_manager_and_executor",
+                return_value=(None, None),
+            ),
+            patch(
+                "dao_ai.orchestration.supervisor.create_agent_node",
+                side_effect=_fake_create_agent_node,
+            ),
+        ):
+            create_supervisor_graph(config)
+
+        assert additional_tools_by_agent == {
+            "billing": ["handoff_to_supervisor"],
+            "sellout": ["handoff_to_supervisor"],
         }
 
 
@@ -360,3 +404,11 @@ class TestSupervisorWarnsBrainIsASink:
     def test_an_all_llm_supervisor_names_no_agent(self) -> None:
         msgs = _capture_warnings(self._build([_llm("billing"), _llm("returns")]))
         assert not [m for m in msgs if "billing" in m or "returns" in m], msgs
+
+    def test_a_brain_with_handoff_true_is_not_warned(self) -> None:
+        """Opting into handback removes the sink limitation, so the sink warning
+        must not fire for that worker."""
+        msgs = _capture_warnings(
+            self._build([_llm("billing"), _brain_handback("sellout", SPACE_A)])
+        )
+        assert not [m for m in msgs if "sellout" in m], msgs

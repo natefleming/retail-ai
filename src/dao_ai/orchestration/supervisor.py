@@ -351,12 +351,20 @@ def create_supervisor_graph(config: AppConfig) -> CompiledStateGraph:
         # Genie-brain worker (GenieAgentModel), whose model runs its own tool
         # loop server-side and never calls a client tool. Its turn ends when it
         # answers, which is the only way control ever leaves that worker anyway,
-        # so the tool would be dead weight in its graph and its logs.
+        # so the tool would be dead weight in its graph and its logs — unless the
+        # author opts in with ``handoff: true`` (see ``genie_handback`` below).
         is_genie_brain: bool = isinstance(registered_agent.model, GenieAgentModel)
+        # A Genie brain cannot emit a client tool call, so it is normally a graph
+        # sink. Opting in via ``handoff: true`` gives it the handback tool anyway:
+        # that creates the worker's ToolNode + model→tools edge, and
+        # GenieAgentMiddleware injects a ``handoff_to_supervisor`` tool call into
+        # Genie's answer so control deterministically returns to the supervisor.
+        genie_handback: bool = is_genie_brain and bool(registered_agent.handoff)
         additional_tools: list[BaseTool] = (
-            [] if is_genie_brain else [_create_handoff_back_to_supervisor_tool()]
+            [] if (is_genie_brain and not genie_handback)
+            else [_create_handoff_back_to_supervisor_tool()]
         )
-        if is_genie_brain:
+        if is_genie_brain and not genie_handback:
             # Without the handoff tool, and with no worker -> supervisor edge,
             # this worker is a graph sink. That is correct, but it silently
             # rules out something a config author may well expect: the

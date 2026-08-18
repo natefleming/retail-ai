@@ -439,12 +439,17 @@ def create_agent_node(
     if isinstance(agent.model, GenieAgentModel):
         from dao_ai.middleware.genie_agent import GenieAgentMiddleware
 
-        middleware_list.append(GenieAgentMiddleware(genie_model=agent.model))
+        middleware_list.append(
+            GenieAgentMiddleware(
+                genie_model=agent.model, handback=bool(agent.handoff)
+            )
+        )
         logger.info(
             "Genie agent middleware enabled",
             agent=agent.name,
             model=agent.model.name,
             on_behalf_of_user=agent.model.on_behalf_of_user,
+            handback=bool(agent.handoff),
         )
     elif agent.model.on_behalf_of_user:
         from dao_ai.middleware.obo import OBOModelMiddleware
