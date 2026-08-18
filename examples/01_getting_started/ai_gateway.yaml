@@ -3,20 +3,38 @@
 # =============================================================================
 # AI Gateway routing for InferenceEndpointModel
 # =============================================================================
-# Demonstrates the `ai_gateway: true` flag, which routes chat completions
-# through the Databricks AI Gateway path
-# (https://<host>/ai-gateway/mlflow/v1/chat/completions) instead of the
-# legacy /serving-endpoints/<name>/invocations path. The flag is additive
+# Demonstrates the `use_ai_gateway: true` flag, which routes a model
+# through the Databricks AI Gateway (base URL
+# https://<host>/ai-gateway/mlflow/v1) instead of the legacy
+# /serving-endpoints/<name>/invocations path. The flag is additive
 # and OFF by default — existing configs are unaffected.
 #
-# When ai_gateway is true:
-# - dao-ai constructs a langchain_openai.ChatOpenAI with the AI Gateway
-#   base_url; the `name` field becomes the OpenAI-style model id sent in
-#   the request body.
-# - use_responses_api is rejected by the validator (AI Gateway exposes
-#   only the OpenAI-compatible /chat/completions path).
+# The key was `ai_gateway` before dao-ai 0.2.9; the legacy spelling still
+# parses via a validation alias, so older configs keep working.
+#
+# When use_ai_gateway is true:
+# - dao-ai constructs a ChatUnityAIGateway (a ChatDatabricks subclass with
+#   use_ai_gateway=True defaulted, so gateway calls get their own class name
+#   in MLflow traces); the `name` field becomes the OpenAI-style model id
+#   sent in the request body.
+# - use_responses_api composes with it — dao-ai always uses
+#   /ai-gateway/mlflow/v1, which serves both /chat/completions and /responses.
+#   Three caveats. Tool calls fail on every model: the gateway cannot parse a
+#   function_call content item, so any turn that calls a tool — including every
+#   supervisor/swarm handoff — returns INVALID_PARAMETER_VALUE. Use the pairing
+#   only for a single agent with no tools. And whether a /responses reply
+#   parses depends on the model: gpt-5-4, gpt-5-4-mini and gpt-5-mini work;
+#   gpt-oss-120b and claude-sonnet-4-5 omit the token-details fields langchain
+#   requires and fail on usage_metadata, so use /chat/completions (the default)
+#   for those. A custom ResponsesAgent endpoint is not addressable through the
+#   gateway at all — reach one with use_responses_api: true and
+#   use_ai_gateway: false.
 # - on_behalf_of_user is currently permitted pending live verification;
 #   confirm against your workspace before relying on OBO with AI Gateway.
+#
+# The gateway addresses models as UC securables, so a model id can also be a
+# three-level name. All three spellings below work; see `uc_securable_llm`
+# and `anchored_llm` under resources.models.
 
 parameters:
   catalog:
@@ -40,13 +58,39 @@ schemas:
     catalog_name: ${var.catalog}
     schema_name: ${var.schema}
 
+  # NOTE: do not add a `system.ai` schema here. Entries under top-level
+  # `schemas:` are provisioned (CREATE SCHEMA) and SP-granted at deploy — the
+  # reserved `system` catalog is neither creatable nor grantable that way. To
+  # qualify a UC-securable model name, put the schema *inline* on the model
+  # (see `anchored_llm` below), not in this map.
+
 resources:
   models:
     # New path — Foundation Model served via AI Gateway.
     gateway_llm: &gateway_llm
       name: ${var.llm}
-      ai_gateway: true
+      use_ai_gateway: true
       temperature: 0.1
+      max_tokens: 1024
+
+    # UC-securable model name, spelled out in full. No `schema` needed —
+    # a three-level `name` is used verbatim. Either spelling requires
+    # `use_ai_gateway: true`; the legacy serving path 404s on a three-level name.
+    uc_securable_llm: &uc_securable_llm
+      name: system.ai.claude-sonnet-4-5
+      use_ai_gateway: true
+      max_tokens: 1024
+
+    # Same model, addressed through an inline schema + the short model name.
+    # `full_name` resolves to system.ai.claude-sonnet-4-5, exactly as above.
+    # The schema is inline (not a top-level `schemas:` anchor) because that map
+    # is provisioned and granted — see the note under `schemas:`.
+    anchored_llm: &anchored_llm
+      schema:
+        catalog_name: system
+        schema_name: ai
+      name: claude-sonnet-4-5
+      use_ai_gateway: true
       max_tokens: 1024
 
     # Legacy path — same workspace, no flag, unchanged behavior.
@@ -54,12 +98,14 @@ resources:
       name: ${var.fallback_llm}
       max_tokens: 1024
 
-    # Mixed-mode fallbacks: AI Gateway primary with legacy fallback.
-    # Both ChatOpenAI and ChatDatabricks are LangChain Runnables, so
-    # with_fallbacks composes them without further configuration.
+    # Fallbacks: a bare fallback string inherits the primary's routing, so this
+    # fallback is reached through the AI Gateway too. Both clients are LangChain
+    # Runnables, so with_fallbacks composes them without further configuration.
+    # (For a legacy-path fallback, spell it as a full model with
+    # use_ai_gateway: false rather than a bare string.)
     resilient_llm: &resilient_llm
       name: ${var.llm}
-      ai_gateway: true
+      use_ai_gateway: true
       temperature: 0.1
       max_tokens: 1024
       fallbacks:

@@ -1,6 +1,6 @@
 """Unit tests for AI Gateway routing on InferenceEndpointModel.
 
-Covers the `ai_gateway: bool` flag for routing through the Databricks AI
+Covers the `use_ai_gateway: bool` flag for routing through the Databricks AI
 Gateway via ``ChatUnityAIGateway`` (a ``ChatDatabricks`` subclass with
 ``use_ai_gateway=True`` defaulted). The subclass exists so that MLflow
 trace spans surface a distinct class name; functionally it inherits the
@@ -9,15 +9,19 @@ in ``_convert_message_to_dict``.
 
 Verifies:
 
-- Pydantic validator rejects ``ai_gateway`` + ``use_responses_api``
+- ``use_ai_gateway`` is the canonical key, with the legacy ``ai_gateway``
+  spelling still accepted via a validation alias
+- ``use_ai_gateway`` composes with ``use_responses_api`` — the gateway serves
+  both /chat/completions and /responses, and the pairing works for models
+  whose /responses usage block is complete (see the live matrix below)
 - Default flag value leaves the legacy ``ChatDatabricks`` path intact
-- ``ai_gateway=True`` routes ``as_chat_model()`` and
+- ``use_ai_gateway=True`` routes ``as_chat_model()`` and
   ``chat_model_for_workspace_client()`` through ``ChatUnityAIGateway``
 - ``ChatUnityAIGateway`` is a ``ChatDatabricks`` subclass with
   ``use_ai_gateway=True`` defaulted (verifies the trace-observability
   contract)
-- Heterogeneous fallback lists (AI Gateway primary + legacy fallback)
-  compose without raising
+- A bare fallback/judge string inherits the primary's routing, so a
+  UC-securable fallback resolves through the gateway rather than crashing
 - Upstream ``ChatDatabricks`` strips the ``name`` field at the request
   boundary (the behavior dao-ai now relies on; smoke check)
 """
@@ -29,7 +33,6 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 from databricks_langchain import ChatDatabricks
-from pydantic import ValidationError
 
 from dao_ai.config import ChatUnityAIGateway, InferenceEndpointModel
 
@@ -38,29 +41,201 @@ from dao_ai.config import ChatUnityAIGateway, InferenceEndpointModel
 # ---------------------------------------------------------------------------
 
 
-def test_default_ai_gateway_is_false() -> None:
+def test_default_use_ai_gateway_is_false() -> None:
     model = InferenceEndpointModel(name="databricks-gpt-5-4-mini")
-    assert model.ai_gateway is False
+    assert model.use_ai_gateway is False
 
 
-def test_ai_gateway_true_with_responses_api_rejected() -> None:
-    with pytest.raises(ValidationError) as exc_info:
-        InferenceEndpointModel(
-            name="databricks-claude-opus-4-6",
-            ai_gateway=True,
-            use_responses_api=True,
-        )
-    assert "use_responses_api" in str(exc_info.value)
+# ---------------------------------------------------------------------------
+# Canonical name and the legacy alias
+# ---------------------------------------------------------------------------
 
 
-def test_ai_gateway_true_with_obo_currently_allowed() -> None:
-    """OBO + ai_gateway is permitted pending live verification."""
+def test_canonical_use_ai_gateway_key_parses() -> None:
+    """The config key is spelled the same as the databricks-langchain kwarg
+    it feeds (``use_ai_gateway``), which dao-ai was the only layer to spell
+    differently."""
+    model = InferenceEndpointModel.model_validate(
+        {"name": "databricks-claude-opus-4-6", "use_ai_gateway": True}
+    )
+    assert model.use_ai_gateway is True
+
+
+def test_legacy_ai_gateway_key_still_parses() -> None:
+    """Existing YAML using ``ai_gateway:`` must keep working — this is what
+    justifies a validation alias over a hard rename."""
+    model = InferenceEndpointModel.model_validate(
+        {"name": "databricks-claude-opus-4-6", "ai_gateway": True}
+    )
+    assert model.use_ai_gateway is True
+
+
+def test_json_schema_property_is_use_ai_gateway() -> None:
+    """The canonical (schema-facing) name must be the new one, so editors and
+    the checked-in schema advertise ``use_ai_gateway`` rather than the legacy
+    key. ``Field(alias=...)`` would invert this; ``AliasChoices`` does not."""
+    schema = InferenceEndpointModel.model_json_schema()
+    # The top level is a $ref into $defs, so resolve it before reading props.
+    defn = schema["$defs"][schema["$ref"].rsplit("/", 1)[-1]]
+    props = defn["properties"]
+    assert "use_ai_gateway" in props
+    assert "ai_gateway" not in props
+    assert props["use_ai_gateway"]["default"] is False
+
+
+# ---------------------------------------------------------------------------
+# AI Gateway + Responses API — allowed
+#
+# dao-ai routes every gateway call through /ai-gateway/mlflow/v1, which serves
+# both /chat/completions and /responses. Raw HTTP against ``fevm``: every model
+# answers 200 on both, so the endpoints are not the constraint.
+# ``usage_details`` is whether the /responses reply carried
+# ``input_tokens_details``/``output_tokens_details``:
+#
+# | model                        | /chat/completions | /responses | details |
+# | ---------------------------- | ----------------- | ---------- | ------- |
+# | databricks-gpt-5-4           | 200               | 200        | yes     |
+# | databricks-gpt-5-4-mini      | 200               | 200        | yes     |
+# | databricks-gpt-5-mini        | 200               | 200        | yes     |
+# | system.ai.gpt-5-4            | 200               | 200        | yes     |
+# | databricks-gpt-oss-120b      | 200               | 200        | no      |
+# | databricks-claude-sonnet-4-5 | 200               | 200        | no      |
+#
+# A single-turn probe is not the whole story. On a deployed app,
+# system.ai.gpt-5-4-mini — full ``usage`` block, 200 on both paths above —
+# failed as soon as the agent called a tool:
+#
+#   400 INVALID_PARAMETER_VALUE: Failed to parse ContentItem. Could not resolve
+#   type id 'function_call' into a subtype of
+#   [simple type, class com.databricks.fmapiproxy.translation.ContentItem]
+#
+# The gateway's /responses translator cannot deserialize a ``function_call``
+# content item, on any model. Every supervisor/swarm handoff is a tool call, so
+# the pairing is only useful for a single agent that calls nothing. Server-side,
+# and orthogonal to the ``usage`` caveat below.
+#
+# The ``usage`` block is what decides whether a reply parses. OpenAI-family
+# models return the ``*_details`` sub-objects and work end to end.
+# gpt-oss-120b and claude-sonnet-4-5 omit them; langchain-openai maps the
+# absent fields to ``None``, ``AIMessage`` rejects ``None`` there, and the
+# reply raises ValidationError on ``usage_metadata``. That is a client-side
+# limitation which can disappear on any langchain-openai release — not a
+# gateway one, and not something a static validator can decide per model.
+#
+# So dao-ai does not police the pairing. (An earlier validator rejected it, on
+# the separate and false premise that the gateway was chat-completions only.)
+# The caveats above are documented rather than enforced, along with one more: the
+# gateway addresses only Foundation Model and UC-securable models, so a custom
+# ResponsesAgent endpoint 404s and needs the legacy path. The pairing does work
+# for a tool-free agent on a model with a complete usage block, so enforcement
+# would have to reject working configurations to catch the rest.
+# ---------------------------------------------------------------------------
+
+
+def test_gateway_with_responses_api_is_allowed() -> None:
+    """Verified live: ``databricks-gpt-5-mini`` + ``use_ai_gateway`` +
+    ``use_responses_api`` returns 200 with full ``usage_metadata``. Rejecting
+    the pairing at config load would block a working configuration."""
+    model = InferenceEndpointModel(
+        name="databricks-gpt-5-mini",
+        use_ai_gateway=True,
+        use_responses_api=True,
+    )
+    assert model.use_ai_gateway is True
+    assert model.use_responses_api is True
+
+
+def test_gateway_with_responses_api_allowed_via_the_legacy_alias() -> None:
+    """A config still spelling the flag ``ai_gateway:`` must be accepted on the
+    same terms — the alias resolves before after-validators run."""
+    model = InferenceEndpointModel.model_validate(
+        {
+            "name": "databricks-gpt-5-mini",
+            "ai_gateway": True,
+            "use_responses_api": True,
+        }
+    )
+    assert model.use_ai_gateway is True
+    assert model.use_responses_api is True
+
+
+def test_gateway_responses_api_flows_through_to_the_client() -> None:
+    """Accepting the combination is only useful if the flag actually reaches
+    the client — that is what selects ``responses.create`` downstream."""
+    model = InferenceEndpointModel(
+        name="databricks-gpt-5-mini",
+        use_ai_gateway=True,
+        use_responses_api=True,
+    )
+    with patch("dao_ai.config.ChatUnityAIGateway") as mock_unity:
+        model.as_chat_model()
+    assert mock_unity.call_args.kwargs["use_responses_api"] is True
+
+
+def test_uc_securable_name_composes_with_responses_api() -> None:
+    """A schema-qualified UC-securable model is addressed the same way on the
+    /responses path — ``full_name``, not ``name``, is the model id."""
+    model = InferenceEndpointModel.model_validate(
+        {
+            "schema": {"catalog_name": "system", "schema_name": "ai"},
+            "name": "gpt-5-mini",
+            "use_ai_gateway": True,
+            "use_responses_api": True,
+        }
+    )
+    with patch("dao_ai.config.ChatUnityAIGateway") as mock_unity:
+        model.as_chat_model()
+    kwargs = mock_unity.call_args.kwargs
+    assert kwargs["model"] == "system.ai.gpt-5-mini"
+    assert kwargs["use_responses_api"] is True
+
+
+def test_responses_api_without_the_gateway_is_untouched() -> None:
+    """The feature's original use, verified live: a custom ResponsesAgent
+    endpoint on the legacy ``/serving-endpoints/<name>/invocations`` path. The
+    gateway cannot address custom endpoints at all (404), so this spelling
+    stays the only way to reach one."""
+    model = InferenceEndpointModel(
+        name="genie-brain-ms-traces",
+        use_responses_api=True,
+    )
+    assert model.use_ai_gateway is False
+    with patch("dao_ai.config.ChatDatabricks") as mock_chat:
+        model.as_chat_model()
+    assert mock_chat.call_args.kwargs["use_responses_api"] is True
+
+
+def test_gateway_without_responses_api_is_untouched() -> None:
+    """The other half of the guard: the plain gateway path is unaffected."""
+    model = InferenceEndpointModel(
+        name="databricks-claude-opus-4-6", use_ai_gateway=True
+    )
+    with patch("dao_ai.config.ChatUnityAIGateway") as mock_unity:
+        model.as_chat_model()
+    assert mock_unity.call_args.kwargs["use_responses_api"] is False
+
+
+def test_both_routing_branches_honor_the_renamed_field() -> None:
+    """Two independent call sites read the flag (``as_chat_model`` and
+    ``chat_model_for_workspace_client``); renaming one and not the other
+    would silently drop OBO traffic off the gateway path."""
+    model = InferenceEndpointModel(
+        name="databricks-claude-opus-4-6", use_ai_gateway=True
+    )
+    with patch("dao_ai.config.ChatUnityAIGateway") as mock_unity:
+        model.as_chat_model()
+        model.chat_model_for_workspace_client(MagicMock())
+    assert mock_unity.call_count == 2
+
+
+def test_use_ai_gateway_true_with_obo_currently_allowed() -> None:
+    """OBO + use_ai_gateway is permitted pending live verification."""
     model = InferenceEndpointModel(
         name="databricks-claude-opus-4-6",
-        ai_gateway=True,
+        use_ai_gateway=True,
         on_behalf_of_user=True,
     )
-    assert model.ai_gateway is True
+    assert model.use_ai_gateway is True
     assert model.on_behalf_of_user is True
 
 
@@ -157,7 +332,7 @@ def test_extra_params_forwarded_on_ai_gateway_path() -> None:
     """The AI-Gateway path must also forward extra_params."""
     model = InferenceEndpointModel(
         name="databricks-gpt-oss-120b",
-        ai_gateway=True,
+        use_ai_gateway=True,
         extra_params={"reasoning_effort": "low"},
     )
     with patch("dao_ai.config.ChatUnityAIGateway") as mock_chat:
@@ -194,7 +369,7 @@ def test_as_chat_model_default_uses_chat_databricks() -> None:
 def test_as_chat_model_ai_gateway_uses_chat_unity_ai_gateway() -> None:
     model = InferenceEndpointModel(
         name="databricks-claude-opus-4-6",
-        ai_gateway=True,
+        use_ai_gateway=True,
         temperature=0.1,
         max_tokens=1024,
     )
@@ -217,7 +392,7 @@ def test_as_chat_model_ai_gateway_uses_chat_unity_ai_gateway() -> None:
 def test_as_chat_model_ai_gateway_disables_streaming_when_requested() -> None:
     model = InferenceEndpointModel(
         name="databricks-claude-opus-4-6",
-        ai_gateway=True,
+        use_ai_gateway=True,
         disable_streaming=True,
     )
     with patch("dao_ai.config.ChatUnityAIGateway") as mock_unity:
@@ -232,11 +407,11 @@ def test_as_chat_model_ai_gateway_disables_streaming_when_requested() -> None:
 
 def test_chat_model_for_workspace_client_uses_ai_gateway_when_flag_set() -> None:
     """OBO-style construction (per-request workspace_client) must route through
-    ChatUnityAIGateway when ai_gateway=True on the config — not silently fall
+    ChatUnityAIGateway when use_ai_gateway=True on the config — not silently fall
     back to ChatDatabricks. This is the bug that motivated the shared factory."""
     model = InferenceEndpointModel(
         name="databricks-claude-opus-4-6",
-        ai_gateway=True,
+        use_ai_gateway=True,
         on_behalf_of_user=True,
         temperature=0.0,
         max_tokens=128,
@@ -258,7 +433,7 @@ def test_chat_model_for_workspace_client_uses_ai_gateway_when_flag_set() -> None
 
 
 def test_chat_model_for_workspace_client_legacy_path_passes_workspace_client() -> None:
-    """Without ai_gateway, OBO factory falls through to ChatDatabricks bound
+    """Without use_ai_gateway, OBO factory falls through to ChatDatabricks bound
     to the OBO workspace_client (unchanged legacy behavior)."""
     model = InferenceEndpointModel(
         name="databricks-gpt-5-4-mini",
@@ -291,7 +466,9 @@ def test_as_chat_model_returns_runnable_with_bind_tools() -> None:
     """The returned client must expose bind_tools() so dao-ai agent loops
     (which always call .bind_tools(tools)) work transparently against the
     AI Gateway path."""
-    model = InferenceEndpointModel(name="databricks-claude-opus-4-6", ai_gateway=True)
+    model = InferenceEndpointModel(
+        name="databricks-claude-opus-4-6", use_ai_gateway=True
+    )
     client = model.as_chat_model()
     assert hasattr(client, "bind_tools"), (
         "as_chat_model() must return a client with bind_tools() — agent loops "
@@ -299,29 +476,156 @@ def test_as_chat_model_returns_runnable_with_bind_tools() -> None:
     )
 
 
-def test_heterogeneous_fallbacks_compose() -> None:
-    """AI Gateway primary + legacy fallback should chain via with_fallbacks."""
+def test_fallbacks_compose_via_with_fallbacks() -> None:
+    """A primary and its string fallback chain via with_fallbacks."""
     primary = InferenceEndpointModel(
         name="databricks-claude-opus-4-6",
-        ai_gateway=True,
+        use_ai_gateway=True,
         fallbacks=["databricks-gpt-5-4-mini"],
     )
 
     unity_instance = MagicMock(name="ChatUnityAIGateway-instance")
-    chat_databricks_instance = MagicMock(name="ChatDatabricks-instance")
     chained = MagicMock(name="with_fallbacks-result")
     unity_instance.with_fallbacks.return_value = chained
 
-    with (
-        patch("dao_ai.config.ChatUnityAIGateway", return_value=unity_instance),
-        patch("dao_ai.config.ChatDatabricks", return_value=chat_databricks_instance),
-    ):
+    with patch("dao_ai.config.ChatUnityAIGateway", return_value=unity_instance):
         result = primary.as_chat_model()
 
     unity_instance.with_fallbacks.assert_called_once()
-    (fallback_list,) = unity_instance.with_fallbacks.call_args.args
-    assert fallback_list == [chat_databricks_instance]
     assert result is chained
+
+
+def test_string_fallback_inherits_gateway_from_primary() -> None:
+    """A bare fallback string carries no routing of its own, so it inherits the
+    primary's: a gateway primary's string fallback is promoted with
+    ``use_ai_gateway=True`` and builds a ``ChatUnityAIGateway``, not a legacy
+    ``ChatDatabricks``. (Was mixed-mode before; PR #294 review made routing
+    consistent so a UC-securable fallback string can work at all.)"""
+    primary = InferenceEndpointModel(
+        name="databricks-claude-opus-4-6",
+        use_ai_gateway=True,
+        fallbacks=["databricks-gpt-5-4-mini"],
+    )
+
+    with (
+        patch("dao_ai.config.ChatUnityAIGateway") as mock_unity,
+        patch("dao_ai.config.ChatDatabricks") as mock_chat,
+    ):
+        primary.as_chat_model()
+
+    # Primary + fallback, both via the gateway; no legacy client built.
+    assert mock_unity.call_count == 2
+    mock_chat.assert_not_called()
+    assert mock_unity.call_args_list[1].kwargs["model"] == "databricks-gpt-5-4-mini"
+
+
+def test_uc_securable_fallback_string_does_not_crash() -> None:
+    """Regression (PR #294 review): a dotted UC-securable fallback string loaded
+    fine, then crashed in ``as_chat_model`` because promotion dropped
+    ``use_ai_gateway`` and ``validate_schema_qualification`` then rejected the
+    three-level name. Inheriting the primary's flag lets it build and reach the
+    gateway as the qualified id."""
+    primary = InferenceEndpointModel(
+        name="databricks-claude-opus-4-6",
+        use_ai_gateway=True,
+        fallbacks=["system.ai.claude-sonnet-4-5"],
+    )
+
+    with patch("dao_ai.config.ChatUnityAIGateway") as mock_unity:
+        primary.as_chat_model()
+
+    assert mock_unity.call_count == 2
+    assert mock_unity.call_args_list[1].kwargs["model"] == "system.ai.claude-sonnet-4-5"
+
+
+def test_string_fallback_stays_legacy_when_primary_is_legacy() -> None:
+    """The inverse: a legacy primary's string fallback inherits ``False`` and
+    stays on the ``ChatDatabricks`` path — existing configs are unaffected."""
+    primary = InferenceEndpointModel(
+        name="databricks-claude-opus-4-6",
+        fallbacks=["databricks-gpt-5-4-mini"],
+    )
+
+    with (
+        patch("dao_ai.config.ChatUnityAIGateway") as mock_unity,
+        patch("dao_ai.config.ChatDatabricks") as mock_chat,
+    ):
+        primary.as_chat_model()
+
+    mock_unity.assert_not_called()
+    assert mock_chat.call_count == 2
+
+
+def test_best_of_n_judge_string_inherits_gateway_from_primary() -> None:
+    """The judge is promoted from a string the same way a fallback is, and hits
+    the same crash on a UC-securable name. It inherits the primary's routing."""
+    primary = InferenceEndpointModel.model_validate(
+        {
+            "name": "databricks-claude-opus-4-6",
+            "use_ai_gateway": True,
+            "best_of_n": {"n": 2, "judge": "system.ai.claude-sonnet-4-5"},
+        }
+    )
+
+    with (
+        patch("dao_ai.config.ChatUnityAIGateway") as mock_unity,
+        patch("dao_ai.best_of_n.BestOfNChatModel"),
+    ):
+        primary.as_chat_model()
+
+    # Primary + judge, both via the gateway.
+    assert mock_unity.call_count == 2
+    assert mock_unity.call_args_list[1].kwargs["model"] == "system.ai.claude-sonnet-4-5"
+
+
+def test_fallback_equal_to_the_primary_is_deduped_by_full_name() -> None:
+    """The self-dedup guard must key on ``full_name``, not ``name``. A
+    schema-anchored primary (``system.ai.claude-sonnet-4-5``) with a fallback
+    spelled as the equivalent full id is the *same* endpoint — keying on the
+    short segment (``claude-sonnet-4-5`` != ``system.ai.claude-sonnet-4-5``)
+    would miss it and retry the primary against itself."""
+    primary = InferenceEndpointModel.model_validate(
+        {
+            "schema": {"catalog_name": "system", "schema_name": "ai"},
+            "name": "claude-sonnet-4-5",
+            "use_ai_gateway": True,
+            "fallbacks": ["system.ai.claude-sonnet-4-5"],
+        }
+    )
+
+    with patch("dao_ai.config.ChatUnityAIGateway") as mock_unity:
+        primary.as_chat_model()
+
+    # Only the primary is built; the equivalent fallback is deduped away.
+    assert mock_unity.call_count == 1
+    mock_unity.return_value.with_fallbacks.assert_not_called()
+
+
+def test_distinct_models_sharing_a_short_name_are_not_deduped() -> None:
+    """The inverse: two different securables that share a short segment must
+    both survive. Keying on ``name`` would collapse ``system.ai.claude-...``
+    and ``other.ai.claude-...`` into one and silently drop the fallback."""
+    primary = InferenceEndpointModel.model_validate(
+        {
+            "schema": {"catalog_name": "system", "schema_name": "ai"},
+            "name": "claude-sonnet-4-5",
+            "use_ai_gateway": True,
+            "fallbacks": [
+                {
+                    "schema": {"catalog_name": "other", "schema_name": "ai"},
+                    "name": "claude-sonnet-4-5",
+                    "use_ai_gateway": True,
+                }
+            ],
+        }
+    )
+
+    with patch("dao_ai.config.ChatUnityAIGateway") as mock_unity:
+        primary.as_chat_model()
+
+    # Primary + the genuinely different fallback both built and composed.
+    assert mock_unity.call_count == 2
+    mock_unity.return_value.with_fallbacks.assert_called_once()
 
 
 # ---------------------------------------------------------------------------
@@ -330,16 +634,18 @@ def test_heterogeneous_fallbacks_compose() -> None:
 
 
 def test_as_chat_model_ai_gateway_returns_chat_unity_ai_gateway() -> None:
-    """When ai_gateway=True, as_chat_model() must return ChatUnityAIGateway —
+    """When use_ai_gateway=True, as_chat_model() must return ChatUnityAIGateway —
     the named subclass that surfaces in MLflow trace spans."""
-    model = InferenceEndpointModel(name="databricks-claude-opus-4-6", ai_gateway=True)
+    model = InferenceEndpointModel(
+        name="databricks-claude-opus-4-6", use_ai_gateway=True
+    )
     client = model.as_chat_model()
     assert isinstance(client, ChatUnityAIGateway)
     assert isinstance(client, ChatDatabricks)  # subclass relationship
 
 
 def test_as_chat_model_legacy_path_is_not_unity_subclass() -> None:
-    """Regression: ai_gateway=False returns plain ChatDatabricks."""
+    """Regression: use_ai_gateway=False returns plain ChatDatabricks."""
     model = InferenceEndpointModel(name="databricks-gpt-5-4-mini")
     client = model.as_chat_model()
     assert isinstance(client, ChatDatabricks)
@@ -347,12 +653,12 @@ def test_as_chat_model_legacy_path_is_not_unity_subclass() -> None:
 
 
 def test_chat_model_for_workspace_client_ai_gateway_returns_unity_subclass() -> None:
-    """OBO factory must also return ChatUnityAIGateway when ai_gateway=True."""
+    """OBO factory must also return ChatUnityAIGateway when use_ai_gateway=True."""
     from databricks.sdk import WorkspaceClient
 
     model = InferenceEndpointModel(
         name="databricks-claude-opus-4-6",
-        ai_gateway=True,
+        use_ai_gateway=True,
         on_behalf_of_user=True,
     )
     obo_wc = MagicMock(spec=WorkspaceClient)
@@ -412,7 +718,7 @@ def test_ai_gateway_chat_handles_supervisor_named_messages_live() -> None:
 
     endpoint = InferenceEndpointModel(
         name="databricks-claude-opus-4-6",
-        ai_gateway=True,
+        use_ai_gateway=True,
         max_tokens=64,
     )
     chat = endpoint.as_chat_model()

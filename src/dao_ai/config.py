@@ -1025,7 +1025,7 @@ class ChatUnityAIGateway(ChatDatabricks):
         return "chat-unity-ai-gateway"
 
 
-class InferenceEndpointModel(IsDatabricksResource):
+class InferenceEndpointModel(IsDatabricksResource, HasFullName):
     """Configuration for a Databricks Model Serving endpoint used for inference.
 
     This is the single config type for *any* serving endpoint dao-ai calls at
@@ -1047,9 +1047,39 @@ class InferenceEndpointModel(IsDatabricksResource):
     the legacy name will be removed in a future major release.
     """
 
-    model_config = ConfigDict(use_enum_values=True, extra="forbid")
+    # ``populate_by_name`` so the attribute name ``schema_model`` is accepted on
+    # input alongside the config-facing alias ``schema``. Without it, a plain
+    # ``model_dump()`` (no ``by_alias=True``) emits ``schema_model`` and the
+    # result no longer re-validates against ``extra="forbid"`` — breaking any
+    # dump/reload round-trip on a config containing a model. The deploy bake
+    # dumps with ``by_alias=True`` and so already round-trips, but nothing
+    # forces every caller to.
+    model_config = ConfigDict(
+        use_enum_values=True, extra="forbid", populate_by_name=True
+    )
+    schema_model: Optional[SchemaModel] = Field(
+        default=None,
+        alias="schema",
+        description=(
+            "Schema qualifying a UC-securable model name, for models addressed "
+            "through the Unity AI Gateway as UC securables (e.g. catalog "
+            "`system`, schema `ai`). When set, `name` is the short model name "
+            "and `full_name` resolves to `<catalog>.<schema>.<name>`. Omit it "
+            "to pass a serving endpoint name — or an already-qualified model "
+            "name — in `name` directly. Requires `use_ai_gateway: true`: a "
+            "three-level name is only addressable on the gateway, and the "
+            "`/serving-endpoints/<name>/invocations` path answers 404 for one."
+        ),
+    )
     name: str = Field(
-        description="Serving endpoint name (e.g., 'databricks-gpt-5-4-mini').",
+        description=(
+            "Serving endpoint name (e.g. 'databricks-gpt-5-4-mini'), a "
+            "UC-securable model name (e.g. 'system.ai.claude-sonnet-4-5'), or "
+            "the short model name when `schema` is set. A UC-securable name "
+            "requires `use_ai_gateway: true` however it is spelled — the "
+            "`/serving-endpoints/<name>/invocations` path answers 404 for a "
+            "three-level name."
+        ),
     )
     description: Optional[str] = Field(
         default=None,
@@ -1093,21 +1123,43 @@ class InferenceEndpointModel(IsDatabricksResource):
     )
     use_responses_api: Optional[bool] = Field(
         default=False,
-        description="Use Responses API for ResponsesAgent endpoints",
+        description=(
+            "Use the Responses API instead of chat completions. Composes with "
+            "`use_ai_gateway`: /ai-gateway/mlflow/v1/responses answers 200 for "
+            "every model tested. Caveat, per-model and client-side: OpenAI-"
+            "family models (gpt-5-4, gpt-5-4-mini, gpt-5-mini) return "
+            "input_tokens_details/output_tokens_details and work end to end, "
+            "while gpt-oss-120b and claude-sonnet-4-5 omit them and langchain "
+            "then fails on usage_metadata — use /chat/completions for those. "
+            "Second caveat, server-side and model-independent: the gateway's "
+            "/responses translation layer cannot parse a `function_call` "
+            "content item, so any turn that makes a tool call fails with "
+            "INVALID_PARAMETER_VALUE. That includes every supervisor/swarm "
+            "handoff, so pair `use_ai_gateway` with `use_responses_api` only "
+            "for agents that call no tools. "
+            "To reach a custom ResponsesAgent serving endpoint, leave "
+            "`use_ai_gateway` false: the gateway serves only Foundation Model "
+            "and UC-securable models and 404s on a custom endpoint."
+        ),
     )
     disable_streaming: bool = Field(
         default=False,
         description="Disable streaming for this model. Required when the Foundation Model endpoint has output guardrails enabled.",
     )
-    ai_gateway: bool = Field(
+    use_ai_gateway: bool = Field(
         default=False,
+        validation_alias=AliasChoices("use_ai_gateway", "ai_gateway"),
         description=(
-            "Route through the Databricks AI Gateway "
-            "(/ai-gateway/mlflow/v1/chat/completions) instead of "
-            "/serving-endpoints/<name>/invocations. When True, `name` is "
-            "sent as the OpenAI-style model id in the request body. "
-            "AI Gateway is OpenAI-compatible chat completions only — not "
-            "for embeddings, Responses API, or non-chat endpoints."
+            "Route through the Databricks AI Gateway (/ai-gateway/mlflow/v1) "
+            "instead of /serving-endpoints/<name>/invocations. When True, "
+            "`name` is sent as the OpenAI-style model id in the request body. "
+            "Serves both /chat/completions and /responses, so this composes "
+            "with `use_responses_api` — see that field for the per-model "
+            "caveat. Addresses Foundation Model and UC-securable models only, "
+            "never a custom serving endpoint. Not for embeddings or other "
+            "non-chat endpoints. Renamed from `ai_gateway` to match the "
+            "databricks-langchain kwarg it feeds; the legacy key is still "
+            "accepted and will be removed in a future major release."
         ),
     )
     best_of_n: Optional[BestOfNConfig] = Field(
@@ -1119,6 +1171,41 @@ class InferenceEndpointModel(IsDatabricksResource):
         ),
     )
 
+    @model_validator(mode="after")
+    def validate_schema_qualification(self) -> Self:
+        """Reject the two combinations that cannot work at runtime.
+
+        Both fail as an opaque 404 on first invocation otherwise, so they are
+        caught here where the message can name the offending key.
+
+        The second check keys on the resolved ``full_name`` rather than on
+        ``schema``, because the two spellings are equivalent: ``schema`` plus a
+        short name and a dotted ``name`` produce the same identifier, so
+        checking only the former let the latter through to the 404 it exists to
+        prevent.
+        """
+        if self.schema_model is not None and "." in self.name:
+            raise ValueError(
+                f"Model '{self.name}' is already fully qualified, so 'schema' "
+                f"(catalog '{self.schema_model.catalog_name}', schema "
+                f"'{self.schema_model.schema_name}') would produce "
+                f"'{self.schema_model.catalog_name}.{self.schema_model.schema_name}.{self.name}'. "
+                "Provide either a fully qualified 'name' or 'schema' plus the "
+                "short model name — not both."
+            )
+
+        if self.is_uc_securable and not self.use_ai_gateway:
+            raise ValueError(
+                f"Model '{self.full_name}' is a UC-securable model name, which "
+                "is only addressable through the Unity AI Gateway — the "
+                "/serving-endpoints/<name>/invocations path answers 404 for a "
+                "three-level name. Set 'use_ai_gateway: true', or address a "
+                "serving endpoint instead (e.g. "
+                "'databricks-claude-sonnet-4-5')."
+            )
+
+        return self
+
     @property
     def api_scopes(self) -> Sequence[str]:
         return [
@@ -1126,31 +1213,49 @@ class InferenceEndpointModel(IsDatabricksResource):
         ]
 
     @property
+    def full_name(self) -> str:
+        """The model identifier dao-ai sends to the serving layer.
+
+        With ``schema`` set, the UC-securable three-level name. Without it,
+        ``name`` verbatim — which is what every existing config resolves to,
+        whether that is a serving endpoint name (``databricks-claude-sonnet-4-5``)
+        or an already-qualified model name (``system.ai.claude-sonnet-4-5``).
+        """
+        if self.schema_model:
+            return f"{self.schema_model.catalog_name}.{self.schema_model.schema_name}.{self.name}"
+        return self.name
+
+    @property
     def uri(self) -> str:
-        return f"databricks:/{self.name}"
+        return f"databricks:/{self.full_name}"
+
+    @property
+    def is_uc_securable(self) -> bool:
+        """Whether this model is addressed as a UC securable, not an endpoint.
+
+        Both deploy targets need this distinction and neither can resolve a
+        three-level name against ``/api/2.0/serving-endpoints``, so the rule
+        lives here rather than being spelled out at each site.
+        """
+        return "." in self.full_name
 
     def as_resources(self) -> Sequence[DatabricksResource]:
+        # A UC-securable model name is not a serving endpoint, and MLflow has no
+        # resource type for one — only DatabricksServingEndpoint, whose
+        # endpoint_name the platform resolves against
+        # /api/2.0/serving-endpoints. Verified on a live workspace: neither
+        # ``system.ai.claude-sonnet-4-5`` nor the short ``claude-sonnet-4-5``
+        # resolves there, so either spelling would put an unresolvable name into
+        # the deploy manifest and auth policy. Emit nothing instead; access to a
+        # UC-securable model is governed by UC grants on the model, and the
+        # gateway's OBO scope is emitted separately (apps/resources.py).
+        if self.is_uc_securable:
+            return []
         return [
             DatabricksServingEndpoint(
                 endpoint_name=self.name, on_behalf_of_user=self.on_behalf_of_user
             )
         ]
-
-    @model_validator(mode="after")
-    def _validate_ai_gateway_compatibility(self) -> Self:
-        if not self.ai_gateway:
-            return self
-        if self.use_responses_api:
-            raise ValueError(
-                "ai_gateway=True is incompatible with use_responses_api=True. "
-                "AI Gateway exposes only the OpenAI-compatible "
-                "/chat/completions path; Responses API endpoints must stay on "
-                "/serving-endpoints/<name>/invocations."
-            )
-        # NOTE: on_behalf_of_user + ai_gateway is permitted pending live
-        # verification. If a workspace returns 401/403 on AI Gateway with an
-        # OBO token, gate it here with a ValueError.
-        return self
 
     def chat_model_for_workspace_client(
         self,
@@ -1161,16 +1266,20 @@ class InferenceEndpointModel(IsDatabricksResource):
         """Build a chat client bound to a specific ``WorkspaceClient``.
 
         Used by OBO call sites that need to swap in a user-scoped
-        ``WorkspaceClient`` per request. Respects ``self.ai_gateway`` so OBO
-        traffic still routes through the AI Gateway path when enabled.
+        ``WorkspaceClient`` per request. Respects ``self.use_ai_gateway`` so
+        OBO traffic still routes through the AI Gateway path when enabled.
+
+        NOTE: ``on_behalf_of_user`` + ``use_ai_gateway`` is permitted. If a
+        workspace ever returns 401/403 on the AI Gateway with an OBO token,
+        gate the combination in a validator on this model.
         """
         effective_disable_streaming: bool = (
             self.disable_streaming if disable_streaming is None else disable_streaming
         )
 
-        cls = ChatUnityAIGateway if self.ai_gateway else ChatDatabricks
+        cls = ChatUnityAIGateway if self.use_ai_gateway else ChatDatabricks
         return cls(
-            model=self.name,
+            model=self.full_name,
             temperature=self.temperature,
             max_tokens=self.max_tokens,
             use_responses_api=self.use_responses_api,
@@ -1190,9 +1299,9 @@ class InferenceEndpointModel(IsDatabricksResource):
             )
             effective_disable_streaming = True
 
-        cls = ChatUnityAIGateway if self.ai_gateway else ChatDatabricks
+        cls = ChatUnityAIGateway if self.use_ai_gateway else ChatDatabricks
         chat_client: LanguageModelLike = cls(
-            model=self.name,
+            model=self.full_name,
             temperature=self.temperature,
             max_tokens=self.max_tokens,
             use_responses_api=self.use_responses_api,
@@ -1206,11 +1315,17 @@ class InferenceEndpointModel(IsDatabricksResource):
             if isinstance(fallback, str):
                 fallback = InferenceEndpointModel(
                     name=fallback,
+                    # A bare string carries no routing of its own, so it inherits
+                    # the primary's: without this a UC-securable fallback name is
+                    # built with the default False and rejected by
+                    # validate_schema_qualification, and any fallback silently
+                    # drops off the gateway path the primary is on.
+                    use_ai_gateway=self.use_ai_gateway,
                     temperature=self.temperature,
                     max_tokens=self.max_tokens,
                     extra_params=self.extra_params,
                 )
-            if fallback.name == self.name:
+            if fallback.full_name == self.full_name:
                 continue
             fallback_model: LanguageModelLike = fallback.as_chat_model()
             fallbacks.append(fallback_model)
@@ -1225,7 +1340,11 @@ class InferenceEndpointModel(IsDatabricksResource):
 
             judge_cfg = self.best_of_n.judge
             if isinstance(judge_cfg, str):
-                judge_cfg = InferenceEndpointModel(name=judge_cfg)
+                # Same as fallbacks: a bare judge string inherits the primary's
+                # routing so a UC-securable name builds and reaches the gateway.
+                judge_cfg = InferenceEndpointModel(
+                    name=judge_cfg, use_ai_gateway=self.use_ai_gateway
+                )
             judge_chat_model = judge_cfg.as_chat_model()
 
             chat_client = BestOfNChatModel.from_components(
@@ -3003,7 +3122,7 @@ class GenieAgentModel(BaseModel):
     Genie Agent Mode API (``POST /api/2.0/genie/agents/{agent_id}/responses``)
     rather than a ``ChatDatabricks`` pointed at ``/serving-endpoints``. This is
     a wrapper (composition), not a subclass of ``InferenceEndpointModel`` — a
-    Genie Agent has no ``temperature``/``max_tokens``/``ai_gateway`` semantics
+    Genie Agent has no ``temperature``/``max_tokens``/``use_ai_gateway`` semantics
     and must never be substitutable into embedding/judge/rerank slots.
 
     Authentication and OBO are delegated wholesale to the wrapped
@@ -7139,7 +7258,7 @@ class ServingEndpointToolModel(BaseFunctionModel):
     - **String / variable** (sugar) — just the endpoint name. dao-ai
       promotes it to a minimal ``InferenceEndpointModel`` internally.
     - **Full ``InferenceEndpointModel``** — when you need
-      ``temperature``, ``max_tokens``, ``ai_gateway``, or
+      ``temperature``, ``max_tokens``, ``use_ai_gateway``, or
       ``on_behalf_of_user`` on the endpoint itself.
     """
 
@@ -7152,7 +7271,7 @@ class ServingEndpointToolModel(BaseFunctionModel):
         description=(
             "Model Serving endpoint to call. Accepts either an endpoint "
             "name string (sugar) or a full InferenceEndpointModel with "
-            "temperature / max_tokens / ai_gateway / on_behalf_of_user. "
+            "temperature / max_tokens / use_ai_gateway / on_behalf_of_user. "
             "For a UC-registered agent endpoint or a Knowledge Assistant "
             "this is the endpoint name (e.g., 'ka-customer-reviews', "
             "'hardware_store_dao'). For FMAPI it's the foundation model "

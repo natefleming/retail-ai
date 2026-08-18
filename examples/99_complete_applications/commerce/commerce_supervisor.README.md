@@ -6,7 +6,7 @@
 |---|---|
 | 🔁 **Pipeline orchestration** | Linear stages: `supervisor → planner → handler/ucp → composer`. Stage transitions are **deterministic** (no LLM call); planner→handler is **LLM-routed** (planner picks one target). Specialists hand off **directly to composer**, not back to supervisor — no hub-and-spoke. |
 | 🧠 **Hyper-personalization** | Lakebase checkpointer + store + background extraction of `user_profile` / `preference` / `episode` schemas. `MemoryContextMiddleware` auto-injects memories into every handler's system prompt before each LLM call |
-| 🛡️ **Unity AI Gateway** | `ai_gateway: true` on every model (chat, extraction, query, embedding) — uniform governance, usage tracking, rate-limit pooling |
+| 🛡️ **Unity AI Gateway** | `use_ai_gateway: true` on every model (chat, extraction, query, embedding) — uniform governance, usage tracking, rate-limit pooling |
 | 🎯 **Mixed-model assignment** | `gpt-oss-120b` for fast routing/lookups + memory extraction + memory-search query optimization; `claude-sonnet-4-5` for reasoning-heavy recommendation + eval |
 | 💸 **Lakebase scale-to-zero** | `autoscaling_min_cu: 0`, `suspend_timeout_seconds: 600` — zero idle cost, ~few-second cold-start when traffic resumes |
 | 📊 **Three VS indexes** | Delta-Sync TRIGGERED over `products` / `faqs` / `policies` on a single shared endpoint. CDF on source tables drives incremental sync |

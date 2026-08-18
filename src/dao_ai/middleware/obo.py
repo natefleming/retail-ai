@@ -52,9 +52,9 @@ class OBOModelMiddleware(AgentMiddleware[AgentState, Context]):
         )
         logger.debug(
             "OBOModelMiddleware: created OBO chat client",
-            model=self.llm_model.name,
+            model=self.llm_model.full_name,
             auth_type=workspace_client.config.auth_type,
-            ai_gateway=self.llm_model.ai_gateway,
+            use_ai_gateway=self.llm_model.use_ai_gateway,
         )
         return self.llm_model.chat_model_for_workspace_client(workspace_client)
 
@@ -68,7 +68,7 @@ class OBOModelMiddleware(AgentMiddleware[AgentState, Context]):
         context: Context | None = request.runtime.context if request.runtime else None
         obo_model: LanguageModelLike = self._create_obo_model(context)
         set_resource_attributes(
-            ResourceInfo("model_serving", True, self.llm_model.name)
+            ResourceInfo("model_serving", True, self.llm_model.full_name)
         )
         return handler(request.override(model=obo_model))
 
@@ -82,6 +82,6 @@ class OBOModelMiddleware(AgentMiddleware[AgentState, Context]):
         context: Context | None = request.runtime.context if request.runtime else None
         obo_model: LanguageModelLike = self._create_obo_model(context)
         set_resource_attributes(
-            ResourceInfo("model_serving", True, self.llm_model.name)
+            ResourceInfo("model_serving", True, self.llm_model.full_name)
         )
         return await handler(request.override(model=obo_model))

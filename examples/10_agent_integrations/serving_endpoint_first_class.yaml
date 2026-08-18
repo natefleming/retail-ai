@@ -51,7 +51,7 @@ tools:
         and store-specific questions.
 
   # 3. Full InferenceEndpointModel sugar — when you need temperature,
-  # max_tokens, ai_gateway, or on_behalf_of_user on the endpoint itself.
+  # max_tokens, use_ai_gateway, or on_behalf_of_user on the endpoint itself.
   tuned_sonnet: &tuned_sonnet
     name: ask_sonnet_creative
     function:

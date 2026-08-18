@@ -23,6 +23,7 @@ from loguru import logger
 from dao_ai.config import (
     AgentModel,
     ChatHistoryModel,
+    InferenceEndpointModel,
     MemoryModel,
     PromptModel,
     ToolModel,
@@ -313,11 +314,17 @@ def create_agent_node(
     """
     logger.info("Creating agent node", agent=agent.name)
 
-    # Log agent configuration details
+    # Log agent configuration details. Report the id that actually reaches the
+    # serving layer: a schema-qualified model's `name` is only the short
+    # segment, so logging it would name a different securable than the request.
     logger.info(
         "Agent configuration",
         agent=agent.name,
-        model=agent.model.name,
+        model=(
+            agent.model.full_name
+            if isinstance(agent.model, InferenceEndpointModel)
+            else agent.model.name
+        ),
         description=agent.description or "No description",
     )
 

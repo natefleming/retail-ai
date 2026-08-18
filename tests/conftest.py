@@ -180,9 +180,17 @@ def add_databricks_resource_attrs(mock: Any) -> Any:
     mock.workspace_host = None
     mock.pat = None
     # Inference endpoint flags read by model validators / OBO factory
-    mock.ai_gateway = False
+    mock.use_ai_gateway = False
     mock.use_responses_api = False
     mock.disable_streaming = False
+    # Pydantic runs InferenceEndpointModel's after-validators even when a mock
+    # is accepted by isinstance, and no pydantic *field* name is on a
+    # MagicMock(spec=...) — only methods and properties are. So every field a
+    # validator reads has to be set here explicitly.
+    mock.schema_model = None
+    # A property on a spec'd mock auto-returns a truthy MagicMock, which would
+    # read as "this is a UC securable" and silently drop the resource.
+    mock.is_uc_securable = False
     return mock
 
 

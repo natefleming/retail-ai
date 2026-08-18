@@ -607,7 +607,7 @@ class TestMcpCompanionPairing:
 @pytest.mark.unit
 class TestAiGatewayGating:
     """``ai-gateway`` is emitted only when an ``InferenceEndpointModel`` has
-    BOTH ``on_behalf_of_user=True`` AND ``ai_gateway=True``."""
+    BOTH ``on_behalf_of_user=True`` AND ``use_ai_gateway=True``."""
 
     def test_both_flags_true_emits_ai_gateway(self) -> None:
         config = _config(
@@ -615,7 +615,7 @@ class TestAiGatewayGating:
                 "obo_gw": InferenceEndpointModel(
                     name="claude-via-gw",
                     on_behalf_of_user=True,
-                    ai_gateway=True,
+                    use_ai_gateway=True,
                 ),
             }
         )
@@ -624,13 +624,13 @@ class TestAiGatewayGating:
         assert "serving.serving-endpoints" in scopes
 
     def test_obo_only_no_gateway_omits_ai_gateway(self) -> None:
-        """OBO LLM without ai_gateway flag must NOT emit ai-gateway."""
+        """OBO LLM without use_ai_gateway flag must NOT emit ai-gateway."""
         config = _config(
             models={
                 "obo": InferenceEndpointModel(
                     name="claude",
                     on_behalf_of_user=True,
-                    ai_gateway=False,
+                    use_ai_gateway=False,
                 ),
             }
         )
@@ -639,7 +639,7 @@ class TestAiGatewayGating:
         assert "serving.serving-endpoints" in scopes
 
     def test_gateway_only_no_obo_omits_ai_gateway(self) -> None:
-        """SP-backed LLM with ai_gateway flag must NOT emit ai-gateway as a
+        """SP-backed LLM with use_ai_gateway flag must NOT emit ai-gateway as a
         user scope — there's no user token to scope it to. The LLM stays in
         the system policy and no user_api_scope is emitted for it."""
         config = _config(
@@ -647,7 +647,7 @@ class TestAiGatewayGating:
                 "sp_gw": InferenceEndpointModel(
                     name="claude-sp-gw",
                     on_behalf_of_user=False,
-                    ai_gateway=True,
+                    use_ai_gateway=True,
                 ),
             }
         )
@@ -663,12 +663,33 @@ class TestAiGatewayGating:
                 "sp": InferenceEndpointModel(
                     name="claude-sp",
                     on_behalf_of_user=False,
-                    ai_gateway=False,
+                    use_ai_gateway=False,
                 ),
             }
         )
         scopes = set(build_auth_policy(config).user_auth_policy.api_scopes)
         assert "ai-gateway" not in scopes
+
+    def test_scope_emitted_via_legacy_ai_gateway_key(self) -> None:
+        """A config written before the rename must still get the scope.
+
+        The gate reads the field directly, so a config using the legacy
+        ``ai_gateway:`` spelling would silently drop ``ai-gateway`` from the
+        deploy manifest — a failure no routing test would surface.
+        """
+        config = _config(
+            models={
+                "obo_gw": InferenceEndpointModel.model_validate(
+                    {
+                        "name": "claude-via-gw",
+                        "on_behalf_of_user": True,
+                        "ai_gateway": True,
+                    }
+                ),
+            }
+        )
+        scopes = set(build_auth_policy(config).user_auth_policy.api_scopes)
+        assert "ai-gateway" in scopes
 
 
 @pytest.mark.unit

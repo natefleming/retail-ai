@@ -156,7 +156,7 @@ VALID_USER_API_SCOPES: set[str] = {
 #
 # ``ai-gateway`` is NOT in this static map — it's emitted dynamically by
 # ``generate_user_api_scopes`` only when an ``InferenceEndpointModel`` has
-# BOTH ``on_behalf_of_user=True`` AND ``ai_gateway=True``.
+# BOTH ``on_behalf_of_user=True`` AND ``use_ai_gateway=True``.
 #
 # Resource-level api_scopes not present here have no OBO emission:
 #   - ``apps.apps``           (DatabricksAppModel — no cross-app OBO)
@@ -302,10 +302,31 @@ def _extract_llm_resources(
     the user's forwarded token and surface in ``user_api_scopes`` instead;
     listing them as app resources would have the platform prompt the operator
     to authorize a permission the app SP will never use.
+
+    Also skips UC-securable models (a three-level name, reached through the AI
+    Gateway), which are not serving endpoints. Apps validates this list
+    eagerly, so emitting one fails the whole deploy::
+
+        POST /api/2.0/apps -> ResourceDoesNotExist:
+          Endpoint with name 'system.ai.claude-sonnet-4-5' does not exist.
+
+    Access to such a model is governed by UC grants on the model itself; the
+    gateway OBO scope is still emitted by ``generate_user_api_scopes``.
     """
     resources: list[dict[str, Any]] = []
     for idx, (key, llm) in enumerate(llms.items()):
         if llm.on_behalf_of_user:
+            continue
+        if llm.is_uc_securable:
+            logger.debug(
+                "Skipping UC-securable model as an app resource",
+                key=key,
+                model=llm.full_name,
+                note=(
+                    "Not a serving endpoint. Grant the app service principal "
+                    "EXECUTE on the model in Unity Catalog instead."
+                ),
+            )
             continue
         resource: dict[str, Any] = {
             "name": key,
@@ -1012,11 +1033,11 @@ def generate_user_api_scopes(config: AppConfig) -> list[str]:
                 scopes.add(api_scope)
 
     # Dynamic gating: emit ``ai-gateway`` only when an InferenceEndpointModel
-    # has BOTH on_behalf_of_user=True AND ai_gateway=True. SP-side
+    # has BOTH on_behalf_of_user=True AND use_ai_gateway=True. SP-side
     # ``serving.serving-endpoints`` is unaffected — it's already emitted by
     # the resource's api_scopes property.
     for resource in obo_resources:
-        if isinstance(resource, InferenceEndpointModel) and resource.ai_gateway:
+        if isinstance(resource, InferenceEndpointModel) and resource.use_ai_gateway:
             scopes.add("ai-gateway")
             break
 
@@ -1147,10 +1168,26 @@ def _extract_sdk_llm_resources(
     llms: dict[str, InferenceEndpointModel],
 ) -> list[AppResource]:
     """Extract SDK AppResource objects for model serving endpoints.
-    Skips OBO resources — user identity handles permissions via user_api_scopes."""
+    Skips OBO resources — user identity handles permissions via user_api_scopes.
+
+    Also skips UC-securable models, which are not serving endpoints — see
+    ``_extract_llm_resources``. This is the extractor ``_deploy_app`` reaches
+    through ``generate_sdk_resources``, so it is the one that fails the deploy.
+    """
     resources: list[AppResource] = []
     for key, llm in llms.items():
         if llm.on_behalf_of_user:
+            continue
+        if llm.is_uc_securable:
+            logger.debug(
+                "Skipping UC-securable model as an app resource",
+                key=key,
+                model=llm.full_name,
+                note=(
+                    "Not a serving endpoint. Grant the app service principal "
+                    "EXECUTE on the model in Unity Catalog instead."
+                ),
+            )
             continue
         sanitized_name = _sanitize_resource_name(key)
         resource = AppResource(

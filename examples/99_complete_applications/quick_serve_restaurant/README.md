@@ -12,7 +12,7 @@
 | ⚙️ **Data + functions provisioned by dao-ai** | `datasets:` (4 tables) and `unity_catalog_functions:` (4 SQL DDL files) are deployed by `dao-ai workflow up` — this app owns its schema end-to-end. |
 | 🧪 **Built-in evaluation** | `evaluation:` block wires a `judge_llm` (`claude-sonnet-4-5`, temp 0.5) over a 25-example eval set written to `retail_consumer_goods.quick_serve_restaurant.evaluation`. |
 
-> **Not present here** (called out so you don't go looking): no MCP tools, no Postgres/Lakebase-backed persistence (the `PGHOST`/`PGPORT`/`PGDATABASE` variables are declared but the memory config binds to neither), no multi-agent orchestration, and no `ai_gateway: true` on the models.
+> **Not present here** (called out so you don't go looking): no MCP tools, no Postgres/Lakebase-backed persistence (the `PGHOST`/`PGPORT`/`PGDATABASE` variables are declared but the memory config binds to neither), no multi-agent orchestration, and no `use_ai_gateway: true` on the models.
 
 ---
 
