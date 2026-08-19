@@ -191,7 +191,7 @@ def write_mcp_bundle(
         staging_dir / ".gitignore",
         _GITIGNORE_DEV_CONTENT if development else _GITIGNORE_CONTENT,
     )
-    _write(staging_dir / ".python-version", "3.11\n")
+    _write(staging_dir / ".python-version", "3.12\n")
 
     # Generate the portable uv.lock (Apps runs ``uv sync --locked --no-dev``
     # from pyproject.toml + uv.lock; no requirements.txt). In dev mode the lock
@@ -479,7 +479,7 @@ _PYPROJECT_TEMPLATE = """\
 name = "{name}"
 version = "0.1.0"
 description = "Databricks Apps MCP server generated from a dao-ai config."
-requires-python = ">=3.11,<3.12"
+requires-python = ">=3.12"
 # Runtime deps are pinned in uv.lock (Apps' build phase runs `uv sync`).
 dependencies = [
     "dao-ai[{extras}]=={dao_ai_version}",{extra_deps}
@@ -501,7 +501,7 @@ _PYPROJECT_DEV_TEMPLATE = """\
 name = "{name}"
 version = "0.1.0"
 description = "Databricks Apps MCP server (development build with bundled wheel)."
-requires-python = ">=3.11,<3.12"
+requires-python = ">=3.12"
 # Runtime deps are pinned in uv.lock (Apps' build phase runs `uv sync`).
 dependencies = [
     "dao-ai[{extras}]",{extra_deps}

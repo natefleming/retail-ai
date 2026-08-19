@@ -113,7 +113,7 @@ build-backend = "hatchling.build"
 name = "{name}"
 version = "0.1.0"
 description = "DAO AI Agent: {name}"
-requires-python = ">=3.11"
+requires-python = ">=3.12"
 dependencies = [
     "dao-ai{extras}=={dao_ai_version}",{extra_deps}
 ]
@@ -134,7 +134,7 @@ build-backend = "hatchling.build"
 name = "{name}"
 version = "0.1.0"
 description = "DAO AI Agent: {name} (development build)"
-requires-python = ">=3.11"
+requires-python = ">=3.12"
 # The dao-ai requirement is redirected to the bundled local wheel via
 # ``[tool.uv.sources]`` below, so ``uv lock`` records the local build and
 # Apps' ``uv sync`` installs THIS code (not PyPI). Everything else resolves
@@ -1231,7 +1231,7 @@ def write_bundle(
         staging_dir / ".gitignore",
         _GITIGNORE_DEV_CONTENT if development else _GITIGNORE_CONTENT,
     )
-    _track(staging_dir / ".python-version", "3.11\n")
+    _track(staging_dir / ".python-version", "3.12\n")
 
     print(f"\nBundle generated in {staging_dir}/\n")
     for name in written:

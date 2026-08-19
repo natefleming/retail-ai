@@ -7,7 +7,7 @@
 
 <p align="center">
   <a href="CHANGELOG.md"><img src="https://img.shields.io/badge/version-0.2.4-blue.svg" alt="Version"></a>
-  <a href="https://www.python.org/"><img src="https://img.shields.io/badge/python-3.11+-green.svg" alt="Python"></a>
+  <a href="https://www.python.org/"><img src="https://img.shields.io/badge/python-3.12+-green.svg" alt="Python"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License"></a>
 </p>
 
@@ -103,7 +103,7 @@ DAO AI Builder generates valid YAML configurations that work seamlessly with thi
 
 Before you begin, you'll need:
 
-- **Python 3.11 or newer** installed on your computer ([download here](https://www.python.org/downloads/))
+- **Python 3.12 or newer** installed on your computer ([download here](https://www.python.org/downloads/))
 - **A Databricks workspace** (ask your IT team or see [Databricks docs](https://docs.databricks.com/))
   - Access to **Unity Catalog** (your organization's data catalog)
   - **Model Serving** or **Databricks Apps** enabled (for deploying AI agents)
@@ -113,7 +113,7 @@ Before you begin, you'll need:
 
 ### Installation
 
-**Requires Python 3.11 or newer.**
+**Requires Python 3.12 or newer.**
 
 **Option 1: Install from PyPI (Recommended)**
 
@@ -125,8 +125,8 @@ Follow these five steps in order. Copy each command exactly.
 python3 --version
 ```
 
-- You should see `Python 3.11.x` or newer.
-- If you see `Python 3.10.x` or older, or you get an error, install a newer Python from https://www.python.org/downloads/ before continuing.
+- You should see `Python 3.12.x` or newer.
+- If you see `Python 3.11.x` or older, or you get an error, install a newer Python from https://www.python.org/downloads/ before continuing.
 - Python 3.13 and 3.14 are supported *only* when using `uv` (Step 2). Standard `pip` may fail on 3.13+ with a "resolution exceeded maximum depth" error because dao-ai's dependency graph is deep.
 
 **Step 2 — Install `uv` (a fast Python package installer).** `uv` is required because it can resolve dao-ai's dependencies on any recent Python version.
@@ -155,7 +155,7 @@ cd dao-ai-project
 uv venv
 ```
 
-`uv venv` prints a line like `Using CPython 3.12.3` — `uv` picks a Python for you from whatever is available on your machine. Any 3.11 or newer is fine; it may differ from the version you saw in Step 1.
+`uv venv` prints a line like `Using CPython 3.12.3` — `uv` picks a Python for you from whatever is available on your machine. Any 3.12 or newer is fine; it may differ from the version you saw in Step 1.
 
 Then activate it:
 
@@ -188,7 +188,7 @@ You should see output that starts with a version line, e.g.:
 ```
 dao-ai 0.2.4
   Published: True
-  Python:    3.11.x   (or 3.12.x — whichever `uv venv` picked in Step 3)
+  Python:    3.12.x   (whichever 3.12+ `uv venv` picked in Step 3)
   Platform:  ...
   Dependencies:
     mlflow: ...
@@ -253,6 +253,28 @@ pip install -e .
 ```
 
 **Verification:** Run `dao-ai --version` to confirm the installation succeeded.
+
+### Troubleshooting installation
+
+**Why Python 3.12+?** On Python 3.11, `uv` cannot install a recent `pyarrow` (25.x) — a
+transitive dependency. Its cp311 wheel trips a `uv` wheel-parsing bug (`Metadata field Name
+not found`, or `Invalid Wheel-Version in WHEEL file: None` on newer uv) that upgrading `uv`
+does **not** fix. Python 3.12 uses a different wheel that installs cleanly, so dao-ai requires
+3.12+. This also matches where dao-ai runs on Databricks — serverless environment version 5
+(Python 3.12.3) and Model Serving.
+
+**`SyntaxError: source code string cannot contain null bytes`** (e.g. when importing
+`langgraph`). A dependency file on disk is physically corrupted — usually the leftover of an
+interrupted or failed install, **not** a dao-ai bug. Rebuild the environment cleanly:
+
+```bash
+# Mac / Linux (adjust paths for Windows):
+rm -rf .venv
+uv cache clean
+uv venv                 # picks a 3.12+ interpreter
+source .venv/bin/activate
+uv pip install dao-ai   # or `make install` in a cloned repo
+```
 
 ### Your First Agent
 
