@@ -288,6 +288,7 @@ def create_agent_node(
     additional_tools: Optional[Sequence[BaseTool]] = None,
     extraction_manager: Optional[MemoryStoreManager] = None,
     checkpointer: Optional[BaseCheckpointSaver] = None,
+    genie_handback: bool = False,
 ) -> CompiledStateGraph:
     """
     Factory function that creates a LangGraph node for a specialized agent.
@@ -308,6 +309,12 @@ def create_agent_node(
         checkpointer: Optional persistent checkpointer for HITL subgraph state.
             Required for Model Serving where multiple workers need shared state.
             Falls back to InMemorySaver if not provided.
+        genie_handback: When the agent's model is a GenieAgentModel, controls
+            whether GenieAgentMiddleware injects a ``handoff_to_supervisor`` tool
+            call so the Genie worker hands control back. Only the supervisor
+            pattern sets this True (and binds the matching handback tool via
+            ``additional_tools``); swarm / single-agent / deep_agent callers
+            leave it False so no injection occurs. No effect for non-Genie models.
 
     Returns:
         A compiled agent node that processes state and returns responses
@@ -439,9 +446,14 @@ def create_agent_node(
     if isinstance(agent.model, GenieAgentModel):
         from dao_ai.middleware.genie_agent import GenieAgentMiddleware
 
+        # ``genie_handback`` is decided by the caller: only the supervisor
+        # pattern hands a Genie worker back (and binds the handback tool that
+        # makes the injection land). Swarm / single-agent / deep_agent callers
+        # leave it False, so the middleware performs no injection there and
+        # emits no "no handoff tool bound" warning.
         middleware_list.append(
             GenieAgentMiddleware(
-                genie_model=agent.model, handback=bool(agent.handoff)
+                genie_model=agent.model, handback=genie_handback
             )
         )
         logger.info(
@@ -449,7 +461,7 @@ def create_agent_node(
             agent=agent.name,
             model=agent.model.name,
             on_behalf_of_user=agent.model.on_behalf_of_user,
-            handback=bool(agent.handoff),
+            handback=genie_handback,
         )
     elif agent.model.on_behalf_of_user:
         from dao_ai.middleware.obo import OBOModelMiddleware

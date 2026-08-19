@@ -57,8 +57,13 @@ def _brain(name: str, space_id: str) -> dict[str, Any]:
 
 
 def _brain_handback(name: str, space_id: str) -> dict[str, Any]:
-    """A Genie brain opted into deterministic handback (``handoff: true``)."""
+    """A Genie brain with handback stated explicitly (``handoff: true``)."""
     return {**_brain(name, space_id), "handoff": True}
+
+
+def _brain_sink(name: str, space_id: str) -> dict[str, Any]:
+    """A Genie brain opted OUT of handback (``handoff: false``) — a graph sink."""
+    return {**_brain(name, space_id), "handoff": False}
 
 
 def _llm(name: str) -> dict[str, Any]:
@@ -80,47 +85,69 @@ def _config(agents: list[dict[str, Any]], **app_extra: Any) -> AppConfig:
 
 
 # =============================================================================
-# 1. Supervisor: no handoff tool for a brain worker
+# 1. Supervisor: a Genie brain hands back by default (opt-out)
 # =============================================================================
 
 
-@pytest.mark.unit
-class TestSupervisorGivesBrainNoHandoffTool:
-    def test_llm_worker_gets_handoff_brain_gets_none(self) -> None:
-        from dao_ai.orchestration.supervisor import create_supervisor_graph
+def _capture_supervisor_worker_wiring(
+    config: AppConfig,
+) -> tuple[dict[str, list[str]], dict[str, bool]]:
+    """Build the supervisor graph, capturing per-worker additional_tools names
+    and the ``genie_handback`` flag passed to ``create_agent_node``."""
+    from dao_ai.orchestration.supervisor import create_supervisor_graph
 
+    tools_by_agent: dict[str, list[str]] = {}
+    handback_by_agent: dict[str, bool] = {}
+
+    def _fake_create_agent_node(agent: Any, **kwargs: Any) -> Any:
+        tools_by_agent[agent.name] = [
+            t.name for t in kwargs.get("additional_tools") or []
+        ]
+        handback_by_agent[agent.name] = bool(kwargs.get("genie_handback"))
+        return MagicMock(name=f"subgraph:{agent.name}")
+
+    with (
+        patch("dao_ai.orchestration.supervisor.create_checkpointer", return_value=None),
+        patch("dao_ai.orchestration.supervisor.create_store", return_value=None),
+        patch(
+            "dao_ai.orchestration.supervisor.create_extraction_manager_and_executor",
+            return_value=(None, None),
+        ),
+        patch(
+            "dao_ai.orchestration.supervisor.create_agent_node",
+            side_effect=_fake_create_agent_node,
+        ),
+    ):
+        create_supervisor_graph(config)
+    return tools_by_agent, handback_by_agent
+
+
+@pytest.mark.unit
+class TestSupervisorGivesBrainHandbackByDefault:
+    def test_default_brain_hands_back(self) -> None:
+        """A Genie brain with no ``handoff`` set hands back by default — it gets
+        the handback tool and ``genie_handback=True`` (opt-out semantics)."""
         config = _config(
             [_llm("billing"), _brain("sellout", SPACE_A)],
             orchestration={"supervisor": {"model": {"name": "test-model"}}},
         )
-        additional_tools_by_agent: dict[str, list[str]] = {}
-
-        def _fake_create_agent_node(agent: Any, **kwargs: Any) -> Any:
-            additional_tools_by_agent[agent.name] = [
-                t.name for t in kwargs.get("additional_tools") or []
-            ]
-            return MagicMock(name=f"subgraph:{agent.name}")
-
-        with (
-            patch(
-                "dao_ai.orchestration.supervisor.create_checkpointer", return_value=None
-            ),
-            patch("dao_ai.orchestration.supervisor.create_store", return_value=None),
-            patch(
-                "dao_ai.orchestration.supervisor.create_extraction_manager_and_executor",
-                return_value=(None, None),
-            ),
-            patch(
-                "dao_ai.orchestration.supervisor.create_agent_node",
-                side_effect=_fake_create_agent_node,
-            ),
-        ):
-            create_supervisor_graph(config)
-
-        assert additional_tools_by_agent == {
+        tools, handback = _capture_supervisor_worker_wiring(config)
+        assert tools == {
             "billing": ["handoff_to_supervisor"],
-            "sellout": [],
+            "sellout": ["handoff_to_supervisor"],
         }
+        assert handback["sellout"] is True
+
+    def test_brain_with_handoff_false_is_a_sink(self) -> None:
+        """Opting OUT with ``handoff: false`` gives the brain no handback tool and
+        ``genie_handback=False`` — a terminal graph sink."""
+        config = _config(
+            [_llm("billing"), _brain_sink("sellout", SPACE_A)],
+            orchestration={"supervisor": {"model": {"name": "test-model"}}},
+        )
+        tools, handback = _capture_supervisor_worker_wiring(config)
+        assert tools["sellout"] == []
+        assert handback["sellout"] is False
 
     def test_brain_with_handoff_true_gets_the_handback_tool(self) -> None:
         """Opting in with ``handoff: true`` gives the brain worker the handback
@@ -340,17 +367,17 @@ class TestSwarmBrainHandoffs:
 
 
 # =============================================================================
-# 6. Supervisor: say out loud that a brain worker is a graph sink
+# 6. Supervisor: warn only when a brain is explicitly opted out (handoff: false)
 # =============================================================================
 
 
 @pytest.mark.unit
-class TestSupervisorWarnsBrainIsASink:
-    """A brain worker has no ``handoff_to_supervisor`` and no outgoing edge, so
-    control cannot return to the supervisor mid-turn: the brain answers and the
-    turn ends. That is intended, but it means a supervisor cannot compose a
-    brain with another agent inside one turn — and nothing in the build says so.
-    Warn once per brain worker, naming it.
+class TestSupervisorWarnsBrainSink:
+    """A Genie brain hands back by default. Only when the author opts OUT with
+    ``handoff: false`` does the brain become a graph sink with no outgoing edge —
+    control cannot return to the supervisor mid-turn. That is a deliberate choice,
+    but easy to forget, so warn once per opted-out brain worker, naming it. A
+    default or ``handoff: true`` brain hands back and must NOT be warned.
     """
 
     def _build(self, agents: list[dict[str, Any]]) -> Callable[[], Any]:
@@ -385,15 +412,15 @@ class TestSupervisorWarnsBrainIsASink:
 
         return _run
 
-    def test_brain_worker_is_named_in_a_warning(self) -> None:
+    def test_opted_out_brain_worker_is_named_in_a_warning(self) -> None:
         msgs = _capture_warnings(
-            self._build([_llm("billing"), _brain("sellout", SPACE_A)])
+            self._build([_llm("billing"), _brain_sink("sellout", SPACE_A)])
         )
         assert any("sellout" in m for m in msgs), msgs
 
     def test_the_warning_says_control_cannot_return_mid_turn(self) -> None:
         msgs = _capture_warnings(
-            self._build([_llm("billing"), _brain("sellout", SPACE_A)])
+            self._build([_llm("billing"), _brain_sink("sellout", SPACE_A)])
         )
         brain_msgs = [m for m in msgs if "sellout" in m]
         assert brain_msgs, msgs
@@ -405,9 +432,17 @@ class TestSupervisorWarnsBrainIsASink:
         msgs = _capture_warnings(self._build([_llm("billing"), _llm("returns")]))
         assert not [m for m in msgs if "billing" in m or "returns" in m], msgs
 
+    def test_a_default_brain_is_not_warned(self) -> None:
+        """A brain that hands back by default (no ``handoff`` set) is not a sink,
+        so the warning must not fire for it."""
+        msgs = _capture_warnings(
+            self._build([_llm("billing"), _brain("sellout", SPACE_A)])
+        )
+        assert not [m for m in msgs if "sellout" in m], msgs
+
     def test_a_brain_with_handoff_true_is_not_warned(self) -> None:
-        """Opting into handback removes the sink limitation, so the sink warning
-        must not fire for that worker."""
+        """Explicit ``handoff: true`` hands back, so the sink warning must not
+        fire for that worker."""
         msgs = _capture_warnings(
             self._build([_llm("billing"), _brain_handback("sellout", SPACE_A)])
         )
