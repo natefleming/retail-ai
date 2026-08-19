@@ -958,7 +958,7 @@ wheels = [
 
 [[package]]
 name = "dao-ai"
-version = "0.2.9"
+version = "0.2.10"
 source = { editable = "." }
 dependencies = [
     { name = "argcomplete" },
