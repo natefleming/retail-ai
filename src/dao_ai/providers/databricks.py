@@ -2427,6 +2427,20 @@ class DatabricksProvider(ServiceProvider):
                 command=app_command,
             )
 
+        # Pin the Apps build/runtime interpreter to Python 3.12, matching the
+        # bundle path (``dao_ai.apps.bundle`` writes the same ``.python-version``).
+        # Without it Apps selects its default interpreter (currently 3.14), for
+        # which some pinned transitive deps ship no wheel — e.g. ``whenever`` (via
+        # ``databricks-agents``) has cp312/cp313 wheels only — so ``uv sync`` falls
+        # back to a source build that needs a Rust/C toolchain absent from the Apps
+        # builder and fails with "Error installing packages".
+        self.w.workspace.upload(
+            path=f"{source_path}/.python-version",
+            content=io.BytesIO(b"3.12\n"),
+            format=ImportFormat.AUTO,
+            overwrite=True,
+        )
+
         # The chat UI (e2e-chatbot-app-next) is cloned and built at runtime
         # by start_app.py, matching the official Databricks agent template
         # pattern.  No pre-build or archive upload is needed here.

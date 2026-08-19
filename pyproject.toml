@@ -321,4 +321,4 @@ exclude = [
 #
 # Scope the ignores to the notebooks dir so the rest of the tree stays strict.
 [tool.ruff.lint.per-file-ignores]
-"src/dao_ai/pipeline/notebooks/*.py" = ["E402", "F821", "E401", "I001"]
+"src/dao_ai/pipeline/notebooks/*.py" = ["E402", "F821", "E401", "I001", "F811"]

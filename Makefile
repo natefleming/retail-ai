@@ -46,24 +46,32 @@ CD := cd
 
 .PHONY: all clean distclean dist check check-lock lock lock-local format publish help test unit integration
 
-# The internal PyPI proxy host that must never appear in the committed uv.lock:
-# its absolute wheel URLs aren't reachable outside Databricks and break
-# `uv sync --frozen` / the Databricks Apps uv build path for customers. Re-lock
-# against public PyPI (`UV_INDEX_URL=https://pypi.org/simple uv lock`) if this
+# Internal PyPI index/proxy hosts that must never appear in the committed
+# uv.lock: their URLs aren't reachable outside Databricks and break
+# `uv sync --frozen` / the Databricks Apps uv build path for customers. Two
+# distinct internal indexes occur, depending on where the lock was generated:
+#   * the corp CDN mirror (``pypi-proxy.{dev,cloud,...}.databricks.com``) — a
+#     transparent passthrough of the public CDN; it poisons wheel/sdist URLs.
+#   * the serverless build proxy (``node.host.local:<port>/pypi/...``) — it
+#     poisons the ``source`` registry-index field; wheel URLs stay public.
+# Re-lock against public PyPI (`make lock`, or `make lock-local` on-corp) if this
 # guard trips. See the ADR on Apps dependency management.
 LOCK_FILE := $(TOP_DIR)/uv.lock
-FORBIDDEN_LOCK_HOST := pypi-proxy
-# The internal mirror is a transparent passthrough of the public CDN: identical
-# package paths, hashes, and upload-times — only the host differs. `make
-# lock-local` exploits this to re-lock ON the corp network (where only the
-# mirror, not the public index API, is reachable) and rewrite the recorded host
-# back to the public CDN, yielding a lock byte-identical to a clean-room re-lock.
-# The mirror host has appeared under multiple subdomains (pypi-proxy.dev... and
-# pypi-proxy.cloud...); the rewrite matches both via an alternation. Two forms
-# occur: index URLs (``.../simple`` — note the mirror omits the trailing slash
-# public PyPI writes) and artifact URLs (``.../packages/...``).
+# Extended-regex alternation of forbidden internal index/proxy hosts.
+FORBIDDEN_LOCK_HOST := pypi-proxy|node\.host\.local
+# `make lock-local` re-locks against the ambient internal index (for on-corp use
+# when the public index API is unreachable), then rewrites the recorded internal
+# host back to public infrastructure, yielding a lock equivalent to a clean-room
+# re-lock. The corp mirror is a transparent passthrough of the public CDN
+# (identical package paths, hashes, and upload-times — only the host differs),
+# so its index/artifact URLs are host-swapped to the public CDN; the serverless
+# proxy poisons only the registry field, normalized to the canonical public
+# index. The corp mirror has appeared under multiple subdomains
+# (pypi-proxy.dev... and pypi-proxy.cloud...); the rewrite matches both.
 MIRROR_LOCK_HOST := pypi-proxy\.(dev|cloud)\.databricks\.com
+SERVERLESS_LOCK_HOST := node\.host\.local(:[0-9]+)?
 PUBLIC_LOCK_HOST := files.pythonhosted.org
+PUBLIC_LOCK_INDEX := https://pypi.org/simple
 
 all: dist
 
@@ -80,13 +88,13 @@ check: check-lock
 	$(RUFF_CHECK) $(SRC_DIR) $(TEST_DIR)
 
 check-lock:
-	@if grep -q "$(FORBIDDEN_LOCK_HOST)" "$(LOCK_FILE)"; then \
-		echo "ERROR: $(LOCK_FILE) references the internal PyPI proxy ($(FORBIDDEN_LOCK_HOST))."; \
+	@if grep -qE "$(FORBIDDEN_LOCK_HOST)" "$(LOCK_FILE)"; then \
+		echo "ERROR: $(LOCK_FILE) references an internal PyPI index/proxy (matches: $(FORBIDDEN_LOCK_HOST))."; \
 		echo "       These URLs are unreachable outside Databricks and break customer installs."; \
-		echo "       Re-lock against public PyPI: make lock"; \
+		echo "       Re-lock against public PyPI: make lock (or make lock-local on-corp)."; \
 		exit 1; \
 	fi
-	@echo "uv.lock is clean (no $(FORBIDDEN_LOCK_HOST) references)."
+	@echo "uv.lock is clean (no internal index/proxy references)."
 
 # Re-resolve dependencies and regenerate uv.lock against PUBLIC PyPI after a
 # real dependency change in pyproject.toml. Everyday work uses `make install`
@@ -109,6 +117,7 @@ lock-local:
 	@sed -E -i.bak \
 		-e 's#https://$(MIRROR_LOCK_HOST)/simple/?#https://$(PUBLIC_LOCK_HOST)/simple/#g' \
 		-e 's#https://$(MIRROR_LOCK_HOST)/#https://$(PUBLIC_LOCK_HOST)/#g' \
+		-e 's#https?://$(SERVERLESS_LOCK_HOST)/pypi/v[0-9]+/simple/?#$(PUBLIC_LOCK_INDEX)#g' \
 		"$(LOCK_FILE)" && rm -f "$(LOCK_FILE).bak"
 	@$(MAKE) check-lock
 
