@@ -64,10 +64,11 @@ FORBIDDEN_LOCK_HOST := pypi-proxy|node\.host\.local
 # host back to public infrastructure, yielding a lock equivalent to a clean-room
 # re-lock. The corp mirror is a transparent passthrough of the public CDN
 # (identical package paths, hashes, and upload-times — only the host differs),
-# so its index/artifact URLs are host-swapped to the public CDN; the serverless
-# proxy poisons only the registry field, normalized to the canonical public
-# index. The corp mirror has appeared under multiple subdomains
-# (pypi-proxy.dev... and pypi-proxy.cloud...); the rewrite matches both.
+# so its artifact (``.../packages/...``) URLs are host-swapped to the public CDN
+# and its recorded index (``.../simple``) is normalized to the canonical public
+# index; the serverless proxy poisons only the registry field, likewise
+# normalized to the public index. The corp mirror has appeared under multiple
+# subdomains (pypi-proxy.dev... and pypi-proxy.cloud...); the rewrite matches both.
 MIRROR_LOCK_HOST := pypi-proxy\.(dev|cloud)\.databricks\.com
 SERVERLESS_LOCK_HOST := node\.host\.local(:[0-9]+)?
 PUBLIC_LOCK_HOST := files.pythonhosted.org
@@ -115,7 +116,7 @@ lock:
 lock-local:
 	$(UV) lock
 	@sed -E -i.bak \
-		-e 's#https://$(MIRROR_LOCK_HOST)/simple/?#https://$(PUBLIC_LOCK_HOST)/simple/#g' \
+		-e 's#https://$(MIRROR_LOCK_HOST)/simple/?#$(PUBLIC_LOCK_INDEX)#g' \
 		-e 's#https://$(MIRROR_LOCK_HOST)/#https://$(PUBLIC_LOCK_HOST)/#g' \
 		-e 's#https?://$(SERVERLESS_LOCK_HOST)/pypi/v[0-9]+/simple/?#$(PUBLIC_LOCK_INDEX)#g' \
 		"$(LOCK_FILE)" && rm -f "$(LOCK_FILE).bak"

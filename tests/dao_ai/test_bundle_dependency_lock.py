@@ -196,8 +196,36 @@ class TestGenerateBundleLock:
             _locking.subprocess, "run", self._fake_uv_lock(tmp_path, residue)
         )
         monkeypatch.setattr(_locking, "_make_lock_portable", lambda text: text)
-        with pytest.raises(RuntimeError, match="non-public package index"):
+        with pytest.raises(RuntimeError, match="internal package proxy"):
             _locking.generate_bundle_lock(tmp_path)
+
+    def test_leaves_public_alternate_index_untouched(
+        self, tmp_path, monkeypatch
+    ) -> None:
+        # Only INTERNAL Databricks mirrors are stripped. A legitimate public
+        # alternate index (reachable from the Apps container) must survive
+        # untouched — the rewrite must not blanket-map every non-pypi.org host to
+        # public PyPI, which would corrupt the source and 404 at ``uv sync``.
+        from dao_ai import _locking
+
+        (tmp_path / "pyproject.toml").write_text("[project]\nname='x'\n")
+        body = (
+            '[[package]]\nname = "torch"\nversion = "2.0.0"\n'
+            'source = { registry = "https://download.pytorch.org/whl/cpu" }\n'
+            "wheels = [{ url = "
+            '"https://download.pytorch.org/whl/cpu/torch-2.0.0-cp312-linux.whl" }]\n'
+        )
+        monkeypatch.setattr(
+            _locking.subprocess, "run", self._fake_uv_lock(tmp_path, body)
+        )
+        _locking.generate_bundle_lock(tmp_path)
+        result = (tmp_path / "uv.lock").read_text()
+        # Alternate public index left exactly as-is; not rewritten to pypi.org
+        # or the public CDN.
+        assert 'registry = "https://download.pytorch.org/whl/cpu"' in result
+        assert "download.pytorch.org/whl/cpu/torch-2.0.0-cp312-linux.whl" in result
+        assert "pypi.org/simple" not in result
+        assert "files.pythonhosted.org" not in result
 
     def test_raises_actionable_message_on_unsatisfiable_dao_ai(
         self, tmp_path, monkeypatch
