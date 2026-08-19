@@ -288,6 +288,7 @@ def create_agent_node(
     additional_tools: Optional[Sequence[BaseTool]] = None,
     extraction_manager: Optional[MemoryStoreManager] = None,
     checkpointer: Optional[BaseCheckpointSaver] = None,
+    genie_handback: bool = False,
 ) -> CompiledStateGraph:
     """
     Factory function that creates a LangGraph node for a specialized agent.
@@ -439,9 +440,14 @@ def create_agent_node(
     if isinstance(agent.model, GenieAgentModel):
         from dao_ai.middleware.genie_agent import GenieAgentMiddleware
 
+        # ``genie_handback`` is decided by the caller: only the supervisor
+        # pattern hands a Genie worker back (and binds the handback tool that
+        # makes the injection land). Swarm / single-agent / deep_agent callers
+        # leave it False, so the middleware performs no injection there and
+        # emits no "no handoff tool bound" warning.
         middleware_list.append(
             GenieAgentMiddleware(
-                genie_model=agent.model, handback=bool(agent.handoff)
+                genie_model=agent.model, handback=genie_handback
             )
         )
         logger.info(
@@ -449,7 +455,7 @@ def create_agent_node(
             agent=agent.name,
             model=agent.model.name,
             on_behalf_of_user=agent.model.on_behalf_of_user,
-            handback=bool(agent.handoff),
+            handback=genie_handback,
         )
     elif agent.model.on_behalf_of_user:
         from dao_ai.middleware.obo import OBOModelMiddleware

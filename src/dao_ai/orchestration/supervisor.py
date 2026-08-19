@@ -347,33 +347,30 @@ def create_supervisor_graph(config: AppConfig) -> CompiledStateGraph:
             internal_agents=sorted(internal_agents),
         )
     for registered_agent in config.app.agents:
-        # Every worker gets a handoff back to the supervisor — except a
-        # Genie-brain worker (GenieAgentModel), whose model runs its own tool
-        # loop server-side and never calls a client tool. Its turn ends when it
-        # answers, which is the only way control ever leaves that worker anyway,
-        # so the tool would be dead weight in its graph and its logs — unless the
-        # author opts in with ``handoff: true`` (see ``genie_handback`` below).
+        # Every worker hands control back to the supervisor. A Genie-brain
+        # worker (GenieAgentModel) cannot emit a client tool call on its own, so
+        # dao-ai hands it back deterministically: it gets the handback tool (which
+        # creates its ToolNode + model→tools edge) and GenieAgentMiddleware injects
+        # a ``handoff_to_supervisor`` call into Genie's answer. This is the default
+        # — a Genie worker behaves like every other worker — and is opt-OUT: set
+        # ``handoff: false`` to make the brain a terminal graph sink instead (it
+        # answers and the turn ends; the supervisor only re-routes next turn).
         is_genie_brain: bool = isinstance(registered_agent.model, GenieAgentModel)
-        # A Genie brain cannot emit a client tool call, so it is normally a graph
-        # sink. Opting in via ``handoff: true`` gives it the handback tool anyway:
-        # that creates the worker's ToolNode + model→tools edge, and
-        # GenieAgentMiddleware injects a ``handoff_to_supervisor`` tool call into
-        # Genie's answer so control deterministically returns to the supervisor.
-        genie_handback: bool = is_genie_brain and bool(registered_agent.handoff)
+        genie_handback: bool = is_genie_brain and registered_agent.handoff is not False
+        genie_sink: bool = is_genie_brain and registered_agent.handoff is False
         additional_tools: list[BaseTool] = (
-            [] if (is_genie_brain and not genie_handback)
-            else [_create_handoff_back_to_supervisor_tool()]
+            [] if genie_sink else [_create_handoff_back_to_supervisor_tool()]
         )
-        if is_genie_brain and not genie_handback:
-            # Without the handoff tool, and with no worker -> supervisor edge,
-            # this worker is a graph sink. That is correct, but it silently
-            # rules out something a config author may well expect: the
-            # supervisor cannot collect this agent's answer and then route on
-            # to another agent inside the same turn.
+        if genie_sink:
+            # Author explicitly opted out (``handoff: false``): no handoff tool,
+            # no worker -> supervisor edge, so this worker is a graph sink. The
+            # supervisor cannot collect its answer and route on to another agent
+            # in the same turn — it re-routes on the next turn instead.
             logger.warning(
-                "Genie-brain worker is a graph sink: it answers and the turn "
-                "ends. The supervisor cannot chain it with another agent in the "
-                "same turn — it re-routes on the next turn instead.",
+                "Genie-brain worker has handoff: false — it is a graph sink: it "
+                "answers and the turn ends. The supervisor cannot chain it with "
+                "another agent in the same turn — it re-routes on the next turn "
+                "instead.",
                 agent=registered_agent.name,
             )
 
@@ -385,6 +382,7 @@ def create_supervisor_graph(config: AppConfig) -> CompiledStateGraph:
             additional_tools=additional_tools,
             extraction_manager=extraction_manager,
             checkpointer=checkpointer,
+            genie_handback=genie_handback,
         )
         agent_subgraphs[registered_agent.name] = agent_subgraph
         agent_recursion_limits[registered_agent.name] = registered_agent.recursion_limit

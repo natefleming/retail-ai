@@ -8151,15 +8151,17 @@ class AgentModel(BaseModel):
         description=(
             "Only meaningful when ``model`` is a Genie space (``GenieAgentModel``). "
             "A Genie brain runs its tool loop server-side and never emits a client "
-            "tool call, so under a supervisor it is normally a graph sink: it "
-            "answers and the turn ends, and the supervisor cannot use its answer "
-            "and then route on. Set ``handoff: true`` to opt this Genie worker into "
-            "a deterministic handback: after it answers, control returns to the "
-            "supervisor (via an injected ``handoff_to_supervisor`` tool call) so the "
-            "supervisor can chain another agent in the same turn. LLM-free. Ignored "
-            "for non-Genie models (they hand off through their own tool loop) and in "
-            "the swarm pattern (use a swarm ``is_deterministic`` handoff route "
-            "instead, which already routes a Genie source at the graph level)."
+            "tool call. Under a supervisor, dao-ai makes it hand control back "
+            "deterministically — like every other worker — by injecting a "
+            "``handoff_to_supervisor`` tool call after it answers, so the supervisor "
+            "can chain another agent in the same turn. LLM-free. This is the DEFAULT "
+            "(``None``): a Genie worker hands back. Set ``handoff: false`` to opt OUT "
+            "and make the brain a terminal graph sink (it answers and the turn ends; "
+            "the supervisor only re-routes on the next turn). ``handoff: true`` is "
+            "the same as the default, stated explicitly. Ignored for non-Genie models "
+            "(they hand off through their own tool loop) and in the swarm pattern "
+            "(use a swarm ``is_deterministic`` handoff route instead, which already "
+            "routes a Genie source at the graph level)."
         ),
     )
     requires: list[str] = Field(
