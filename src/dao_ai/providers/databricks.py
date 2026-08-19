@@ -1553,9 +1553,9 @@ class DatabricksProvider(ServiceProvider):
 
         logger.trace("Input example configured", has_example=input_example is not None)
 
-        # Create conda environment with configured Python version
-        # This allows deploying from environments with different Python versions
-        # (e.g., Databricks Apps with Python 3.11 can deploy to Model Serving with 3.12)
+        # Create conda environment with configured Python version. This lets the
+        # Model Serving container's Python be pinned independently of the environment
+        # running the deploy (a local machine, CI, or a job may be on a different version).
         target_python_version: str = config.app.python_version
         logger.debug("Target Python version configured", version=target_python_version)
 
