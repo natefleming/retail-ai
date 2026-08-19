@@ -8,7 +8,7 @@ version = "0.2.10"
 description = "DAO AI: A modular, multi-agent orchestration framework for complex AI workflows. Supports agent handoff, tool integration, and dynamic configuration via YAML."
 readme = "README.md"
 license = { text = "MIT" }
-requires-python = ">=3.11"
+requires-python = ">=3.12"
 authors = [
     { name = "Nate Fleming", email = "nate.fleming@databricks.com" },
     { name = "Nate Fleming", email = "nate.fleming@gmail.com" },
@@ -35,7 +35,6 @@ classifiers = [
     "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
     "Programming Language :: Python :: 3.14",
@@ -266,7 +265,7 @@ markers = [
 
 [tool.ruff]
 # Enable the Ruff formatter
-target-version = "py311"  # Minimum supported Python version
+target-version = "py312"  # Minimum supported Python version
 line-length = 88  # Same as Black's default
 indent-width = 4
 

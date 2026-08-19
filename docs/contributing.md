@@ -43,7 +43,7 @@ dao-ai/
 
 ### Prerequisites
 
-- Python 3.11 or newer
+- Python 3.12 or newer
 - Git
 - Access to a Databricks workspace (for integration tests)
 
@@ -73,6 +73,13 @@ source .venv/bin/activate
 ```bash
 make install
 ```
+
+> **Python 3.12+ required.** On 3.11, `uv` can't install a recent transitive `pyarrow` (25.x) —
+> its cp311 wheel trips a `uv` wheel-parsing bug (`Metadata field Name not found` /
+> `Invalid Wheel-Version`) that upgrading `uv` doesn't fix; 3.12 uses a different, working wheel.
+> A `SyntaxError: source code string cannot contain null bytes` (e.g. importing `langgraph`)
+> means a dependency file is corrupted from a failed install — rebuild clean:
+> `rm -rf .venv && uv cache clean && uv venv && make install`.
 
 ## Contributing Guidelines
 

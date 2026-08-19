@@ -10012,8 +10012,9 @@ class AppModel(BaseModel):
     python_version: Optional[str] = Field(
         default="3.12",
         description="Python version for Model Serving deployment. Defaults to 3.12 "
-        "which is supported by Databricks Model Serving. This allows deploying from "
-        "environments with different Python versions (e.g., Databricks Apps with 3.11).",
+        "which is supported by Databricks Model Serving. This lets the serving "
+        "container's Python be pinned independently of the environment running the "
+        "deploy (a local machine, CI, or a job may be on a different Python version).",
     )
     trace_location: Optional[TraceLocationModel] = Field(
         default=None,

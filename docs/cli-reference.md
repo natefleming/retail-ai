@@ -528,7 +528,7 @@ The command creates a self-contained bundle directory with everything needed to 
 | `<config>.yaml` | Copy of your dao-ai agent configuration (retains its original filename) |
 | `pyproject.toml` | Python project with dao-ai dependency |
 | `.gitignore` | Ignore patterns for build artifacts |
-| `.python-version` | Python version pin (3.11) |
+| `.python-version` | Python version pin (3.12) |
 | `src/<package>/` | Stub package for custom code |
 | `resources/app.yml` | The App + experiment resource block (owned by dao-ai) |
 | `resources/<your>.yml` | Your own resource overlays (see below) |

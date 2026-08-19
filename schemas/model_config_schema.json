@@ -745,6 +745,19 @@
           "description": "Shortcut to cap how many model (LLM) calls this agent may make. A bare integer sets run_limit (per-invocation) with exit_behavior='end'; an object gives full control over run_limit/thread_limit/exit_behavior. Registers a ModelCallLimitMiddleware for this agent \u2014 the discoverable, co-located equivalent of hand-wiring ``create_model_call_limit_middleware`` into ``middleware``. The model-call analogue of a tool's ``call_limit``; complements ``recursion_limit`` (the graph-superstep backstop).",
           "title": "Call Limit"
         },
+        "handoff": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Only meaningful when ``model`` is a Genie space (``GenieAgentModel``) used as a worker under a SUPERVISOR. A Genie brain runs its tool loop server-side and never emits a client tool call; under a supervisor, dao-ai makes it hand control back deterministically \u2014 like every other worker \u2014 by injecting a ``handoff_to_supervisor`` tool call after it answers, so the supervisor can chain another agent in the same turn. LLM-free. Under a supervisor this is the DEFAULT (``None`` and ``true`` both hand back); set ``handoff: false`` to opt OUT and make the brain a terminal graph sink (it answers and the turn ends; the supervisor only re-routes on the next turn). It has NO effect outside the supervisor pattern: a standalone single-agent Genie has nothing to hand back to, and swarm routing uses an ``is_deterministic`` handoff route at the graph level instead. Ignored for non-Genie models (they hand off through their own tool loop).",
+          "title": "Handoff"
+        },
         "requires": {
           "description": "Names of prerequisite agents that must have run (i.e. produced an AIMessage tagged with their name) before this agent can be reached via a swarm handoff. When unmet, the handoff tool returns a refusal ToolMessage and 'active_agent' stays unchanged so the LLM can self-correct on its next step. Semantics: any-order, all-of. Currently enforced in the swarm pattern only; the supervisor pattern ignores this field. Cross-agent validation (unknown name, self-reference, cycles in the requires DAG) runs at config-build time.",
           "items": {
@@ -1675,7 +1688,7 @@
             }
           ],
           "default": "3.12",
-          "description": "Python version for Model Serving deployment. Defaults to 3.12 which is supported by Databricks Model Serving. This allows deploying from environments with different Python versions (e.g., Databricks Apps with 3.11).",
+          "description": "Python version for Model Serving deployment. Defaults to 3.12 which is supported by Databricks Model Serving. This lets the serving container's Python be pinned independently of the environment running the deploy (a local machine, CI, or a job may be on a different Python version).",
           "title": "Python Version"
         },
         "trace_location": {
