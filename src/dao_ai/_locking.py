@@ -22,30 +22,68 @@ import shutil
 import subprocess
 import tempfile
 from pathlib import Path
+from urllib.parse import urlsplit, urlunsplit
 
 from loguru import logger
 
-# The internal mirror host pattern and its public-CDN equivalent. The mirror
-# mirrors the public CDN's ``/packages/<hash-path>/<wheel>`` layout verbatim, so
-# a host swap yields a portable lock without changing any package, version, or
-# hash.
+# A portable bundle lock must not reference an INTERNAL Databricks package proxy
+# — those hosts are unreachable from the Apps build container and from customers,
+# so ``uv sync`` there fails. Two distinct proxies occur, depending on where the
+# lock was generated, and they poison different fields:
+#   * corp CDN mirror (``pypi-proxy.{dev,cloud,<region>}.databricks.com``) — a
+#     transparent passthrough of the public CDN (identical ``/packages/<hash>``
+#     paths and hashes); it bakes its host into the wheel/sdist ``url`` fields.
+#     Fix: host-swap back to the public CDN.
+#   * serverless build proxy (``node.host.local:<port>/pypi/v1/simple/``) — a
+#     simple index that leaves wheel URLs on the public CDN but records itself in
+#     the ``source = { registry = "..." }`` field. Fix: normalize the registry to
+#     the canonical public index.
 #
-# The mirror is reachable under several ``pypi-proxy`` subdomains of
-# ``databricks.com`` depending on the workspace's network —
-# ``pypi-proxy.dev.databricks.com``, ``pypi-proxy.cloud.databricks.com``, and
-# regional ``pypi-proxy.<region>.cloud.databricks.com``. Rather than enumerate
-# them (the original bug hardcoded only ``.dev.`` and silently left ``.cloud.``
-# URLs, which then 404 in the Apps build container), match ANY ``pypi-proxy``
-# mirror host generically: a ``pypi-proxy``-prefixed subdomain of
-# ``databricks.com``.
-_PUBLIC_HOST = "files.pythonhosted.org"
+# Only these internal mirror hosts are rewritten. Legitimate PUBLIC alternate
+# indexes and direct-URL/git sources (e.g. ``download.pytorch.org``) are reachable
+# from the Apps container and must be left untouched.
+_PUBLIC_CDN_HOST = "files.pythonhosted.org"
+_PUBLIC_INDEX = "https://pypi.org/simple"
 
-# General pattern: any ``pypi-proxy`` mirror subdomain of ``databricks.com``.
-_MIRROR_HOST_RE = re.compile(r"pypi-proxy[\w.-]*\.databricks\.com")
+# Internal Databricks proxy hosts, matched ANYWHERE in the lock text (independent
+# of TOML field/whitespace formatting) — both by the rewrite and, critically, by
+# the survivor guard, so an unusual layout the field-aware rewrite misses still
+# fails loudly instead of shipping an unresolvable lock. Broadened beyond the
+# original ``pypi-proxy*.databricks.com``-only match (which silently shipped the
+# serverless ``node.host.local`` proxy).
+_MIRROR_HOST_RE = re.compile(
+    r"pypi-proxy[\w.-]*\.databricks\.com|node\.host\.local(?::\d+)?"
+)
 
-# Independent survivor guard (same general shape) so a future regression in the
-# rewrite still fails loudly instead of shipping an unresolvable lock.
-_MIRROR_GUARD_RE = re.compile(r"pypi-proxy[\w.-]*\.databricks\.com")
+# The two lock fields that carry a host: the registry index and download URLs.
+_REGISTRY_RE = re.compile(r'registry = "([^"]*)"')
+_URL_RE = re.compile(r'url = "([^"]*)"')
+
+
+def _make_lock_portable(lock_text: str) -> str:
+    """Rewrite internal-mirror references to their public equivalents.
+
+    A ``source`` registry on an internal mirror becomes the canonical public
+    index; a wheel/sdist ``url`` on the corp CDN mirror is host-swapped back to
+    the public CDN (path and hash unchanged). Only internal Databricks mirror
+    hosts are touched — public alternate indexes and direct URLs are left as-is.
+    """
+
+    def _fix_registry(m: "re.Match[str]") -> str:
+        if _MIRROR_HOST_RE.search(m.group(1)):
+            return f'registry = "{_PUBLIC_INDEX}"'
+        return m.group(0)
+
+    def _fix_url(m: "re.Match[str]") -> str:
+        url = m.group(1)
+        if not _MIRROR_HOST_RE.search(url):
+            return m.group(0)
+        swapped = urlsplit(url)._replace(scheme="https", netloc=_PUBLIC_CDN_HOST)
+        return f'url = "{urlunsplit(swapped)}"'
+
+    text = _REGISTRY_RE.sub(_fix_registry, lock_text)
+    text = _URL_RE.sub(_fix_url, text)
+    return text
 
 
 def generate_bundle_lock(bundle_dir: Path) -> None:
@@ -91,20 +129,23 @@ def generate_bundle_lock(bundle_dir: Path) -> None:
         raise RuntimeError(f"uv lock did not produce {lock_path}")
 
     original = lock_path.read_text()
-    rewritten = _MIRROR_HOST_RE.sub(_PUBLIC_HOST, original)
+    rewritten = _make_lock_portable(original)
     if rewritten != original:
         lock_path.write_text(rewritten)
         logger.info(
-            "Rewrote internal mirror host(s) in bundle uv.lock to public CDN",
-            public=_PUBLIC_HOST,
+            "Rewrote internal mirror reference(s) in bundle uv.lock to public PyPI",
+            index=_PUBLIC_INDEX,
+            cdn=_PUBLIC_CDN_HOST,
         )
 
-    # Clean-check: assert no mirror host survived the rewrite (defense-in-depth
-    # via an independent guard regex) rather than shipping an unresolvable lock.
-    surviving = _MIRROR_GUARD_RE.search(lock_path.read_text())
+    # Clean-check: assert no internal mirror host survived the rewrite. This scans
+    # the whole lock text (format-independent), so it fails loudly even if the
+    # field-aware rewrite above missed an unusual layout — defense-in-depth
+    # against shipping an unresolvable lock.
+    surviving = _MIRROR_HOST_RE.search(lock_path.read_text())
     if surviving:
         raise RuntimeError(
-            f"{lock_path} still references an internal mirror "
+            f"{lock_path} still references an internal package proxy "
             f"({surviving.group()}) after rewrite; the lock would not resolve in "
             "the Apps container or for customers. Aborting."
         )

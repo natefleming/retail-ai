@@ -1423,6 +1423,85 @@ def test_deploy_apps_agent_uploads_rendered_yaml(tmp_path):
 
 
 @pytest.mark.unit
+def test_deploy_apps_agent_uploads_python_version(tmp_path):
+    """The direct-deploy path must pin the Apps interpreter via a ``.python-version``
+    file (3.12). Without it, Apps' ``uv sync`` falls back to ``requires-python``
+    (``>=3.12``, unbounded) and selects its newest managed interpreter (e.g. 3.14),
+    for which pinned transitive deps such as ``whenever`` (via ``databricks-agents``)
+    ship no wheel — forcing a Rust source build that fails on the Apps builder with
+    "Error installing packages". The bundle path already writes this file; the
+    direct-deploy path must match."""
+    import io
+    from unittest.mock import MagicMock, patch
+
+    from databricks.sdk.service.apps import (
+        App,
+        AppDeployment,
+        AppDeploymentState,
+        ApplicationState,
+    )
+    from databricks.sdk.service.iam import User
+
+    from dao_ai.config import AppConfig, AppModel
+    from dao_ai.providers.databricks import DatabricksProvider
+
+    src_file = tmp_path / "dao_ai.yaml"
+    src_file.write_text("schemas: {}\n")
+
+    mock_config = MagicMock(spec=AppConfig)
+    mock_app = MagicMock(spec=AppModel)
+    mock_app.name = "pyver-test"
+    mock_app.description = ""
+    mock_app.environment_vars = {}
+    mock_app.trace_location = None
+    mock_app.monitoring = None
+    mock_app.enable_chat_proxy = True
+    mock_config.app = mock_app
+    mock_config.source_config_path = str(src_file)
+    mock_config.rendered_yaml = "schemas: {}\n"
+    mock_config.resources = None
+    mock_config.agents = None
+    mock_config.retrievers = None
+
+    mock_existing_app = MagicMock(spec=App)
+    mock_existing_app.app_status = MagicMock(state=ApplicationState.RUNNING)
+    mock_deployment = MagicMock(spec=AppDeployment)
+    mock_deployment.status = MagicMock(state=AppDeploymentState.SUCCEEDED)
+    mock_user = MagicMock(spec=User, user_name="test.user@example.com")
+
+    with (
+        patch.object(DatabricksProvider, "__init__", return_value=None),
+        # Force the published branch and stub the lock render so the test does
+        # not shell out to a real ``uv lock``.
+        patch("dao_ai.providers.databricks._use_local_source", return_value=False),
+        patch("dao_ai._locking.render_portable_lock", return_value="# stub lock\n"),
+    ):
+        provider = DatabricksProvider()
+        provider.w = MagicMock()
+        provider.w.current_user.me.return_value = mock_user
+        with patch.object(
+            provider,
+            "get_or_create_experiment",
+            return_value=MagicMock(experiment_id="exp-1"),
+        ):
+            provider.w.apps.get.return_value = mock_existing_app
+            provider.w.apps.deploy_and_wait.return_value = mock_deployment
+
+            _stamp_extras_resolvable(mock_config)
+            provider.deploy_apps_agent(mock_config)
+
+    pv_calls = [
+        c
+        for c in provider.w.workspace.upload.call_args_list
+        if c.kwargs.get("path", "").endswith("/.python-version")
+    ]
+    assert pv_calls, "deploy_apps_agent must upload a .python-version file"
+    content = pv_calls[0].kwargs["content"]
+    assert isinstance(content, io.BytesIO)
+    assert content.getvalue().decode("utf-8").strip() == "3.12"
+
+
+@pytest.mark.unit
 def test_deploy_apps_agent_stages_skills_and_code(tmp_path):
     """``_deploy_app`` must stage skill content, not just code_paths.
 

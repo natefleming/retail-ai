@@ -152,30 +152,80 @@ class TestGenerateBundleLock:
         assert mirror_host not in result
         assert "files.pythonhosted.org" in result
 
+    def test_rewrites_serverless_registry_index_to_public(
+        self, tmp_path, monkeypatch
+    ) -> None:
+        # Serverless compute's internal PyPI proxy poisons the ``source``
+        # registry-index field (not the wheel URLs, which are already the public
+        # CDN). The old rewrite only knew ``pypi-proxy*.databricks.com`` and
+        # missed this host entirely, shipping a lock whose ``uv sync`` can't
+        # reach the index from the Apps build container.
+        from dao_ai import _locking
+
+        (tmp_path / "pyproject.toml").write_text("[project]\nname='x'\n")
+        poisoned = (
+            '[[package]]\nname = "charset-normalizer"\nversion = "3.5.1"\n'
+            'source = { registry = "http://node.host.local:8184/pypi/v1/simple/" }\n'
+            'sdist = { url = "https://files.pythonhosted.org/packages/aa/bb/x.tar.gz" }\n'
+        )
+        monkeypatch.setattr(
+            _locking.subprocess, "run", self._fake_uv_lock(tmp_path, poisoned)
+        )
+        _locking.generate_bundle_lock(tmp_path)
+        result = (tmp_path / "uv.lock").read_text()
+        assert "node.host.local" not in result
+        # Registry normalized to the canonical public index.
+        assert 'registry = "https://pypi.org/simple"' in result
+        # Already-public wheel/sdist URLs are left untouched.
+        assert "https://files.pythonhosted.org/packages/aa/bb/x.tar.gz" in result
+
     def test_raises_if_mirror_survives(self, tmp_path, monkeypatch) -> None:
         """The independent survivor guard is defense-in-depth: if the REWRITE
-        regex is ever narrowed (the exact shape of the .dev-only bug), a mirror
-        URL it misses must still fail loudly rather than ship.
+        ever regresses and misses an internal host, the lock must fail loudly
+        rather than ship.
 
-        Patch only the rewrite regex to a stale ``.dev.``-only pattern, feed a
-        ``.cloud.`` lock: the rewrite leaves it, and the general guard trips."""
-        import re
-
+        Simulate a regressed rewrite by patching ``_make_lock_portable`` to a
+        no-op, feed a poisoned lock, and assert the independent guard trips."""
         from dao_ai import _locking
 
         (tmp_path / "pyproject.toml").write_text("[project]\nname='x'\n")
         residue = (
-            "wheels = [{ url = "
-            '"https://pypi-proxy.cloud.databricks.com/packages/aa/bb/x.whl" }]\n'
+            'source = { registry = "http://node.host.local:8184/pypi/v1/simple/" }\n'
         )
         monkeypatch.setattr(
             _locking.subprocess, "run", self._fake_uv_lock(tmp_path, residue)
         )
-        monkeypatch.setattr(
-            _locking, "_MIRROR_HOST_RE", re.compile(r"pypi-proxy\.dev\.databricks\.com")
-        )
-        with pytest.raises(RuntimeError, match="internal mirror"):
+        monkeypatch.setattr(_locking, "_make_lock_portable", lambda text: text)
+        with pytest.raises(RuntimeError, match="internal package proxy"):
             _locking.generate_bundle_lock(tmp_path)
+
+    def test_leaves_public_alternate_index_untouched(
+        self, tmp_path, monkeypatch
+    ) -> None:
+        # Only INTERNAL Databricks mirrors are stripped. A legitimate public
+        # alternate index (reachable from the Apps container) must survive
+        # untouched — the rewrite must not blanket-map every non-pypi.org host to
+        # public PyPI, which would corrupt the source and 404 at ``uv sync``.
+        from dao_ai import _locking
+
+        (tmp_path / "pyproject.toml").write_text("[project]\nname='x'\n")
+        body = (
+            '[[package]]\nname = "torch"\nversion = "2.0.0"\n'
+            'source = { registry = "https://download.pytorch.org/whl/cpu" }\n'
+            "wheels = [{ url = "
+            '"https://download.pytorch.org/whl/cpu/torch-2.0.0-cp312-linux.whl" }]\n'
+        )
+        monkeypatch.setattr(
+            _locking.subprocess, "run", self._fake_uv_lock(tmp_path, body)
+        )
+        _locking.generate_bundle_lock(tmp_path)
+        result = (tmp_path / "uv.lock").read_text()
+        # Alternate public index left exactly as-is; not rewritten to pypi.org
+        # or the public CDN.
+        assert 'registry = "https://download.pytorch.org/whl/cpu"' in result
+        assert "download.pytorch.org/whl/cpu/torch-2.0.0-cp312-linux.whl" in result
+        assert "pypi.org/simple" not in result
+        assert "files.pythonhosted.org" not in result
 
     def test_raises_actionable_message_on_unsatisfiable_dao_ai(
         self, tmp_path, monkeypatch

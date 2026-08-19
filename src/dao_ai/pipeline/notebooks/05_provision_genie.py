@@ -83,6 +83,12 @@ _ = load_dotenv(find_dotenv())
 # deploy-agents can inject it at config load time.
 
 import json
+import os
+
+# Serverless v5 FIPS: select psycopg's pure-Python impl before importing
+# dao_ai.config, which transitively imports psycopg via databricks-langchain;
+# the binary wheel's vendored OpenSSL aborts (SIGABRT) on import. Job-scoped.
+os.environ["PSYCOPG_IMPL"] = "python"
 
 from dao_ai.config import (
     AppConfig,
