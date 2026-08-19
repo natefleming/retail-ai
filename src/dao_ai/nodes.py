@@ -309,6 +309,12 @@ def create_agent_node(
         checkpointer: Optional persistent checkpointer for HITL subgraph state.
             Required for Model Serving where multiple workers need shared state.
             Falls back to InMemorySaver if not provided.
+        genie_handback: When the agent's model is a GenieAgentModel, controls
+            whether GenieAgentMiddleware injects a ``handoff_to_supervisor`` tool
+            call so the Genie worker hands control back. Only the supervisor
+            pattern sets this True (and binds the matching handback tool via
+            ``additional_tools``); swarm / single-agent / deep_agent callers
+            leave it False so no injection occurs. No effect for non-Genie models.
 
     Returns:
         A compiled agent node that processes state and returns responses

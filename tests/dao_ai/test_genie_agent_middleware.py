@@ -222,6 +222,34 @@ class TestDeterministicHandback:
         call = _final_ai_message(result).tool_calls[0]
         assert call["name"] == "handoff_to_supervisor"
 
+    def test_warns_when_tool_bound_but_no_ai_message(self, monkeypatch: Any) -> None:
+        """Handback enabled + tool bound but the response has no AIMessage: no
+        injection, and a warning fires (not a silent skip)."""
+        from loguru import logger
+
+        mw, _ = _middleware(monkeypatch, handback=True)
+        request = _request(None, tools=[handoff_to_supervisor])
+        msgs: list[str] = []
+        sink = logger.add(lambda m: msgs.append(m), level="WARNING", format="{message}")
+        try:
+            result = mw.wrap_model_call(request, lambda _req: ModelResponse(result=[]))
+        finally:
+            logger.remove(sink)
+        assert result.result == []  # nothing injected
+        assert any("no AIMessage" in m for m in msgs), msgs
+
+    def test_long_summary_is_truncated_with_ellipsis(self, monkeypatch: Any) -> None:
+        mw, _ = _middleware(monkeypatch, handback=True)
+        request = _request(None, tools=[handoff_to_supervisor])
+        long = "x " * 600  # > 500 chars
+
+        result = mw.wrap_model_call(
+            request, lambda _req: ModelResponse(result=[AIMessage(long)])
+        )
+        summary = _final_ai_message(result).tool_calls[0]["args"]["summary"]
+        assert len(summary) <= 500
+        assert summary.endswith("…")
+
 
 class TestAsync:
     def test_awrap_persists(self, monkeypatch: Any) -> None:

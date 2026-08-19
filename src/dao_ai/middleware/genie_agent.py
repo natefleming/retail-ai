@@ -155,7 +155,9 @@ class GenieAgentMiddleware(AgentMiddleware[AgentState, Context]):
             text = "\n".join(p for p in parts if p).strip()
         if not text:
             return _DEFAULT_HANDBACK_SUMMARY
-        return text[:_MAX_HANDBACK_SUMMARY_CHARS]
+        if len(text) > _MAX_HANDBACK_SUMMARY_CHARS:
+            return text[: _MAX_HANDBACK_SUMMARY_CHARS - 1].rstrip() + "…"
+        return text
 
     def _maybe_inject_handback(
         self, request: ModelRequest, response: ModelResponse
@@ -197,6 +199,17 @@ class GenieAgentMiddleware(AgentMiddleware[AgentState, Context]):
                 tool=tool_name,
             )
             return
+
+        # Reached only if the response carried no AIMessage to attach to (e.g.
+        # an empty result). Handback was requested and a tool was bound, so the
+        # worker unexpectedly stays a graph sink this turn — say so, mirroring
+        # the no-tool-bound branch above rather than failing silently.
+        logger.warning(
+            "Genie handback enabled and a handoff tool is bound, but the response "
+            "contained no AIMessage to attach the handback to; the worker remains "
+            "a graph sink for this turn",
+            agent_id=self.genie_model.name,
+        )
 
     def _session_command(
         self,
