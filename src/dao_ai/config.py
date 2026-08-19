@@ -8149,19 +8149,20 @@ class AgentModel(BaseModel):
     handoff: Optional[bool] = Field(
         default=None,
         description=(
-            "Only meaningful when ``model`` is a Genie space (``GenieAgentModel``). "
-            "A Genie brain runs its tool loop server-side and never emits a client "
-            "tool call. Under a supervisor, dao-ai makes it hand control back "
-            "deterministically — like every other worker — by injecting a "
-            "``handoff_to_supervisor`` tool call after it answers, so the supervisor "
-            "can chain another agent in the same turn. LLM-free. This is the DEFAULT "
-            "(``None``): a Genie worker hands back. Set ``handoff: false`` to opt OUT "
-            "and make the brain a terminal graph sink (it answers and the turn ends; "
-            "the supervisor only re-routes on the next turn). ``handoff: true`` is "
-            "the same as the default, stated explicitly. Ignored for non-Genie models "
-            "(they hand off through their own tool loop) and in the swarm pattern "
-            "(use a swarm ``is_deterministic`` handoff route instead, which already "
-            "routes a Genie source at the graph level)."
+            "Only meaningful when ``model`` is a Genie space (``GenieAgentModel``) "
+            "used as a worker under a SUPERVISOR. A Genie brain runs its tool loop "
+            "server-side and never emits a client tool call; under a supervisor, "
+            "dao-ai makes it hand control back deterministically — like every other "
+            "worker — by injecting a ``handoff_to_supervisor`` tool call after it "
+            "answers, so the supervisor can chain another agent in the same turn. "
+            "LLM-free. Under a supervisor this is the DEFAULT (``None`` and ``true`` "
+            "both hand back); set ``handoff: false`` to opt OUT and make the brain a "
+            "terminal graph sink (it answers and the turn ends; the supervisor only "
+            "re-routes on the next turn). It has NO effect outside the supervisor "
+            "pattern: a standalone single-agent Genie has nothing to hand back to, "
+            "and swarm routing uses an ``is_deterministic`` handoff route at the "
+            "graph level instead. Ignored for non-Genie models (they hand off "
+            "through their own tool loop)."
         ),
     )
     requires: list[str] = Field(

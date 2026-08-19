@@ -73,10 +73,12 @@ class GenieAgentMiddleware(AgentMiddleware[AgentState, Context]):
 
     def __init__(self, genie_model: GenieAgentModel, handback: bool = False) -> None:
         self.genie_model = genie_model
-        # When True (set from ``AgentModel.handoff`` for a Genie brain under a
-        # supervisor), inject a ``handoff_to_supervisor`` tool call into Genie's
-        # answer so the worker returns control to the supervisor instead of
-        # being a graph sink. LLM-free.
+        # When True, inject a ``handoff_to_supervisor`` tool call into Genie's
+        # answer so the worker returns control to the supervisor instead of being
+        # a graph sink. LLM-free. The caller decides this: the supervisor builder
+        # derives it from ``AgentModel.handoff`` (unless ``handoff: false``) and
+        # passes it as ``create_agent_node(genie_handback=...)``; swarm /
+        # single-agent / deep_agent callers leave it False.
         self.handback = handback
 
     # -- helpers -------------------------------------------------------
