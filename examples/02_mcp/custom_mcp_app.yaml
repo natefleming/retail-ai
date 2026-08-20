@@ -4,15 +4,18 @@
 # Custom MCP via Databricks App resource (`app:` instead of `url:`)
 # ==============================================================================
 # This is the same "self-hosted MCP server on a Databricks App" pattern as
-# custom_mcp.yaml (the JIRA / harbor-freight example), but instead of pasting a
-# hardcoded, workspace-specific URL into the tool:
+# custom_mcp.yaml (the JIRA example), but instead of pasting a hardcoded,
+# workspace-specific URL into the tool:
 #
-#     url: https://mcp-harbor-freight-984752964297111.11.azure.databricksapps.com/mcp/
+#     url: https://mcp-jira-server-1234567890123456.7.aws.databricksapps.com/mcp/
 #
 # we declare the App once as a first-class resource under `resources.apps` and
 # reference it from the MCP function with `app:`. The MCP endpoint URL is then
 # resolved dynamically at runtime from the deployed app
 # (apps.get(name).url + "/mcp") — no hardcoded host, no per-workspace edits.
+#
+# NOTE: `mcp-jira-server` below is a placeholder. Point `mcp_app_name` at an MCP
+# server App you have actually deployed in your own workspace.
 #
 # Why prefer `app:` over `url:` for App-hosted MCP servers:
 #   - Portable: the same config works across workspaces/deployments; the URL is
@@ -44,7 +47,7 @@ parameters:
     description: >
       Deployed Databricks App instance name that hosts the custom MCP server.
       The MCP endpoint is resolved dynamically to <app_url>/mcp.
-    default: mcp-harbor-freight
+    default: mcp-jira-server
 
 variables:
   client_id: &client_id

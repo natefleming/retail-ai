@@ -288,7 +288,7 @@ tools:
     name: jira_mcp
     function:
       type: mcp
-      url: https://mcp-harbor-freight.databricksapps.com/mcp/  # ← Explicit URL
+      url: https://mcp-jira-server-1234567890123456.7.aws.databricksapps.com/mcp/  # ← Explicit URL (yours)
       client_id: *client_id
       client_secret: *client_secret
       workspace_host: *workspace_host
@@ -333,7 +333,7 @@ flowchart LR
 resources:
   apps:
     jira_mcp_app: &jira_mcp_app
-      name: mcp-harbor-freight               # ← Deployed Databricks App instance name
+      name: mcp-jira-server                  # ← Your deployed Databricks App instance name
 
 tools:
   jira_mcp: &jira_mcp

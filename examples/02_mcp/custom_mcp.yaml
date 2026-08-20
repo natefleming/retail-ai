@@ -53,7 +53,7 @@ tools:
     name: jira_mcp
     function:
       type: mcp                                  # MCP function type
-      url: https://mcp-harbor-freight-984752964297111.11.azure.databricksapps.com/mcp/
+      url: https://mcp-jira-server-1234567890123456.7.aws.databricksapps.com/mcp/  # ← replace with your deployed app URL
       client_id: *client_id
       client_secret: *client_secret
       workspace_host: *workspace_host
