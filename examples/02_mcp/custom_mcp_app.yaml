@@ -1,5 +1,34 @@
 # yaml-language-server: $schema=../../../schemas/model_config_schema.json
 
+# ==============================================================================
+# Custom MCP via Databricks App resource (`app:` instead of `url:`)
+# ==============================================================================
+# This is the same "self-hosted MCP server on a Databricks App" pattern as
+# custom_mcp.yaml (the JIRA example), but instead of pasting a hardcoded,
+# workspace-specific URL into the tool:
+#
+#     url: https://mcp-jira-server-1234567890123456.7.aws.databricksapps.com/mcp/
+#
+# we declare the App once as a first-class resource under `resources.apps` and
+# reference it from the MCP function with `app:`. The MCP endpoint URL is then
+# resolved dynamically at runtime from the deployed app
+# (apps.get(name).url + "/mcp") — no hardcoded host, no per-workspace edits.
+#
+# NOTE: `mcp-jira-server` below is a placeholder. Point `mcp_app_name` at an MCP
+# server App you have actually deployed in your own workspace.
+#
+# Why prefer `app:` over `url:` for App-hosted MCP servers:
+#   - Portable: the same config works across workspaces/deployments; the URL is
+#     looked up from the app name, not baked into YAML.
+#   - First-class resource: the app is declared under `resources.apps`, so it
+#     carries the `apps.apps` API scope and is emitted as a proper resource
+#     dependency (matters for OBO and resource grants).
+#   - Single source of truth: reuse the same `*jira_mcp_app` anchor anywhere the
+#     app is referenced.
+#
+# Use `url:` (see custom_mcp.yaml) only when the MCP server is NOT a Databricks
+# App you can name — e.g. a third-party/self-hosted server reachable by URL.
+# ==============================================================================
 
 # =============================================================================
 # PARAMETERS
@@ -14,6 +43,11 @@ parameters:
   llm:
     description: Chat/reasoning serving endpoint for the agent.
     default: databricks-claude-sonnet-5
+  mcp_app_name:
+    description: >
+      Deployed Databricks App instance name that hosts the custom MCP server.
+      The MCP endpoint is resolved dynamically to <app_url>/mcp.
+    default: mcp-jira-server
 
 variables:
   client_id: &client_id
@@ -46,15 +80,19 @@ resources:
     default_llm: &default_llm
                                                  # Default LLM configuration
       name: ${var.llm}                          # Databricks serving endpoint name
+  apps:
+    jira_mcp_app: &jira_mcp_app
+                                                 # Databricks App hosting the custom MCP server.
+      name: ${var.mcp_app_name}                  # Deployed app instance name; URL resolved at runtime.
 
 tools:
   jira_mcp: &jira_mcp
-                               # Unity Catalog MCP tool configuration
+                               # Custom MCP server hosted on a Databricks App
     name: jira_mcp
     function:
       type: mcp                                  # MCP function type
-      url: https://mcp-jira-server-1234567890123456.7.aws.databricksapps.com/mcp/  # ← replace with your deployed app URL
-      client_id: *client_id
+      app: *jira_mcp_app                         # ← App resource; MCP URL resolves to <app_url>/mcp
+      client_id: *client_id                      # Service principal auth (client_id + client_secret + host)
       client_secret: *client_secret
       workspace_host: *workspace_host
 
@@ -66,11 +104,13 @@ agents:
                                                  # Reference to LLM configuration
     tools:                                       # Tools available to this agent
     - *jira_mcp
+                                                 # Custom MCP tool (App-backed)
+
 app:
-  name: custom_mcp_dao                                # Application name  
+  name: custom_mcp_app_dao                            # Application name
   log_level: DEBUG                               # Logging level for the application
   registered_model:                              # MLflow registered model configuration
-    name: custom_mcp_dao
+    name: custom_mcp_app_dao
     schema: *retail_consumer_goods_schema
                                                                 # Schema where model will be registered
   agents:                                        # List of agents included in the system
