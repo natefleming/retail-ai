@@ -75,7 +75,8 @@ flowchart TB
 |------|-------------|-------------|
 | [`managed_mcp.yaml`](./managed_mcp.yaml) | 📦 Managed | Databricks-native MCP (SQL, Vector Search, Functions, Genie) |
 | [`external_mcp.yaml`](./external_mcp.yaml) | 🔗 External | UC Connection-based MCP (GitHub example) |
-| [`custom_mcp.yaml`](./custom_mcp.yaml) | 🛠️ Custom URL | Self-hosted MCP App (JIRA example) |
+| [`custom_mcp.yaml`](./custom_mcp.yaml) | 🛠️ Custom URL | Self-hosted MCP App via explicit `url:` (JIRA example) |
+| [`custom_mcp_app.yaml`](./custom_mcp_app.yaml) | 📱 Custom App | Self-hosted MCP App via `app:` resource — URL resolved dynamically |
 | [`filtered_mcp.yaml`](./filtered_mcp.yaml) | 🔒 Filtered | Tool filtering with include/exclude patterns |
 | [`meta_mcp.yaml`](./meta_mcp.yaml) | 🧬 Meta | Workspace-wide Genie MCP (`genie: true`) + per-server `_meta` parameters |
 
@@ -295,6 +296,67 @@ tools:
 
 ---
 
+## Pattern 3b: Custom MCP via App Resource (`app:`)
+
+Same self-hosted-App scenario as Pattern 3, but instead of pasting a hardcoded,
+workspace-specific URL, declare the App once as a first-class resource under
+`resources.apps` and reference it with `app:`. The MCP endpoint URL is resolved
+dynamically at runtime from the deployed app (`apps.get(name).url` + `/mcp`).
+
+```mermaid
+%%{init: {'theme': 'base', 'themeVariables': { 'primaryColor': '#c2185b'}}}%%
+flowchart LR
+    subgraph Config["📄 Configuration"]
+        AppRef["<code>app: *jira_mcp_app</code>"]
+        Auth["<code>client_id: *sp_id</code><br/><code>client_secret: *sp_secret</code>"]
+    end
+
+    subgraph Resolve["⚙️ Runtime Resolution"]
+        Lookup["apps.get(name).url<br/>+ <code>/mcp</code>"]
+    end
+
+    subgraph App["📱 Databricks App"]
+        MCP["Custom MCP Server<br/>━━━━━━━━━━━━━━━━<br/>📋 JIRA<br/>📧 Email<br/>📊 Custom APIs"]
+    end
+
+    AppRef --> Lookup --> App
+    Auth -->|"Bearer Token"| App
+
+    style Config fill:#fce4ec,stroke:#c2185b
+    style Resolve fill:#fff3e0,stroke:#e65100
+    style App fill:#e3f2fd,stroke:#1565c0
+```
+
+### Configuration Example
+
+```yaml
+resources:
+  apps:
+    jira_mcp_app: &jira_mcp_app
+      name: mcp-harbor-freight               # ← Deployed Databricks App instance name
+
+tools:
+  jira_mcp: &jira_mcp
+    name: jira_mcp
+    function:
+      type: mcp
+      app: *jira_mcp_app                     # ← App resource; URL resolves to <app_url>/mcp
+      client_id: *client_id                  # Service principal auth
+      client_secret: *client_secret
+      workspace_host: *workspace_host
+```
+
+### `url:` vs `app:` — when to use which
+
+| | `url:` (Pattern 3) | `app:` (Pattern 3b) |
+|---|---|---|
+| MCP endpoint | Hardcoded in YAML | Resolved from app name at runtime |
+| Portability | Per-workspace edits needed | Same config across workspaces |
+| Resource declaration | None (opaque URL) | First-class `resources.apps` entry (`apps.apps` scope) |
+| Best for | Third-party / non-App MCP servers | MCP servers you host as a **named** Databricks App |
+
+---
+
 ## Pattern 4: Filtered MCP (Tool Selection)
 
 Control which tools are exposed from MCP servers using include/exclude patterns.
@@ -432,8 +494,11 @@ dao-ai chat -c examples/02_mcp/managed_mcp.yaml
 # External MCP (GitHub via UC Connection)
 dao-ai chat -c examples/02_mcp/external_mcp.yaml
 
-# Custom MCP (JIRA via App URL)
+# Custom MCP (JIRA via explicit App URL)
 dao-ai chat -c examples/02_mcp/custom_mcp.yaml
+
+# Custom MCP (JIRA via App resource — URL resolved dynamically)
+dao-ai chat -c examples/02_mcp/custom_mcp_app.yaml
 
 # Filtered MCP (Tool restrictions)
 dao-ai chat -c examples/02_mcp/filtered_mcp.yaml
