@@ -205,13 +205,18 @@ def _build_job_bundle_yaml(
     # ride on the wheel; pin their backing packages as separate, glob-safe PyPI
     # deps instead — same approach as the Model Serving dev path. Published mode
     # keeps extras on the ``dao-ai[extras]==ver`` spec (a PyPI spec is glob-safe).
+    # Always track ``dist/*.whl`` in the sync set. In development the staged wheel
+    # uploads (the bundle CLI excludes .whl by default, so it must be listed).
+    # In published mode the staging dir has NO wheel, so tracking the glob makes
+    # ``databricks bundle deploy`` mirror an empty ``dist/`` — pruning ANY wheel in
+    # the remote workspace ``dist/`` (there should be none: published runs install
+    # dao-ai from the index). This deliberately clears a wheel a prior
+    # ``--development`` deploy left behind, which the notebooks' ``../dist`` fallback
+    # would otherwise reinstall. dao-ai's ``dist/`` is a build-output dir, not a
+    # place to stash wheels by hand, so a clean slate here is the intended behavior.
+    sync_include.append("dist/*.whl")
     extra_dep_pins: list[str] = []
     if development:
-        # The bundle CLI excludes .whl by default; include the staged wheel so
-        # the serverless environment can install it (../dist/<wheel> via the
-        # ``dao_ai_dep`` variable).
-        sync_include.append("dist/*.whl")
-
         from dao_ai._extras import expand_all, resolve_required_extras_or_all
         from dao_ai.utils import get_installed_packages
 
@@ -227,7 +232,15 @@ def _build_job_bundle_yaml(
             task["depends_on"] = [{"task_key": d} for d in depends_on]
         task["notebook_task"] = {
             "notebook_path": f"./notebooks/{notebook}",
-            "base_parameters": {"config-path": "${var.config_path}", **extra_params},
+            # ``dao_ai_dep`` forwards the SAME spec the serverless environment
+            # installs (a ``./dist/<wheel>`` in development, else a version/git
+            # PyPI spec) so each notebook's bootstrap reinstalls exactly that,
+            # never a stray ../dist wheel or an unpinned ``dao-ai``.
+            "base_parameters": {
+                "config-path": "${var.config_path}",
+                "dao_ai_dep": "${var.dao_ai_dep}",
+                **extra_params,
+            },
         }
         task["environment_key"] = "dao-ai-env"
         tasks.append(task)
