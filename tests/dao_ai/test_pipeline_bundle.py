@@ -411,6 +411,18 @@ class TestGeneratePipelineDatabricksYaml:
         env = doc["resources"]["jobs"]["deploy_job"]["environments"][0]
         assert env["spec"]["dependencies"] == ["${var.dao_ai_dep}"]
 
+    def test_dao_ai_dep_default_carries_config_extras(self, monkeypatch) -> None:
+        # Regression (PR #302 review): the published ``dao_ai_dep`` default must
+        # carry the config's precise extras so a raw ``databricks bundle deploy``
+        # (no CLI override) installs the right features — not a bare ``dao-ai``.
+        import dao_ai._extras as _extras
+
+        monkeypatch.setattr(
+            _extras, "resolve_required_extras", lambda config, target: {"a2a", "memory"}
+        )
+        default = self._doc(development=False)["variables"]["dao_ai_dep"]["default"]
+        assert default == f"dao-ai[a2a,memory]=={dao_ai_version()}"
+
     def test_dev_env_deps_are_glob_safe_no_extras_on_wheel(self) -> None:
         # Regression guard: databricks bundle globs local-path env deps, so the
         # dev-mode wheel dep must NOT carry an ``[extras]`` suffix (a glob char

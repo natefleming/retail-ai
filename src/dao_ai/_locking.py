@@ -132,9 +132,12 @@ def generate_bundle_lock(bundle_dir: Path) -> None:
         )
 
     result = _uv_lock(force_public=True)
-    if result.returncode != 0 and "No solution found" not in result.stderr:
-        # Public PyPI unreachable (e.g. corp laptop) — fall back to the ambient
-        # index; a transparent corp mirror's URLs are host-swapped below.
+    if result.returncode != 0:
+        # Public PyPI couldn't resolve — unreachable (e.g. corp laptop) OR a
+        # dependency published only on the corp mirror. Retry with the ambient
+        # index; a transparent corp mirror's URLs are host-swapped below. If the
+        # ambient index also fails, the error handler below surfaces the actionable
+        # message (e.g. the pre-release unpublished-dao-ai case fails both ways).
         logger.warning(
             "uv lock against public PyPI failed; retrying with the ambient index",
             stderr=(result.stderr or "")[-400:],

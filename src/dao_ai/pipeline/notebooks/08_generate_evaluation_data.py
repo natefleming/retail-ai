@@ -20,7 +20,7 @@ _wheels = sorted(glob.glob("../dist/dao_ai-*.whl"), key=_wheel_version, reverse=
 dbutils.widgets.text(name="dao_ai_dep", defaultValue="")
 _pin = dbutils.widgets.get("dao_ai_dep")
 if _pin.endswith(".whl"):
-    _dao_ai_dep = os.path.join("..", _pin.lstrip("./"))
+    _dao_ai_dep = os.path.join("..", _pin.removeprefix("./"))
 elif _pin:
     _dao_ai_dep = _pin
 else:
