@@ -1461,12 +1461,15 @@ class DatabricksProvider(ServiceProvider):
         from dao_ai._extras import (
             expand_all,
             format_extras_suffix,
-            resolve_required_extras_or_all,
+            resolve_required_extras,
         )
 
         # Model Serving does not mount A2A routes, so the always-on a2a routes
         # must NOT bloat the serving image — only an explicit A2A tool pulls it.
-        required_extras: set[str] = resolve_required_extras_or_all(
+        # Use the PRECISE resolver (not ``_or_all``): a deployed artifact always
+        # wants the minimal config-specific extras, even though the deploy runs
+        # inside a notebook (where ``_or_all`` would short-circuit to every extra).
+        required_extras: set[str] = resolve_required_extras(
             config, target="model_serving"
         )
         extras_suffix: str = format_extras_suffix(required_extras)
@@ -2787,7 +2790,10 @@ class DatabricksProvider(ServiceProvider):
         only the container command, the extras, the chat-UI env vars, and the
         deployed App name differ.
         """
-        from dao_ai._extras import expand_all, resolve_required_extras_or_all
+        # Use the PRECISE resolver (not ``_or_all``): a deployed App pins the
+        # minimal config-specific extras, even though the deploy runs inside a
+        # notebook (where ``_or_all`` would short-circuit to every extra).
+        from dao_ai._extras import expand_all, resolve_required_extras
 
         if as_mcp:
             self._deploy_app(
@@ -2795,7 +2801,7 @@ class DatabricksProvider(ServiceProvider):
                 app_command=["python", "-m", "dao_ai.mcp.server"],
                 extras={
                     "mcp",
-                    *expand_all(resolve_required_extras_or_all(config, target="mcp")),
+                    *expand_all(resolve_required_extras(config, target="mcp")),
                 },
                 include_chat_ui=False,
                 as_mcp=True,
@@ -2814,7 +2820,7 @@ class DatabricksProvider(ServiceProvider):
         self._deploy_app(
             config,
             app_command=["python", "-m", entrypoint],
-            extras=set(resolve_required_extras_or_all(config, target="apps")),
+            extras=set(resolve_required_extras(config, target="apps")),
             include_chat_ui=enable_chat_proxy,
             as_mcp=False,
             development=development,

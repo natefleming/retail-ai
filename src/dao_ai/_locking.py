@@ -17,6 +17,7 @@ technique applied to the dao-ai repo's own lock.
 
 from __future__ import annotations
 
+import os
 import re
 import shutil
 import subprocess
@@ -59,6 +60,13 @@ _MIRROR_HOST_RE = re.compile(
 _REGISTRY_RE = re.compile(r'registry = "([^"]*)"')
 _URL_RE = re.compile(r'url = "([^"]*)"')
 
+# The serverless build proxy's non-transparent URL PATH: it rewrites downloads to
+# ``/pypi/vN/packages/<name>/<version>/<file>`` (not the public CDN's
+# ``/packages/<hash>`` layout). A host-swap of such a URL yields a valid host with
+# an invalid path that 404s at ``uv sync``, so it must be caught rather than
+# shipped — the only correct fix is resolving against public PyPI.
+_PROXY_PATH_RE = re.compile(r"/pypi/v\d+/(?:packages|simple)/")
+
 
 def _make_lock_portable(lock_text: str) -> str:
     """Rewrite internal-mirror references to their public equivalents.
@@ -99,13 +107,42 @@ def generate_bundle_lock(bundle_dir: Path) -> None:
             ``pyproject.toml`` (and, for development builds, the local wheel
             under ``dist/`` referenced via ``[tool.uv.sources]``).
     """
-    result = subprocess.run(
-        ["uv", "lock"],
-        cwd=bundle_dir,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
+
+    # Resolve against PUBLIC PyPI so wheel/sdist URLs are the real, portable
+    # ``files.pythonhosted.org/packages/<hash>`` paths. Resolving against an
+    # internal proxy and host-swapping only works for the transparent corp CDN
+    # mirror (identical ``/packages/<hash>`` paths); the serverless build proxy
+    # (``node.host.local``) rewrites the URL PATH to
+    # ``/pypi/vN/packages/<name>/<version>/<file>``, which a host-swap turns into
+    # an invalid public-CDN URL that 404s at ``uv sync``. Fall back to the ambient
+    # index (e.g. the corp mirror on a laptop where public PyPI is blocked), whose
+    # transparent URLs the host-swap below can fix.
+    def _uv_lock(force_public: bool) -> "subprocess.CompletedProcess[str]":
+        env = dict(os.environ)
+        if force_public:
+            env["UV_INDEX_URL"] = _PUBLIC_INDEX
+            env["UV_DEFAULT_INDEX"] = _PUBLIC_INDEX
+        return subprocess.run(
+            ["uv", "lock"],
+            cwd=bundle_dir,
+            capture_output=True,
+            text=True,
+            check=False,
+            env=env,
+        )
+
+    result = _uv_lock(force_public=True)
+    if result.returncode != 0:
+        # Public PyPI couldn't resolve — unreachable (e.g. corp laptop) OR a
+        # dependency published only on the corp mirror. Retry with the ambient
+        # index; a transparent corp mirror's URLs are host-swapped below. If the
+        # ambient index also fails, the error handler below surfaces the actionable
+        # message (e.g. the pre-release unpublished-dao-ai case fails both ways).
+        logger.warning(
+            "uv lock against public PyPI failed; retrying with the ambient index",
+            stderr=(result.stderr or "")[-400:],
+        )
+        result = _uv_lock(force_public=False)
     if result.returncode != 0:
         stderr = result.stderr
         # Published bundles pin the current dao-ai version. Before that version
@@ -138,16 +175,28 @@ def generate_bundle_lock(bundle_dir: Path) -> None:
             cdn=_PUBLIC_CDN_HOST,
         )
 
-    # Clean-check: assert no internal mirror host survived the rewrite. This scans
-    # the whole lock text (format-independent), so it fails loudly even if the
-    # field-aware rewrite above missed an unusual layout — defense-in-depth
-    # against shipping an unresolvable lock.
-    surviving = _MIRROR_HOST_RE.search(lock_path.read_text())
+    final = lock_path.read_text()
+    # Guard 1: assert no internal mirror HOST survived the rewrite. Scans the whole
+    # lock text (format-independent), so it fails loudly even if the field-aware
+    # rewrite missed an unusual layout.
+    surviving = _MIRROR_HOST_RE.search(final)
     if surviving:
         raise RuntimeError(
             f"{lock_path} still references an internal package proxy "
             f"({surviving.group()}) after rewrite; the lock would not resolve in "
             "the Apps container or for customers. Aborting."
+        )
+    # Guard 2: assert no serverless-proxy URL PATH survived. A host-swap leaves
+    # ``files.pythonhosted.org/pypi/vN/packages/...`` — a valid host but an invalid
+    # CDN path that 404s. Only resolving against public PyPI yields the real
+    # ``/packages/<hash>`` layout, so a surviving fingerprint means the lock is
+    # unresolvable and must not ship.
+    proxied = _PROXY_PATH_RE.search(final)
+    if proxied:
+        raise RuntimeError(
+            f"{lock_path} contains a non-portable serverless-proxy URL path "
+            f"({proxied.group()!r}); it must be generated against public PyPI. "
+            "Aborting rather than ship a lock that 404s in the Apps container."
         )
 
     logger.info("Generated portable bundle uv.lock", path=str(lock_path))

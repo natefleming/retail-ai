@@ -362,6 +362,27 @@ def test_non_notebook_returns_precise(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 @pytest.mark.unit
+def test_deploy_resolver_ignores_notebook_short_circuit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The deploy paths (apps/mcp/model_serving) call the PRECISE
+    ``resolve_required_extras`` — which must NOT short-circuit to ``{all}`` in a
+    notebook. So a notebook-run deploy (``workflow up`` runs deploy_agent in a
+    notebook) still pins only the config's specific extras, not every extra.
+    """
+    monkeypatch.setattr("dao_ai.utils.is_in_notebook", lambda: True)
+    cfg = _config(
+        app=_app(a2a=A2AModel(enabled=True)),
+        memory=MemoryModel(store=StoreModel(name="s")),
+    )
+    # ``_or_all`` short-circuits to every extra in a notebook (the old deploy bug)...
+    assert _extras.resolve_required_extras_or_all(cfg, target="apps") == {"all"}
+    # ...but the precise resolver the deploy paths now use stays config-specific.
+    assert _extras.resolve_required_extras(cfg, target="apps") == {"a2a", "memory"}
+    assert _extras.resolve_required_extras(cfg, target="model_serving") == {"memory"}
+
+
+@pytest.mark.unit
 def test_import_dao_ai_tools_does_not_eagerly_import_optional_packages() -> None:
     """Guard the lazy-import contract: ``import dao_ai.tools`` must succeed
     without pulling in the optional-extra packages (flashrank/langmem/a2a/ddgs/

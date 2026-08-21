@@ -58,20 +58,15 @@ _CELL_SEP = "# COMMAND ----------"
 
 
 def _assert_wheel_selection(name: str, text: str) -> None:
-    """Assert every ``../dist`` wheel glob is sorted by PEP 440 version.
-
-    Twin of the helper in ``test_repo_notebooks.py``, which guards the same
-    thing for the hand-run demos under ``notebooks/``.
-    """
+    """Every ``../dist`` wheel glob must be sorted by PEP 440 version (so 0.2.10 >
+    0.2.8, not a lexical filename sort), with ``os`` and ``Version`` imported in
+    that same cell (a notebook cell is its own execution unit)."""
     for cell in text.split(_CELL_SEP):
         if "glob.glob(" not in cell or "dao_ai-*.whl" not in cell:
             continue
         assert "key=_wheel_version" in cell, (
-            f"{name} sorts the ../dist wheel glob lexically — 0.2.8 would beat "
-            "0.2.10; sort with key=_wheel_version"
+            f"{name} sorts the ../dist wheel glob lexically; use key=_wheel_version"
         )
-        # A cell is its own execution unit, so the helper's own dependencies
-        # have to be imported beside it, not in whichever cell came first.
         assert "from packaging.version import Version" in cell, (
             f"{name} uses _wheel_version without importing Version in that cell"
         )
@@ -192,20 +187,15 @@ class TestPackagedAssets:
                 "placeholder, which is stripped before the reader sees it"
             )
 
-    def test_notebooks_bootstrap_extras_suffix(self) -> None:
-        """Each step notebook's ``%uv pip install`` bootstrap must install the
-        feature extras its own body can exercise.
-
-        Graph-building notebooks (07_deploy_agent, 09_run_evaluation) build the
-        agent before the config is known, so they install ``[all]``;
-        01_ingest_and_transform may read EXCEL datasets so it installs
-        ``[excel]``; the pure provisioning notebooks install bare dao-ai. Every
-        notebook single-quotes the interpolated spec so a dev wheel's ``+local``
-        version tag and any ``[extras]`` bracket survive shell expansion.
+    def test_notebooks_bootstrap_is_inline_and_self_contained(self) -> None:
+        """Each step notebook's bootstrap cell is SELF-CONTAINED: it must NOT import
+        dao_ai to decide which dao_ai to install (a bootstrap cannot import the
+        package it bootstraps). It uses stdlib + packaging, declares the dao_ai_dep
+        widget (empty default, like config-path), prefers the pinned parameter over
+        the ../dist glob, and single-quotes the interpolated spec. Standalone fallback
+        extras: 07/09 -> [all], 01 -> [excel], the rest bare.
         """
-        # notebook filename prefix -> the extras suffix its bootstrap must append
-        # ("" means no suffix — bare core install).
-        expected_suffix: dict[str, str] = {
+        expected_extras: dict[str, str] = {
             "00_": "",
             "01_": "[excel]",
             "02_": "",
@@ -222,37 +212,39 @@ class TestPackagedAssets:
             if not p.name.endswith(".py") or p.name == "__init__.py":
                 continue
             prefix = p.name[:3]
-            assert prefix in expected_suffix, f"unmapped notebook {p.name}"
+            assert prefix in expected_extras, f"unmapped notebook {p.name}"
             seen.add(prefix)
             text = p.read_text(encoding="utf-8")
+            bootstrap = text.split(_CELL_SEP, 1)[0]
 
-            # The magic must single-quote the interpolated spec (glob-safe).
+            assert (
+                "import dao_ai" not in bootstrap and "from dao_ai" not in bootstrap
+            ), f"{p.name} bootstrap must not import dao_ai (chicken-and-egg)"
+            assert (
+                'dbutils.widgets.text(name="dao_ai_dep", defaultValue="")' in bootstrap
+            ), f"{p.name} must declare the dao_ai_dep widget with an empty default"
+            assert 'dbutils.widgets.get("dao_ai_dep")' in bootstrap, (
+                f"{p.name} must read the pinned dao_ai_dep parameter"
+            )
+            assert "elif _pin:" in bootstrap and "_dao_ai_dep = _pin" in bootstrap, (
+                f"{p.name} must install the pinned dao_ai_dep over the ../dist glob"
+            )
             assert "# MAGIC %uv pip install --quiet '{_dao_ai_dep}'" in text, (
                 f"{p.name} must single-quote the %uv install spec"
             )
-
-            suffix = expected_suffix[prefix]
-            if suffix:
-                # Bind the suffix to the concatenation onto the wheel/PyPI
-                # fallback expression (not merely present somewhere, e.g. a
-                # comment).
-                assert f'if _wheels else "dao-ai") + "{suffix}"' in text, (
-                    f"{p.name} must append {suffix} onto the _dao_ai_dep spec"
+            extras = expected_extras[prefix]
+            if extras:
+                assert f'if _wheels else "dao-ai") + "{extras}"' in bootstrap, (
+                    f"{p.name} standalone fallback must append {extras}"
                 )
             else:
-                # Core provisioning notebooks must not append any extras suffix.
-                assert '+ "[' not in text, f"{p.name} must not append an extras suffix"
-        assert seen == set(expected_suffix), f"notebook set changed: {sorted(seen)}"
+                assert '+ "[' not in bootstrap, (
+                    f"{p.name} must not append an extras suffix"
+                )
+        assert seen == set(expected_extras), f"notebook set changed: {sorted(seen)}"
 
     def test_notebooks_pick_the_newest_wheel_by_version(self) -> None:
-        """The ``../dist`` glob must be sorted by PEP 440 version, not by name.
-
-        A lexical sort puts ``0.2.8`` above ``0.2.10``, so a stale wheel wins
-        the moment the minor version reaches double digits. Each bootstrap
-        sorts on a local ``_wheel_version`` helper — which needs ``os`` and
-        ``Version`` imported *in its own cell*, since a notebook cell is its
-        own execution unit.
-        """
+        """The ../dist glob must be sorted by PEP 440 version, not lexically."""
         for p in files("dao_ai.pipeline.notebooks").iterdir():
             if not p.name.endswith(".py") or p.name == "__init__.py":
                 continue
@@ -387,8 +379,21 @@ class TestGeneratePipelineDatabricksYaml:
     def test_development_includes_wheel_in_sync(self) -> None:
         assert "dist/*.whl" in self._doc(development=True)["sync"]["include"]
 
-    def test_published_omits_wheel_from_sync(self) -> None:
-        assert "dist/*.whl" not in self._doc(development=False)["sync"]["include"]
+    def test_published_tracks_wheel_glob_for_pruning(self) -> None:
+        # dist/*.whl is tracked in published mode too: there is no local wheel to
+        # upload, so listing the glob makes ``bundle deploy`` PRUNE a wheel a prior
+        # ``--development`` deploy left in the remote workspace ``dist/`` — otherwise
+        # the notebooks' ``../dist`` fallback could reinstall a stale one.
+        assert "dist/*.whl" in self._doc(development=False)["sync"]["include"]
+
+    def test_all_tasks_forward_dao_ai_dep_param(self) -> None:
+        # Every step notebook reinstalls the EXACT spec the environment used, so the
+        # deploy's dao_ai_dep must reach each task as a base parameter — otherwise
+        # the notebook falls back to a stray ../dist wheel or an unpinned "dao-ai".
+        tasks = self._doc(development=False)["resources"]["jobs"]["deploy_job"]["tasks"]
+        for t in tasks:
+            params = t["notebook_task"]["base_parameters"]
+            assert params.get("dao_ai_dep") == "${var.dao_ai_dep}", t["task_key"]
 
     def test_no_requirements_txt_in_sync(self) -> None:
         # requirements.txt is retired: dao-ai (with its transitive deps) is
@@ -405,6 +410,18 @@ class TestGeneratePipelineDatabricksYaml:
         # The serverless environment installs exactly the dao_ai_dep dependency.
         env = doc["resources"]["jobs"]["deploy_job"]["environments"][0]
         assert env["spec"]["dependencies"] == ["${var.dao_ai_dep}"]
+
+    def test_dao_ai_dep_default_carries_config_extras(self, monkeypatch) -> None:
+        # Regression (PR #302 review): the published ``dao_ai_dep`` default must
+        # carry the config's precise extras so a raw ``databricks bundle deploy``
+        # (no CLI override) installs the right features — not a bare ``dao-ai``.
+        import dao_ai._extras as _extras
+
+        monkeypatch.setattr(
+            _extras, "resolve_required_extras", lambda config, target: {"a2a", "memory"}
+        )
+        default = self._doc(development=False)["variables"]["dao_ai_dep"]["default"]
+        assert default == f"dao-ai[a2a,memory]=={dao_ai_version()}"
 
     def test_dev_env_deps_are_glob_safe_no_extras_on_wheel(self) -> None:
         # Regression guard: databricks bundle globs local-path env deps, so the

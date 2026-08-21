@@ -1,25 +1,30 @@
 # Databricks notebook source
-# Dependency bootstrap. Install dao-ai (which pulls its own transitive deps) via
-# uv — the newest bundled ../dist wheel in development mode, else the published
-# PyPI package. In a deployed job the serverless environment has already
-# installed it; this reinstall is harmless. ``%restart_python`` makes the freshly
-# installed package importable in the cells below.
-# No extras suffix: this notebook only calls core APIs (databricks.agents eval
-# generation). Notebooks that build the agent graph (07_deploy_agent,
-# 09_run_evaluation) install ``[all]``; 01_ingest_and_transform installs
-# ``[excel]``. The install spec is single-quoted in the magic so a dev wheel's
-# ``+local`` version tag and any ``[extras]`` survive shell glob/bracket expansion.
+# Dependency bootstrap. Install dao-ai via uv, self-contained (stdlib only, no
+# dao_ai import — a bootstrap must not import the package it installs). Prefer the
+# deploy's pinned ``dao_ai_dep`` parameter (a ./dist wheel re-anchored to ../dist in
+# development, else a version/PyPI spec); fall back to the newest local ../dist wheel,
+# else PyPI, only for standalone runs. ``%restart_python`` makes the freshly installed
+# package importable below. The spec is single-quoted in the magic so a dev wheel's
+# ``+local`` tag and any ``[extras]`` survive shell expansion.
 import glob, os
 
 from packaging.version import Version
 
-# Newest by *version*, not by filename: a lexical sort puts 0.2.8 above
-# 0.2.10. ``Version`` also parses a dev wheel's ``+local`` tag correctly.
+
+# Newest by *version*, not by filename: a lexical sort puts 0.2.8 above 0.2.10.
 def _wheel_version(wheel: str) -> Version:
     return Version(os.path.basename(wheel).split("-")[1])
 
+
 _wheels = sorted(glob.glob("../dist/dao_ai-*.whl"), key=_wheel_version, reverse=True)
-_dao_ai_dep = _wheels[0] if _wheels else "dao-ai"
+dbutils.widgets.text(name="dao_ai_dep", defaultValue="")
+_pin = dbutils.widgets.get("dao_ai_dep")
+if _pin.endswith(".whl"):
+    _dao_ai_dep = os.path.join("..", _pin.removeprefix("./"))
+elif _pin:
+    _dao_ai_dep = _pin
+else:
+    _dao_ai_dep = _wheels[0] if _wheels else "dao-ai"
 
 # MAGIC %uv pip install --quiet '{_dao_ai_dep}'
 # MAGIC %restart_python

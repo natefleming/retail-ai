@@ -38,6 +38,18 @@ parameters:
   lakebase_project:
     description: Lakebase project name reused for agent memory + checkpointer
     default: retail-consumer-goods
+  service_principal_name:
+    description: Display name of the service principal to create or reuse. Override per workspace via --var (e.g. to point at an existing SP that already owns the credential secrets).
+    default: retail_consumer_goods_sp
+  secret_scope:
+    description: Secret scope holding the service principal's OAuth client id/secret.
+    default: retail_consumer_goods
+  client_id_key:
+    description: Secret key (and env-var fallback) for the SP OAuth client id.
+    default: RETAIL_AI_DATABRICKS_CLIENT_ID
+  client_secret_key:
+    description: Secret key (and env-var fallback) for the SP OAuth client secret.
+    default: RETAIL_AI_DATABRICKS_CLIENT_SECRET
 
 # =============================================================================
 # Sporting Goods Store - Merchandiser 360
@@ -57,19 +69,19 @@ parameters:
 variables:
   client_id: &client_id
     options:
-    - scope: retail_consumer_goods
-      secret: RETAIL_AI_DATABRICKS_CLIENT_ID
-    - env: RETAIL_AI_DATABRICKS_CLIENT_ID
+    - scope: ${var.secret_scope}
+      secret: ${var.client_id_key}
+    - env: ${var.client_id_key}
 
   client_secret: &client_secret
     options:
-    - scope: retail_consumer_goods
-      secret: RETAIL_AI_DATABRICKS_CLIENT_SECRET
-    - env: RETAIL_AI_DATABRICKS_CLIENT_SECRET
+    - scope: ${var.secret_scope}
+      secret: ${var.client_secret_key}
+    - env: ${var.client_secret_key}
 
 service_principals:
   retail_consumer_goods_sp:
-    name: retail_consumer_goods_sp
+    name: ${var.service_principal_name}
     client_id: *client_id
     client_secret: *client_secret
 

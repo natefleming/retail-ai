@@ -205,20 +205,34 @@ def _build_job_bundle_yaml(
     # ride on the wheel; pin their backing packages as separate, glob-safe PyPI
     # deps instead — same approach as the Model Serving dev path. Published mode
     # keeps extras on the ``dao-ai[extras]==ver`` spec (a PyPI spec is glob-safe).
+    # Always track ``dist/*.whl`` in the sync set. In development the staged wheel
+    # uploads (the bundle CLI excludes .whl by default, so it must be listed).
+    # In published mode the staging dir has NO wheel, so tracking the glob makes
+    # ``databricks bundle deploy`` mirror an empty ``dist/`` — pruning ANY wheel in
+    # the remote workspace ``dist/`` (there should be none: published runs install
+    # dao-ai from the index). This deliberately clears a wheel a prior
+    # ``--development`` deploy left behind, which the notebooks' ``../dist`` fallback
+    # would otherwise reinstall. dao-ai's ``dist/`` is a build-output dir, not a
+    # place to stash wheels by hand, so a clean slate here is the intended behavior.
+    sync_include.append("dist/*.whl")
+    # Precise, config-specific extras. Bundle generation runs on the CLI (never in
+    # a notebook), so this is the exact set the config needs. It feeds BOTH the
+    # published ``dao_ai_dep`` default (``dao-ai[extras]==ver``) and the dev
+    # extra-dep pins, so a raw ``databricks bundle deploy`` (no CLI override) still
+    # installs the right features rather than a bare ``dao-ai``.
+    from dao_ai._extras import (
+        expand_all,
+        format_extras_suffix,
+        resolve_required_extras,
+    )
+
+    required_extras = resolve_required_extras(config, target=extras_target)
+    default_extras_suffix = format_extras_suffix(required_extras)
     extra_dep_pins: list[str] = []
     if development:
-        # The bundle CLI excludes .whl by default; include the staged wheel so
-        # the serverless environment can install it (../dist/<wheel> via the
-        # ``dao_ai_dep`` variable).
-        sync_include.append("dist/*.whl")
-
-        from dao_ai._extras import expand_all, resolve_required_extras_or_all
         from dao_ai.utils import get_installed_packages
 
-        required_extras = expand_all(
-            resolve_required_extras_or_all(config, target=extras_target)
-        )
-        extra_dep_pins = get_installed_packages(required_extras)
+        extra_dep_pins = get_installed_packages(expand_all(required_extras))
 
     tasks: list[dict[str, Any]] = []
     for task_key, notebook, depends_on, extra_params in tasks_spec:
@@ -227,7 +241,15 @@ def _build_job_bundle_yaml(
             task["depends_on"] = [{"task_key": d} for d in depends_on]
         task["notebook_task"] = {
             "notebook_path": f"./notebooks/{notebook}",
-            "base_parameters": {"config-path": "${var.config_path}", **extra_params},
+            # ``dao_ai_dep`` forwards the SAME spec the serverless environment
+            # installs (a ``./dist/<wheel>`` in development, else a version/git
+            # PyPI spec) so each notebook's bootstrap reinstalls exactly that,
+            # never a stray ../dist wheel or an unpinned ``dao-ai``.
+            "base_parameters": {
+                "config-path": "${var.config_path}",
+                "dao_ai_dep": "${var.dao_ai_dep}",
+                **extra_params,
+            },
         }
         task["environment_key"] = "dao-ai-env"
         tasks.append(task)
@@ -267,10 +289,11 @@ def _build_job_bundle_yaml(
                     "version-pinned PyPI spec otherwise, each carrying the "
                     "optional-feature extras the config uses (e.g. "
                     "'dao-ai[a2a,rerank]==X.Y.Z'). The CLI overrides this per "
-                    "deploy; the default pins the generating version so a raw "
-                    "``databricks bundle deploy`` stays reproducible."
+                    "deploy; the default pins the generating version WITH the "
+                    "config's extras so a raw ``databricks bundle deploy`` (no CLI "
+                    "override) stays reproducible and installs the right features."
                 ),
-                "default": f"dao-ai=={dao_ai_version()}",
+                "default": f"dao-ai{default_extras_suffix}=={dao_ai_version()}",
             },
         },
         "resources": {
