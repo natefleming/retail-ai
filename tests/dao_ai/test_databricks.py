@@ -1137,7 +1137,7 @@ def test_deploy_apps_agent_as_mcp_command_and_extras(monkeypatch):
     from dao_ai.providers.databricks import DatabricksProvider
 
     monkeypatch.setattr(
-        _extras, "resolve_required_extras_or_all", lambda config, target="mcp": set()
+        _extras, "resolve_required_extras", lambda config, target="mcp": set()
     )
 
     p = DatabricksProvider.__new__(DatabricksProvider)
