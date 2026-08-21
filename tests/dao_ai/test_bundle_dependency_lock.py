@@ -82,7 +82,7 @@ class TestGenerateBundleLock:
         """Return a subprocess.run replacement that writes ``lock_body`` as the
         lock and reports success, standing in for a real ``uv lock``."""
 
-        def _run(cmd, cwd=None, capture_output=None, text=None, check=None):
+        def _run(cmd, cwd=None, capture_output=None, text=None, check=None, env=None):
             (Path(cwd) / "uv.lock").write_text(lock_body)
 
             class _R:
@@ -101,7 +101,7 @@ class TestGenerateBundleLock:
 
         seen: dict[str, bool] = {}
 
-        def _run(cmd, cwd=None, capture_output=None, text=None, check=None):
+        def _run(cmd, cwd=None, capture_output=None, text=None, check=None, env=None):
             seen["stub"] = (
                 Path(cwd) / "src" / "_daoai_lockstub" / "__init__.py"
             ).exists()
@@ -199,6 +199,30 @@ class TestGenerateBundleLock:
         with pytest.raises(RuntimeError, match="internal package proxy"):
             _locking.generate_bundle_lock(tmp_path)
 
+    def test_raises_if_serverless_proxy_url_path_survives(
+        self, tmp_path, monkeypatch
+    ) -> None:
+        """The serverless build proxy rewrites download URLs to
+        ``/pypi/vN/packages/<name>/<version>/<file>``. Host-swapping that onto the
+        public CDN yields ``files.pythonhosted.org/pypi/vN/packages/...`` — a valid
+        host but an invalid CDN path that 404s at ``uv sync``. The path fingerprint
+        guard must catch it (only resolving against public PyPI gives the real
+        ``/packages/<hash>`` layout)."""
+        from dao_ai import _locking
+
+        (tmp_path / "pyproject.toml").write_text("[project]\nname='x'\n")
+        # Host already public (host-swap done), but the PATH is the proxy's scheme.
+        poisoned = (
+            '[[package]]\nname = "setuptools"\nversion = "84.0.0"\n'
+            'sdist = { url = "https://files.pythonhosted.org/pypi/v1/packages/'
+            'setuptools/84.0.0/setuptools-84.0.0.tar.gz" }\n'
+        )
+        monkeypatch.setattr(
+            _locking.subprocess, "run", self._fake_uv_lock(tmp_path, poisoned)
+        )
+        with pytest.raises(RuntimeError, match="serverless-proxy URL path"):
+            _locking.generate_bundle_lock(tmp_path)
+
     def test_leaves_public_alternate_index_untouched(
         self, tmp_path, monkeypatch
     ) -> None:
@@ -235,7 +259,7 @@ class TestGenerateBundleLock:
 
         (tmp_path / "pyproject.toml").write_text("[project]\nname='x'\n")
 
-        def _run(cmd, cwd=None, capture_output=None, text=None, check=None):
+        def _run(cmd, cwd=None, capture_output=None, text=None, check=None, env=None):
             class _R:
                 returncode = 1
                 stderr = (
