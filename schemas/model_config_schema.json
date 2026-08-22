@@ -1715,6 +1715,18 @@
           "default": null,
           "description": "Server-side MCP capabilities exposed when dao-ai is deployed as an MCP server (``dao-ai agent build --as-mcp``). Declares static resources, prompt templates, and whether progress + logging notifications are emitted from the agent tool. When None the server publishes only the single agent-as-tool surface with no notifications."
         },
+        "connection": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ConnectionRegistrationModel"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Deploy-time UC MCP connection registration. When deployed with ``--as-mcp --with-connection``, dao-ai creates a Unity Catalog HTTP connection to the app's MCP surface and registers it with the Unity AI Gateway so Genie One can consume it. Optional even with ``--with-connection``: when omitted, the target schema falls back to ``app.registered_model`` and names are derived from ``app.name``."
+        },
         "experiment": {
           "anyOf": [
             {
@@ -2462,6 +2474,55 @@
         "name"
       ],
       "title": "ConnectionModel",
+      "type": "object"
+    },
+    "ConnectionRegistrationModel": {
+      "additionalProperties": false,
+      "description": "Deploy-time creation of a UC HTTP/MCP connection for a deployed MCP app.\n\nWhen an agent is deployed with ``--as-mcp --with-connection``, dao-ai creates\na Unity Catalog HTTP connection pointing at the app's ``/mcp`` surface and\nregisters it as an MCP service with the Unity AI Gateway, so Genie One (and\nother agents) can consume the MCP server through UC governance.\n\nThe whole block is optional: when omitted from ``app.connection`` the deploy\nfalls back to the ``app.registered_model`` schema and fully-derived names\n(see :func:`connection_name_for` / :func:`mcp_service_name_for`).",
+      "properties": {
+        "schema": {
+          "$ref": "#/$defs/SchemaModel",
+          "description": "Catalog.schema where the Unity AI Gateway MCP service is registered (the connection itself is metastore-level)."
+        },
+        "name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "UC connection name. Defaults to connection_name_for(app.name).",
+          "title": "Name"
+        },
+        "service_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "MCP service short name. Defaults to mcp_service_name_for(app.name).",
+          "title": "Service Name"
+        },
+        "grant_principals": {
+          "description": "Principals granted USE_CONNECTION on the connection and EXECUTE on the MCP service. The app's own service principal always additionally receives CAN_USE on the app.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Grant Principals",
+          "type": "array"
+        }
+      },
+      "required": [
+        "schema"
+      ],
+      "title": "ConnectionRegistrationModel",
       "type": "object"
     },
     "ContextAwareCacheEvalDatasetModel": {

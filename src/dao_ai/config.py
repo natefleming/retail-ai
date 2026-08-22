@@ -724,6 +724,32 @@ def app_name_for(name: str, *, as_mcp: bool = False) -> str:
     return f"{MCP_APP_PREFIX}{normalized}"
 
 
+def connection_name_for(name: str) -> str:
+    """Derive the UC connection name for a deployed MCP app from ``app.name``.
+
+    Unity Catalog identifiers use underscores (not hyphens like App names), so
+    this is the underscore-form sibling of :func:`app_name_for`. The ``mcp_``
+    prefix and ``_conn`` suffix mirror the walmart POC convention
+    (``mcp_walmart_genie_actions_conn``). Idempotent: a name already carrying
+    the prefix/suffix is not doubled.
+    """
+    core: str = (
+        name.lower().replace("-", "_").removeprefix("mcp_").removesuffix("_conn")
+    )
+    return f"mcp_{core}_conn"
+
+
+def mcp_service_name_for(name: str) -> str:
+    """Derive the Unity AI Gateway MCP-service short name from ``app.name``.
+
+    The service is a schema-scoped securable, so this is a short id (the schema
+    supplies the namespace). Underscore-form with an ``mcp_`` prefix, idempotent
+    on an already-prefixed name.
+    """
+    base: str = name.lower().replace("-", "_").removeprefix("mcp_")
+    return f"mcp_{base}"
+
+
 class Privilege(str, Enum):
     """Unity Catalog privilege types for granting access to resources."""
 
@@ -3866,6 +3892,81 @@ class ConnectionModel(IsDatabricksResource, HasFullName):
                 connection_name=self.name, on_behalf_of_user=self.on_behalf_of_user
             )
         ]
+
+
+class ConnectionRegistrationModel(BaseModel):
+    """Deploy-time creation of a UC HTTP/MCP connection for a deployed MCP app.
+
+    When an agent is deployed with ``--as-mcp --with-connection``, dao-ai creates
+    a Unity Catalog HTTP connection pointing at the app's ``/mcp`` surface and
+    registers it as an MCP service with the Unity AI Gateway, so Genie One (and
+    other agents) can consume the MCP server through UC governance.
+
+    The whole block is optional: when omitted from ``app.connection`` the deploy
+    falls back to the ``app.registered_model`` schema and fully-derived names
+    (see :func:`connection_name_for` / :func:`mcp_service_name_for`).
+    """
+
+    model_config = ConfigDict(
+        use_enum_values=True, extra="forbid", populate_by_name=True
+    )
+    schema_model: SchemaModel = Field(
+        alias="schema",
+        description="Catalog.schema where the Unity AI Gateway MCP service is "
+        "registered (the connection itself is metastore-level).",
+    )
+    name: Optional[str] = Field(
+        default=None,
+        description="UC connection name. Defaults to connection_name_for(app.name).",
+    )
+    service_name: Optional[str] = Field(
+        default=None,
+        description="MCP service short name. Defaults to "
+        "mcp_service_name_for(app.name).",
+    )
+    grant_principals: list[str] = Field(
+        default_factory=lambda: ["account users"],
+        description="Principals granted USE_CONNECTION on the connection and "
+        "EXECUTE on the MCP service. The app's own service principal always "
+        "additionally receives CAN_USE on the app.",
+    )
+
+
+def _schema_of_registered_model(
+    registered_model: Optional["RegisteredModelModel"],
+) -> Optional[SchemaModel]:
+    """Best-effort schema for a registered model: its explicit ``schema_model``,
+    else the ``catalog.schema`` prefix of a fully-qualified ``name``."""
+    if registered_model is None:
+        return None
+    if registered_model.schema_model is not None:
+        return registered_model.schema_model
+    parts: list[str] = registered_model.name.split(".")
+    if len(parts) == 3:
+        return SchemaModel(catalog_name=parts[0], schema_name=parts[1])
+    return None
+
+
+def resolve_connection_registration(
+    app: "AppModel",
+) -> ConnectionRegistrationModel:
+    """Resolve the effective UC MCP connection registration for an app.
+
+    Precedence: an explicit ``app.connection`` block wins; otherwise fall back to
+    the ``app.registered_model`` schema with derived names and default grants.
+    Raises ``ValueError`` when no target schema can be determined, so callers
+    never have to branch on presence.
+    """
+    if app.connection is not None:
+        return app.connection
+    schema: Optional[SchemaModel] = _schema_of_registered_model(app.registered_model)
+    if schema is None:
+        raise ValueError(
+            "--with-connection needs a target schema for the MCP service: set "
+            "app.connection.schema, or an app.registered_model with a schema "
+            "(a `schema` reference or a fully-qualified catalog.schema.model name)."
+        )
+    return ConnectionRegistrationModel(schema_model=schema)
 
 
 class DatabaseModel(IsDatabricksResource):
@@ -10034,6 +10135,17 @@ class AppModel(BaseModel):
             "the single agent-as-tool surface with no notifications."
         ),
     )
+    connection: Optional[ConnectionRegistrationModel] = Field(
+        default=None,
+        description=(
+            "Deploy-time UC MCP connection registration. When deployed with "
+            "``--as-mcp --with-connection``, dao-ai creates a Unity Catalog HTTP "
+            "connection to the app's MCP surface and registers it with the Unity "
+            "AI Gateway so Genie One can consume it. Optional even with "
+            "``--with-connection``: when omitted, the target schema falls back to "
+            "``app.registered_model`` and names are derived from ``app.name``."
+        ),
+    )
     experiment: Optional[ExperimentModel] = Field(
         default=None,
         description=(
@@ -12306,6 +12418,7 @@ class AppConfig(BaseModel):
         workspace_host: str | None = None,
         development: bool | None = None,
         as_mcp: bool = False,
+        with_connection: bool = False,
     ) -> None:
         """
         Deploy the agent using the specified serving mode.
@@ -12327,6 +12440,9 @@ class AppConfig(BaseModel):
             as_mcp: Serve the agent over MCP instead of the chat UI. Valid only
                 with ``mode=APPS`` (MCP runs on the Apps runtime); deploys under
                 the ``mcp-`` prefixed App name.
+            with_connection: After deploying the MCP server, create a UC HTTP/MCP
+                connection and register it with the Unity AI Gateway. Requires
+                ``as_mcp`` (the connection targets the ``/mcp`` surface).
         """
         from dao_ai.providers.base import ServiceProvider
         from dao_ai.providers.databricks import DatabricksProvider
@@ -12344,7 +12460,11 @@ class AppConfig(BaseModel):
             workspace_host=workspace_host,
         )
         provider.deploy_agent(
-            self, mode=resolved_mode, development=development, as_mcp=as_mcp
+            self,
+            mode=resolved_mode,
+            development=development,
+            as_mcp=as_mcp,
+            with_connection=with_connection,
         )
 
     def find_agents(

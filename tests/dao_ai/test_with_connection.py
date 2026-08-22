@@ -1,0 +1,463 @@
+"""Tests for the ``--with-connection`` feature: deploy-time creation of a UC
+HTTP/MCP connection and its Unity AI Gateway MCP-service registration.
+
+Covers the naming helpers, the ``ConnectionRegistrationModel`` config block, the
+schema-resolution fallback, the CLI flag + validation, the provider guard, and
+the full ``register_mcp_connection`` API sequence (with idempotency).
+"""
+
+from __future__ import annotations
+
+from types import SimpleNamespace
+from typing import Any, Optional
+from unittest.mock import MagicMock
+
+import pytest
+
+from dao_ai import cli
+from dao_ai.cli import parse_args
+from dao_ai.config import (
+    AppModel,
+    ConnectionRegistrationModel,
+    RegisteredModelModel,
+    SchemaModel,
+    connection_name_for,
+    mcp_service_name_for,
+    resolve_connection_registration,
+)
+from dao_ai.providers.databricks import DatabricksProvider, ServingMode
+
+
+# --------------------------------------------------------------------------- #
+# Naming helpers
+# --------------------------------------------------------------------------- #
+@pytest.mark.unit
+def test_connection_name_for() -> None:
+    # hyphens -> underscores, mcp_ prefix + _conn suffix
+    assert connection_name_for("My-Agent") == "mcp_my_agent_conn"
+    assert connection_name_for("my_agent") == "mcp_my_agent_conn"
+    # idempotent on an already mcp-prefixed app name (matches app_name_for)
+    assert connection_name_for("mcp-my-agent") == "mcp_my_agent_conn"
+    # idempotent on an already-suffixed name
+    assert connection_name_for("mcp_my_agent_conn") == "mcp_my_agent_conn"
+
+
+@pytest.mark.unit
+def test_mcp_service_name_for() -> None:
+    assert mcp_service_name_for("My-Agent") == "mcp_my_agent"
+    assert mcp_service_name_for("mcp-my-agent") == "mcp_my_agent"
+    assert mcp_service_name_for("mcp_my_agent") == "mcp_my_agent"
+
+
+# --------------------------------------------------------------------------- #
+# ConnectionRegistrationModel
+# --------------------------------------------------------------------------- #
+@pytest.mark.unit
+def test_connection_registration_model_defaults() -> None:
+    sm = SchemaModel(catalog_name="main", schema_name="genie")
+    reg = ConnectionRegistrationModel(schema=sm)
+    assert reg.grant_principals == ["account users"]
+    assert reg.name is None
+    assert reg.service_name is None
+    assert reg.schema_model.full_name == "main.genie"
+
+
+@pytest.mark.unit
+def test_connection_registration_model_populate_by_name() -> None:
+    """Constructible by both the ``schema`` alias (YAML) and ``schema_model``
+    field name (code / the resolver fallback)."""
+    sm = SchemaModel(catalog_name="c", schema_name="s")
+    assert ConnectionRegistrationModel(schema=sm).schema_model is sm
+    assert ConnectionRegistrationModel(schema_model=sm).schema_model is sm
+
+
+@pytest.mark.unit
+def test_connection_registration_model_forbids_extra() -> None:
+    sm = SchemaModel(catalog_name="c", schema_name="s")
+    with pytest.raises(Exception):
+        ConnectionRegistrationModel(schema=sm, bogus="x")
+
+
+# --------------------------------------------------------------------------- #
+# resolve_connection_registration
+# --------------------------------------------------------------------------- #
+def _app(**kw: Any) -> AppModel:
+    """AppModel with validation bypassed (the resolver only reads attributes)."""
+    kw.setdefault("connection", None)
+    kw.setdefault("registered_model", None)
+    return AppModel.model_construct(name="my-agent", **kw)
+
+
+@pytest.mark.unit
+def test_resolve_explicit_block_wins() -> None:
+    sm = SchemaModel(catalog_name="main", schema_name="genie")
+    reg = ConnectionRegistrationModel(schema=sm)
+    app = _app(connection=reg)
+    assert resolve_connection_registration(app) is reg
+
+
+@pytest.mark.unit
+def test_resolve_fallback_registered_model_schema() -> None:
+    sm = SchemaModel(catalog_name="main", schema_name="genie")
+    app = _app(registered_model=RegisteredModelModel(schema=sm, name="m"))
+    reg = resolve_connection_registration(app)
+    assert reg.schema_model.full_name == "main.genie"
+    assert reg.grant_principals == ["account users"]
+
+
+@pytest.mark.unit
+def test_resolve_fallback_registered_model_fqn_name() -> None:
+    app = _app(registered_model=RegisteredModelModel(name="cat.sch.model"))
+    reg = resolve_connection_registration(app)
+    assert reg.schema_model.full_name == "cat.sch"
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "registered_model",
+    [None, RegisteredModelModel(name="short_name_only")],
+)
+def test_resolve_no_schema_raises(registered_model: Optional[Any]) -> None:
+    app = _app(registered_model=registered_model)
+    with pytest.raises(ValueError, match="target schema"):
+        resolve_connection_registration(app)
+
+
+# --------------------------------------------------------------------------- #
+# CLI flag + validation
+# --------------------------------------------------------------------------- #
+@pytest.mark.unit
+def test_cli_with_connection_requires_as_mcp() -> None:
+    with pytest.raises(SystemExit) as exc:
+        parse_args(
+            ["agent", "up", "-c", "x.yaml", "--mode", "apps", "--with-connection"]
+        )
+    assert exc.value.code == 1
+
+
+@pytest.mark.unit
+def test_cli_with_connection_and_as_mcp_ok() -> None:
+    opts = parse_args(
+        [
+            "agent",
+            "up",
+            "-c",
+            "x.yaml",
+            "--mode",
+            "apps",
+            "--as-mcp",
+            "--with-connection",
+        ]
+    )
+    assert opts.with_connection is True
+    assert opts.as_mcp is True
+
+
+@pytest.mark.unit
+def test_cli_with_connection_defaults_false() -> None:
+    opts = parse_args(["agent", "up", "-c", "x.yaml", "--mode", "apps", "--as-mcp"])
+    assert opts.with_connection is False
+
+
+# --------------------------------------------------------------------------- #
+# Provider guard
+# --------------------------------------------------------------------------- #
+@pytest.mark.unit
+def test_provider_deploy_agent_guard_requires_as_mcp() -> None:
+    provider = DatabricksProvider(w=MagicMock())
+    with pytest.raises(ValueError, match="with_connection requires as_mcp"):
+        provider.deploy_agent(
+            config=MagicMock(),
+            mode=ServingMode.APPS,
+            as_mcp=False,
+            with_connection=True,
+        )
+
+
+# --------------------------------------------------------------------------- #
+# register_mcp_connection — the full API sequence
+# --------------------------------------------------------------------------- #
+class _FakeWorkspaceClient:
+    """Minimal WorkspaceClient capturing the calls register_mcp_connection makes."""
+
+    def __init__(self, *, existing_connections: Optional[list[str]] = None) -> None:
+        self.updated_permissions: list[dict[str, Any]] = []
+        self.created_connections: list[dict[str, Any]] = []
+        self.api_calls: list[dict[str, Any]] = []
+        self._existing = existing_connections or []
+        self.secrets_created_for: list[int] = []
+
+        outer = self
+
+        class _Apps:
+            def get(self, name: str) -> Any:
+                return MagicMock(
+                    url="https://mcp-my-agent-123.databricksapps.com/",
+                    service_principal_client_id="client-abc",
+                    service_principal_id=42,
+                )
+
+            def update_permissions(
+                self, app_name: str, access_control_list: list[Any]
+            ) -> None:
+                outer.updated_permissions.append(
+                    {"app": app_name, "acl": access_control_list}
+                )
+
+        class _Connections:
+            def list(self) -> list[Any]:
+                # SimpleNamespace (not MagicMock): MagicMock reserves the ``name``
+                # kwarg for its repr, so ``.name`` would never equal the value.
+                return [SimpleNamespace(name=n) for n in outer._existing]
+
+            def create(self, **kwargs: Any) -> None:
+                outer.created_connections.append(kwargs)
+
+        class _SecretsProxy:
+            def create(self, service_principal_id: int) -> Any:
+                outer.secrets_created_for.append(service_principal_id)
+                return MagicMock(secret="s3cr3t")
+
+        class _ApiClient:
+            def do(
+                self,
+                method: str,
+                path: str,
+                query: Optional[dict[str, Any]] = None,
+                body: Optional[dict[str, Any]] = None,
+            ) -> Any:
+                outer.api_calls.append(
+                    {"method": method, "path": path, "query": query, "body": body}
+                )
+                # GET mcp-services -> report the configured existing services
+                if method == "GET":
+                    return {"mcp_services": outer._existing_services}
+                return {}
+
+        self.apps = _Apps()
+        self.connections = _Connections()
+        self.service_principal_secrets_proxy = _SecretsProxy()
+        self.api_client = _ApiClient()
+        self.config = MagicMock(host="https://host.databricks.com")
+        self._existing_services: list[dict[str, Any]] = []
+
+
+def _config_with_connection(
+    grant_principals: Optional[list[str]] = None,
+) -> Any:
+    """AppConfig-shaped mock whose ``app.connection`` is a real registration."""
+    sm = SchemaModel(catalog_name="main", schema_name="genie")
+    reg = ConnectionRegistrationModel(schema=sm)
+    if grant_principals is not None:
+        reg.grant_principals = grant_principals
+    config = MagicMock()
+    config.app.name = "my-agent"
+    config.app.connection = reg
+    config.app.registered_model = None
+    return config
+
+
+@pytest.mark.unit
+def test_register_mcp_connection_full_sequence() -> None:
+    w = _FakeWorkspaceClient()
+    provider = DatabricksProvider(w=w)
+    provider.register_mcp_connection(_config_with_connection())
+
+    # 1. app SP granted CAN_USE on its own app
+    assert len(w.updated_permissions) == 1
+    assert w.updated_permissions[0]["app"] == "mcp-my-agent"
+
+    # 2. a fresh secret was minted and the HTTP/MCP connection created
+    assert w.secrets_created_for == [42]
+    assert len(w.created_connections) == 1
+    created = w.created_connections[0]
+    assert created["name"] == "mcp_my_agent_conn"
+    opts = created["options"]
+    assert opts["is_mcp_connection"] == "true"
+    assert opts["base_path"] == "/mcp"
+    assert opts["host"] == "https://mcp-my-agent-123.databricksapps.com"
+    assert opts["token_endpoint"] == "https://host.databricks.com/oidc/v1/token"
+    assert opts["client_id"] == "client-abc"
+    assert opts["client_secret"] == "s3cr3t"
+
+    # 3. MCP service registered (POST) under the target schema
+    posts = [c for c in w.api_calls if c["method"] == "POST"]
+    assert len(posts) == 1
+    post = posts[0]
+    assert post["path"] == "/api/2.1/unity-catalog/mcp-services"
+    assert post["query"] == {
+        "parent": "schemas/main.genie",
+        "mcp_service_id": "mcp_my_agent",
+    }
+    assert (
+        post["body"]["config"]["source_connection"]["name"]
+        == "connections/mcp_my_agent_conn"
+    )
+
+    # 4. grants: USE_CONNECTION on the connection, EXECUTE on the service
+    patches = [c for c in w.api_calls if c["method"] == "PATCH"]
+    assert len(patches) == 2  # one principal x two securables
+    conn_grant = next(p for p in patches if "/connection/" in p["path"])
+    svc_grant = next(p for p in patches if "/mcp_service/" in p["path"])
+    assert conn_grant["path"].endswith("/connection/mcp_my_agent_conn")
+    assert conn_grant["body"]["changes"][0] == {
+        "principal": "account users",
+        "add": ["USE_CONNECTION"],
+    }
+    assert svc_grant["path"].endswith("/mcp_service/main.genie.mcp_my_agent")
+    assert svc_grant["body"]["changes"][0] == {
+        "principal": "account users",
+        "add": ["EXECUTE"],
+    }
+
+
+@pytest.mark.unit
+def test_register_mcp_connection_multiple_principals() -> None:
+    w = _FakeWorkspaceClient()
+    provider = DatabricksProvider(w=w)
+    provider.register_mcp_connection(
+        _config_with_connection(grant_principals=["account users", "analysts"])
+    )
+    patches = [c for c in w.api_calls if c["method"] == "PATCH"]
+    assert len(patches) == 4  # two principals x two securables
+    principals = {p["body"]["changes"][0]["principal"] for p in patches}
+    assert principals == {"account users", "analysts"}
+
+
+@pytest.mark.unit
+def test_register_mcp_connection_idempotent_connection() -> None:
+    """An existing connection is left as-is: no secret minted, no create call."""
+    w = _FakeWorkspaceClient(existing_connections=["mcp_my_agent_conn"])
+    provider = DatabricksProvider(w=w)
+    provider.register_mcp_connection(_config_with_connection())
+    assert w.created_connections == []
+    assert w.secrets_created_for == []
+    # service registration + grants still run
+    assert any(c["method"] == "POST" for c in w.api_calls)
+
+
+@pytest.mark.unit
+def test_register_mcp_connection_idempotent_service() -> None:
+    """An existing MCP service is not re-created (no POST)."""
+    w = _FakeWorkspaceClient()
+    w._existing_services = [{"name": "mcp-services/main.genie.mcp_my_agent"}]
+    provider = DatabricksProvider(w=w)
+    provider.register_mcp_connection(_config_with_connection())
+    assert [c for c in w.api_calls if c["method"] == "POST"] == []
+    # grants still applied
+    assert len([c for c in w.api_calls if c["method"] == "PATCH"]) == 2
+
+
+@pytest.mark.unit
+def test_register_mcp_connection_no_sp_skips(monkeypatch: pytest.MonkeyPatch) -> None:
+    """When the app SP can't be resolved, nothing is created."""
+    w = _FakeWorkspaceClient()
+
+    class _AppsNoSp:
+        def get(self, name: str) -> Any:
+            return MagicMock(
+                url="https://x/",
+                service_principal_client_id=None,
+                service_principal_id=None,
+            )
+
+    w.apps = _AppsNoSp()
+    provider = DatabricksProvider(w=w)
+    provider.register_mcp_connection(_config_with_connection())
+    assert w.created_connections == []
+    assert w.api_calls == []
+
+
+@pytest.mark.unit
+def test_deploy_apps_agent_registers_when_with_connection(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """deploy_apps_agent(as_mcp=True, with_connection=True) calls the registrar
+    exactly once, after deploying the MCP app; skips it when with_connection is
+    False."""
+    provider = DatabricksProvider(w=MagicMock())
+    monkeypatch.setattr(provider, "_deploy_app", lambda *a, **k: None)
+    registered: list[bool] = []
+    monkeypatch.setattr(
+        provider, "register_mcp_connection", lambda config: registered.append(True)
+    )
+    # avoid importing the real extras resolver machinery
+    monkeypatch.setattr(
+        "dao_ai._extras.resolve_required_extras", lambda config, target: set()
+    )
+    monkeypatch.setattr("dao_ai._extras.expand_all", lambda x: set())
+
+    provider.deploy_apps_agent(
+        MagicMock(), as_mcp=True, with_connection=True, development=None
+    )
+    assert registered == [True]
+
+    registered.clear()
+    provider.deploy_apps_agent(
+        MagicMock(), as_mcp=True, with_connection=False, development=None
+    )
+    assert registered == []
+
+
+# --------------------------------------------------------------------------- #
+# CLI bundle path (route 2, the default agent path) registers after deploy
+# --------------------------------------------------------------------------- #
+_MCP_CONFIG = (
+    "resources:\n  models:\n    m: &m\n      name: databricks-gpt-5-4-mini\n"
+    "agents:\n  g: &g\n    name: g\n    description: d\n    model: *m\n"
+    "    prompt: p\n"
+    "app:\n  name: my_app\n  agents:\n    - *g\n"
+    "  connection:\n    schema:\n      catalog_name: main\n      schema_name: genie\n"
+)
+
+
+def _run_agent_up(
+    tmp_path: Any, extra_args: list[str], monkeypatch: pytest.MonkeyPatch
+) -> list[Any]:
+    """Run `agent up` on the bundle path with the writer/deploy stubbed out;
+    return the configs passed to a patched register_mcp_connection."""
+    import pathlib
+
+    from dao_ai.providers.databricks import DatabricksProvider
+
+    cfg = tmp_path / "c.yaml"
+    cfg.write_text(_MCP_CONFIG)
+    out = tmp_path / "out"
+
+    def fake_writer(config: object, bundle_dir: object, **kw: object) -> None:
+        pathlib.Path(str(bundle_dir)).mkdir(parents=True, exist_ok=True)
+        (pathlib.Path(str(bundle_dir)) / "databricks.yaml").write_text("bundle: {}\n")
+
+    registered: list[Any] = []
+    monkeypatch.setattr(cli, "_apply_profile_context", lambda p: None)
+    monkeypatch.setattr("dao_ai.apps.bundle.write_bundle", fake_writer)
+    monkeypatch.setattr(
+        DatabricksProvider,
+        "register_mcp_connection",
+        lambda self, config: registered.append(config),
+    )
+    from unittest.mock import patch
+
+    with patch.object(cli, "deploy_app_bundle"):
+        opts = parse_args(
+            ["agent", "up", "-c", str(cfg), "-s", str(out), "--mode", "apps"]
+            + extra_args
+        )
+        cli.handle_agent_command(opts)
+    return registered
+
+
+@pytest.mark.unit
+def test_cli_bundle_path_registers_connection(
+    tmp_path: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    registered = _run_agent_up(tmp_path, ["--as-mcp", "--with-connection"], monkeypatch)
+    assert len(registered) == 1
+
+
+@pytest.mark.unit
+def test_cli_bundle_path_no_register_without_flag(
+    tmp_path: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    registered = _run_agent_up(tmp_path, ["--as-mcp"], monkeypatch)
+    assert registered == []

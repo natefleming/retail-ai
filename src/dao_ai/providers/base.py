@@ -79,6 +79,7 @@ class ServiceProvider(ABC):
         mode: ServingMode = ServingMode.MODEL_SERVING,
         development: bool | None = None,
         as_mcp: bool = False,
+        with_connection: bool = False,
     ) -> Any:
         """
         Deploy agent using the specified serving platform.
@@ -87,5 +88,7 @@ class ServiceProvider(ABC):
             config: The AppConfig containing deployment configuration
             mode: The serving platform (MODEL_SERVING or APPS)
             as_mcp: Serve over MCP instead of the chat UI (requires APPS)
+            with_connection: Register a UC MCP connection after deploy
+                (requires APPS + as_mcp)
         """
         ...

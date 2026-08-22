@@ -527,6 +527,29 @@ def _add_as_mcp_argument(parser: ArgumentParser) -> None:
     )
 
 
+def _add_with_connection_argument(parser: ArgumentParser) -> None:
+    """Add the ``--with-connection`` modifier.
+
+    After deploying the MCP server, create a Unity Catalog HTTP/MCP connection
+    to the app's ``/mcp`` surface and register it with the Unity AI Gateway so
+    Genie One (and other agents) can consume it. Requires ``--as-mcp`` (the
+    connection targets the ``/mcp`` surface only the MCP deployment serves);
+    rejected otherwise in :func:`parse_args`. The connection + service names are
+    derived from ``app.name`` and the target schema comes from
+    ``app.connection.schema`` (or falls back to ``app.registered_model``).
+    """
+    parser.add_argument(
+        "--with-connection",
+        dest="with_connection",
+        action="store_true",
+        default=False,
+        help=(
+            "After deploying, create a UC MCP connection and register it with "
+            "the Unity AI Gateway (requires --as-mcp)."
+        ),
+    )
+
+
 def _add_noun_verb_parsers(
     subparsers: "argparse._SubParsersAction",
     *,
@@ -597,6 +620,7 @@ def _add_noun_verb_parsers(
         _add_workflow_target_args(up_parser)
     _add_mode_argument(up_parser, choices=["model_serving", "apps"])
     _add_as_mcp_argument(up_parser)
+    _add_with_connection_argument(up_parser)
     # `up --wait [SECONDS]` blocks until the App/endpoint is READY to serve
     # inference (App: compute ACTIVE + GET /health 200; endpoint: READY +
     # served-model DEPLOYMENT_READY), exiting non-zero on failure/timeout. The
@@ -640,6 +664,7 @@ def _add_noun_verb_parsers(
     # noun accepts. `--as-mcp` rides alongside as the protocol modifier.
     _add_mode_argument(build_parser, choices=["model_serving", "apps"])
     _add_as_mcp_argument(build_parser)
+    _add_with_connection_argument(build_parser)
 
     for verb, verb_help in (
         (
@@ -709,6 +734,7 @@ def _add_noun_verb_parsers(
         # which staged bundle those verbs act on.
         _add_mode_argument(verb_parser, choices=["model_serving", "apps"])
         _add_as_mcp_argument(verb_parser)
+        _add_with_connection_argument(verb_parser)
         if verb == "sync":
             # Source-selection flags: sync can auto-build (needs development for
             # the bundle writer) and handles --mode model_serving (needs
@@ -2315,6 +2341,19 @@ Examples:
         logger.error(
             f"--as-mcp requires --mode apps (MCP is served on the Databricks "
             f"Apps runtime); got mode={options.mode}"
+        )
+        sys.exit(1)
+
+    # --with-connection registers a UC connection against the app's /mcp surface,
+    # which only the MCP deployment serves — so it is meaningless without
+    # --as-mcp. Reject early rather than deploy a chat App then fail the
+    # registration.
+    if getattr(options, "with_connection", False) and not getattr(
+        options, "as_mcp", False
+    ):
+        logger.error(
+            "--with-connection requires --as-mcp (the UC connection targets the "
+            "app's /mcp surface, served only by the MCP deployment)."
         )
         sys.exit(1)
 
@@ -4845,6 +4884,7 @@ def _exec_job_bundle(
     dry_run: bool,
     stage_only_msg: str,
     as_mcp: bool = False,
+    with_connection: bool = False,
 ) -> None:
     """Run a ``databricks bundle`` verb against a staged Job (``deploy_job``) bundle.
 
@@ -4876,6 +4916,10 @@ def _exec_job_bundle(
     # Protocol modifier for the deploy notebook. Always emit (mirrors mode) so
     # the notebook widget default never diverges from the CLI intent.
     extra_vars.append(f'--var="as_mcp={str(as_mcp).lower()}"')
+
+    # UC MCP connection registration for the deploy notebook. Always emit
+    # (mirrors as_mcp) so the notebook widget default tracks the CLI intent.
+    extra_vars.append(f'--var="with_connection={str(with_connection).lower()}"')
 
     # Forward the development tri-state to the deploy notebook via a bundle var.
     # Always emit (mirrors mode) so the notebook widget default never diverges
@@ -4928,6 +4972,7 @@ def run_databricks_command(
     wait_timeout: Optional[int] = None,
     purge: bool = False,
     as_mcp: bool = False,
+    with_connection: bool = False,
 ) -> None:
     """Execute a databricks CLI command with optional profile, target, and cloud.
 
@@ -5122,6 +5167,7 @@ def run_databricks_command(
         config_vars=config_vars,
         mode=mode or "model_serving",
         as_mcp=as_mcp,
+        with_connection=with_connection,
         development=development,
         dao_ai_dep=dao_ai_dep,
         dry_run=dry_run,
@@ -5926,6 +5972,7 @@ def _exec_workflow_verb(options: Namespace, command: list[str]) -> None:
         dry_run=options.dry_run,
         mode=getattr(options, "mode", None),
         as_mcp=getattr(options, "as_mcp", False),
+        with_connection=getattr(options, "with_connection", False),
         config_vars=_parse_var_args(options.var),
         staging_dir=options.staging_dir,
         stage=False,
@@ -5947,6 +5994,7 @@ def handle_generate_workflow_command(options: Namespace) -> None:
     dry_run: bool = options.dry_run
     mode: Optional[str] = getattr(options, "mode", None)
     as_mcp: bool = getattr(options, "as_mcp", False)
+    with_connection: bool = getattr(options, "with_connection", False)
     development: bool | None = getattr(options, "development", None)
     config_vars: dict[str, str] = _parse_var_args(options.var)
     staging_dir: str | None = getattr(options, "staging_dir", None)
@@ -5965,6 +6013,7 @@ def handle_generate_workflow_command(options: Namespace) -> None:
         dry_run=dry_run,
         mode=mode,
         as_mcp=as_mcp,
+        with_connection=with_connection,
         development=development,
         config_vars=config_vars,
         staging_dir=staging_dir,
@@ -5982,6 +6031,7 @@ def _handle_up_workflow_command(options: Namespace) -> None:
     dry_run: bool = options.dry_run
     mode: Optional[str] = getattr(options, "mode", None)
     as_mcp: bool = getattr(options, "as_mcp", False)
+    with_connection: bool = getattr(options, "with_connection", False)
     development: bool | None = getattr(options, "development", None)
     config_vars: dict[str, str] = _parse_var_args(options.var)
     staging_dir: str | None = getattr(options, "staging_dir", None)
@@ -5997,6 +6047,7 @@ def _handle_up_workflow_command(options: Namespace) -> None:
         dry_run=dry_run,
         mode=mode,
         as_mcp=as_mcp,
+        with_connection=with_connection,
         development=development,
         config_vars=config_vars,
         staging_dir=staging_dir,
@@ -6012,6 +6063,7 @@ def _handle_up_workflow_command(options: Namespace) -> None:
         dry_run=dry_run,
         mode=mode,
         as_mcp=as_mcp,
+        with_connection=with_connection,
         development=development,
         config_vars=config_vars,
         staging_dir=staging_dir,
@@ -6212,6 +6264,7 @@ def _deploy_run_destroy_app_bundle(
 
     mode: str = getattr(options, "mode", "apps") or "apps"
     as_mcp: bool = getattr(options, "as_mcp", False)
+    with_connection: bool = getattr(options, "with_connection", False)
     direct: bool = getattr(options, "direct", False)
     what: str = "an MCP bundle" if as_mcp else "a bundle"
 
@@ -6248,7 +6301,10 @@ def _deploy_run_destroy_app_bundle(
             # Apps deploy directly from config + wheel (no MLflow model), serving
             # either the chat UI or the MCP server.
             config.deploy_agent(
-                mode=ServingMode(mode), development=development, as_mcp=as_mcp
+                mode=ServingMode(mode),
+                development=development,
+                as_mcp=as_mcp,
+                with_connection=with_connection,
             )
             # `--wait`: the provider's `apps.deploy_and_wait` only blocks until the
             # DEPLOYMENT is SUCCEEDED — the app PROCESS can still be booting and
@@ -6415,6 +6471,15 @@ def _deploy_run_destroy_app_bundle(
         purge=_purge_of(options),
         as_mcp=as_mcp,
     )
+
+    # The App bundle path deploys the App via DABs (no `config.deploy_agent`), so
+    # register the UC MCP connection here — the SDK/notebook paths do it inside
+    # `deploy_apps_agent`. Only on a real `up` (deploy AND run) of an MCP App:
+    # the App resource (URL + SP) exists by now even while compute is booting.
+    if with_connection and as_mcp and deploy and run and not dry_run:
+        from dao_ai.providers.databricks import DatabricksProvider
+
+        DatabricksProvider().register_mcp_connection(config)
 
 
 def _verify_app_deployed_or_exit(app_name: str, *, kind: str, config: str) -> None:
