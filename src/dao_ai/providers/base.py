@@ -67,9 +67,11 @@ class ServiceProvider(ABC):
         *,
         as_mcp: bool = False,
         development: bool | None = None,
+        with_connection: bool = False,
     ) -> Any:
         """Deploy agent as a Databricks App (chat UI, or MCP server when
-        ``as_mcp``)."""
+        ``as_mcp``). When ``with_connection`` (requires ``as_mcp``), register a
+        UC MCP connection with the Unity AI Gateway after deploy."""
         ...
 
     @abstractmethod
@@ -79,6 +81,7 @@ class ServiceProvider(ABC):
         mode: ServingMode = ServingMode.MODEL_SERVING,
         development: bool | None = None,
         as_mcp: bool = False,
+        with_connection: bool = False,
     ) -> Any:
         """
         Deploy agent using the specified serving platform.
@@ -87,5 +90,7 @@ class ServiceProvider(ABC):
             config: The AppConfig containing deployment configuration
             mode: The serving platform (MODEL_SERVING or APPS)
             as_mcp: Serve over MCP instead of the chat UI (requires APPS)
+            with_connection: Register a UC MCP connection after deploy
+                (requires APPS + as_mcp)
         """
         ...

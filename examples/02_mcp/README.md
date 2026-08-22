@@ -79,6 +79,11 @@ flowchart TB
 | [`custom_mcp_app.yaml`](./custom_mcp_app.yaml) | 📱 Custom App | Self-hosted MCP App via `app:` resource — URL resolved dynamically |
 | [`filtered_mcp.yaml`](./filtered_mcp.yaml) | 🔒 Filtered | Tool filtering with include/exclude patterns |
 | [`meta_mcp.yaml`](./meta_mcp.yaml) | 🧬 Meta | Workspace-wide Genie MCP (`genie: true`) + per-server `_meta` parameters |
+| [`mcp_with_connection.yaml`](./mcp_with_connection.yaml) | 📡 Serve + register | Serve dao-ai *as* an MCP server and register a UC connection with the Unity AI Gateway for Genie One (`--as-mcp --with-connection`) |
+
+> The patterns above **consume** MCP servers as agent tools. The last row is the
+> inverse — it **serves** the dao-ai agent itself as an MCP server. See
+> [Serving as an MCP server](#serving-dao-ai-as-an-mcp-server-genie-one) below.
 
 ---
 
@@ -455,6 +460,31 @@ graph TB
 
     style Patterns fill:#f5f5f5,stroke:#424242
 ```
+
+---
+
+## Serving dao-ai as an MCP server (Genie One)
+
+Every pattern above makes an **external** MCP server available to a dao-ai agent
+as a tool. You can also go the other way: deploy the dao-ai agent *itself* as an
+MCP server and expose it to Genie One (or another agent) through a Unity Catalog
+connection.
+
+```bash
+# Deploy the agent as an MCP server AND register it with the Unity AI Gateway
+dao-ai agent up --as-mcp --with-connection -c examples/02_mcp/mcp_with_connection.yaml -p <profile>
+```
+
+- `--as-mcp` deploys the agent as the App `mcp-<app>`, serving the graph at `/mcp`.
+- `--with-connection` (requires `--as-mcp`) then creates a UC HTTP/MCP connection
+  to that `/mcp` surface and registers it as an MCP service with the Unity AI
+  Gateway, so it appears under **Catalog → Unity AI Gateway → MCP servers**.
+
+The target schema comes from an `app.connection` block (or falls back to
+`app.registered_model`); connection/service names derive from `app.name`; grants
+default to `account users`. Add the resulting `mcp_<app>_conn` connection to a
+Genie One chat (one-time, in the UI) to call the agent. Full details:
+[`docs/mcp_server.md`](../../../docs/mcp_server.md#registering-as-a-uc-mcp-connection-genie-one).
 
 ---
 

@@ -2057,6 +2057,7 @@ class TestDeployAutoGenerate:
             mode: object = None,
             development: object = None,
             as_mcp: bool = False,
+            with_connection: bool = False,
         ) -> None:
             deploy_agent_calls.append(
                 {"mode": mode, "development": development, "as_mcp": as_mcp}
@@ -2089,7 +2090,7 @@ class TestDeployAutoGenerate:
         monkeypatch.setattr(cli, "_apply_profile_context", lambda p: None)
         monkeypatch.setattr(
             "dao_ai.config.AppConfig.deploy_agent",
-            lambda self_config, mode=None, development=None, as_mcp=False: None,
+            lambda self_config, mode=None, development=None, as_mcp=False, with_connection=False: None,
         )
         with (
             patch.object(cli, "deploy_app_bundle"),
@@ -2109,7 +2110,7 @@ class TestDeployAutoGenerate:
         monkeypatch.setattr(cli, "_apply_profile_context", lambda p: None)
         monkeypatch.setattr(
             "dao_ai.config.AppConfig.deploy_agent",
-            lambda self_config, mode=None, development=None, as_mcp=False: None,
+            lambda self_config, mode=None, development=None, as_mcp=False, with_connection=False: None,
         )
         with (
             patch.object(cli, "deploy_app_bundle"),
@@ -2143,6 +2144,7 @@ class TestDeployAutoGenerate:
             mode: object = None,
             development: object = None,
             as_mcp: bool = False,
+            with_connection: bool = False,
         ) -> None:
             calls.append("deploy")
             deploy_agent_calls.append(
@@ -2208,7 +2210,7 @@ class TestDeployAutoGenerate:
         )
         monkeypatch.setattr(
             "dao_ai.config.AppConfig.deploy_agent",
-            lambda self, mode=None, development=None, as_mcp=False: sdk_calls.append(
+            lambda self, mode=None, development=None, as_mcp=False, with_connection=False: sdk_calls.append(
                 "deploy"
             ),
         )
@@ -2272,7 +2274,7 @@ class TestDeployAutoGenerate:
         )
         monkeypatch.setattr(
             "dao_ai.config.AppConfig.deploy_agent",
-            lambda self, mode=None, development=None, as_mcp=False: called.append(
+            lambda self, mode=None, development=None, as_mcp=False, with_connection=False: called.append(
                 "deploy"
             ),
         )
@@ -2293,7 +2295,7 @@ class TestDeployAutoGenerate:
         monkeypatch.setattr(AppConfig, "_resolve_all_resources", lambda self: None)
         monkeypatch.setattr(
             "dao_ai.config.AppConfig.deploy_agent",
-            lambda self, mode=None, development=None, as_mcp=False: called.append(
+            lambda self, mode=None, development=None, as_mcp=False, with_connection=False: called.append(
                 "deploy"
             ),
         )

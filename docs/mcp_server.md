@@ -90,6 +90,64 @@ pattern-matches it when auto-discovering MCP-hosted Apps across an account.
 
 ---
 
+## Registering as a UC MCP connection (Genie One)
+
+Genie One (and the AI Playground) consume external MCP servers through a **Unity
+Catalog connection** that is registered as an **MCP service** with the Unity AI
+Gateway. Pass `--with-connection` alongside `--as-mcp` and dao-ai does this for
+you at deploy time — no hand-run notebook:
+
+```bash
+dao-ai agent up --as-mcp --with-connection -c my_agent.yaml -p <profile>
+```
+
+`--with-connection` **requires `--as-mcp`** (the connection targets the `/mcp`
+surface, which only the MCP deployment serves). On deploy dao-ai:
+
+1. grants the app's own service principal `CAN_USE` on the app (the connection
+   authenticates as that SP via M2M OAuth);
+2. creates a UC HTTP connection (`is_mcp_connection: true`) pointing at
+   `https://<app-url>/mcp`, named `mcp_<app>_conn`;
+3. registers it as an MCP service (`mcp_<app>`) with the Unity AI Gateway so it
+   appears under **Catalog → Unity AI Gateway → MCP servers**;
+4. grants `USE_CONNECTION` on the connection and `EXECUTE` on the MCP service.
+
+Creating the connection and service **fails loudly** if it can't complete (it is
+the explicit point of the flag); only the final grants are best-effort (a
+deployer lacking `GRANT` degrades to a warning). The step is idempotent — re-runs
+leave an existing connection/service in place.
+
+Then, one-time in the Genie One UI, add the `mcp_<app>_conn` connection to a chat
+to make the agent callable as a tool.
+
+### Where it lives
+
+The connection is metastore-level, but the MCP service needs a `catalog.schema`
+to live in. Declare it with an `app.connection` block:
+
+```yaml
+app:
+  name: my_agent
+  connection:
+    schema: *my_schema           # SchemaModel anchor (catalog + schema)
+    # name: mcp_my_agent_conn    # optional; defaults to mcp_<app>_conn
+    # service_name: mcp_my_agent # optional; defaults to mcp_<app>
+    # grant_principals:          # optional; defaults to ["account users"]
+    #   - account users
+```
+
+The block is **optional**: when omitted, the schema falls back to
+`app.registered_model` (its `schema`, or a fully-qualified
+`catalog.schema.model` name), and the connection/service names are derived from
+`app.name`. If neither yields a schema, the deploy fails with a clear message.
+
+`--with-connection` works identically on the `agent` and `workflow` nouns, on the
+`--direct` SDK path and the default bundle path, and from the interactive
+`07_deploy_agent` notebook (a `with_connection` widget). See
+[`examples/02_mcp/mcp_with_connection.yaml`](../examples/02_mcp/mcp_with_connection.yaml).
+
+---
+
 ## Architecture
 
 ```

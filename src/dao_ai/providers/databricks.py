@@ -25,6 +25,7 @@ from databricks.sdk.errors.platform import (
 from databricks.sdk.service.catalog import (
     CatalogInfo,
     ColumnInfo,
+    ConnectionType,
     FunctionInfo,
     PrimaryKeyConstraint,
     SchemaInfo,
@@ -50,7 +51,6 @@ from unitycatalog.ai.core.databricks import DatabricksFunctionClient
 
 import dao_ai
 from dao_ai.config import (
-    app_name_for,
     AppConfig,
     ConnectionModel,
     DatabaseModel,
@@ -72,6 +72,10 @@ from dao_ai.config import (
     VolumeModel,
     VolumePathModel,
     WarehouseModel,
+    app_name_for,
+    connection_name_for,
+    mcp_service_name_for,
+    resolve_connection_registration,
     value_of,
 )
 from dao_ai.models import get_latest_model_version
@@ -2782,6 +2786,7 @@ class DatabricksProvider(ServiceProvider):
         *,
         as_mcp: bool = False,
         development: bool | None = None,
+        with_connection: bool = False,
     ) -> None:
         """Deploy the agent as a Databricks App via the SDK path.
 
@@ -2789,7 +2794,24 @@ class DatabricksProvider(ServiceProvider):
         ``as_mcp``. Both are the same Apps runtime and share ``_deploy_app``;
         only the container command, the extras, the chat-UI env vars, and the
         deployed App name differ.
+
+        When ``with_connection`` (only valid with ``as_mcp``), a UC HTTP/MCP
+        connection is created and registered with the Unity AI Gateway after the
+        MCP app is up — see :meth:`register_mcp_connection`.
         """
+        # Enforce the requires-as_mcp contract here too (not only in
+        # ``deploy_agent``), so a direct caller of this method can't silently
+        # drop a ``with_connection`` request against a chat app.
+        if with_connection and not as_mcp:
+            raise ValueError(
+                "with_connection requires as_mcp (the UC connection targets the "
+                "app's /mcp surface, served only by the MCP deployment)."
+            )
+        # Fail fast on a missing target schema BEFORE deploying, so a config
+        # error surfaces immediately rather than after the app is already up.
+        if with_connection:
+            resolve_connection_registration(config.app)
+
         # Use the PRECISE resolver (not ``_or_all``): a deployed App pins the
         # minimal config-specific extras, even though the deploy runs inside a
         # notebook (where ``_or_all`` would short-circuit to every extra).
@@ -2807,6 +2829,8 @@ class DatabricksProvider(ServiceProvider):
                 as_mcp=True,
                 development=development,
             )
+            if with_connection:
+                self.register_mcp_connection(config)
             return
 
         enable_chat_proxy: bool = (
@@ -2826,12 +2850,302 @@ class DatabricksProvider(ServiceProvider):
             development=development,
         )
 
+    def register_mcp_connection(self, config: AppConfig) -> None:
+        """Create a UC HTTP/MCP connection for a deployed MCP app and register it
+        with the Unity AI Gateway as an MCP service.
+
+        Runs after the ``mcp-<app>`` App is up (``deploy_apps_agent`` calls it on
+        the SDK path; the CLI bundle path calls it after ``deploy_app_bundle``).
+        Mirrors the manual walmart POC sequence:
+        grant the app's own SP ``CAN_USE`` on the app (the connection auths as
+        that SP via M2M OAuth), mint an OAuth secret, create the HTTP connection
+        pointing at ``<app_url>/mcp``, register the MCP service under the target
+        schema, then grant ``USE_CONNECTION`` + ``EXECUTE``.
+
+        Idempotent. Error handling is split by intent: creating the connection
+        and registering the service are the explicit deliverable of
+        ``--with-connection``, so they FAIL LOUD — a silent success would leave
+        Genie One unable to connect with no signal why. Only the final
+        ``USE_CONNECTION`` / ``EXECUTE`` grants are best-effort (a deployer may
+        lack GRANT rights), matching the trace-permission grant tail.
+        """
+        from databricks.sdk.service.apps import (
+            App,
+            AppAccessControlRequest,
+            AppPermissionLevel,
+        )
+
+        reg = resolve_connection_registration(config.app)
+        app_name: str = app_name_for(config.app.name, as_mcp=True)
+        conn: str = reg.name or connection_name_for(config.app.name)
+        svc: str = reg.service_name or mcp_service_name_for(config.app.name)
+        catalog: str = str(reg.schema_model.catalog_name)
+        schema: str = str(reg.schema_model.schema_name)
+        service_fqn: str = f"{catalog}.{schema}.{svc}"
+
+        logger.info(
+            "Registering UC MCP connection",
+            app_name=app_name,
+            connection=conn,
+            mcp_service=service_fqn,
+        )
+
+        app: App = self.w.apps.get(name=app_name)
+        client_id: Optional[str] = app.service_principal_client_id
+        sp_id: Optional[int] = app.service_principal_id
+        app_url: str = (app.url or "").rstrip("/")
+        # The connection needs the app's URL and service principal. If the App
+        # resource hasn't yielded them yet, FAIL rather than create a connection
+        # with an empty host — idempotency would then skip the fix on re-deploy,
+        # leaving a permanently broken connection.
+        if not client_id or sp_id is None or not app_url:
+            raise RuntimeError(
+                f"App '{app_name}' is not ready for connection registration "
+                f"(url/service-principal unresolved); re-run once it is ACTIVE."
+            )
+        host: str = self.w.config.host.rstrip("/")
+
+        # 1. Authorize the app's OWN service principal to invoke the app. The
+        # UC connection authenticates as this SP (M2M); without CAN_USE the app
+        # rejects it and Genie One fails to connect. Merges, idempotent.
+        self.w.apps.update_permissions(
+            app_name,
+            access_control_list=[
+                AppAccessControlRequest(
+                    service_principal_name=client_id,
+                    permission_level=AppPermissionLevel.CAN_USE,
+                )
+            ],
+        )
+
+        # 2. Create the HTTP (MCP) connection if absent. Existence is an O(1)
+        # ``get`` (NotFound == absent), not a full-metastore ``list``. Mint a
+        # fresh SP secret for the M2M OAuth flow only when actually creating.
+        from databricks.sdk.errors import NotFound
+
+        try:
+            self.w.connections.get(name=conn)
+            connection_exists = True
+        except NotFound:
+            connection_exists = False
+        if connection_exists:
+            logger.info("UC connection already exists; leaving as-is", name=conn)
+        else:
+            minted = self.w.service_principal_secrets_proxy.create(
+                service_principal_id=sp_id
+            )
+            try:
+                self.w.connections.create(
+                    name=conn,
+                    connection_type=ConnectionType.HTTP,
+                    options={
+                        "host": app_url,
+                        "port": "443",
+                        "base_path": "/mcp",
+                        "is_mcp_connection": "true",
+                        "oauth_scope": "all-apis",
+                        "token_endpoint": f"{host}/oidc/v1/token",
+                        "client_id": client_id,
+                        "client_secret": minted.secret,
+                    },
+                )
+            except Exception:
+                # Don't orphan the secret we just minted on the app SP.
+                try:
+                    self.w.service_principal_secrets_proxy.delete(
+                        service_principal_id=sp_id, secret_id=str(minted.id)
+                    )
+                except Exception:
+                    pass
+                # The create payload carries the freshly minted client_secret;
+                # never let the original exception's string (which may echo the
+                # request body) reach a log. Re-raise a scrubbed error.
+                raise RuntimeError(
+                    f"Failed to create UC MCP connection '{conn}'"
+                ) from None
+            logger.info("Created UC MCP connection", name=conn)
+
+        # 3. Register the MCP service (parent + id are query params; the
+        # connection ref needs the ``connections/`` prefix). Idempotent — the
+        # live API returns ``name`` as ``mcp-services/<fqn>``, so match the fqn
+        # at a path boundary (``== fqn`` or ``.../<fqn>``), NOT a bare
+        # ``endswith(fqn)`` which would false-match a catalog whose name is a
+        # suffix of ours (``xmain.genie.svc`` vs ``main.genie.svc``).
+        services: dict[str, Any] = (
+            self.w.api_client.do(
+                "GET",
+                "/api/2.1/unity-catalog/mcp-services",
+                query={"parent": f"schemas/{catalog}.{schema}"},
+            )
+            or {}
+        )
+        exists: bool = any(
+            (name := str(s.get("name", ""))) == service_fqn
+            or name.endswith(f"/{service_fqn}")
+            for s in services.get("mcp_services", [])
+        )
+        if exists:
+            logger.info("MCP service already exists; skipping", name=service_fqn)
+        else:
+            try:
+                self.w.api_client.do(
+                    "POST",
+                    "/api/2.1/unity-catalog/mcp-services",
+                    query={
+                        "parent": f"schemas/{catalog}.{schema}",
+                        "mcp_service_id": svc,
+                    },
+                    body={
+                        "config": {
+                            "source_connection": {"name": f"connections/{conn}"},
+                            "include_tool_selectors": ["*"],
+                        }
+                    },
+                )
+                logger.info("Registered MCP service", name=service_fqn)
+            except Exception as e:
+                # Belt-and-suspenders on the idempotency check above: if the
+                # GET-based check ever misses an already-registered service (API
+                # shape drift), treat an "already exists" conflict as success
+                # rather than failing the re-deploy. Match "already exists"
+                # SPECIFICALLY — a bare "exist" substring would also swallow a
+                # real "... does not exist" failure and report a false success.
+                msg = str(e).lower()
+                if "already exists" in msg or "already_exists" in msg:
+                    logger.info(
+                        "MCP service already exists; skipping", name=service_fqn
+                    )
+                else:
+                    raise
+
+        # 4. Grant access: USE_CONNECTION on the connection, EXECUTE on the MCP
+        # service, for each configured principal. Best-effort and PER-GRANT — a
+        # deployer without GRANT rights degrades to a warning (the connection +
+        # service are already created), and one principal's failure must not
+        # skip the rest. Collect failures so the warning names exactly what
+        # didn't land rather than implying every grant failed.
+        failed: list[str] = []
+        for principal in reg.grant_principals:
+            for securable, path, priv in (
+                ("connection", f"connection/{conn}", "USE_CONNECTION"),
+                ("mcp_service", f"mcp_service/{service_fqn}", "EXECUTE"),
+            ):
+                try:
+                    self.w.api_client.do(
+                        "PATCH",
+                        f"/api/2.1/unity-catalog/permissions/{path}",
+                        body={"changes": [{"principal": principal, "add": [priv]}]},
+                    )
+                except Exception as e:
+                    failed.append(f"{priv} for '{principal}' on {securable} ({e})")
+        if failed:
+            logger.warning(
+                "Created the UC MCP connection + service, but some grants failed "
+                "— apply them manually.",
+                connection=conn,
+                mcp_service=service_fqn,
+                failed_grants=failed,
+            )
+        else:
+            logger.info(
+                "Granted UC MCP connection access",
+                principals=reg.grant_principals,
+                connection=conn,
+                mcp_service=service_fqn,
+            )
+
+    def unregister_mcp_connection(self, config: AppConfig) -> None:
+        """Teardown counterpart to :meth:`register_mcp_connection`: delete the
+        Unity AI Gateway MCP service and the UC connection created for an MCP app.
+
+        Neither is a DAB resource, so ``bundle destroy`` / ``apps.delete`` leave
+        them stranded — this removes them so ``down`` fully tears the deployment
+        down. Best-effort throughout: a missing service/connection is a no-op
+        (so it is safe to call on any ``--as-mcp`` down, even when
+        ``--with-connection`` was never used), and it works after the app is
+        already gone. It deletes the connection ONLY when it is the MCP
+        connection dao-ai created for THIS app (``is_mcp_connection`` + a host
+        bound to the app name), never a hand-made connection sharing the name.
+        """
+        try:
+            reg = resolve_connection_registration(config.app)
+        except ValueError:
+            # No derivable schema -> this feature could not have registered
+            # anything for this config; nothing to tear down.
+            return
+        app_name: str = app_name_for(config.app.name, as_mcp=True)
+        conn: str = reg.name or connection_name_for(config.app.name)
+        svc: str = reg.service_name or mcp_service_name_for(config.app.name)
+        catalog: str = str(reg.schema_model.catalog_name)
+        schema: str = str(reg.schema_model.schema_name)
+        service_fqn: str = f"{catalog}.{schema}.{svc}"
+
+        # 1. Delete the MCP service first (it references the connection).
+        try:
+            self.w.api_client.do(
+                "DELETE", f"/api/2.1/unity-catalog/mcp-services/{service_fqn}"
+            )
+            logger.info("Deleted MCP service", name=service_fqn)
+        except Exception as e:
+            if "exist" in str(e).lower() or "not found" in str(e).lower():
+                logger.info(
+                    "MCP service not found; nothing to delete", name=service_fqn
+                )
+            else:
+                logger.warning(
+                    "Could not delete MCP service; remove it manually with "
+                    "`databricks api delete /api/2.1/unity-catalog/mcp-services/"
+                    f"{service_fqn}`.",
+                    error=str(e),
+                )
+
+        # 2. Delete the connection — only if it is the MCP connection THIS app
+        # created, so a hand-made connection sharing the name is never nuked.
+        from databricks.sdk.errors import NotFound
+
+        try:
+            try:
+                existing = self.w.connections.get(name=conn)
+            except NotFound:
+                logger.info("UC connection not found; nothing to delete", name=conn)
+                return
+            options: dict[str, str] = dict(existing.options or {})
+            host: str = options.get("host", "")
+            # Ownership check. Authoritative when the app still exists (compare
+            # the connection host to the live app URL); if the app is already
+            # gone (the agent path deletes it before this runs), fall back to the
+            # ``is_mcp_connection`` marker — the connection name is already
+            # app-derived, so this only guards against a hand-made non-MCP
+            # connection that happens to share the name.
+            try:
+                app_url: str = (self.w.apps.get(name=app_name).url or "").rstrip("/")
+                is_ours: bool = bool(app_url) and host.rstrip("/") == app_url
+            except NotFound:
+                is_ours = options.get("is_mcp_connection") == "true"
+            if is_ours:
+                self.w.connections.delete(name=conn)
+                logger.info("Deleted UC MCP connection", name=conn)
+            else:
+                logger.warning(
+                    "Leaving UC connection in place — it is not the MCP "
+                    "connection dao-ai created for this app; delete manually if "
+                    "intended.",
+                    name=conn,
+                )
+        except Exception as e:
+            logger.warning(
+                "Could not delete UC connection; remove it manually with "
+                f"`databricks connections delete {conn}`.",
+                error=str(e),
+            )
+
     def deploy_agent(
         self,
         config: AppConfig,
         mode: ServingMode = ServingMode.MODEL_SERVING,
         development: bool | None = None,
         as_mcp: bool = False,
+        with_connection: bool = False,
     ) -> None:
         """
         Deploy agent using the specified serving platform.
@@ -2848,7 +3162,18 @@ class DatabricksProvider(ServiceProvider):
             as_mcp: Serve the agent over MCP instead of the chat UI. Requires
                 ``mode=APPS`` — MCP runs on the Apps runtime, so there is no
                 Model Serving equivalent.
+            with_connection: After deploying the MCP server, create a UC HTTP/MCP
+                connection and register it with the Unity AI Gateway. Requires
+                ``mode=APPS`` and ``as_mcp`` (the connection targets ``/mcp``).
         """
+        if with_connection and not as_mcp:
+            # A UC MCP connection points at the ``/mcp`` surface, which only the
+            # ``mcp-<app>`` deployment serves. Refuse rather than register a
+            # connection that would 404.
+            raise ValueError(
+                "with_connection requires as_mcp (the UC connection targets the "
+                "app's /mcp surface, served only by the MCP deployment)."
+            )
         if mode == ServingMode.MODEL_SERVING:
             if as_mcp:
                 raise ValueError(
@@ -2857,7 +3182,12 @@ class DatabricksProvider(ServiceProvider):
                 )
             self.deploy_model_serving_agent(config)
         elif mode == ServingMode.APPS:
-            self.deploy_apps_agent(config, as_mcp=as_mcp, development=development)
+            self.deploy_apps_agent(
+                config,
+                as_mcp=as_mcp,
+                development=development,
+                with_connection=with_connection,
+            )
         else:
             raise ValueError(f"Unknown serving mode: {mode}")
 

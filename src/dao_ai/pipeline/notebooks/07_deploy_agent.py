@@ -43,6 +43,11 @@ dbutils.widgets.dropdown(
     defaultValue="false",
 )
 dbutils.widgets.dropdown(
+    name="with_connection",
+    choices=["false", "true"],
+    defaultValue="false",
+)
+dbutils.widgets.dropdown(
     name="development",
     choices=["auto", "true", "false"],
     defaultValue="auto",
@@ -50,6 +55,9 @@ dbutils.widgets.dropdown(
 
 mode_str: str | None = dbutils.widgets.get("mode") or None
 as_mcp: bool = (dbutils.widgets.get("as_mcp") or "false").lower() == "true"
+with_connection: bool = (
+    dbutils.widgets.get("with_connection") or "false"
+).lower() == "true"
 
 # There is no `../config` discovery fallback. That directory exists only in the
 # staged bundle layout, and the bundle stages exactly one config — the same one
@@ -163,6 +171,14 @@ if as_mcp:
             f"Apps runtime); got mode={mode.value}"
         )
 
+# The UC connection targets the app's /mcp surface, served only by the MCP
+# deployment — so with_connection is meaningless without as_mcp.
+if with_connection and not as_mcp:
+    raise ValueError(
+        "with_connection=true requires as_mcp=true (the UC connection targets "
+        "the app's /mcp surface, served only by the MCP deployment)."
+    )
+
 # COMMAND ----------
 
 config.display_graph()
@@ -177,4 +193,9 @@ if mode == ServingMode.MODEL_SERVING:
 
 # COMMAND ----------
 
-config.deploy_agent(mode=mode, development=development, as_mcp=as_mcp)
+config.deploy_agent(
+    mode=mode,
+    development=development,
+    as_mcp=as_mcp,
+    with_connection=with_connection,
+)

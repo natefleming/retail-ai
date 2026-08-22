@@ -108,6 +108,7 @@ _PIPELINE_TASKS: tuple[tuple[str, str, tuple[str, ...], dict[str, str]], ...] = 
         {
             "mode": "${var.mode}",
             "as_mcp": "${var.as_mcp}",
+            "with_connection": "${var.with_connection}",
             "development": "${var.development}",
         },
     ),
@@ -143,6 +144,7 @@ _MODEL_SERVING_AGENT_TASKS: tuple[
         {
             "mode": "${var.mode}",
             "as_mcp": "${var.as_mcp}",
+            "with_connection": "${var.with_connection}",
             "development": "${var.development}",
         },
     ),
@@ -272,6 +274,14 @@ def _build_job_bundle_yaml(
                 "description": (
                     "Serve the agent over MCP instead of the chat UI "
                     "(true/false; requires mode=apps). Deploys as mcp-<app>."
+                ),
+                "default": "false",
+            },
+            "with_connection": {
+                "description": (
+                    "After deploying the MCP server, create a UC MCP connection "
+                    "and register it with the Unity AI Gateway (true/false; "
+                    "requires as_mcp=true)."
                 ),
                 "default": "false",
             },
