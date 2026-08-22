@@ -1131,6 +1131,8 @@ build — run `build` (or `up`) first, else they error with the next command. Fo
 | `--cloud {azure,aws,gcp}` | Cloud provider (auto-detected from the workspace URL; required only if detection fails) | all |
 | `-t, --target NAME` | Bundle target name (auto-generated if not specified) | all |
 | `--mode {apps,mcp,model_serving}` | Serving mode selector (default: `apps`; `ms`/`model-serving` accepted as aliases). Forwarded to the deploy-agent job step as a runtime var. | all |
+| `--as-mcp` | Serve the agent over MCP instead of the chat UI (requires `--mode apps`; deploys as `mcp-<app>`). | all |
+| `--with-connection` | After deploying the MCP server, create a UC MCP connection and register it with the Unity AI Gateway (requires `--as-mcp`). See [MCP server → Genie One](mcp_server.md#registering-as-a-uc-mcp-connection-genie-one). | all |
 | `--dry-run` | Preview commands without executing | all |
 | `--overwrite` | Overwrite copied-in files in the staging dir | `up`, `build` |
 | `--development` / `--no-development` | Ship the local dao-ai wheel vs pin PyPI (default: auto-detect) | `up`, `build` |
@@ -1162,6 +1164,8 @@ build — run `build` (or `up`) first, else they error with the next command. Fo
 | `-p, --profile NAME` | Databricks profile for config loading and sync | all |
 | `--param KEY=VALUE` / `--var KEY=VALUE` | Config parameter overrides (repeatable) | all |
 | `--mode {apps,mcp,model_serving}` | Serving target (default: `apps`; `ms`/`model-serving` accepted as aliases) | all |
+| `--as-mcp` | Serve the agent over MCP instead of the chat UI (requires `--mode apps`; deploys as `mcp-<app>`). | all |
+| `--with-connection` | After deploying the MCP server, create a UC MCP connection and register it with the Unity AI Gateway (requires `--as-mcp`). See [MCP server → Genie One](mcp_server.md#registering-as-a-uc-mcp-connection-genie-one). | all |
 | `--dry-run` | Preview commands without executing | all |
 | `--direct` | Go via SDK directly, no bundle on disk (all modes) | `up` |
 | `--overwrite` | Overwrite existing files in the output directory | `up`, `build` |

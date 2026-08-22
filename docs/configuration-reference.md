@@ -453,6 +453,19 @@ app:
                                       # PERMANENT once linked — see the note
                                       # above on the trace_location block.
 
+  # Deploy-time UC MCP connection registration (consumed by
+  # `dao-ai agent up --as-mcp --with-connection`). Creates a UC HTTP/MCP
+  # connection to the app's /mcp surface and registers it with the Unity AI
+  # Gateway so Genie One can consume the agent. Optional even with the flag:
+  # when omitted the schema falls back to app.registered_model and the
+  # connection/service names derive from app.name.
+  # See docs/mcp_server.md#registering-as-a-uc-mcp-connection-genie-one.
+  connection:
+    schema: *my_schema               # Catalog.schema where the MCP service lives
+    name: string | null              # default: mcp_<app>_conn
+    service_name: string | null      # default: mcp_<app>
+    grant_principals: [string]       # default: ["account users"]
+
   # Production monitoring via MLflow GenAI scorers
   monitoring:
     sample_rate: float                          # Built-in scorers (default 1.0)

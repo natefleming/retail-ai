@@ -2799,6 +2799,19 @@ class DatabricksProvider(ServiceProvider):
         connection is created and registered with the Unity AI Gateway after the
         MCP app is up — see :meth:`_register_mcp_connection`.
         """
+        # Enforce the requires-as_mcp contract here too (not only in
+        # ``deploy_agent``), so a direct caller of this method can't silently
+        # drop a ``with_connection`` request against a chat app.
+        if with_connection and not as_mcp:
+            raise ValueError(
+                "with_connection requires as_mcp (the UC connection targets the "
+                "app's /mcp surface, served only by the MCP deployment)."
+            )
+        # Fail fast on a missing target schema BEFORE deploying, so a config
+        # error surfaces immediately rather than after the app is already up.
+        if with_connection:
+            resolve_connection_registration(config.app)
+
         # Use the PRECISE resolver (not ``_or_all``): a deployed App pins the
         # minimal config-specific extras, even though the deploy runs inside a
         # notebook (where ``_or_all`` would short-circuit to every extra).
@@ -2847,9 +2860,14 @@ class DatabricksProvider(ServiceProvider):
         grant the app's own SP ``CAN_USE`` on the app (the connection auths as
         that SP via M2M OAuth), mint an OAuth secret, create the HTTP connection
         pointing at ``<app_url>/mcp``, register the MCP service under the target
-        schema, then grant ``USE_CONNECTION`` + ``EXECUTE``. Idempotent and
-        best-effort: a deployer lacking GRANT/CREATE rights degrades to a warning
-        rather than failing the whole deploy.
+        schema, then grant ``USE_CONNECTION`` + ``EXECUTE``.
+
+        Idempotent. Error handling is split by intent: creating the connection
+        and registering the service are the explicit deliverable of
+        ``--with-connection``, so they FAIL LOUD — a silent success would leave
+        Genie One unable to connect with no signal why. Only the final
+        ``USE_CONNECTION`` / ``EXECUTE`` grants are best-effort (a deployer may
+        lack GRANT rights), matching the trace-permission grant tail.
         """
         from databricks.sdk.service.apps import (
             App,
@@ -2875,37 +2893,40 @@ class DatabricksProvider(ServiceProvider):
         app: App = self.w.apps.get(name=app_name)
         client_id: Optional[str] = app.service_principal_client_id
         sp_id: Optional[int] = app.service_principal_id
-        if not client_id or not sp_id:
-            logger.warning(
-                "Could not resolve App SP identity; skipping UC MCP connection.",
-                app_name=app_name,
-            )
-            return
         app_url: str = (app.url or "").rstrip("/")
+        # The connection needs the app's URL and service principal. If the App
+        # resource hasn't yielded them yet, FAIL rather than create a connection
+        # with an empty host — idempotency would then skip the fix on re-deploy,
+        # leaving a permanently broken connection.
+        if not client_id or not sp_id or not app_url:
+            raise RuntimeError(
+                f"App '{app_name}' is not ready for connection registration "
+                f"(url/service-principal unresolved); re-run once it is ACTIVE."
+            )
         host: str = self.w.config.host.rstrip("/")
 
-        try:
-            # 1. Authorize the app's OWN service principal to invoke the app. The
-            # UC connection authenticates as this SP (M2M); without CAN_USE the
-            # app rejects it and Genie One fails to connect. Merges, idempotent.
-            self.w.apps.update_permissions(
-                app_name,
-                access_control_list=[
-                    AppAccessControlRequest(
-                        service_principal_name=client_id,
-                        permission_level=AppPermissionLevel.CAN_USE,
-                    )
-                ],
-            )
+        # 1. Authorize the app's OWN service principal to invoke the app. The
+        # UC connection authenticates as this SP (M2M); without CAN_USE the app
+        # rejects it and Genie One fails to connect. Merges, idempotent.
+        self.w.apps.update_permissions(
+            app_name,
+            access_control_list=[
+                AppAccessControlRequest(
+                    service_principal_name=client_id,
+                    permission_level=AppPermissionLevel.CAN_USE,
+                )
+            ],
+        )
 
-            # 2. Create the HTTP (MCP) connection if absent. Mint a fresh SP
-            # secret for the M2M OAuth flow the connection uses.
-            if any(c.name == conn for c in self.w.connections.list()):
-                logger.info("UC connection already exists; leaving as-is", name=conn)
-            else:
-                secret: str = self.w.service_principal_secrets_proxy.create(
-                    service_principal_id=sp_id
-                ).secret
+        # 2. Create the HTTP (MCP) connection if absent. Mint a fresh SP secret
+        # for the M2M OAuth flow the connection uses.
+        if any(c.name == conn for c in self.w.connections.list()):
+            logger.info("UC connection already exists; leaving as-is", name=conn)
+        else:
+            secret: str = self.w.service_principal_secrets_proxy.create(
+                service_principal_id=sp_id
+            ).secret
+            try:
                 self.w.connections.create(
                     name=conn,
                     connection_type=ConnectionType.HTTP,
@@ -2920,43 +2941,55 @@ class DatabricksProvider(ServiceProvider):
                         "client_secret": secret,
                     },
                 )
-                logger.info("Created UC MCP connection", name=conn)
+            except Exception:
+                # The create payload carries the freshly minted client_secret;
+                # never let the original exception's string (which may echo the
+                # request body) reach a log. Re-raise a scrubbed error.
+                raise RuntimeError(
+                    f"Failed to create UC MCP connection '{conn}'"
+                ) from None
+            logger.info("Created UC MCP connection", name=conn)
 
-            # 3. Register the MCP service (parent + id are query params; the
-            # connection ref needs the ``connections/`` prefix). Idempotent.
-            services: dict[str, Any] = (
-                self.w.api_client.do(
-                    "GET",
-                    "/api/2.1/unity-catalog/mcp-services",
-                    query={"parent": f"schemas/{catalog}.{schema}"},
-                )
-                or {}
+        # 3. Register the MCP service (parent + id are query params; the
+        # connection ref needs the ``connections/`` prefix). Idempotent — match
+        # on the fqn SUFFIX so a differently-encoded ``name`` field (id vs
+        # ``mcp-services/<fqn>``) still counts as already-registered.
+        services: dict[str, Any] = (
+            self.w.api_client.do(
+                "GET",
+                "/api/2.1/unity-catalog/mcp-services",
+                query={"parent": f"schemas/{catalog}.{schema}"},
             )
-            exists: bool = any(
-                s.get("name") == f"mcp-services/{service_fqn}"
-                for s in services.get("mcp_services", [])
+            or {}
+        )
+        exists: bool = any(
+            str(s.get("name", "")).endswith(service_fqn)
+            for s in services.get("mcp_services", [])
+        )
+        if exists:
+            logger.info("MCP service already exists; skipping", name=service_fqn)
+        else:
+            self.w.api_client.do(
+                "POST",
+                "/api/2.1/unity-catalog/mcp-services",
+                query={
+                    "parent": f"schemas/{catalog}.{schema}",
+                    "mcp_service_id": svc,
+                },
+                body={
+                    "config": {
+                        "source_connection": {"name": f"connections/{conn}"},
+                        "include_tool_selectors": ["*"],
+                    }
+                },
             )
-            if exists:
-                logger.info("MCP service already exists; skipping", name=service_fqn)
-            else:
-                self.w.api_client.do(
-                    "POST",
-                    "/api/2.1/unity-catalog/mcp-services",
-                    query={
-                        "parent": f"schemas/{catalog}.{schema}",
-                        "mcp_service_id": svc,
-                    },
-                    body={
-                        "config": {
-                            "source_connection": {"name": f"connections/{conn}"},
-                            "include_tool_selectors": ["*"],
-                        }
-                    },
-                )
-                logger.info("Registered MCP service", name=service_fqn)
+            logger.info("Registered MCP service", name=service_fqn)
 
-            # 4. Grant access: USE_CONNECTION on the connection, EXECUTE on the
-            # MCP service, for each configured principal.
+        # 4. Grant access: USE_CONNECTION on the connection, EXECUTE on the MCP
+        # service, for each configured principal. Best-effort — a deployer
+        # without GRANT rights degrades to a warning rather than failing the
+        # deploy (the connection + service, above, are already created).
+        try:
             for principal in reg.grant_principals:
                 self.w.api_client.do(
                     "PATCH",
@@ -2978,9 +3011,11 @@ class DatabricksProvider(ServiceProvider):
             )
         except Exception as e:
             logger.warning(
-                "Failed to register UC MCP connection",
-                app_name=app_name,
+                "Created the UC MCP connection + service, but granting access "
+                "failed — grant USE_CONNECTION/EXECUTE manually.",
                 connection=conn,
+                mcp_service=service_fqn,
+                principals=reg.grant_principals,
                 error=str(e),
             )
 

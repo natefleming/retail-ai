@@ -1,0 +1,77 @@
+# yaml-language-server: $schema=../../../schemas/model_config_schema.json
+
+# =============================================================================
+# Serving dao-ai AS an MCP server, and registering it for Genie One
+# =============================================================================
+# The other examples in this directory show dao-ai *consuming* MCP servers as
+# tools. This one is the inverse: deploy the dao-ai agent itself as an MCP
+# server (`--as-mcp`, deployed as `mcp-<app>`) and, with `--with-connection`,
+# have dao-ai create a Unity Catalog MCP connection and register it with the
+# Unity AI Gateway — so Genie One can consume the agent as a tool.
+#
+# Deploy:
+#   dao-ai agent up --as-mcp --with-connection -c mcp_with_connection.yaml -p <profile>
+#
+# `--with-connection` requires `--as-mcp` (the connection targets the app's
+# `/mcp` surface). On deploy dao-ai grants the app SP CAN_USE on its own app,
+# creates the HTTP/MCP connection (`mcp_<app>_conn`), registers the MCP service
+# (`mcp_<app>`) with the Unity AI Gateway, and grants USE_CONNECTION + EXECUTE.
+# It then appears under Catalog → Unity AI Gateway → MCP servers; add the
+# connection to a Genie One chat (one-time, in the UI) to call the agent.
+#
+# See docs/mcp_server.md#registering-as-a-uc-mcp-connection-genie-one.
+
+parameters:
+  catalog:
+    description: Unity Catalog catalog name
+    default: retail_consumer_goods
+  schema:
+    description: Schema within the catalog (where the MCP service is registered)
+    default: hardware_store
+  llm:
+    description: Chat/reasoning serving endpoint for the agent.
+    default: databricks-claude-sonnet-4-5
+
+schemas:
+  retail_schema: &retail_schema
+    catalog_name: ${var.catalog}
+    schema_name: ${var.schema}
+
+resources:
+  models:
+    default_llm: &default_llm
+      name: ${var.llm}
+
+agents:
+  retail_agent: &retail_agent
+    name: retail_agent
+    description: Answers questions about retail products and inventory.
+    model: *default_llm
+    prompt: |
+      You are a helpful retail assistant. Answer questions about products and
+      inventory clearly and concisely.
+
+app:
+  name: retail_mcp                 # Deployed as the App `mcp-retail-mcp`.
+  description: Retail assistant exposed as an MCP tool for Genie One.
+  agents:
+    - *retail_agent
+
+  # ---------------------------------------------------------------------------
+  # UC MCP connection registration (consumed by `--with-connection`).
+  # ---------------------------------------------------------------------------
+  # The connection is metastore-level, but the Unity AI Gateway MCP service
+  # needs a catalog.schema to live in — declare it here. Everything else is
+  # derived from `app.name` with sensible defaults.
+  connection:
+    schema: *retail_schema         # Where the MCP service is registered.
+    # name: mcp_retail_mcp_conn    # optional; defaults to mcp_<app>_conn
+    # service_name: mcp_retail_mcp # optional; defaults to mcp_<app>
+    # grant_principals:            # optional; defaults to ["account users"]
+    #   - account users
+
+  # This whole `connection:` block is OPTIONAL even with `--with-connection`:
+  # when omitted, dao-ai falls back to the `app.registered_model` schema and
+  # derives the names from `app.name`. Declare it when you have no
+  # registered_model (Apps/MCP deploys don't register an MLflow model) or want
+  # the connection/service in a specific schema.

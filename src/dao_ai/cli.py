@@ -6474,9 +6474,12 @@ def _deploy_run_destroy_app_bundle(
 
     # The App bundle path deploys the App via DABs (no `config.deploy_agent`), so
     # register the UC MCP connection here — the SDK/notebook paths do it inside
-    # `deploy_apps_agent`. Only on a real `up` (deploy AND run) of an MCP App:
-    # the App resource (URL + SP) exists by now even while compute is booting.
-    if with_connection and as_mcp and deploy and run and not dry_run:
+    # `deploy_apps_agent`. Gate on `deploy` (not `deploy and run`): the App
+    # resource (URL + SP) is assigned at `bundle deploy`, so `sync` deploys it
+    # too; registering only on a full `up` would silently skip `sync`.
+    # `register_mcp_connection` re-resolves the App and fails loudly if the URL
+    # or SP isn't ready yet, so a premature call can't create a broken connection.
+    if with_connection and as_mcp and deploy and not dry_run:
         from dao_ai.providers.databricks import DatabricksProvider
 
         DatabricksProvider().register_mcp_connection(config)

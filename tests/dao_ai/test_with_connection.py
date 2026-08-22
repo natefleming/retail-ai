@@ -349,23 +349,79 @@ def test_register_mcp_connection_idempotent_service() -> None:
 
 
 @pytest.mark.unit
-def test_register_mcp_connection_no_sp_skips(monkeypatch: pytest.MonkeyPatch) -> None:
-    """When the app SP can't be resolved, nothing is created."""
+@pytest.mark.parametrize(
+    "app_kwargs",
+    [
+        # missing SP identity
+        {
+            "url": "https://x/",
+            "service_principal_client_id": None,
+            "service_principal_id": None,
+        },
+        # SP present but URL not yet assigned -> must NOT create a host="" connection
+        {
+            "url": "",
+            "service_principal_client_id": "client-abc",
+            "service_principal_id": 42,
+        },
+    ],
+)
+def test_register_mcp_connection_not_ready_fails_loud(
+    app_kwargs: dict[str, Any],
+) -> None:
+    """When the app URL/SP isn't resolvable, fail loudly and create nothing —
+    never a connection with an empty host that idempotency would then skip."""
     w = _FakeWorkspaceClient()
 
-    class _AppsNoSp:
+    class _AppsNotReady:
         def get(self, name: str) -> Any:
-            return MagicMock(
-                url="https://x/",
-                service_principal_client_id=None,
-                service_principal_id=None,
-            )
+            return MagicMock(**app_kwargs)
 
-    w.apps = _AppsNoSp()
+    w.apps = _AppsNotReady()
     provider = DatabricksProvider(w=w)
-    provider.register_mcp_connection(_config_with_connection())
+    with pytest.raises(RuntimeError, match="not ready"):
+        provider.register_mcp_connection(_config_with_connection())
     assert w.created_connections == []
     assert w.api_calls == []
+
+
+@pytest.mark.unit
+def test_register_mcp_connection_create_failure_scrubs_secret() -> None:
+    """A connection.create failure re-raises a scrubbed error (no secret, and no
+    chained exception whose message might echo the request payload)."""
+    w = _FakeWorkspaceClient()
+
+    def _boom(**kwargs: Any) -> None:
+        raise ValueError(
+            f"bad request client_secret={kwargs['options']['client_secret']}"
+        )
+
+    w.connections.create = _boom  # type: ignore[method-assign]
+    provider = DatabricksProvider(w=w)
+    with pytest.raises(RuntimeError) as exc:
+        provider.register_mcp_connection(_config_with_connection())
+    assert "s3cr3t" not in str(exc.value)
+    assert exc.value.__cause__ is None  # `raise ... from None` suppressed the chain
+
+
+@pytest.mark.unit
+def test_register_mcp_connection_grant_failure_is_best_effort() -> None:
+    """The connection + service are created even if the final grants fail (the
+    grant step is best-effort; a deployer may lack GRANT rights)."""
+    w = _FakeWorkspaceClient()
+    orig_do = w.api_client.do
+
+    def _do(method: str, path: str, **kw: Any) -> Any:
+        if method == "PATCH":
+            raise PermissionError("no GRANT rights")
+        return orig_do(method, path, **kw)
+
+    w.api_client.do = _do  # type: ignore[method-assign]
+    provider = DatabricksProvider(w=w)
+    # Does not raise despite the PATCH grants failing.
+    provider.register_mcp_connection(_config_with_connection())
+    assert len(w.created_connections) == 1
+    assert any(c["method"] == "POST" for c in w.api_calls)
 
 
 @pytest.mark.unit
