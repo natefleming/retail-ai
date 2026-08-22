@@ -208,10 +208,16 @@ class _FakeWorkspaceClient:
             def list(self) -> list[Any]:
                 # SimpleNamespace (not MagicMock): MagicMock reserves the ``name``
                 # kwarg for its repr, so ``.name`` would never equal the value.
-                return [SimpleNamespace(name=n) for n in outer._existing]
+                return [
+                    SimpleNamespace(name=n, options=outer.connection_options.get(n, {}))
+                    for n in outer._existing
+                ]
 
             def create(self, **kwargs: Any) -> None:
                 outer.created_connections.append(kwargs)
+
+            def delete(self, name: str) -> None:
+                outer.deleted_connections.append(name)
 
         class _SecretsProxy:
             def create(self, service_principal_id: int) -> Any:
@@ -240,6 +246,8 @@ class _FakeWorkspaceClient:
         self.api_client = _ApiClient()
         self.config = MagicMock(host="https://host.databricks.com")
         self._existing_services: list[dict[str, Any]] = []
+        self.connection_options: dict[str, dict[str, str]] = {}
+        self.deleted_connections: list[str] = []
 
 
 def _config_with_connection(
@@ -425,6 +433,122 @@ def test_register_mcp_connection_grant_failure_is_best_effort() -> None:
 
 
 @pytest.mark.unit
+def test_register_mcp_connection_partial_grant_failure_attempts_all() -> None:
+    """One principal's grant failure must not skip the rest — every principal ×
+    securable PATCH is attempted, and the deploy does not raise."""
+    w = _FakeWorkspaceClient()
+    orig_do = w.api_client.do
+    patch_targets: list[str] = []
+
+    def _do(method: str, path: str, **kw: Any) -> Any:
+        if method == "PATCH":
+            patch_targets.append(path)
+            # Fail only the first principal's connection grant.
+            if (
+                path.endswith("/connection/mcp_my_agent_conn")
+                and kw["body"]["changes"][0]["principal"] == "account users"
+            ):
+                raise PermissionError("nope")
+        return orig_do(method, path, **kw)
+
+    w.api_client.do = _do  # type: ignore[method-assign]
+    provider = DatabricksProvider(w=w)
+    provider.register_mcp_connection(
+        _config_with_connection(grant_principals=["account users", "analysts"])
+    )
+    # All 4 grants (2 principals x 2 securables) were attempted despite the fail.
+    assert len(patch_targets) == 4
+
+
+@pytest.mark.unit
+def test_register_idempotency_boundary_no_false_positive() -> None:
+    """A service in a catalog whose name is a SUFFIX of ours (xmain vs main)
+    must NOT count as already-registered — the POST must still fire."""
+    w = _FakeWorkspaceClient()
+    w._existing_services = [{"name": "mcp-services/xmain.genie.mcp_my_agent"}]
+    provider = DatabricksProvider(w=w)
+    provider.register_mcp_connection(_config_with_connection())
+    assert any(c["method"] == "POST" for c in w.api_calls)
+
+
+@pytest.mark.unit
+def test_register_post_already_exists_tolerated() -> None:
+    """If the GET-based idempotency check misses (API drift) and the POST reports
+    an already-exists conflict, treat it as success rather than failing."""
+    w = _FakeWorkspaceClient()
+    orig_do = w.api_client.do
+
+    def _do(method: str, path: str, **kw: Any) -> Any:
+        if method == "POST":
+            raise RuntimeError("MCP service already exists")
+        return orig_do(method, path, **kw)
+
+    w.api_client.do = _do  # type: ignore[method-assign]
+    provider = DatabricksProvider(w=w)
+    provider.register_mcp_connection(_config_with_connection())  # no raise
+
+
+# --------------------------------------------------------------------------- #
+# unregister_mcp_connection — teardown
+# --------------------------------------------------------------------------- #
+@pytest.mark.unit
+def test_unregister_deletes_service_and_connection() -> None:
+    """Deletes the MCP service and the connection when the connection is the one
+    dao-ai created for this app (is_mcp_connection + host bound to the app)."""
+    w = _FakeWorkspaceClient(existing_connections=["mcp_my_agent_conn"])
+    w.connection_options["mcp_my_agent_conn"] = {
+        "is_mcp_connection": "true",
+        "host": "https://mcp-my-agent-123.databricksapps.com",
+    }
+    provider = DatabricksProvider(w=w)
+    provider.unregister_mcp_connection(_config_with_connection())
+
+    deletes = [c for c in w.api_calls if c["method"] == "DELETE"]
+    assert len(deletes) == 1
+    assert deletes[0]["path"].endswith("/mcp-services/main.genie.mcp_my_agent")
+    assert w.deleted_connections == ["mcp_my_agent_conn"]
+
+
+@pytest.mark.unit
+def test_unregister_leaves_foreign_connection() -> None:
+    """A same-named connection that isn't this app's MCP connection is left
+    alone (guard: is_mcp_connection false / host mismatch)."""
+    w = _FakeWorkspaceClient(existing_connections=["mcp_my_agent_conn"])
+    w.connection_options["mcp_my_agent_conn"] = {
+        # not an MCP connection, and host points somewhere unrelated
+        "host": "https://someone-elses-service.example.com",
+    }
+    provider = DatabricksProvider(w=w)
+    provider.unregister_mcp_connection(_config_with_connection())
+    # service delete still attempted, but the connection is NOT deleted
+    assert any(c["method"] == "DELETE" for c in w.api_calls)
+    assert w.deleted_connections == []
+
+
+@pytest.mark.unit
+def test_unregister_noop_when_connection_absent() -> None:
+    """No connection present -> nothing deleted (still tries the service)."""
+    w = _FakeWorkspaceClient()  # no existing connections
+    provider = DatabricksProvider(w=w)
+    provider.unregister_mcp_connection(_config_with_connection())
+    assert w.deleted_connections == []
+
+
+@pytest.mark.unit
+def test_unregister_noop_when_no_schema() -> None:
+    """No derivable schema -> nothing this feature registered; clean no-op."""
+    w = _FakeWorkspaceClient()
+    config = MagicMock()
+    config.app.name = "my-agent"
+    config.app.connection = None
+    config.app.registered_model = None
+    provider = DatabricksProvider(w=w)
+    provider.unregister_mcp_connection(config)  # no raise
+    assert w.api_calls == []
+    assert w.deleted_connections == []
+
+
+@pytest.mark.unit
 def test_deploy_apps_agent_registers_when_with_connection(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -517,3 +641,92 @@ def test_cli_bundle_path_no_register_without_flag(
 ) -> None:
     registered = _run_agent_up(tmp_path, ["--as-mcp"], monkeypatch)
     assert registered == []
+
+
+# A config with no app.connection block AND no registered_model -> no derivable
+# connection schema.
+_MCP_CONFIG_NO_SCHEMA = (
+    "resources:\n  models:\n    m: &m\n      name: databricks-gpt-5-4-mini\n"
+    "agents:\n  g: &g\n    name: g\n    description: d\n    model: *m\n"
+    "    prompt: p\n"
+    "app:\n  name: my_app\n  agents:\n    - *g\n"
+)
+
+
+@pytest.mark.unit
+def test_cli_bundle_path_validates_schema_before_deploy(
+    tmp_path: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`up --as-mcp --with-connection` with no derivable schema fails BEFORE the
+    app is deployed (fail fast), not after — deploy_app_bundle is never called."""
+    import pathlib
+    from unittest.mock import patch
+
+    cfg = tmp_path / "c.yaml"
+    cfg.write_text(_MCP_CONFIG_NO_SCHEMA)
+    out = tmp_path / "out"
+
+    def fake_writer(config: object, bundle_dir: object, **kw: object) -> None:
+        pathlib.Path(str(bundle_dir)).mkdir(parents=True, exist_ok=True)
+        (pathlib.Path(str(bundle_dir)) / "databricks.yaml").write_text("bundle: {}\n")
+
+    monkeypatch.setattr(cli, "_apply_profile_context", lambda p: None)
+    monkeypatch.setattr("dao_ai.apps.bundle.write_bundle", fake_writer)
+    with patch.object(cli, "deploy_app_bundle") as dep:
+        opts = parse_args(
+            [
+                "agent",
+                "up",
+                "-c",
+                str(cfg),
+                "-s",
+                str(out),
+                "--mode",
+                "apps",
+                "--as-mcp",
+                "--with-connection",
+            ]
+        )
+        with pytest.raises(ValueError, match="target schema"):
+            cli.handle_agent_command(opts)
+    dep.assert_not_called()
+
+
+@pytest.mark.unit
+def test_cli_down_unregisters_connection(
+    tmp_path: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`agent down --as-mcp` tears down the UC connection + MCP service."""
+    from unittest.mock import patch
+
+    from dao_ai.providers.databricks import DatabricksProvider
+
+    cfg = tmp_path / "c.yaml"
+    cfg.write_text(_MCP_CONFIG)
+    out = tmp_path / "out"
+    out.mkdir()
+    (out / "databricks.yaml").write_text("bundle: {}\n")  # already staged
+
+    unregistered: list[Any] = []
+    monkeypatch.setattr(cli, "_apply_profile_context", lambda p: None)
+    monkeypatch.setattr(
+        DatabricksProvider,
+        "unregister_mcp_connection",
+        lambda self, config: unregistered.append(config),
+    )
+    with patch.object(cli, "deploy_app_bundle"):
+        opts = parse_args(
+            [
+                "agent",
+                "down",
+                "-c",
+                str(cfg),
+                "-s",
+                str(out),
+                "--mode",
+                "apps",
+                "--as-mcp",
+            ]
+        )
+        cli.handle_agent_command(opts)
+    assert len(unregistered) == 1

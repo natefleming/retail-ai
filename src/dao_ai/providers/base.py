@@ -67,9 +67,11 @@ class ServiceProvider(ABC):
         *,
         as_mcp: bool = False,
         development: bool | None = None,
+        with_connection: bool = False,
     ) -> Any:
         """Deploy agent as a Databricks App (chat UI, or MCP server when
-        ``as_mcp``)."""
+        ``as_mcp``). When ``with_connection`` (requires ``as_mcp``), register a
+        UC MCP connection with the Unity AI Gateway after deploy."""
         ...
 
     @abstractmethod

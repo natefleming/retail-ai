@@ -1088,7 +1088,7 @@ def test_deploy_agent_routes_to_apps_when_specified():
             provider.deploy_agent(config=mock_config, mode=ServingMode.APPS)
 
             mock_apps.assert_called_once_with(
-                mock_config, as_mcp=False, development=None
+                mock_config, as_mcp=False, development=None, with_connection=False
             )
             mock_model_serving.assert_not_called()
 
@@ -1109,7 +1109,7 @@ def test_deploy_agent_routes_as_mcp_to_apps(monkeypatch):
     monkeypatch.setattr(
         p,
         "deploy_apps_agent",
-        lambda c, as_mcp=False, development=None: calls.append(
+        lambda c, as_mcp=False, development=None, with_connection=False: calls.append(
             "mcp" if as_mcp else "apps"
         ),
         raising=False,

@@ -2797,7 +2797,7 @@ class DatabricksProvider(ServiceProvider):
 
         When ``with_connection`` (only valid with ``as_mcp``), a UC HTTP/MCP
         connection is created and registered with the Unity AI Gateway after the
-        MCP app is up — see :meth:`_register_mcp_connection`.
+        MCP app is up — see :meth:`register_mcp_connection`.
         """
         # Enforce the requires-as_mcp contract here too (not only in
         # ``deploy_agent``), so a direct caller of this method can't silently
@@ -2951,9 +2951,11 @@ class DatabricksProvider(ServiceProvider):
             logger.info("Created UC MCP connection", name=conn)
 
         # 3. Register the MCP service (parent + id are query params; the
-        # connection ref needs the ``connections/`` prefix). Idempotent — match
-        # on the fqn SUFFIX so a differently-encoded ``name`` field (id vs
-        # ``mcp-services/<fqn>``) still counts as already-registered.
+        # connection ref needs the ``connections/`` prefix). Idempotent — the
+        # live API returns ``name`` as ``mcp-services/<fqn>``, so match the fqn
+        # at a path boundary (``== fqn`` or ``.../<fqn>``), NOT a bare
+        # ``endswith(fqn)`` which would false-match a catalog whose name is a
+        # suffix of ours (``xmain.genie.svc`` vs ``main.genie.svc``).
         services: dict[str, Any] = (
             self.w.api_client.do(
                 "GET",
@@ -2963,59 +2965,148 @@ class DatabricksProvider(ServiceProvider):
             or {}
         )
         exists: bool = any(
-            str(s.get("name", "")).endswith(service_fqn)
+            (name := str(s.get("name", ""))) == service_fqn
+            or name.endswith(f"/{service_fqn}")
             for s in services.get("mcp_services", [])
         )
         if exists:
             logger.info("MCP service already exists; skipping", name=service_fqn)
         else:
-            self.w.api_client.do(
-                "POST",
-                "/api/2.1/unity-catalog/mcp-services",
-                query={
-                    "parent": f"schemas/{catalog}.{schema}",
-                    "mcp_service_id": svc,
-                },
-                body={
-                    "config": {
-                        "source_connection": {"name": f"connections/{conn}"},
-                        "include_tool_selectors": ["*"],
-                    }
-                },
-            )
-            logger.info("Registered MCP service", name=service_fqn)
-
-        # 4. Grant access: USE_CONNECTION on the connection, EXECUTE on the MCP
-        # service, for each configured principal. Best-effort — a deployer
-        # without GRANT rights degrades to a warning rather than failing the
-        # deploy (the connection + service, above, are already created).
-        try:
-            for principal in reg.grant_principals:
+            try:
                 self.w.api_client.do(
-                    "PATCH",
-                    f"/api/2.1/unity-catalog/permissions/connection/{conn}",
+                    "POST",
+                    "/api/2.1/unity-catalog/mcp-services",
+                    query={
+                        "parent": f"schemas/{catalog}.{schema}",
+                        "mcp_service_id": svc,
+                    },
                     body={
-                        "changes": [{"principal": principal, "add": ["USE_CONNECTION"]}]
+                        "config": {
+                            "source_connection": {"name": f"connections/{conn}"},
+                            "include_tool_selectors": ["*"],
+                        }
                     },
                 )
-                self.w.api_client.do(
-                    "PATCH",
-                    f"/api/2.1/unity-catalog/permissions/mcp_service/{service_fqn}",
-                    body={"changes": [{"principal": principal, "add": ["EXECUTE"]}]},
-                )
+                logger.info("Registered MCP service", name=service_fqn)
+            except Exception as e:
+                # Belt-and-suspenders on the idempotency check above: if the
+                # GET-based check ever misses an already-registered service (API
+                # shape drift), treat an "already exists" conflict as success
+                # rather than failing the re-deploy. Any other error is real.
+                if "exist" in str(e).lower():
+                    logger.info(
+                        "MCP service already exists; skipping", name=service_fqn
+                    )
+                else:
+                    raise
+
+        # 4. Grant access: USE_CONNECTION on the connection, EXECUTE on the MCP
+        # service, for each configured principal. Best-effort and PER-GRANT — a
+        # deployer without GRANT rights degrades to a warning (the connection +
+        # service are already created), and one principal's failure must not
+        # skip the rest. Collect failures so the warning names exactly what
+        # didn't land rather than implying every grant failed.
+        failed: list[str] = []
+        for principal in reg.grant_principals:
+            for securable, path, priv in (
+                ("connection", f"connection/{conn}", "USE_CONNECTION"),
+                ("mcp_service", f"mcp_service/{service_fqn}", "EXECUTE"),
+            ):
+                try:
+                    self.w.api_client.do(
+                        "PATCH",
+                        f"/api/2.1/unity-catalog/permissions/{path}",
+                        body={"changes": [{"principal": principal, "add": [priv]}]},
+                    )
+                except Exception as e:
+                    failed.append(f"{priv} for '{principal}' on {securable} ({e})")
+        if failed:
+            logger.warning(
+                "Created the UC MCP connection + service, but some grants failed "
+                "— apply them manually.",
+                connection=conn,
+                mcp_service=service_fqn,
+                failed_grants=failed,
+            )
+        else:
             logger.info(
                 "Granted UC MCP connection access",
                 principals=reg.grant_principals,
                 connection=conn,
                 mcp_service=service_fqn,
             )
+
+    def unregister_mcp_connection(self, config: AppConfig) -> None:
+        """Teardown counterpart to :meth:`register_mcp_connection`: delete the
+        Unity AI Gateway MCP service and the UC connection created for an MCP app.
+
+        Neither is a DAB resource, so ``bundle destroy`` / ``apps.delete`` leave
+        them stranded — this removes them so ``down`` fully tears the deployment
+        down. Best-effort throughout: a missing service/connection is a no-op
+        (so it is safe to call on any ``--as-mcp`` down, even when
+        ``--with-connection`` was never used), and it works after the app is
+        already gone. It deletes the connection ONLY when it is the MCP
+        connection dao-ai created for THIS app (``is_mcp_connection`` + a host
+        bound to the app name), never a hand-made connection sharing the name.
+        """
+        try:
+            reg = resolve_connection_registration(config.app)
+        except ValueError:
+            # No derivable schema -> this feature could not have registered
+            # anything for this config; nothing to tear down.
+            return
+        app_name: str = app_name_for(config.app.name, as_mcp=True)
+        conn: str = reg.name or connection_name_for(config.app.name)
+        svc: str = reg.service_name or mcp_service_name_for(config.app.name)
+        catalog: str = str(reg.schema_model.catalog_name)
+        schema: str = str(reg.schema_model.schema_name)
+        service_fqn: str = f"{catalog}.{schema}.{svc}"
+
+        # 1. Delete the MCP service first (it references the connection).
+        try:
+            self.w.api_client.do(
+                "DELETE", f"/api/2.1/unity-catalog/mcp-services/{service_fqn}"
+            )
+            logger.info("Deleted MCP service", name=service_fqn)
+        except Exception as e:
+            if "exist" in str(e).lower() or "not found" in str(e).lower():
+                logger.info(
+                    "MCP service not found; nothing to delete", name=service_fqn
+                )
+            else:
+                logger.warning(
+                    "Could not delete MCP service; remove it manually with "
+                    "`databricks api delete /api/2.1/unity-catalog/mcp-services/"
+                    f"{service_fqn}`.",
+                    error=str(e),
+                )
+
+        # 2. Delete the connection — only if it is the MCP connection THIS app
+        # created, so a hand-made connection sharing the name is never nuked.
+        try:
+            existing = next(
+                (c for c in self.w.connections.list() if c.name == conn), None
+            )
+            if existing is None:
+                logger.info("UC connection not found; nothing to delete", name=conn)
+                return
+            options: dict[str, str] = dict(existing.options or {})
+            if options.get("is_mcp_connection") == "true" and (
+                f"{app_name}-" in options.get("host", "")
+            ):
+                self.w.connections.delete(name=conn)
+                logger.info("Deleted UC MCP connection", name=conn)
+            else:
+                logger.warning(
+                    "Leaving UC connection in place — it is not the MCP "
+                    "connection dao-ai created for this app; delete manually if "
+                    "intended.",
+                    name=conn,
+                )
         except Exception as e:
             logger.warning(
-                "Created the UC MCP connection + service, but granting access "
-                "failed — grant USE_CONNECTION/EXECUTE manually.",
-                connection=conn,
-                mcp_service=service_fqn,
-                principals=reg.grant_principals,
+                "Could not delete UC connection; remove it manually with "
+                f"`databricks connections delete {conn}`.",
                 error=str(e),
             )
 
