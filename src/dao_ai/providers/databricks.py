@@ -2898,7 +2898,7 @@ class DatabricksProvider(ServiceProvider):
         # resource hasn't yielded them yet, FAIL rather than create a connection
         # with an empty host — idempotency would then skip the fix on re-deploy,
         # leaving a permanently broken connection.
-        if not client_id or not sp_id or not app_url:
+        if not client_id or sp_id is None or not app_url:
             raise RuntimeError(
                 f"App '{app_name}' is not ready for connection registration "
                 f"(url/service-principal unresolved); re-run once it is ACTIVE."
@@ -2918,14 +2918,22 @@ class DatabricksProvider(ServiceProvider):
             ],
         )
 
-        # 2. Create the HTTP (MCP) connection if absent. Mint a fresh SP secret
-        # for the M2M OAuth flow the connection uses.
-        if any(c.name == conn for c in self.w.connections.list()):
+        # 2. Create the HTTP (MCP) connection if absent. Existence is an O(1)
+        # ``get`` (NotFound == absent), not a full-metastore ``list``. Mint a
+        # fresh SP secret for the M2M OAuth flow only when actually creating.
+        from databricks.sdk.errors import NotFound
+
+        try:
+            self.w.connections.get(name=conn)
+            connection_exists = True
+        except NotFound:
+            connection_exists = False
+        if connection_exists:
             logger.info("UC connection already exists; leaving as-is", name=conn)
         else:
-            secret: str = self.w.service_principal_secrets_proxy.create(
+            minted = self.w.service_principal_secrets_proxy.create(
                 service_principal_id=sp_id
-            ).secret
+            )
             try:
                 self.w.connections.create(
                     name=conn,
@@ -2938,10 +2946,17 @@ class DatabricksProvider(ServiceProvider):
                         "oauth_scope": "all-apis",
                         "token_endpoint": f"{host}/oidc/v1/token",
                         "client_id": client_id,
-                        "client_secret": secret,
+                        "client_secret": minted.secret,
                     },
                 )
             except Exception:
+                # Don't orphan the secret we just minted on the app SP.
+                try:
+                    self.w.service_principal_secrets_proxy.delete(
+                        service_principal_id=sp_id, secret_id=str(minted.id)
+                    )
+                except Exception:
+                    pass
                 # The create payload carries the freshly minted client_secret;
                 # never let the original exception's string (which may echo the
                 # request body) reach a log. Re-raise a scrubbed error.
@@ -2992,8 +3007,11 @@ class DatabricksProvider(ServiceProvider):
                 # Belt-and-suspenders on the idempotency check above: if the
                 # GET-based check ever misses an already-registered service (API
                 # shape drift), treat an "already exists" conflict as success
-                # rather than failing the re-deploy. Any other error is real.
-                if "exist" in str(e).lower():
+                # rather than failing the re-deploy. Match "already exists"
+                # SPECIFICALLY — a bare "exist" substring would also swallow a
+                # real "... does not exist" failure and report a false success.
+                msg = str(e).lower()
+                if "already exists" in msg or "already_exists" in msg:
                     logger.info(
                         "MCP service already exists; skipping", name=service_fqn
                     )
@@ -3083,17 +3101,28 @@ class DatabricksProvider(ServiceProvider):
 
         # 2. Delete the connection — only if it is the MCP connection THIS app
         # created, so a hand-made connection sharing the name is never nuked.
+        from databricks.sdk.errors import NotFound
+
         try:
-            existing = next(
-                (c for c in self.w.connections.list() if c.name == conn), None
-            )
-            if existing is None:
+            try:
+                existing = self.w.connections.get(name=conn)
+            except NotFound:
                 logger.info("UC connection not found; nothing to delete", name=conn)
                 return
             options: dict[str, str] = dict(existing.options or {})
-            if options.get("is_mcp_connection") == "true" and (
-                f"{app_name}-" in options.get("host", "")
-            ):
+            host: str = options.get("host", "")
+            # Ownership check. Authoritative when the app still exists (compare
+            # the connection host to the live app URL); if the app is already
+            # gone (the agent path deletes it before this runs), fall back to the
+            # ``is_mcp_connection`` marker — the connection name is already
+            # app-derived, so this only guards against a hand-made non-MCP
+            # connection that happens to share the name.
+            try:
+                app_url: str = (self.w.apps.get(name=app_name).url or "").rstrip("/")
+                is_ours: bool = bool(app_url) and host.rstrip("/") == app_url
+            except NotFound:
+                is_ours = options.get("is_mcp_connection") == "true"
+            if is_ours:
                 self.w.connections.delete(name=conn)
                 logger.info("Deleted UC MCP connection", name=conn)
             else:

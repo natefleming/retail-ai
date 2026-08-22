@@ -205,16 +205,21 @@ class _FakeWorkspaceClient:
                 )
 
         class _Connections:
-            def list(self) -> list[Any]:
-                # SimpleNamespace (not MagicMock): MagicMock reserves the ``name``
-                # kwarg for its repr, so ``.name`` would never equal the value.
-                return [
-                    SimpleNamespace(name=n, options=outer.connection_options.get(n, {}))
-                    for n in outer._existing
-                ]
+            def get(self, name: str) -> Any:
+                from databricks.sdk.errors import NotFound
+
+                if name in outer._existing:
+                    # SimpleNamespace (not MagicMock): MagicMock reserves the
+                    # ``name`` kwarg for its repr, so ``.name`` would never equal
+                    # the value.
+                    return SimpleNamespace(
+                        name=name, options=outer.connection_options.get(name, {})
+                    )
+                raise NotFound(f"connection {name} does not exist")
 
             def create(self, **kwargs: Any) -> None:
                 outer.created_connections.append(kwargs)
+                outer._existing.append(kwargs["name"])
 
             def delete(self, name: str) -> None:
                 outer.deleted_connections.append(name)
@@ -222,7 +227,10 @@ class _FakeWorkspaceClient:
         class _SecretsProxy:
             def create(self, service_principal_id: int) -> Any:
                 outer.secrets_created_for.append(service_principal_id)
-                return MagicMock(secret="s3cr3t")
+                return MagicMock(secret="s3cr3t", id="secret-id-1")
+
+            def delete(self, service_principal_id: int, secret_id: str) -> None:
+                outer.deleted_secrets.append((service_principal_id, secret_id))
 
         class _ApiClient:
             def do(
@@ -248,6 +256,7 @@ class _FakeWorkspaceClient:
         self._existing_services: list[dict[str, Any]] = []
         self.connection_options: dict[str, dict[str, str]] = {}
         self.deleted_connections: list[str] = []
+        self.deleted_secrets: list[tuple[int, str]] = []
 
 
 def _config_with_connection(
@@ -410,6 +419,26 @@ def test_register_mcp_connection_create_failure_scrubs_secret() -> None:
         provider.register_mcp_connection(_config_with_connection())
     assert "s3cr3t" not in str(exc.value)
     assert exc.value.__cause__ is None  # `raise ... from None` suppressed the chain
+    # The minted secret is cleaned up rather than orphaned on the app SP.
+    assert w.deleted_secrets == [(42, "secret-id-1")]
+
+
+@pytest.mark.unit
+def test_register_post_real_failure_raises() -> None:
+    """A genuine "does not exist" POST failure must RAISE (not be swallowed by an
+    over-broad substring match) — the fail-loud design must hold."""
+    w = _FakeWorkspaceClient()
+    orig_do = w.api_client.do
+
+    def _do(method: str, path: str, **kw: Any) -> Any:
+        if method == "POST":
+            raise RuntimeError("parent schema does not exist")
+        return orig_do(method, path, **kw)
+
+    w.api_client.do = _do  # type: ignore[method-assign]
+    provider = DatabricksProvider(w=w)
+    with pytest.raises(RuntimeError, match="does not exist"):
+        provider.register_mcp_connection(_config_with_connection())
 
 
 @pytest.mark.unit
@@ -523,6 +552,28 @@ def test_unregister_leaves_foreign_connection() -> None:
     # service delete still attempted, but the connection is NOT deleted
     assert any(c["method"] == "DELETE" for c in w.api_calls)
     assert w.deleted_connections == []
+
+
+@pytest.mark.unit
+def test_unregister_app_gone_falls_back_to_mcp_marker() -> None:
+    """When the app is already deleted (can't resolve its URL authoritatively),
+    fall back to the is_mcp_connection marker to identify our connection."""
+    from databricks.sdk.errors import NotFound
+
+    w = _FakeWorkspaceClient(existing_connections=["mcp_my_agent_conn"])
+    w.connection_options["mcp_my_agent_conn"] = {
+        "is_mcp_connection": "true",
+        "host": "https://mcp-my-agent-123.databricksapps.com",
+    }
+
+    class _AppsGone:
+        def get(self, name: str) -> Any:
+            raise NotFound("app deleted")
+
+    w.apps = _AppsGone()
+    provider = DatabricksProvider(w=w)
+    provider.unregister_mcp_connection(_config_with_connection())
+    assert w.deleted_connections == ["mcp_my_agent_conn"]
 
 
 @pytest.mark.unit
