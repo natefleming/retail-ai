@@ -43,6 +43,42 @@ def test_create_tools_empty_list() -> None:
     assert len(tools) == 0
 
 
+@pytest.mark.unit
+def test_obo_mcp_tool_discovery_failure_is_skipped_not_fatal() -> None:
+    """An OBO MCP tool whose discovery (tools/list) fails at build time is
+    skipped with a warning, so the rest of the agent still loads."""
+    from dao_ai.config import McpFunctionModel
+
+    tool_registry.clear()
+    fn = McpFunctionModel(service="system.ai.atlassian", on_behalf_of_user=True)
+    tm = ToolModel(name="atlassian_mcp", function=fn)
+    with patch(
+        "dao_ai.tools.core.create_hooks",
+        side_effect=RuntimeError("Failed to list MCP tools ... please login first"),
+    ):
+        tools = create_tools([tm])
+    assert tools == []  # skipped, no exception
+    tool_registry.clear()
+
+
+@pytest.mark.unit
+def test_non_obo_mcp_tool_discovery_failure_still_raises() -> None:
+    """A non-OBO MCP tool that fails discovery is a genuine misconfiguration and
+    must still raise (no silent skip)."""
+    from dao_ai.config import McpFunctionModel
+
+    tool_registry.clear()
+    fn = McpFunctionModel(url="https://example.com/mcp", on_behalf_of_user=False)
+    tm = ToolModel(name="broken_mcp", function=fn)
+    with patch(
+        "dao_ai.tools.core.create_hooks",
+        side_effect=RuntimeError("connection refused"),
+    ):
+        with pytest.raises(RuntimeError):
+            create_tools([tm])
+    tool_registry.clear()
+
+
 class TestResolveToolNames:
     """Tests for the shared resolve_tool_names helper (registry reuse)."""
 

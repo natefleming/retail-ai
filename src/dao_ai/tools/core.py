@@ -21,6 +21,7 @@ from loguru import logger
 from dao_ai.config import (
     AnyTool,
     BaseFunctionModel,
+    McpFunctionModel,
     ToolModel,
 )
 from dao_ai.hooks.core import create_hooks
@@ -120,7 +121,33 @@ def create_tools(tool_models: Sequence[ToolModel]) -> Sequence[RunnableLike]:
         if registered_tools is None:
             logger.trace("Creating tools", tool_name=name)
             function: AnyTool = tool_config.function
-            registered_tools = create_hooks(function)
+            try:
+                registered_tools = create_hooks(function)
+            except Exception as e:
+                # An on-behalf-of-user MCP server may reject discovery
+                # (tools/list) under the identity present at graph-build time —
+                # e.g. the app service principal has not linked the underlying
+                # SaaS account, so servers that gate tools/list on a linked
+                # credential (Atlassian, GitHub, Google Drive, …) 403. That must
+                # not crash the whole agent: skip this tool with a loud warning
+                # so the remaining tools still load. The tool becomes usable once
+                # the caller's identity is linked (OBO) or its schema is supplied
+                # at deploy time. Non-OBO tools (and non-MCP tools) still raise —
+                # those failures are genuine misconfiguration.
+                if isinstance(function, McpFunctionModel) and function.on_behalf_of_user:
+                    logger.warning(
+                        "Skipping OBO MCP tool that failed discovery at build time",
+                        tool_name=name,
+                        error=str(e),
+                        note=(
+                            "The agent will start without this tool. It requires "
+                            "the calling identity to have linked the MCP server's "
+                            "credential (OBO), or its tool schema supplied at "
+                            "deploy time. See dao-ai#305."
+                        ),
+                    )
+                    continue
+                raise
             logger.trace("Registering tools", tool_name=name)
             tool_registry[name] = registered_tools
         else:

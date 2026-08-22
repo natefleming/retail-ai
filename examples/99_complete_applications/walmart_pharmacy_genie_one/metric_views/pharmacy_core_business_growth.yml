@@ -1,0 +1,1848 @@
+version: '1.1'
+comment: Core Pharmacy Business Growth metric view for AI and BI. Contains canonical row-based Pharmacy metrics. Finance/P&L
+  metrics are explicitly restricted to FISCAL_CALENDAR and monthly fiscal reporting. Clinical outcome snapshots and Digital
+  Population/account snapshots are modeled in separate metric views.
+source: retail_consumer_goods.walmart_pharmacy_poc.market_bus_growth_metric
+fields:
+- name: calendar_date
+  expr: calendar_date
+  display_name: Calendar Date
+  comment: Business reporting date for daily grain.
+  synonyms:
+  - date
+  - business date
+  - reporting date
+- name: last_year_comparable_calendar_date
+  expr: last_year_comparable_calendar_date
+  display_name: Last Year Comparable Date
+  comment: Comparable prior-year date aligned to the current reporting date.
+  synonyms:
+  - LY date
+  - prior year date
+  - comparable date
+- name: walmart_year_week_number
+  expr: walmart_year_week_number
+  display_name: Walmart Year Week
+  comment: Walmart year-week identifier.
+  synonyms:
+  - walmart week
+  - year week
+  - fiscal week
+  - week number
+- name: walmart_week_number
+  expr: walmart_week_number
+  display_name: Walmart Week Number
+  comment: Walmart week number within the Walmart reporting year.
+  synonyms:
+  - week
+  - wm week
+  - reporting week
+- name: walmart_month_number
+  expr: walmart_month_number
+  display_name: Walmart Month Number
+  comment: Walmart reporting month number.
+  synonyms:
+  - month number
+  - wm month number
+- name: walmart_month_name
+  expr: walmart_month_name
+  display_name: Walmart Month Name
+  comment: Walmart reporting month name.
+  synonyms:
+  - month
+  - walmart month
+  - reporting month
+- name: walmart_quarter_number
+  expr: walmart_quarter_number
+  display_name: Walmart Quarter Number
+  comment: Walmart reporting quarter number.
+  synonyms:
+  - quarter
+  - walmart quarter
+  - reporting quarter
+- name: walmart_year_number
+  expr: walmart_year_number
+  display_name: Walmart Year
+  comment: Walmart reporting year.
+  synonyms:
+  - year
+  - walmart year
+  - reporting year
+- name: fiscal_month_number
+  expr: fiscal_month_number
+  display_name: Fiscal Month Number
+  comment: Fiscal month number.
+  synonyms:
+  - fiscal month
+  - fiscal period
+- name: fiscal_month_name
+  expr: fiscal_month_name
+  display_name: Fiscal Month Name
+  comment: Fiscal month name.
+  synonyms:
+  - fiscal month name
+  - fiscal period name
+- name: fiscal_quarter_nbr
+  expr: fiscal_quarter_nbr
+  display_name: Fiscal Quarter
+  comment: Fiscal quarter number.
+  synonyms:
+  - fiscal quarter
+  - fiscal qtr
+- name: fiscal_year_nbr
+  expr: fiscal_year_nbr
+  display_name: Fiscal Year
+  comment: Fiscal year number.
+  synonyms:
+  - fiscal year
+  - fy
+- name: current_calendar_day
+  expr: current_calendar_day
+  display_name: Current Calendar Day
+  comment: Dataset-provided current day indicator.
+  synonyms:
+  - current day
+- name: week_to_date_flag
+  expr: week_to_date_flag
+  display_name: Week To Date Flag
+  comment: Dataset-provided week-to-date indicator.
+  synonyms:
+  - WTD
+- name: walmart_month_to_date_flag
+  expr: walmart_month_to_date_flag
+  display_name: Walmart Month To Date Flag
+  comment: Dataset-provided Walmart month-to-date indicator.
+  synonyms:
+  - WMT MTD
+  - month to date
+- name: walmart_quarter_to_date_flag
+  expr: walmart_quarter_to_date_flag
+  display_name: Walmart Quarter To Date Flag
+  comment: Dataset-provided Walmart quarter-to-date indicator.
+  synonyms:
+  - WMT QTD
+  - quarter to date
+- name: walmart_year_to_date_flag
+  expr: walmart_year_to_date_flag
+  display_name: Walmart Year To Date Flag
+  comment: Dataset-provided Walmart year-to-date indicator.
+  synonyms:
+  - WMT YTD
+  - year to date
+- name: fiscal_month_to_date_flag
+  expr: fiscal_month_to_date_flag
+  display_name: Fiscal Month To Date Flag
+  comment: Dataset-provided fiscal month-to-date indicator.
+  synonyms:
+  - fiscal MTD
+- name: fiscal_quarter_to_date_flag
+  expr: fiscal_quarter_to_date_flag
+  display_name: Fiscal Quarter To Date Flag
+  comment: Dataset-provided fiscal quarter-to-date indicator.
+  synonyms:
+  - fiscal QTD
+- name: fiscal_year_to_date_flag
+  expr: fiscal_year_to_date_flag
+  display_name: Fiscal Year To Date Flag
+  comment: Dataset-provided fiscal year-to-date indicator.
+  synonyms:
+  - fiscal YTD
+- name: line_of_business
+  expr: line_of_business
+  display_name: Line Of Business
+  comment: Pharmacy only. This metric view is hard-filtered to PHARMACY.
+  synonyms:
+  - LOB
+  - business line
+  - pharmacy line of business
+- name: business_unit
+  expr: business_unit
+  display_name: Business Unit
+  comment: Higher-level organizational business unit code.
+  synonyms:
+  - BU
+  - business unit code
+- name: business_unit_name
+  expr: business_unit_name
+  display_name: Business Unit Name
+  comment: Business unit name.
+  synonyms:
+  - BU name
+  - division name
+- name: business_unit_display_name
+  expr: business_unit_display_name
+  display_name: Business Unit Display Name
+  comment: Display-friendly business unit label.
+  synonyms:
+  - BU display
+  - business unit label
+- name: region_number
+  expr: region_number
+  display_name: Region Number
+  comment: Region identifier.
+  synonyms:
+  - region number
+  - region id
+- name: region_name
+  expr: region_name
+  display_name: Region Name
+  comment: Region name.
+  synonyms:
+  - region label
+- name: region_display_name
+  expr: region_display_name
+  display_name: Region Display Name
+  comment: Display-friendly region label.
+  synonyms:
+  - region display
+  - region label
+- name: market_number
+  expr: market_number
+  display_name: Market Number
+  comment: Market identifier.
+  synonyms:
+  - market number
+  - market id
+- name: market_name
+  expr: market_name
+  display_name: Market Name
+  comment: Market name.
+  synonyms:
+  - market label
+- name: market_display_name
+  expr: market_display_name
+  display_name: Market Display Name
+  comment: Display-friendly market label.
+  synonyms:
+  - market display
+  - market label
+- name: store_number
+  expr: store_number
+  display_name: Store Number
+  comment: Store identifier.
+  synonyms:
+  - store number
+  - store id
+- name: store_name
+  expr: store_name
+  display_name: Store Name
+  comment: Store name.
+  synonyms:
+  - store
+  - pharmacy name
+- name: store_display_name
+  expr: store_display_name
+  display_name: Store Display Name
+  comment: Display-friendly store label.
+  synonyms:
+  - store display
+  - store label
+- name: store_status
+  expr: store_status
+  display_name: Store Status
+  comment: Operational status of the store.
+  synonyms:
+  - status
+  - open status
+  - store state
+- name: is_active_store
+  expr: is_active_store
+  display_name: Active Store Flag
+  comment: Whether the store is active.
+  synonyms:
+  - active store
+  - active
+  - open store
+- name: comparable_store_flag
+  expr: comparable_store_flag
+  display_name: Comparable Store Flag
+  comment: Whether the store is included in comparable-store reporting.
+  synonyms:
+  - comp store
+  - comparable
+  - comp flag
+- name: native_summary_grain
+  expr: native_summary_grain
+  display_name: Native Summary Grain
+  comment: Native reporting grain of the metric record.
+  synonyms:
+  - grain
+  - summary level
+  - reporting grain
+- name: source_table
+  expr: source_table
+  display_name: Source Table
+  comment: Upstream source object for the metric record.
+  synonyms:
+  - source
+  - upstream table
+  - source object
+- name: metric_group
+  expr: metric_group
+  display_name: Metric Group
+  comment: Business category or grouping for the metric.
+  synonyms:
+  - metric category
+  - KPI group
+  - business area
+  - performance area
+- name: metric_name
+  expr: metric_name
+  display_name: Metric Name
+  comment: Business Growth metric identifier.
+  synonyms:
+  - metric
+  - KPI
+  - business metric
+- name: metric_type
+  expr: metric_type
+  display_name: Metric Type
+  comment: Metric classification such as count, amount, rate, score, or percentage.
+  synonyms:
+  - type
+  - metric classification
+  - value type
+- name: aggregation_rule
+  expr: aggregation_rule
+  display_name: Aggregation Rule
+  comment: Source-defined aggregation guidance for the metric.
+  synonyms:
+  - rollup rule
+  - aggregation
+  - calculation rule
+- name: numerator_value_ty
+  expr: numerator_value_ty
+  display_name: Numerator Value TY
+  comment: Current-year numerator value for metrics with numerator/denominator logic.
+  synonyms:
+  - TY numerator value
+- name: denominator_value_ty
+  expr: denominator_value_ty
+  display_name: Denominator Value TY
+  comment: Current-year denominator value for metrics with numerator/denominator logic.
+  synonyms:
+  - TY denominator value
+- name: metric_value_ty
+  expr: metric_value_ty
+  display_name: Metric Value TY
+  comment: Current-year metric value for row-based metrics.
+  synonyms:
+  - TY value
+  - current metric value
+- name: numerator_value_ly
+  expr: numerator_value_ly
+  display_name: Numerator Value LY
+  comment: Prior-year numerator value for metrics with numerator/denominator logic.
+  synonyms:
+  - LY numerator value
+- name: denominator_value_ly
+  expr: denominator_value_ly
+  display_name: Denominator Value LY
+  comment: Prior-year denominator value for metrics with numerator/denominator logic.
+  synonyms:
+  - LY denominator value
+- name: metric_value_ly
+  expr: metric_value_ly
+  display_name: Metric Value LY
+  comment: Prior-year comparable metric value for row-based metrics.
+  synonyms:
+  - LY value
+  - prior year metric value
+- name: numerator_rule
+  expr: numerator_rule
+  display_name: Numerator Rule
+  comment: Source-defined numerator guidance when available.
+  synonyms:
+  - numerator logic
+- name: denominator_rule
+  expr: denominator_rule
+  display_name: Denominator Rule
+  comment: Source-defined denominator guidance when available.
+  synonyms:
+  - denominator logic
+- name: calendar_flag
+  expr: calendar_flag
+  display_name: Calendar Flag
+  comment: Source calendar classification. Finance/P&L measures use FISCAL_CALENDAR; non-finance metrics follow their source
+    calendar.
+  synonyms:
+  - period flag
+  - calendar period
+- name: order_channel
+  expr: order_channel
+  display_name: Order Channel
+  comment: Order channel associated with the metric when applicable.
+  synonyms:
+  - channel
+  - digital channel
+  - sales channel
+- name: delivery_method
+  expr: delivery_method
+  display_name: Delivery Method
+  comment: Delivery or fulfillment method when applicable.
+  synonyms:
+  - fulfillment
+  - delivery
+  - pickup delivery method
+- name: load_time_stamp
+  expr: load_time_stamp
+  display_name: Load Timestamp
+  comment: Source load timestamp.
+  synonyms:
+  - load time
+  - refresh time
+  - data load time
+- name: store_manager_name
+  expr: store_manager_name
+  display_name: Store Manager Name
+  comment: Store manager ownership attribute.
+  synonyms:
+  - Store Manager Name
+- name: market_manager_name
+  expr: market_manager_name
+  display_name: Market Manager Name
+  comment: Market manager ownership attribute.
+  synonyms:
+  - Market Manager Name
+- name: region_manager_name
+  expr: region_manager_name
+  display_name: Region Manager Name
+  comment: Region manager ownership attribute.
+  synonyms:
+  - Region Manager Name
+- name: bu_manager_name
+  expr: bu_manager_name
+  display_name: BU Manager Name
+  comment: Business unit manager ownership attribute.
+  synonyms:
+  - BU Manager Name
+- name: op_company_code
+  expr: op_company_code
+  display_name: Operating Company Code
+  comment: Operating company code.
+  synonyms:
+  - company code
+- name: neighbouring_store_nbrs
+  expr: neighbouring_store_nbrs
+  display_name: Neighboring Store Numbers
+  comment: List of neighboring store identifiers used for peer benchmarking.
+  synonyms:
+  - neighbor stores
+  - peer stores
+- name: neighbouring_market_nbrs
+  expr: neighbouring_market_nbrs
+  display_name: Neighboring Market Numbers
+  comment: List of neighboring market identifiers used for peer benchmarking.
+  synonyms:
+  - neighbor markets
+  - peer markets
+- name: neighbouring_region_nbrs
+  expr: neighbouring_region_nbrs
+  display_name: Neighboring Region Numbers
+  comment: List of neighboring region identifiers used for peer benchmarking.
+  synonyms:
+  - neighbor regions
+  - peer regions
+- name: neighbouring_subdiv_nbrs
+  expr: neighbouring_subdiv_nbrs
+  display_name: Neighboring Subdivision Numbers
+  comment: List of neighboring BU/subdivision identifiers used for peer benchmarking.
+  synonyms:
+  - neighbor BUs
+  - peer BUs
+  - neighbor subdivisions
+- name: current_walmart_year_number
+  expr: current_walmart_year_number
+  display_name: Current Walmart Year Number
+  comment: Dataset-provided current Walmart year fallback.
+  synonyms:
+  - current Walmart year
+- name: current_fiscal_year_number
+  expr: current_fiscal_year_number
+  display_name: Current Fiscal Year Number
+  comment: Dataset-provided current fiscal year fallback.
+  synonyms:
+  - current fiscal year
+- name: current_walmart_month_number
+  expr: current_walmart_month_number
+  display_name: Current Walmart Month Number
+  comment: Dataset-provided current Walmart month fallback.
+  synonyms:
+  - current Walmart month
+- name: current_fiscal_month_number
+  expr: current_fiscal_month_number
+  display_name: Current Fiscal Month Number
+  comment: Dataset-provided current fiscal month fallback.
+  synonyms:
+  - current fiscal month
+- name: current_walmart_quarter_number
+  expr: current_walmart_quarter_number
+  display_name: Current Walmart Quarter Number
+  comment: Dataset-provided current Walmart quarter fallback.
+  synonyms:
+  - current Walmart quarter
+- name: current_fiscal_quarter_number
+  expr: current_fiscal_quarter_number
+  display_name: Current Fiscal Quarter Number
+  comment: Dataset-provided current fiscal quarter fallback.
+  synonyms:
+  - current fiscal quarter
+measures:
+- name: messaging_adoption_rate_ty
+  expr: CASE WHEN SUM(denominator_value_ty) FILTER (WHERE metric_name = 'MESSAGING_ADOPTION_RATE') = 0 THEN NULL ELSE SUM(numerator_value_ty)
+    FILTER (WHERE metric_name = 'MESSAGING_ADOPTION_RATE') / SUM(denominator_value_ty) FILTER (WHERE metric_name = 'MESSAGING_ADOPTION_RATE')
+    * 100 END
+  display_name: Messaging Adoption
+  comment: Current-year Messaging Adoption. Weighted rate from summed numerator and denominator.
+  synonyms:
+  - messaging adoption
+  - TY messaging adoption
+- name: messaging_adoption_rate_ly
+  expr: CASE WHEN SUM(denominator_value_ly) FILTER (WHERE metric_name = 'MESSAGING_ADOPTION_RATE') = 0 THEN NULL ELSE SUM(numerator_value_ly)
+    FILTER (WHERE metric_name = 'MESSAGING_ADOPTION_RATE') / SUM(denominator_value_ly) FILTER (WHERE metric_name = 'MESSAGING_ADOPTION_RATE')
+    * 100 END
+  display_name: Messaging Adoption Prior Year
+  comment: Prior-year comparable Messaging Adoption. Weighted rate from summed numerator and denominator.
+  synonyms:
+  - messaging adoption last year
+  - LY messaging adoption
+- name: messaging_adoption_rate_point_change
+  expr: (CASE WHEN SUM(denominator_value_ty) FILTER (WHERE metric_name = 'MESSAGING_ADOPTION_RATE') = 0 THEN NULL ELSE SUM(numerator_value_ty)
+    FILTER (WHERE metric_name = 'MESSAGING_ADOPTION_RATE') / SUM(denominator_value_ty) FILTER (WHERE metric_name = 'MESSAGING_ADOPTION_RATE')
+    * 100 END) - (CASE WHEN SUM(denominator_value_ly) FILTER (WHERE metric_name = 'MESSAGING_ADOPTION_RATE') = 0 THEN NULL
+    ELSE SUM(numerator_value_ly) FILTER (WHERE metric_name = 'MESSAGING_ADOPTION_RATE') / SUM(denominator_value_ly) FILTER
+    (WHERE metric_name = 'MESSAGING_ADOPTION_RATE') * 100 END)
+  display_name: Messaging Adoption Point Change
+  comment: Current minus prior-year Messaging Adoption, expressed in percentage points.
+  synonyms:
+  - messaging adoption point change
+- name: messaging_adoption_rate_yoy_pct
+  expr: CASE WHEN (CASE WHEN SUM(denominator_value_ly) FILTER (WHERE metric_name = 'MESSAGING_ADOPTION_RATE') = 0 THEN NULL
+    ELSE SUM(numerator_value_ly) FILTER (WHERE metric_name = 'MESSAGING_ADOPTION_RATE') / SUM(denominator_value_ly) FILTER
+    (WHERE metric_name = 'MESSAGING_ADOPTION_RATE') * 100 END) IS NULL OR (CASE WHEN SUM(denominator_value_ly) FILTER (WHERE
+    metric_name = 'MESSAGING_ADOPTION_RATE') = 0 THEN NULL ELSE SUM(numerator_value_ly) FILTER (WHERE metric_name = 'MESSAGING_ADOPTION_RATE')
+    / SUM(denominator_value_ly) FILTER (WHERE metric_name = 'MESSAGING_ADOPTION_RATE') * 100 END) = 0 THEN NULL ELSE ((CASE
+    WHEN SUM(denominator_value_ty) FILTER (WHERE metric_name = 'MESSAGING_ADOPTION_RATE') = 0 THEN NULL ELSE SUM(numerator_value_ty)
+    FILTER (WHERE metric_name = 'MESSAGING_ADOPTION_RATE') / SUM(denominator_value_ty) FILTER (WHERE metric_name = 'MESSAGING_ADOPTION_RATE')
+    * 100 END) - (CASE WHEN SUM(denominator_value_ly) FILTER (WHERE metric_name = 'MESSAGING_ADOPTION_RATE') = 0 THEN NULL
+    ELSE SUM(numerator_value_ly) FILTER (WHERE metric_name = 'MESSAGING_ADOPTION_RATE') / SUM(denominator_value_ly) FILTER
+    (WHERE metric_name = 'MESSAGING_ADOPTION_RATE') * 100 END)) / ABS(CASE WHEN SUM(denominator_value_ly) FILTER (WHERE metric_name
+    = 'MESSAGING_ADOPTION_RATE') = 0 THEN NULL ELSE SUM(numerator_value_ly) FILTER (WHERE metric_name = 'MESSAGING_ADOPTION_RATE')
+    / SUM(denominator_value_ly) FILTER (WHERE metric_name = 'MESSAGING_ADOPTION_RATE') * 100 END) * 100 END
+  display_name: Messaging Adoption YoY %
+  comment: Relative percent change in Messaging Adoption versus prior year.
+  synonyms:
+  - messaging adoption YoY
+- name: systematic_refills_ty
+  expr: CASE WHEN SUM(denominator_value_ty) FILTER (WHERE metric_name = 'SYSTEMTIC_REFILL_PERCENTAGE') = 0 THEN NULL ELSE
+    SUM(numerator_value_ty) FILTER (WHERE metric_name = 'SYSTEMTIC_REFILL_PERCENTAGE') / SUM(denominator_value_ty) FILTER
+    (WHERE metric_name = 'SYSTEMTIC_REFILL_PERCENTAGE') * 100 END
+  display_name: Systematic Refills %
+  comment: Current-year Systematic Refills %. Weighted rate from summed numerator and denominator.
+  synonyms:
+  - systematic refills %
+  - TY systematic refills %
+- name: systematic_refills_ly
+  expr: CASE WHEN SUM(denominator_value_ly) FILTER (WHERE metric_name = 'SYSTEMTIC_REFILL_PERCENTAGE') = 0 THEN NULL ELSE
+    SUM(numerator_value_ly) FILTER (WHERE metric_name = 'SYSTEMTIC_REFILL_PERCENTAGE') / SUM(denominator_value_ly) FILTER
+    (WHERE metric_name = 'SYSTEMTIC_REFILL_PERCENTAGE') * 100 END
+  display_name: Systematic Refills % Prior Year
+  comment: Prior-year comparable Systematic Refills %. Weighted rate from summed numerator and denominator.
+  synonyms:
+  - systematic refills % last year
+  - LY systematic refills %
+- name: systematic_refills_point_change
+  expr: (CASE WHEN SUM(denominator_value_ty) FILTER (WHERE metric_name = 'SYSTEMTIC_REFILL_PERCENTAGE') = 0 THEN NULL ELSE
+    SUM(numerator_value_ty) FILTER (WHERE metric_name = 'SYSTEMTIC_REFILL_PERCENTAGE') / SUM(denominator_value_ty) FILTER
+    (WHERE metric_name = 'SYSTEMTIC_REFILL_PERCENTAGE') * 100 END) - (CASE WHEN SUM(denominator_value_ly) FILTER (WHERE metric_name
+    = 'SYSTEMTIC_REFILL_PERCENTAGE') = 0 THEN NULL ELSE SUM(numerator_value_ly) FILTER (WHERE metric_name = 'SYSTEMTIC_REFILL_PERCENTAGE')
+    / SUM(denominator_value_ly) FILTER (WHERE metric_name = 'SYSTEMTIC_REFILL_PERCENTAGE') * 100 END)
+  display_name: Systematic Refills % Point Change
+  comment: Current minus prior-year Systematic Refills %, expressed in percentage points.
+  synonyms:
+  - systematic refills % point change
+- name: systematic_refills_yoy_pct
+  expr: CASE WHEN (CASE WHEN SUM(denominator_value_ly) FILTER (WHERE metric_name = 'SYSTEMTIC_REFILL_PERCENTAGE') = 0 THEN
+    NULL ELSE SUM(numerator_value_ly) FILTER (WHERE metric_name = 'SYSTEMTIC_REFILL_PERCENTAGE') / SUM(denominator_value_ly)
+    FILTER (WHERE metric_name = 'SYSTEMTIC_REFILL_PERCENTAGE') * 100 END) IS NULL OR (CASE WHEN SUM(denominator_value_ly)
+    FILTER (WHERE metric_name = 'SYSTEMTIC_REFILL_PERCENTAGE') = 0 THEN NULL ELSE SUM(numerator_value_ly) FILTER (WHERE metric_name
+    = 'SYSTEMTIC_REFILL_PERCENTAGE') / SUM(denominator_value_ly) FILTER (WHERE metric_name = 'SYSTEMTIC_REFILL_PERCENTAGE')
+    * 100 END) = 0 THEN NULL ELSE ((CASE WHEN SUM(denominator_value_ty) FILTER (WHERE metric_name = 'SYSTEMTIC_REFILL_PERCENTAGE')
+    = 0 THEN NULL ELSE SUM(numerator_value_ty) FILTER (WHERE metric_name = 'SYSTEMTIC_REFILL_PERCENTAGE') / SUM(denominator_value_ty)
+    FILTER (WHERE metric_name = 'SYSTEMTIC_REFILL_PERCENTAGE') * 100 END) - (CASE WHEN SUM(denominator_value_ly) FILTER (WHERE
+    metric_name = 'SYSTEMTIC_REFILL_PERCENTAGE') = 0 THEN NULL ELSE SUM(numerator_value_ly) FILTER (WHERE metric_name = 'SYSTEMTIC_REFILL_PERCENTAGE')
+    / SUM(denominator_value_ly) FILTER (WHERE metric_name = 'SYSTEMTIC_REFILL_PERCENTAGE') * 100 END)) / ABS(CASE WHEN SUM(denominator_value_ly)
+    FILTER (WHERE metric_name = 'SYSTEMTIC_REFILL_PERCENTAGE') = 0 THEN NULL ELSE SUM(numerator_value_ly) FILTER (WHERE metric_name
+    = 'SYSTEMTIC_REFILL_PERCENTAGE') / SUM(denominator_value_ly) FILTER (WHERE metric_name = 'SYSTEMTIC_REFILL_PERCENTAGE')
+    * 100 END) * 100 END
+  display_name: Systematic Refills % YoY %
+  comment: Relative percent change in Systematic Refills % versus prior year.
+  synonyms:
+  - systematic refills % YoY
+- name: dotcom_refills_ty
+  expr: CASE WHEN SUM(denominator_value_ty) FILTER (WHERE metric_name = 'DOTCOM_REFILL_PERCENTAGE') = 0 THEN NULL ELSE SUM(numerator_value_ty)
+    FILTER (WHERE metric_name = 'DOTCOM_REFILL_PERCENTAGE') / SUM(denominator_value_ty) FILTER (WHERE metric_name = 'DOTCOM_REFILL_PERCENTAGE')
+    * 100 END
+  display_name: Dotcom Refills %
+  comment: Current-year Dotcom Refills %. Weighted rate from summed numerator and denominator.
+  synonyms:
+  - dotcom refills %
+  - TY dotcom refills %
+- name: dotcom_refills_ly
+  expr: CASE WHEN SUM(denominator_value_ly) FILTER (WHERE metric_name = 'DOTCOM_REFILL_PERCENTAGE') = 0 THEN NULL ELSE SUM(numerator_value_ly)
+    FILTER (WHERE metric_name = 'DOTCOM_REFILL_PERCENTAGE') / SUM(denominator_value_ly) FILTER (WHERE metric_name = 'DOTCOM_REFILL_PERCENTAGE')
+    * 100 END
+  display_name: Dotcom Refills % Prior Year
+  comment: Prior-year comparable Dotcom Refills %. Weighted rate from summed numerator and denominator.
+  synonyms:
+  - dotcom refills % last year
+  - LY dotcom refills %
+- name: dotcom_refills_point_change
+  expr: (CASE WHEN SUM(denominator_value_ty) FILTER (WHERE metric_name = 'DOTCOM_REFILL_PERCENTAGE') = 0 THEN NULL ELSE SUM(numerator_value_ty)
+    FILTER (WHERE metric_name = 'DOTCOM_REFILL_PERCENTAGE') / SUM(denominator_value_ty) FILTER (WHERE metric_name = 'DOTCOM_REFILL_PERCENTAGE')
+    * 100 END) - (CASE WHEN SUM(denominator_value_ly) FILTER (WHERE metric_name = 'DOTCOM_REFILL_PERCENTAGE') = 0 THEN NULL
+    ELSE SUM(numerator_value_ly) FILTER (WHERE metric_name = 'DOTCOM_REFILL_PERCENTAGE') / SUM(denominator_value_ly) FILTER
+    (WHERE metric_name = 'DOTCOM_REFILL_PERCENTAGE') * 100 END)
+  display_name: Dotcom Refills % Point Change
+  comment: Current minus prior-year Dotcom Refills %, expressed in percentage points.
+  synonyms:
+  - dotcom refills % point change
+- name: dotcom_refills_yoy_pct
+  expr: CASE WHEN (CASE WHEN SUM(denominator_value_ly) FILTER (WHERE metric_name = 'DOTCOM_REFILL_PERCENTAGE') = 0 THEN NULL
+    ELSE SUM(numerator_value_ly) FILTER (WHERE metric_name = 'DOTCOM_REFILL_PERCENTAGE') / SUM(denominator_value_ly) FILTER
+    (WHERE metric_name = 'DOTCOM_REFILL_PERCENTAGE') * 100 END) IS NULL OR (CASE WHEN SUM(denominator_value_ly) FILTER (WHERE
+    metric_name = 'DOTCOM_REFILL_PERCENTAGE') = 0 THEN NULL ELSE SUM(numerator_value_ly) FILTER (WHERE metric_name = 'DOTCOM_REFILL_PERCENTAGE')
+    / SUM(denominator_value_ly) FILTER (WHERE metric_name = 'DOTCOM_REFILL_PERCENTAGE') * 100 END) = 0 THEN NULL ELSE ((CASE
+    WHEN SUM(denominator_value_ty) FILTER (WHERE metric_name = 'DOTCOM_REFILL_PERCENTAGE') = 0 THEN NULL ELSE SUM(numerator_value_ty)
+    FILTER (WHERE metric_name = 'DOTCOM_REFILL_PERCENTAGE') / SUM(denominator_value_ty) FILTER (WHERE metric_name = 'DOTCOM_REFILL_PERCENTAGE')
+    * 100 END) - (CASE WHEN SUM(denominator_value_ly) FILTER (WHERE metric_name = 'DOTCOM_REFILL_PERCENTAGE') = 0 THEN NULL
+    ELSE SUM(numerator_value_ly) FILTER (WHERE metric_name = 'DOTCOM_REFILL_PERCENTAGE') / SUM(denominator_value_ly) FILTER
+    (WHERE metric_name = 'DOTCOM_REFILL_PERCENTAGE') * 100 END)) / ABS(CASE WHEN SUM(denominator_value_ly) FILTER (WHERE metric_name
+    = 'DOTCOM_REFILL_PERCENTAGE') = 0 THEN NULL ELSE SUM(numerator_value_ly) FILTER (WHERE metric_name = 'DOTCOM_REFILL_PERCENTAGE')
+    / SUM(denominator_value_ly) FILTER (WHERE metric_name = 'DOTCOM_REFILL_PERCENTAGE') * 100 END) * 100 END
+  display_name: Dotcom Refills % YoY %
+  comment: Relative percent change in Dotcom Refills % versus prior year.
+  synonyms:
+  - dotcom refills % YoY
+- name: auto_refills_ty
+  expr: CASE WHEN SUM(denominator_value_ty) FILTER (WHERE metric_name = 'AUTO_REFILL_PERCENTAGE') = 0 THEN NULL ELSE SUM(numerator_value_ty)
+    FILTER (WHERE metric_name = 'AUTO_REFILL_PERCENTAGE') / SUM(denominator_value_ty) FILTER (WHERE metric_name = 'AUTO_REFILL_PERCENTAGE')
+    * 100 END
+  display_name: Autorefills %
+  comment: Current-year Autorefills %. Weighted rate from summed numerator and denominator.
+  synonyms:
+  - autorefills %
+  - TY autorefills %
+- name: auto_refills_ly
+  expr: CASE WHEN SUM(denominator_value_ly) FILTER (WHERE metric_name = 'AUTO_REFILL_PERCENTAGE') = 0 THEN NULL ELSE SUM(numerator_value_ly)
+    FILTER (WHERE metric_name = 'AUTO_REFILL_PERCENTAGE') / SUM(denominator_value_ly) FILTER (WHERE metric_name = 'AUTO_REFILL_PERCENTAGE')
+    * 100 END
+  display_name: Autorefills % Prior Year
+  comment: Prior-year comparable Autorefills %. Weighted rate from summed numerator and denominator.
+  synonyms:
+  - autorefills % last year
+  - LY autorefills %
+- name: auto_refills_point_change
+  expr: (CASE WHEN SUM(denominator_value_ty) FILTER (WHERE metric_name = 'AUTO_REFILL_PERCENTAGE') = 0 THEN NULL ELSE SUM(numerator_value_ty)
+    FILTER (WHERE metric_name = 'AUTO_REFILL_PERCENTAGE') / SUM(denominator_value_ty) FILTER (WHERE metric_name = 'AUTO_REFILL_PERCENTAGE')
+    * 100 END) - (CASE WHEN SUM(denominator_value_ly) FILTER (WHERE metric_name = 'AUTO_REFILL_PERCENTAGE') = 0 THEN NULL
+    ELSE SUM(numerator_value_ly) FILTER (WHERE metric_name = 'AUTO_REFILL_PERCENTAGE') / SUM(denominator_value_ly) FILTER
+    (WHERE metric_name = 'AUTO_REFILL_PERCENTAGE') * 100 END)
+  display_name: Autorefills % Point Change
+  comment: Current minus prior-year Autorefills %, expressed in percentage points.
+  synonyms:
+  - autorefills % point change
+- name: auto_refills_yoy_pct
+  expr: CASE WHEN (CASE WHEN SUM(denominator_value_ly) FILTER (WHERE metric_name = 'AUTO_REFILL_PERCENTAGE') = 0 THEN NULL
+    ELSE SUM(numerator_value_ly) FILTER (WHERE metric_name = 'AUTO_REFILL_PERCENTAGE') / SUM(denominator_value_ly) FILTER
+    (WHERE metric_name = 'AUTO_REFILL_PERCENTAGE') * 100 END) IS NULL OR (CASE WHEN SUM(denominator_value_ly) FILTER (WHERE
+    metric_name = 'AUTO_REFILL_PERCENTAGE') = 0 THEN NULL ELSE SUM(numerator_value_ly) FILTER (WHERE metric_name = 'AUTO_REFILL_PERCENTAGE')
+    / SUM(denominator_value_ly) FILTER (WHERE metric_name = 'AUTO_REFILL_PERCENTAGE') * 100 END) = 0 THEN NULL ELSE ((CASE
+    WHEN SUM(denominator_value_ty) FILTER (WHERE metric_name = 'AUTO_REFILL_PERCENTAGE') = 0 THEN NULL ELSE SUM(numerator_value_ty)
+    FILTER (WHERE metric_name = 'AUTO_REFILL_PERCENTAGE') / SUM(denominator_value_ty) FILTER (WHERE metric_name = 'AUTO_REFILL_PERCENTAGE')
+    * 100 END) - (CASE WHEN SUM(denominator_value_ly) FILTER (WHERE metric_name = 'AUTO_REFILL_PERCENTAGE') = 0 THEN NULL
+    ELSE SUM(numerator_value_ly) FILTER (WHERE metric_name = 'AUTO_REFILL_PERCENTAGE') / SUM(denominator_value_ly) FILTER
+    (WHERE metric_name = 'AUTO_REFILL_PERCENTAGE') * 100 END)) / ABS(CASE WHEN SUM(denominator_value_ly) FILTER (WHERE metric_name
+    = 'AUTO_REFILL_PERCENTAGE') = 0 THEN NULL ELSE SUM(numerator_value_ly) FILTER (WHERE metric_name = 'AUTO_REFILL_PERCENTAGE')
+    / SUM(denominator_value_ly) FILTER (WHERE metric_name = 'AUTO_REFILL_PERCENTAGE') * 100 END) * 100 END
+  display_name: Autorefills % YoY %
+  comment: Relative percent change in Autorefills % versus prior year.
+  synonyms:
+  - autorefills % YoY
+- name: rxd_script_penetration_ty
+  expr: CASE WHEN SUM(denominator_value_ty) FILTER (WHERE metric_name = 'RXD_SCRIPT_PENETRATION') = 0 THEN NULL ELSE SUM(numerator_value_ty)
+    FILTER (WHERE metric_name = 'RXD_SCRIPT_PENETRATION') / SUM(denominator_value_ty) FILTER (WHERE metric_name = 'RXD_SCRIPT_PENETRATION')
+    * 100 END
+  display_name: RxD Scripts Penetration %
+  comment: Current-year RxD Scripts Penetration %. Weighted rate from summed numerator and denominator.
+  synonyms:
+  - rxd scripts penetration %
+  - TY rxd scripts penetration %
+- name: rxd_script_penetration_ly
+  expr: CASE WHEN SUM(denominator_value_ly) FILTER (WHERE metric_name = 'RXD_SCRIPT_PENETRATION') = 0 THEN NULL ELSE SUM(numerator_value_ly)
+    FILTER (WHERE metric_name = 'RXD_SCRIPT_PENETRATION') / SUM(denominator_value_ly) FILTER (WHERE metric_name = 'RXD_SCRIPT_PENETRATION')
+    * 100 END
+  display_name: RxD Scripts Penetration % Prior Year
+  comment: Prior-year comparable RxD Scripts Penetration %. Weighted rate from summed numerator and denominator.
+  synonyms:
+  - rxd scripts penetration % last year
+  - LY rxd scripts penetration %
+- name: rxd_script_penetration_point_change
+  expr: (CASE WHEN SUM(denominator_value_ty) FILTER (WHERE metric_name = 'RXD_SCRIPT_PENETRATION') = 0 THEN NULL ELSE SUM(numerator_value_ty)
+    FILTER (WHERE metric_name = 'RXD_SCRIPT_PENETRATION') / SUM(denominator_value_ty) FILTER (WHERE metric_name = 'RXD_SCRIPT_PENETRATION')
+    * 100 END) - (CASE WHEN SUM(denominator_value_ly) FILTER (WHERE metric_name = 'RXD_SCRIPT_PENETRATION') = 0 THEN NULL
+    ELSE SUM(numerator_value_ly) FILTER (WHERE metric_name = 'RXD_SCRIPT_PENETRATION') / SUM(denominator_value_ly) FILTER
+    (WHERE metric_name = 'RXD_SCRIPT_PENETRATION') * 100 END)
+  display_name: RxD Scripts Penetration % Point Change
+  comment: Current minus prior-year RxD Scripts Penetration %, expressed in percentage points.
+  synonyms:
+  - rxd scripts penetration % point change
+- name: rxd_script_penetration_yoy_pct
+  expr: CASE WHEN (CASE WHEN SUM(denominator_value_ly) FILTER (WHERE metric_name = 'RXD_SCRIPT_PENETRATION') = 0 THEN NULL
+    ELSE SUM(numerator_value_ly) FILTER (WHERE metric_name = 'RXD_SCRIPT_PENETRATION') / SUM(denominator_value_ly) FILTER
+    (WHERE metric_name = 'RXD_SCRIPT_PENETRATION') * 100 END) IS NULL OR (CASE WHEN SUM(denominator_value_ly) FILTER (WHERE
+    metric_name = 'RXD_SCRIPT_PENETRATION') = 0 THEN NULL ELSE SUM(numerator_value_ly) FILTER (WHERE metric_name = 'RXD_SCRIPT_PENETRATION')
+    / SUM(denominator_value_ly) FILTER (WHERE metric_name = 'RXD_SCRIPT_PENETRATION') * 100 END) = 0 THEN NULL ELSE ((CASE
+    WHEN SUM(denominator_value_ty) FILTER (WHERE metric_name = 'RXD_SCRIPT_PENETRATION') = 0 THEN NULL ELSE SUM(numerator_value_ty)
+    FILTER (WHERE metric_name = 'RXD_SCRIPT_PENETRATION') / SUM(denominator_value_ty) FILTER (WHERE metric_name = 'RXD_SCRIPT_PENETRATION')
+    * 100 END) - (CASE WHEN SUM(denominator_value_ly) FILTER (WHERE metric_name = 'RXD_SCRIPT_PENETRATION') = 0 THEN NULL
+    ELSE SUM(numerator_value_ly) FILTER (WHERE metric_name = 'RXD_SCRIPT_PENETRATION') / SUM(denominator_value_ly) FILTER
+    (WHERE metric_name = 'RXD_SCRIPT_PENETRATION') * 100 END)) / ABS(CASE WHEN SUM(denominator_value_ly) FILTER (WHERE metric_name
+    = 'RXD_SCRIPT_PENETRATION') = 0 THEN NULL ELSE SUM(numerator_value_ly) FILTER (WHERE metric_name = 'RXD_SCRIPT_PENETRATION')
+    / SUM(denominator_value_ly) FILTER (WHERE metric_name = 'RXD_SCRIPT_PENETRATION') * 100 END) * 100 END
+  display_name: RxD Scripts Penetration % YoY %
+  comment: Relative percent change in RxD Scripts Penetration % versus prior year.
+  synonyms:
+  - rxd scripts penetration % YoY
+- name: first_time_order_ready_ty
+  expr: CASE WHEN SUM(denominator_value_ty) FILTER (WHERE metric_name = 'FIRST_TIME_ORDER_READY_RATE') = 0 THEN NULL ELSE
+    SUM(numerator_value_ty) FILTER (WHERE metric_name = 'FIRST_TIME_ORDER_READY_RATE') / SUM(denominator_value_ty) FILTER
+    (WHERE metric_name = 'FIRST_TIME_ORDER_READY_RATE') * 100 END
+  display_name: First Time Ready
+  comment: Current-year First Time Ready. Weighted rate from summed numerator and denominator.
+  synonyms:
+  - first time ready
+  - TY first time ready
+- name: first_time_order_ready_ly
+  expr: CASE WHEN SUM(denominator_value_ly) FILTER (WHERE metric_name = 'FIRST_TIME_ORDER_READY_RATE') = 0 THEN NULL ELSE
+    SUM(numerator_value_ly) FILTER (WHERE metric_name = 'FIRST_TIME_ORDER_READY_RATE') / SUM(denominator_value_ly) FILTER
+    (WHERE metric_name = 'FIRST_TIME_ORDER_READY_RATE') * 100 END
+  display_name: First Time Ready Prior Year
+  comment: Prior-year comparable First Time Ready. Weighted rate from summed numerator and denominator.
+  synonyms:
+  - first time ready last year
+  - LY first time ready
+- name: first_time_order_ready_point_change
+  expr: (CASE WHEN SUM(denominator_value_ty) FILTER (WHERE metric_name = 'FIRST_TIME_ORDER_READY_RATE') = 0 THEN NULL ELSE
+    SUM(numerator_value_ty) FILTER (WHERE metric_name = 'FIRST_TIME_ORDER_READY_RATE') / SUM(denominator_value_ty) FILTER
+    (WHERE metric_name = 'FIRST_TIME_ORDER_READY_RATE') * 100 END) - (CASE WHEN SUM(denominator_value_ly) FILTER (WHERE metric_name
+    = 'FIRST_TIME_ORDER_READY_RATE') = 0 THEN NULL ELSE SUM(numerator_value_ly) FILTER (WHERE metric_name = 'FIRST_TIME_ORDER_READY_RATE')
+    / SUM(denominator_value_ly) FILTER (WHERE metric_name = 'FIRST_TIME_ORDER_READY_RATE') * 100 END)
+  display_name: First Time Ready Point Change
+  comment: Current minus prior-year First Time Ready, expressed in percentage points.
+  synonyms:
+  - first time ready point change
+- name: first_time_order_ready_yoy_pct
+  expr: CASE WHEN (CASE WHEN SUM(denominator_value_ly) FILTER (WHERE metric_name = 'FIRST_TIME_ORDER_READY_RATE') = 0 THEN
+    NULL ELSE SUM(numerator_value_ly) FILTER (WHERE metric_name = 'FIRST_TIME_ORDER_READY_RATE') / SUM(denominator_value_ly)
+    FILTER (WHERE metric_name = 'FIRST_TIME_ORDER_READY_RATE') * 100 END) IS NULL OR (CASE WHEN SUM(denominator_value_ly)
+    FILTER (WHERE metric_name = 'FIRST_TIME_ORDER_READY_RATE') = 0 THEN NULL ELSE SUM(numerator_value_ly) FILTER (WHERE metric_name
+    = 'FIRST_TIME_ORDER_READY_RATE') / SUM(denominator_value_ly) FILTER (WHERE metric_name = 'FIRST_TIME_ORDER_READY_RATE')
+    * 100 END) = 0 THEN NULL ELSE ((CASE WHEN SUM(denominator_value_ty) FILTER (WHERE metric_name = 'FIRST_TIME_ORDER_READY_RATE')
+    = 0 THEN NULL ELSE SUM(numerator_value_ty) FILTER (WHERE metric_name = 'FIRST_TIME_ORDER_READY_RATE') / SUM(denominator_value_ty)
+    FILTER (WHERE metric_name = 'FIRST_TIME_ORDER_READY_RATE') * 100 END) - (CASE WHEN SUM(denominator_value_ly) FILTER (WHERE
+    metric_name = 'FIRST_TIME_ORDER_READY_RATE') = 0 THEN NULL ELSE SUM(numerator_value_ly) FILTER (WHERE metric_name = 'FIRST_TIME_ORDER_READY_RATE')
+    / SUM(denominator_value_ly) FILTER (WHERE metric_name = 'FIRST_TIME_ORDER_READY_RATE') * 100 END)) / ABS(CASE WHEN SUM(denominator_value_ly)
+    FILTER (WHERE metric_name = 'FIRST_TIME_ORDER_READY_RATE') = 0 THEN NULL ELSE SUM(numerator_value_ly) FILTER (WHERE metric_name
+    = 'FIRST_TIME_ORDER_READY_RATE') / SUM(denominator_value_ly) FILTER (WHERE metric_name = 'FIRST_TIME_ORDER_READY_RATE')
+    * 100 END) * 100 END
+  display_name: First Time Ready YoY %
+  comment: Relative percent change in First Time Ready versus prior year.
+  synonyms:
+  - first time ready YoY
+- name: return_to_stock_ty
+  expr: CASE WHEN SUM(denominator_value_ty) FILTER (WHERE metric_name = 'RETURN_TO_STOCK_RATE') = 0 THEN NULL ELSE SUM(numerator_value_ty)
+    FILTER (WHERE metric_name = 'RETURN_TO_STOCK_RATE') / SUM(denominator_value_ty) FILTER (WHERE metric_name = 'RETURN_TO_STOCK_RATE')
+    * 100 END
+  display_name: Return to Stock
+  comment: Current-year Return to Stock. Weighted rate from summed numerator and denominator.
+  synonyms:
+  - return to stock
+  - TY return to stock
+- name: return_to_stock_ly
+  expr: CASE WHEN SUM(denominator_value_ly) FILTER (WHERE metric_name = 'RETURN_TO_STOCK_RATE') = 0 THEN NULL ELSE SUM(numerator_value_ly)
+    FILTER (WHERE metric_name = 'RETURN_TO_STOCK_RATE') / SUM(denominator_value_ly) FILTER (WHERE metric_name = 'RETURN_TO_STOCK_RATE')
+    * 100 END
+  display_name: Return to Stock Prior Year
+  comment: Prior-year comparable Return to Stock. Weighted rate from summed numerator and denominator.
+  synonyms:
+  - return to stock last year
+  - LY return to stock
+- name: return_to_stock_point_change
+  expr: (CASE WHEN SUM(denominator_value_ty) FILTER (WHERE metric_name = 'RETURN_TO_STOCK_RATE') = 0 THEN NULL ELSE SUM(numerator_value_ty)
+    FILTER (WHERE metric_name = 'RETURN_TO_STOCK_RATE') / SUM(denominator_value_ty) FILTER (WHERE metric_name = 'RETURN_TO_STOCK_RATE')
+    * 100 END) - (CASE WHEN SUM(denominator_value_ly) FILTER (WHERE metric_name = 'RETURN_TO_STOCK_RATE') = 0 THEN NULL ELSE
+    SUM(numerator_value_ly) FILTER (WHERE metric_name = 'RETURN_TO_STOCK_RATE') / SUM(denominator_value_ly) FILTER (WHERE
+    metric_name = 'RETURN_TO_STOCK_RATE') * 100 END)
+  display_name: Return to Stock Point Change
+  comment: Current minus prior-year Return to Stock, expressed in percentage points.
+  synonyms:
+  - return to stock point change
+- name: return_to_stock_yoy_pct
+  expr: CASE WHEN (CASE WHEN SUM(denominator_value_ly) FILTER (WHERE metric_name = 'RETURN_TO_STOCK_RATE') = 0 THEN NULL ELSE
+    SUM(numerator_value_ly) FILTER (WHERE metric_name = 'RETURN_TO_STOCK_RATE') / SUM(denominator_value_ly) FILTER (WHERE
+    metric_name = 'RETURN_TO_STOCK_RATE') * 100 END) IS NULL OR (CASE WHEN SUM(denominator_value_ly) FILTER (WHERE metric_name
+    = 'RETURN_TO_STOCK_RATE') = 0 THEN NULL ELSE SUM(numerator_value_ly) FILTER (WHERE metric_name = 'RETURN_TO_STOCK_RATE')
+    / SUM(denominator_value_ly) FILTER (WHERE metric_name = 'RETURN_TO_STOCK_RATE') * 100 END) = 0 THEN NULL ELSE ((CASE WHEN
+    SUM(denominator_value_ty) FILTER (WHERE metric_name = 'RETURN_TO_STOCK_RATE') = 0 THEN NULL ELSE SUM(numerator_value_ty)
+    FILTER (WHERE metric_name = 'RETURN_TO_STOCK_RATE') / SUM(denominator_value_ty) FILTER (WHERE metric_name = 'RETURN_TO_STOCK_RATE')
+    * 100 END) - (CASE WHEN SUM(denominator_value_ly) FILTER (WHERE metric_name = 'RETURN_TO_STOCK_RATE') = 0 THEN NULL ELSE
+    SUM(numerator_value_ly) FILTER (WHERE metric_name = 'RETURN_TO_STOCK_RATE') / SUM(denominator_value_ly) FILTER (WHERE
+    metric_name = 'RETURN_TO_STOCK_RATE') * 100 END)) / ABS(CASE WHEN SUM(denominator_value_ly) FILTER (WHERE metric_name
+    = 'RETURN_TO_STOCK_RATE') = 0 THEN NULL ELSE SUM(numerator_value_ly) FILTER (WHERE metric_name = 'RETURN_TO_STOCK_RATE')
+    / SUM(denominator_value_ly) FILTER (WHERE metric_name = 'RETURN_TO_STOCK_RATE') * 100 END) * 100 END
+  display_name: Return to Stock YoY %
+  comment: Relative percent change in Return to Stock versus prior year.
+  synonyms:
+  - return to stock YoY
+- name: out_of_stock_ty
+  expr: CASE WHEN SUM(denominator_value_ty) FILTER (WHERE metric_name = 'OUT_OF_STOCK_RATE') = 0 THEN NULL ELSE SUM(numerator_value_ty)
+    FILTER (WHERE metric_name = 'OUT_OF_STOCK_RATE') / SUM(denominator_value_ty) FILTER (WHERE metric_name = 'OUT_OF_STOCK_RATE')
+    * 100 END
+  display_name: Out of Stock
+  comment: Current-year Out of Stock. Weighted rate from summed numerator and denominator.
+  synonyms:
+  - out of stock
+  - TY out of stock
+- name: out_of_stock_ly
+  expr: CASE WHEN SUM(denominator_value_ly) FILTER (WHERE metric_name = 'OUT_OF_STOCK_RATE') = 0 THEN NULL ELSE SUM(numerator_value_ly)
+    FILTER (WHERE metric_name = 'OUT_OF_STOCK_RATE') / SUM(denominator_value_ly) FILTER (WHERE metric_name = 'OUT_OF_STOCK_RATE')
+    * 100 END
+  display_name: Out of Stock Prior Year
+  comment: Prior-year comparable Out of Stock. Weighted rate from summed numerator and denominator.
+  synonyms:
+  - out of stock last year
+  - LY out of stock
+- name: out_of_stock_point_change
+  expr: (CASE WHEN SUM(denominator_value_ty) FILTER (WHERE metric_name = 'OUT_OF_STOCK_RATE') = 0 THEN NULL ELSE SUM(numerator_value_ty)
+    FILTER (WHERE metric_name = 'OUT_OF_STOCK_RATE') / SUM(denominator_value_ty) FILTER (WHERE metric_name = 'OUT_OF_STOCK_RATE')
+    * 100 END) - (CASE WHEN SUM(denominator_value_ly) FILTER (WHERE metric_name = 'OUT_OF_STOCK_RATE') = 0 THEN NULL ELSE
+    SUM(numerator_value_ly) FILTER (WHERE metric_name = 'OUT_OF_STOCK_RATE') / SUM(denominator_value_ly) FILTER (WHERE metric_name
+    = 'OUT_OF_STOCK_RATE') * 100 END)
+  display_name: Out of Stock Point Change
+  comment: Current minus prior-year Out of Stock, expressed in percentage points.
+  synonyms:
+  - out of stock point change
+- name: out_of_stock_yoy_pct
+  expr: CASE WHEN (CASE WHEN SUM(denominator_value_ly) FILTER (WHERE metric_name = 'OUT_OF_STOCK_RATE') = 0 THEN NULL ELSE
+    SUM(numerator_value_ly) FILTER (WHERE metric_name = 'OUT_OF_STOCK_RATE') / SUM(denominator_value_ly) FILTER (WHERE metric_name
+    = 'OUT_OF_STOCK_RATE') * 100 END) IS NULL OR (CASE WHEN SUM(denominator_value_ly) FILTER (WHERE metric_name = 'OUT_OF_STOCK_RATE')
+    = 0 THEN NULL ELSE SUM(numerator_value_ly) FILTER (WHERE metric_name = 'OUT_OF_STOCK_RATE') / SUM(denominator_value_ly)
+    FILTER (WHERE metric_name = 'OUT_OF_STOCK_RATE') * 100 END) = 0 THEN NULL ELSE ((CASE WHEN SUM(denominator_value_ty) FILTER
+    (WHERE metric_name = 'OUT_OF_STOCK_RATE') = 0 THEN NULL ELSE SUM(numerator_value_ty) FILTER (WHERE metric_name = 'OUT_OF_STOCK_RATE')
+    / SUM(denominator_value_ty) FILTER (WHERE metric_name = 'OUT_OF_STOCK_RATE') * 100 END) - (CASE WHEN SUM(denominator_value_ly)
+    FILTER (WHERE metric_name = 'OUT_OF_STOCK_RATE') = 0 THEN NULL ELSE SUM(numerator_value_ly) FILTER (WHERE metric_name
+    = 'OUT_OF_STOCK_RATE') / SUM(denominator_value_ly) FILTER (WHERE metric_name = 'OUT_OF_STOCK_RATE') * 100 END)) / ABS(CASE
+    WHEN SUM(denominator_value_ly) FILTER (WHERE metric_name = 'OUT_OF_STOCK_RATE') = 0 THEN NULL ELSE SUM(numerator_value_ly)
+    FILTER (WHERE metric_name = 'OUT_OF_STOCK_RATE') / SUM(denominator_value_ly) FILTER (WHERE metric_name = 'OUT_OF_STOCK_RATE')
+    * 100 END) * 100 END
+  display_name: Out of Stock YoY %
+  comment: Relative percent change in Out of Stock versus prior year.
+  synonyms:
+  - out of stock YoY
+- name: out_of_stock_transfer_rate_ty
+  expr: CASE WHEN SUM(denominator_value_ty) FILTER (WHERE metric_name = 'OUT_OF_STOCK_TRANSFER_RATE') = 0 THEN NULL ELSE SUM(numerator_value_ty)
+    FILTER (WHERE metric_name = 'OUT_OF_STOCK_TRANSFER_RATE') / SUM(denominator_value_ty) FILTER (WHERE metric_name = 'OUT_OF_STOCK_TRANSFER_RATE')
+    * 100 END
+  display_name: Out of Stock Transfers Fill
+  comment: Current-year Out of Stock Transfers Fill. Weighted rate from summed numerator and denominator.
+  synonyms:
+  - out of stock transfers fill
+  - TY out of stock transfers fill
+- name: out_of_stock_transfer_rate_ly
+  expr: CASE WHEN SUM(denominator_value_ly) FILTER (WHERE metric_name = 'OUT_OF_STOCK_TRANSFER_RATE') = 0 THEN NULL ELSE SUM(numerator_value_ly)
+    FILTER (WHERE metric_name = 'OUT_OF_STOCK_TRANSFER_RATE') / SUM(denominator_value_ly) FILTER (WHERE metric_name = 'OUT_OF_STOCK_TRANSFER_RATE')
+    * 100 END
+  display_name: Out of Stock Transfers Fill Prior Year
+  comment: Prior-year comparable Out of Stock Transfers Fill. Weighted rate from summed numerator and denominator.
+  synonyms:
+  - out of stock transfers fill last year
+  - LY out of stock transfers fill
+- name: out_of_stock_transfer_rate_point_change
+  expr: (CASE WHEN SUM(denominator_value_ty) FILTER (WHERE metric_name = 'OUT_OF_STOCK_TRANSFER_RATE') = 0 THEN NULL ELSE
+    SUM(numerator_value_ty) FILTER (WHERE metric_name = 'OUT_OF_STOCK_TRANSFER_RATE') / SUM(denominator_value_ty) FILTER (WHERE
+    metric_name = 'OUT_OF_STOCK_TRANSFER_RATE') * 100 END) - (CASE WHEN SUM(denominator_value_ly) FILTER (WHERE metric_name
+    = 'OUT_OF_STOCK_TRANSFER_RATE') = 0 THEN NULL ELSE SUM(numerator_value_ly) FILTER (WHERE metric_name = 'OUT_OF_STOCK_TRANSFER_RATE')
+    / SUM(denominator_value_ly) FILTER (WHERE metric_name = 'OUT_OF_STOCK_TRANSFER_RATE') * 100 END)
+  display_name: Out of Stock Transfers Fill Point Change
+  comment: Current minus prior-year Out of Stock Transfers Fill, expressed in percentage points.
+  synonyms:
+  - out of stock transfers fill point change
+- name: out_of_stock_transfer_rate_yoy_pct
+  expr: CASE WHEN (CASE WHEN SUM(denominator_value_ly) FILTER (WHERE metric_name = 'OUT_OF_STOCK_TRANSFER_RATE') = 0 THEN
+    NULL ELSE SUM(numerator_value_ly) FILTER (WHERE metric_name = 'OUT_OF_STOCK_TRANSFER_RATE') / SUM(denominator_value_ly)
+    FILTER (WHERE metric_name = 'OUT_OF_STOCK_TRANSFER_RATE') * 100 END) IS NULL OR (CASE WHEN SUM(denominator_value_ly) FILTER
+    (WHERE metric_name = 'OUT_OF_STOCK_TRANSFER_RATE') = 0 THEN NULL ELSE SUM(numerator_value_ly) FILTER (WHERE metric_name
+    = 'OUT_OF_STOCK_TRANSFER_RATE') / SUM(denominator_value_ly) FILTER (WHERE metric_name = 'OUT_OF_STOCK_TRANSFER_RATE')
+    * 100 END) = 0 THEN NULL ELSE ((CASE WHEN SUM(denominator_value_ty) FILTER (WHERE metric_name = 'OUT_OF_STOCK_TRANSFER_RATE')
+    = 0 THEN NULL ELSE SUM(numerator_value_ty) FILTER (WHERE metric_name = 'OUT_OF_STOCK_TRANSFER_RATE') / SUM(denominator_value_ty)
+    FILTER (WHERE metric_name = 'OUT_OF_STOCK_TRANSFER_RATE') * 100 END) - (CASE WHEN SUM(denominator_value_ly) FILTER (WHERE
+    metric_name = 'OUT_OF_STOCK_TRANSFER_RATE') = 0 THEN NULL ELSE SUM(numerator_value_ly) FILTER (WHERE metric_name = 'OUT_OF_STOCK_TRANSFER_RATE')
+    / SUM(denominator_value_ly) FILTER (WHERE metric_name = 'OUT_OF_STOCK_TRANSFER_RATE') * 100 END)) / ABS(CASE WHEN SUM(denominator_value_ly)
+    FILTER (WHERE metric_name = 'OUT_OF_STOCK_TRANSFER_RATE') = 0 THEN NULL ELSE SUM(numerator_value_ly) FILTER (WHERE metric_name
+    = 'OUT_OF_STOCK_TRANSFER_RATE') / SUM(denominator_value_ly) FILTER (WHERE metric_name = 'OUT_OF_STOCK_TRANSFER_RATE')
+    * 100 END) * 100 END
+  display_name: Out of Stock Transfers Fill YoY %
+  comment: Relative percent change in Out of Stock Transfers Fill versus prior year.
+  synonyms:
+  - out of stock transfers fill YoY
+- name: walk_in_qr_ty
+  expr: CASE WHEN SUM(denominator_value_ty) FILTER (WHERE metric_name = 'WALK_IN_QR') = 0 THEN NULL ELSE SUM(numerator_value_ty)
+    FILTER (WHERE metric_name = 'WALK_IN_QR') / SUM(denominator_value_ty) FILTER (WHERE metric_name = 'WALK_IN_QR') * 100
+    END
+  display_name: Total Walk-In QR
+  comment: Current-year Total Walk-In QR. Weighted rate from summed numerator and denominator.
+  synonyms:
+  - total walk-in qr
+  - TY total walk-in qr
+- name: walk_in_qr_ly
+  expr: CASE WHEN SUM(denominator_value_ly) FILTER (WHERE metric_name = 'WALK_IN_QR') = 0 THEN NULL ELSE SUM(numerator_value_ly)
+    FILTER (WHERE metric_name = 'WALK_IN_QR') / SUM(denominator_value_ly) FILTER (WHERE metric_name = 'WALK_IN_QR') * 100
+    END
+  display_name: Total Walk-In QR Prior Year
+  comment: Prior-year comparable Total Walk-In QR. Weighted rate from summed numerator and denominator.
+  synonyms:
+  - total walk-in qr last year
+  - LY total walk-in qr
+- name: walk_in_qr_point_change
+  expr: (CASE WHEN SUM(denominator_value_ty) FILTER (WHERE metric_name = 'WALK_IN_QR') = 0 THEN NULL ELSE SUM(numerator_value_ty)
+    FILTER (WHERE metric_name = 'WALK_IN_QR') / SUM(denominator_value_ty) FILTER (WHERE metric_name = 'WALK_IN_QR') * 100
+    END) - (CASE WHEN SUM(denominator_value_ly) FILTER (WHERE metric_name = 'WALK_IN_QR') = 0 THEN NULL ELSE SUM(numerator_value_ly)
+    FILTER (WHERE metric_name = 'WALK_IN_QR') / SUM(denominator_value_ly) FILTER (WHERE metric_name = 'WALK_IN_QR') * 100
+    END)
+  display_name: Total Walk-In QR Point Change
+  comment: Current minus prior-year Total Walk-In QR, expressed in percentage points.
+  synonyms:
+  - total walk-in qr point change
+- name: walk_in_qr_yoy_pct
+  expr: CASE WHEN (CASE WHEN SUM(denominator_value_ly) FILTER (WHERE metric_name = 'WALK_IN_QR') = 0 THEN NULL ELSE SUM(numerator_value_ly)
+    FILTER (WHERE metric_name = 'WALK_IN_QR') / SUM(denominator_value_ly) FILTER (WHERE metric_name = 'WALK_IN_QR') * 100
+    END) IS NULL OR (CASE WHEN SUM(denominator_value_ly) FILTER (WHERE metric_name = 'WALK_IN_QR') = 0 THEN NULL ELSE SUM(numerator_value_ly)
+    FILTER (WHERE metric_name = 'WALK_IN_QR') / SUM(denominator_value_ly) FILTER (WHERE metric_name = 'WALK_IN_QR') * 100
+    END) = 0 THEN NULL ELSE ((CASE WHEN SUM(denominator_value_ty) FILTER (WHERE metric_name = 'WALK_IN_QR') = 0 THEN NULL
+    ELSE SUM(numerator_value_ty) FILTER (WHERE metric_name = 'WALK_IN_QR') / SUM(denominator_value_ty) FILTER (WHERE metric_name
+    = 'WALK_IN_QR') * 100 END) - (CASE WHEN SUM(denominator_value_ly) FILTER (WHERE metric_name = 'WALK_IN_QR') = 0 THEN NULL
+    ELSE SUM(numerator_value_ly) FILTER (WHERE metric_name = 'WALK_IN_QR') / SUM(denominator_value_ly) FILTER (WHERE metric_name
+    = 'WALK_IN_QR') * 100 END)) / ABS(CASE WHEN SUM(denominator_value_ly) FILTER (WHERE metric_name = 'WALK_IN_QR') = 0 THEN
+    NULL ELSE SUM(numerator_value_ly) FILTER (WHERE metric_name = 'WALK_IN_QR') / SUM(denominator_value_ly) FILTER (WHERE
+    metric_name = 'WALK_IN_QR') * 100 END) * 100 END
+  display_name: Total Walk-In QR YoY %
+  comment: Relative percent change in Total Walk-In QR versus prior year.
+  synonyms:
+  - total walk-in qr YoY
+- name: nps_ty
+  expr: CASE WHEN SUM(denominator_value_ty) FILTER (WHERE metric_name = 'NPS_SCORE') = 0 THEN NULL ELSE SUM(numerator_value_ty)
+    FILTER (WHERE metric_name = 'NPS_SCORE') / SUM(denominator_value_ty) FILTER (WHERE metric_name = 'NPS_SCORE') * 100 END
+  display_name: NPS
+  comment: Current-year NPS score on a 0-100 scale. Weighted from summed numerator and denominator.
+  synonyms:
+  - NPS
+  - customer advocacy score
+  - customer experience score
+- name: nps_ly
+  expr: CASE WHEN SUM(denominator_value_ly) FILTER (WHERE metric_name = 'NPS_SCORE') = 0 THEN NULL ELSE SUM(numerator_value_ly)
+    FILTER (WHERE metric_name = 'NPS_SCORE') / SUM(denominator_value_ly) FILTER (WHERE metric_name = 'NPS_SCORE') * 100 END
+  display_name: NPS Prior Year
+  comment: Prior-year comparable NPS score on a 0-100 scale.
+  synonyms:
+  - NPS last year
+  - prior year NPS
+- name: nps_point_change
+  expr: (CASE WHEN SUM(denominator_value_ty) FILTER (WHERE metric_name = 'NPS_SCORE') = 0 THEN NULL ELSE SUM(numerator_value_ty)
+    FILTER (WHERE metric_name = 'NPS_SCORE') / SUM(denominator_value_ty) FILTER (WHERE metric_name = 'NPS_SCORE') * 100 END)
+    - (CASE WHEN SUM(denominator_value_ly) FILTER (WHERE metric_name = 'NPS_SCORE') = 0 THEN NULL ELSE SUM(numerator_value_ly)
+    FILTER (WHERE metric_name = 'NPS_SCORE') / SUM(denominator_value_ly) FILTER (WHERE metric_name = 'NPS_SCORE') * 100 END)
+  display_name: NPS Point Change
+  comment: Current NPS minus prior-year NPS, in points.
+  synonyms:
+  - NPS change
+  - NPS variance
+- name: nps_yoy_pct
+  expr: CASE WHEN (CASE WHEN SUM(denominator_value_ly) FILTER (WHERE metric_name = 'NPS_SCORE') = 0 THEN NULL ELSE SUM(numerator_value_ly)
+    FILTER (WHERE metric_name = 'NPS_SCORE') / SUM(denominator_value_ly) FILTER (WHERE metric_name = 'NPS_SCORE') * 100 END)
+    IS NULL OR (CASE WHEN SUM(denominator_value_ly) FILTER (WHERE metric_name = 'NPS_SCORE') = 0 THEN NULL ELSE SUM(numerator_value_ly)
+    FILTER (WHERE metric_name = 'NPS_SCORE') / SUM(denominator_value_ly) FILTER (WHERE metric_name = 'NPS_SCORE') * 100 END)
+    = 0 THEN NULL ELSE ((CASE WHEN SUM(denominator_value_ty) FILTER (WHERE metric_name = 'NPS_SCORE') = 0 THEN NULL ELSE SUM(numerator_value_ty)
+    FILTER (WHERE metric_name = 'NPS_SCORE') / SUM(denominator_value_ty) FILTER (WHERE metric_name = 'NPS_SCORE') * 100 END)
+    - (CASE WHEN SUM(denominator_value_ly) FILTER (WHERE metric_name = 'NPS_SCORE') = 0 THEN NULL ELSE SUM(numerator_value_ly)
+    FILTER (WHERE metric_name = 'NPS_SCORE') / SUM(denominator_value_ly) FILTER (WHERE metric_name = 'NPS_SCORE') * 100 END))
+    / ABS(CASE WHEN SUM(denominator_value_ly) FILTER (WHERE metric_name = 'NPS_SCORE') = 0 THEN NULL ELSE SUM(numerator_value_ly)
+    FILTER (WHERE metric_name = 'NPS_SCORE') / SUM(denominator_value_ly) FILTER (WHERE metric_name = 'NPS_SCORE') * 100 END)
+    * 100 END
+  display_name: NPS YoY %
+  comment: Relative percentage change in NPS.
+  synonyms:
+  - NPS percent change
+- name: five_star_ty
+  expr: AVG(metric_value_ty) FILTER (WHERE metric_name = 'FIVE_STAR_RATE')
+  display_name: 5-Star
+  comment: Current-year 5-Star customer rating on the 0-5 scale.
+  synonyms:
+  - 5 star
+  - 5-star rating
+  - customer rating
+- name: five_star_ly
+  expr: AVG(metric_value_ly) FILTER (WHERE metric_name = 'FIVE_STAR_RATE')
+  display_name: 5-Star Prior Year
+  comment: Prior-year comparable 5-Star customer rating on the 0-5 scale.
+  synonyms:
+  - 5 star last year
+  - prior year 5-star rating
+- name: five_star_point_change
+  expr: (AVG(metric_value_ty) FILTER (WHERE metric_name = 'FIVE_STAR_RATE')) - (AVG(metric_value_ly) FILTER (WHERE metric_name
+    = 'FIVE_STAR_RATE'))
+  display_name: 5-Star Point Change
+  comment: Current minus prior-year 5-Star rating points.
+  synonyms:
+  - 5-star change
+- name: five_star_yoy_pct
+  expr: CASE WHEN (AVG(metric_value_ly) FILTER (WHERE metric_name = 'FIVE_STAR_RATE')) IS NULL OR (AVG(metric_value_ly) FILTER
+    (WHERE metric_name = 'FIVE_STAR_RATE')) = 0 THEN NULL ELSE ((AVG(metric_value_ty) FILTER (WHERE metric_name = 'FIVE_STAR_RATE'))
+    - (AVG(metric_value_ly) FILTER (WHERE metric_name = 'FIVE_STAR_RATE'))) / ABS(AVG(metric_value_ly) FILTER (WHERE metric_name
+    = 'FIVE_STAR_RATE')) * 100 END
+  display_name: 5-Star YoY %
+  comment: Relative percentage change in 5-Star rating.
+  synonyms:
+  - 5-star percent change
+- name: patients_visits_ty
+  expr: SUM(metric_value_ty) FILTER (WHERE metric_name = 'VISITS')
+  display_name: Patients Visits
+  comment: Current-year Patients Visits. Additive row metric.
+  synonyms:
+  - patients visits
+  - TY patients visits
+- name: patients_visits_ly
+  expr: SUM(metric_value_ly) FILTER (WHERE metric_name = 'VISITS')
+  display_name: Patients Visits Prior Year
+  comment: Prior-year comparable Patients Visits. Additive row metric.
+  synonyms:
+  - patients visits last year
+  - LY patients visits
+- name: patients_visits_change
+  expr: (SUM(metric_value_ty) FILTER (WHERE metric_name = 'VISITS')) - (SUM(metric_value_ly) FILTER (WHERE metric_name = 'VISITS'))
+  display_name: Patients Visits Change
+  comment: TY minus LY for Patients Visits.
+  synonyms:
+  - change in patients visits
+- name: patients_visits_yoy_pct
+  expr: CASE WHEN (SUM(metric_value_ly) FILTER (WHERE metric_name = 'VISITS')) IS NULL OR (SUM(metric_value_ly) FILTER (WHERE
+    metric_name = 'VISITS')) = 0 THEN NULL ELSE ((SUM(metric_value_ty) FILTER (WHERE metric_name = 'VISITS')) - (SUM(metric_value_ly)
+    FILTER (WHERE metric_name = 'VISITS'))) / ABS(SUM(metric_value_ly) FILTER (WHERE metric_name = 'VISITS')) * 100 END
+  display_name: Patients Visits YoY %
+  comment: Percent change in Patients Visits versus prior year.
+  synonyms:
+  - YoY patients visits
+  - patients visits growth
+- name: scripts_sales_ty
+  expr: SUM(metric_value_ty) FILTER (WHERE metric_name = 'SCRIPTS_SALES')
+  display_name: Script Sales
+  comment: Current-year Script Sales. Additive row metric.
+  synonyms:
+  - script sales
+  - TY script sales
+- name: scripts_sales_ly
+  expr: SUM(metric_value_ly) FILTER (WHERE metric_name = 'SCRIPTS_SALES')
+  display_name: Script Sales Prior Year
+  comment: Prior-year comparable Script Sales. Additive row metric.
+  synonyms:
+  - script sales last year
+  - LY script sales
+- name: scripts_sales_change
+  expr: (SUM(metric_value_ty) FILTER (WHERE metric_name = 'SCRIPTS_SALES')) - (SUM(metric_value_ly) FILTER (WHERE metric_name
+    = 'SCRIPTS_SALES'))
+  display_name: Script Sales Change
+  comment: TY minus LY for Script Sales.
+  synonyms:
+  - change in script sales
+- name: scripts_sales_yoy_pct
+  expr: CASE WHEN (SUM(metric_value_ly) FILTER (WHERE metric_name = 'SCRIPTS_SALES')) IS NULL OR (SUM(metric_value_ly) FILTER
+    (WHERE metric_name = 'SCRIPTS_SALES')) = 0 THEN NULL ELSE ((SUM(metric_value_ty) FILTER (WHERE metric_name = 'SCRIPTS_SALES'))
+    - (SUM(metric_value_ly) FILTER (WHERE metric_name = 'SCRIPTS_SALES'))) / ABS(SUM(metric_value_ly) FILTER (WHERE metric_name
+    = 'SCRIPTS_SALES')) * 100 END
+  display_name: Script Sales YoY %
+  comment: Percent change in Script Sales versus prior year.
+  synonyms:
+  - YoY script sales
+  - script sales growth
+- name: scripts_sold_ty
+  expr: SUM(metric_value_ty) FILTER (WHERE metric_name = 'SCRIPTS_SOLD')
+  display_name: Total Unadj Script Count
+  comment: Current-year Total Unadj Script Count. Additive row metric.
+  synonyms:
+  - total unadj script count
+  - TY total unadj script count
+- name: scripts_sold_ly
+  expr: SUM(metric_value_ly) FILTER (WHERE metric_name = 'SCRIPTS_SOLD')
+  display_name: Total Unadj Script Count Prior Year
+  comment: Prior-year comparable Total Unadj Script Count. Additive row metric.
+  synonyms:
+  - total unadj script count last year
+  - LY total unadj script count
+- name: scripts_sold_change
+  expr: (SUM(metric_value_ty) FILTER (WHERE metric_name = 'SCRIPTS_SOLD')) - (SUM(metric_value_ly) FILTER (WHERE metric_name
+    = 'SCRIPTS_SOLD'))
+  display_name: Total Unadj Script Count Change
+  comment: TY minus LY for Total Unadj Script Count.
+  synonyms:
+  - change in total unadj script count
+- name: scripts_sold_yoy_pct
+  expr: CASE WHEN (SUM(metric_value_ly) FILTER (WHERE metric_name = 'SCRIPTS_SOLD')) IS NULL OR (SUM(metric_value_ly) FILTER
+    (WHERE metric_name = 'SCRIPTS_SOLD')) = 0 THEN NULL ELSE ((SUM(metric_value_ty) FILTER (WHERE metric_name = 'SCRIPTS_SOLD'))
+    - (SUM(metric_value_ly) FILTER (WHERE metric_name = 'SCRIPTS_SOLD'))) / ABS(SUM(metric_value_ly) FILTER (WHERE metric_name
+    = 'SCRIPTS_SOLD')) * 100 END
+  display_name: Total Unadj Script Count YoY %
+  comment: Percent change in Total Unadj Script Count versus prior year.
+  synonyms:
+  - YoY total unadj script count
+  - total unadj script count growth
+- name: out_of_stock_transfer_ty
+  expr: SUM(metric_value_ty) FILTER (WHERE metric_name = 'OUT_OF_STOCK_TRANSFER')
+  display_name: Out of Stock Transfers
+  comment: Current-year Out of Stock Transfers. Additive row metric.
+  synonyms:
+  - out of stock transfers
+  - TY out of stock transfers
+- name: out_of_stock_transfer_ly
+  expr: SUM(metric_value_ly) FILTER (WHERE metric_name = 'OUT_OF_STOCK_TRANSFER')
+  display_name: Out of Stock Transfers Prior Year
+  comment: Prior-year comparable Out of Stock Transfers. Additive row metric.
+  synonyms:
+  - out of stock transfers last year
+  - LY out of stock transfers
+- name: out_of_stock_transfer_change
+  expr: (SUM(metric_value_ty) FILTER (WHERE metric_name = 'OUT_OF_STOCK_TRANSFER')) - (SUM(metric_value_ly) FILTER (WHERE
+    metric_name = 'OUT_OF_STOCK_TRANSFER'))
+  display_name: Out of Stock Transfers Change
+  comment: TY minus LY for Out of Stock Transfers.
+  synonyms:
+  - change in out of stock transfers
+- name: out_of_stock_transfer_yoy_pct
+  expr: CASE WHEN (SUM(metric_value_ly) FILTER (WHERE metric_name = 'OUT_OF_STOCK_TRANSFER')) IS NULL OR (SUM(metric_value_ly)
+    FILTER (WHERE metric_name = 'OUT_OF_STOCK_TRANSFER')) = 0 THEN NULL ELSE ((SUM(metric_value_ty) FILTER (WHERE metric_name
+    = 'OUT_OF_STOCK_TRANSFER')) - (SUM(metric_value_ly) FILTER (WHERE metric_name = 'OUT_OF_STOCK_TRANSFER'))) / ABS(SUM(metric_value_ly)
+    FILTER (WHERE metric_name = 'OUT_OF_STOCK_TRANSFER')) * 100 END
+  display_name: Out of Stock Transfers YoY %
+  comment: Percent change in Out of Stock Transfers versus prior year.
+  synonyms:
+  - YoY out of stock transfers
+  - out of stock transfers growth
+- name: testing_and_treatments_ty
+  expr: SUM(metric_value_ty) FILTER (WHERE metric_name = 'TESTING_AND_TREATEMENTS')
+  display_name: Testing and Treatments
+  comment: Current-year Testing and Treatments. Additive row metric.
+  synonyms:
+  - testing and treatments
+  - TY testing and treatments
+- name: testing_and_treatments_ly
+  expr: SUM(metric_value_ly) FILTER (WHERE metric_name = 'TESTING_AND_TREATEMENTS')
+  display_name: Testing and Treatments Prior Year
+  comment: Prior-year comparable Testing and Treatments. Additive row metric.
+  synonyms:
+  - testing and treatments last year
+  - LY testing and treatments
+- name: testing_and_treatments_change
+  expr: (SUM(metric_value_ty) FILTER (WHERE metric_name = 'TESTING_AND_TREATEMENTS')) - (SUM(metric_value_ly) FILTER (WHERE
+    metric_name = 'TESTING_AND_TREATEMENTS'))
+  display_name: Testing and Treatments Change
+  comment: TY minus LY for Testing and Treatments.
+  synonyms:
+  - change in testing and treatments
+- name: testing_and_treatments_yoy_pct
+  expr: CASE WHEN (SUM(metric_value_ly) FILTER (WHERE metric_name = 'TESTING_AND_TREATEMENTS')) IS NULL OR (SUM(metric_value_ly)
+    FILTER (WHERE metric_name = 'TESTING_AND_TREATEMENTS')) = 0 THEN NULL ELSE ((SUM(metric_value_ty) FILTER (WHERE metric_name
+    = 'TESTING_AND_TREATEMENTS')) - (SUM(metric_value_ly) FILTER (WHERE metric_name = 'TESTING_AND_TREATEMENTS'))) / ABS(SUM(metric_value_ly)
+    FILTER (WHERE metric_name = 'TESTING_AND_TREATEMENTS')) * 100 END
+  display_name: Testing and Treatments YoY %
+  comment: Percent change in Testing and Treatments versus prior year.
+  synonyms:
+  - YoY testing and treatments
+  - testing and treatments growth
+- name: hormonal_contraceptives_ty
+  expr: SUM(metric_value_ty) FILTER (WHERE metric_name = 'HORMONAL_CONTRACEPTIVES')
+  display_name: Hormonal Contraceptives
+  comment: Current-year Hormonal Contraceptives. Additive row metric.
+  synonyms:
+  - hormonal contraceptives
+  - TY hormonal contraceptives
+- name: hormonal_contraceptives_ly
+  expr: SUM(metric_value_ly) FILTER (WHERE metric_name = 'HORMONAL_CONTRACEPTIVES')
+  display_name: Hormonal Contraceptives Prior Year
+  comment: Prior-year comparable Hormonal Contraceptives. Additive row metric.
+  synonyms:
+  - hormonal contraceptives last year
+  - LY hormonal contraceptives
+- name: hormonal_contraceptives_change
+  expr: (SUM(metric_value_ty) FILTER (WHERE metric_name = 'HORMONAL_CONTRACEPTIVES')) - (SUM(metric_value_ly) FILTER (WHERE
+    metric_name = 'HORMONAL_CONTRACEPTIVES'))
+  display_name: Hormonal Contraceptives Change
+  comment: TY minus LY for Hormonal Contraceptives.
+  synonyms:
+  - change in hormonal contraceptives
+- name: hormonal_contraceptives_yoy_pct
+  expr: CASE WHEN (SUM(metric_value_ly) FILTER (WHERE metric_name = 'HORMONAL_CONTRACEPTIVES')) IS NULL OR (SUM(metric_value_ly)
+    FILTER (WHERE metric_name = 'HORMONAL_CONTRACEPTIVES')) = 0 THEN NULL ELSE ((SUM(metric_value_ty) FILTER (WHERE metric_name
+    = 'HORMONAL_CONTRACEPTIVES')) - (SUM(metric_value_ly) FILTER (WHERE metric_name = 'HORMONAL_CONTRACEPTIVES'))) / ABS(SUM(metric_value_ly)
+    FILTER (WHERE metric_name = 'HORMONAL_CONTRACEPTIVES')) * 100 END
+  display_name: Hormonal Contraceptives YoY %
+  comment: Percent change in Hormonal Contraceptives versus prior year.
+  synonyms:
+  - YoY hormonal contraceptives
+  - hormonal contraceptives growth
+- name: basic_health_screenings_ty
+  expr: SUM(metric_value_ty) FILTER (WHERE metric_name = 'BASIC_HEALTH_SCREENINGS')
+  display_name: Basic Health Screenings
+  comment: Current-year Basic Health Screenings. Additive row metric.
+  synonyms:
+  - basic health screenings
+  - TY basic health screenings
+- name: basic_health_screenings_ly
+  expr: SUM(metric_value_ly) FILTER (WHERE metric_name = 'BASIC_HEALTH_SCREENINGS')
+  display_name: Basic Health Screenings Prior Year
+  comment: Prior-year comparable Basic Health Screenings. Additive row metric.
+  synonyms:
+  - basic health screenings last year
+  - LY basic health screenings
+- name: basic_health_screenings_change
+  expr: (SUM(metric_value_ty) FILTER (WHERE metric_name = 'BASIC_HEALTH_SCREENINGS')) - (SUM(metric_value_ly) FILTER (WHERE
+    metric_name = 'BASIC_HEALTH_SCREENINGS'))
+  display_name: Basic Health Screenings Change
+  comment: TY minus LY for Basic Health Screenings.
+  synonyms:
+  - change in basic health screenings
+- name: basic_health_screenings_yoy_pct
+  expr: CASE WHEN (SUM(metric_value_ly) FILTER (WHERE metric_name = 'BASIC_HEALTH_SCREENINGS')) IS NULL OR (SUM(metric_value_ly)
+    FILTER (WHERE metric_name = 'BASIC_HEALTH_SCREENINGS')) = 0 THEN NULL ELSE ((SUM(metric_value_ty) FILTER (WHERE metric_name
+    = 'BASIC_HEALTH_SCREENINGS')) - (SUM(metric_value_ly) FILTER (WHERE metric_name = 'BASIC_HEALTH_SCREENINGS'))) / ABS(SUM(metric_value_ly)
+    FILTER (WHERE metric_name = 'BASIC_HEALTH_SCREENINGS')) * 100 END
+  display_name: Basic Health Screenings YoY %
+  comment: Percent change in Basic Health Screenings versus prior year.
+  synonyms:
+  - YoY basic health screenings
+  - basic health screenings growth
+- name: total_administered_ty
+  expr: SUM(metric_value_ty) FILTER (WHERE metric_name = 'TOTAL_ADMINISTERED')
+  display_name: Total IMZ Administered
+  comment: Current-year Total IMZ Administered. Additive row metric.
+  synonyms:
+  - total imz administered
+  - TY total imz administered
+- name: total_administered_ly
+  expr: SUM(metric_value_ly) FILTER (WHERE metric_name = 'TOTAL_ADMINISTERED')
+  display_name: Total IMZ Administered Prior Year
+  comment: Prior-year comparable Total IMZ Administered. Additive row metric.
+  synonyms:
+  - total imz administered last year
+  - LY total imz administered
+- name: total_administered_change
+  expr: (SUM(metric_value_ty) FILTER (WHERE metric_name = 'TOTAL_ADMINISTERED')) - (SUM(metric_value_ly) FILTER (WHERE metric_name
+    = 'TOTAL_ADMINISTERED'))
+  display_name: Total IMZ Administered Change
+  comment: TY minus LY for Total IMZ Administered.
+  synonyms:
+  - change in total imz administered
+- name: total_administered_yoy_pct
+  expr: CASE WHEN (SUM(metric_value_ly) FILTER (WHERE metric_name = 'TOTAL_ADMINISTERED')) IS NULL OR (SUM(metric_value_ly)
+    FILTER (WHERE metric_name = 'TOTAL_ADMINISTERED')) = 0 THEN NULL ELSE ((SUM(metric_value_ty) FILTER (WHERE metric_name
+    = 'TOTAL_ADMINISTERED')) - (SUM(metric_value_ly) FILTER (WHERE metric_name = 'TOTAL_ADMINISTERED'))) / ABS(SUM(metric_value_ly)
+    FILTER (WHERE metric_name = 'TOTAL_ADMINISTERED')) * 100 END
+  display_name: Total IMZ Administered YoY %
+  comment: Percent change in Total IMZ Administered versus prior year.
+  synonyms:
+  - YoY total imz administered
+  - total imz administered growth
+- name: flu_administered_ty
+  expr: SUM(metric_value_ty) FILTER (WHERE metric_name = 'FLU_ADMINISTERED')
+  display_name: Total Flu Administered
+  comment: Current-year Total Flu Administered. Additive row metric.
+  synonyms:
+  - total flu administered
+  - TY total flu administered
+- name: flu_administered_ly
+  expr: SUM(metric_value_ly) FILTER (WHERE metric_name = 'FLU_ADMINISTERED')
+  display_name: Total Flu Administered Prior Year
+  comment: Prior-year comparable Total Flu Administered. Additive row metric.
+  synonyms:
+  - total flu administered last year
+  - LY total flu administered
+- name: flu_administered_change
+  expr: (SUM(metric_value_ty) FILTER (WHERE metric_name = 'FLU_ADMINISTERED')) - (SUM(metric_value_ly) FILTER (WHERE metric_name
+    = 'FLU_ADMINISTERED'))
+  display_name: Total Flu Administered Change
+  comment: TY minus LY for Total Flu Administered.
+  synonyms:
+  - change in total flu administered
+- name: flu_administered_yoy_pct
+  expr: CASE WHEN (SUM(metric_value_ly) FILTER (WHERE metric_name = 'FLU_ADMINISTERED')) IS NULL OR (SUM(metric_value_ly)
+    FILTER (WHERE metric_name = 'FLU_ADMINISTERED')) = 0 THEN NULL ELSE ((SUM(metric_value_ty) FILTER (WHERE metric_name =
+    'FLU_ADMINISTERED')) - (SUM(metric_value_ly) FILTER (WHERE metric_name = 'FLU_ADMINISTERED'))) / ABS(SUM(metric_value_ly)
+    FILTER (WHERE metric_name = 'FLU_ADMINISTERED')) * 100 END
+  display_name: Total Flu Administered YoY %
+  comment: Percent change in Total Flu Administered versus prior year.
+  synonyms:
+  - YoY total flu administered
+  - total flu administered growth
+- name: expanded_administered_ty
+  expr: SUM(metric_value_ty) FILTER (WHERE metric_name = 'EXPANDED_ADMINISTERED')
+  display_name: Total Expanded Administered
+  comment: Current-year Total Expanded Administered. Additive row metric.
+  synonyms:
+  - total expanded administered
+  - TY total expanded administered
+- name: expanded_administered_ly
+  expr: SUM(metric_value_ly) FILTER (WHERE metric_name = 'EXPANDED_ADMINISTERED')
+  display_name: Total Expanded Administered Prior Year
+  comment: Prior-year comparable Total Expanded Administered. Additive row metric.
+  synonyms:
+  - total expanded administered last year
+  - LY total expanded administered
+- name: expanded_administered_change
+  expr: (SUM(metric_value_ty) FILTER (WHERE metric_name = 'EXPANDED_ADMINISTERED')) - (SUM(metric_value_ly) FILTER (WHERE
+    metric_name = 'EXPANDED_ADMINISTERED'))
+  display_name: Total Expanded Administered Change
+  comment: TY minus LY for Total Expanded Administered.
+  synonyms:
+  - change in total expanded administered
+- name: expanded_administered_yoy_pct
+  expr: CASE WHEN (SUM(metric_value_ly) FILTER (WHERE metric_name = 'EXPANDED_ADMINISTERED')) IS NULL OR (SUM(metric_value_ly)
+    FILTER (WHERE metric_name = 'EXPANDED_ADMINISTERED')) = 0 THEN NULL ELSE ((SUM(metric_value_ty) FILTER (WHERE metric_name
+    = 'EXPANDED_ADMINISTERED')) - (SUM(metric_value_ly) FILTER (WHERE metric_name = 'EXPANDED_ADMINISTERED'))) / ABS(SUM(metric_value_ly)
+    FILTER (WHERE metric_name = 'EXPANDED_ADMINISTERED')) * 100 END
+  display_name: Total Expanded Administered YoY %
+  comment: Percent change in Total Expanded Administered versus prior year.
+  synonyms:
+  - YoY total expanded administered
+  - total expanded administered growth
+- name: new_digital_accounts_ty
+  expr: SUM(metric_value_ty) FILTER (WHERE metric_name = 'NEW_DIGITAL_ACCOUNTS')
+  display_name: New Digital Pharmacy Accounts
+  comment: Current-year New Digital Pharmacy Accounts. Additive row metric.
+  synonyms:
+  - new digital pharmacy accounts
+  - TY new digital pharmacy accounts
+- name: new_digital_accounts_ly
+  expr: SUM(metric_value_ly) FILTER (WHERE metric_name = 'NEW_DIGITAL_ACCOUNTS')
+  display_name: New Digital Pharmacy Accounts Prior Year
+  comment: Prior-year comparable New Digital Pharmacy Accounts. Additive row metric.
+  synonyms:
+  - new digital pharmacy accounts last year
+  - LY new digital pharmacy accounts
+- name: new_digital_accounts_change
+  expr: (SUM(metric_value_ty) FILTER (WHERE metric_name = 'NEW_DIGITAL_ACCOUNTS')) - (SUM(metric_value_ly) FILTER (WHERE metric_name
+    = 'NEW_DIGITAL_ACCOUNTS'))
+  display_name: New Digital Pharmacy Accounts Change
+  comment: TY minus LY for New Digital Pharmacy Accounts.
+  synonyms:
+  - change in new digital pharmacy accounts
+- name: new_digital_accounts_yoy_pct
+  expr: CASE WHEN (SUM(metric_value_ly) FILTER (WHERE metric_name = 'NEW_DIGITAL_ACCOUNTS')) IS NULL OR (SUM(metric_value_ly)
+    FILTER (WHERE metric_name = 'NEW_DIGITAL_ACCOUNTS')) = 0 THEN NULL ELSE ((SUM(metric_value_ty) FILTER (WHERE metric_name
+    = 'NEW_DIGITAL_ACCOUNTS')) - (SUM(metric_value_ly) FILTER (WHERE metric_name = 'NEW_DIGITAL_ACCOUNTS'))) / ABS(SUM(metric_value_ly)
+    FILTER (WHERE metric_name = 'NEW_DIGITAL_ACCOUNTS')) * 100 END
+  display_name: New Digital Pharmacy Accounts YoY %
+  comment: Percent change in New Digital Pharmacy Accounts versus prior year.
+  synonyms:
+  - YoY new digital pharmacy accounts
+  - new digital pharmacy accounts growth
+- name: new_digital_accounts_new_patients_ty
+  expr: SUM(metric_value_ty) FILTER (WHERE metric_name = 'NEW_DIGITAL_ACCOUNTS_OF_NEW_PATIENTS')
+  display_name: New Digital Pharmacy Accounts (New Patients)
+  comment: Current-year New Digital Pharmacy Accounts (New Patients). Additive row metric.
+  synonyms:
+  - new digital pharmacy accounts (new patients)
+  - TY new digital pharmacy accounts (new patients)
+- name: new_digital_accounts_new_patients_ly
+  expr: SUM(metric_value_ly) FILTER (WHERE metric_name = 'NEW_DIGITAL_ACCOUNTS_OF_NEW_PATIENTS')
+  display_name: New Digital Pharmacy Accounts (New Patients) Prior Year
+  comment: Prior-year comparable New Digital Pharmacy Accounts (New Patients). Additive row metric.
+  synonyms:
+  - new digital pharmacy accounts (new patients) last year
+  - LY new digital pharmacy accounts (new patients)
+- name: new_digital_accounts_new_patients_change
+  expr: (SUM(metric_value_ty) FILTER (WHERE metric_name = 'NEW_DIGITAL_ACCOUNTS_OF_NEW_PATIENTS')) - (SUM(metric_value_ly)
+    FILTER (WHERE metric_name = 'NEW_DIGITAL_ACCOUNTS_OF_NEW_PATIENTS'))
+  display_name: New Digital Pharmacy Accounts (New Patients) Change
+  comment: TY minus LY for New Digital Pharmacy Accounts (New Patients).
+  synonyms:
+  - change in new digital pharmacy accounts (new patients)
+- name: new_digital_accounts_new_patients_yoy_pct
+  expr: CASE WHEN (SUM(metric_value_ly) FILTER (WHERE metric_name = 'NEW_DIGITAL_ACCOUNTS_OF_NEW_PATIENTS')) IS NULL OR (SUM(metric_value_ly)
+    FILTER (WHERE metric_name = 'NEW_DIGITAL_ACCOUNTS_OF_NEW_PATIENTS')) = 0 THEN NULL ELSE ((SUM(metric_value_ty) FILTER
+    (WHERE metric_name = 'NEW_DIGITAL_ACCOUNTS_OF_NEW_PATIENTS')) - (SUM(metric_value_ly) FILTER (WHERE metric_name = 'NEW_DIGITAL_ACCOUNTS_OF_NEW_PATIENTS')))
+    / ABS(SUM(metric_value_ly) FILTER (WHERE metric_name = 'NEW_DIGITAL_ACCOUNTS_OF_NEW_PATIENTS')) * 100 END
+  display_name: New Digital Pharmacy Accounts (New Patients) YoY %
+  comment: Percent change in New Digital Pharmacy Accounts (New Patients) versus prior year.
+  synonyms:
+  - YoY new digital pharmacy accounts (new patients)
+  - new digital pharmacy accounts (new patients) growth
+- name: new_digital_accounts_continuing_patients_ty
+  expr: SUM(metric_value_ty) FILTER (WHERE metric_name = 'NEW_DIGITAL_ACCOUNTS_OF_CONTINUING_PATIENTS')
+  display_name: New Digital Pharmacy Accounts (Continuing Patients)
+  comment: Current-year New Digital Pharmacy Accounts (Continuing Patients). Additive row metric.
+  synonyms:
+  - new digital pharmacy accounts (continuing patients)
+  - TY new digital pharmacy accounts (continuing patients)
+- name: new_digital_accounts_continuing_patients_ly
+  expr: SUM(metric_value_ly) FILTER (WHERE metric_name = 'NEW_DIGITAL_ACCOUNTS_OF_CONTINUING_PATIENTS')
+  display_name: New Digital Pharmacy Accounts (Continuing Patients) Prior Year
+  comment: Prior-year comparable New Digital Pharmacy Accounts (Continuing Patients). Additive row metric.
+  synonyms:
+  - new digital pharmacy accounts (continuing patients) last year
+  - LY new digital pharmacy accounts (continuing patients)
+- name: new_digital_accounts_continuing_patients_change
+  expr: (SUM(metric_value_ty) FILTER (WHERE metric_name = 'NEW_DIGITAL_ACCOUNTS_OF_CONTINUING_PATIENTS')) - (SUM(metric_value_ly)
+    FILTER (WHERE metric_name = 'NEW_DIGITAL_ACCOUNTS_OF_CONTINUING_PATIENTS'))
+  display_name: New Digital Pharmacy Accounts (Continuing Patients) Change
+  comment: TY minus LY for New Digital Pharmacy Accounts (Continuing Patients).
+  synonyms:
+  - change in new digital pharmacy accounts (continuing patients)
+- name: new_digital_accounts_continuing_patients_yoy_pct
+  expr: CASE WHEN (SUM(metric_value_ly) FILTER (WHERE metric_name = 'NEW_DIGITAL_ACCOUNTS_OF_CONTINUING_PATIENTS')) IS NULL
+    OR (SUM(metric_value_ly) FILTER (WHERE metric_name = 'NEW_DIGITAL_ACCOUNTS_OF_CONTINUING_PATIENTS')) = 0 THEN NULL ELSE
+    ((SUM(metric_value_ty) FILTER (WHERE metric_name = 'NEW_DIGITAL_ACCOUNTS_OF_CONTINUING_PATIENTS')) - (SUM(metric_value_ly)
+    FILTER (WHERE metric_name = 'NEW_DIGITAL_ACCOUNTS_OF_CONTINUING_PATIENTS'))) / ABS(SUM(metric_value_ly) FILTER (WHERE
+    metric_name = 'NEW_DIGITAL_ACCOUNTS_OF_CONTINUING_PATIENTS')) * 100 END
+  display_name: New Digital Pharmacy Accounts (Continuing Patients) YoY %
+  comment: Percent change in New Digital Pharmacy Accounts (Continuing Patients) versus prior year.
+  synonyms:
+  - YoY new digital pharmacy accounts (continuing patients)
+  - new digital pharmacy accounts (continuing patients) growth
+- name: average_orders_sold_per_store_ty
+  expr: CASE WHEN COUNT(DISTINCT store_number) FILTER (WHERE metric_name = 'AVERAGE_ORDERS_SOLD_PER_STORE') = 0 THEN NULL
+    ELSE SUM(numerator_value_ty) FILTER (WHERE metric_name = 'AVERAGE_ORDERS_SOLD_PER_STORE') / COUNT(DISTINCT store_number)
+    FILTER (WHERE metric_name = 'AVERAGE_ORDERS_SOLD_PER_STORE') END
+  display_name: Avg Sold RxD Orders Per Store
+  comment: Custom RxD metric using distinct-store denominator.
+  synonyms:
+  - avg sold rxd orders per store
+- name: average_orders_sold_per_store_ly
+  expr: CASE WHEN COUNT(DISTINCT store_number) FILTER (WHERE metric_name = 'AVERAGE_ORDERS_SOLD_PER_STORE') = 0 THEN NULL
+    ELSE SUM(numerator_value_ly) FILTER (WHERE metric_name = 'AVERAGE_ORDERS_SOLD_PER_STORE') / COUNT(DISTINCT store_number)
+    FILTER (WHERE metric_name = 'AVERAGE_ORDERS_SOLD_PER_STORE') END
+  display_name: Avg Sold RxD Orders Per Store Prior Year
+  comment: Prior-year comparable custom RxD metric.
+  synonyms:
+  - last year avg sold rxd orders per store
+- name: average_orders_sold_per_store_change
+  expr: (CASE WHEN COUNT(DISTINCT store_number) FILTER (WHERE metric_name = 'AVERAGE_ORDERS_SOLD_PER_STORE') = 0 THEN NULL
+    ELSE SUM(numerator_value_ty) FILTER (WHERE metric_name = 'AVERAGE_ORDERS_SOLD_PER_STORE') / COUNT(DISTINCT store_number)
+    FILTER (WHERE metric_name = 'AVERAGE_ORDERS_SOLD_PER_STORE') END) - (CASE WHEN COUNT(DISTINCT store_number) FILTER (WHERE
+    metric_name = 'AVERAGE_ORDERS_SOLD_PER_STORE') = 0 THEN NULL ELSE SUM(numerator_value_ly) FILTER (WHERE metric_name =
+    'AVERAGE_ORDERS_SOLD_PER_STORE') / COUNT(DISTINCT store_number) FILTER (WHERE metric_name = 'AVERAGE_ORDERS_SOLD_PER_STORE')
+    END)
+  display_name: Avg Sold RxD Orders Per Store Change
+  comment: Current minus prior-year value.
+- name: average_orders_sold_per_store_yoy_pct
+  expr: CASE WHEN (CASE WHEN COUNT(DISTINCT store_number) FILTER (WHERE metric_name = 'AVERAGE_ORDERS_SOLD_PER_STORE') = 0
+    THEN NULL ELSE SUM(numerator_value_ly) FILTER (WHERE metric_name = 'AVERAGE_ORDERS_SOLD_PER_STORE') / COUNT(DISTINCT store_number)
+    FILTER (WHERE metric_name = 'AVERAGE_ORDERS_SOLD_PER_STORE') END) IS NULL OR (CASE WHEN COUNT(DISTINCT store_number) FILTER
+    (WHERE metric_name = 'AVERAGE_ORDERS_SOLD_PER_STORE') = 0 THEN NULL ELSE SUM(numerator_value_ly) FILTER (WHERE metric_name
+    = 'AVERAGE_ORDERS_SOLD_PER_STORE') / COUNT(DISTINCT store_number) FILTER (WHERE metric_name = 'AVERAGE_ORDERS_SOLD_PER_STORE')
+    END) = 0 THEN NULL ELSE ((CASE WHEN COUNT(DISTINCT store_number) FILTER (WHERE metric_name = 'AVERAGE_ORDERS_SOLD_PER_STORE')
+    = 0 THEN NULL ELSE SUM(numerator_value_ty) FILTER (WHERE metric_name = 'AVERAGE_ORDERS_SOLD_PER_STORE') / COUNT(DISTINCT
+    store_number) FILTER (WHERE metric_name = 'AVERAGE_ORDERS_SOLD_PER_STORE') END) - (CASE WHEN COUNT(DISTINCT store_number)
+    FILTER (WHERE metric_name = 'AVERAGE_ORDERS_SOLD_PER_STORE') = 0 THEN NULL ELSE SUM(numerator_value_ly) FILTER (WHERE
+    metric_name = 'AVERAGE_ORDERS_SOLD_PER_STORE') / COUNT(DISTINCT store_number) FILTER (WHERE metric_name = 'AVERAGE_ORDERS_SOLD_PER_STORE')
+    END)) / ABS(CASE WHEN COUNT(DISTINCT store_number) FILTER (WHERE metric_name = 'AVERAGE_ORDERS_SOLD_PER_STORE') = 0 THEN
+    NULL ELSE SUM(numerator_value_ly) FILTER (WHERE metric_name = 'AVERAGE_ORDERS_SOLD_PER_STORE') / COUNT(DISTINCT store_number)
+    FILTER (WHERE metric_name = 'AVERAGE_ORDERS_SOLD_PER_STORE') END) * 100 END
+  display_name: Avg Sold RxD Orders Per Store YoY %
+  comment: Percent change versus prior year.
+- name: average_orders_sold_per_store_new_ty
+  expr: CASE WHEN COUNT(DISTINCT store_number) FILTER (WHERE metric_name = 'AVERAGE_ORDERS_SOLD_PER_STORE_NEW') = 0 THEN NULL
+    ELSE SUM(numerator_value_ty) FILTER (WHERE metric_name = 'AVERAGE_ORDERS_SOLD_PER_STORE_NEW') / COUNT(DISTINCT store_number)
+    FILTER (WHERE metric_name = 'AVERAGE_ORDERS_SOLD_PER_STORE_NEW') END
+  display_name: New Avg Sold RxD Orders Per Store
+  comment: Custom RxD metric using distinct-store denominator.
+  synonyms:
+  - new avg sold rxd orders per store
+- name: average_orders_sold_per_store_new_ly
+  expr: CASE WHEN COUNT(DISTINCT store_number) FILTER (WHERE metric_name = 'AVERAGE_ORDERS_SOLD_PER_STORE_NEW') = 0 THEN NULL
+    ELSE SUM(numerator_value_ly) FILTER (WHERE metric_name = 'AVERAGE_ORDERS_SOLD_PER_STORE_NEW') / COUNT(DISTINCT store_number)
+    FILTER (WHERE metric_name = 'AVERAGE_ORDERS_SOLD_PER_STORE_NEW') END
+  display_name: New Avg Sold RxD Orders Per Store Prior Year
+  comment: Prior-year comparable custom RxD metric.
+  synonyms:
+  - last year new avg sold rxd orders per store
+- name: average_orders_sold_per_store_new_change
+  expr: (CASE WHEN COUNT(DISTINCT store_number) FILTER (WHERE metric_name = 'AVERAGE_ORDERS_SOLD_PER_STORE_NEW') = 0 THEN
+    NULL ELSE SUM(numerator_value_ty) FILTER (WHERE metric_name = 'AVERAGE_ORDERS_SOLD_PER_STORE_NEW') / COUNT(DISTINCT store_number)
+    FILTER (WHERE metric_name = 'AVERAGE_ORDERS_SOLD_PER_STORE_NEW') END) - (CASE WHEN COUNT(DISTINCT store_number) FILTER
+    (WHERE metric_name = 'AVERAGE_ORDERS_SOLD_PER_STORE_NEW') = 0 THEN NULL ELSE SUM(numerator_value_ly) FILTER (WHERE metric_name
+    = 'AVERAGE_ORDERS_SOLD_PER_STORE_NEW') / COUNT(DISTINCT store_number) FILTER (WHERE metric_name = 'AVERAGE_ORDERS_SOLD_PER_STORE_NEW')
+    END)
+  display_name: New Avg Sold RxD Orders Per Store Change
+  comment: Current minus prior-year value.
+- name: average_orders_sold_per_store_new_yoy_pct
+  expr: CASE WHEN (CASE WHEN COUNT(DISTINCT store_number) FILTER (WHERE metric_name = 'AVERAGE_ORDERS_SOLD_PER_STORE_NEW')
+    = 0 THEN NULL ELSE SUM(numerator_value_ly) FILTER (WHERE metric_name = 'AVERAGE_ORDERS_SOLD_PER_STORE_NEW') / COUNT(DISTINCT
+    store_number) FILTER (WHERE metric_name = 'AVERAGE_ORDERS_SOLD_PER_STORE_NEW') END) IS NULL OR (CASE WHEN COUNT(DISTINCT
+    store_number) FILTER (WHERE metric_name = 'AVERAGE_ORDERS_SOLD_PER_STORE_NEW') = 0 THEN NULL ELSE SUM(numerator_value_ly)
+    FILTER (WHERE metric_name = 'AVERAGE_ORDERS_SOLD_PER_STORE_NEW') / COUNT(DISTINCT store_number) FILTER (WHERE metric_name
+    = 'AVERAGE_ORDERS_SOLD_PER_STORE_NEW') END) = 0 THEN NULL ELSE ((CASE WHEN COUNT(DISTINCT store_number) FILTER (WHERE
+    metric_name = 'AVERAGE_ORDERS_SOLD_PER_STORE_NEW') = 0 THEN NULL ELSE SUM(numerator_value_ty) FILTER (WHERE metric_name
+    = 'AVERAGE_ORDERS_SOLD_PER_STORE_NEW') / COUNT(DISTINCT store_number) FILTER (WHERE metric_name = 'AVERAGE_ORDERS_SOLD_PER_STORE_NEW')
+    END) - (CASE WHEN COUNT(DISTINCT store_number) FILTER (WHERE metric_name = 'AVERAGE_ORDERS_SOLD_PER_STORE_NEW') = 0 THEN
+    NULL ELSE SUM(numerator_value_ly) FILTER (WHERE metric_name = 'AVERAGE_ORDERS_SOLD_PER_STORE_NEW') / COUNT(DISTINCT store_number)
+    FILTER (WHERE metric_name = 'AVERAGE_ORDERS_SOLD_PER_STORE_NEW') END)) / ABS(CASE WHEN COUNT(DISTINCT store_number) FILTER
+    (WHERE metric_name = 'AVERAGE_ORDERS_SOLD_PER_STORE_NEW') = 0 THEN NULL ELSE SUM(numerator_value_ly) FILTER (WHERE metric_name
+    = 'AVERAGE_ORDERS_SOLD_PER_STORE_NEW') / COUNT(DISTINCT store_number) FILTER (WHERE metric_name = 'AVERAGE_ORDERS_SOLD_PER_STORE_NEW')
+    END) * 100 END
+  display_name: New Avg Sold RxD Orders Per Store YoY %
+  comment: Percent change versus prior year.
+- name: average_orders_sold_per_store_continuing_ty
+  expr: CASE WHEN COUNT(DISTINCT store_number) FILTER (WHERE metric_name = 'AVERAGE_ORDERS_SOLD_PER_STORE_CONTINUING') = 0
+    THEN NULL ELSE SUM(numerator_value_ty) FILTER (WHERE metric_name = 'AVERAGE_ORDERS_SOLD_PER_STORE_CONTINUING') / COUNT(DISTINCT
+    store_number) FILTER (WHERE metric_name = 'AVERAGE_ORDERS_SOLD_PER_STORE_CONTINUING') END
+  display_name: Continuing Avg Sold RxD Orders Per Store
+  comment: Custom RxD metric using distinct-store denominator.
+  synonyms:
+  - continuing avg sold rxd orders per store
+- name: average_orders_sold_per_store_continuing_ly
+  expr: CASE WHEN COUNT(DISTINCT store_number) FILTER (WHERE metric_name = 'AVERAGE_ORDERS_SOLD_PER_STORE_CONTINUING') = 0
+    THEN NULL ELSE SUM(numerator_value_ly) FILTER (WHERE metric_name = 'AVERAGE_ORDERS_SOLD_PER_STORE_CONTINUING') / COUNT(DISTINCT
+    store_number) FILTER (WHERE metric_name = 'AVERAGE_ORDERS_SOLD_PER_STORE_CONTINUING') END
+  display_name: Continuing Avg Sold RxD Orders Per Store Prior Year
+  comment: Prior-year comparable custom RxD metric.
+  synonyms:
+  - last year continuing avg sold rxd orders per store
+- name: average_orders_sold_per_store_continuing_change
+  expr: (CASE WHEN COUNT(DISTINCT store_number) FILTER (WHERE metric_name = 'AVERAGE_ORDERS_SOLD_PER_STORE_CONTINUING') =
+    0 THEN NULL ELSE SUM(numerator_value_ty) FILTER (WHERE metric_name = 'AVERAGE_ORDERS_SOLD_PER_STORE_CONTINUING') / COUNT(DISTINCT
+    store_number) FILTER (WHERE metric_name = 'AVERAGE_ORDERS_SOLD_PER_STORE_CONTINUING') END) - (CASE WHEN COUNT(DISTINCT
+    store_number) FILTER (WHERE metric_name = 'AVERAGE_ORDERS_SOLD_PER_STORE_CONTINUING') = 0 THEN NULL ELSE SUM(numerator_value_ly)
+    FILTER (WHERE metric_name = 'AVERAGE_ORDERS_SOLD_PER_STORE_CONTINUING') / COUNT(DISTINCT store_number) FILTER (WHERE metric_name
+    = 'AVERAGE_ORDERS_SOLD_PER_STORE_CONTINUING') END)
+  display_name: Continuing Avg Sold RxD Orders Per Store Change
+  comment: Current minus prior-year value.
+- name: average_orders_sold_per_store_continuing_yoy_pct
+  expr: CASE WHEN (CASE WHEN COUNT(DISTINCT store_number) FILTER (WHERE metric_name = 'AVERAGE_ORDERS_SOLD_PER_STORE_CONTINUING')
+    = 0 THEN NULL ELSE SUM(numerator_value_ly) FILTER (WHERE metric_name = 'AVERAGE_ORDERS_SOLD_PER_STORE_CONTINUING') / COUNT(DISTINCT
+    store_number) FILTER (WHERE metric_name = 'AVERAGE_ORDERS_SOLD_PER_STORE_CONTINUING') END) IS NULL OR (CASE WHEN COUNT(DISTINCT
+    store_number) FILTER (WHERE metric_name = 'AVERAGE_ORDERS_SOLD_PER_STORE_CONTINUING') = 0 THEN NULL ELSE SUM(numerator_value_ly)
+    FILTER (WHERE metric_name = 'AVERAGE_ORDERS_SOLD_PER_STORE_CONTINUING') / COUNT(DISTINCT store_number) FILTER (WHERE metric_name
+    = 'AVERAGE_ORDERS_SOLD_PER_STORE_CONTINUING') END) = 0 THEN NULL ELSE ((CASE WHEN COUNT(DISTINCT store_number) FILTER
+    (WHERE metric_name = 'AVERAGE_ORDERS_SOLD_PER_STORE_CONTINUING') = 0 THEN NULL ELSE SUM(numerator_value_ty) FILTER (WHERE
+    metric_name = 'AVERAGE_ORDERS_SOLD_PER_STORE_CONTINUING') / COUNT(DISTINCT store_number) FILTER (WHERE metric_name = 'AVERAGE_ORDERS_SOLD_PER_STORE_CONTINUING')
+    END) - (CASE WHEN COUNT(DISTINCT store_number) FILTER (WHERE metric_name = 'AVERAGE_ORDERS_SOLD_PER_STORE_CONTINUING')
+    = 0 THEN NULL ELSE SUM(numerator_value_ly) FILTER (WHERE metric_name = 'AVERAGE_ORDERS_SOLD_PER_STORE_CONTINUING') / COUNT(DISTINCT
+    store_number) FILTER (WHERE metric_name = 'AVERAGE_ORDERS_SOLD_PER_STORE_CONTINUING') END)) / ABS(CASE WHEN COUNT(DISTINCT
+    store_number) FILTER (WHERE metric_name = 'AVERAGE_ORDERS_SOLD_PER_STORE_CONTINUING') = 0 THEN NULL ELSE SUM(numerator_value_ly)
+    FILTER (WHERE metric_name = 'AVERAGE_ORDERS_SOLD_PER_STORE_CONTINUING') / COUNT(DISTINCT store_number) FILTER (WHERE metric_name
+    = 'AVERAGE_ORDERS_SOLD_PER_STORE_CONTINUING') END) * 100 END
+  display_name: Continuing Avg Sold RxD Orders Per Store YoY %
+  comment: Percent change versus prior year.
+- name: operating_income_actual_ty
+  expr: SUM(metric_value_ty) FILTER (WHERE metric_name = 'OP_INCOME_ACTUAL_AMOUNT' AND calendar_flag = 'FISCAL_CALENDAR')
+  display_name: Operating Income
+  comment: Current-year Operating Income. Monthly Finance/P&L metric; Fiscal Calendar only.
+  synonyms:
+  - operating income
+  - TY operating income
+- name: operating_income_actual_ly
+  expr: SUM(metric_value_ly) FILTER (WHERE metric_name = 'OP_INCOME_ACTUAL_AMOUNT' AND calendar_flag = 'FISCAL_CALENDAR')
+  display_name: Operating Income Prior Year
+  comment: Prior-year comparable Operating Income. Monthly Finance/P&L metric; Fiscal Calendar only.
+  synonyms:
+  - operating income last year
+  - LY operating income
+- name: operating_income_actual_change
+  expr: (SUM(metric_value_ty) FILTER (WHERE metric_name = 'OP_INCOME_ACTUAL_AMOUNT' AND calendar_flag = 'FISCAL_CALENDAR'))
+    - (SUM(metric_value_ly) FILTER (WHERE metric_name = 'OP_INCOME_ACTUAL_AMOUNT' AND calendar_flag = 'FISCAL_CALENDAR'))
+  display_name: Operating Income Change
+  comment: TY minus LY for Operating Income. Monthly Finance/P&L metric; Fiscal Calendar only.
+  synonyms:
+  - change in operating income
+- name: operating_income_actual_yoy_pct
+  expr: CASE WHEN (SUM(metric_value_ly) FILTER (WHERE metric_name = 'OP_INCOME_ACTUAL_AMOUNT' AND calendar_flag = 'FISCAL_CALENDAR'))
+    IS NULL OR (SUM(metric_value_ly) FILTER (WHERE metric_name = 'OP_INCOME_ACTUAL_AMOUNT' AND calendar_flag = 'FISCAL_CALENDAR'))
+    = 0 THEN NULL ELSE ((SUM(metric_value_ty) FILTER (WHERE metric_name = 'OP_INCOME_ACTUAL_AMOUNT' AND calendar_flag = 'FISCAL_CALENDAR'))
+    - (SUM(metric_value_ly) FILTER (WHERE metric_name = 'OP_INCOME_ACTUAL_AMOUNT' AND calendar_flag = 'FISCAL_CALENDAR')))
+    / ABS(SUM(metric_value_ly) FILTER (WHERE metric_name = 'OP_INCOME_ACTUAL_AMOUNT' AND calendar_flag = 'FISCAL_CALENDAR'))
+    * 100 END
+  display_name: Operating Income YoY %
+  comment: Percent change in Operating Income versus prior year. Monthly Finance/P&L metric; Fiscal Calendar only.
+  synonyms:
+  - YoY operating income
+  - operating income growth
+- name: operating_income_plan_ty
+  expr: SUM(metric_value_ty) FILTER (WHERE metric_name = 'OP_INCOME_PLAN_AMOUNT' AND calendar_flag = 'FISCAL_CALENDAR')
+  display_name: Planned Operating Income
+  comment: Current-year Planned Operating Income. Monthly Finance/P&L metric; Fiscal Calendar only.
+  synonyms:
+  - planned operating income
+  - TY planned operating income
+- name: operating_income_plan_ly
+  expr: SUM(metric_value_ly) FILTER (WHERE metric_name = 'OP_INCOME_PLAN_AMOUNT' AND calendar_flag = 'FISCAL_CALENDAR')
+  display_name: Planned Operating Income Prior Year
+  comment: Prior-year comparable Planned Operating Income. Monthly Finance/P&L metric; Fiscal Calendar only.
+  synonyms:
+  - planned operating income last year
+  - LY planned operating income
+- name: operating_income_plan_change
+  expr: (SUM(metric_value_ty) FILTER (WHERE metric_name = 'OP_INCOME_PLAN_AMOUNT' AND calendar_flag = 'FISCAL_CALENDAR'))
+    - (SUM(metric_value_ly) FILTER (WHERE metric_name = 'OP_INCOME_PLAN_AMOUNT' AND calendar_flag = 'FISCAL_CALENDAR'))
+  display_name: Planned Operating Income Change
+  comment: TY minus LY for Planned Operating Income. Monthly Finance/P&L metric; Fiscal Calendar only.
+  synonyms:
+  - change in planned operating income
+- name: operating_income_plan_yoy_pct
+  expr: CASE WHEN (SUM(metric_value_ly) FILTER (WHERE metric_name = 'OP_INCOME_PLAN_AMOUNT' AND calendar_flag = 'FISCAL_CALENDAR'))
+    IS NULL OR (SUM(metric_value_ly) FILTER (WHERE metric_name = 'OP_INCOME_PLAN_AMOUNT' AND calendar_flag = 'FISCAL_CALENDAR'))
+    = 0 THEN NULL ELSE ((SUM(metric_value_ty) FILTER (WHERE metric_name = 'OP_INCOME_PLAN_AMOUNT' AND calendar_flag = 'FISCAL_CALENDAR'))
+    - (SUM(metric_value_ly) FILTER (WHERE metric_name = 'OP_INCOME_PLAN_AMOUNT' AND calendar_flag = 'FISCAL_CALENDAR'))) /
+    ABS(SUM(metric_value_ly) FILTER (WHERE metric_name = 'OP_INCOME_PLAN_AMOUNT' AND calendar_flag = 'FISCAL_CALENDAR')) *
+    100 END
+  display_name: Planned Operating Income YoY %
+  comment: Percent change in Planned Operating Income versus prior year. Monthly Finance/P&L metric; Fiscal Calendar only.
+  synonyms:
+  - YoY planned operating income
+  - planned operating income growth
+- name: net_sales_actual_ty
+  expr: SUM(metric_value_ty) FILTER (WHERE metric_name = 'NET_SALES_ACTUAL_AMOUNT' AND calendar_flag = 'FISCAL_CALENDAR')
+  display_name: Net Sales
+  comment: Current-year Net Sales. Monthly Finance/P&L metric; Fiscal Calendar only.
+  synonyms:
+  - net sales
+  - TY net sales
+- name: net_sales_actual_ly
+  expr: SUM(metric_value_ly) FILTER (WHERE metric_name = 'NET_SALES_ACTUAL_AMOUNT' AND calendar_flag = 'FISCAL_CALENDAR')
+  display_name: Net Sales Prior Year
+  comment: Prior-year comparable Net Sales. Monthly Finance/P&L metric; Fiscal Calendar only.
+  synonyms:
+  - net sales last year
+  - LY net sales
+- name: net_sales_actual_change
+  expr: (SUM(metric_value_ty) FILTER (WHERE metric_name = 'NET_SALES_ACTUAL_AMOUNT' AND calendar_flag = 'FISCAL_CALENDAR'))
+    - (SUM(metric_value_ly) FILTER (WHERE metric_name = 'NET_SALES_ACTUAL_AMOUNT' AND calendar_flag = 'FISCAL_CALENDAR'))
+  display_name: Net Sales Change
+  comment: TY minus LY for Net Sales. Monthly Finance/P&L metric; Fiscal Calendar only.
+  synonyms:
+  - change in net sales
+- name: net_sales_actual_yoy_pct
+  expr: CASE WHEN (SUM(metric_value_ly) FILTER (WHERE metric_name = 'NET_SALES_ACTUAL_AMOUNT' AND calendar_flag = 'FISCAL_CALENDAR'))
+    IS NULL OR (SUM(metric_value_ly) FILTER (WHERE metric_name = 'NET_SALES_ACTUAL_AMOUNT' AND calendar_flag = 'FISCAL_CALENDAR'))
+    = 0 THEN NULL ELSE ((SUM(metric_value_ty) FILTER (WHERE metric_name = 'NET_SALES_ACTUAL_AMOUNT' AND calendar_flag = 'FISCAL_CALENDAR'))
+    - (SUM(metric_value_ly) FILTER (WHERE metric_name = 'NET_SALES_ACTUAL_AMOUNT' AND calendar_flag = 'FISCAL_CALENDAR')))
+    / ABS(SUM(metric_value_ly) FILTER (WHERE metric_name = 'NET_SALES_ACTUAL_AMOUNT' AND calendar_flag = 'FISCAL_CALENDAR'))
+    * 100 END
+  display_name: Net Sales YoY %
+  comment: Percent change in Net Sales versus prior year. Monthly Finance/P&L metric; Fiscal Calendar only.
+  synonyms:
+  - YoY net sales
+  - net sales growth
+- name: net_sales_plan_ty
+  expr: SUM(metric_value_ty) FILTER (WHERE metric_name = 'NET_SALES_PLAN_AMOUNT' AND calendar_flag = 'FISCAL_CALENDAR')
+  display_name: Planned Net Sales
+  comment: Current-year Planned Net Sales. Monthly Finance/P&L metric; Fiscal Calendar only.
+  synonyms:
+  - planned net sales
+  - TY planned net sales
+- name: net_sales_plan_ly
+  expr: SUM(metric_value_ly) FILTER (WHERE metric_name = 'NET_SALES_PLAN_AMOUNT' AND calendar_flag = 'FISCAL_CALENDAR')
+  display_name: Planned Net Sales Prior Year
+  comment: Prior-year comparable Planned Net Sales. Monthly Finance/P&L metric; Fiscal Calendar only.
+  synonyms:
+  - planned net sales last year
+  - LY planned net sales
+- name: net_sales_plan_change
+  expr: (SUM(metric_value_ty) FILTER (WHERE metric_name = 'NET_SALES_PLAN_AMOUNT' AND calendar_flag = 'FISCAL_CALENDAR'))
+    - (SUM(metric_value_ly) FILTER (WHERE metric_name = 'NET_SALES_PLAN_AMOUNT' AND calendar_flag = 'FISCAL_CALENDAR'))
+  display_name: Planned Net Sales Change
+  comment: TY minus LY for Planned Net Sales. Monthly Finance/P&L metric; Fiscal Calendar only.
+  synonyms:
+  - change in planned net sales
+- name: net_sales_plan_yoy_pct
+  expr: CASE WHEN (SUM(metric_value_ly) FILTER (WHERE metric_name = 'NET_SALES_PLAN_AMOUNT' AND calendar_flag = 'FISCAL_CALENDAR'))
+    IS NULL OR (SUM(metric_value_ly) FILTER (WHERE metric_name = 'NET_SALES_PLAN_AMOUNT' AND calendar_flag = 'FISCAL_CALENDAR'))
+    = 0 THEN NULL ELSE ((SUM(metric_value_ty) FILTER (WHERE metric_name = 'NET_SALES_PLAN_AMOUNT' AND calendar_flag = 'FISCAL_CALENDAR'))
+    - (SUM(metric_value_ly) FILTER (WHERE metric_name = 'NET_SALES_PLAN_AMOUNT' AND calendar_flag = 'FISCAL_CALENDAR'))) /
+    ABS(SUM(metric_value_ly) FILTER (WHERE metric_name = 'NET_SALES_PLAN_AMOUNT' AND calendar_flag = 'FISCAL_CALENDAR')) *
+    100 END
+  display_name: Planned Net Sales YoY %
+  comment: Percent change in Planned Net Sales versus prior year. Monthly Finance/P&L metric; Fiscal Calendar only.
+  synonyms:
+  - YoY planned net sales
+  - planned net sales growth
+- name: other_income_actual_ty
+  expr: SUM(metric_value_ty) FILTER (WHERE metric_name = 'OTHER_INCOME_ACTUAL_AMOUNT' AND calendar_flag = 'FISCAL_CALENDAR')
+  display_name: Other Income
+  comment: Current-year Other Income. Monthly Finance/P&L metric; Fiscal Calendar only.
+  synonyms:
+  - other income
+  - TY other income
+- name: other_income_actual_ly
+  expr: SUM(metric_value_ly) FILTER (WHERE metric_name = 'OTHER_INCOME_ACTUAL_AMOUNT' AND calendar_flag = 'FISCAL_CALENDAR')
+  display_name: Other Income Prior Year
+  comment: Prior-year comparable Other Income. Monthly Finance/P&L metric; Fiscal Calendar only.
+  synonyms:
+  - other income last year
+  - LY other income
+- name: other_income_actual_change
+  expr: (SUM(metric_value_ty) FILTER (WHERE metric_name = 'OTHER_INCOME_ACTUAL_AMOUNT' AND calendar_flag = 'FISCAL_CALENDAR'))
+    - (SUM(metric_value_ly) FILTER (WHERE metric_name = 'OTHER_INCOME_ACTUAL_AMOUNT' AND calendar_flag = 'FISCAL_CALENDAR'))
+  display_name: Other Income Change
+  comment: TY minus LY for Other Income. Monthly Finance/P&L metric; Fiscal Calendar only.
+  synonyms:
+  - change in other income
+- name: other_income_actual_yoy_pct
+  expr: CASE WHEN (SUM(metric_value_ly) FILTER (WHERE metric_name = 'OTHER_INCOME_ACTUAL_AMOUNT' AND calendar_flag = 'FISCAL_CALENDAR'))
+    IS NULL OR (SUM(metric_value_ly) FILTER (WHERE metric_name = 'OTHER_INCOME_ACTUAL_AMOUNT' AND calendar_flag = 'FISCAL_CALENDAR'))
+    = 0 THEN NULL ELSE ((SUM(metric_value_ty) FILTER (WHERE metric_name = 'OTHER_INCOME_ACTUAL_AMOUNT' AND calendar_flag =
+    'FISCAL_CALENDAR')) - (SUM(metric_value_ly) FILTER (WHERE metric_name = 'OTHER_INCOME_ACTUAL_AMOUNT' AND calendar_flag
+    = 'FISCAL_CALENDAR'))) / ABS(SUM(metric_value_ly) FILTER (WHERE metric_name = 'OTHER_INCOME_ACTUAL_AMOUNT' AND calendar_flag
+    = 'FISCAL_CALENDAR')) * 100 END
+  display_name: Other Income YoY %
+  comment: Percent change in Other Income versus prior year. Monthly Finance/P&L metric; Fiscal Calendar only.
+  synonyms:
+  - YoY other income
+  - other income growth
+- name: other_income_plan_ty
+  expr: SUM(metric_value_ty) FILTER (WHERE metric_name = 'OTHER_INCOME_PLAN_AMOUNT' AND calendar_flag = 'FISCAL_CALENDAR')
+  display_name: Planned Other Income
+  comment: Current-year Planned Other Income. Monthly Finance/P&L metric; Fiscal Calendar only.
+  synonyms:
+  - planned other income
+  - TY planned other income
+- name: other_income_plan_ly
+  expr: SUM(metric_value_ly) FILTER (WHERE metric_name = 'OTHER_INCOME_PLAN_AMOUNT' AND calendar_flag = 'FISCAL_CALENDAR')
+  display_name: Planned Other Income Prior Year
+  comment: Prior-year comparable Planned Other Income. Monthly Finance/P&L metric; Fiscal Calendar only.
+  synonyms:
+  - planned other income last year
+  - LY planned other income
+- name: other_income_plan_change
+  expr: (SUM(metric_value_ty) FILTER (WHERE metric_name = 'OTHER_INCOME_PLAN_AMOUNT' AND calendar_flag = 'FISCAL_CALENDAR'))
+    - (SUM(metric_value_ly) FILTER (WHERE metric_name = 'OTHER_INCOME_PLAN_AMOUNT' AND calendar_flag = 'FISCAL_CALENDAR'))
+  display_name: Planned Other Income Change
+  comment: TY minus LY for Planned Other Income. Monthly Finance/P&L metric; Fiscal Calendar only.
+  synonyms:
+  - change in planned other income
+- name: other_income_plan_yoy_pct
+  expr: CASE WHEN (SUM(metric_value_ly) FILTER (WHERE metric_name = 'OTHER_INCOME_PLAN_AMOUNT' AND calendar_flag = 'FISCAL_CALENDAR'))
+    IS NULL OR (SUM(metric_value_ly) FILTER (WHERE metric_name = 'OTHER_INCOME_PLAN_AMOUNT' AND calendar_flag = 'FISCAL_CALENDAR'))
+    = 0 THEN NULL ELSE ((SUM(metric_value_ty) FILTER (WHERE metric_name = 'OTHER_INCOME_PLAN_AMOUNT' AND calendar_flag = 'FISCAL_CALENDAR'))
+    - (SUM(metric_value_ly) FILTER (WHERE metric_name = 'OTHER_INCOME_PLAN_AMOUNT' AND calendar_flag = 'FISCAL_CALENDAR')))
+    / ABS(SUM(metric_value_ly) FILTER (WHERE metric_name = 'OTHER_INCOME_PLAN_AMOUNT' AND calendar_flag = 'FISCAL_CALENDAR'))
+    * 100 END
+  display_name: Planned Other Income YoY %
+  comment: Percent change in Planned Other Income versus prior year. Monthly Finance/P&L metric; Fiscal Calendar only.
+  synonyms:
+  - YoY planned other income
+  - planned other income growth
+- name: sga_actual_ty
+  expr: SUM(metric_value_ty) FILTER (WHERE metric_name = 'SGA_ACTUAL_AMOUNT' AND calendar_flag = 'FISCAL_CALENDAR')
+  display_name: Operating Expenses
+  comment: Current-year Operating Expenses. Monthly Finance/P&L metric; Fiscal Calendar only.
+  synonyms:
+  - operating expenses
+  - TY operating expenses
+- name: sga_actual_ly
+  expr: SUM(metric_value_ly) FILTER (WHERE metric_name = 'SGA_ACTUAL_AMOUNT' AND calendar_flag = 'FISCAL_CALENDAR')
+  display_name: Operating Expenses Prior Year
+  comment: Prior-year comparable Operating Expenses. Monthly Finance/P&L metric; Fiscal Calendar only.
+  synonyms:
+  - operating expenses last year
+  - LY operating expenses
+- name: sga_actual_change
+  expr: (SUM(metric_value_ty) FILTER (WHERE metric_name = 'SGA_ACTUAL_AMOUNT' AND calendar_flag = 'FISCAL_CALENDAR')) - (SUM(metric_value_ly)
+    FILTER (WHERE metric_name = 'SGA_ACTUAL_AMOUNT' AND calendar_flag = 'FISCAL_CALENDAR'))
+  display_name: Operating Expenses Change
+  comment: TY minus LY for Operating Expenses. Monthly Finance/P&L metric; Fiscal Calendar only.
+  synonyms:
+  - change in operating expenses
+- name: sga_actual_yoy_pct
+  expr: CASE WHEN (SUM(metric_value_ly) FILTER (WHERE metric_name = 'SGA_ACTUAL_AMOUNT' AND calendar_flag = 'FISCAL_CALENDAR'))
+    IS NULL OR (SUM(metric_value_ly) FILTER (WHERE metric_name = 'SGA_ACTUAL_AMOUNT' AND calendar_flag = 'FISCAL_CALENDAR'))
+    = 0 THEN NULL ELSE ((SUM(metric_value_ty) FILTER (WHERE metric_name = 'SGA_ACTUAL_AMOUNT' AND calendar_flag = 'FISCAL_CALENDAR'))
+    - (SUM(metric_value_ly) FILTER (WHERE metric_name = 'SGA_ACTUAL_AMOUNT' AND calendar_flag = 'FISCAL_CALENDAR'))) / ABS(SUM(metric_value_ly)
+    FILTER (WHERE metric_name = 'SGA_ACTUAL_AMOUNT' AND calendar_flag = 'FISCAL_CALENDAR')) * 100 END
+  display_name: Operating Expenses YoY %
+  comment: Percent change in Operating Expenses versus prior year. Monthly Finance/P&L metric; Fiscal Calendar only.
+  synonyms:
+  - YoY operating expenses
+  - operating expenses growth
+- name: sga_plan_ty
+  expr: SUM(metric_value_ty) FILTER (WHERE metric_name = 'SGA_PLAN_AMOUNT' AND calendar_flag = 'FISCAL_CALENDAR')
+  display_name: Planned Operating Expenses
+  comment: Current-year Planned Operating Expenses. Monthly Finance/P&L metric; Fiscal Calendar only.
+  synonyms:
+  - planned operating expenses
+  - TY planned operating expenses
+- name: sga_plan_ly
+  expr: SUM(metric_value_ly) FILTER (WHERE metric_name = 'SGA_PLAN_AMOUNT' AND calendar_flag = 'FISCAL_CALENDAR')
+  display_name: Planned Operating Expenses Prior Year
+  comment: Prior-year comparable Planned Operating Expenses. Monthly Finance/P&L metric; Fiscal Calendar only.
+  synonyms:
+  - planned operating expenses last year
+  - LY planned operating expenses
+- name: sga_plan_change
+  expr: (SUM(metric_value_ty) FILTER (WHERE metric_name = 'SGA_PLAN_AMOUNT' AND calendar_flag = 'FISCAL_CALENDAR')) - (SUM(metric_value_ly)
+    FILTER (WHERE metric_name = 'SGA_PLAN_AMOUNT' AND calendar_flag = 'FISCAL_CALENDAR'))
+  display_name: Planned Operating Expenses Change
+  comment: TY minus LY for Planned Operating Expenses. Monthly Finance/P&L metric; Fiscal Calendar only.
+  synonyms:
+  - change in planned operating expenses
+- name: sga_plan_yoy_pct
+  expr: CASE WHEN (SUM(metric_value_ly) FILTER (WHERE metric_name = 'SGA_PLAN_AMOUNT' AND calendar_flag = 'FISCAL_CALENDAR'))
+    IS NULL OR (SUM(metric_value_ly) FILTER (WHERE metric_name = 'SGA_PLAN_AMOUNT' AND calendar_flag = 'FISCAL_CALENDAR'))
+    = 0 THEN NULL ELSE ((SUM(metric_value_ty) FILTER (WHERE metric_name = 'SGA_PLAN_AMOUNT' AND calendar_flag = 'FISCAL_CALENDAR'))
+    - (SUM(metric_value_ly) FILTER (WHERE metric_name = 'SGA_PLAN_AMOUNT' AND calendar_flag = 'FISCAL_CALENDAR'))) / ABS(SUM(metric_value_ly)
+    FILTER (WHERE metric_name = 'SGA_PLAN_AMOUNT' AND calendar_flag = 'FISCAL_CALENDAR')) * 100 END
+  display_name: Planned Operating Expenses YoY %
+  comment: Percent change in Planned Operating Expenses versus prior year. Monthly Finance/P&L metric; Fiscal Calendar only.
+  synonyms:
+  - YoY planned operating expenses
+  - planned operating expenses growth
+- name: metric_row_count
+  expr: COUNT(1)
+  display_name: Metric Row Count
+  comment: Count of normalized source rows contributing to a result.
+  synonyms:
+  - row count
+  - records
+- name: active_store_count
+  expr: COUNT(DISTINCT CASE WHEN is_active_store THEN store_number END)
+  display_name: Active Store Count
+  comment: Distinct active stores represented in the filtered result.
+  synonyms:
+  - active stores
+  - open stores
+- name: store_count
+  expr: COUNT(DISTINCT store_number)
+  display_name: Store Count
+  comment: Distinct stores represented in the filtered result.
+  synonyms:
+  - stores
+  - number of stores
+- name: market_count
+  expr: COUNT(DISTINCT market_number)
+  display_name: Market Count
+  comment: Distinct markets represented in the filtered result.
+  synonyms:
+  - markets
+  - number of markets
+- name: region_count
+  expr: COUNT(DISTINCT region_number)
+  display_name: Region Count
+  comment: Distinct regions represented in the filtered result.
+  synonyms:
+  - regions
+  - number of regions
+- name: latest_load_timestamp
+  expr: MAX(load_time_stamp)
+  display_name: Latest Load Timestamp
+  comment: Most recent source load timestamp in the filtered result.
+  synonyms:
+  - latest load
+  - refresh time
+filter: line_of_business = 'PHARMACY'

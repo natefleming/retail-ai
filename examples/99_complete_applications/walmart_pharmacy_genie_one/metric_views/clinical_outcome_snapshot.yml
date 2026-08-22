@@ -1,0 +1,245 @@
+version: '1.1'
+comment: Pharmacy Clinical Outcome Snapshot metric view. OutcomesOne Successful Completion Rate, Completion Rate, and Validation
+  Rate are pre-calculated YTD direct-column values. These measures are entity-specific, YTD-only, and must not be recomputed
+  or aggregated across time or hierarchy.
+source: retail_consumer_goods.walmart_pharmacy_poc.market_bus_growth_metric
+filter: line_of_business = 'PHARMACY'
+fields:
+- name: line_of_business
+  expr: line_of_business
+  display_name: Line Of Business
+  comment: Pharmacy line of business. View is hard-filtered to PHARMACY.
+  synonyms:
+  - pharmacy
+  - rx
+- name: business_unit
+  expr: business_unit
+  display_name: Business Unit
+  comment: Business unit code.
+  synonyms:
+  - BU
+- name: business_unit_name
+  expr: business_unit_name
+  display_name: Business Unit Name
+  comment: Business unit name.
+  synonyms:
+  - BU name
+- name: business_unit_display_name
+  expr: business_unit_display_name
+  display_name: Business Unit Display Name
+  comment: Display-friendly business unit label.
+  synonyms: []
+- name: region_number
+  expr: region_number
+  display_name: Region Number
+  comment: Region identifier.
+  synonyms:
+  - region number
+  - region id
+- name: region_name
+  expr: region_name
+  display_name: Region Name
+  comment: Region name.
+  synonyms:
+  - region label
+- name: region_display_name
+  expr: region_display_name
+  display_name: Region Display Name
+  comment: Display-friendly region label.
+  synonyms: []
+- name: market_number
+  expr: market_number
+  display_name: Market Number
+  comment: Market identifier.
+  synonyms:
+  - market number
+  - market id
+- name: market_name
+  expr: market_name
+  display_name: Market Name
+  comment: Market name.
+  synonyms:
+  - market label
+- name: market_display_name
+  expr: market_display_name
+  display_name: Market Display Name
+  comment: Display-friendly market label.
+  synonyms: []
+- name: store_number
+  expr: store_number
+  display_name: Store Number
+  comment: Store identifier.
+  synonyms:
+  - store number
+  - store id
+- name: store_name
+  expr: store_name
+  display_name: Store Name
+  comment: Store name.
+  synonyms: []
+- name: store_display_name
+  expr: store_display_name
+  display_name: Store Display Name
+  comment: Display-friendly store label.
+  synonyms: []
+- name: store_status
+  expr: store_status
+  display_name: Store Status
+  comment: Operational status of the store.
+  synonyms: []
+- name: is_active_store
+  expr: is_active_store
+  display_name: Active Store Flag
+  comment: Indicates whether the store is active.
+  synonyms: []
+- name: store_manager_name
+  expr: store_manager_name
+  display_name: Store Manager Name
+  comment: Store manager ownership field.
+  synonyms: []
+- name: market_manager_name
+  expr: market_manager_name
+  display_name: Market Manager Name
+  comment: Market manager ownership field.
+  synonyms: []
+- name: region_manager_name
+  expr: region_manager_name
+  display_name: Region Manager Name
+  comment: Region manager ownership field.
+  synonyms: []
+- name: bu_manager_name
+  expr: bu_manager_name
+  display_name: BU Manager Name
+  comment: Business unit manager ownership field.
+  synonyms: []
+- name: op_company_code
+  expr: op_company_code
+  display_name: Operating Company Code
+  comment: Operating company code.
+  synonyms: []
+- name: load_time_stamp
+  expr: load_time_stamp
+  display_name: Load Timestamp
+  comment: Source load timestamp.
+  synonyms: []
+measures:
+- name: outcomesone_successful_completion_rate_store
+  expr: MAX(TRY_CAST(REGEXP_REPLACE(store_outcomesone_successful_completion_rate_ytd, '[^0-9.-]', '') AS DOUBLE))
+  display_name: OutcomesOne Successful Completion Rate (Store)
+  comment: OutcomesOne Successful Completion Rate at Store level. Pre-calculated YTD source snapshot; direct-column fetch
+    only. Do not recompute or aggregate across time or hierarchy.
+  synonyms:
+  - Successful Completion Rate store
+  - Successful Completion Rate by store
+- name: outcomesone_successful_completion_rate_market
+  expr: MAX(TRY_CAST(REGEXP_REPLACE(market_outcomesone_successful_completion_rate_ytd, '[^0-9.-]', '') AS DOUBLE))
+  display_name: OutcomesOne Successful Completion Rate (Market)
+  comment: OutcomesOne Successful Completion Rate at Market level. Pre-calculated YTD source snapshot; direct-column fetch
+    only. Do not recompute or aggregate across time or hierarchy.
+  synonyms:
+  - Successful Completion Rate market
+  - Successful Completion Rate by market
+- name: outcomesone_successful_completion_rate_region
+  expr: MAX(TRY_CAST(REGEXP_REPLACE(region_outcomesone_successful_completion_rate_ytd, '[^0-9.-]', '') AS DOUBLE))
+  display_name: OutcomesOne Successful Completion Rate (Region)
+  comment: OutcomesOne Successful Completion Rate at Region level. Pre-calculated YTD source snapshot; direct-column fetch
+    only. Do not recompute or aggregate across time or hierarchy.
+  synonyms:
+  - Successful Completion Rate region
+  - Successful Completion Rate by region
+- name: outcomesone_successful_completion_rate_bu
+  expr: MAX(TRY_CAST(REGEXP_REPLACE(bu_outcomesone_successful_completion_rate_ytd, '[^0-9.-]', '') AS DOUBLE))
+  display_name: OutcomesOne Successful Completion Rate (Business Unit)
+  comment: OutcomesOne Successful Completion Rate at Business Unit level. Pre-calculated YTD source snapshot; direct-column
+    fetch only. Do not recompute or aggregate across time or hierarchy.
+  synonyms:
+  - Successful Completion Rate business unit
+  - Successful Completion Rate BU
+- name: outcomesone_successful_completion_rate_lob
+  expr: MAX(TRY_CAST(REGEXP_REPLACE(lob_outcomesone_successful_completion_rate_ytd, '[^0-9.-]', '') AS DOUBLE))
+  display_name: OutcomesOne Successful Completion Rate (LOB)
+  comment: OutcomesOne Successful Completion Rate at LOB level. Pre-calculated YTD source snapshot; direct-column fetch only.
+    Do not recompute or aggregate across time or hierarchy.
+  synonyms:
+  - Successful Completion Rate
+  - Successful Completion Rate overall
+- name: completion_rate_store
+  expr: MAX(TRY_CAST(REGEXP_REPLACE(store_completion_rate_ytd, '[^0-9.-]', '') AS DOUBLE))
+  display_name: Completion Rate (Store)
+  comment: Completion Rate at Store level. Pre-calculated YTD source snapshot; direct-column fetch only. Do not recompute
+    or aggregate across time or hierarchy.
+  synonyms:
+  - Completion Rate store
+  - Completion Rate by store
+- name: completion_rate_market
+  expr: MAX(TRY_CAST(REGEXP_REPLACE(market_completion_rate_ytd, '[^0-9.-]', '') AS DOUBLE))
+  display_name: Completion Rate (Market)
+  comment: Completion Rate at Market level. Pre-calculated YTD source snapshot; direct-column fetch only. Do not recompute
+    or aggregate across time or hierarchy.
+  synonyms:
+  - Completion Rate market
+  - Completion Rate by market
+- name: completion_rate_region
+  expr: MAX(TRY_CAST(REGEXP_REPLACE(region_completion_rate_ytd, '[^0-9.-]', '') AS DOUBLE))
+  display_name: Completion Rate (Region)
+  comment: Completion Rate at Region level. Pre-calculated YTD source snapshot; direct-column fetch only. Do not recompute
+    or aggregate across time or hierarchy.
+  synonyms:
+  - Completion Rate region
+  - Completion Rate by region
+- name: completion_rate_bu
+  expr: MAX(TRY_CAST(REGEXP_REPLACE(bu_completion_rate_ytd, '[^0-9.-]', '') AS DOUBLE))
+  display_name: Completion Rate (Business Unit)
+  comment: Completion Rate at Business Unit level. Pre-calculated YTD source snapshot; direct-column fetch only. Do not recompute
+    or aggregate across time or hierarchy.
+  synonyms:
+  - Completion Rate business unit
+  - Completion Rate BU
+- name: completion_rate_lob
+  expr: MAX(TRY_CAST(REGEXP_REPLACE(lob_completion_rate_ytd, '[^0-9.-]', '') AS DOUBLE))
+  display_name: Completion Rate (LOB)
+  comment: Completion Rate at LOB level. Pre-calculated YTD source snapshot; direct-column fetch only. Do not recompute or
+    aggregate across time or hierarchy.
+  synonyms:
+  - Completion Rate
+  - Completion Rate overall
+- name: validation_rate_store
+  expr: MAX(TRY_CAST(REGEXP_REPLACE(store_validation_rate_ytd, '[^0-9.-]', '') AS DOUBLE))
+  display_name: Validation Rate (Store)
+  comment: Validation Rate at Store level. Pre-calculated YTD source snapshot; direct-column fetch only. Do not recompute
+    or aggregate across time or hierarchy.
+  synonyms:
+  - Validation Rate store
+  - Validation Rate by store
+- name: validation_rate_market
+  expr: MAX(TRY_CAST(REGEXP_REPLACE(market_validation_rate_ytd, '[^0-9.-]', '') AS DOUBLE))
+  display_name: Validation Rate (Market)
+  comment: Validation Rate at Market level. Pre-calculated YTD source snapshot; direct-column fetch only. Do not recompute
+    or aggregate across time or hierarchy.
+  synonyms:
+  - Validation Rate market
+  - Validation Rate by market
+- name: validation_rate_region
+  expr: MAX(TRY_CAST(REGEXP_REPLACE(region_validation_rate_ytd, '[^0-9.-]', '') AS DOUBLE))
+  display_name: Validation Rate (Region)
+  comment: Validation Rate at Region level. Pre-calculated YTD source snapshot; direct-column fetch only. Do not recompute
+    or aggregate across time or hierarchy.
+  synonyms:
+  - Validation Rate region
+  - Validation Rate by region
+- name: validation_rate_bu
+  expr: MAX(TRY_CAST(REGEXP_REPLACE(bu_validation_rate_ytd, '[^0-9.-]', '') AS DOUBLE))
+  display_name: Validation Rate (Business Unit)
+  comment: Validation Rate at Business Unit level. Pre-calculated YTD source snapshot; direct-column fetch only. Do not recompute
+    or aggregate across time or hierarchy.
+  synonyms:
+  - Validation Rate business unit
+  - Validation Rate BU
+- name: validation_rate_lob
+  expr: MAX(TRY_CAST(REGEXP_REPLACE(lob_validation_rate_ytd, '[^0-9.-]', '') AS DOUBLE))
+  display_name: Validation Rate (LOB)
+  comment: Validation Rate at LOB level. Pre-calculated YTD source snapshot; direct-column fetch only. Do not recompute or
+    aggregate across time or hierarchy.
+  synonyms:
+  - Validation Rate
+  - Validation Rate overall

@@ -1000,9 +1000,10 @@ def generate_user_api_scopes(config: AppConfig) -> list[str]:
 
     # RESOURCELESS MCP tools carry OBO on the function because there is no
     # resource object to declare it on: the workspace-wide Genie MCP server
-    # (``genie: true``), the serverless DBSQL MCP server (``sql: true``), and a
-    # direct ``url`` server all front no registerable resource. Their OBO
-    # ``mcp.*`` scope can only come from the tool function, so scan those here.
+    # (``genie: true``), the serverless DBSQL MCP server (``sql: true``), a
+    # direct ``url`` server, and a Unity-AI-Gateway MCP service securable
+    # (``service: catalog.schema.name``) all front no registerable resource.
+    # Their OBO scope can only come from the tool function, so scan those here.
     #
     # An MCP tool that references a *declarable* resource (genie_room,
     # vector_search, connection, app, functions) is deliberately NOT scanned:
@@ -1017,7 +1018,10 @@ def generate_user_api_scopes(config: AppConfig) -> list[str]:
         if not function.on_behalf_of_user:
             continue
         is_resourceless: bool = (
-            function.genie is True or function.sql is True or function.url is not None
+            function.genie is True
+            or function.sql is True
+            or function.url is not None
+            or function.service is not None
         )
         if is_resourceless:
             obo_resources.append(function)

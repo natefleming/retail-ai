@@ -26,7 +26,7 @@ class TestMcpFunctionModelValidation:
         """Test that missing URL source raises validation error."""
         with pytest.raises(
             ValidationError,
-            match="url, app, connection, genie_room, genie, sql, vector_search, or functions",
+            match="url, app, connection, genie_room, genie, sql, vector_search, functions, or service",
         ):
             McpFunctionModel(
                 transport=TransportType.STREAMABLE_HTTP,
@@ -208,6 +208,40 @@ class TestMcpFunctionModelUrlGeneration:
             "https://adb-123.azuredatabricks.net/api/2.0/mcp/external/my_connection"
         )
         assert model.mcp_url == expected
+
+    def test_service_url_generation(self):
+        """Test AI Gateway URL generation for a system.ai MCP service securable."""
+        model = McpFunctionModel(
+            transport=TransportType.STREAMABLE_HTTP,
+            service="system.ai.microsoft_365",
+            workspace_host="https://adb-123.azuredatabricks.net",
+        )
+        expected = (
+            "https://adb-123.azuredatabricks.net"
+            "/ai-gateway/mcp-services/system.ai.microsoft_365"
+        )
+        assert model.mcp_url == expected
+
+    def test_service_alone_is_valid(self):
+        """A lone service source satisfies the STREAMABLE_HTTP requirement."""
+        model = McpFunctionModel(
+            transport=TransportType.STREAMABLE_HTTP,
+            service="system.ai.atlassian",
+            workspace_host="https://adb-123.azuredatabricks.net",
+        )
+        assert model.service == "system.ai.atlassian"
+
+    def test_service_and_connection_mutually_exclusive(self):
+        """service and connection cannot be provided together."""
+        with pytest.raises(
+            ValidationError, match="only one URL source can be provided"
+        ):
+            McpFunctionModel(
+                transport=TransportType.STREAMABLE_HTTP,
+                service="system.ai.microsoft_365",
+                connection=ConnectionModel(name="test_connection"),
+                workspace_host="https://workspace.com",
+            )
 
     def test_trailing_slash_removed_from_workspace_host(self):
         """Test that trailing slash is removed from workspace host."""

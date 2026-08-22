@@ -420,6 +420,12 @@ class TestMcpFunctionApiScopes:
         fn = McpFunctionModel(url="https://host/mcp")
         assert list(fn.api_scopes) == ["serving.serving-endpoints"]
 
+    def test_service_scope_is_ai_gateway(self) -> None:
+        # A UC MCP service securable is reached through the Unity AI Gateway,
+        # so its OBO scope is ``ai-gateway``.
+        fn = McpFunctionModel(service="system.ai.microsoft_365")
+        assert list(fn.api_scopes) == ["ai-gateway"]
+
 
 @pytest.mark.unit
 class TestMcpToolObOUserScopes:
@@ -472,3 +478,20 @@ class TestMcpToolObOUserScopes:
         cfg = self._agent_cfg(ToolModel(name="genie_all", function=fn), "rl-nonobo")
         scopes = generate_user_api_scopes(cfg)
         assert "genie" not in scopes and "mcp.genie" not in scopes
+
+    def test_resourceless_service_obo_emits_ai_gateway(self) -> None:
+        # A `service:` MCP tool fronts a UC MCP securable via the Unity AI
+        # Gateway — no registerable resource — so the tool-level OBO flag is the
+        # only source and MUST emit the ``ai-gateway`` scope.
+        fn = McpFunctionModel(service="system.ai.microsoft_365", on_behalf_of_user=True)
+        cfg = self._agent_cfg(ToolModel(name="ms365_mcp", function=fn), "rl-svc")
+        scopes = generate_user_api_scopes(cfg)
+        assert "ai-gateway" in scopes
+
+    def test_non_obo_service_emits_nothing(self) -> None:
+        fn = McpFunctionModel(
+            service="system.ai.microsoft_365", on_behalf_of_user=False
+        )
+        cfg = self._agent_cfg(ToolModel(name="ms365_mcp", function=fn), "rl-svc-noobo")
+        scopes = generate_user_api_scopes(cfg)
+        assert "ai-gateway" not in scopes

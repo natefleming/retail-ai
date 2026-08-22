@@ -386,8 +386,13 @@ def register_agent_as_tool(mcp: FastMCP, config: AppConfig) -> str:
 
     app_name: str = str(config.app.name)
     tool_name: str = _slugify(app_name)
+    # `mcp_tool_description` (if set) is the description clients route on — it can
+    # be richer/longer than `app.description`, which the Databricks Apps API caps
+    # at 500 chars. Fall back to `app.description`, then a generated default.
     description: str = (
-        str(config.app.description)
+        str(config.app.mcp_tool_description)
+        if config.app.mcp_tool_description
+        else str(config.app.description)
         if config.app.description
         else _default_description(app_name)
     )
