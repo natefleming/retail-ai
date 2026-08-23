@@ -3972,15 +3972,6 @@ class ConnectionRegistrationModel(BaseModel):
             "`{secret: {...}}` reference over an inline value. Ignored for M2M."
         ),
     )
-    oauth_credential_exchange_method: str = Field(
-        default="header_and_body",
-        description=(
-            "How the U2M connection passes client credentials during the token "
-            "exchange (OAUTH_U2M_MAPPING only). Defaults to `header_and_body`, the "
-            "value the Databricks OIDC token endpoint expects for these "
-            "connections."
-        ),
-    )
     oauth_scope: str = Field(
         default="all-apis",
         description="OAuth scope for the connection (M2M and U2M). Defaults to all-apis.",

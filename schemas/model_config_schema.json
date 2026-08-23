@@ -2605,12 +2605,6 @@
           "description": "Client secret of the dedicated custom OAuth app integration (`confidential: true`). Supplied to the OAUTH_U2M_MAPPING connection so it can complete the authorization-code exchange. Prefer a `{secret: {...}}` reference over an inline value. Ignored for M2M.",
           "title": "Oauth Client Secret"
         },
-        "oauth_credential_exchange_method": {
-          "default": "header_and_body",
-          "description": "How the U2M connection passes client credentials during the token exchange (OAUTH_U2M_MAPPING only). Defaults to `header_and_body`, the value the Databricks OIDC token endpoint expects for these connections.",
-          "title": "Oauth Credential Exchange Method",
-          "type": "string"
-        },
         "oauth_scope": {
           "default": "all-apis",
           "description": "OAuth scope for the connection (M2M and U2M). Defaults to all-apis.",

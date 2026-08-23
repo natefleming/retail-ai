@@ -64,7 +64,6 @@ def test_connection_registration_model_defaults() -> None:
     assert reg.on_behalf_of_user is False
     assert reg.oauth_client_id is None
     assert reg.oauth_client_secret is None
-    assert reg.oauth_credential_exchange_method == "header_and_body"
     assert reg.oauth_scope == "all-apis"
 
 
@@ -86,8 +85,6 @@ def test_connection_registration_u2m_requires_client_id() -> None:
     assert reg.on_behalf_of_user is True
     assert reg.oauth_client_id == "dedicated-cid"
     assert reg.oauth_client_secret == "dedicated-secret"
-    # Sensible default for the credential exchange method.
-    assert reg.oauth_credential_exchange_method == "header_and_body"
 
 
 @pytest.mark.unit
@@ -392,7 +389,6 @@ def test_register_mcp_connection_u2m() -> None:
     )
     assert created["client_id"] == "dedicated-cid"
     assert created["client_secret"] == "dedicated-secret"
-    assert created["oauth_credential_exchange_method"] == "header_and_body"
     assert created["is_mcp_connection"] == "true"
     assert created["base_path"] == "/mcp"
 

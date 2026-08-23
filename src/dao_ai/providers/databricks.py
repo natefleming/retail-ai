@@ -3021,9 +3021,6 @@ class DatabricksProvider(ServiceProvider):
                 "base_path": "/mcp",
                 "is_mcp_connection": "true",
                 "oauth_scope": reg.oauth_scope,
-                "oauth_credential_exchange_method": (
-                    reg.oauth_credential_exchange_method
-                ),
                 "authorization_endpoint": f"{host}/oidc/v1/authorize",
                 "token_endpoint": f"{host}/oidc/v1/token",
                 "client_id": oauth_client_id,
