@@ -343,15 +343,26 @@ app:
     #
     # on_behalf_of_user: true → OAUTH_U2M_MAPPING: the connection forwards the
     # calling user's Databricks identity, so the app's OBO tools run as the end
-    # user (per-user Genie access + system.ai tools). Requires a custom OAuth app
-    # (account admin: `databricks account custom-app-integration create` with
-    # `all-apis` scope + the connection's OAuth redirect URL); pass its client id
-    # as `oauth_client_id`. Each user completes a one-time OAuth consent and needs
-    # CAN_USE on the app. dao-ai derives the authorization/token endpoints, scope,
-    # host, port, and base_path. (Gateway→App identity forwarding is still being
-    # validated — see the README auth section.)
+    # user (per-user Genie access + system.ai tools). Each user completes a
+    # one-time OAuth consent and needs CAN_USE on the app. dao-ai derives the
+    # authorization/token endpoints, host, port, and base_path.
+    #
+    # U2M REQUIRES a DEDICATED account-level custom OAuth app integration — the
+    # app's own oauth2_app_client_id CANNOT be used (its redirect allowlist is
+    # pinned to the app URL and rejects the connection callback
+    # `/login/oauth/http.html`; see GAIA-435). Create one (account admin):
+    #   databricks account custom-app-integration create --json '{
+    #     "name": "walmart-mcp-u2m",
+    #     "redirect_urls": ["https://<caller-host>/login/oauth/http.html"],
+    #     "confidential": true,
+    #     "scopes": ["all-apis","offline_access","openid","email","profile"],
+    #     "token_access_policy": {"access_token_ttl_in_minutes": 60,
+    #                              "refresh_token_ttl_in_minutes": 10080}}'
+    # then pass its client id (+ secret). `offline_access` is required — without a
+    # refresh token the connection stops working after ~1h.
     # on_behalf_of_user: true
     # oauth_client_id: ${var.mcp_oauth_client_id}
+    # oauth_client_secret: ${var.mcp_oauth_client_secret}   # {secret: {...}} ref preferred
 
 # =============================================================================
 # DATASETS  (dao-ai-native table provisioning — run by the workflow pipeline)

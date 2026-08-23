@@ -3940,20 +3940,45 @@ class ConnectionRegistrationModel(BaseModel):
             "connection forwards the *calling user's* Databricks identity (each "
             "user does a one-time OAuth consent), so the app's on-behalf-of-user "
             "tools run as the end user — required for per-user Genie access and "
-            "system.ai OBO tools through Genie One. U2M requires `oauth_client_id` "
-            "(a custom OAuth app created by an account admin); dao-ai derives the "
-            "authorization/token endpoints, scope, host, port, and base_path."
+            "system.ai OBO tools through Genie One. U2M requires a DEDICATED "
+            "account-level custom OAuth app integration; pass its client id as "
+            "`oauth_client_id` (and secret as `oauth_client_secret`). The app's "
+            "own auto-generated `oauth2_app_client_id` CANNOT be used — its "
+            "redirect allowlist is pinned to the app URL and can't include the "
+            "connection callback `/login/oauth/http.html` (see GAIA-435). dao-ai "
+            "derives the authorization/token endpoints, host, port, and base_path."
         ),
     )
     oauth_client_id: Optional[AnyVariable] = Field(
         default=None,
         description=(
-            "Client id of the custom Databricks OAuth app that brokers the U2M "
-            "authorization-code flow. Required when `on_behalf_of_user: true`; "
-            "ignored for M2M. Create the app with `databricks account "
-            "custom-app-integration create` (account admin), with `all-apis` "
-            "scope and the connection's OAuth redirect URL. No client_secret is "
-            "needed for the OAUTH_U2M_MAPPING connection."
+            "Client id of the DEDICATED custom OAuth app integration that brokers "
+            "the U2M authorization-code flow. Required when `on_behalf_of_user: "
+            "true`; ignored for M2M. Create it (account admin) with `databricks "
+            "account custom-app-integration create` in the APP's account, with "
+            "`confidential: true`, `redirect_urls` including "
+            "`https://<caller-workspace-host>/login/oauth/http.html`, and scopes "
+            "`all-apis offline_access openid email profile` (`offline_access` is "
+            "required for refresh tokens — without it the connection stops working "
+            "after ~1h). The app's own `oauth2_app_client_id` will NOT work here."
+        ),
+    )
+    oauth_client_secret: Optional[AnyVariable] = Field(
+        default=None,
+        description=(
+            "Client secret of the dedicated custom OAuth app integration "
+            "(`confidential: true`). Supplied to the OAUTH_U2M_MAPPING connection "
+            "so it can complete the authorization-code exchange. Prefer a "
+            "`{secret: {...}}` reference over an inline value. Ignored for M2M."
+        ),
+    )
+    oauth_credential_exchange_method: str = Field(
+        default="header_and_body",
+        description=(
+            "How the U2M connection passes client credentials during the token "
+            "exchange (OAUTH_U2M_MAPPING only). Defaults to `header_and_body`, the "
+            "value the Databricks OIDC token endpoint expects for these "
+            "connections."
         ),
     )
     oauth_scope: str = Field(
@@ -3965,10 +3990,16 @@ class ConnectionRegistrationModel(BaseModel):
     def _require_client_id_for_obo(self) -> Self:
         if self.on_behalf_of_user and self.oauth_client_id is None:
             raise ValueError(
-                "app.connection.on_behalf_of_user: true requires "
-                "`oauth_client_id` (the custom OAuth app's client id that brokers "
-                "the U2M flow). Create it with `databricks account "
-                "custom-app-integration create` and set oauth_client_id."
+                "app.connection.on_behalf_of_user: true requires `oauth_client_id` "
+                "(the client id of a DEDICATED custom OAuth app integration that "
+                "brokers the U2M flow). The app's own auto-generated "
+                "`oauth2_app_client_id` cannot be used — its redirect allowlist is "
+                "pinned to the app URL and can't include the connection callback "
+                "`/login/oauth/http.html` (GAIA-435). Create the integration with "
+                "`databricks account custom-app-integration create` (confidential, "
+                "redirect_urls including `https://<caller-host>/login/oauth/http.html`, "
+                "scopes `all-apis offline_access openid email profile`) and set "
+                "oauth_client_id (+ oauth_client_secret)."
             )
         return self
 

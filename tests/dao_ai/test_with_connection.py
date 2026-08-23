@@ -63,21 +63,31 @@ def test_connection_registration_model_defaults() -> None:
     # Auth defaults to M2M.
     assert reg.on_behalf_of_user is False
     assert reg.oauth_client_id is None
+    assert reg.oauth_client_secret is None
+    assert reg.oauth_credential_exchange_method == "header_and_body"
     assert reg.oauth_scope == "all-apis"
 
 
 @pytest.mark.unit
 def test_connection_registration_u2m_requires_client_id() -> None:
-    """on_behalf_of_user (U2M) requires a custom OAuth app client_id."""
+    """U2M (on_behalf_of_user) requires a DEDICATED custom OAuth app client_id.
+    The app's own oauth2_app_client_id cannot be used (redirect allowlist pinned
+    to the app URL — GAIA-435), so there is no auto-derivation fallback."""
     sm = SchemaModel(catalog_name="c", schema_name="s")
     with pytest.raises(Exception, match="oauth_client_id"):
         ConnectionRegistrationModel(schema=sm, on_behalf_of_user=True)
-    # With a client_id it is valid.
+    # With a dedicated client_id (+ optional secret) it is valid.
     reg = ConnectionRegistrationModel(
-        schema=sm, on_behalf_of_user=True, oauth_client_id="oauth-app-cid"
+        schema=sm,
+        on_behalf_of_user=True,
+        oauth_client_id="dedicated-cid",
+        oauth_client_secret="dedicated-secret",
     )
     assert reg.on_behalf_of_user is True
-    assert reg.oauth_client_id == "oauth-app-cid"
+    assert reg.oauth_client_id == "dedicated-cid"
+    assert reg.oauth_client_secret == "dedicated-secret"
+    # Sensible default for the credential exchange method.
+    assert reg.oauth_credential_exchange_method == "header_and_body"
 
 
 @pytest.mark.unit
@@ -282,6 +292,7 @@ def _config_with_connection(
     *,
     on_behalf_of_user: bool = False,
     oauth_client_id: Optional[str] = None,
+    oauth_client_secret: Optional[str] = None,
 ) -> Any:
     """AppConfig-shaped mock whose ``app.connection`` is a real registration."""
     sm = SchemaModel(catalog_name="main", schema_name="genie")
@@ -289,6 +300,7 @@ def _config_with_connection(
         schema=sm,
         on_behalf_of_user=on_behalf_of_user,
         oauth_client_id=oauth_client_id,
+        oauth_client_secret=oauth_client_secret,
     )
     if grant_principals is not None:
         reg.grant_principals = grant_principals
@@ -356,25 +368,31 @@ def test_register_mcp_connection_full_sequence() -> None:
 @pytest.mark.unit
 def test_register_mcp_connection_u2m() -> None:
     """U2M (on_behalf_of_user) creates an OAUTH_U2M_MAPPING connection with the
-    custom OAuth app's client_id + authorization_endpoint and NO minted secret,
-    and grants the forwarding users (not the app SP) CAN_USE on the app."""
+    DEDICATED custom OAuth app's client_id + secret + authorization_endpoint +
+    credential-exchange method and NO app-SP minted secret, and grants the
+    forwarding users (not the app SP) CAN_USE on the app."""
     w = _FakeWorkspaceClient()
     provider = DatabricksProvider(w=w)
     provider.register_mcp_connection(
-        _config_with_connection(on_behalf_of_user=True, oauth_client_id="oauth-app-cid")
+        _config_with_connection(
+            on_behalf_of_user=True,
+            oauth_client_id="dedicated-cid",
+            oauth_client_secret="dedicated-secret",
+        )
     )
 
     # No app-SP secret is minted for U2M.
     assert w.secrets_created_for == []
 
-    # Connection created with U2M options: authorization_endpoint + the custom
-    # OAuth app client_id, and NO client_secret.
+    # Connection created with U2M options: authorization_endpoint + the dedicated
+    # OAuth app client_id/secret + credential exchange method.
     created = w.created_connections[0]["options"]
     assert created["authorization_endpoint"] == (
         "https://host.databricks.com/oidc/v1/authorize"
     )
-    assert created["client_id"] == "oauth-app-cid"
-    assert "client_secret" not in created
+    assert created["client_id"] == "dedicated-cid"
+    assert created["client_secret"] == "dedicated-secret"
+    assert created["oauth_credential_exchange_method"] == "header_and_body"
     assert created["is_mcp_connection"] == "true"
     assert created["base_path"] == "/mcp"
 
@@ -383,6 +401,21 @@ def test_register_mcp_connection_u2m() -> None:
     acl = w.updated_permissions[0]["acl"]
     assert [e.group_name for e in acl] == ["account users"]
     assert all(e.service_principal_name is None for e in acl)
+
+
+@pytest.mark.unit
+def test_register_mcp_connection_u2m_secret_optional() -> None:
+    """A public dedicated OAuth client (no secret) still registers — client_secret
+    is only added to the options when provided."""
+    w = _FakeWorkspaceClient()
+    provider = DatabricksProvider(w=w)
+    provider.register_mcp_connection(
+        _config_with_connection(on_behalf_of_user=True, oauth_client_id="dedicated-cid")
+    )
+    created = w.created_connections[0]["options"]
+    assert created["client_id"] == "dedicated-cid"
+    assert "client_secret" not in created
+    assert w.secrets_created_for == []
 
 
 @pytest.mark.unit

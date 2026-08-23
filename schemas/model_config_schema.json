@@ -2533,7 +2533,7 @@
         },
         "on_behalf_of_user": {
           "default": false,
-          "description": "Auth mode for the UC connection to the app's /mcp surface. False (default) \u2192 OAUTH_M2M: the connection authenticates as the app's service principal (client-credentials), so the app sees the SP identity for every caller. True \u2192 OAUTH_U2M_MAPPING: the connection forwards the *calling user's* Databricks identity (each user does a one-time OAuth consent), so the app's on-behalf-of-user tools run as the end user \u2014 required for per-user Genie access and system.ai OBO tools through Genie One. U2M requires `oauth_client_id` (a custom OAuth app created by an account admin); dao-ai derives the authorization/token endpoints, scope, host, port, and base_path.",
+          "description": "Auth mode for the UC connection to the app's /mcp surface. False (default) \u2192 OAUTH_M2M: the connection authenticates as the app's service principal (client-credentials), so the app sees the SP identity for every caller. True \u2192 OAUTH_U2M_MAPPING: the connection forwards the *calling user's* Databricks identity (each user does a one-time OAuth consent), so the app's on-behalf-of-user tools run as the end user \u2014 required for per-user Genie access and system.ai OBO tools through Genie One. U2M requires a DEDICATED account-level custom OAuth app integration; pass its client id as `oauth_client_id` (and secret as `oauth_client_secret`). The app's own auto-generated `oauth2_app_client_id` CANNOT be used \u2014 its redirect allowlist is pinned to the app URL and can't include the connection callback `/login/oauth/http.html` (see GAIA-435). dao-ai derives the authorization/token endpoints, host, port, and base_path.",
           "title": "On Behalf Of User",
           "type": "boolean"
         },
@@ -2568,8 +2568,48 @@
             }
           ],
           "default": null,
-          "description": "Client id of the custom Databricks OAuth app that brokers the U2M authorization-code flow. Required when `on_behalf_of_user: true`; ignored for M2M. Create the app with `databricks account custom-app-integration create` (account admin), with `all-apis` scope and the connection's OAuth redirect URL. No client_secret is needed for the OAUTH_U2M_MAPPING connection.",
+          "description": "Client id of the DEDICATED custom OAuth app integration that brokers the U2M authorization-code flow. Required when `on_behalf_of_user: true`; ignored for M2M. Create it (account admin) with `databricks account custom-app-integration create` in the APP's account, with `confidential: true`, `redirect_urls` including `https://<caller-workspace-host>/login/oauth/http.html`, and scopes `all-apis offline_access openid email profile` (`offline_access` is required for refresh tokens \u2014 without it the connection stops working after ~1h). The app's own `oauth2_app_client_id` will NOT work here.",
           "title": "Oauth Client Id"
+        },
+        "oauth_client_secret": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CompositeVariableModel"
+            },
+            {
+              "$ref": "#/$defs/EnvironmentVariableModel"
+            },
+            {
+              "$ref": "#/$defs/SecretVariableModel"
+            },
+            {
+              "$ref": "#/$defs/PrimitiveVariableModel"
+            },
+            {
+              "type": "string"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Client secret of the dedicated custom OAuth app integration (`confidential: true`). Supplied to the OAUTH_U2M_MAPPING connection so it can complete the authorization-code exchange. Prefer a `{secret: {...}}` reference over an inline value. Ignored for M2M.",
+          "title": "Oauth Client Secret"
+        },
+        "oauth_credential_exchange_method": {
+          "default": "header_and_body",
+          "description": "How the U2M connection passes client credentials during the token exchange (OAUTH_U2M_MAPPING only). Defaults to `header_and_body`, the value the Databricks OIDC token endpoint expects for these connections.",
+          "title": "Oauth Credential Exchange Method",
+          "type": "string"
         },
         "oauth_scope": {
           "default": "all-apis",

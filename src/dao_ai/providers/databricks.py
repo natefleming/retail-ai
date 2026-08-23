@@ -2889,10 +2889,14 @@ class DatabricksProvider(ServiceProvider):
           ``<app_url>/mcp``. Every caller reaches the app as the SP.
         - **U2M (``on_behalf_of_user: true``):** grant the forwarding users
           (``grant_principals``) ``CAN_USE`` on the app (they invoke as
-          themselves), mint NO secret, and create an ``OAUTH_U2M_MAPPING``
-          connection with ``authorization_endpoint`` + the custom
-          ``oauth_client_id``. Each user completes a one-time OAuth consent before
-          the connection resolves their token.
+          themselves), mint NO app-SP secret, and create an ``OAUTH_U2M_MAPPING``
+          connection with ``authorization_endpoint`` + the ``oauth_client_id``
+          (and ``oauth_client_secret``) of a DEDICATED account-level custom OAuth
+          app integration. The app's own ``oauth2_app_client_id`` cannot be used
+          — its redirect allowlist is pinned to the app URL and rejects the
+          connection callback ``/login/oauth/http.html`` (GAIA-435). Each user
+          completes a one-time OAuth consent before the connection resolves their
+          token.
 
         Both modes then register the MCP service under the target schema and grant
         ``USE_CONNECTION`` + ``EXECUTE``.
@@ -2981,12 +2985,20 @@ class DatabricksProvider(ServiceProvider):
             logger.info("UC connection already exists; leaving as-is", name=conn)
         elif reg.on_behalf_of_user:
             # U2M (OAUTH_U2M_MAPPING): the connection forwards the *calling
-            # user's* Databricks identity via a custom OAuth app, so the app's
-            # on-behalf-of-user tools run as the end user (not the app SP). No
-            # app-SP secret is minted — the per-user token comes from a one-time
+            # user's* Databricks identity via a DEDICATED custom OAuth app, so the
+            # app's on-behalf-of-user tools run as the end user (not the app SP).
+            # No app-SP secret is minted — the per-user token comes from a one-time
             # OAuth consent. `authorization_endpoint` is what makes UC classify
             # the connection as U2M. Each end user must (a) have CAN_USE on the
             # app and (b) complete the connection's OAuth consent once.
+            #
+            # The client MUST be a dedicated account-level custom OAuth app
+            # integration whose redirect_urls include the connection callback
+            # `<host>/login/oauth/http.html`. The app's own auto-generated
+            # `oauth2_app_client_id` cannot be used — its redirect allowlist is
+            # pinned to the app URL, so the consent redirect is rejected with
+            # "redirect_uri ... not registered for OAuth application" (GAIA-435).
+            #
             # Validate the RESOLVED value, not just that the field is set: an
             # `oauth_client_id: {env: …}` AnyVariable passes the model validator
             # (field not None) but can resolve to None/"" when the env/secret is
@@ -2998,23 +3010,36 @@ class DatabricksProvider(ServiceProvider):
             if not oauth_client_id or oauth_client_id == "None":
                 raise RuntimeError(
                     "app.connection.on_behalf_of_user is true but oauth_client_id "
-                    f"resolved to empty for connection '{conn}'. Provide the custom "
-                    "OAuth app's client id (or ensure the env var / secret it "
-                    "references is set at deploy time)."
+                    f"resolved to empty for connection '{conn}'. Provide the "
+                    "dedicated custom OAuth app's client id (or ensure the env var "
+                    "/ secret it references is set at deploy time). The app's own "
+                    "oauth2_app_client_id cannot be used for a U2M connection."
                 )
+            options: dict[str, str] = {
+                "host": app_url,
+                "port": "443",
+                "base_path": "/mcp",
+                "is_mcp_connection": "true",
+                "oauth_scope": reg.oauth_scope,
+                "oauth_credential_exchange_method": (
+                    reg.oauth_credential_exchange_method
+                ),
+                "authorization_endpoint": f"{host}/oidc/v1/authorize",
+                "token_endpoint": f"{host}/oidc/v1/token",
+                "client_id": oauth_client_id,
+            }
+            # Confidential dedicated OAuth apps also carry a secret, which the
+            # connection needs to complete the authorization-code exchange.
+            resolved_secret = value_of(reg.oauth_client_secret)
+            oauth_client_secret: str = (
+                str(resolved_secret).strip() if resolved_secret else ""
+            )
+            if oauth_client_secret and oauth_client_secret != "None":
+                options["client_secret"] = oauth_client_secret
             self.w.connections.create(
                 name=conn,
                 connection_type=ConnectionType.HTTP,
-                options={
-                    "host": app_url,
-                    "port": "443",
-                    "base_path": "/mcp",
-                    "is_mcp_connection": "true",
-                    "oauth_scope": reg.oauth_scope,
-                    "authorization_endpoint": f"{host}/oidc/v1/authorize",
-                    "token_endpoint": f"{host}/oidc/v1/token",
-                    "client_id": oauth_client_id,
-                },
+                options=options,
             )
             logger.info(
                 "Created UC MCP connection (U2M / on-behalf-of-user)",
