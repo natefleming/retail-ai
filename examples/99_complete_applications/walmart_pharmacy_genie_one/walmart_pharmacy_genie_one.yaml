@@ -45,14 +45,24 @@
 # PARAMETERS  (everything is parameterized — override any at deploy via --param)
 # =============================================================================
 parameters:
+  # Required — no defaults, so a deploy must supply the target catalog/schema
+  # (--param catalog=... --param schema=..., or the equivalent var/env).
   catalog:
     description: >-
       Unity Catalog catalog for the metric views and where the Unity AI Gateway
       MCP service is registered.
-    default: retail_consumer_goods
   schema:
     description: Schema within the catalog (holds the metric views / source table).
-    default: walmart_pharmacy_poc
+
+  # --- On-behalf-of-user toggle (single switch for the whole POC) -------------
+  # One flag drives OBO everywhere: the three Genie rooms, the three system.ai
+  # service tools, and the app's UC connection all read ${var.on_behalf_of_user}.
+  # Defaults to false → M2M / app-SP identity. Set true to run every tool as the
+  # calling user (per-user Genie + system.ai OBO); U2M for the connection then
+  # additionally needs app.connection.oauth_client_id (see the connection block).
+  on_behalf_of_user:
+    description: Run all tools + the app connection on-behalf-of-user (OBO/U2M). true/false.
+    default: "false"
 
   # --- Agent model (OpenAI-flavored Databricks Model Serving endpoint) --------
   llm:
@@ -63,17 +73,14 @@ parameters:
     default: databricks-gpt-oss-120b
 
   # --- Genie space IDs (rooms are assumed to already exist) -------------------
-  # Set these at deploy. The placeholder defaults let the config load/validate;
-  # they will not resolve a real space until overridden.
+  # Required — no defaults, so a deploy must supply each real space id
+  # (--param clinical_space_id=..., or the equivalent var/env).
   clinical_space_id:
     description: Genie space ID for the Clinical Outcome Snapshot room.
-    default: REPLACE_WITH_CLINICAL_SPACE_ID
   growth_space_id:
     description: Genie space ID for the Core Business Growth room.
-    default: REPLACE_WITH_GROWTH_SPACE_ID
   digital_space_id:
     description: Genie space ID for the Digital Account Snapshot room.
-    default: REPLACE_WITH_DIGITAL_SPACE_ID
 
   # --- External system.ai managed-MCP services (Unity AI Gateway) -------------
   # These are three-part Unity Catalog MCP service securables served through the
@@ -120,7 +127,7 @@ resources:
         Rate — pre-calculated YTD snapshots at store / market / region / business
         unit / LOB level.
       space_id: ${var.clinical_space_id}
-      on_behalf_of_user: true
+      on_behalf_of_user: ${var.on_behalf_of_user}
 
     business_growth_room: &business_growth_room
       name: "Walmart Pharmacy — Core Business Growth"
@@ -129,7 +136,7 @@ resources:
         rates, messaging adoption, first-time-ready, out-of-stock, NPS, 5-star,
         script sales & counts, and immunizations.
       space_id: ${var.growth_space_id}
-      on_behalf_of_user: true
+      on_behalf_of_user: ${var.on_behalf_of_user}
 
     digital_account_room: &digital_account_room
       name: "Walmart Pharmacy — Digital Account Snapshot"
@@ -138,7 +145,7 @@ resources:
         Continuing Digital accounts — rolling 365-day snapshots at store /
         market / region / business unit / LOB level.
       space_id: ${var.digital_space_id}
-      on_behalf_of_user: true
+      on_behalf_of_user: ${var.on_behalf_of_user}
 
 # =============================================================================
 # TOOLS
@@ -188,21 +195,21 @@ tools:
     function:
       type: mcp
       service: ${var.microsoft_365_service}
-      on_behalf_of_user: true
+      on_behalf_of_user: ${var.on_behalf_of_user}
 
   atlassian_mcp: &atlassian_mcp
     name: atlassian_mcp
     function:
       type: mcp
       service: ${var.atlassian_service}
-      on_behalf_of_user: true
+      on_behalf_of_user: ${var.on_behalf_of_user}
 
   google_drive_mcp: &google_drive_mcp
     name: google_drive_mcp
     function:
       type: mcp
       service: ${var.google_drive_service}
-      on_behalf_of_user: true
+      on_behalf_of_user: ${var.on_behalf_of_user}
 
   # --- Web search (dao-ai built-in, zero-config DuckDuckGo) -------------------
   # No system.ai.web_search managed service exists; this built-in needs no UC
@@ -360,7 +367,10 @@ app:
     #                              "refresh_token_ttl_in_minutes": 10080}}'
     # then pass its client id (+ secret). `offline_access` is required — without a
     # refresh token the connection stops working after ~1h.
-    # on_behalf_of_user: true
+    #
+    # Driven by the same POC-wide toggle (default false → M2M). When it resolves
+    # true, U2M also needs a dedicated OAuth client — uncomment and supply these:
+    on_behalf_of_user: ${var.on_behalf_of_user}
     # oauth_client_id: ${var.mcp_oauth_client_id}
     # oauth_client_secret: ${var.mcp_oauth_client_secret}   # {secret: {...}} ref preferred
 
