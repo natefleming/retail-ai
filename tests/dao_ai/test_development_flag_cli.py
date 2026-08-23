@@ -1509,7 +1509,31 @@ class TestDeployAppBundle:
                 profile="fevm",
                 wait_timeout=120,
             )
-        ready.assert_called_once_with("app", "my-app", "fevm", 120)
+        ready.assert_called_once_with("app", "my-app", "fevm", 120, as_mcp=False)
+
+    def test_up_wait_passes_as_mcp_true_for_mcp_bundle(self, tmp_path: Path) -> None:
+        # An `--as-mcp` deploy must thread as_mcp=True into the readiness poller so
+        # it probes /healthz (not /health) — otherwise --wait blocks to the deadline.
+        cfg = _app_config(trace=False)
+        with (
+            patch.object(cli, "_exec_bundle_command"),
+            patch.object(cli, "_link_and_grant_trace"),
+            patch.object(cli, "_wait_for_resource_ready") as ready,
+        ):
+            deploy_app_bundle(
+                cfg,
+                staging_dir=tmp_path,
+                deploy=True,
+                run=True,
+                destroy=False,
+                profile="fevm",
+                wait_timeout=120,
+                as_mcp=True,
+            )
+        ready.assert_called_once()
+        args, kwargs = ready.call_args
+        assert args[0] == "app"
+        assert kwargs.get("as_mcp") is True
 
     def test_up_without_wait_does_not_poll(self, tmp_path: Path) -> None:
         cfg = _app_config(trace=False)
@@ -2101,7 +2125,7 @@ class TestDeployAutoGenerate:
                 ["agent", "up", "-c", str(cfg), "--direct", "--wait", "120"]
             )
             cli.handle_agent_command(opts)
-        ready.assert_called_once_with("app", "my-app", None, 120)
+        ready.assert_called_once_with("app", "my-app", None, 120, as_mcp=False)
 
     def test_direct_apps_up_without_wait_does_not_poll(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -3215,6 +3239,58 @@ class TestWaitForResourceReady:
             cli._wait_for_resource_ready(
                 "app", "my-app", profile=None, timeout_seconds=2
             )
+
+    def test_app_mcp_probes_healthz_route(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """An MCP app (`as_mcp=True`) must probe /healthz, not /health — the MCP
+        server serves /healthz+/readyz and mounts the MCP app at /, so /health
+        never 200s and --wait would block to the deadline (regression)."""
+        from databricks.sdk.service.apps import ApplicationState, ComputeState
+
+        def _app_get(name: str):
+            return self._app(
+                compute=ComputeState.ACTIVE, app_state=ApplicationState.RUNNING
+            )
+
+        probed: list[str] = []
+
+        def _http(url, **kw):
+            from types import SimpleNamespace
+
+            probed.append(url)
+            return SimpleNamespace(status_code=200)
+
+        self._patch(monkeypatch, app_get=_app_get, http_get=_http)
+        cli._wait_for_resource_ready(
+            "app", "mcp-app", profile=None, timeout_seconds=60, as_mcp=True
+        )
+        assert probed and probed[0].endswith("/healthz")
+
+    def test_app_chat_probes_health_route(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A non-MCP (chat/agent) app keeps probing /health (MLflow serving
+        convention) — the default when `as_mcp` is omitted."""
+        from databricks.sdk.service.apps import ApplicationState, ComputeState
+
+        def _app_get(name: str):
+            return self._app(
+                compute=ComputeState.ACTIVE, app_state=ApplicationState.RUNNING
+            )
+
+        probed: list[str] = []
+
+        def _http(url, **kw):
+            from types import SimpleNamespace
+
+            probed.append(url)
+            return SimpleNamespace(status_code=200)
+
+        self._patch(monkeypatch, app_get=_app_get, http_get=_http)
+        cli._wait_for_resource_ready("app", "chat-app", profile=None, timeout_seconds=60)
+        assert probed and probed[0].endswith("/health")
+        assert not probed[0].endswith("/healthz")
 
     # --- Model Serving ------------------------------------------------------
     def test_endpoint_ready_when_all_served_models_ready(
