@@ -2960,6 +2960,16 @@ class DatabricksProvider(ServiceProvider):
             ]
             if acl:
                 self.w.apps.update_permissions(app_name, access_control_list=acl)
+            else:
+                # U2M forwards the caller's identity, so users need CAN_USE on the
+                # app — an empty grant_principals leaves the connection unusable by
+                # everyone. Warn rather than silently create a dead connection.
+                logger.warning(
+                    "U2M connection has no grant_principals to grant CAN_USE on "
+                    "the app — no user will be able to invoke it until granted.",
+                    app_name=app_name,
+                    connection=conn,
+                )
         else:
             self.w.apps.update_permissions(
                 app_name,
@@ -3015,12 +3025,19 @@ class DatabricksProvider(ServiceProvider):
                     "/ secret it references is set at deploy time). The app's own "
                     "oauth2_app_client_id cannot be used for a U2M connection."
                 )
+            # U2M needs a refresh token so a user's consent outlives the access
+            # token (~1h) — otherwise the connection stops working an hour after
+            # each consent. Ensure `offline_access` is requested (it's a no-op for
+            # M2M, so it lives only on this U2M path, not the shared default).
+            u2m_scope: str = reg.oauth_scope
+            if "offline_access" not in u2m_scope.split():
+                u2m_scope = f"{u2m_scope} offline_access".strip()
             options: dict[str, str] = {
                 "host": app_url,
                 "port": "443",
                 "base_path": "/mcp",
                 "is_mcp_connection": "true",
-                "oauth_scope": reg.oauth_scope,
+                "oauth_scope": u2m_scope,
                 "authorization_endpoint": f"{host}/oidc/v1/authorize",
                 "token_endpoint": f"{host}/oidc/v1/token",
                 "client_id": oauth_client_id,
@@ -3033,11 +3050,23 @@ class DatabricksProvider(ServiceProvider):
             )
             if oauth_client_secret and oauth_client_secret != "None":
                 options["client_secret"] = oauth_client_secret
-            self.w.connections.create(
-                name=conn,
-                connection_type=ConnectionType.HTTP,
-                options=options,
-            )
+            try:
+                self.w.connections.create(
+                    name=conn,
+                    connection_type=ConnectionType.HTTP,
+                    options=options,
+                )
+            except Exception:
+                # When a confidential dedicated OAuth app is used, ``options``
+                # carries its client_secret. A create failure's SDK exception may
+                # echo the request body, so re-raise a scrubbed error rather than
+                # let the secret reach a log/trace — mirroring the M2M path. When
+                # there is no secret, let the original (informative) error stand.
+                if "client_secret" in options:
+                    raise RuntimeError(
+                        f"Failed to create UC MCP connection '{conn}'"
+                    ) from None
+                raise
             logger.info(
                 "Created UC MCP connection (U2M / on-behalf-of-user)",
                 name=conn,

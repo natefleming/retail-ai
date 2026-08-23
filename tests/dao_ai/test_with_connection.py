@@ -391,6 +391,9 @@ def test_register_mcp_connection_u2m() -> None:
     assert created["client_secret"] == "dedicated-secret"
     assert created["is_mcp_connection"] == "true"
     assert created["base_path"] == "/mcp"
+    # U2M requests offline_access so a refresh token is issued (else the
+    # connection stops working ~1h after each user's consent).
+    assert "offline_access" in created["oauth_scope"].split()
 
     # CAN_USE granted to the forwarding users (group), NOT the app service principal.
     assert len(w.updated_permissions) == 1

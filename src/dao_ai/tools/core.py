@@ -10,6 +10,7 @@ This is "core" because it contains the essential infrastructure that all
 tool creation flows through, not because it contains all tools.
 """
 
+import re
 from collections import OrderedDict
 from typing import Sequence
 
@@ -96,19 +97,23 @@ def resolve_tool_names(tool_model: ToolModel) -> list[str]:
     return [tool_model.name]
 
 
+# Specific auth/login phrases — safe as plain substrings.
 _AUTH_DISCOVERY_MARKERS: tuple[str, ...] = (
     "login required",
     "please login",
     "not found for the connection",
     "credential for user identity",
-    "401",
-    "403",
     "forbidden",
     "unauthor",  # unauthorized / unauthenticated
     "insufficient_permissions",
     "permission_denied",
-    "oauth",
 )
+
+# HTTP auth status codes must match as standalone tokens, not as substrings of
+# unrelated numbers ("4030ms", "port 4011") or module paths — a bare "401"/"403"
+# substring (or an over-broad "oauth") would misclassify real bugs/network faults
+# as auth-discovery and silently drop the tool. Require a word boundary.
+_AUTH_STATUS_RE = re.compile(r"\b(401|403)\b")
 
 
 def _is_auth_discovery_error(exc: BaseException) -> bool:
@@ -127,7 +132,10 @@ def _is_auth_discovery_error(exc: BaseException) -> bool:
         if e is None or id(e) in seen:
             return False
         seen.add(id(e))
-        if any(m in str(e).lower() for m in _AUTH_DISCOVERY_MARKERS):
+        msg = str(e).lower()
+        if any(m in msg for m in _AUTH_DISCOVERY_MARKERS) or _AUTH_STATUS_RE.search(
+            msg
+        ):
             return True
         for sub in getattr(e, "exceptions", ()) or ():  # ExceptionGroup members
             if _walk(sub):

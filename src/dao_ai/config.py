@@ -3927,8 +3927,9 @@ class ConnectionRegistrationModel(BaseModel):
     grant_principals: list[str] = Field(
         default_factory=lambda: ["account users"],
         description="Principals granted USE_CONNECTION on the connection and "
-        "EXECUTE on the MCP service. The app's own service principal always "
-        "additionally receives CAN_USE on the app.",
+        "EXECUTE on the MCP service. Also granted CAN_USE on the app in U2M mode "
+        "(they are the forwarding users). In M2M mode the app's own service "
+        "principal receives CAN_USE instead (the connection authenticates as it).",
     )
     on_behalf_of_user: bool = Field(
         default=False,

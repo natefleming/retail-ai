@@ -2524,7 +2524,7 @@
           "title": "Service Name"
         },
         "grant_principals": {
-          "description": "Principals granted USE_CONNECTION on the connection and EXECUTE on the MCP service. The app's own service principal always additionally receives CAN_USE on the app.",
+          "description": "Principals granted USE_CONNECTION on the connection and EXECUTE on the MCP service. Also granted CAN_USE on the app in U2M mode (they are the forwarding users). In M2M mode the app's own service principal receives CAN_USE instead (the connection authenticates as it).",
           "items": {
             "type": "string"
           },

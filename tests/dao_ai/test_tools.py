@@ -80,6 +80,25 @@ def test_obo_mcp_tool_non_auth_failure_still_raises() -> None:
 
 
 @pytest.mark.unit
+def test_obo_mcp_number_containing_403_is_not_auth_and_raises() -> None:
+    """A non-auth failure whose message merely CONTAINS '403'/'401' as part of an
+    unrelated number (e.g. a timeout '4030ms') must still raise — the auth-status
+    match is word-boundary'd, so it is not misclassified as an auth-discovery skip."""
+    from dao_ai.config import McpFunctionModel
+
+    tool_registry.clear()
+    fn = McpFunctionModel(service="system.ai.atlassian", on_behalf_of_user=True)
+    tm = ToolModel(name="atlassian_mcp", function=fn)
+    with patch(
+        "dao_ai.tools.core.create_hooks",
+        side_effect=RuntimeError("Read timeout after 4030ms building tool"),
+    ):
+        with pytest.raises(RuntimeError):
+            create_tools([tm])
+    tool_registry.clear()
+
+
+@pytest.mark.unit
 def test_non_obo_mcp_tool_discovery_failure_still_raises() -> None:
     """A non-OBO MCP tool that fails discovery is a genuine misconfiguration and
     must still raise (no silent skip)."""
