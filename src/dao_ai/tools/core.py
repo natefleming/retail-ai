@@ -10,6 +10,7 @@ This is "core" because it contains the essential infrastructure that all
 tool creation flows through, not because it contains all tools.
 """
 
+import re
 from collections import OrderedDict
 from typing import Sequence
 
@@ -21,6 +22,7 @@ from loguru import logger
 from dao_ai.config import (
     AnyTool,
     BaseFunctionModel,
+    McpFunctionModel,
     ToolModel,
 )
 from dao_ai.hooks.core import create_hooks
@@ -95,6 +97,56 @@ def resolve_tool_names(tool_model: ToolModel) -> list[str]:
     return [tool_model.name]
 
 
+# Specific auth/login phrases — safe as plain substrings.
+_AUTH_DISCOVERY_MARKERS: tuple[str, ...] = (
+    "login required",
+    "please login",
+    "not found for the connection",
+    "credential for user identity",
+    "forbidden",
+    "unauthor",  # unauthorized / unauthenticated
+    "insufficient_permissions",
+    "permission_denied",
+)
+
+# HTTP auth status codes must match as standalone tokens, not as substrings of
+# unrelated numbers ("4030ms", "port 4011") or module paths — a bare "401"/"403"
+# substring (or an over-broad "oauth") would misclassify real bugs/network faults
+# as auth-discovery and silently drop the tool. Require a word boundary.
+_AUTH_STATUS_RE = re.compile(r"\b(401|403)\b")
+
+
+def _is_auth_discovery_error(exc: BaseException) -> bool:
+    """True if ``exc`` (or a nested/grouped cause) looks like an on-behalf-of-user
+    MCP *discovery* auth failure — a 401/403/"login required"/missing-credential
+    error — rather than a genuine bug (typo, client error, network fault).
+
+    MCP client errors surface wrapped in an ``ExceptionGroup``/``TaskGroup`` and a
+    ``RuntimeError``, so walk ``.exceptions`` and the ``__cause__``/``__context__``
+    chain, matching on the message. Only these are tolerated by ``create_tools``;
+    everything else re-raises so real misconfiguration surfaces.
+    """
+    seen: set[int] = set()
+
+    def _walk(e: BaseException | None) -> bool:
+        if e is None or id(e) in seen:
+            return False
+        seen.add(id(e))
+        msg = str(e).lower()
+        if any(m in msg for m in _AUTH_DISCOVERY_MARKERS) or _AUTH_STATUS_RE.search(
+            msg
+        ):
+            return True
+        for sub in getattr(e, "exceptions", ()) or ():  # ExceptionGroup members
+            if _walk(sub):
+                return True
+        return _walk(getattr(e, "__cause__", None)) or _walk(
+            getattr(e, "__context__", None)
+        )
+
+    return _walk(exc)
+
+
 def create_tools(tool_models: Sequence[ToolModel]) -> Sequence[RunnableLike]:
     """
     Create a list of tools based on the provided configuration.
@@ -120,7 +172,39 @@ def create_tools(tool_models: Sequence[ToolModel]) -> Sequence[RunnableLike]:
         if registered_tools is None:
             logger.trace("Creating tools", tool_name=name)
             function: AnyTool = tool_config.function
-            registered_tools = create_hooks(function)
+            try:
+                registered_tools = create_hooks(function)
+            except Exception as e:
+                # An on-behalf-of-user MCP server can reject discovery (tools/list)
+                # under the identity present at graph-build time — e.g. the app
+                # service principal hasn't linked the underlying SaaS account, so
+                # servers that gate tools/list on a linked credential (Atlassian,
+                # GitHub, …) return 401/403/"login required". That must not crash
+                # the whole agent: skip the tool with a warning so the rest load;
+                # it becomes usable once the caller's identity is linked (OBO) or
+                # its schema is supplied at deploy time (dao-ai#305). ONLY
+                # auth/discovery failures are tolerated — any other error on an OBO
+                # tool (typo'd securable, dao-ai MCP client bug, network fault), and
+                # every non-OBO / non-MCP tool, still raises so genuine
+                # misconfiguration surfaces instead of silently dropping a tool.
+                if (
+                    isinstance(function, McpFunctionModel)
+                    and function.on_behalf_of_user
+                    and _is_auth_discovery_error(e)
+                ):
+                    logger.warning(
+                        "Skipping OBO MCP tool that failed discovery at build time",
+                        tool_name=name,
+                        error=str(e),
+                        note=(
+                            "The agent will start without this tool. It requires "
+                            "the calling identity to have linked the MCP server's "
+                            "credential (OBO), or its tool schema supplied at "
+                            "deploy time. See dao-ai#305."
+                        ),
+                    )
+                    continue
+                raise
             logger.trace("Registering tools", tool_name=name)
             tool_registry[name] = registered_tools
         else:

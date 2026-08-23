@@ -108,6 +108,31 @@ def with_available_indexes(endpoint: dict[str, Any]) -> bool:
     return endpoint["num_indexes"] < 50
 
 
+_UUID_RE = re.compile(
+    r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"
+)
+
+
+def _app_can_use_acl_entry(principal: str) -> "AppAccessControlRequest":
+    """Build a CAN_USE app-permission ACL entry for a principal, inferring its
+    type: an email → user, a UUID → service principal (OAuth client id), anything
+    else (e.g. ``account users``) → group. Used for U2M MCP connections, where the
+    forwarded end users — not the app SP — must be authorized to invoke the app.
+    """
+    from databricks.sdk.service.apps import (
+        AppAccessControlRequest,
+        AppPermissionLevel,
+    )
+
+    p = principal.strip()
+    lvl = AppPermissionLevel.CAN_USE
+    if "@" in p:
+        return AppAccessControlRequest(user_name=p, permission_level=lvl)
+    if _UUID_RE.fullmatch(p):
+        return AppAccessControlRequest(service_principal_name=p, permission_level=lvl)
+    return AppAccessControlRequest(group_name=p, permission_level=lvl)
+
+
 def _workspace_client(
     pat: str | None = None,
     client_id: str | None = None,
@@ -2856,11 +2881,25 @@ class DatabricksProvider(ServiceProvider):
 
         Runs after the ``mcp-<app>`` App is up (``deploy_apps_agent`` calls it on
         the SDK path; the CLI bundle path calls it after ``deploy_app_bundle``).
-        Mirrors the manual walmart POC sequence:
-        grant the app's own SP ``CAN_USE`` on the app (the connection auths as
-        that SP via M2M OAuth), mint an OAuth secret, create the HTTP connection
-        pointing at ``<app_url>/mcp``, register the MCP service under the target
-        schema, then grant ``USE_CONNECTION`` + ``EXECUTE``.
+        The connection's auth mode is set by ``app.connection.on_behalf_of_user``:
+
+        - **M2M (default, ``on_behalf_of_user: false``):** grant the app's own SP
+          ``CAN_USE`` on the app (the connection authenticates as that SP), mint a
+          fresh SP OAuth secret, and create an ``OAUTH_M2M`` HTTP connection at
+          ``<app_url>/mcp``. Every caller reaches the app as the SP.
+        - **U2M (``on_behalf_of_user: true``):** grant the forwarding users
+          (``grant_principals``) ``CAN_USE`` on the app (they invoke as
+          themselves), mint NO app-SP secret, and create an ``OAUTH_U2M_MAPPING``
+          connection with ``authorization_endpoint`` + the ``oauth_client_id``
+          (and ``oauth_client_secret``) of a DEDICATED account-level custom OAuth
+          app integration. The app's own ``oauth2_app_client_id`` cannot be used
+          — its redirect allowlist is pinned to the app URL and rejects the
+          connection callback ``/login/oauth/http.html`` (GAIA-435). Each user
+          completes a one-time OAuth consent before the connection resolves their
+          token.
+
+        Both modes then register the MCP service under the target schema and grant
+        ``USE_CONNECTION`` + ``EXECUTE``.
 
         Idempotent. Error handling is split by intent: creating the connection
         and registering the service are the explicit deliverable of
@@ -2905,18 +2944,42 @@ class DatabricksProvider(ServiceProvider):
             )
         host: str = self.w.config.host.rstrip("/")
 
-        # 1. Authorize the app's OWN service principal to invoke the app. The
-        # UC connection authenticates as this SP (M2M); without CAN_USE the app
-        # rejects it and Genie One fails to connect. Merges, idempotent.
-        self.w.apps.update_permissions(
-            app_name,
-            access_control_list=[
-                AppAccessControlRequest(
-                    service_principal_name=client_id,
-                    permission_level=AppPermissionLevel.CAN_USE,
+        # 1. Authorize invocation of the app. Who needs CAN_USE depends on the
+        # connection's auth mode:
+        #   - M2M (default): the connection authenticates as the app's OWN
+        #     service principal, so that SP needs CAN_USE (without it the app
+        #     rejects the connection and Genie One fails to connect).
+        #   - U2M (on_behalf_of_user): the connection forwards the *calling
+        #     user's* identity, so the END USERS (grant_principals) — not the
+        #     app SP — must have CAN_USE. Each user also completes a one-time
+        #     OAuth consent before the connection resolves their token.
+        # Merges, idempotent.
+        if reg.on_behalf_of_user:
+            acl: list[AppAccessControlRequest] = [
+                _app_can_use_acl_entry(p) for p in reg.grant_principals
+            ]
+            if acl:
+                self.w.apps.update_permissions(app_name, access_control_list=acl)
+            else:
+                # U2M forwards the caller's identity, so users need CAN_USE on the
+                # app — an empty grant_principals leaves the connection unusable by
+                # everyone. Warn rather than silently create a dead connection.
+                logger.warning(
+                    "U2M connection has no grant_principals to grant CAN_USE on "
+                    "the app — no user will be able to invoke it until granted.",
+                    app_name=app_name,
+                    connection=conn,
                 )
-            ],
-        )
+        else:
+            self.w.apps.update_permissions(
+                app_name,
+                access_control_list=[
+                    AppAccessControlRequest(
+                        service_principal_name=client_id,
+                        permission_level=AppPermissionLevel.CAN_USE,
+                    )
+                ],
+            )
 
         # 2. Create the HTTP (MCP) connection if absent. Existence is an O(1)
         # ``get`` (NotFound == absent), not a full-metastore ``list``. Mint a
@@ -2930,6 +2993,85 @@ class DatabricksProvider(ServiceProvider):
             connection_exists = False
         if connection_exists:
             logger.info("UC connection already exists; leaving as-is", name=conn)
+        elif reg.on_behalf_of_user:
+            # U2M (OAUTH_U2M_MAPPING): the connection forwards the *calling
+            # user's* Databricks identity via a DEDICATED custom OAuth app, so the
+            # app's on-behalf-of-user tools run as the end user (not the app SP).
+            # No app-SP secret is minted — the per-user token comes from a one-time
+            # OAuth consent. `authorization_endpoint` is what makes UC classify
+            # the connection as U2M. Each end user must (a) have CAN_USE on the
+            # app and (b) complete the connection's OAuth consent once.
+            #
+            # The client MUST be a dedicated account-level custom OAuth app
+            # integration whose redirect_urls include the connection callback
+            # `<host>/login/oauth/http.html`. The app's own auto-generated
+            # `oauth2_app_client_id` cannot be used — its redirect allowlist is
+            # pinned to the app URL, so the consent redirect is rejected with
+            # "redirect_uri ... not registered for OAuth application" (GAIA-435).
+            #
+            # Validate the RESOLVED value, not just that the field is set: an
+            # `oauth_client_id: {env: …}` AnyVariable passes the model validator
+            # (field not None) but can resolve to None/"" when the env/secret is
+            # missing — which would otherwise create a permanently broken
+            # connection with client_id="None" (and the idempotent get→create
+            # guard would skip fixing it on re-deploy).
+            resolved = value_of(reg.oauth_client_id)
+            oauth_client_id: str = str(resolved).strip() if resolved else ""
+            if not oauth_client_id or oauth_client_id == "None":
+                raise RuntimeError(
+                    "app.connection.on_behalf_of_user is true but oauth_client_id "
+                    f"resolved to empty for connection '{conn}'. Provide the "
+                    "dedicated custom OAuth app's client id (or ensure the env var "
+                    "/ secret it references is set at deploy time). The app's own "
+                    "oauth2_app_client_id cannot be used for a U2M connection."
+                )
+            # U2M needs a refresh token so a user's consent outlives the access
+            # token (~1h) — otherwise the connection stops working an hour after
+            # each consent. Ensure `offline_access` is requested (it's a no-op for
+            # M2M, so it lives only on this U2M path, not the shared default).
+            u2m_scope: str = reg.oauth_scope
+            if "offline_access" not in u2m_scope.split():
+                u2m_scope = f"{u2m_scope} offline_access".strip()
+            options: dict[str, str] = {
+                "host": app_url,
+                "port": "443",
+                "base_path": "/mcp",
+                "is_mcp_connection": "true",
+                "oauth_scope": u2m_scope,
+                "authorization_endpoint": f"{host}/oidc/v1/authorize",
+                "token_endpoint": f"{host}/oidc/v1/token",
+                "client_id": oauth_client_id,
+            }
+            # Confidential dedicated OAuth apps also carry a secret, which the
+            # connection needs to complete the authorization-code exchange.
+            resolved_secret = value_of(reg.oauth_client_secret)
+            oauth_client_secret: str = (
+                str(resolved_secret).strip() if resolved_secret else ""
+            )
+            if oauth_client_secret and oauth_client_secret != "None":
+                options["client_secret"] = oauth_client_secret
+            try:
+                self.w.connections.create(
+                    name=conn,
+                    connection_type=ConnectionType.HTTP,
+                    options=options,
+                )
+            except Exception:
+                # When a confidential dedicated OAuth app is used, ``options``
+                # carries its client_secret. A create failure's SDK exception may
+                # echo the request body, so re-raise a scrubbed error rather than
+                # let the secret reach a log/trace — mirroring the M2M path. When
+                # there is no secret, let the original (informative) error stand.
+                if "client_secret" in options:
+                    raise RuntimeError(
+                        f"Failed to create UC MCP connection '{conn}'"
+                    ) from None
+                raise
+            logger.info(
+                "Created UC MCP connection (U2M / on-behalf-of-user)",
+                name=conn,
+                oauth_client_id=oauth_client_id,
+            )
         else:
             minted = self.w.service_principal_secrets_proxy.create(
                 service_principal_id=sp_id
@@ -2943,7 +3085,7 @@ class DatabricksProvider(ServiceProvider):
                         "port": "443",
                         "base_path": "/mcp",
                         "is_mcp_connection": "true",
-                        "oauth_scope": "all-apis",
+                        "oauth_scope": reg.oauth_scope,
                         "token_endpoint": f"{host}/oidc/v1/token",
                         "client_id": client_id,
                         "client_secret": minted.secret,

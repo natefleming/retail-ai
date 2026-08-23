@@ -1,0 +1,382 @@
+# yaml-language-server: $schema=../../../schemas/model_config_schema.json
+
+# =============================================================================
+# Walmart Pharmacy → Genie One  (deploy as an MCP server for Genie One)
+# =============================================================================
+# A single dao-ai agent that fronts THREE Genie rooms (one per Walmart Pharmacy
+# metric view) plus FOUR external system.ai managed-MCP services (Microsoft 365,
+# Atlassian, Google Drive, Web Search) consumed through Unity Catalog
+# connections.
+#
+# Walmart cannot use partner-provider (Anthropic/Claude) models, so the agent's
+# brain is a Databricks Model Serving endpoint serving an OpenAI-flavored model
+# (`llm` parameter, default `databricks-gpt-oss-120b`) — swap it at deploy.
+#
+# Deploy (serves the agent AS an MCP server and registers it for Genie One):
+#
+#   dao-ai agent up --as-mcp --with-connection \
+#     -c walmart_pharmacy_genie_one.yaml -p <profile> \
+#     --param catalog=<catalog> --param schema=<schema> \
+#     --param llm=<openai_flavored_serving_endpoint> \
+#     --param clinical_space_id=<id> \
+#     --param growth_space_id=<id> \
+#     --param digital_space_id=<id> \
+#     --param microsoft_365_service=system.ai.microsoft_365 \
+#     --param atlassian_service=system.ai.atlassian \
+#     --param google_drive_service=system.ai.google_drive
+#
+# `--with-connection` requires `--as-mcp`. On deploy dao-ai grants the app SP
+# CAN_USE on its own app, creates the HTTP/MCP connection
+# (`mcp_walmart_pharmacy_genie_one_conn`), registers the MCP service
+# (`mcp_walmart_pharmacy_genie_one`) with the Unity AI Gateway, and grants
+# USE_CONNECTION + EXECUTE. It then appears under Catalog → Unity AI Gateway →
+# MCP servers; add the connection to a Genie One chat (one-time, in the UI).
+#
+# NOTE on identity: the deployed MCP app forwards the caller's user token
+# (`x-forwarded-access-token`), so every tool here runs on-behalf-of-user
+# (`on_behalf_of_user: true`) — Genie queries and the system.ai MCP tools both
+# act as the end user, honoring their data access. Each user must have CAN RUN on
+# the Genie spaces and (for the system.ai tools) their SaaS account linked. A
+# service-principal fallback runs only when no user token is present.
+#
+# See docs/mcp_server.md#registering-as-a-uc-mcp-connection-genie-one.
+
+# =============================================================================
+# PARAMETERS  (everything is parameterized — override any at deploy via --param)
+# =============================================================================
+parameters:
+  catalog:
+    description: >-
+      Unity Catalog catalog for the metric views and where the Unity AI Gateway
+      MCP service is registered.
+    default: retail_consumer_goods
+  schema:
+    description: Schema within the catalog (holds the metric views / source table).
+    default: walmart_pharmacy_poc
+
+  # --- Agent model (OpenAI-flavored Databricks Model Serving endpoint) --------
+  llm:
+    description: >-
+      Chat/reasoning serving endpoint for the agent. Must be a Databricks-served
+      OpenAI-flavored model (NOT an Anthropic/partner model). Override with
+      Walmart's provisioned endpoint at deploy.
+    default: databricks-gpt-oss-120b
+
+  # --- Genie space IDs (rooms are assumed to already exist) -------------------
+  # Set these at deploy. The placeholder defaults let the config load/validate;
+  # they will not resolve a real space until overridden.
+  clinical_space_id:
+    description: Genie space ID for the Clinical Outcome Snapshot room.
+    default: REPLACE_WITH_CLINICAL_SPACE_ID
+  growth_space_id:
+    description: Genie space ID for the Core Business Growth room.
+    default: REPLACE_WITH_GROWTH_SPACE_ID
+  digital_space_id:
+    description: Genie space ID for the Digital Account Snapshot room.
+    default: REPLACE_WITH_DIGITAL_SPACE_ID
+
+  # --- External system.ai managed-MCP services (Unity AI Gateway) -------------
+  # These are three-part Unity Catalog MCP service securables served through the
+  # Unity AI Gateway (`/ai-gateway/mcp-services/<catalog.schema.service>`). They
+  # are ON-BEHALF-OF-USER (OBO): each caller must have linked the underlying SaaS
+  # account (Microsoft 365 / Atlassian / Google), so the tools run as the end
+  # user, not the app SP. Override the securable names per workspace at deploy.
+  microsoft_365_service:
+    description: UC MCP service securable for Microsoft 365 (SharePoint / Graph).
+    default: system.ai.microsoft_365
+  atlassian_service:
+    description: UC MCP service securable for Atlassian (Jira / Confluence).
+    default: system.ai.atlassian
+  google_drive_service:
+    description: UC MCP service securable for Google Drive.
+    default: system.ai.google_drive
+  # NOTE: there is no `system.ai.web_search` managed service, so web search uses
+  # dao-ai's built-in zero-config search tool (see tools.web_search below). Swap
+  # it for a `service:`/`connection:` MCP tool if you provision a web-search MCP.
+
+# =============================================================================
+# SCHEMAS
+# =============================================================================
+schemas:
+  poc_schema: &poc_schema
+    catalog_name: ${var.catalog}
+    schema_name: ${var.schema}
+
+# =============================================================================
+# RESOURCES
+# =============================================================================
+resources:
+  models:
+    default_llm: &default_llm
+      name: ${var.llm}                        # OpenAI-flavored serving endpoint
+      use_ai_gateway: true                    # route through the Unity AI Gateway
+
+  # --- Genie rooms (one per metric view) --------------------------------------
+  genie_rooms:
+    clinical_outcome_room: &clinical_outcome_room
+      name: "Walmart Pharmacy — Clinical Outcome Snapshot"
+      description: >-
+        OutcomesOne Successful Completion Rate, Completion Rate, and Validation
+        Rate — pre-calculated YTD snapshots at store / market / region / business
+        unit / LOB level.
+      space_id: ${var.clinical_space_id}
+      on_behalf_of_user: true
+
+    business_growth_room: &business_growth_room
+      name: "Walmart Pharmacy — Core Business Growth"
+      description: >-
+        Row-based Pharmacy KPIs with this-year/last-year/YoY comparisons: refill
+        rates, messaging adoption, first-time-ready, out-of-stock, NPS, 5-star,
+        script sales & counts, and immunizations.
+      space_id: ${var.growth_space_id}
+      on_behalf_of_user: true
+
+    digital_account_room: &digital_account_room
+      name: "Walmart Pharmacy — Digital Account Snapshot"
+      description: >-
+        Digital Population and Active Patients with Digital / New Digital /
+        Continuing Digital accounts — rolling 365-day snapshots at store /
+        market / region / business unit / LOB level.
+      space_id: ${var.digital_space_id}
+      on_behalf_of_user: true
+
+# =============================================================================
+# TOOLS
+# =============================================================================
+tools:
+  # --- Genie room tools (first-class) -----------------------------------------
+  clinical_outcome_genie: &clinical_outcome_genie
+    name: clinical_outcome_genie
+    function:
+      type: genie
+      genie_room: *clinical_outcome_room
+      description: >-
+        Answers Walmart Pharmacy CLINICAL OUTCOME questions — OutcomesOne
+        Successful Completion Rate, Completion Rate, Validation Rate. These are
+        pre-calculated YTD snapshots; report the direct value at the requested
+        hierarchy level and do not recompute or aggregate across time/hierarchy.
+
+  business_growth_genie: &business_growth_genie
+    name: business_growth_genie
+    function:
+      type: genie
+      genie_room: *business_growth_room
+      description: >-
+        Answers Walmart Pharmacy CORE BUSINESS GROWTH questions — refill rates
+        (systematic/dotcom/auto), messaging adoption, RxD script penetration,
+        first-time-ready, return/out-of-stock, walk-in QR, NPS, 5-star, patient
+        visits, script sales & counts, immunizations, testing & treatments, new
+        digital accounts — with this-year/last-year/YoY comparisons.
+
+  digital_account_genie: &digital_account_genie
+    name: digital_account_genie
+    function:
+      type: genie
+      genie_room: *digital_account_room
+      description: >-
+        Answers Walmart Pharmacy DIGITAL POPULATION / ACCOUNT questions — Digital
+        Population and Active Patients with Digital / New / Continuing accounts.
+        Rolling 365-day snapshots; report direct values at the requested level and
+        do not apply time filters or aggregate across entities.
+
+  # --- External system.ai managed-MCP service tools (Unity AI Gateway, OBO) ---
+  # `service:` targets a three-part UC MCP securable and routes to
+  # `/ai-gateway/mcp-services/<securable>`. `on_behalf_of_user: true` forwards the
+  # caller's identity so the tool uses their linked SaaS credential.
+  microsoft_365_mcp: &microsoft_365_mcp
+    name: microsoft_365_mcp
+    function:
+      type: mcp
+      service: ${var.microsoft_365_service}
+      on_behalf_of_user: true
+
+  atlassian_mcp: &atlassian_mcp
+    name: atlassian_mcp
+    function:
+      type: mcp
+      service: ${var.atlassian_service}
+      on_behalf_of_user: true
+
+  google_drive_mcp: &google_drive_mcp
+    name: google_drive_mcp
+    function:
+      type: mcp
+      service: ${var.google_drive_service}
+      on_behalf_of_user: true
+
+  # --- Web search (dao-ai built-in, zero-config DuckDuckGo) -------------------
+  # No system.ai.web_search managed service exists; this built-in needs no UC
+  # connection. Replace with a `service:`/`connection:` MCP tool if you have one.
+  web_search_mcp: &web_search_mcp
+    name: web_search_mcp
+    function:
+      type: search
+
+# =============================================================================
+# AGENT  (single agent)
+# =============================================================================
+agents:
+  pharmacy_agent: &pharmacy_agent
+    name: pharmacy_agent
+    description: >-
+      Walmart Health & Wellness Pharmacy analytics assistant for Genie One.
+    model: *default_llm
+    tools:
+      - *clinical_outcome_genie
+      - *business_growth_genie
+      - *digital_account_genie
+      - *microsoft_365_mcp
+      - *atlassian_mcp
+      - *google_drive_mcp
+      - *web_search_mcp
+    prompt: |
+      You are the Walmart Health & Wellness **Pharmacy** analytics assistant,
+      surfaced inside the Genie One mobile app for field and operations leaders
+      (store, market, region, business-unit, and LOB owners).
+
+      ## Data domains and tool routing
+      All pharmacy performance data is organized along the hierarchy
+      LOB → Business Unit → Region → Market → Store, and is scoped to the
+      PHARMACY line of business. Route every analytics question to exactly the
+      right Genie tool:
+
+      - **clinical_outcome_genie** — clinical outcome measures: OutcomesOne
+        Successful Completion Rate, Completion Rate, Validation Rate. These are
+        pre-calculated **YTD snapshots**. Report the direct value at the
+        requested hierarchy level; do NOT recompute or aggregate across time or
+        hierarchy.
+
+      - **business_growth_genie** — core business-growth KPIs: systematic /
+        dotcom / auto refill %, messaging adoption, RxD script penetration,
+        first-time-ready, return-to-stock, out-of-stock (+ transfers), walk-in
+        QR, NPS, 5-star, patient visits, script sales, script counts,
+        immunizations (flu / expanded / total), testing & treatments, hormonal
+        contraceptives, basic health screenings, and new digital accounts. These
+        support this-year (TY), last-year (LY), point-change, and YoY-% views —
+        state which you are reporting. Finance/P&L measures are fiscal-calendar,
+        monthly only.
+
+      - **digital_account_genie** — digital population and account measures:
+        Digital Population and Active Patients with Digital / New Digital /
+        Continuing Digital accounts. These are **rolling 365-day snapshots**;
+        report direct values at the requested level and do NOT apply time filters
+        or aggregate across entities.
+
+      If a question spans domains (e.g., "how do refill rates compare to digital
+      adoption in Region 5"), call the relevant Genie tools in turn and combine
+      the results.
+
+      ## Supporting (non-analytics) tools
+      Use these only when the question needs context beyond the pharmacy metrics:
+      - **web_search_mcp** — public / market context (regulations, competitor
+        programs, general reference).
+      - **microsoft_365_mcp**, **google_drive_mcp** — internal documents, files,
+        spreadsheets, and email/calendar context.
+      - **atlassian_mcp** — Jira issues and Confluence pages (initiatives,
+        runbooks, tickets).
+
+      ## Answering style
+      - Be concise and mobile-friendly; lead with the number.
+      - Always name the **metric** and the **hierarchy level** (store / market /
+        region / business unit / LOB) you are reporting.
+      - When you report a growth KPI, state whether it is TY, LY, point change,
+        or YoY %.
+      - Respect the snapshot rules above; never fabricate figures.
+      - If a requested metric is not available in any room, say so plainly rather
+        than guessing.
+
+# =============================================================================
+# APP
+# =============================================================================
+app:
+  name: walmart_pharmacy_genie_one            # Deployed as App `mcp-walmart-pharmacy-genie-one`.
+  # Short app description — the Databricks Apps API caps this at 500 chars.
+  description: >-
+    Walmart Health & Wellness Pharmacy analytics agent, exposed as an MCP tool for
+    Genie One — fronts three Genie rooms (clinical outcomes, core business growth,
+    digital accounts) plus Microsoft 365, Atlassian, Google Drive, and web search.
+  # The MCP tool description Genie One (and any MCP client) routes on — rich and
+  # keyword-dense for agentic tool discovery. No 500-char cap (unlike `description`).
+  mcp_tool_description: >-
+    Walmart Health & Wellness PHARMACY analytics assistant. Use this tool for any
+    question about Walmart pharmacy performance, KPIs, clinical outcomes, digital
+    adoption, or operations — at any level of the store → market → region →
+    business-unit → line-of-business hierarchy, with this-year vs last-year and
+    year-over-year comparisons. It answers three areas. (1) CLINICAL OUTCOMES:
+    OutcomesOne Successful Completion Rate, Completion Rate, and Validation Rate
+    (year-to-date). (2) CORE BUSINESS GROWTH: prescription refill rates (systematic,
+    dotcom, auto), messaging adoption, RxD script penetration, first-time-ready,
+    return-to-stock and out-of-stock (including transfers), walk-in QR, NPS, 5-star
+    rating, patient visits, script sales and script counts, immunizations (flu,
+    expanded, and total administered), testing & treatments, hormonal contraceptives,
+    basic health screenings, and new digital pharmacy accounts. (3) DIGITAL
+    POPULATION & ACCOUNTS: Digital Population and Active Patients with Digital, New
+    Digital, and Continuing Digital accounts (rolling 365-day snapshots). It can also
+    pull supporting context from Microsoft 365 / SharePoint and Google Drive
+    documents, Atlassian (Jira / Confluence), and the public web. Route pharmacy
+    metric, store/market/region performance, refill, immunization, NPS, clinical
+    completion-rate, and digital-adoption questions here. Not for non-pharmacy or
+    non-Walmart topics.
+  log_level: INFO
+  agents:
+    - *pharmacy_agent
+
+  # ---------------------------------------------------------------------------
+  # UC MCP connection registration (consumed by `--with-connection`).
+  # The connection is metastore-level; the Unity AI Gateway MCP service needs a
+  # catalog.schema to live in — declare it here. Names default from `app.name`:
+  #   connection  = mcp_walmart_pharmacy_genie_one_conn
+  #   service_name = mcp_walmart_pharmacy_genie_one
+  # ---------------------------------------------------------------------------
+  connection:
+    schema: *poc_schema
+    # name: mcp_walmart_pharmacy_genie_one_conn   # optional override
+    # service_name: mcp_walmart_pharmacy_genie_one # optional override
+    # grant_principals:                            # optional; defaults to ["account users"]
+    #   - account users
+    #
+    # --- Auth mode: M2M (default) vs U2M (on-behalf-of-user) ------------------
+    # on_behalf_of_user: false (default) → the connection authenticates as the
+    # app service principal (OAUTH_M2M); every Genie One caller reaches the app
+    # as the SP, so Genie tools need SP grants and the system.ai OBO tools can't
+    # run (an SP can't link SaaS accounts).
+    #
+    # on_behalf_of_user: true → OAUTH_U2M_MAPPING: the connection forwards the
+    # calling user's Databricks identity, so the app's OBO tools run as the end
+    # user (per-user Genie access + system.ai tools). Each user completes a
+    # one-time OAuth consent and needs CAN_USE on the app. dao-ai derives the
+    # authorization/token endpoints, host, port, and base_path.
+    #
+    # U2M REQUIRES a DEDICATED account-level custom OAuth app integration — the
+    # app's own oauth2_app_client_id CANNOT be used (its redirect allowlist is
+    # pinned to the app URL and rejects the connection callback
+    # `/login/oauth/http.html`; see GAIA-435). Create one (account admin):
+    #   databricks account custom-app-integration create --json '{
+    #     "name": "walmart-mcp-u2m",
+    #     "redirect_urls": ["https://<caller-host>/login/oauth/http.html"],
+    #     "confidential": true,
+    #     "scopes": ["all-apis","offline_access","openid","email","profile"],
+    #     "token_access_policy": {"access_token_ttl_in_minutes": 60,
+    #                              "refresh_token_ttl_in_minutes": 10080}}'
+    # then pass its client id (+ secret). `offline_access` is required — without a
+    # refresh token the connection stops working after ~1h.
+    # on_behalf_of_user: true
+    # oauth_client_id: ${var.mcp_oauth_client_id}
+    # oauth_client_secret: ${var.mcp_oauth_client_secret}   # {secret: {...}} ref preferred
+
+# =============================================================================
+# DATASETS  (dao-ai-native table provisioning — run by the workflow pipeline)
+# =============================================================================
+# `dao-ai workflow up -c … -p …` runs the ingest pipeline, which creates each
+# dataset's table from its `ddl` file and seeds it from its `data` file
+# (`USE IDENTIFIER(:database)` binds to the table's catalog.schema). This is the
+# synthetic stand-in for Walmart's prod source
+# (`wmt-hnw-pharmacy-catalog-prod.genie.market_bus_growth_metric`); point the
+# three metric views at the real table instead for a production deploy.
+datasets:
+  - table:
+      schema: *poc_schema
+      name: market_bus_growth_metric
+    ddl: data/market_bus_growth_metric.sql
+    data: data/market_bus_growth_metric_data.sql
+    format: sql

@@ -3927,9 +3927,73 @@ class ConnectionRegistrationModel(BaseModel):
     grant_principals: list[str] = Field(
         default_factory=lambda: ["account users"],
         description="Principals granted USE_CONNECTION on the connection and "
-        "EXECUTE on the MCP service. The app's own service principal always "
-        "additionally receives CAN_USE on the app.",
+        "EXECUTE on the MCP service. Also granted CAN_USE on the app in U2M mode "
+        "(they are the forwarding users). In M2M mode the app's own service "
+        "principal receives CAN_USE instead (the connection authenticates as it).",
     )
+    on_behalf_of_user: bool = Field(
+        default=False,
+        description=(
+            "Auth mode for the UC connection to the app's /mcp surface. "
+            "False (default) → OAUTH_M2M: the connection authenticates as the "
+            "app's service principal (client-credentials), so the app sees the "
+            "SP identity for every caller. True → OAUTH_U2M_MAPPING: the "
+            "connection forwards the *calling user's* Databricks identity (each "
+            "user does a one-time OAuth consent), so the app's on-behalf-of-user "
+            "tools run as the end user — required for per-user Genie access and "
+            "system.ai OBO tools through Genie One. U2M requires a DEDICATED "
+            "account-level custom OAuth app integration; pass its client id as "
+            "`oauth_client_id` (and secret as `oauth_client_secret`). The app's "
+            "own auto-generated `oauth2_app_client_id` CANNOT be used — its "
+            "redirect allowlist is pinned to the app URL and can't include the "
+            "connection callback `/login/oauth/http.html` (see GAIA-435). dao-ai "
+            "derives the authorization/token endpoints, host, port, and base_path."
+        ),
+    )
+    oauth_client_id: Optional[AnyVariable] = Field(
+        default=None,
+        description=(
+            "Client id of the DEDICATED custom OAuth app integration that brokers "
+            "the U2M authorization-code flow. Required when `on_behalf_of_user: "
+            "true`; ignored for M2M. Create it (account admin) with `databricks "
+            "account custom-app-integration create` in the APP's account, with "
+            "`confidential: true`, `redirect_urls` including "
+            "`https://<caller-workspace-host>/login/oauth/http.html`, and scopes "
+            "`all-apis offline_access openid email profile` (`offline_access` is "
+            "required for refresh tokens — without it the connection stops working "
+            "after ~1h). The app's own `oauth2_app_client_id` will NOT work here."
+        ),
+    )
+    oauth_client_secret: Optional[AnyVariable] = Field(
+        default=None,
+        description=(
+            "Client secret of the dedicated custom OAuth app integration "
+            "(`confidential: true`). Supplied to the OAUTH_U2M_MAPPING connection "
+            "so it can complete the authorization-code exchange. Prefer a "
+            "`{secret: {...}}` reference over an inline value. Ignored for M2M."
+        ),
+    )
+    oauth_scope: str = Field(
+        default="all-apis",
+        description="OAuth scope for the connection (M2M and U2M). Defaults to all-apis.",
+    )
+
+    @model_validator(mode="after")
+    def _require_client_id_for_obo(self) -> Self:
+        if self.on_behalf_of_user and self.oauth_client_id is None:
+            raise ValueError(
+                "app.connection.on_behalf_of_user: true requires `oauth_client_id` "
+                "(the client id of a DEDICATED custom OAuth app integration that "
+                "brokers the U2M flow). The app's own auto-generated "
+                "`oauth2_app_client_id` cannot be used — its redirect allowlist is "
+                "pinned to the app URL and can't include the connection callback "
+                "`/login/oauth/http.html` (GAIA-435). Create the integration with "
+                "`databricks account custom-app-integration create` (confidential, "
+                "redirect_urls including `https://<caller-host>/login/oauth/http.html`, "
+                "scopes `all-apis offline_access openid email profile`) and set "
+                "oauth_client_id (+ oauth_client_secret)."
+            )
+        return self
 
 
 def _schema_of_registered_model(
@@ -6586,6 +6650,24 @@ class McpFunctionModel(BaseFunctionModel, IsDatabricksResource):
         default=None,
         description="Vector search index exposed as an MCP server.",
     )
+    service: Optional[AnyVariable] = Field(
+        default=None,
+        description=(
+            "Fully-qualified Unity Catalog MCP service securable "
+            "(``catalog.schema.service``, e.g. ``system.ai.microsoft_365``) served "
+            "through the Unity AI Gateway. Routes to "
+            "``{host}/ai-gateway/mcp-services/{service}``. These managed system.ai "
+            "services are on-behalf-of-user (OBO): pair with "
+            "``on_behalf_of_user: true`` and the caller must have linked the "
+            "underlying SaaS credential. Mutually exclusive with url, app, "
+            "connection, genie_room, genie, sql, vector_search, functions. "
+            "SUPPORTED ON DATABRICKS APPS (``--as-mcp``): the app SP can list the "
+            "tools at startup and the ``ai-gateway`` OBO scope lets calls run as "
+            "the forwarded user. On MODEL SERVING the served model has no user "
+            "identity at load, so the startup tools/list fails — deploying a "
+            "``service:`` tool to Model Serving is a known follow-up (issue #305)."
+        ),
+    )
     # Tool filtering
     include_tools: Optional[list[str]] = Field(
         default=None,
@@ -6643,6 +6725,7 @@ class McpFunctionModel(BaseFunctionModel, IsDatabricksResource):
           - vector_search           → ``vectorsearch.vector-search-indexes``
                                                                 (→ vector-search, mcp.vectorsearch)
           - connection              → ``catalog.connections``   (→ catalog.connections, mcp.external)
+          - service (UC MCP securable) → ``ai-gateway`` (Unity AI Gateway OBO scope)
           - url / app (opaque)      → ``serving.serving-endpoints`` (best-effort default)
         """
         if self.genie_room is not None or self.genie:
@@ -6653,6 +6736,12 @@ class McpFunctionModel(BaseFunctionModel, IsDatabricksResource):
             return ["vectorsearch.vector-search-indexes"]
         if self.connection is not None:
             return ["catalog.connections"]
+        if self.service is not None:
+            # A UC MCP service securable is reached through the Unity AI Gateway
+            # (`/ai-gateway/mcp-services/<securable>`), so OBO calls need the
+            # ``ai-gateway`` user scope — the same scope a gateway-routed model
+            # uses. It is valid on both Apps and Model Serving.
+            return ["ai-gateway"]
         # Direct url / Databricks App MCP: endpoint kind is opaque here, so fall
         # back to the generic serving scope.
         return ["serving.serving-endpoints"]
@@ -6736,6 +6825,12 @@ class McpFunctionModel(BaseFunctionModel, IsDatabricksResource):
             connection_name: str = self.connection.name
             return f"{workspace_host}/api/2.0/mcp/external/{connection_name}"
 
+        # Unity Catalog MCP service securable (system.ai.*) via the Unity AI
+        # Gateway. The three-part securable name is used verbatim in the path.
+        if self.service:
+            service_name: str = value_of(self.service)
+            return f"{workspace_host}/ai-gateway/mcp-services/{service_name}"
+
         # Genie Room (per-space)
         if self.genie_room:
             space_id: str = value_of(self.genie_room.space_id)
@@ -6813,7 +6908,7 @@ class McpFunctionModel(BaseFunctionModel, IsDatabricksResource):
 
         raise ValueError(
             "No URL source configured. Provide one of: url, app, connection, genie_room, "
-            "genie, sql, vector_search, or functions"
+            "genie, sql, vector_search, functions, or service"
         )
 
     @field_serializer("transport")
@@ -6836,6 +6931,7 @@ class McpFunctionModel(BaseFunctionModel, IsDatabricksResource):
             ("sql", self.sql),
             ("vector_search", self.vector_search),
             ("functions", self.functions),
+            ("service", self.service),
         ]
 
         provided_sources: list[str] = [
@@ -6846,13 +6942,13 @@ class McpFunctionModel(BaseFunctionModel, IsDatabricksResource):
             if len(provided_sources) == 0:
                 raise ValueError(
                     "For STREAMABLE_HTTP transport, exactly one of the following must be provided: "
-                    "url, app, connection, genie_room, genie, sql, vector_search, or functions"
+                    "url, app, connection, genie_room, genie, sql, vector_search, functions, or service"
                 )
             if len(provided_sources) > 1:
                 raise ValueError(
                     f"For STREAMABLE_HTTP transport, only one URL source can be provided. "
                     f"Found: {', '.join(provided_sources)}. "
-                    f"Please provide only one of: url, app, connection, genie_room, genie, sql, vector_search, or functions"
+                    f"Please provide only one of: url, app, connection, genie_room, genie, sql, vector_search, functions, or service"
                 )
 
         if self.transport == TransportType.STDIO:
@@ -9972,7 +10068,25 @@ class AppModel(BaseModel):
     )
     description: Optional[str] = Field(
         default=None,
-        description="Human-readable description of the application.",
+        description=(
+            "Human-readable description of the application. The Databricks Apps "
+            "API caps this at 500 characters (enforced at deploy time, not config "
+            "load, so existing longer configs still parse). When the app is served "
+            "as an MCP tool (`--as-mcp`) this also becomes the MCP tool description "
+            "a client routes on, UNLESS `mcp_tool_description` is set (use that for "
+            "a longer, discovery-optimized description that would exceed the cap)."
+        ),
+    )
+    mcp_tool_description: Optional[str] = Field(
+        default=None,
+        description=(
+            "Description advertised for the single MCP tool when the agent is "
+            "served with `--as-mcp`. Overrides `description` for the MCP tool only "
+            "(the Databricks App keeps `description`, which the platform caps at 500 "
+            "chars). Use this for a rich, keyword-dense description optimized for "
+            "agentic tool discovery (e.g. by Genie One) that covers every domain the "
+            "agent can answer. No length cap. Falls back to `description` when unset."
+        ),
     )
     log_level: Optional[LogLevel] = Field(
         default="WARNING",
