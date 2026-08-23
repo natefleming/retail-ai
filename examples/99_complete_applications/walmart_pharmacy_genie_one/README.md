@@ -47,15 +47,18 @@ hierarchy. The metric-view YAML is in `metric_views/` (source repointed to
 
 | Parameter | Default | Purpose |
 |-----------|---------|---------|
-| `catalog` | `retail_consumer_goods` | Catalog for the metric views + AI Gateway MCP service |
-| `schema` | `walmart_pharmacy_poc` | Schema within the catalog |
+| `catalog` | **required** | Catalog for the metric views + AI Gateway MCP service |
+| `schema` | **required** | Schema within the catalog |
+| `clinical_space_id` | **required** | Genie space ID for the Clinical Outcome room |
+| `growth_space_id` | **required** | Genie space ID for the Core Business Growth room |
+| `digital_space_id` | **required** | Genie space ID for the Digital Account room |
+| `on_behalf_of_user` | `false` | Single toggle: run all Genie rooms + system.ai tools + the app connection on-behalf-of-user (OBO/U2M). `true` also needs `app.connection.oauth_client_id` for the connection's U2M flow |
 | `llm` | `databricks-gpt-oss-120b` | OpenAI-flavored serving endpoint (the agent's brain) |
-| `clinical_space_id` | placeholder | Genie space ID for the Clinical Outcome room |
-| `growth_space_id` | placeholder | Genie space ID for the Core Business Growth room |
-| `digital_space_id` | placeholder | Genie space ID for the Digital Account room |
 | `microsoft_365_service` | `system.ai.microsoft_365` | UC MCP service securable |
 | `atlassian_service` | `system.ai.atlassian` | UC MCP service securable |
 | `google_drive_service` | `system.ai.google_drive` | UC MCP service securable |
+
+Parameters marked **required** have no default — a deploy must supply them (`--param name=value` or the equivalent env var).
 
 ## Deploy
 
