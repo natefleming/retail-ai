@@ -5,6 +5,10 @@ import os
 # queue" message at the end of test runs.
 os.environ["MLFLOW_ENABLE_ASYNC_TRACE_LOGGING"] = "false"
 os.environ["MLFLOW_TRACE_SAMPLING_RATIO"] = "0"
+# Newer MLflow raises on the local filesystem tracking backend ("in maintenance
+# mode") unless this opt-out is set. The tracing/nesting tests use a local file
+# store, so allow it explicitly rather than requiring a database backend.
+os.environ.setdefault("MLFLOW_ALLOW_FILE_STORE", "true")
 
 import sys
 from pathlib import Path
