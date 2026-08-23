@@ -59,6 +59,9 @@ class _StubAppModel:
     def __init__(self, name: str, description: str | None) -> None:
         self.name = name
         self.description = description
+        # register_agent_as_tool reads mcp_tool_description first, falling back to
+        # description; the real AppModel always defines it (default None).
+        self.mcp_tool_description = None
 
 
 class _StubConfig:
