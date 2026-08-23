@@ -46,7 +46,7 @@ def test_create_tools_empty_list() -> None:
 @pytest.mark.unit
 def test_obo_mcp_tool_discovery_failure_is_skipped_not_fatal() -> None:
     """An OBO MCP tool whose discovery (tools/list) fails at build time is
-    skipped with a warning, so the rest of the agent still loads."""
+    skipped (logged at ERROR), so the rest of the agent still loads."""
     from dao_ai.config import McpFunctionModel
 
     tool_registry.clear()
@@ -122,7 +122,7 @@ def test_non_obo_mcp_tool_auth_discovery_failure_is_skipped_not_fatal() -> None:
     """A non-OBO (M2M) MCP tool whose discovery fails an auth/credential check —
     e.g. the app service principal hasn't linked a system.ai.* SaaS connection, so
     tools/list returns "credential ... not found for the connection ... please
-    login" — is skipped with a warning, NOT fatal. Regression test: this exact case
+    login" — is skipped (logged at ERROR), NOT fatal. Regression test: this exact case
     (M2M app SP + Atlassian) crashed the whole app before the guard was widened
     beyond on_behalf_of_user."""
     from dao_ai.config import McpFunctionModel

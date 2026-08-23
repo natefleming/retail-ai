@@ -117,14 +117,17 @@ _AUTH_STATUS_RE = re.compile(r"\b(401|403)\b")
 
 
 def _is_auth_discovery_error(exc: BaseException) -> bool:
-    """True if ``exc`` (or a nested/grouped cause) looks like an on-behalf-of-user
-    MCP *discovery* auth failure — a 401/403/"login required"/missing-credential
-    error — rather than a genuine bug (typo, client error, network fault).
+    """True if ``exc`` (or a nested/grouped cause) looks like an MCP *discovery*
+    auth failure — a 401/403/"login required"/missing-credential error — rather
+    than a client bug or network fault. Gates skip-vs-raise in ``create_tools``
+    for MCP tools in EITHER auth mode (OBO and M2M alike).
 
     MCP client errors surface wrapped in an ``ExceptionGroup``/``TaskGroup`` and a
     ``RuntimeError``, so walk ``.exceptions`` and the ``__cause__``/``__context__``
     chain, matching on the message. Only these are tolerated by ``create_tools``;
-    everything else re-raises so real misconfiguration surfaces.
+    everything else re-raises so real misconfiguration surfaces. NOTE: matching is
+    by message substring, so a not-found-for-the-connection error (e.g. a mistyped
+    connection) also counts as auth-discovery and is skipped, not raised.
     """
     seen: set[int] = set()
 
@@ -185,12 +188,14 @@ def create_tools(tool_models: Sequence[ToolModel]) -> Sequence[RunnableLike]:
                 # the rest load; it becomes usable once the acting identity links
                 # the credential (OBO — or the SP itself, M2M), or its schema is
                 # supplied at deploy time (dao-ai#305). ONLY auth/discovery failures
-                # are tolerated — any other error on an MCP tool (typo'd securable,
-                # dao-ai MCP client bug, network fault), and every non-MCP tool,
-                # still raises so genuine misconfiguration surfaces instead of
-                # silently dropping a tool. NB: a 401/403 can also be a genuine
+                # are tolerated — a non-auth-shaped error on an MCP tool (dao-ai MCP
+                # client bug, network fault, unexpected exception), and every non-MCP
+                # tool, still raises so genuine misconfiguration surfaces instead of
+                # silently dropping a tool. NB: a 401/403 (or a not-found-for-the-
+                # connection error from a mistyped connection) can also be a genuine
                 # M2M misconfig (e.g. the app SP lacks EXECUTE/USE_CONNECTION), not
-                # just an unlinked SaaS credential — hence ERROR, and the note.
+                # just an unlinked SaaS credential — those DO get skipped here, so
+                # they are logged at ERROR (below) to stay visible in deploy output.
                 if isinstance(function, McpFunctionModel) and _is_auth_discovery_error(
                     e
                 ):
