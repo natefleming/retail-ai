@@ -5236,6 +5236,7 @@ def run_databricks_command(
                 app_name_for(app_config.app.name, as_mcp=as_mcp),
                 profile,
                 wait_timeout,
+                as_mcp=as_mcp,
             )
 
 
@@ -5398,6 +5399,7 @@ def _wait_for_resource_ready(
     name: str,
     profile: Optional[str],
     timeout_seconds: int = _DEFAULT_WAIT_SECONDS,
+    as_mcp: bool = False,
 ) -> None:
     """Block until a just-deployed resource is READY to serve inference, or fail.
 
@@ -5407,11 +5409,15 @@ def _wait_for_resource_ready(
 
     * ``kind == "app"`` (Databricks Apps, agent + mcp) — two phases against a
       single deadline: (a) poll ``w.apps.get`` until ``compute_status.state`` is
-      ``ACTIVE`` (so the URL/proxy exists), then (b) poll ``GET <app.url>/health``
+      ``ACTIVE`` (so the URL/proxy exists), then (b) poll the app's liveness route
       (behind the Apps auth proxy → auth headers from ``w.config.authenticate()``)
       until it returns 200 — a 200 means the app PROCESS is up and answering HTTP.
-      ``app_status.state == CRASHED`` or ``compute_status.state == ERROR`` is a
-      terminal failure.
+      The route DIFFERS by app type: the chat/agent app serves ``/health`` (MLflow
+      serving convention), but the MCP server (``dao_ai.mcp.server``) serves
+      ``/healthz``/``/readyz`` and mounts the MCP app at ``/`` — so ``as_mcp`` picks
+      ``/healthz``; probing ``/health`` on an MCP app never returns 200 and would
+      block to the deadline. ``app_status.state == CRASHED`` or
+      ``compute_status.state == ERROR`` is a terminal failure.
     * ``kind == "endpoint"`` (Model Serving; no HTTP health route exists) — poll
       ``w.serving_endpoints.get`` until ``state.ready == READY``,
       ``state.config_update == NOT_UPDATING``, and every served entity's
@@ -5473,10 +5479,13 @@ def _wait_for_resource_ready(
             _fail(
                 f"App '{name}' compute did not reach ACTIVE within {timeout_seconds}s."
             )
-        # Phase (b): the app process answers HTTP 200 on /health (behind the proxy).
+        # Phase (b): the app process answers HTTP 200 on its liveness route (behind
+        # the proxy). MCP apps serve /healthz (not /health), so pick the route by
+        # app type — probing /health on an MCP app never 200s and blocks to timeout.
         import httpx
 
-        health_url = f"{app_url.rstrip('/')}/health"
+        health_path = "/healthz" if as_mcp else "/health"
+        health_url = f"{app_url.rstrip('/')}{health_path}"
         headers = w.config.authenticate() or {}
         while time.monotonic() < deadline:
             try:
@@ -5484,12 +5493,14 @@ def _wait_for_resource_ready(
                     health_url, headers=headers, timeout=10.0, follow_redirects=True
                 )
                 if resp.status_code == 200:
-                    logger.info(f"App '{name}' is ready (GET /health → 200).")
+                    logger.info(f"App '{name}' is ready (GET {health_path} → 200).")
                     return
-                logger.debug(f"App '{name}' /health → {resp.status_code}; waiting...")
+                logger.debug(
+                    f"App '{name}' {health_path} → {resp.status_code}; waiting..."
+                )
             except Exception as e:  # noqa: BLE001 — pre-ready connection errors are expected
-                logger.debug(f"App '{name}' /health not reachable yet: {e}")
-            # /health isn't passing yet — spend one SDK call to see WHY: a live
+                logger.debug(f"App '{name}' {health_path} not reachable yet: {e}")
+            # liveness route isn't passing yet — spend one SDK call to see WHY: a live
             # CRASHED signal (compute ACTIVE but the process died) is terminal, so
             # fail fast instead of polling to the deadline.
             app_state = getattr(
@@ -5499,8 +5510,8 @@ def _wait_for_resource_ready(
                 _fail(f"App '{name}' CRASHED during startup — deploy is not servable.")
             _sleep()
         _fail(
-            f"App '{name}' compute is ACTIVE but /health did not return 200 within "
-            f"{timeout_seconds}s — the app process is not serving."
+            f"App '{name}' compute is ACTIVE but {health_path} did not return 200 "
+            f"within {timeout_seconds}s — the app process is not serving."
         )
 
     elif kind == "endpoint":
@@ -5636,10 +5647,12 @@ def deploy_app_bundle(
             dry_run=dry_run,
         )
         # `--wait`: block until the App is actually serving (compute ACTIVE +
-        # GET /health 200) so a caller can send inference immediately. Exits
-        # non-zero on a CRASHED app or timeout.
+        # liveness route 200 — /healthz for MCP, /health otherwise) so a caller can
+        # send inference immediately. Exits non-zero on a CRASHED app or timeout.
         if wait_timeout is not None and not dry_run:
-            _wait_for_resource_ready("app", app_name, profile, wait_timeout)
+            _wait_for_resource_ready(
+                "app", app_name, profile, wait_timeout, as_mcp=as_mcp
+            )
 
     if (deploy or run) and not dry_run:
         _print_app_link(app_name)
@@ -6316,7 +6329,7 @@ def _deploy_run_destroy_app_bundle(
             )
             # `--wait`: the provider's `apps.deploy_and_wait` only blocks until the
             # DEPLOYMENT is SUCCEEDED — the app PROCESS can still be booting and
-            # 502 on the first request. Gate on compute ACTIVE + GET /health 200
+            # 502 on the first request. Gate on compute ACTIVE + liveness route 200
             # (same poller the bundle path uses) so inference can follow at once.
             wait_timeout = _wait_timeout_of(options)
             if wait_timeout is not None:
@@ -6325,6 +6338,7 @@ def _deploy_run_destroy_app_bundle(
                     app_name_for(config.app.name, as_mcp=as_mcp),
                     options.profile,
                     wait_timeout,
+                    as_mcp=as_mcp,
                 )
         return
 
