@@ -156,6 +156,10 @@ tools:
     name: clinical_outcome_genie
     function:
       type: genie
+      # LLM-visible tool name. Without this the tool defaults to the generic
+      # `genie_tool` (and collides with the other Genie tools); set it to match
+      # the Genie space this room fronts so the agent can route to it by name.
+      name: clinical_outcome_genie
       genie_room: *clinical_outcome_room
       description: >-
         Answers Walmart Pharmacy CLINICAL OUTCOME questions — OutcomesOne
@@ -167,6 +171,7 @@ tools:
     name: business_growth_genie
     function:
       type: genie
+      name: business_growth_genie
       genie_room: *business_growth_room
       description: >-
         Answers Walmart Pharmacy CORE BUSINESS GROWTH questions — refill rates
@@ -179,6 +184,7 @@ tools:
     name: digital_account_genie
     function:
       type: genie
+      name: digital_account_genie
       genie_room: *digital_account_room
       description: >-
         Answers Walmart Pharmacy DIGITAL POPULATION / ACCOUNT questions — Digital
