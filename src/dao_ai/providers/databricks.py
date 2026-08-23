@@ -3065,17 +3065,18 @@ class DatabricksProvider(ServiceProvider):
                     connection_type=ConnectionType.HTTP,
                     options=options,
                 )
-            except Exception:
-                # When a confidential dedicated OAuth app is used, ``options``
-                # carries its client_secret. A create failure's SDK exception may
-                # echo the request body, so re-raise a scrubbed error rather than
-                # let the secret reach a log/trace — mirroring the M2M path. When
-                # there is no secret, let the original (informative) error stand.
-                if "client_secret" in options:
-                    raise RuntimeError(
-                        f"Failed to create UC MCP connection '{conn}'"
-                    ) from None
-                raise
+            except Exception as e:
+                # ``options`` may carry the dedicated OAuth app's client_secret, and
+                # the SDK exception can echo the request body — so REDACT the secret
+                # value but keep the message, so a real cause (e.g. UC rejecting an
+                # invalid oauth_scope at token-exchange) still surfaces instead of an
+                # opaque failure.
+                detail = str(e)
+                if oauth_client_secret and oauth_client_secret != "None":
+                    detail = detail.replace(oauth_client_secret, "***")
+                raise RuntimeError(
+                    f"Failed to create UC MCP connection '{conn}': {detail}"
+                ) from None
             logger.info(
                 "Created UC MCP connection (U2M / on-behalf-of-user)",
                 name=conn,
@@ -3100,7 +3101,7 @@ class DatabricksProvider(ServiceProvider):
                         "client_secret": minted.secret,
                     },
                 )
-            except Exception:
+            except Exception as e:
                 # Don't orphan the secret we just minted on the app SP.
                 try:
                     self.w.service_principal_secrets_proxy.delete(
@@ -3108,11 +3109,14 @@ class DatabricksProvider(ServiceProvider):
                     )
                 except Exception:
                     pass
-                # The create payload carries the freshly minted client_secret;
-                # never let the original exception's string (which may echo the
-                # request body) reach a log. Re-raise a scrubbed error.
+                # The payload carries the freshly minted client_secret; REDACT its
+                # value from the error (the SDK may echo the request body) but keep
+                # the message so a real cause (e.g. invalid oauth_scope) surfaces.
+                detail = (
+                    str(e).replace(minted.secret, "***") if minted.secret else str(e)
+                )
                 raise RuntimeError(
-                    f"Failed to create UC MCP connection '{conn}'"
+                    f"Failed to create UC MCP connection '{conn}': {detail}"
                 ) from None
             logger.info("Created UC MCP connection", name=conn)
 
@@ -3300,13 +3304,15 @@ class DatabricksProvider(ServiceProvider):
                 options["client_secret"] = oauth_client_secret
             try:
                 self.w.connections.update(name=conn, options=options)
-            except Exception:
-                # options may carry the dedicated OAuth app secret — scrub it.
-                if "client_secret" in options:
-                    raise RuntimeError(
-                        f"Failed to update UC MCP connection '{conn}'"
-                    ) from None
-                raise
+            except Exception as e:
+                # REDACT the dedicated OAuth app secret (if any) but keep the
+                # message so real causes (e.g. invalid oauth_scope) surface.
+                detail = str(e)
+                if oauth_client_secret and oauth_client_secret != "None":
+                    detail = detail.replace(oauth_client_secret, "***")
+                raise RuntimeError(
+                    f"Failed to update UC MCP connection '{conn}': {detail}"
+                ) from None
         else:
             minted = self.w.service_principal_secrets_proxy.create(
                 service_principal_id=sp_id
@@ -3323,16 +3329,21 @@ class DatabricksProvider(ServiceProvider):
             }
             try:
                 self.w.connections.update(name=conn, options=options)
-            except Exception:
-                # Don't orphan the freshly minted secret; scrub it from the error.
+            except Exception as e:
+                # Don't orphan the freshly minted secret. REDACT its value from the
+                # error but keep the message so real causes (e.g. UC rejecting an
+                # invalid oauth_scope at token-exchange) surface.
                 try:
                     self.w.service_principal_secrets_proxy.delete(
                         service_principal_id=sp_id, secret_id=str(minted.id)
                     )
                 except Exception:
                     pass
+                detail = (
+                    str(e).replace(minted.secret, "***") if minted.secret else str(e)
+                )
                 raise RuntimeError(
-                    f"Failed to update UC MCP connection '{conn}'"
+                    f"Failed to update UC MCP connection '{conn}': {detail}"
                 ) from None
         logger.info(
             "Reconciled UC MCP connection to current config",

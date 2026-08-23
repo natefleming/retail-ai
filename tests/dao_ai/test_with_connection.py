@@ -587,7 +587,9 @@ def test_register_mcp_connection_create_failure_scrubs_secret() -> None:
     provider = DatabricksProvider(w=w)
     with pytest.raises(RuntimeError) as exc:
         provider.register_mcp_connection(_config_with_connection())
-    assert "s3cr3t" not in str(exc.value)
+    assert "s3cr3t" not in str(exc.value)  # secret value redacted
+    assert "***" in str(exc.value)  # ...to a placeholder
+    assert "bad request" in str(exc.value)  # but the real cause is preserved
     assert exc.value.__cause__ is None  # `raise ... from None` suppressed the chain
     # The minted secret is cleaned up rather than orphaned on the app SP.
     assert w.deleted_secrets == [(42, "secret-id-1")]
