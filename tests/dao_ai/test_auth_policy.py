@@ -699,9 +699,11 @@ class TestAiGatewayGating:
 
 @pytest.mark.unit
 class TestPostgresObO:
-    """``postgres`` is now a first-class OBO scope. A Lakebase database with
-    ``on_behalf_of_user=True`` must contribute ``postgres`` to the user
-    policy, and the database resource itself must NOT leak into the system
+    """``postgres`` is a first-class OBO scope on the Apps path (see
+    test_apps_obo_partition.test_obo_lakebase_emits_postgres_scope), but it is
+    NOT a Model Serving OBO user scope — Model Serving reaches Lakebase via the
+    DatabricksLakebase resource under system auth, so ``build_auth_policy`` drops
+    it. Either way an OBO Lakebase database must NOT leak into the system
     policy."""
 
     def test_lakebase_obo_postgres_dropped_on_model_serving(self) -> None:

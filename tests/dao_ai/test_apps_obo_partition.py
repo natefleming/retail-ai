@@ -39,6 +39,7 @@ from dao_ai.config import (
     AppConfig,
     AppModel,
     ConnectionModel,
+    DatabaseModel,
     FunctionModel,
     GenieRoomModel,
     IndexModel,
@@ -183,6 +184,35 @@ class TestGenerateUserApiScopesPartition:
         # dashboards.genie is the user_api_scope mapping for the Genie room.
         # Since the room is non-OBO, it must NOT appear in user_api_scopes.
         assert "dashboards.genie" not in scopes
+
+    def test_obo_volume_emits_files_scope(self) -> None:
+        """An OBO UC Volume contributes the `files` user scope on the Apps path.
+        (Model Serving drops it — volumes aren't OBO-supported there; see
+        test_auth_policy.test_volume_partition.)"""
+        schema = SchemaModel(catalog_name="cat", schema_name="sch")
+        config = AppConfig(
+            resources=ResourcesModel(
+                volumes={
+                    "obo_v": VolumeModel(
+                        schema=schema, name="obo_v", on_behalf_of_user=True
+                    )
+                }
+            )
+        )
+        assert "files" in generate_user_api_scopes(config)
+
+    def test_obo_lakebase_emits_postgres_scope(self) -> None:
+        """An OBO Lakebase database contributes the `postgres` user scope on the
+        Apps path. (Model Serving drops it — Lakebase there uses system auth; see
+        test_auth_policy.test_lakebase_obo_postgres_dropped_on_model_serving.)"""
+        config = AppConfig(
+            resources=ResourcesModel(
+                databases={
+                    "lb": DatabaseModel(project="lb-project", on_behalf_of_user=True)
+                }
+            )
+        )
+        assert "postgres" in generate_user_api_scopes(config)
 
 
 @pytest.mark.unit
