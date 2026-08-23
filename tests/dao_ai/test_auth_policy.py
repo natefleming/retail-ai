@@ -203,14 +203,13 @@ class TestPerResourceTypeAuthPolicyPartition:
         names = _policy_resource_names(policy.system_auth_policy.resources)
         assert "cat.sch.sp_fn" in names
         assert "cat.sch.obo_fn" not in names
-        # Canonical OBO scopes: sql + mcp.functions companion; functions also
-        # pull in catalog.*:read auto-additions.
+        # sql + mcp.functions companion; the catalog.*:read reads a function
+        # pulls in collapse to the coarse `unity-catalog` on the Model Serving
+        # path (build_auth_policy adapts scopes for Model Serving).
         scopes = set(policy.user_auth_policy.api_scopes)
         assert "sql" in scopes
         assert "mcp.functions" in scopes
-        assert "catalog.catalogs:read" in scopes
-        assert "catalog.schemas:read" in scopes
-        assert "catalog.tables:read" in scopes
+        assert "unity-catalog" in scopes
 
     def test_table_partition(self) -> None:
         config = _config(
@@ -227,13 +226,12 @@ class TestPerResourceTypeAuthPolicyPartition:
         names = _policy_resource_names(policy.system_auth_policy.resources)
         assert "cat.sch.sp_t" in names
         assert "cat.sch.obo_t" not in names
-        # Tables: sql + mcp.functions companion + catalog.*:read auto-add.
+        # Tables: sql + mcp.functions companion; catalog.*:read collapses to the
+        # coarse `unity-catalog` on the Model Serving path.
         scopes = set(policy.user_auth_policy.api_scopes)
         assert "sql" in scopes
         assert "mcp.functions" in scopes
-        assert "catalog.catalogs:read" in scopes
-        assert "catalog.schemas:read" in scopes
-        assert "catalog.tables:read" in scopes
+        assert "unity-catalog" in scopes
 
     def test_volume_partition(self) -> None:
         """VolumeModel.as_resources() returns ``[]`` by design (no MLflow Resource
