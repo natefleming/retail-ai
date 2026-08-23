@@ -181,26 +181,31 @@ def create_tools(tool_models: Sequence[ToolModel]) -> Sequence[RunnableLike]:
                 # servers that gate tools/list on a linked credential (Atlassian,
                 # GitHub, …) return 401/403/"login required"/missing-credential. That
                 # must not crash the whole agent regardless of auth mode: skip the
-                # tool with a warning so the rest load; it becomes usable once the
-                # acting identity links the credential (OBO — or the SP itself, M2M),
-                # or its schema is supplied at deploy time (dao-ai#305). ONLY
-                # auth/discovery failures are tolerated — any other error on an MCP
-                # tool (typo'd securable, dao-ai MCP client bug, network fault), and
-                # every non-MCP tool, still raises so genuine misconfiguration
-                # surfaces instead of silently dropping a tool.
+                # tool (logged at ERROR so it can't be missed in deploy output) so
+                # the rest load; it becomes usable once the acting identity links
+                # the credential (OBO — or the SP itself, M2M), or its schema is
+                # supplied at deploy time (dao-ai#305). ONLY auth/discovery failures
+                # are tolerated — any other error on an MCP tool (typo'd securable,
+                # dao-ai MCP client bug, network fault), and every non-MCP tool,
+                # still raises so genuine misconfiguration surfaces instead of
+                # silently dropping a tool. NB: a 401/403 can also be a genuine
+                # M2M misconfig (e.g. the app SP lacks EXECUTE/USE_CONNECTION), not
+                # just an unlinked SaaS credential — hence ERROR, and the note.
                 if isinstance(function, McpFunctionModel) and _is_auth_discovery_error(
                     e
                 ):
-                    logger.warning(
+                    logger.error(
                         "Skipping MCP tool that failed discovery at build time",
                         tool_name=name,
                         error=str(e),
                         note=(
-                            "The agent will start without this tool. It requires the "
-                            "acting identity to have linked the MCP server's "
-                            "credential (the calling user under OBO, or the app "
-                            "service principal under M2M), or its tool schema "
-                            "supplied at deploy time. See dao-ai#305."
+                            "The agent started WITHOUT this tool. Make it available "
+                            "by ensuring the acting identity can reach the MCP "
+                            "server: link its credential (the calling user under "
+                            "OBO, or the app service principal under M2M), grant the "
+                            "app SP any required UC privilege (e.g. EXECUTE / "
+                            "USE_CONNECTION), or supply its tool schema at deploy "
+                            "time. See dao-ai#305."
                         ),
                     )
                     continue
