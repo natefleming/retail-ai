@@ -175,32 +175,32 @@ def create_tools(tool_models: Sequence[ToolModel]) -> Sequence[RunnableLike]:
             try:
                 registered_tools = create_hooks(function)
             except Exception as e:
-                # An on-behalf-of-user MCP server can reject discovery (tools/list)
-                # under the identity present at graph-build time — e.g. the app
-                # service principal hasn't linked the underlying SaaS account, so
+                # An MCP server can reject discovery (tools/list) under the identity
+                # present at graph-build time — the app service principal (M2M) or
+                # the caller (OBO) hasn't linked the underlying SaaS account, so
                 # servers that gate tools/list on a linked credential (Atlassian,
-                # GitHub, …) return 401/403/"login required". That must not crash
-                # the whole agent: skip the tool with a warning so the rest load;
-                # it becomes usable once the caller's identity is linked (OBO) or
-                # its schema is supplied at deploy time (dao-ai#305). ONLY
-                # auth/discovery failures are tolerated — any other error on an OBO
+                # GitHub, …) return 401/403/"login required"/missing-credential. That
+                # must not crash the whole agent regardless of auth mode: skip the
+                # tool with a warning so the rest load; it becomes usable once the
+                # acting identity links the credential (OBO — or the SP itself, M2M),
+                # or its schema is supplied at deploy time (dao-ai#305). ONLY
+                # auth/discovery failures are tolerated — any other error on an MCP
                 # tool (typo'd securable, dao-ai MCP client bug, network fault), and
-                # every non-OBO / non-MCP tool, still raises so genuine
-                # misconfiguration surfaces instead of silently dropping a tool.
-                if (
-                    isinstance(function, McpFunctionModel)
-                    and function.on_behalf_of_user
-                    and _is_auth_discovery_error(e)
+                # every non-MCP tool, still raises so genuine misconfiguration
+                # surfaces instead of silently dropping a tool.
+                if isinstance(function, McpFunctionModel) and _is_auth_discovery_error(
+                    e
                 ):
                     logger.warning(
-                        "Skipping OBO MCP tool that failed discovery at build time",
+                        "Skipping MCP tool that failed discovery at build time",
                         tool_name=name,
                         error=str(e),
                         note=(
-                            "The agent will start without this tool. It requires "
-                            "the calling identity to have linked the MCP server's "
-                            "credential (OBO), or its tool schema supplied at "
-                            "deploy time. See dao-ai#305."
+                            "The agent will start without this tool. It requires the "
+                            "acting identity to have linked the MCP server's "
+                            "credential (the calling user under OBO, or the app "
+                            "service principal under M2M), or its tool schema "
+                            "supplied at deploy time. See dao-ai#305."
                         ),
                     )
                     continue

@@ -99,9 +99,10 @@ def test_obo_mcp_number_containing_403_is_not_auth_and_raises() -> None:
 
 
 @pytest.mark.unit
-def test_non_obo_mcp_tool_discovery_failure_still_raises() -> None:
-    """A non-OBO MCP tool that fails discovery is a genuine misconfiguration and
-    must still raise (no silent skip)."""
+def test_non_obo_mcp_tool_non_auth_failure_still_raises() -> None:
+    """A non-OBO (M2M) MCP tool that fails for a NON-auth reason (bug, network
+    fault) must still raise — only auth/discovery failures are tolerated, in any
+    mode."""
     from dao_ai.config import McpFunctionModel
 
     tool_registry.clear()
@@ -113,6 +114,31 @@ def test_non_obo_mcp_tool_discovery_failure_still_raises() -> None:
     ):
         with pytest.raises(RuntimeError):
             create_tools([tm])
+    tool_registry.clear()
+
+
+@pytest.mark.unit
+def test_non_obo_mcp_tool_auth_discovery_failure_is_skipped_not_fatal() -> None:
+    """A non-OBO (M2M) MCP tool whose discovery fails an auth/credential check —
+    e.g. the app service principal hasn't linked a system.ai.* SaaS connection, so
+    tools/list returns "credential ... not found for the connection ... please
+    login" — is skipped with a warning, NOT fatal. Regression test: this exact case
+    (M2M app SP + Atlassian) crashed the whole app before the guard was widened
+    beyond on_behalf_of_user."""
+    from dao_ai.config import McpFunctionModel
+
+    tool_registry.clear()
+    fn = McpFunctionModel(service="system.ai.atlassian", on_behalf_of_user=False)
+    tm = ToolModel(name="atlassian_mcp", function=fn)
+    with patch(
+        "dao_ai.tools.core.create_hooks",
+        side_effect=RuntimeError(
+            "Failed to list Atlassian tools: Credential for user identity('73037...') "
+            "is not found for the connection 'atlassian'. Please login first"
+        ),
+    ):
+        tools = create_tools([tm])
+    assert tools == []  # skipped, no exception
     tool_registry.clear()
 
 
