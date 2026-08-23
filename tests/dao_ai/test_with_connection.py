@@ -238,13 +238,20 @@ class _FakeWorkspaceClient:
                     # ``name`` kwarg for its repr, so ``.name`` would never equal
                     # the value.
                     return SimpleNamespace(
-                        name=name, options=outer.connection_options.get(name, {})
+                        name=name,
+                        options=outer.connection_options.get(name, {}),
+                        credential_type=outer.connection_credential_types.get(
+                            name, "OAUTH_M2M"
+                        ),
                     )
                 raise NotFound(f"connection {name} does not exist")
 
             def create(self, **kwargs: Any) -> None:
                 outer.created_connections.append(kwargs)
                 outer._existing.append(kwargs["name"])
+
+            def update(self, **kwargs: Any) -> None:
+                outer.updated_connections.append(kwargs)
 
             def delete(self, name: str) -> None:
                 outer.deleted_connections.append(name)
@@ -280,6 +287,8 @@ class _FakeWorkspaceClient:
         self.config = MagicMock(host="https://host.databricks.com")
         self._existing_services: list[dict[str, Any]] = []
         self.connection_options: dict[str, dict[str, str]] = {}
+        self.connection_credential_types: dict[str, str] = {}
+        self.updated_connections: list[dict[str, Any]] = []
         self.deleted_connections: list[str] = []
         self.deleted_secrets: list[tuple[int, str]] = []
 
@@ -431,15 +440,87 @@ def test_register_mcp_connection_multiple_principals() -> None:
 
 
 @pytest.mark.unit
-def test_register_mcp_connection_idempotent_connection() -> None:
-    """An existing connection is left as-is: no secret minted, no create call."""
+def test_register_mcp_connection_no_drift_left_as_is() -> None:
+    """An existing connection whose managed options already match the config is
+    left as-is: no create, no update, no secret minted."""
     w = _FakeWorkspaceClient(existing_connections=["mcp_my_agent_conn"])
+    w.connection_options["mcp_my_agent_conn"] = {
+        "host": "https://mcp-my-agent-123.databricksapps.com",
+        "base_path": "/mcp",
+        "is_mcp_connection": "true",
+        "oauth_scope": "all-apis",
+    }
     provider = DatabricksProvider(w=w)
     provider.register_mcp_connection(_config_with_connection())
     assert w.created_connections == []
+    assert w.updated_connections == []
     assert w.secrets_created_for == []
     # service registration + grants still run
     assert any(c["method"] == "POST" for c in w.api_calls)
+
+
+@pytest.mark.unit
+def test_register_mcp_connection_reconciles_scope_drift() -> None:
+    """An existing M2M connection whose oauth_scope drifted from the config is
+    UPDATED in place (not left stale, not recreated): full options re-sent with a
+    freshly minted secret so the connection stays usable."""
+    w = _FakeWorkspaceClient(existing_connections=["mcp_my_agent_conn"])
+    w.connection_options["mcp_my_agent_conn"] = {
+        "host": "https://mcp-my-agent-123.databricksapps.com",
+        "base_path": "/mcp",
+        "is_mcp_connection": "true",
+        "oauth_scope": "stale-scope",
+    }
+    provider = DatabricksProvider(w=w)
+    provider.register_mcp_connection(_config_with_connection())
+    assert w.created_connections == []  # reconciled, not recreated
+    assert len(w.updated_connections) == 1
+    updated = w.updated_connections[0]
+    assert updated["name"] == "mcp_my_agent_conn"
+    assert updated["options"]["oauth_scope"] == "all-apis"
+    assert updated["options"]["client_secret"] == "s3cr3t"  # re-minted M2M secret
+    assert w.secrets_created_for == [42]
+
+
+@pytest.mark.unit
+def test_register_mcp_connection_reconciles_u2m_adds_offline_access() -> None:
+    """An existing U2M connection missing offline_access is reconciled to add it —
+    a U2M connection needs the refresh-token scope or it stops working ~1h after
+    each consent. Reuses the config's dedicated OAuth client id; mints no app-SP
+    secret."""
+    w = _FakeWorkspaceClient(existing_connections=["mcp_my_agent_conn"])
+    w.connection_credential_types["mcp_my_agent_conn"] = "OAUTH_U2M_MAPPING"
+    w.connection_options["mcp_my_agent_conn"] = {
+        "host": "https://mcp-my-agent-123.databricksapps.com",
+        "base_path": "/mcp",
+        "is_mcp_connection": "true",
+        "oauth_scope": "all-apis",  # missing offline_access
+    }
+    provider = DatabricksProvider(w=w)
+    provider.register_mcp_connection(
+        _config_with_connection(on_behalf_of_user=True, oauth_client_id="dedicated-cid")
+    )
+    assert w.created_connections == []
+    assert len(w.updated_connections) == 1
+    scope = w.updated_connections[0]["options"]["oauth_scope"].split()
+    assert "offline_access" in scope and "all-apis" in scope
+    assert w.updated_connections[0]["options"]["client_id"] == "dedicated-cid"
+    assert w.secrets_created_for == []  # U2M mints no app-SP secret
+
+
+@pytest.mark.unit
+def test_register_mcp_connection_mode_mismatch_raises() -> None:
+    """An existing connection whose credential_type differs from the deploy mode
+    cannot be flipped in place — fail loud with drop+recreate guidance, before any
+    write or secret mint."""
+    w = _FakeWorkspaceClient(existing_connections=["mcp_my_agent_conn"])
+    w.connection_credential_types["mcp_my_agent_conn"] = "OAUTH_U2M_MAPPING"
+    provider = DatabricksProvider(w=w)
+    with pytest.raises(RuntimeError, match="credential type cannot be changed"):
+        provider.register_mcp_connection(_config_with_connection())  # M2M deploy
+    assert w.updated_connections == []
+    assert w.created_connections == []
+    assert w.secrets_created_for == []
 
 
 @pytest.mark.unit
