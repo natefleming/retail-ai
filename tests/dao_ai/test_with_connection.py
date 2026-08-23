@@ -460,26 +460,24 @@ def test_register_mcp_connection_no_drift_left_as_is() -> None:
 
 
 @pytest.mark.unit
-def test_register_mcp_connection_reconciles_scope_drift() -> None:
-    """An existing M2M connection whose oauth_scope drifted from the config is
-    UPDATED in place (not left stale, not recreated): full options re-sent with a
-    freshly minted secret so the connection stays usable."""
+def test_register_mcp_connection_m2m_never_reconciled() -> None:
+    """An existing M2M connection is left as-is even when its options drift: an
+    M2M update would rotate/leak the app SP's write-only secret, and M2M has no
+    benign drift. So NO update and NO secret mint, regardless of the live options."""
     w = _FakeWorkspaceClient(existing_connections=["mcp_my_agent_conn"])
     w.connection_options["mcp_my_agent_conn"] = {
-        "host": "https://mcp-my-agent-123.databricksapps.com",
+        "host": "https://old-host.databricksapps.com",  # drifted host
         "base_path": "/mcp",
         "is_mcp_connection": "true",
-        "oauth_scope": "stale-scope",
+        "oauth_scope": "some-other-scope",  # drifted scope
     }
     provider = DatabricksProvider(w=w)
-    provider.register_mcp_connection(_config_with_connection())
-    assert w.created_connections == []  # reconciled, not recreated
-    assert len(w.updated_connections) == 1
-    updated = w.updated_connections[0]
-    assert updated["name"] == "mcp_my_agent_conn"
-    assert updated["options"]["oauth_scope"] == "all-apis"
-    assert updated["options"]["client_secret"] == "s3cr3t"  # re-minted M2M secret
-    assert w.secrets_created_for == [42]
+    provider.register_mcp_connection(_config_with_connection())  # M2M deploy
+    assert w.created_connections == []
+    assert w.updated_connections == []  # M2M is never reconciled in place
+    assert w.secrets_created_for == []  # no secret minted/rotated
+    # service registration + grants still run
+    assert any(c["method"] == "POST" for c in w.api_calls)
 
 
 @pytest.mark.unit
@@ -521,6 +519,56 @@ def test_register_mcp_connection_mode_mismatch_raises() -> None:
     assert w.updated_connections == []
     assert w.created_connections == []
     assert w.secrets_created_for == []
+
+
+@pytest.mark.unit
+def test_register_mcp_connection_u2m_unknown_type_left_as_is() -> None:
+    """If the live credential type can't be confirmed as U2M (empty/unknown in the
+    get() response), a U2M deploy leaves the connection as-is rather than risk a
+    mode-blind update."""
+    w = _FakeWorkspaceClient(existing_connections=["mcp_my_agent_conn"])
+    w.connection_credential_types["mcp_my_agent_conn"] = ""  # unknown
+    provider = DatabricksProvider(w=w)
+    provider.register_mcp_connection(
+        _config_with_connection(on_behalf_of_user=True, oauth_client_id="dedicated-cid")
+    )
+    assert w.updated_connections == []
+    assert w.created_connections == []
+    assert w.secrets_created_for == []
+
+
+@pytest.mark.unit
+def test_register_mcp_connection_reconcile_error_surfaces_invalid_scope() -> None:
+    """A reconcile update failure surfaces the actionable `invalid_scope` cause
+    (UC validates oauth_scope via a token-exchange on write) WITHOUT leaking the
+    client_secret into the error message."""
+    w = _FakeWorkspaceClient(existing_connections=["mcp_my_agent_conn"])
+    w.connection_credential_types["mcp_my_agent_conn"] = "OAUTH_U2M_MAPPING"
+    w.connection_options["mcp_my_agent_conn"] = {
+        "host": "https://mcp-my-agent-123.databricksapps.com",
+        "base_path": "/mcp",
+        "is_mcp_connection": "true",
+        "oauth_scope": "all-apis",  # drift -> triggers the update
+    }
+
+    def _boom(**kwargs: Any) -> None:
+        raise ValueError(
+            "invalid_scope: bogus (client_secret=dedicated-secret in body)"
+        )
+
+    w.connections.update = _boom  # type: ignore[method-assign]
+    provider = DatabricksProvider(w=w)
+    with pytest.raises(RuntimeError) as exc:
+        provider.register_mcp_connection(
+            _config_with_connection(
+                on_behalf_of_user=True,
+                oauth_client_id="dedicated-cid",
+                oauth_client_secret="dedicated-secret",
+            )
+        )
+    assert "invalid_scope" in str(exc.value)  # actionable cause surfaced
+    assert "dedicated-secret" not in str(exc.value)  # secret never interpolated
+    assert exc.value.__cause__ is None
 
 
 @pytest.mark.unit
@@ -587,9 +635,9 @@ def test_register_mcp_connection_create_failure_scrubs_secret() -> None:
     provider = DatabricksProvider(w=w)
     with pytest.raises(RuntimeError) as exc:
         provider.register_mcp_connection(_config_with_connection())
-    assert "s3cr3t" not in str(exc.value)  # secret value redacted
-    assert "***" in str(exc.value)  # ...to a placeholder
-    assert "bad request" in str(exc.value)  # but the real cause is preserved
+    # The message is secret-SAFE: it never interpolates the raw exception (which
+    # could echo the secret in some encoding), so the secret can't leak.
+    assert "s3cr3t" not in str(exc.value)
     assert exc.value.__cause__ is None  # `raise ... from None` suppressed the chain
     # The minted secret is cleaned up rather than orphaned on the app SP.
     assert w.deleted_secrets == [(42, "secret-id-1")]

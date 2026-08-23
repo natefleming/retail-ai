@@ -2999,66 +2999,20 @@ class DatabricksProvider(ServiceProvider):
                 conn=conn,
                 app_url=app_url,
                 host=host,
-                client_id=client_id,
-                sp_id=sp_id,
             )
         elif reg.on_behalf_of_user:
-            # U2M (OAUTH_U2M_MAPPING): the connection forwards the *calling
-            # user's* Databricks identity via a DEDICATED custom OAuth app, so the
-            # app's on-behalf-of-user tools run as the end user (not the app SP).
-            # No app-SP secret is minted — the per-user token comes from a one-time
-            # OAuth consent. `authorization_endpoint` is what makes UC classify
-            # the connection as U2M. Each end user must (a) have CAN_USE on the
-            # app and (b) complete the connection's OAuth consent once.
-            #
-            # The client MUST be a dedicated account-level custom OAuth app
-            # integration whose redirect_urls include the connection callback
-            # `<host>/login/oauth/http.html`. The app's own auto-generated
-            # `oauth2_app_client_id` cannot be used — its redirect allowlist is
-            # pinned to the app URL, so the consent redirect is rejected with
-            # "redirect_uri ... not registered for OAuth application" (GAIA-435).
-            #
-            # Validate the RESOLVED value, not just that the field is set: an
-            # `oauth_client_id: {env: …}` AnyVariable passes the model validator
-            # (field not None) but can resolve to None/"" when the env/secret is
-            # missing — which would otherwise create a permanently broken
-            # connection with client_id="None" (and the idempotent get→create
-            # guard would skip fixing it on re-deploy).
-            resolved = value_of(reg.oauth_client_id)
-            oauth_client_id: str = str(resolved).strip() if resolved else ""
-            if not oauth_client_id or oauth_client_id == "None":
-                raise RuntimeError(
-                    "app.connection.on_behalf_of_user is true but oauth_client_id "
-                    f"resolved to empty for connection '{conn}'. Provide the "
-                    "dedicated custom OAuth app's client id (or ensure the env var "
-                    "/ secret it references is set at deploy time). The app's own "
-                    "oauth2_app_client_id cannot be used for a U2M connection."
-                )
-            # U2M needs a refresh token so a user's consent outlives the access
-            # token (~1h) — otherwise the connection stops working an hour after
-            # each consent. Ensure `offline_access` is requested (it's a no-op for
-            # M2M, so it lives only on this U2M path, not the shared default).
-            u2m_scope: str = reg.oauth_scope
-            if "offline_access" not in u2m_scope.split():
-                u2m_scope = f"{u2m_scope} offline_access".strip()
-            options: dict[str, str] = {
-                "host": app_url,
-                "port": "443",
-                "base_path": "/mcp",
-                "is_mcp_connection": "true",
-                "oauth_scope": u2m_scope,
-                "authorization_endpoint": f"{host}/oidc/v1/authorize",
-                "token_endpoint": f"{host}/oidc/v1/token",
-                "client_id": oauth_client_id,
-            }
-            # Confidential dedicated OAuth apps also carry a secret, which the
-            # connection needs to complete the authorization-code exchange.
-            resolved_secret = value_of(reg.oauth_client_secret)
-            oauth_client_secret: str = (
-                str(resolved_secret).strip() if resolved_secret else ""
-            )
-            if oauth_client_secret and oauth_client_secret != "None":
-                options["client_secret"] = oauth_client_secret
+            # U2M (OAUTH_U2M_MAPPING): the connection forwards the *calling user's*
+            # Databricks identity via a DEDICATED custom OAuth app, so the app's
+            # on-behalf-of-user tools run as the end user (not the app SP). No
+            # app-SP secret is minted — the per-user token comes from a one-time
+            # OAuth consent, and `authorization_endpoint` is what makes UC classify
+            # the connection as U2M. Each end user must (a) have CAN_USE on the app
+            # and (b) complete the connection's OAuth consent once. The client MUST
+            # be a dedicated account-level custom OAuth app (the app's own
+            # oauth2_app_client_id is rejected — its redirect allowlist is pinned to
+            # the app URL, GAIA-435). `_u2m_connection_options` validates the
+            # resolved client id and forces `offline_access` into the scope.
+            options = self._u2m_connection_options(reg, conn, app_url, host)
             try:
                 self.w.connections.create(
                     name=conn,
@@ -3066,21 +3020,13 @@ class DatabricksProvider(ServiceProvider):
                     options=options,
                 )
             except Exception as e:
-                # ``options`` may carry the dedicated OAuth app's client_secret, and
-                # the SDK exception can echo the request body — so REDACT the secret
-                # value but keep the message, so a real cause (e.g. UC rejecting an
-                # invalid oauth_scope at token-exchange) still surfaces instead of an
-                # opaque failure.
-                detail = str(e)
-                if oauth_client_secret and oauth_client_secret != "None":
-                    detail = detail.replace(oauth_client_secret, "***")
                 raise RuntimeError(
-                    f"Failed to create UC MCP connection '{conn}': {detail}"
+                    self._conn_write_error("create", conn, e)
                 ) from None
             logger.info(
                 "Created UC MCP connection (U2M / on-behalf-of-user)",
                 name=conn,
-                oauth_client_id=oauth_client_id,
+                oauth_client_id=options["client_id"],
             )
         else:
             minted = self.w.service_principal_secrets_proxy.create(
@@ -3109,14 +3055,8 @@ class DatabricksProvider(ServiceProvider):
                     )
                 except Exception:
                     pass
-                # The payload carries the freshly minted client_secret; REDACT its
-                # value from the error (the SDK may echo the request body) but keep
-                # the message so a real cause (e.g. invalid oauth_scope) surfaces.
-                detail = (
-                    str(e).replace(minted.secret, "***") if minted.secret else str(e)
-                )
                 raise RuntimeError(
-                    f"Failed to create UC MCP connection '{conn}': {detail}"
+                    self._conn_write_error("create", conn, e)
                 ) from None
             logger.info("Created UC MCP connection", name=conn)
 
@@ -3209,6 +3149,66 @@ class DatabricksProvider(ServiceProvider):
                 mcp_service=service_fqn,
             )
 
+    @staticmethod
+    def _conn_write_error(verb: str, conn: str, exc: BaseException) -> str:
+        """A secret-SAFE message for a connection create/update failure.
+
+        Never interpolates the raw exception — an SDK error can echo the request
+        body (with the client_secret, possibly URL/JSON-encoded) so a
+        ``str(exc).replace(secret, "***")`` can miss a transformed copy and leak
+        it. Instead surface only a fixed hint for the common, actionable case: UC
+        validates ``oauth_scope`` with a live OAuth token-exchange on write, so a
+        bad scope fails with ``invalid_scope``.
+        """
+        hint = ""
+        if "invalid_scope" in str(exc).lower():
+            hint = (
+                " — UC rejected the oauth_scope (invalid_scope); check "
+                "app.connection.oauth_scope"
+            )
+        return f"Failed to {verb} UC MCP connection '{conn}'{hint}"
+
+    def _u2m_connection_options(
+        self, reg: Any, conn: str, app_url: str, host: str
+    ) -> dict[str, str]:
+        """Build the ``OAUTH_U2M_MAPPING`` connection options from config — shared
+        by the create and reconcile paths so they can't drift apart.
+
+        Validates the RESOLVED dedicated ``oauth_client_id`` (an
+        ``{env: …}``/``{secret: …}`` AnyVariable passes the model validator but can
+        resolve to ""/"None"), and forces ``offline_access`` into the scope (a U2M
+        connection needs the refresh token or it stops working ~1h after each
+        consent). Scope is emitted sorted so it is stable across redeploys. Adds
+        ``client_secret`` only when a confidential dedicated OAuth app secret is
+        provided.
+        """
+        resolved = value_of(reg.oauth_client_id)
+        oauth_client_id = str(resolved).strip() if resolved else ""
+        if not oauth_client_id or oauth_client_id == "None":
+            raise RuntimeError(
+                "app.connection.on_behalf_of_user is true but oauth_client_id "
+                f"resolved to empty for connection '{conn}'. Provide the dedicated "
+                "custom OAuth app's client id (or ensure the env var / secret it "
+                "references is set at deploy time). The app's own "
+                "oauth2_app_client_id cannot be used for a U2M connection."
+            )
+        scope = " ".join(sorted(set(reg.oauth_scope.split()) | {"offline_access"}))
+        options: dict[str, str] = {
+            "host": app_url,
+            "port": "443",
+            "base_path": "/mcp",
+            "is_mcp_connection": "true",
+            "oauth_scope": scope,
+            "authorization_endpoint": f"{host}/oidc/v1/authorize",
+            "token_endpoint": f"{host}/oidc/v1/token",
+            "client_id": oauth_client_id,
+        }
+        resolved_secret = value_of(reg.oauth_client_secret)
+        oauth_client_secret = str(resolved_secret).strip() if resolved_secret else ""
+        if oauth_client_secret and oauth_client_secret != "None":
+            options["client_secret"] = oauth_client_secret
+        return options
+
     def _reconcile_mcp_connection(
         self,
         *,
@@ -3217,30 +3217,30 @@ class DatabricksProvider(ServiceProvider):
         conn: str,
         app_url: str,
         host: str,
-        client_id: Optional[str],
-        sp_id: Optional[int],
     ) -> None:
         """Reconcile an EXISTING dao-ai UC MCP connection to the current deploy
-        config, instead of the historical skip-if-exists (these connections are
-        dao-ai-managed, so a redeploy should keep them in sync).
+        config, instead of the historical skip-if-exists.
 
-        - ``credential_type`` is fixed at creation, so an auth-mode change
-          (M2M<->U2M) CANNOT be applied in place — fail loud with guidance to drop
-          + recreate (the only safe path; it also resets the Genie One binding and
-          any per-user U2M consents, so it isn't done automatically).
-        - Otherwise compare the managed, config-driven option fields (host,
-          base_path, oauth_scope, is_mcp_connection). On drift, update the
-          connection. A UC connection update may REPLACE the options map, so the
-          full set is sent, including a secret: M2M mints a fresh SP secret (only
-          when actually writing — no churn on a no-drift redeploy); U2M reuses the
-          dedicated OAuth app secret from config. The secret is scrubbed from any
-          error and a minted-but-unused secret is not orphaned.
+        ONLY U2M (``OAUTH_U2M_MAPPING``) connections are reconciled in place: the
+        secret comes from config, so an options update needs no secret mint — safe
+        and repeatable. **M2M connections are left as-is.** An M2M update would
+        force rotating the app SP's write-only ``client_secret`` (orphaning the old
+        one and eventually exhausting the small SP secret quota), and M2M has no
+        benign drift — ``all-apis`` is the only valid M2M scope and the app URL is
+        stable. To change an M2M connection, drop + recreate it.
+
+        ``credential_type`` is fixed at creation, so an auth-mode change
+        (M2M<->U2M) can't be applied in place — fail loud with drop+recreate
+        guidance. If the live credential type can't be confirmed as the intended
+        one, leave the connection as-is rather than risk a mode-blind update.
         """
         intended_ct: str = (
             "OAUTH_U2M_MAPPING" if reg.on_behalf_of_user else "OAUTH_M2M"
         )
         live_ct_raw = getattr(existing, "credential_type", None)
         live_ct: str = str(getattr(live_ct_raw, "value", live_ct_raw) or "")
+
+        # Auth-mode change can't be applied in place (credential_type is immutable).
         if live_ct and live_ct != intended_ct:
             raise RuntimeError(
                 f"UC MCP connection '{conn}' exists as {live_ct}, but the deploy "
@@ -3252,103 +3252,55 @@ class DatabricksProvider(ServiceProvider):
                 "resets the Genie One binding and any per-user consents)."
             )
 
-        # U2M requests offline_access (refresh token) so a consent outlives the
-        # ~1h access token; it's a no-op for M2M.
-        if reg.on_behalf_of_user:
-            desired_scope: str = reg.oauth_scope
-            if "offline_access" not in desired_scope.split():
-                desired_scope = f"{desired_scope} offline_access".strip()
-        else:
-            desired_scope = reg.oauth_scope
+        # M2M is never reconciled (see docstring): the update would rotate/leak the
+        # app SP secret, and M2M has no benign drift. Leave as-is.
+        if not reg.on_behalf_of_user:
+            logger.info("UC connection exists (M2M); leaving as-is", name=conn)
+            return
 
-        managed: dict[str, str] = {
-            "host": app_url,
-            "base_path": "/mcp",
-            "is_mcp_connection": "true",
-            "oauth_scope": desired_scope,
-        }
+        # U2M intent, but the live type couldn't be confirmed as U2M (unknown / SDK
+        # gap): don't risk a mode-blind update — leave as-is with a warning.
+        if live_ct != "OAUTH_U2M_MAPPING":
+            logger.warning(
+                "UC connection exists but its credential type could not be "
+                "confirmed as U2M; leaving as-is (drop + recreate it if wrong)",
+                name=conn,
+                live_credential_type=live_ct or "unknown",
+            )
+            return
+
+        # --- U2M reconcile ---------------------------------------------------- #
+        options = self._u2m_connection_options(reg, conn, app_url, host)
         live_opts: dict[str, Any] = getattr(existing, "options", None) or {}
-        drift: list[str] = sorted(
-            k for k, v in managed.items() if str(live_opts.get(k)) != str(v)
-        )
+
+        # Drift on config-driven fields. Compare oauth_scope as an unordered SET so
+        # token order isn't drift. For host/client_id only flag drift when the live
+        # value is PRESENT and differs — a key merely absent from the get() response
+        # (UC need not echo every option) must not force a perpetual update.
+        drift: list[str] = []
+        if set(str(live_opts.get("oauth_scope", "")).split()) != set(
+            options["oauth_scope"].split()
+        ):
+            drift.append("oauth_scope")
+        if "host" in live_opts and str(live_opts["host"]) != options["host"]:
+            drift.append("host")
+        if (
+            "client_id" in live_opts
+            and str(live_opts["client_id"]) != options["client_id"]
+        ):
+            drift.append("client_id")
         if not drift:
             logger.info("UC connection matches config; leaving as-is", name=conn)
             return
 
-        # Rebuild the FULL options (update may replace, not merge) + a secret.
-        if reg.on_behalf_of_user:
-            resolved = value_of(reg.oauth_client_id)
-            oauth_client_id: str = str(resolved).strip() if resolved else ""
-            if not oauth_client_id or oauth_client_id == "None":
-                raise RuntimeError(
-                    "app.connection.on_behalf_of_user is true but oauth_client_id "
-                    f"resolved to empty for connection '{conn}'. Provide the "
-                    "dedicated custom OAuth app's client id (or ensure the env var "
-                    "/ secret it references is set at deploy time)."
-                )
-            options: dict[str, str] = {
-                "host": app_url,
-                "port": "443",
-                "base_path": "/mcp",
-                "is_mcp_connection": "true",
-                "oauth_scope": desired_scope,
-                "authorization_endpoint": f"{host}/oidc/v1/authorize",
-                "token_endpoint": f"{host}/oidc/v1/token",
-                "client_id": oauth_client_id,
-            }
-            resolved_secret = value_of(reg.oauth_client_secret)
-            oauth_client_secret: str = (
-                str(resolved_secret).strip() if resolved_secret else ""
-            )
-            if oauth_client_secret and oauth_client_secret != "None":
-                options["client_secret"] = oauth_client_secret
-            try:
-                self.w.connections.update(name=conn, options=options)
-            except Exception as e:
-                # REDACT the dedicated OAuth app secret (if any) but keep the
-                # message so real causes (e.g. invalid oauth_scope) surface.
-                detail = str(e)
-                if oauth_client_secret and oauth_client_secret != "None":
-                    detail = detail.replace(oauth_client_secret, "***")
-                raise RuntimeError(
-                    f"Failed to update UC MCP connection '{conn}': {detail}"
-                ) from None
-        else:
-            minted = self.w.service_principal_secrets_proxy.create(
-                service_principal_id=sp_id
-            )
-            options = {
-                "host": app_url,
-                "port": "443",
-                "base_path": "/mcp",
-                "is_mcp_connection": "true",
-                "oauth_scope": desired_scope,
-                "token_endpoint": f"{host}/oidc/v1/token",
-                "client_id": client_id,
-                "client_secret": minted.secret,
-            }
-            try:
-                self.w.connections.update(name=conn, options=options)
-            except Exception as e:
-                # Don't orphan the freshly minted secret. REDACT its value from the
-                # error but keep the message so real causes (e.g. UC rejecting an
-                # invalid oauth_scope at token-exchange) surface.
-                try:
-                    self.w.service_principal_secrets_proxy.delete(
-                        service_principal_id=sp_id, secret_id=str(minted.id)
-                    )
-                except Exception:
-                    pass
-                detail = (
-                    str(e).replace(minted.secret, "***") if minted.secret else str(e)
-                )
-                raise RuntimeError(
-                    f"Failed to update UC MCP connection '{conn}': {detail}"
-                ) from None
+        try:
+            self.w.connections.update(name=conn, options=options)
+        except Exception as e:
+            raise RuntimeError(self._conn_write_error("update", conn, e)) from None
         logger.info(
             "Reconciled UC MCP connection to current config",
             name=conn,
-            changed=drift,
+            changed=sorted(drift),
         )
 
     def unregister_mcp_connection(self, config: AppConfig) -> None:
