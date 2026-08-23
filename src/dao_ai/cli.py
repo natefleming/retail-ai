@@ -5499,8 +5499,8 @@ def _wait_for_resource_ready(
                     f"App '{name}' {health_path} → {resp.status_code}; waiting..."
                 )
             except Exception as e:  # noqa: BLE001 — pre-ready connection errors are expected
-                logger.debug(f"App '{name}' /health not reachable yet: {e}")
-            # /health isn't passing yet — spend one SDK call to see WHY: a live
+                logger.debug(f"App '{name}' {health_path} not reachable yet: {e}")
+            # liveness route isn't passing yet — spend one SDK call to see WHY: a live
             # CRASHED signal (compute ACTIVE but the process died) is terminal, so
             # fail fast instead of polling to the deadline.
             app_state = getattr(
