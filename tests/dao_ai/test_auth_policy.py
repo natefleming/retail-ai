@@ -203,14 +203,13 @@ class TestPerResourceTypeAuthPolicyPartition:
         names = _policy_resource_names(policy.system_auth_policy.resources)
         assert "cat.sch.sp_fn" in names
         assert "cat.sch.obo_fn" not in names
-        # Canonical OBO scopes: sql + mcp.functions companion; functions also
-        # pull in catalog.*:read auto-additions.
+        # sql + mcp.functions companion; the catalog.*:read reads a function
+        # pulls in collapse to the coarse `unity-catalog` on the Model Serving
+        # path (build_auth_policy adapts scopes for Model Serving).
         scopes = set(policy.user_auth_policy.api_scopes)
         assert "sql" in scopes
         assert "mcp.functions" in scopes
-        assert "catalog.catalogs:read" in scopes
-        assert "catalog.schemas:read" in scopes
-        assert "catalog.tables:read" in scopes
+        assert "unity-catalog" in scopes
 
     def test_table_partition(self) -> None:
         config = _config(
@@ -227,19 +226,20 @@ class TestPerResourceTypeAuthPolicyPartition:
         names = _policy_resource_names(policy.system_auth_policy.resources)
         assert "cat.sch.sp_t" in names
         assert "cat.sch.obo_t" not in names
-        # Tables: sql + mcp.functions companion + catalog.*:read auto-add.
+        # Tables: sql + mcp.functions companion; catalog.*:read collapses to the
+        # coarse `unity-catalog` on the Model Serving path.
         scopes = set(policy.user_auth_policy.api_scopes)
         assert "sql" in scopes
         assert "mcp.functions" in scopes
-        assert "catalog.catalogs:read" in scopes
-        assert "catalog.schemas:read" in scopes
-        assert "catalog.tables:read" in scopes
+        assert "unity-catalog" in scopes
 
     def test_volume_partition(self) -> None:
         """VolumeModel.as_resources() returns ``[]`` by design (no MLflow Resource
         type for UC volumes today), so an SP-backed volume contributes nothing
-        to SystemAuthPolicy. An OBO volume still contributes its scopes to
-        UserAuthPolicy — that's the only side of the partition we can assert.
+        to SystemAuthPolicy. And UC Volume file OBO is not supported on Model
+        Serving (Apps-only), so an OBO volume's ``files`` scope is dropped by the
+        Model Serving adaptation too — neither side carries it here. (The Apps
+        path DOES emit ``files`` — covered in test_apps_obo_partition.)
         """
         config = _config(
             volumes={
@@ -257,9 +257,10 @@ class TestPerResourceTypeAuthPolicyPartition:
         # appear in the system policy.
         assert "cat.sch.sp_v" not in names
         assert "cat.sch.obo_v" not in names
-        # OBO volume pushes its canonical user-OBO scope.
+        # `files` (the OBO volume's scope) is dropped on the Model Serving path —
+        # volumes are not OBO-supported there.
         scopes = set(policy.user_auth_policy.api_scopes)
-        assert "files" in scopes
+        assert "files" not in scopes
 
     def test_connection_partition(self) -> None:
         config = _config(
@@ -342,8 +343,8 @@ class TestAuthPolicyInvariants:
             "OBO resources leaked into SystemAuthPolicy: "
             + repr(policy.system_auth_policy.resources)
         )
-        # User policy carries every OBO-resource canonical scope plus
-        # MCP companions.
+        # User policy carries every OBO-resource canonical scope plus MCP
+        # companions, as adapted for Model Serving (build_auth_policy).
         scopes = set(policy.user_auth_policy.api_scopes)
         assert "serving.serving-endpoints" in scopes
         assert "sql" in scopes
@@ -352,13 +353,14 @@ class TestAuthPolicyInvariants:
         assert "mcp.genie" in scopes
         assert "vector-search" in scopes
         assert "mcp.vectorsearch" in scopes
-        assert "files" in scopes
         assert "catalog.connections" in scopes
         assert "mcp.external" in scopes
-        # Table + function presence triggers catalog.*:read auto-add.
-        assert "catalog.catalogs:read" in scopes
-        assert "catalog.schemas:read" in scopes
-        assert "catalog.tables:read" in scopes
+        # Table + function catalog.*:read collapse to the coarse `unity-catalog`
+        # on the Model Serving path.
+        assert "unity-catalog" in scopes
+        # `files` (OBO volume) is dropped — volumes aren't OBO-supported on Model
+        # Serving (Apps-only). See test_volume_partition / test_apps_obo_partition.
+        assert "files" not in scopes
 
     def test_sp_resource_never_in_user_policy_scopes(self) -> None:
         """If every declared resource is SP-backed, UserAuthPolicy is empty."""
@@ -514,8 +516,11 @@ class TestCanonicalUserApiScopes:
             },
         )
         scopes = set(build_auth_policy(config).user_auth_policy.api_scopes)
-        # Canonical strings present:
-        assert {"sql", "genie", "files", "vector-search"} <= scopes
+        # Canonical strings present. (`files` — the volume's OBO scope — is NOT
+        # asserted here: it's dropped on the Model Serving path since volumes
+        # aren't OBO-supported there. The Apps path emits it; see
+        # test_apps_obo_partition.)
+        assert {"sql", "genie", "vector-search"} <= scopes
         # dao-ai internal resource-scope names absent:
         leaked_internal = {
             "sql.warehouses",
@@ -694,12 +699,19 @@ class TestAiGatewayGating:
 
 @pytest.mark.unit
 class TestPostgresObO:
-    """``postgres`` is now a first-class OBO scope. A Lakebase database with
-    ``on_behalf_of_user=True`` must contribute ``postgres`` to the user
-    policy, and the database resource itself must NOT leak into the system
+    """``postgres`` is a first-class OBO scope on the Apps path (see
+    test_apps_obo_partition.test_obo_lakebase_emits_postgres_scope), but it is
+    NOT a Model Serving OBO user scope — Model Serving reaches Lakebase via the
+    DatabricksLakebase resource under system auth, so ``build_auth_policy`` drops
+    it. Either way an OBO Lakebase database must NOT leak into the system
     policy."""
 
-    def test_lakebase_obo_emits_postgres_scope(self) -> None:
+    def test_lakebase_obo_postgres_dropped_on_model_serving(self) -> None:
+        """Lakebase/Postgres OBO is not a Model Serving user scope — Model Serving
+        reaches Lakebase via the DatabricksLakebase resource under system auth,
+        not a per-user forwarded token — so build_auth_policy drops `postgres`.
+        (The Apps path DOES emit it — covered in test_apps_obo_partition.)
+        """
         config = _config(
             databases={
                 "lb": DatabaseModel(
@@ -709,7 +721,7 @@ class TestPostgresObO:
             }
         )
         policy = build_auth_policy(config)
-        assert "postgres" in policy.user_auth_policy.api_scopes
+        assert "postgres" not in policy.user_auth_policy.api_scopes
 
     def test_lakebase_sp_does_not_emit_postgres_user_scope(self) -> None:
         config = _config(

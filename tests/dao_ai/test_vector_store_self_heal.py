@@ -161,7 +161,8 @@ class TestSelfHeal:
 
     def test_timeout_raises_actionable_error(self) -> None:
         """A still-not-ONLINE index (SDK raises on timeout/OFFLINE) surfaces a
-        RuntimeError with the delete-index remediation, not a bare hang."""
+        RuntimeError with actionable remediation (rewrite the source table / raise
+        its Delta retention), not a bare hang."""
         provider, vsc = _provider()
         idx = MagicMock()
         idx.describe.return_value = _delta_sync_details("ONLINE_NO_PENDING_UPDATE")
@@ -173,7 +174,7 @@ class TestSelfHeal:
             patch.object(dbx, "index_exists", return_value=True),
             patch.object(dbx, "_source_table_delta_uuid", return_value="uuid-1"),
         ):
-            with pytest.raises(RuntimeError, match="delete-index"):
+            with pytest.raises(RuntimeError, match="deletedFileRetentionDuration"):
                 provider.create_vector_store(_vector_store())
 
 
