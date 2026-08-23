@@ -154,9 +154,13 @@ VALID_USER_API_SCOPES: set[str] = {
 # scope. ``mcp.external`` is scoped to UC Connections only; other MCP
 # companions pair with their native sibling.
 #
-# ``ai-gateway`` is NOT in this static map — it's emitted dynamically by
-# ``generate_user_api_scopes`` only when an ``InferenceEndpointModel`` has
-# BOTH ``on_behalf_of_user=True`` AND ``use_ai_gateway=True``.
+# ``ai-gateway`` is NOT a key in this static map. It reaches user scopes two ways:
+#   (1) dynamically for an ``InferenceEndpointModel`` with BOTH
+#       ``on_behalf_of_user=True`` AND ``use_ai_gateway=True`` (see
+#       ``generate_user_api_scopes``); and
+#   (2) directly for a ``service:`` MCP tool — ``McpFunctionModel.api_scopes``
+#       returns ``["ai-gateway"]``, which is a valid user scope, so it lands via
+#       the ``elif api_scope in VALID_USER_API_SCOPES`` direct-match branch.
 #
 # Resource-level api_scopes not present here have no OBO emission:
 #   - ``apps.apps``           (DatabricksAppModel — no cross-app OBO)

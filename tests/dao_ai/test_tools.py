@@ -62,6 +62,24 @@ def test_obo_mcp_tool_discovery_failure_is_skipped_not_fatal() -> None:
 
 
 @pytest.mark.unit
+def test_obo_mcp_tool_non_auth_failure_still_raises() -> None:
+    """An OBO MCP tool that fails for a NON-auth reason (bug, network fault) must
+    still raise — only auth/discovery (login/credential/403) failures are skipped."""
+    from dao_ai.config import McpFunctionModel
+
+    tool_registry.clear()
+    fn = McpFunctionModel(service="system.ai.microsoft_365", on_behalf_of_user=True)
+    tm = ToolModel(name="ms365_mcp", function=fn)
+    with patch(
+        "dao_ai.tools.core.create_hooks",
+        side_effect=RuntimeError("connection refused while building tool"),
+    ):
+        with pytest.raises(RuntimeError):
+            create_tools([tm])
+    tool_registry.clear()
+
+
+@pytest.mark.unit
 def test_non_obo_mcp_tool_discovery_failure_still_raises() -> None:
     """A non-OBO MCP tool that fails discovery is a genuine misconfiguration and
     must still raise (no silent skip)."""

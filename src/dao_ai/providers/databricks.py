@@ -108,14 +108,17 @@ def with_available_indexes(endpoint: dict[str, Any]) -> bool:
     return endpoint["num_indexes"] < 50
 
 
+_UUID_RE = re.compile(
+    r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"
+)
+
+
 def _app_can_use_acl_entry(principal: str) -> "AppAccessControlRequest":
     """Build a CAN_USE app-permission ACL entry for a principal, inferring its
     type: an email → user, a UUID → service principal (OAuth client id), anything
     else (e.g. ``account users``) → group. Used for U2M MCP connections, where the
     forwarded end users — not the app SP — must be authorized to invoke the app.
     """
-    import re
-
     from databricks.sdk.service.apps import (
         AppAccessControlRequest,
         AppPermissionLevel,
@@ -125,7 +128,7 @@ def _app_can_use_acl_entry(principal: str) -> "AppAccessControlRequest":
     lvl = AppPermissionLevel.CAN_USE
     if "@" in p:
         return AppAccessControlRequest(user_name=p, permission_level=lvl)
-    if re.fullmatch(r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}", p):
+    if _UUID_RE.fullmatch(p):
         return AppAccessControlRequest(service_principal_name=p, permission_level=lvl)
     return AppAccessControlRequest(group_name=p, permission_level=lvl)
 
@@ -2878,11 +2881,21 @@ class DatabricksProvider(ServiceProvider):
 
         Runs after the ``mcp-<app>`` App is up (``deploy_apps_agent`` calls it on
         the SDK path; the CLI bundle path calls it after ``deploy_app_bundle``).
-        Mirrors the manual walmart POC sequence:
-        grant the app's own SP ``CAN_USE`` on the app (the connection auths as
-        that SP via M2M OAuth), mint an OAuth secret, create the HTTP connection
-        pointing at ``<app_url>/mcp``, register the MCP service under the target
-        schema, then grant ``USE_CONNECTION`` + ``EXECUTE``.
+        The connection's auth mode is set by ``app.connection.on_behalf_of_user``:
+
+        - **M2M (default, ``on_behalf_of_user: false``):** grant the app's own SP
+          ``CAN_USE`` on the app (the connection authenticates as that SP), mint a
+          fresh SP OAuth secret, and create an ``OAUTH_M2M`` HTTP connection at
+          ``<app_url>/mcp``. Every caller reaches the app as the SP.
+        - **U2M (``on_behalf_of_user: true``):** grant the forwarding users
+          (``grant_principals``) ``CAN_USE`` on the app (they invoke as
+          themselves), mint NO secret, and create an ``OAUTH_U2M_MAPPING``
+          connection with ``authorization_endpoint`` + the custom
+          ``oauth_client_id``. Each user completes a one-time OAuth consent before
+          the connection resolves their token.
+
+        Both modes then register the MCP service under the target schema and grant
+        ``USE_CONNECTION`` + ``EXECUTE``.
 
         Idempotent. Error handling is split by intent: creating the connection
         and registering the service are the explicit deliverable of
@@ -2974,7 +2987,21 @@ class DatabricksProvider(ServiceProvider):
             # OAuth consent. `authorization_endpoint` is what makes UC classify
             # the connection as U2M. Each end user must (a) have CAN_USE on the
             # app and (b) complete the connection's OAuth consent once.
-            oauth_client_id: str = str(value_of(reg.oauth_client_id))
+            # Validate the RESOLVED value, not just that the field is set: an
+            # `oauth_client_id: {env: …}` AnyVariable passes the model validator
+            # (field not None) but can resolve to None/"" when the env/secret is
+            # missing — which would otherwise create a permanently broken
+            # connection with client_id="None" (and the idempotent get→create
+            # guard would skip fixing it on re-deploy).
+            resolved = value_of(reg.oauth_client_id)
+            oauth_client_id: str = str(resolved).strip() if resolved else ""
+            if not oauth_client_id or oauth_client_id == "None":
+                raise RuntimeError(
+                    "app.connection.on_behalf_of_user is true but oauth_client_id "
+                    f"resolved to empty for connection '{conn}'. Provide the custom "
+                    "OAuth app's client id (or ensure the env var / secret it "
+                    "references is set at deploy time)."
+                )
             self.w.connections.create(
                 name=conn,
                 connection_type=ConnectionType.HTTP,

@@ -96,6 +96,49 @@ def resolve_tool_names(tool_model: ToolModel) -> list[str]:
     return [tool_model.name]
 
 
+_AUTH_DISCOVERY_MARKERS: tuple[str, ...] = (
+    "login required",
+    "please login",
+    "not found for the connection",
+    "credential for user identity",
+    "401",
+    "403",
+    "forbidden",
+    "unauthor",  # unauthorized / unauthenticated
+    "insufficient_permissions",
+    "permission_denied",
+    "oauth",
+)
+
+
+def _is_auth_discovery_error(exc: BaseException) -> bool:
+    """True if ``exc`` (or a nested/grouped cause) looks like an on-behalf-of-user
+    MCP *discovery* auth failure — a 401/403/"login required"/missing-credential
+    error — rather than a genuine bug (typo, client error, network fault).
+
+    MCP client errors surface wrapped in an ``ExceptionGroup``/``TaskGroup`` and a
+    ``RuntimeError``, so walk ``.exceptions`` and the ``__cause__``/``__context__``
+    chain, matching on the message. Only these are tolerated by ``create_tools``;
+    everything else re-raises so real misconfiguration surfaces.
+    """
+    seen: set[int] = set()
+
+    def _walk(e: BaseException | None) -> bool:
+        if e is None or id(e) in seen:
+            return False
+        seen.add(id(e))
+        if any(m in str(e).lower() for m in _AUTH_DISCOVERY_MARKERS):
+            return True
+        for sub in getattr(e, "exceptions", ()) or ():  # ExceptionGroup members
+            if _walk(sub):
+                return True
+        return _walk(getattr(e, "__cause__", None)) or _walk(
+            getattr(e, "__context__", None)
+        )
+
+    return _walk(exc)
+
+
 def create_tools(tool_models: Sequence[ToolModel]) -> Sequence[RunnableLike]:
     """
     Create a list of tools based on the provided configuration.
@@ -124,17 +167,23 @@ def create_tools(tool_models: Sequence[ToolModel]) -> Sequence[RunnableLike]:
             try:
                 registered_tools = create_hooks(function)
             except Exception as e:
-                # An on-behalf-of-user MCP server may reject discovery
-                # (tools/list) under the identity present at graph-build time —
-                # e.g. the app service principal has not linked the underlying
-                # SaaS account, so servers that gate tools/list on a linked
-                # credential (Atlassian, GitHub, Google Drive, …) 403. That must
-                # not crash the whole agent: skip this tool with a loud warning
-                # so the remaining tools still load. The tool becomes usable once
-                # the caller's identity is linked (OBO) or its schema is supplied
-                # at deploy time. Non-OBO tools (and non-MCP tools) still raise —
-                # those failures are genuine misconfiguration.
-                if isinstance(function, McpFunctionModel) and function.on_behalf_of_user:
+                # An on-behalf-of-user MCP server can reject discovery (tools/list)
+                # under the identity present at graph-build time — e.g. the app
+                # service principal hasn't linked the underlying SaaS account, so
+                # servers that gate tools/list on a linked credential (Atlassian,
+                # GitHub, …) return 401/403/"login required". That must not crash
+                # the whole agent: skip the tool with a warning so the rest load;
+                # it becomes usable once the caller's identity is linked (OBO) or
+                # its schema is supplied at deploy time (dao-ai#305). ONLY
+                # auth/discovery failures are tolerated — any other error on an OBO
+                # tool (typo'd securable, dao-ai MCP client bug, network fault), and
+                # every non-OBO / non-MCP tool, still raises so genuine
+                # misconfiguration surfaces instead of silently dropping a tool.
+                if (
+                    isinstance(function, McpFunctionModel)
+                    and function.on_behalf_of_user
+                    and _is_auth_discovery_error(e)
+                ):
                     logger.warning(
                         "Skipping OBO MCP tool that failed discovery at build time",
                         tool_name=name,

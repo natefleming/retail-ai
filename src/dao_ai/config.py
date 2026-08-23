@@ -10045,13 +10045,13 @@ class AppModel(BaseModel):
     )
     description: Optional[str] = Field(
         default=None,
-        max_length=500,
         description=(
             "Human-readable description of the application. The Databricks Apps "
-            "API caps this at 500 characters. When the app is served as an MCP "
-            "tool (`--as-mcp`) this also becomes the MCP tool description a client "
-            "routes on, UNLESS `mcp_tool_description` is set (use that for a longer, "
-            "discovery-optimized description that would exceed the 500-char app cap)."
+            "API caps this at 500 characters (enforced at deploy time, not config "
+            "load, so existing longer configs still parse). When the app is served "
+            "as an MCP tool (`--as-mcp`) this also becomes the MCP tool description "
+            "a client routes on, UNLESS `mcp_tool_description` is set (use that for "
+            "a longer, discovery-optimized description that would exceed the cap)."
         ),
     )
     mcp_tool_description: Optional[str] = Field(
