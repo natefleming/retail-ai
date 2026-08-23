@@ -130,14 +130,60 @@ provision a web-search MCP server.
 > not yet supported — the served model has no user identity at load, so the startup `tools/list`
 > fails. Tracked in [dao-ai#305](https://github.com/natefleming/dao-ai/issues/305).
 
+## Example questions to try
+
+Once deployed (via Genie One, the AI Playground, or `dao-ai mcp call`), the agent routes each
+question to the right Genie room; cross-domain questions call more than one. Naming the domain
+("using clinical outcomes…", "in the business growth room…") sharpens routing.
+
+**Clinical outcomes** → `clinical_outcome_genie`
+- What's the OutcomesOne successful completion rate at the LOB level?
+- Show completion rate and validation rate by market.
+- Which region has the highest validation rate?
+
+**Core business growth** (this-year / last-year / YoY) → `business_growth_genie`
+- What are total patient visits this year by region?
+- Script sales this year vs last year by market?
+- What's our NPS and 5-star rating by region?
+- Which stores have the highest out-of-stock rate?
+- How many flu immunizations were administered this year?
+- Systematic refill percentage vs last year, by business unit?
+- Messaging adoption year-over-year by region?
+
+**Digital population & accounts** (rolling 365-day) → `digital_account_genie`
+- What's the digital population at the LOB level?
+- How many active patients have new digital accounts by region?
+- Active patients with continuing digital accounts by market?
+
+**Cross-domain** (calls multiple rooms)
+- Compare digital adoption and refill rates by region.
+
+**Supporting tools** (on-behalf-of-user — each caller needs the SaaS account linked)
+- *Microsoft 365 / SharePoint:* "Search SharePoint for pharmacy playbooks"; "Find recent emails about the flu campaign."
+- *Google Drive:* "Find the pharmacy operations doc in Google Drive."
+- *Atlassian (once linked):* "Any open Jira issues on the pharmacy rollout?"
+- *Web search:* "Latest CDC flu vaccination guidance?"
+
+> The example data is **synthetic** (only the PHARMACY line of business), so the numbers are
+> illustrative.
+
 ## Standing up example rooms to test (fevm)
 
-The metric views' production source (`wmt-hnw-pharmacy-catalog-prod…`) does not exist on fevm, so
-build synthetic data first:
+The metric views' production source (`wmt-hnw-pharmacy-catalog-prod…`) does not exist off Walmart's
+workspace, so build a synthetic stand-in first. Data provisioning follows the standard dao-ai
+`datasets:` pattern — committed DDL + seed SQL under `data/`, materialized by the workflow pipeline
+(no runtime generation):
 
-1. **Synthetic source table** — `python generate_synthetic_data.py` builds
-   `${catalog}.${schema}.market_bus_growth_metric` (the wide table all three views read).
-2. **Metric views** — create the three UC metric views from `metric_views/*.yml`.
+1. **Synthetic source table** — the config's `datasets:` block declares
+   `${catalog}.${schema}.market_bus_growth_metric` with `ddl: data/market_bus_growth_metric.sql`
+   (CREATE) + `data: data/market_bus_growth_metric_data.sql` (seed). Run
+   `dao-ai workflow up -c walmart_pharmacy_genie_one.yaml -p <profile> --param …` to create + seed it
+   (the wide table all three views read).
+2. **Metric views** — create the three UC metric views from `metric_views/*.yml` (source repointed to
+   `${catalog}.${schema}.market_bus_growth_metric`).
 3. **Genie spaces** — create one Genie space per metric view; capture the three `space_id`s.
-4. **Deploy** — run the deploy command above with the three space IDs.
+4. **Deploy** — `dao-ai agent up --as-mcp --with-connection …` with the three space IDs (see top).
 5. **Register with Genie One** — add the MCP connection to a Genie One chat in the UI.
+
+> For a **production** deploy, drop the `datasets:` block and point the three metric views at
+> Walmart's real `market_bus_growth_metric` table instead of the synthetic one.

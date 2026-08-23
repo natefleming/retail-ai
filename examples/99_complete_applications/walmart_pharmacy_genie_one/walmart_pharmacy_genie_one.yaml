@@ -334,3 +334,20 @@ app:
     # service_name: mcp_walmart_pharmacy_genie_one # optional override
     # grant_principals:                            # optional; defaults to ["account users"]
     #   - account users
+
+# =============================================================================
+# DATASETS  (dao-ai-native table provisioning — run by the workflow pipeline)
+# =============================================================================
+# `dao-ai workflow up -c … -p …` runs the ingest pipeline, which creates each
+# dataset's table from its `ddl` file and seeds it from its `data` file
+# (`USE IDENTIFIER(:database)` binds to the table's catalog.schema). This is the
+# synthetic stand-in for Walmart's prod source
+# (`wmt-hnw-pharmacy-catalog-prod.genie.market_bus_growth_metric`); point the
+# three metric views at the real table instead for a production deploy.
+datasets:
+  - table:
+      schema: *poc_schema
+      name: market_bus_growth_metric
+    ddl: data/market_bus_growth_metric.sql
+    data: data/market_bus_growth_metric_data.sql
+    format: sql
