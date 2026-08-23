@@ -60,6 +60,24 @@ def test_connection_registration_model_defaults() -> None:
     assert reg.name is None
     assert reg.service_name is None
     assert reg.schema_model.full_name == "main.genie"
+    # Auth defaults to M2M.
+    assert reg.on_behalf_of_user is False
+    assert reg.oauth_client_id is None
+    assert reg.oauth_scope == "all-apis"
+
+
+@pytest.mark.unit
+def test_connection_registration_u2m_requires_client_id() -> None:
+    """on_behalf_of_user (U2M) requires a custom OAuth app client_id."""
+    sm = SchemaModel(catalog_name="c", schema_name="s")
+    with pytest.raises(Exception, match="oauth_client_id"):
+        ConnectionRegistrationModel(schema=sm, on_behalf_of_user=True)
+    # With a client_id it is valid.
+    reg = ConnectionRegistrationModel(
+        schema=sm, on_behalf_of_user=True, oauth_client_id="oauth-app-cid"
+    )
+    assert reg.on_behalf_of_user is True
+    assert reg.oauth_client_id == "oauth-app-cid"
 
 
 @pytest.mark.unit
@@ -261,10 +279,17 @@ class _FakeWorkspaceClient:
 
 def _config_with_connection(
     grant_principals: Optional[list[str]] = None,
+    *,
+    on_behalf_of_user: bool = False,
+    oauth_client_id: Optional[str] = None,
 ) -> Any:
     """AppConfig-shaped mock whose ``app.connection`` is a real registration."""
     sm = SchemaModel(catalog_name="main", schema_name="genie")
-    reg = ConnectionRegistrationModel(schema=sm)
+    reg = ConnectionRegistrationModel(
+        schema=sm,
+        on_behalf_of_user=on_behalf_of_user,
+        oauth_client_id=oauth_client_id,
+    )
     if grant_principals is not None:
         reg.grant_principals = grant_principals
     config = MagicMock()
@@ -326,6 +351,38 @@ def test_register_mcp_connection_full_sequence() -> None:
         "principal": "account users",
         "add": ["EXECUTE"],
     }
+
+
+@pytest.mark.unit
+def test_register_mcp_connection_u2m() -> None:
+    """U2M (on_behalf_of_user) creates an OAUTH_U2M_MAPPING connection with the
+    custom OAuth app's client_id + authorization_endpoint and NO minted secret,
+    and grants the forwarding users (not the app SP) CAN_USE on the app."""
+    w = _FakeWorkspaceClient()
+    provider = DatabricksProvider(w=w)
+    provider.register_mcp_connection(
+        _config_with_connection(on_behalf_of_user=True, oauth_client_id="oauth-app-cid")
+    )
+
+    # No app-SP secret is minted for U2M.
+    assert w.secrets_created_for == []
+
+    # Connection created with U2M options: authorization_endpoint + the custom
+    # OAuth app client_id, and NO client_secret.
+    created = w.created_connections[0]["options"]
+    assert created["authorization_endpoint"] == (
+        "https://host.databricks.com/oidc/v1/authorize"
+    )
+    assert created["client_id"] == "oauth-app-cid"
+    assert "client_secret" not in created
+    assert created["is_mcp_connection"] == "true"
+    assert created["base_path"] == "/mcp"
+
+    # CAN_USE granted to the forwarding users (group), NOT the app service principal.
+    assert len(w.updated_permissions) == 1
+    acl = w.updated_permissions[0]["acl"]
+    assert [e.group_name for e in acl] == ["account users"]
+    assert all(e.service_principal_name is None for e in acl)
 
 
 @pytest.mark.unit

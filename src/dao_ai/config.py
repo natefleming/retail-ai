@@ -3930,6 +3930,47 @@ class ConnectionRegistrationModel(BaseModel):
         "EXECUTE on the MCP service. The app's own service principal always "
         "additionally receives CAN_USE on the app.",
     )
+    on_behalf_of_user: bool = Field(
+        default=False,
+        description=(
+            "Auth mode for the UC connection to the app's /mcp surface. "
+            "False (default) → OAUTH_M2M: the connection authenticates as the "
+            "app's service principal (client-credentials), so the app sees the "
+            "SP identity for every caller. True → OAUTH_U2M_MAPPING: the "
+            "connection forwards the *calling user's* Databricks identity (each "
+            "user does a one-time OAuth consent), so the app's on-behalf-of-user "
+            "tools run as the end user — required for per-user Genie access and "
+            "system.ai OBO tools through Genie One. U2M requires `oauth_client_id` "
+            "(a custom OAuth app created by an account admin); dao-ai derives the "
+            "authorization/token endpoints, scope, host, port, and base_path."
+        ),
+    )
+    oauth_client_id: Optional[AnyVariable] = Field(
+        default=None,
+        description=(
+            "Client id of the custom Databricks OAuth app that brokers the U2M "
+            "authorization-code flow. Required when `on_behalf_of_user: true`; "
+            "ignored for M2M. Create the app with `databricks account "
+            "custom-app-integration create` (account admin), with `all-apis` "
+            "scope and the connection's OAuth redirect URL. No client_secret is "
+            "needed for the OAUTH_U2M_MAPPING connection."
+        ),
+    )
+    oauth_scope: str = Field(
+        default="all-apis",
+        description="OAuth scope for the connection (M2M and U2M). Defaults to all-apis.",
+    )
+
+    @model_validator(mode="after")
+    def _require_client_id_for_obo(self) -> Self:
+        if self.on_behalf_of_user and self.oauth_client_id is None:
+            raise ValueError(
+                "app.connection.on_behalf_of_user: true requires "
+                "`oauth_client_id` (the custom OAuth app's client id that brokers "
+                "the U2M flow). Create it with `databricks account "
+                "custom-app-integration create` and set oauth_client_id."
+            )
+        return self
 
 
 def _schema_of_registered_model(

@@ -108,6 +108,28 @@ def with_available_indexes(endpoint: dict[str, Any]) -> bool:
     return endpoint["num_indexes"] < 50
 
 
+def _app_can_use_acl_entry(principal: str) -> "AppAccessControlRequest":
+    """Build a CAN_USE app-permission ACL entry for a principal, inferring its
+    type: an email → user, a UUID → service principal (OAuth client id), anything
+    else (e.g. ``account users``) → group. Used for U2M MCP connections, where the
+    forwarded end users — not the app SP — must be authorized to invoke the app.
+    """
+    import re
+
+    from databricks.sdk.service.apps import (
+        AppAccessControlRequest,
+        AppPermissionLevel,
+    )
+
+    p = principal.strip()
+    lvl = AppPermissionLevel.CAN_USE
+    if "@" in p:
+        return AppAccessControlRequest(user_name=p, permission_level=lvl)
+    if re.fullmatch(r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}", p):
+        return AppAccessControlRequest(service_principal_name=p, permission_level=lvl)
+    return AppAccessControlRequest(group_name=p, permission_level=lvl)
+
+
 def _workspace_client(
     pat: str | None = None,
     client_id: str | None = None,
@@ -2905,18 +2927,32 @@ class DatabricksProvider(ServiceProvider):
             )
         host: str = self.w.config.host.rstrip("/")
 
-        # 1. Authorize the app's OWN service principal to invoke the app. The
-        # UC connection authenticates as this SP (M2M); without CAN_USE the app
-        # rejects it and Genie One fails to connect. Merges, idempotent.
-        self.w.apps.update_permissions(
-            app_name,
-            access_control_list=[
-                AppAccessControlRequest(
-                    service_principal_name=client_id,
-                    permission_level=AppPermissionLevel.CAN_USE,
-                )
-            ],
-        )
+        # 1. Authorize invocation of the app. Who needs CAN_USE depends on the
+        # connection's auth mode:
+        #   - M2M (default): the connection authenticates as the app's OWN
+        #     service principal, so that SP needs CAN_USE (without it the app
+        #     rejects the connection and Genie One fails to connect).
+        #   - U2M (on_behalf_of_user): the connection forwards the *calling
+        #     user's* identity, so the END USERS (grant_principals) — not the
+        #     app SP — must have CAN_USE. Each user also completes a one-time
+        #     OAuth consent before the connection resolves their token.
+        # Merges, idempotent.
+        if reg.on_behalf_of_user:
+            acl: list[AppAccessControlRequest] = [
+                _app_can_use_acl_entry(p) for p in reg.grant_principals
+            ]
+            if acl:
+                self.w.apps.update_permissions(app_name, access_control_list=acl)
+        else:
+            self.w.apps.update_permissions(
+                app_name,
+                access_control_list=[
+                    AppAccessControlRequest(
+                        service_principal_name=client_id,
+                        permission_level=AppPermissionLevel.CAN_USE,
+                    )
+                ],
+            )
 
         # 2. Create the HTTP (MCP) connection if absent. Existence is an O(1)
         # ``get`` (NotFound == absent), not a full-metastore ``list``. Mint a
@@ -2930,6 +2966,34 @@ class DatabricksProvider(ServiceProvider):
             connection_exists = False
         if connection_exists:
             logger.info("UC connection already exists; leaving as-is", name=conn)
+        elif reg.on_behalf_of_user:
+            # U2M (OAUTH_U2M_MAPPING): the connection forwards the *calling
+            # user's* Databricks identity via a custom OAuth app, so the app's
+            # on-behalf-of-user tools run as the end user (not the app SP). No
+            # app-SP secret is minted — the per-user token comes from a one-time
+            # OAuth consent. `authorization_endpoint` is what makes UC classify
+            # the connection as U2M. Each end user must (a) have CAN_USE on the
+            # app and (b) complete the connection's OAuth consent once.
+            oauth_client_id: str = str(value_of(reg.oauth_client_id))
+            self.w.connections.create(
+                name=conn,
+                connection_type=ConnectionType.HTTP,
+                options={
+                    "host": app_url,
+                    "port": "443",
+                    "base_path": "/mcp",
+                    "is_mcp_connection": "true",
+                    "oauth_scope": reg.oauth_scope,
+                    "authorization_endpoint": f"{host}/oidc/v1/authorize",
+                    "token_endpoint": f"{host}/oidc/v1/token",
+                    "client_id": oauth_client_id,
+                },
+            )
+            logger.info(
+                "Created UC MCP connection (U2M / on-behalf-of-user)",
+                name=conn,
+                oauth_client_id=oauth_client_id,
+            )
         else:
             minted = self.w.service_principal_secrets_proxy.create(
                 service_principal_id=sp_id
@@ -2943,7 +3007,7 @@ class DatabricksProvider(ServiceProvider):
                         "port": "443",
                         "base_path": "/mcp",
                         "is_mcp_connection": "true",
-                        "oauth_scope": "all-apis",
+                        "oauth_scope": reg.oauth_scope,
                         "token_endpoint": f"{host}/oidc/v1/token",
                         "client_id": client_id,
                         "client_secret": minted.secret,
