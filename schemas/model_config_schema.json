@@ -1010,7 +1010,7 @@
     },
     "AiSearchVectorStoreModel": {
       "additionalProperties": false,
-      "description": "Configuration model for a Databricks AI Search vector store.\n\n(Formerly ``VectorStoreModel`` / ``AiSearchIndexModel``. Databricks\nrebranded Vector Search to AI Search; ``AiSearchVectorStoreModel`` is\nthe current name \u2014 chosen to parallel ``LakebaseVectorStoreModel`` so\nboth retriever backends can co-exist under ``resources.vector_stores``.\nBoth legacy names remain as aliases defined at the end of the class\nbody for backwards compatibility.)\n\nSupports two modes:\n1. **Use Existing Index**: Provide only `index` (fully qualified name).\n   Used for querying an existing vector search index at runtime.\n2. **Provisioning Mode**: Provide `source_table` + `embedding_source_column`.\n   Used for creating a new vector search index.\n\nExamples:\n    Minimal configuration (use existing index):\n    ```yaml\n    vector_stores:\n      products_search:\n        index:\n          name: catalog.schema.my_index\n    ```\n\n    Full provisioning configuration:\n    ```yaml\n    vector_stores:\n      products_search:\n        source_table:\n          schema: *my_schema\n          name: products\n        embedding_source_column: description\n        endpoint:\n          name: my_endpoint\n    ```",
+      "description": "Configuration model for a Databricks AI Search vector store.\n\n(Formerly ``VectorStoreModel`` / ``AiSearchIndexModel``. Databricks\nrebranded Vector Search to AI Search; ``AiSearchVectorStoreModel`` is\nthe current name \u2014 chosen to parallel ``LakebaseVectorStoreModel`` so\nboth retriever backends can co-exist under ``resources.vector_stores``.\nBoth legacy names remain as aliases defined at the end of the class\nbody for backwards compatibility.)\n\nSupports three modes:\n1. **Use Existing Index (managed embeddings)**: Provide only `index` (fully\n   qualified name). Databricks embeds the query server-side. Used for\n   querying an existing managed-embeddings vector search index at runtime.\n2. **Use Existing Index (self-managed embeddings)**: Provide `index` +\n   `text_column` + `embedding_model`. For an index built with precomputed\n   vectors (Direct Access, or Delta Sync with `embedding_vector_columns`),\n   which does not embed queries server-side \u2014 the query is embedded at\n   runtime with `embedding_model`.\n3. **Provisioning Mode**: Provide `source_table` + `embedding_source_column`.\n   Used for creating a new vector search index.\n\nExamples:\n    Minimal configuration (use existing index):\n    ```yaml\n    vector_stores:\n      products_search:\n        index:\n          name: catalog.schema.my_index\n    ```\n\n    Full provisioning configuration:\n    ```yaml\n    vector_stores:\n      products_search:\n        source_table:\n          schema: *my_schema\n          name: products\n        embedding_source_column: description\n        endpoint:\n          name: my_endpoint\n    ```",
       "properties": {
         "on_behalf_of_user": {
           "anyOf": [
@@ -1298,6 +1298,19 @@
           "default": null,
           "description": "Column name containing document URIs for provenance tracking.",
           "title": "Doc Uri"
+        },
+        "text_column": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Column returned as document content (page_content). Required ONLY for a self-managed / precomputed-embeddings index (Direct Access, or Delta Sync with embedding_vector_columns): such indexes do not embed the query server-side, so the query is embedded at runtime with `embedding_model` (which must be set alongside this field and must match the model that produced the stored vectors). Must NOT be set for a Databricks-managed-embeddings index \u2014 Databricks embeds the query for you.",
+          "title": "Text Column"
         },
         "type": {
           "const": "ai_search",

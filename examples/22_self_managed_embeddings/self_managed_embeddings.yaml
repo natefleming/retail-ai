@@ -1,0 +1,89 @@
+# yaml-language-server: $schema=../../../schemas/model_config_schema.json
+#
+# Self-managed (precomputed) embeddings with the ai_search tool
+# ------------------------------------------------------------------
+# Use this when your Vector Search index was built with PRECOMPUTED vectors
+# (a Delta Sync index with `embedding_vector_columns`, or a Direct Access
+# index) rather than Databricks-managed embeddings. Such an index does NOT
+# embed the query server-side, so the retriever needs two extra fields on the
+# vector_store:
+#
+#   text_column      the column returned as the document content the LLM reads
+#                    (NOT the embedding/vector column — that lives in the index
+#                    and is discovered automatically).
+#   embedding_model  the endpoint used to embed the incoming query at runtime.
+#                    It MUST be the same model (and dimension) that produced the
+#                    precomputed vectors, or query and document vectors live in
+#                    different spaces and results are meaningless.
+#
+# The embedding mode is auto-detected from the index metadata; for a
+# managed-embeddings index you would omit both fields (Databricks embeds the
+# query for you).
+
+parameters:
+  catalog:
+    description: Unity Catalog catalog containing the indexed table.
+    default: retail_consumer_goods
+  schema:
+    description: Schema within the catalog.
+    default: dao_ai_workshop
+  llm:
+    description: Chat/reasoning serving endpoint.
+    default: databricks-claude-sonnet-5
+  embedding_model:
+    description: Embedding endpoint that produced the precomputed vectors.
+    default: databricks-gte-large-en
+
+schemas:
+  ws: &ws
+    catalog_name: ${var.catalog}
+    schema_name: ${var.schema}
+
+resources:
+  models:
+    default_llm: &default_llm
+      name: ${var.llm}
+      max_tokens: 8192
+
+    embedding_model: &embedding_model
+      name: ${var.embedding_model}
+
+  vector_stores:
+    # Self-managed / precomputed-embeddings index.
+    kb_self_managed: &kb_self_managed
+      embedding_model: *embedding_model     # embeds the query at runtime
+      text_column: body                     # returned as document content
+      index:
+        schema: *ws
+        name: kb_articles_self_managed_index
+
+tools:
+  kb_search: &kb_search
+    name: kb_search
+    function:
+      type: ai_search
+      retriever:
+        vector_store: *kb_self_managed
+        columns: [article_id, title, topic, body]
+      name: kb_search
+      description: >
+        Semantic search over the support knowledge base (self-managed
+        embeddings). Returns the most relevant articles for a query.
+
+agents:
+  kb_assistant: &kb_assistant
+    name: kb_assistant
+    description: Support assistant grounded in a self-managed vector search index.
+    model: *default_llm
+    tools:
+    - *kb_search
+    prompt: |
+      You are a support assistant. Call kb_search to find relevant KB
+      articles and cite the most relevant one(s) for the question.
+
+app:
+  name: self_managed_embeddings_demo
+  description: "ai_search over a precomputed-embeddings (self-managed) index"
+  log_level: INFO
+  agents:
+  - *kb_assistant

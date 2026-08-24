@@ -3495,10 +3495,16 @@ class AiSearchVectorStoreModel(IsDatabricksResource, ManagedResource):
     Both legacy names remain as aliases defined at the end of the class
     body for backwards compatibility.)
 
-    Supports two modes:
-    1. **Use Existing Index**: Provide only `index` (fully qualified name).
-       Used for querying an existing vector search index at runtime.
-    2. **Provisioning Mode**: Provide `source_table` + `embedding_source_column`.
+    Supports three modes:
+    1. **Use Existing Index (managed embeddings)**: Provide only `index` (fully
+       qualified name). Databricks embeds the query server-side. Used for
+       querying an existing managed-embeddings vector search index at runtime.
+    2. **Use Existing Index (self-managed embeddings)**: Provide `index` +
+       `text_column` + `embedding_model`. For an index built with precomputed
+       vectors (Direct Access, or Delta Sync with `embedding_vector_columns`),
+       which does not embed queries server-side — the query is embedded at
+       runtime with `embedding_model`.
+    3. **Provisioning Mode**: Provide `source_table` + `embedding_source_column`.
        Used for creating a new vector search index.
 
     Examples:
@@ -3567,6 +3573,19 @@ class AiSearchVectorStoreModel(IsDatabricksResource, ManagedResource):
         default=None,
         description="Column name containing document URIs for provenance tracking.",
     )
+    text_column: Optional[str] = Field(
+        default=None,
+        description=(
+            "Column returned as document content (page_content). Required ONLY "
+            "for a self-managed / precomputed-embeddings index (Direct Access, "
+            "or Delta Sync with embedding_vector_columns): such indexes do not "
+            "embed the query server-side, so the query is embedded at runtime "
+            "with `embedding_model` (which must be set alongside this field and "
+            "must match the model that produced the stored vectors). Must NOT be "
+            "set for a Databricks-managed-embeddings index — Databricks embeds "
+            "the query for you."
+        ),
+    )
     # Discriminator field for the ``AnyVectorStore`` union. Plain-string
     # Literal (not the enum instance) to keep yaml.safe_dump round-tripping
     # clean — same pattern as ``AnyRetriever``.
@@ -3609,6 +3628,23 @@ class AiSearchVectorStoreModel(IsDatabricksResource, ManagedResource):
         if self.source_table is not None and not self.embedding_model:
             self.embedding_model = InferenceEndpointModel(
                 name="databricks-gte-large-en"
+            )
+        return self
+
+    @model_validator(mode="after")
+    def validate_self_managed_embeddings(self) -> Self:
+        """A self-managed-embeddings index needs both `text_column` and
+        `embedding_model` to embed queries at runtime. `embedding_model` alone
+        (without `text_column`) stays valid — that's provisioning mode.
+        """
+        text_column = getattr(self, "text_column", None)
+        embedding_model = getattr(self, "embedding_model", None)
+        if text_column is not None and embedding_model is None:
+            raise ValueError(
+                "text_column is set but embedding_model is not. A self-managed / "
+                "precomputed-embeddings index embeds the query at runtime, so it "
+                "requires embedding_model (the endpoint that produced the stored "
+                "vectors) alongside text_column."
             )
         return self
 

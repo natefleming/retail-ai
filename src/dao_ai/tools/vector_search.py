@@ -26,6 +26,7 @@ from databricks.sdk import WorkspaceClient
 from databricks_langchain import DatabricksVectorSearch
 from langchain.tools import ToolRuntime, tool
 from langchain_core.documents import Document
+from langchain_core.embeddings import Embeddings
 from langchain_core.tools import StructuredTool
 from loguru import logger
 from mlflow.entities import SpanType
@@ -308,6 +309,28 @@ def _vector_column_names_from_describe(details: dict | None) -> set[str]:
             if isinstance(entry, dict) and (vec := entry.get("name")):
                 names.add(vec)
     return names
+
+
+def _index_is_managed_embeddings(details: dict | None) -> bool:
+    """True iff the index uses Databricks-managed embeddings.
+
+    Managed embeddings means a ``DELTA_SYNC`` index whose
+    ``delta_sync_index_spec.embedding_source_columns[].name`` is populated —
+    Databricks embeds both documents and the query. Everything else is
+    self-managed: a Direct-Access index, or a Delta-Sync index that carries
+    ``embedding_vector_columns`` (precomputed vectors). Mirrors
+    ``databricks_ai_bridge...IndexDetails.is_databricks_managed_embeddings()``
+    but reads the already-fetched describe() dict (no extra API call).
+    """
+    if not isinstance(details, dict):
+        return False
+    if details.get("index_type") != "DELTA_SYNC":
+        return False
+    spec = details.get("delta_sync_index_spec") or {}
+    for entry in spec.get("embedding_source_columns") or []:
+        if isinstance(entry, dict) and entry.get("name"):
+            return True
+    return False
 
 
 def _fetch_index_columns(
@@ -945,6 +968,67 @@ def create_ai_search_tool(
         have_types=bool(description_types),
         have_operator_overrides=bool(operator_overrides),
     )
+
+    # Embedding-mode branch (computed once — stable across OBO invocations).
+    #
+    # Managed-embeddings indexes embed the query server-side, so
+    # DatabricksVectorSearch takes text_column=None and no embedding. A
+    # self-managed / precomputed-embeddings index (Direct Access, or Delta
+    # Sync with embedding_vector_columns) does NOT, so it requires both a
+    # text_column and an embedding model to embed the query at runtime.
+    # ``refresh()`` (above) populated ``_index_details``; if that describe()
+    # call failed it is None, so fall back to config intent: the user
+    # declaring ``text_column`` means they built a self-managed index.
+    # ``getattr``/``isinstance`` keep this robust against a describe() that
+    # never ran and against spec'd Mocks whose attributes auto-populate.
+    details: dict[str, Any] | None = getattr(vector_store, "_index_details", None)
+    _raw_text_column: Any = getattr(vector_store, "text_column", None)
+    declared_text_column: Optional[str] = (
+        _raw_text_column
+        if isinstance(_raw_text_column, str) and _raw_text_column
+        else None
+    )
+    if isinstance(details, dict):
+        is_self_managed: bool = not _index_is_managed_embeddings(details)
+    else:
+        is_self_managed = declared_text_column is not None
+
+    resolved_text_column: Optional[str] = None
+    resolved_embedding: Optional[Embeddings] = None
+    if is_self_managed:
+        if not declared_text_column:
+            raise ValueError(
+                f"Index '{index_name}' uses self-managed / precomputed "
+                "embeddings, which do not embed queries server-side. Set "
+                "`text_column` on the vector_store (the column returned as "
+                "document content)."
+            )
+        if not vector_store.embedding_model:
+            raise ValueError(
+                f"Index '{index_name}' uses self-managed / precomputed "
+                "embeddings. Set `embedding_model` on the vector_store — the "
+                "endpoint used to embed the query at runtime, which must match "
+                "the model that produced the stored vectors."
+            )
+        resolved_text_column = declared_text_column
+        resolved_embedding = vector_store.embedding_model.as_embeddings_model()
+        # text_column must be among the returned columns to populate
+        # page_content.
+        if resolved_text_column not in columns:
+            columns = [*columns, resolved_text_column]
+        logger.success(
+            "Vector Search self-managed embeddings",
+            index=index_name,
+            text_column=resolved_text_column,
+            embedding_model=vector_store.embedding_model.name,
+        )
+    elif declared_text_column:
+        raise ValueError(
+            f"Index '{index_name}' uses Databricks-managed embeddings, which "
+            "embed the query server-side. Do not set `text_column` / "
+            "`embedding_model` on the vector_store for a managed index."
+        )
+
     search_parameters: SearchParametersModel = retriever.search_parameters
     rerank_config: Optional[RerankParametersModel] = retriever.rerank
     instructed_config: Optional[InstructedRetrieverModel] = retriever.instructed
@@ -1051,8 +1135,10 @@ def create_ai_search_tool(
         # Get workspace client with OBO support via context
         workspace_client: WorkspaceClient = vector_store.workspace_client_from(context)
 
-        # Create DatabricksVectorSearch. text_column stays None for
-        # Databricks-managed embeddings (auto-detected from the index).
+        # Create DatabricksVectorSearch. text_column / embedding were resolved
+        # once above from the index's embedding mode: None for managed
+        # embeddings (Databricks embeds the query server-side), set for a
+        # self-managed / precomputed-embeddings index (embedded at runtime).
         #
         # Auth selection covers four modes, in priority order:
         #   1. OBO — vector_store.on_behalf_of_user=True: pass client_args=None
@@ -1076,7 +1162,8 @@ def create_ai_search_tool(
             effective_client_args = _client_args_from_ambient_wc(workspace_client)
         vs: DatabricksVectorSearch = DatabricksVectorSearch(
             index_name=index_name,
-            text_column=None,
+            text_column=resolved_text_column,
+            embedding=resolved_embedding,
             columns=columns,
             workspace_client=workspace_client,
             client_args=effective_client_args,
