@@ -5450,6 +5450,12 @@
           "default": null,
           "description": "SQL warehouse the Genie space queries against. Required for provisioning. For existing-space references, call :meth:`discover_warehouse` to fetch the warehouse attached to the live space."
         },
+        "apply_grants": {
+          "default": true,
+          "description": "Whether dao-ai auto-manages the CAN_USE grant for this room's SQL warehouse when deploying as an App (see WarehouseModel.apply_grants). Propagated to the discovered/derived warehouse. Set False when the Genie space runs as OWNER (the app SP needs no warehouse access) or you grant the app SP CAN_USE yourself \u2014 then the deployer needs no CAN MANAGE on the warehouse.",
+          "title": "Apply Grants",
+          "type": "boolean"
+        },
         "table_sources": {
           "anyOf": [
             {
@@ -10901,6 +10907,12 @@
           "default": null,
           "description": "SQL warehouse ID. Required when on_behalf_of_user is true. If omitted, looked up by name.",
           "title": "Warehouse Id"
+        },
+        "apply_grants": {
+          "default": true,
+          "description": "Whether dao-ai auto-manages this warehouse's grant when deploying as an App: add it as a `sql_warehouse` App resource so the platform grants the app service principal CAN_USE. Requires the DEPLOYER to hold CAN MANAGE on the warehouse (default True degrades gracefully \u2014 deploys without it and warns \u2014 if they don't). Set False to opt out entirely: dao-ai adds no warehouse resource and issues no CAN_USE grant, and YOU ensure the app SP has CAN_USE (e.g. an admin grants it directly, or the Genie space runs as OWNER so the SP needs no warehouse access).",
+          "title": "Apply Grants",
+          "type": "boolean"
         }
       },
       "title": "WarehouseModel",

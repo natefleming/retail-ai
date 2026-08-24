@@ -134,6 +134,12 @@ resources:
       warehouse_id: string         # or omit and provide name instead
       name: string                 # resolves warehouse_id by name if warehouse_id is omitted
       on_behalf_of_user: bool
+      apply_grants: bool           # default true. Apps deploy adds this warehouse as
+                                   # a sql_warehouse resource (app SP gets CAN_USE),
+                                   # which needs the DEPLOYER to hold CAN MANAGE.
+                                   # Set false to skip it (no resource, no grant) and
+                                   # grant the app SP CAN_USE yourself — or when the
+                                   # Genie space runs as OWNER (SP needs no warehouse).
 
   genie_rooms:
     genie: &genie
@@ -141,6 +147,8 @@ resources:
       agent_id: string             # alias of space_id (Genie Spaces → Genie Agents)
       name: string                 # resolves space_id by title if space_id is omitted
       on_behalf_of_user: bool      # forward the caller's token to Genie (OBO)
+      apply_grants: bool           # default true; propagates to the room's warehouse
+                                   # (see warehouses.apply_grants above)
       # A room referenced by a GenieAgentModel (see "Genie Agent as a model")
       # MUST be registered here so the deploy emits the genie-space grant and,
       # when on_behalf_of_user is set, the dashboards.genie user_api_scope.

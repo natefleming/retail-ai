@@ -1611,6 +1611,19 @@ class WarehouseModel(IsDatabricksResource):
         default=None,
         description="SQL warehouse ID. Required when on_behalf_of_user is true. If omitted, looked up by name.",
     )
+    apply_grants: bool = Field(
+        default=True,
+        description=(
+            "Whether dao-ai auto-manages this warehouse's grant when deploying as "
+            "an App: add it as a `sql_warehouse` App resource so the platform grants "
+            "the app service principal CAN_USE. Requires the DEPLOYER to hold CAN "
+            "MANAGE on the warehouse (default True degrades gracefully — deploys "
+            "without it and warns — if they don't). Set False to opt out entirely: "
+            "dao-ai adds no warehouse resource and issues no CAN_USE grant, and YOU "
+            "ensure the app SP has CAN_USE (e.g. an admin grants it directly, or the "
+            "Genie space runs as OWNER so the SP needs no warehouse access)."
+        ),
+    )
 
     _warehouse_details: Optional[GetWarehouseResponse] = PrivateAttr(default=None)
 
@@ -2016,6 +2029,17 @@ class GenieRoomModel(IsDatabricksResource, ManagedResource):
         default=None,
         description="SQL warehouse the Genie space queries against. Required for provisioning. For existing-space references, call :meth:`discover_warehouse` to fetch the warehouse attached to the live space.",
     )
+    apply_grants: bool = Field(
+        default=True,
+        description=(
+            "Whether dao-ai auto-manages the CAN_USE grant for this room's SQL "
+            "warehouse when deploying as an App (see WarehouseModel.apply_grants). "
+            "Propagated to the discovered/derived warehouse. Set False when the "
+            "Genie space runs as OWNER (the app SP needs no warehouse access) or "
+            "you grant the app SP CAN_USE yourself — then the deployer needs no CAN "
+            "MANAGE on the warehouse."
+        ),
+    )
     table_sources: Optional[list[GenieTableSource]] = Field(
         default=None,
         description="UC tables/views registered as Genie data sources (with optional column metadata).",
@@ -2201,6 +2225,7 @@ class GenieRoomModel(IsDatabricksResource, ManagedResource):
                 name=warehouse_name,
                 warehouse_id=space_details.warehouse_id,
                 on_behalf_of_user=self.on_behalf_of_user,
+                apply_grants=self.apply_grants,
                 service_principal=self.service_principal,
                 client_id=self.client_id,
                 client_secret=self.client_secret,
@@ -11480,6 +11505,16 @@ class ResourcesModel(BaseModel):
                     )
                     continue
 
+            # A room-level ``apply_grants: false`` opts the room's warehouse out of
+            # the managed CAN_USE grant. ``discover_warehouse`` already carries it,
+            # but an INLINE ``warehouse:`` block keeps its own default (True) — so
+            # propagate the room's opt-out here too, otherwise the documented
+            # room-level opt-out is silently ignored for inline warehouses. Do this
+            # BEFORE the warehouse_id guard so a name-only inline warehouse (id not
+            # yet resolved) still inherits the opt-out.
+            if warehouse is not None and not genie_room.apply_grants:
+                warehouse.apply_grants = False
+
             if warehouse is None or not warehouse.warehouse_id:
                 continue
 
@@ -11504,10 +11539,20 @@ class ResourcesModel(BaseModel):
                 genie_room.warehouse = warehouse
 
             # Already present (either from a previous call or declared by hand).
-            if any(
-                existing.warehouse_id == warehouse.warehouse_id
-                for existing in self.warehouses.values()
-            ):
+            existing_match = next(
+                (
+                    existing
+                    for existing in self.warehouses.values()
+                    if existing.warehouse_id == warehouse.warehouse_id
+                ),
+                None,
+            )
+            if existing_match is not None:
+                # Honor the room's opt-out even when the warehouse is already
+                # registered top-level — otherwise the existing entry's default
+                # (apply_grants=True) would silently override `apply_grants: false`.
+                if not genie_room.apply_grants:
+                    existing_match.apply_grants = False
                 continue
 
             # Key off the room's mapping key, not ``genie_room.name`` — the name

@@ -100,6 +100,18 @@ class TestPerExtractorObOFilter:
         names = {r["name"] for r in _extract_warehouse_resources(warehouses)}
         assert names == {"system_wh"}
 
+    def test_warehouse_extractor_skips_apply_grants_false(self) -> None:
+        # apply_grants=False opts out of the managed CAN_USE grant (no warehouse
+        # App resource) so the deployer needs no CAN MANAGE; default True is kept.
+        warehouses = {
+            "no_grant_wh": WarehouseModel(
+                name="ng", warehouse_id="abc", apply_grants=False
+            ),
+            "managed_wh": WarehouseModel(name="mg", warehouse_id="def"),  # default True
+        }
+        names = {r["name"] for r in _extract_warehouse_resources(warehouses)}
+        assert names == {"managed_wh"}
+
     def test_genie_extractor_skips_obo(self) -> None:
         genie_rooms = {
             "obo_room": GenieRoomModel(

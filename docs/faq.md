@@ -213,6 +213,18 @@ databricks bundle run <app-name>
 
 **Learn more:** [`docs/cli-reference.md`](cli-reference.md) · [`docs/python-api.md`](python-api.md)
 
+### Deploying to Apps fails with "unable to add the warehouse" / "needs MANAGE permission on the resource"
+
+When your agent fronts a Genie space that runs as **VIEWER** (the default), Genie executes its generated SQL as the *caller* — the app's service principal — so the app SP needs `CAN_USE` on the space's SQL warehouse. dao-ai grants that by adding the warehouse as an App `sql_warehouse` resource, and the Apps platform only lets you add a resource whose access you can delegate: **you (the deployer) must hold `CAN MANAGE` on the warehouse.** With only `CAN_USE` you get *"User does not have permission to add resource … User needs MANAGE permission on the resource."*
+
+The warehouse being auto-added is dao-ai's convenience, not a hard requirement — the SP just needs `CAN_USE` *somehow*. Options:
+
+1. **Grant the deployer `CAN MANAGE`** on the warehouse (or deploy as a principal that manages it) — dao-ai adds the resource normally.
+2. **Opt out:** set `apply_grants: false` on the Genie room (or the warehouse). dao-ai then adds **no** warehouse resource and issues no grant, so no deployer `CAN MANAGE` is needed — but you (or an admin) must grant the app SP `CAN_USE` on the warehouse out-of-band. This is also the right choice when the Genie space runs as **OWNER** (the SP needs no warehouse access at all).
+3. **Do nothing on the SDK/notebook path:** `config.deploy_agent(mode=APPS)` now **degrades gracefully** — if you lack `CAN MANAGE`, it deploys the app *without* the warehouse resource and logs an ERROR telling you to grant the app SP `CAN_USE`. (The `dao-ai agent build` / DABs bundle path deploys declaratively and can't retry, so there use option 1 or 2.)
+
+Which mode a space uses is the deciding factor — check it with `databricks api get /api/2.0/data-rooms/<space_id>` and read `run_as_type` (`VIEWER` needs the warehouse grant; `OWNER` doesn't). Note `run_as_type` isn't exposed on the public `genie/spaces` API and can only be changed in the Genie UI.
+
 ## Performance Questions
 
 ### How do I optimize agent performance?

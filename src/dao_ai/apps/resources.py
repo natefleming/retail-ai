@@ -403,7 +403,7 @@ def _extract_warehouse_resources(
     resources: list[dict[str, Any]] = []
     used_names: set[str] = set()
     for key, warehouse in warehouses.items():
-        if warehouse.on_behalf_of_user:
+        if warehouse.on_behalf_of_user or not warehouse.apply_grants:
             continue
         warehouse_id = value_of(warehouse.warehouse_id)
         resource: dict[str, Any] = {
@@ -488,7 +488,7 @@ def _extract_genie_warehouse_resources(
         if genie.on_behalf_of_user:
             continue
         warehouse = genie.warehouse
-        if warehouse is None:
+        if warehouse is None or not warehouse.apply_grants:
             continue
         wh_id = value_of(warehouse.warehouse_id)
         if wh_id in seen_ids:
@@ -1220,7 +1220,7 @@ def _extract_sdk_warehouse_resources(
     Skips OBO resources."""
     resources: list[AppResource] = []
     for key, warehouse in warehouses.items():
-        if warehouse.on_behalf_of_user:
+        if warehouse.on_behalf_of_user or not warehouse.apply_grants:
             continue
         warehouse_id = value_of(warehouse.warehouse_id)
         sanitized_name = _sanitize_resource_name(key)

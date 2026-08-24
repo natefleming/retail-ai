@@ -2598,8 +2598,81 @@ class DatabricksProvider(ServiceProvider):
                     self.w.api_client.do(method, path, body=body)
                     return
 
-                if any(p in err_msg for p in _permission_patterns):
-                    requested = body.get("resources", [])
+                # Graceful degrade for SQL warehouses. Adding a warehouse resource
+                # needs the deployer to hold CAN MANAGE on it (Apps delegates the app
+                # SP a CAN_USE grant on your behalf — e.g. "User does not have
+                # permission to add resource <name> ... needs MANAGE permission on the
+                # resource"). The SP only needs CAN_USE *somehow*, so rather than
+                # abort, drop the offending warehouse(s) and retry, telling the
+                # operator to grant the SP CAN_USE. When the platform NAMES the failing
+                # resource, drop only that warehouse (a warehouse the deployer CAN
+                # manage — and any non-warehouse resource — is kept and still gates the
+                # deploy); when it doesn't, fall back to dropping every droppable
+                # warehouse. Set `apply_grants: false` to skip this entirely.
+                def _named_resource(msg: str) -> Optional[str]:
+                    m = re.search(r"add resource (\S+) to app", msg)
+                    return m.group(1) if m else None
+
+                # On UPDATE, never drop a warehouse already live on the app — that
+                # would REMOVE a previously-working CAN_USE grant and silently break
+                # Genie. Protect those ids so such a case surfaces instead of degrading.
+                protected_ids: set[str] = set()
+                if method != "POST":
+                    try:
+                        existing_app = self.w.apps.get(name=path.rsplit("/", 1)[-1])
+                        for r in getattr(existing_app, "resources", None) or []:
+                            wh = getattr(r, "sql_warehouse", None)
+                            if wh is not None and getattr(wh, "id", None):
+                                protected_ids.add(wh.id)
+                    except Exception:
+                        pass
+
+                # Peel droppable warehouses off while a warehouse is the blocker;
+                # ``cur`` always holds the LIVE error so we surface the real cause
+                # (never mask a non-warehouse/unrelated failure behind the original).
+                dropped_ids: list[str] = []
+                cur: Exception = e
+                while any(p in str(cur) for p in _permission_patterns):
+                    resources = body.get("resources", [])
+                    named = _named_resource(str(cur))
+                    victims = [
+                        r
+                        for r in resources
+                        if "sql_warehouse" in r
+                        and (r.get("sql_warehouse") or {}).get("id") not in protected_ids
+                        and (named is None or r.get("name") == named)
+                    ]
+                    if not victims:
+                        break  # blocker is a non-warehouse/protected resource
+                    body["resources"] = [r for r in resources if r not in victims]
+                    dropped_ids += [
+                        (r.get("sql_warehouse") or {}).get("id") for r in victims
+                    ]
+                    try:
+                        self.w.api_client.do(method, path, body=body)
+                    except (BadRequest, InvalidParameterValue, PermissionDenied) as e2:
+                        cur = e2  # a different resource is the blocker now; re-evaluate
+                        continue
+                    else:
+                        logger.error(
+                            "Deployer lacks CAN MANAGE on SQL warehouse(s) "
+                            f"{dropped_ids}, so the platform cannot grant the app "
+                            "service principal CAN_USE. Deployed WITHOUT those "
+                            "warehouse resource(s) so the app still comes up — but "
+                            "Genie queries on run-as-VIEWER spaces will fail until the "
+                            "app SP is granted CAN_USE on them. Fix: grant the app SP "
+                            "(`databricks apps get <app>` -> service_principal_client_id"
+                            ") CAN_USE, or re-deploy as a principal holding CAN MANAGE. "
+                            "Set the warehouse's `apply_grants: false` to own the grant "
+                            "and silence this.",
+                            error=err_msg,
+                        )
+                        return
+
+                # The warehouse degrade didn't resolve it — ``cur`` is the REAL
+                # remaining blocker (a non-warehouse MANAGE failure, a protected
+                # warehouse, or an unrelated error from a retry). Surface THAT.
+                if any(p in str(cur) for p in _permission_patterns):
                     logger.error(
                         "App deploy requires the deployer to hold MANAGE on "
                         "every declared resource so the platform can grant "
@@ -2607,14 +2680,13 @@ class DatabricksProvider(ServiceProvider):
                         "be aborted to avoid leaving the app in a broken "
                         "state. Resolve by either (a) running the deploy as "
                         "a principal that owns/manages the underlying "
-                        "catalog, schema, functions, and serving endpoints, "
-                        "or (b) granting MANAGE on each of those securables "
-                        "to the current deployer. Requested resources: "
-                        f"{_describe_resources(requested)}",
-                        error=err_msg,
+                        "catalog, schema, functions, SQL warehouses, and serving "
+                        "endpoints, or (b) granting MANAGE on each of those "
+                        "securables to the current deployer. Requested resources: "
+                        f"{_describe_resources(body.get('resources', []))}",
+                        error=str(cur),
                     )
-
-                raise
+                raise cur from None
 
         if not app_exists:
             logger.info("Creating Databricks App", app_name=app_name)
