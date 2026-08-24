@@ -2598,6 +2598,42 @@ class DatabricksProvider(ServiceProvider):
                     self.w.api_client.do(method, path, body=body)
                     return
 
+                # Graceful degrade for SQL warehouses: adding a warehouse resource
+                # needs the deployer to hold CAN MANAGE on it (Apps delegates the
+                # app SP a CAN_USE grant on your behalf — "User needs MANAGE
+                # permission on the resource"). But the app SP only needs CAN_USE
+                # *somehow*; an admin can grant it out-of-band. So rather than abort
+                # the whole deploy, retry WITHOUT the warehouse resource(s) and tell
+                # the operator to grant the SP CAN_USE. (Set the warehouse's
+                # `apply_grants: false` to skip this attempt + warning entirely.)
+                resources = body.get("resources", [])
+                warehouses = [r for r in resources if "sql_warehouse" in r]
+                if warehouses and any(p in err_msg for p in _permission_patterns):
+                    kept = [r for r in resources if "sql_warehouse" not in r]
+                    wh_ids = [
+                        (r.get("sql_warehouse") or {}).get("id") for r in warehouses
+                    ]
+                    try:
+                        self.w.api_client.do(method, path, body={**body, "resources": kept})
+                    except (BadRequest, InvalidParameterValue, PermissionDenied):
+                        pass  # a NON-warehouse resource is the blocker → abort below
+                    else:
+                        body["resources"] = kept
+                        logger.error(
+                            "Deployer lacks CAN MANAGE on the app's SQL warehouse(s), "
+                            "so the platform cannot grant the app service principal "
+                            "CAN_USE. Deployed WITHOUT the warehouse resource(s) so the "
+                            "app still comes up — but Genie queries on run-as-VIEWER "
+                            "spaces will fail until the app SP is granted CAN_USE on "
+                            f"each warehouse ({wh_ids}). Fix: grant the app SP "
+                            "(`databricks apps get <app>` -> service_principal_client_id) "
+                            "CAN_USE on the warehouse, or re-deploy as a principal that "
+                            "holds CAN MANAGE on it. Set the warehouse's "
+                            "`apply_grants: false` to silence this and own the grant.",
+                            error=err_msg,
+                        )
+                        return
+
                 if any(p in err_msg for p in _permission_patterns):
                     requested = body.get("resources", [])
                     logger.error(
@@ -2607,9 +2643,9 @@ class DatabricksProvider(ServiceProvider):
                         "be aborted to avoid leaving the app in a broken "
                         "state. Resolve by either (a) running the deploy as "
                         "a principal that owns/manages the underlying "
-                        "catalog, schema, functions, and serving endpoints, "
-                        "or (b) granting MANAGE on each of those securables "
-                        "to the current deployer. Requested resources: "
+                        "catalog, schema, functions, SQL warehouses, and serving "
+                        "endpoints, or (b) granting MANAGE on each of those "
+                        "securables to the current deployer. Requested resources: "
                         f"{_describe_resources(requested)}",
                         error=err_msg,
                     )

@@ -1611,6 +1611,19 @@ class WarehouseModel(IsDatabricksResource):
         default=None,
         description="SQL warehouse ID. Required when on_behalf_of_user is true. If omitted, looked up by name.",
     )
+    apply_grants: bool = Field(
+        default=True,
+        description=(
+            "Whether dao-ai auto-manages this warehouse's grant when deploying as "
+            "an App: add it as a `sql_warehouse` App resource so the platform grants "
+            "the app service principal CAN_USE. Requires the DEPLOYER to hold CAN "
+            "MANAGE on the warehouse (default True degrades gracefully — deploys "
+            "without it and warns — if they don't). Set False to opt out entirely: "
+            "dao-ai adds no warehouse resource and issues no CAN_USE grant, and YOU "
+            "ensure the app SP has CAN_USE (e.g. an admin grants it directly, or the "
+            "Genie space runs as OWNER so the SP needs no warehouse access)."
+        ),
+    )
 
     _warehouse_details: Optional[GetWarehouseResponse] = PrivateAttr(default=None)
 
@@ -2016,6 +2029,17 @@ class GenieRoomModel(IsDatabricksResource, ManagedResource):
         default=None,
         description="SQL warehouse the Genie space queries against. Required for provisioning. For existing-space references, call :meth:`discover_warehouse` to fetch the warehouse attached to the live space.",
     )
+    apply_grants: bool = Field(
+        default=True,
+        description=(
+            "Whether dao-ai auto-manages the CAN_USE grant for this room's SQL "
+            "warehouse when deploying as an App (see WarehouseModel.apply_grants). "
+            "Propagated to the discovered/derived warehouse. Set False when the "
+            "Genie space runs as OWNER (the app SP needs no warehouse access) or "
+            "you grant the app SP CAN_USE yourself — then the deployer needs no CAN "
+            "MANAGE on the warehouse."
+        ),
+    )
     table_sources: Optional[list[GenieTableSource]] = Field(
         default=None,
         description="UC tables/views registered as Genie data sources (with optional column metadata).",
@@ -2201,6 +2225,7 @@ class GenieRoomModel(IsDatabricksResource, ManagedResource):
                 name=warehouse_name,
                 warehouse_id=space_details.warehouse_id,
                 on_behalf_of_user=self.on_behalf_of_user,
+                apply_grants=self.apply_grants,
                 service_principal=self.service_principal,
                 client_id=self.client_id,
                 client_secret=self.client_secret,
