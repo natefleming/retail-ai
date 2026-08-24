@@ -11505,16 +11505,18 @@ class ResourcesModel(BaseModel):
                     )
                     continue
 
-            if warehouse is None or not warehouse.warehouse_id:
-                continue
-
             # A room-level ``apply_grants: false`` opts the room's warehouse out of
             # the managed CAN_USE grant. ``discover_warehouse`` already carries it,
             # but an INLINE ``warehouse:`` block keeps its own default (True) — so
             # propagate the room's opt-out here too, otherwise the documented
-            # room-level opt-out is silently ignored for inline warehouses.
-            if not genie_room.apply_grants:
+            # room-level opt-out is silently ignored for inline warehouses. Do this
+            # BEFORE the warehouse_id guard so a name-only inline warehouse (id not
+            # yet resolved) still inherits the opt-out.
+            if warehouse is not None and not genie_room.apply_grants:
                 warehouse.apply_grants = False
+
+            if warehouse is None or not warehouse.warehouse_id:
+                continue
 
             # Only *now* is the space known to have yielded something. Marking it
             # before the lookup would let one room's failure (no permission, a
@@ -11537,10 +11539,20 @@ class ResourcesModel(BaseModel):
                 genie_room.warehouse = warehouse
 
             # Already present (either from a previous call or declared by hand).
-            if any(
-                existing.warehouse_id == warehouse.warehouse_id
-                for existing in self.warehouses.values()
-            ):
+            existing_match = next(
+                (
+                    existing
+                    for existing in self.warehouses.values()
+                    if existing.warehouse_id == warehouse.warehouse_id
+                ),
+                None,
+            )
+            if existing_match is not None:
+                # Honor the room's opt-out even when the warehouse is already
+                # registered top-level — otherwise the existing entry's default
+                # (apply_grants=True) would silently override `apply_grants: false`.
+                if not genie_room.apply_grants:
+                    existing_match.apply_grants = False
                 continue
 
             # Key off the room's mapping key, not ``genie_room.name`` — the name

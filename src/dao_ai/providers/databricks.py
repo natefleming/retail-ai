@@ -2600,23 +2600,22 @@ class DatabricksProvider(ServiceProvider):
 
                 # Graceful degrade for SQL warehouses. Adding a warehouse resource
                 # needs the deployer to hold CAN MANAGE on it (Apps delegates the app
-                # SP a CAN_USE grant on your behalf — "User does not have permission
-                # to add resource <name> ... needs MANAGE permission on the
+                # SP a CAN_USE grant on your behalf — e.g. "User does not have
+                # permission to add resource <name> ... needs MANAGE permission on the
                 # resource"). The SP only needs CAN_USE *somehow*, so rather than
-                # abort, drop ONLY the specific warehouse the platform rejected and
-                # retry, telling the operator to grant the SP CAN_USE. A warehouse the
-                # deployer CAN manage — and any non-warehouse resource — is left
-                # intact (and still gates the deploy). Set the warehouse's
-                # `apply_grants: false` to skip this attempt + warning entirely.
-                import re
-
-                def _failing_resource(msg: str) -> Optional[str]:
+                # abort, drop the offending warehouse(s) and retry, telling the
+                # operator to grant the SP CAN_USE. When the platform NAMES the failing
+                # resource, drop only that warehouse (a warehouse the deployer CAN
+                # manage — and any non-warehouse resource — is kept and still gates the
+                # deploy); when it doesn't, fall back to dropping every droppable
+                # warehouse. Set `apply_grants: false` to skip this entirely.
+                def _named_resource(msg: str) -> Optional[str]:
                     m = re.search(r"add resource (\S+) to app", msg)
                     return m.group(1) if m else None
 
-                # On UPDATE, never drop a warehouse already live on the app — doing so
+                # On UPDATE, never drop a warehouse already live on the app — that
                 # would REMOVE a previously-working CAN_USE grant and silently break
-                # Genie. Protect those ids so that case aborts instead.
+                # Genie. Protect those ids so such a case surfaces instead of degrading.
                 protected_ids: set[str] = set()
                 if method != "POST":
                     try:
@@ -2628,30 +2627,31 @@ class DatabricksProvider(ServiceProvider):
                     except Exception:
                         pass
 
+                # Peel droppable warehouses off while a warehouse is the blocker;
+                # ``cur`` always holds the LIVE error so we surface the real cause
+                # (never mask a non-warehouse/unrelated failure behind the original).
                 dropped_ids: list[str] = []
-                cur_err = err_msg
-                while any(p in cur_err for p in _permission_patterns):
-                    name = _failing_resource(cur_err)
+                cur: Exception = e
+                while any(p in str(cur) for p in _permission_patterns):
                     resources = body.get("resources", [])
-                    victim = next(
-                        (
-                            r
-                            for r in resources
-                            if r.get("name") == name and "sql_warehouse" in r
-                        ),
-                        None,
-                    )
-                    if victim is None:
-                        break  # blocker isn't a droppable warehouse → abort below
-                    wh_id = (victim.get("sql_warehouse") or {}).get("id")
-                    if wh_id in protected_ids:
-                        break  # would remove a live/working grant → abort below
-                    body["resources"] = [r for r in resources if r is not victim]
-                    dropped_ids.append(wh_id)
+                    named = _named_resource(str(cur))
+                    victims = [
+                        r
+                        for r in resources
+                        if "sql_warehouse" in r
+                        and (r.get("sql_warehouse") or {}).get("id") not in protected_ids
+                        and (named is None or r.get("name") == named)
+                    ]
+                    if not victims:
+                        break  # blocker is a non-warehouse/protected resource
+                    body["resources"] = [r for r in resources if r not in victims]
+                    dropped_ids += [
+                        (r.get("sql_warehouse") or {}).get("id") for r in victims
+                    ]
                     try:
                         self.w.api_client.do(method, path, body=body)
                     except (BadRequest, InvalidParameterValue, PermissionDenied) as e2:
-                        cur_err = str(e2)  # maybe the next blocker is another warehouse
+                        cur = e2  # a different resource is the blocker now; re-evaluate
                         continue
                     else:
                         logger.error(
@@ -2669,8 +2669,10 @@ class DatabricksProvider(ServiceProvider):
                         )
                         return
 
-                if any(p in err_msg for p in _permission_patterns):
-                    requested = body.get("resources", [])
+                # The warehouse degrade didn't resolve it — ``cur`` is the REAL
+                # remaining blocker (a non-warehouse MANAGE failure, a protected
+                # warehouse, or an unrelated error from a retry). Surface THAT.
+                if any(p in str(cur) for p in _permission_patterns):
                     logger.error(
                         "App deploy requires the deployer to hold MANAGE on "
                         "every declared resource so the platform can grant "
@@ -2681,11 +2683,10 @@ class DatabricksProvider(ServiceProvider):
                         "catalog, schema, functions, SQL warehouses, and serving "
                         "endpoints, or (b) granting MANAGE on each of those "
                         "securables to the current deployer. Requested resources: "
-                        f"{_describe_resources(requested)}",
-                        error=err_msg,
+                        f"{_describe_resources(body.get('resources', []))}",
+                        error=str(cur),
                     )
-
-                raise
+                raise cur from None
 
         if not app_exists:
             logger.info("Creating Databricks App", app_name=app_name)
