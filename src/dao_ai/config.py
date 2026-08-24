@@ -3695,7 +3695,16 @@ class AiSearchVectorStoreModel(IsDatabricksResource, ManagedResource):
         ] + self.index.api_scopes
 
     def as_resources(self) -> Sequence[DatabricksResource]:
-        return self.index.as_resources()
+        resources: list[DatabricksResource] = list(self.index.as_resources())
+        # Self-managed / precomputed-embeddings indexes embed the query at
+        # runtime via ``embedding_model`` (see the query path in
+        # ``dao_ai.tools.vector_search``), so the deployed principal needs
+        # access to that serving endpoint. Managed-embeddings indexes embed
+        # server-side and need no separate grant, so gate on ``text_column``
+        # (only set for self-managed) to avoid over-granting.
+        if self.text_column is not None and self.embedding_model is not None:
+            resources.extend(self.embedding_model.as_resources())
+        return resources
 
     def as_index(self, vsc: VectorSearchClient | None = None) -> VectorSearchIndex:
         from dao_ai.providers.databricks import DatabricksProvider

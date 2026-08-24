@@ -35,6 +35,7 @@ from dao_ai.config import (
 )
 from dao_ai.tools.vector_search import (
     _index_is_managed_embeddings,
+    _index_is_self_managed_embeddings,
     create_vector_search_tool,
 )
 
@@ -168,6 +169,28 @@ class TestManagedEmbeddingsDetection:
 
 
 @pytest.mark.unit
+class TestSelfManagedDetection:
+    def test_managed_is_not_self_managed(self) -> None:
+        assert _index_is_self_managed_embeddings(_managed_describe()) is False
+
+    def test_self_managed_delta_sync_is_self_managed(self) -> None:
+        assert _index_is_self_managed_embeddings(_self_managed_describe()) is True
+
+    def test_direct_access_is_self_managed(self) -> None:
+        assert _index_is_self_managed_embeddings(_direct_access_describe()) is True
+
+    def test_none_is_not_self_managed(self) -> None:
+        assert _index_is_self_managed_embeddings(None) is False
+
+    def test_unknown_shape_is_neither(self) -> None:
+        # An unrecognized shape is positively neither — the factory falls back
+        # to config intent rather than hard-failing a managed index.
+        details = {"index_type": "MYSTERY", "delta_sync_index_spec": {}}
+        assert _index_is_managed_embeddings(details) is False
+        assert _index_is_self_managed_embeddings(details) is False
+
+
+@pytest.mark.unit
 class TestSelfManagedQueryPath:
     def test_self_managed_passes_text_column_and_embedding(self) -> None:
         vs = _make_vs(text_column="content", embedding_model="databricks-bge-large-en")
@@ -235,3 +258,44 @@ class TestModelValidator:
             embedding_model=InferenceEndpointModel(name="databricks-gte-large-en"),
         )
         assert vs.text_column is None
+
+
+@pytest.mark.unit
+class TestReviewFixes:
+    def test_text_column_not_appended_to_return_columns(self) -> None:
+        # #4: text_column must not be injected into the columns dao-ai builds
+        # the filter enum from — the library merges it for page_content itself.
+        schema = SchemaModel(catalog_name="cat", schema_name="sch")
+        vs = AiSearchVectorStoreModel(
+            index=IndexModel(schema=schema, name="idx"),
+            columns=["id", "content"],  # text column 'body' intentionally absent
+            text_column="body",
+            embedding_model=InferenceEndpointModel(name="databricks-gte-large-en"),
+        )
+        _, mock_dvs = _build_tool_with_describe(
+            vs, _self_managed_describe(), invoke=True
+        )
+        assert "body" not in mock_dvs.call_args.kwargs["columns"]
+
+    def test_unknown_describe_shape_without_text_column_stays_managed(self) -> None:
+        # #5: an unrecognized describe() shape must not hard-fail a managed
+        # index; with no text_column it takes the managed path (text_column=None).
+        vs = _make_vs()  # no text_column
+        _, mock_dvs = _build_tool_with_describe(
+            vs, {"index_type": "MYSTERY", "delta_sync_index_spec": {}}, invoke=True
+        )
+        kwargs = mock_dvs.call_args.kwargs
+        assert kwargs["text_column"] is None
+        assert kwargs["embedding"] is None
+
+    def test_as_resources_includes_embedding_endpoint_for_self_managed(self) -> None:
+        # #1: deployed principal needs a grant on the query-embedding endpoint.
+        vs = _make_vs(text_column="body", embedding_model="my-custom-emb")
+        kinds = [type(r).__name__ for r in vs.as_resources()]
+        assert any("ServingEndpoint" in k for k in kinds)
+
+    def test_as_resources_excludes_embedding_endpoint_for_managed(self) -> None:
+        # Managed index (no text_column) embeds server-side — no extra grant.
+        vs = _make_vs()  # no text_column, no embedding_model
+        kinds = [type(r).__name__ for r in vs.as_resources()]
+        assert not any("ServingEndpoint" in k for k in kinds)

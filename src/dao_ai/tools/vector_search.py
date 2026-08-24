@@ -333,6 +333,28 @@ def _index_is_managed_embeddings(details: dict | None) -> bool:
     return False
 
 
+def _index_is_self_managed_embeddings(details: dict | None) -> bool:
+    """True iff the index POSITIVELY signals self-managed embeddings.
+
+    A positive signal is a Direct-Access index, or an
+    ``embedding_vector_columns`` entry under either index spec (precomputed
+    vectors). Detecting positively — rather than as ``not managed`` — means an
+    unrecognized/renamed describe() shape is treated as *unknown* rather than
+    forced into the self-managed path, so a genuinely managed index never
+    hard-fails tool construction.
+    """
+    if not isinstance(details, dict):
+        return False
+    if details.get("index_type") == "DIRECT_ACCESS":
+        return True
+    for spec_key in ("delta_sync_index_spec", "direct_access_index_spec"):
+        spec = details.get(spec_key) or {}
+        for entry in spec.get("embedding_vector_columns") or []:
+            if isinstance(entry, dict) and entry.get("name"):
+                return True
+    return False
+
+
 def _fetch_index_columns(
     vector_store: "VectorStoreModel",
 ) -> list[tuple[str, str | None, str | None]] | None:
@@ -943,8 +965,14 @@ def create_ai_search_tool(
         else:
             # Direct-Access indexes: refresh may have populated
             # ``vector_store.columns`` from ``columns_to_sync``. Use those
-            # if the UC lookup returned nothing.
-            fallback = list(vector_store.columns or [])
+            # if the UC lookup returned nothing. ``columns_to_sync`` includes
+            # the (self-managed) embedding vector column — strip it so the raw
+            # float array never lands in the filter enum, description, or
+            # returned results.
+            vec_names = _vector_column_names_from_describe(
+                getattr(vector_store, "_index_details", None)
+            )
+            fallback = [c for c in (vector_store.columns or []) if c not in vec_names]
             columns = fallback
 
     # Array-typed columns get equality-only (empty suffix). VS rejects
@@ -988,8 +1016,20 @@ def create_ai_search_tool(
         if isinstance(_raw_text_column, str) and _raw_text_column
         else None
     )
-    if isinstance(details, dict):
-        is_self_managed: bool = not _index_is_managed_embeddings(details)
+    # Detect the embedding mode POSITIVELY from index metadata, with three
+    # outcomes so an unrecognized describe() shape never hard-fails a genuinely
+    # managed index (it falls through to config intent, same as no metadata):
+    #   * positive self-managed signal          -> self-managed
+    #   * positive managed signal                -> managed (error if
+    #                                               text_column was set)
+    #   * neither / no metadata                  -> config intent: self-managed
+    #                                               iff text_column declared
+    positively_managed = False
+    if isinstance(details, dict) and _index_is_self_managed_embeddings(details):
+        is_self_managed: bool = True
+    elif isinstance(details, dict) and _index_is_managed_embeddings(details):
+        is_self_managed = False
+        positively_managed = True
     else:
         is_self_managed = declared_text_column is not None
 
@@ -1011,18 +1051,25 @@ def create_ai_search_tool(
                 "the model that produced the stored vectors."
             )
         resolved_text_column = declared_text_column
+        # DatabricksVectorSearch merges text_column into its return columns for
+        # page_content on its own (validate_and_get_return_columns), so we do
+        # NOT add it to ``columns`` here — doing so would leak the (often long)
+        # text column into the LLM-facing filter enum and description.
+        #
+        # KNOWN LIMITATION (OBO): this query embedder is built once with
+        # ambient auth. Under on_behalf_of_user the index READ is per-request
+        # OBO (row-level security honored), but the query-string embedding runs
+        # as the serving principal, not the forwarded user. Harmless for shared
+        # foundation embedding endpoints; a user-scoped custom endpoint would be
+        # queried as the SP. Per-request OBO embedding is a follow-up.
         resolved_embedding = vector_store.embedding_model.as_embeddings_model()
-        # text_column must be among the returned columns to populate
-        # page_content.
-        if resolved_text_column not in columns:
-            columns = [*columns, resolved_text_column]
         logger.success(
             "Vector Search self-managed embeddings",
             index=index_name,
             text_column=resolved_text_column,
             embedding_model=vector_store.embedding_model.name,
         )
-    elif declared_text_column:
+    elif positively_managed and declared_text_column:
         raise ValueError(
             f"Index '{index_name}' uses Databricks-managed embeddings, which "
             "embed the query server-side. Do not set `text_column` / "
