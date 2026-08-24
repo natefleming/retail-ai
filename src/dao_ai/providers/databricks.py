@@ -2598,38 +2598,73 @@ class DatabricksProvider(ServiceProvider):
                     self.w.api_client.do(method, path, body=body)
                     return
 
-                # Graceful degrade for SQL warehouses: adding a warehouse resource
-                # needs the deployer to hold CAN MANAGE on it (Apps delegates the
-                # app SP a CAN_USE grant on your behalf — "User needs MANAGE
-                # permission on the resource"). But the app SP only needs CAN_USE
-                # *somehow*; an admin can grant it out-of-band. So rather than abort
-                # the whole deploy, retry WITHOUT the warehouse resource(s) and tell
-                # the operator to grant the SP CAN_USE. (Set the warehouse's
-                # `apply_grants: false` to skip this attempt + warning entirely.)
-                resources = body.get("resources", [])
-                warehouses = [r for r in resources if "sql_warehouse" in r]
-                if warehouses and any(p in err_msg for p in _permission_patterns):
-                    kept = [r for r in resources if "sql_warehouse" not in r]
-                    wh_ids = [
-                        (r.get("sql_warehouse") or {}).get("id") for r in warehouses
-                    ]
+                # Graceful degrade for SQL warehouses. Adding a warehouse resource
+                # needs the deployer to hold CAN MANAGE on it (Apps delegates the app
+                # SP a CAN_USE grant on your behalf — "User does not have permission
+                # to add resource <name> ... needs MANAGE permission on the
+                # resource"). The SP only needs CAN_USE *somehow*, so rather than
+                # abort, drop ONLY the specific warehouse the platform rejected and
+                # retry, telling the operator to grant the SP CAN_USE. A warehouse the
+                # deployer CAN manage — and any non-warehouse resource — is left
+                # intact (and still gates the deploy). Set the warehouse's
+                # `apply_grants: false` to skip this attempt + warning entirely.
+                import re
+
+                def _failing_resource(msg: str) -> Optional[str]:
+                    m = re.search(r"add resource (\S+) to app", msg)
+                    return m.group(1) if m else None
+
+                # On UPDATE, never drop a warehouse already live on the app — doing so
+                # would REMOVE a previously-working CAN_USE grant and silently break
+                # Genie. Protect those ids so that case aborts instead.
+                protected_ids: set[str] = set()
+                if method != "POST":
                     try:
-                        self.w.api_client.do(method, path, body={**body, "resources": kept})
-                    except (BadRequest, InvalidParameterValue, PermissionDenied):
-                        pass  # a NON-warehouse resource is the blocker → abort below
+                        existing_app = self.w.apps.get(name=path.rsplit("/", 1)[-1])
+                        for r in getattr(existing_app, "resources", None) or []:
+                            wh = getattr(r, "sql_warehouse", None)
+                            if wh is not None and getattr(wh, "id", None):
+                                protected_ids.add(wh.id)
+                    except Exception:
+                        pass
+
+                dropped_ids: list[str] = []
+                cur_err = err_msg
+                while any(p in cur_err for p in _permission_patterns):
+                    name = _failing_resource(cur_err)
+                    resources = body.get("resources", [])
+                    victim = next(
+                        (
+                            r
+                            for r in resources
+                            if r.get("name") == name and "sql_warehouse" in r
+                        ),
+                        None,
+                    )
+                    if victim is None:
+                        break  # blocker isn't a droppable warehouse → abort below
+                    wh_id = (victim.get("sql_warehouse") or {}).get("id")
+                    if wh_id in protected_ids:
+                        break  # would remove a live/working grant → abort below
+                    body["resources"] = [r for r in resources if r is not victim]
+                    dropped_ids.append(wh_id)
+                    try:
+                        self.w.api_client.do(method, path, body=body)
+                    except (BadRequest, InvalidParameterValue, PermissionDenied) as e2:
+                        cur_err = str(e2)  # maybe the next blocker is another warehouse
+                        continue
                     else:
-                        body["resources"] = kept
                         logger.error(
-                            "Deployer lacks CAN MANAGE on the app's SQL warehouse(s), "
-                            "so the platform cannot grant the app service principal "
-                            "CAN_USE. Deployed WITHOUT the warehouse resource(s) so the "
-                            "app still comes up — but Genie queries on run-as-VIEWER "
-                            "spaces will fail until the app SP is granted CAN_USE on "
-                            f"each warehouse ({wh_ids}). Fix: grant the app SP "
-                            "(`databricks apps get <app>` -> service_principal_client_id) "
-                            "CAN_USE on the warehouse, or re-deploy as a principal that "
-                            "holds CAN MANAGE on it. Set the warehouse's "
-                            "`apply_grants: false` to silence this and own the grant.",
+                            "Deployer lacks CAN MANAGE on SQL warehouse(s) "
+                            f"{dropped_ids}, so the platform cannot grant the app "
+                            "service principal CAN_USE. Deployed WITHOUT those "
+                            "warehouse resource(s) so the app still comes up — but "
+                            "Genie queries on run-as-VIEWER spaces will fail until the "
+                            "app SP is granted CAN_USE on them. Fix: grant the app SP "
+                            "(`databricks apps get <app>` -> service_principal_client_id"
+                            ") CAN_USE, or re-deploy as a principal holding CAN MANAGE. "
+                            "Set the warehouse's `apply_grants: false` to own the grant "
+                            "and silence this.",
                             error=err_msg,
                         )
                         return

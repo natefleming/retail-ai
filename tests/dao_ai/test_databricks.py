@@ -1367,6 +1367,88 @@ def test_deploy_apps_agent_warehouse_permission_degrades_gracefully():
 
 
 @pytest.mark.unit
+def test_deploy_apps_agent_non_warehouse_permission_error_aborts():
+    """The warehouse degrade must fire ONLY when a warehouse is the named blocker.
+    A MANAGE-permission error on a NON-warehouse resource (e.g. a genie space) must
+    abort — never silently strip the warehouse — and must not waste a retry."""
+    from unittest.mock import MagicMock, patch
+
+    from databricks.sdk.errors.platform import NotFound, PermissionDenied
+    from databricks.sdk.service.apps import App, ApplicationState
+    from databricks.sdk.service.iam import User
+
+    from dao_ai.config import AppConfig, AppModel
+    from dao_ai.providers.databricks import DatabricksProvider
+
+    mock_config = MagicMock(spec=AppConfig)
+    mock_app = MagicMock(spec=AppModel)
+    mock_app.name = "wh_app"
+    mock_app.description = "d"
+    mock_app.environment_vars = {}
+    mock_app.trace_location = None
+    mock_app.monitoring = None
+    mock_app.enable_chat_proxy = True
+    mock_app.apps_compute_size.return_value = None
+    mock_config.app = mock_app
+    mock_config.source_config_path = None
+    mock_config._source_config_path = None
+    mock_config.rendered_yaml = None
+    mock_config.model_dump.return_value = {"app": {"name": "wh_app"}}
+    mock_config.resources = None
+    mock_config.agents = None
+    mock_config.retrievers = None
+
+    user = MagicMock(spec=User)
+    user.user_name = "sp"
+    created = MagicMock(spec=App)
+    created.name = "wh-app"
+    created.app_status = MagicMock()
+    created.app_status.state = ApplicationState.RUNNING
+
+    calls: list = []
+
+    def _do(method, path, body=None, **kw):
+        import copy
+
+        calls.append(copy.deepcopy(body or {}))
+        # The blocker is the genie space, NOT the warehouse.
+        raise PermissionDenied(
+            "User does not have permission to add resource g to app wh-app. "
+            "User needs MANAGE permission on the resource."
+        )
+
+    resources = [
+        {"name": "wh", "sql_warehouse": {"id": "abc", "permission": "CAN_USE"}},
+        {"name": "g", "genie_space": {"space_id": "01f0", "permission": "CAN_RUN"}},
+    ]
+
+    with (
+        patch.object(DatabricksProvider, "__init__", return_value=None),
+        patch(
+            "dao_ai.apps.resources.generate_deployment_resources",
+            return_value=resources,
+        ),
+    ):
+        provider = DatabricksProvider()
+        provider.w = MagicMock()
+        provider.w.current_user.me.return_value = user
+        provider.w.apps.get.side_effect = [NotFound("nope"), created]
+        provider.w.api_client.do.side_effect = _do
+        with patch.object(
+            provider, "get_or_create_experiment", return_value=MagicMock()
+        ):
+            _stamp_extras_resolvable(mock_config)
+            with pytest.raises(PermissionDenied):
+                provider.deploy_apps_agent(mock_config)
+
+    # No retry-without-warehouse happened: every attempt still carried the warehouse,
+    # and there was exactly one create attempt (no wasted round-trip).
+    post_bodies = [b for b in calls if "resources" in b]
+    assert len(post_bodies) == 1, "must not retry when a non-warehouse is the blocker"
+    assert any("sql_warehouse" in r for r in post_bodies[0]["resources"])
+
+
+@pytest.mark.unit
 def test_deploy_apps_agent_updates_existing_app():
     """Test that deploy_apps_agent updates an existing app."""
     from unittest.mock import MagicMock, patch

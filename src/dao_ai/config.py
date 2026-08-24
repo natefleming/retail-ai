@@ -11508,6 +11508,14 @@ class ResourcesModel(BaseModel):
             if warehouse is None or not warehouse.warehouse_id:
                 continue
 
+            # A room-level ``apply_grants: false`` opts the room's warehouse out of
+            # the managed CAN_USE grant. ``discover_warehouse`` already carries it,
+            # but an INLINE ``warehouse:`` block keeps its own default (True) — so
+            # propagate the room's opt-out here too, otherwise the documented
+            # room-level opt-out is silently ignored for inline warehouses.
+            if not genie_room.apply_grants:
+                warehouse.apply_grants = False
+
             # Only *now* is the space known to have yielded something. Marking it
             # before the lookup would let one room's failure (no permission, a
             # transient 5xx) suppress the retry another room — or a later pass —
