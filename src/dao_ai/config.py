@@ -3614,8 +3614,15 @@ class AiSearchVectorStoreModel(IsDatabricksResource, ManagedResource):
                 "(for provisioning) must be provided"
             )
 
-        # If provisioning mode, need embedding_source_column
-        if has_source_table and not has_embedding_col:
+        # If provisioning mode, need embedding_source_column. Provisioning mode is
+        # source_table WITHOUT an index (the index is auto-generated from it). When
+        # an index is present it's "existing index" mode, where source_table may be
+        # hydrated from the live index spec (see refresh()) — including self-managed
+        # indexes, which have no embedding_source_column at all — so a hydrated
+        # source_table there must NOT force embedding_source_column. Requiring it
+        # would make an enriched existing-index config non-round-trippable (the
+        # serialized model_config fails to re-parse at Model Serving load time).
+        if has_source_table and not has_index and not has_embedding_col:
             raise ValueError(
                 "embedding_source_column is required when source_table is provided (provisioning mode)"
             )
