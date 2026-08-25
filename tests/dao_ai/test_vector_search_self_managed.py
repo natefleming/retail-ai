@@ -278,6 +278,23 @@ class TestModelValidator:
         assert vs.source_table is not None
         assert vs.embedding_source_column is None
 
+    def test_index_plus_source_table_text_column_without_model_still_raises(
+        self,
+    ) -> None:
+        # Regression: the self-managed guard must stay reachable when an index and a
+        # (hydrated) source_table coexist. set_default_embedding_model must NOT
+        # default the model here (that only applies to provisioning: source_table
+        # and no index) — otherwise text_column with a missing embedding_model would
+        # be silently defaulted instead of erroring.
+        schema = SchemaModel(catalog_name="cat", schema_name="sch")
+        with pytest.raises(ValidationError, match="embedding_model"):
+            AiSearchVectorStoreModel(
+                index=IndexModel(schema=schema, name="idx"),
+                source_table=TableModel(name="cat.sch.docs"),
+                text_column="content",
+                # embedding_model intentionally omitted
+            )
+
     def test_source_table_without_index_still_requires_embedding_col(self) -> None:
         # Genuine provisioning mode (source_table, NO index) must still require
         # embedding_source_column — the fix narrows the rule, it does not remove it.

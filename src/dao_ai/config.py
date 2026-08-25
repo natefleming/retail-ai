@@ -3631,8 +3631,17 @@ class AiSearchVectorStoreModel(IsDatabricksResource, ManagedResource):
 
     @model_validator(mode="after")
     def set_default_embedding_model(self) -> Self:
-        # Only set default embedding model in provisioning mode
-        if self.source_table is not None and not self.embedding_model:
+        # Only set a default embedding model in provisioning mode — source_table
+        # WITHOUT an index. An existing index (index present) may carry a
+        # source_table hydrated from the live spec (see refresh()); defaulting the
+        # embedding model there would mask validate_self_managed_embeddings (which
+        # runs after this and requires embedding_model when text_column is set),
+        # silently embedding queries with the wrong model instead of erroring.
+        if (
+            self.source_table is not None
+            and self.index is None
+            and not self.embedding_model
+        ):
             self.embedding_model = InferenceEndpointModel(
                 name="databricks-gte-large-en"
             )
