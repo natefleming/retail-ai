@@ -21,6 +21,7 @@ from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
+from langchain_core.documents import Document
 from langchain_core.embeddings import Embeddings
 from pydantic import ValidationError
 
@@ -35,8 +36,11 @@ from dao_ai.config import (
     VectorStoreModel,
 )
 from dao_ai.tools.vector_search import (
+    _embedding_column_name,
     _index_is_managed_embeddings,
     _index_is_self_managed_embeddings,
+    _looks_like_embedding,
+    _strip_embedding_vectors,
     create_vector_search_tool,
 )
 
@@ -356,3 +360,78 @@ class TestReviewFixes:
         vs = _make_vs()  # no text_column, no embedding_model
         kinds = [type(r).__name__ for r in vs.as_resources()]
         assert not any("ServingEndpoint" in k for k in kinds)
+
+
+class TestEmbeddingVectorStripping:
+    """The raw embedding vector must never reach the LLM.
+
+    Self-managed / precomputed-embeddings indexes sync the vector column, and
+    ``DatabricksVectorSearch`` returns it whenever it lands among the requested
+    columns. A single 1024-dim vector serializes to thousands of tokens, so a
+    few results overflow the model context. ``_run_search`` strips it at the
+    one point every result passes through.
+    """
+
+    def test_looks_like_embedding_positive(self) -> None:
+        assert _looks_like_embedding([0.1] * 1024) is True
+        assert _looks_like_embedding(tuple(range(64))) is True
+
+    def test_looks_like_embedding_rejects_short_and_non_numeric(self) -> None:
+        assert _looks_like_embedding([0.1, 0.2, 0.3]) is False  # too short
+        assert _looks_like_embedding(["a"] * 100) is False  # not numeric
+        assert _looks_like_embedding([True] * 100) is False  # bools excluded
+        assert _looks_like_embedding("a string") is False
+        assert _looks_like_embedding(None) is False
+
+    def test_looks_like_embedding_accepts_numpy_scalars(self) -> None:
+        np = pytest.importorskip("numpy")
+        assert _looks_like_embedding(list(np.zeros(768, dtype=np.float32))) is True
+
+    def test_embedding_column_name_from_index_details(self) -> None:
+        vs = MagicMock()
+        vs._index_details.embedding_vector_column = {"name": "gte_embedding"}
+        assert _embedding_column_name(vs) == "gte_embedding"
+
+    def test_embedding_column_name_none_for_managed(self) -> None:
+        vs = MagicMock()
+        vs._index_details.embedding_vector_column = {}  # managed: no vector col
+        assert _embedding_column_name(vs) is None
+
+    def test_embedding_column_name_handles_missing_details(self) -> None:
+        vs = MagicMock()
+        vs._index_details = None
+        assert _embedding_column_name(vs) is None
+
+    def test_strip_removes_named_embedding_column(self) -> None:
+        docs = [
+            Document(
+                page_content="a shirt",
+                metadata={"product_name": "Shirt", "embedding": [0.1] * 1024},
+            )
+        ]
+        _strip_embedding_vectors(docs, "embedding")
+        assert "embedding" not in docs[0].metadata
+        assert docs[0].metadata["product_name"] == "Shirt"
+
+    def test_strip_net_catches_vector_when_name_unknown(self) -> None:
+        # Name couldn't be resolved (describe failed) — the shape net still
+        # drops the long numeric list while keeping short/real fields.
+        docs = [
+            Document(
+                page_content="a shirt",
+                metadata={
+                    "product_name": "Shirt",
+                    "sizes": [8, 10, 12],  # legit short numeric array — kept
+                    "vector": [0.02] * 768,  # embedding — dropped
+                },
+            )
+        ]
+        _strip_embedding_vectors(docs, None)
+        assert "vector" not in docs[0].metadata
+        assert docs[0].metadata["sizes"] == [8, 10, 12]
+        assert docs[0].metadata["product_name"] == "Shirt"
+
+    def test_strip_is_noop_without_vectors(self) -> None:
+        docs = [Document(page_content="x", metadata={"a": 1, "b": "two"})]
+        _strip_embedding_vectors(docs, "embedding")
+        assert docs[0].metadata == {"a": 1, "b": "two"}
