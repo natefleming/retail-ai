@@ -3614,8 +3614,15 @@ class AiSearchVectorStoreModel(IsDatabricksResource, ManagedResource):
                 "(for provisioning) must be provided"
             )
 
-        # If provisioning mode, need embedding_source_column
-        if has_source_table and not has_embedding_col:
+        # If provisioning mode, need embedding_source_column. Provisioning mode is
+        # source_table WITHOUT an index (the index is auto-generated from it). When
+        # an index is present it's "existing index" mode, where source_table may be
+        # hydrated from the live index spec (see refresh()) — including self-managed
+        # indexes, which have no embedding_source_column at all — so a hydrated
+        # source_table there must NOT force embedding_source_column. Requiring it
+        # would make an enriched existing-index config non-round-trippable (the
+        # serialized model_config fails to re-parse at Model Serving load time).
+        if has_source_table and not has_index and not has_embedding_col:
             raise ValueError(
                 "embedding_source_column is required when source_table is provided (provisioning mode)"
             )
@@ -3624,8 +3631,17 @@ class AiSearchVectorStoreModel(IsDatabricksResource, ManagedResource):
 
     @model_validator(mode="after")
     def set_default_embedding_model(self) -> Self:
-        # Only set default embedding model in provisioning mode
-        if self.source_table is not None and not self.embedding_model:
+        # Only set a default embedding model in provisioning mode — source_table
+        # WITHOUT an index. An existing index (index present) may carry a
+        # source_table hydrated from the live spec (see refresh()); defaulting the
+        # embedding model there would mask validate_self_managed_embeddings (which
+        # runs after this and requires embedding_model when text_column is set),
+        # silently embedding queries with the wrong model instead of erroring.
+        if (
+            self.source_table is not None
+            and self.index is None
+            and not self.embedding_model
+        ):
             self.embedding_model = InferenceEndpointModel(
                 name="databricks-gte-large-en"
             )

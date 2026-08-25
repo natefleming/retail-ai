@@ -30,6 +30,7 @@ from dao_ai.config import (
     IndexModel,
     InferenceEndpointModel,
     SchemaModel,
+    TableModel,
     VectorSearchEndpoint,
     VectorStoreModel,
 )
@@ -258,6 +259,62 @@ class TestModelValidator:
             embedding_model=InferenceEndpointModel(name="databricks-gte-large-en"),
         )
         assert vs.text_column is None
+
+    def test_hydrated_source_table_with_index_does_not_require_embedding_col(
+        self,
+    ) -> None:
+        # ``refresh()`` hydrates ``source_table`` from a self-managed index's
+        # delta_sync_index_spec, but self-managed indexes have NO
+        # embedding_source_column. Because an ``index`` is present (existing-index
+        # mode, not provisioning), the enriched model must stay valid — otherwise
+        # the config create_agent logs can't re-parse at Model Serving load time.
+        schema = SchemaModel(catalog_name="cat", schema_name="sch")
+        vs = AiSearchVectorStoreModel(
+            index=IndexModel(schema=schema, name="idx"),
+            source_table=TableModel(name="cat.sch.docs"),  # hydrated by refresh()
+            text_column="content",
+            embedding_model=InferenceEndpointModel(name="databricks-gte-large-en"),
+        )
+        assert vs.source_table is not None
+        assert vs.embedding_source_column is None
+
+    def test_index_plus_source_table_text_column_without_model_still_raises(
+        self,
+    ) -> None:
+        # Regression: the self-managed guard must stay reachable when an index and a
+        # (hydrated) source_table coexist. set_default_embedding_model must NOT
+        # default the model here (that only applies to provisioning: source_table
+        # and no index) — otherwise text_column with a missing embedding_model would
+        # be silently defaulted instead of erroring.
+        schema = SchemaModel(catalog_name="cat", schema_name="sch")
+        with pytest.raises(ValidationError, match="embedding_model"):
+            AiSearchVectorStoreModel(
+                index=IndexModel(schema=schema, name="idx"),
+                source_table=TableModel(name="cat.sch.docs"),
+                text_column="content",
+                # embedding_model intentionally omitted
+            )
+
+    def test_source_table_without_index_still_requires_embedding_col(self) -> None:
+        # Genuine provisioning mode (source_table, NO index) must still require
+        # embedding_source_column — the fix narrows the rule, it does not remove it.
+        with pytest.raises(ValidationError, match="embedding_source_column is required"):
+            AiSearchVectorStoreModel(source_table=TableModel(name="cat.sch.docs"))
+
+    def test_enriched_self_managed_config_round_trips(self) -> None:
+        # The regression: a self-managed vector_store enriched with a hydrated
+        # source_table must survive ``model_dump`` -> re-parse (what Model Serving
+        # does when it re-loads the logged model_config).
+        schema = SchemaModel(catalog_name="cat", schema_name="sch")
+        vs = AiSearchVectorStoreModel(
+            index=IndexModel(schema=schema, name="idx"),
+            source_table=TableModel(name="cat.sch.docs"),
+            text_column="content",
+            embedding_model=InferenceEndpointModel(name="databricks-gte-large-en"),
+        )
+        dumped = vs.model_dump(mode="json", by_alias=True, exclude_none=True)
+        # Must not raise (previously failed: "embedding_source_column is required").
+        AiSearchVectorStoreModel(**dumped)
 
 
 @pytest.mark.unit
