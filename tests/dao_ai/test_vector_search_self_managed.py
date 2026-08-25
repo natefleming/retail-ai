@@ -387,6 +387,13 @@ class TestEmbeddingVectorStripping:
         np = pytest.importorskip("numpy")
         assert _looks_like_embedding(list(np.zeros(768, dtype=np.float32))) is True
 
+    def test_looks_like_embedding_accepts_numpy_ndarray(self) -> None:
+        np = pytest.importorskip("numpy")
+        assert _looks_like_embedding(np.zeros(768, dtype=np.float32)) is True
+        # A 2-D array or a short one is not a vector.
+        assert _looks_like_embedding(np.zeros((4, 4))) is False
+        assert _looks_like_embedding(np.zeros(8)) is False
+
     def test_embedding_column_name_from_index_details(self) -> None:
         vs = MagicMock()
         vs._index_details.embedding_vector_column = {"name": "gte_embedding"}
@@ -412,6 +419,22 @@ class TestEmbeddingVectorStripping:
         _strip_embedding_vectors(docs, "embedding")
         assert "embedding" not in docs[0].metadata
         assert docs[0].metadata["product_name"] == "Shirt"
+
+    def test_named_strip_preserves_other_long_numeric_arrays(self) -> None:
+        # When the embedding column name is resolved, strip by name and trust
+        # it — a legitimate long numeric array (365-day series) must survive.
+        docs = [
+            Document(
+                page_content="x",
+                metadata={
+                    "embedding": [0.1] * 1024,  # the real vector — dropped
+                    "daily_sales": [1.0] * 365,  # legit business array — kept
+                },
+            )
+        ]
+        _strip_embedding_vectors(docs, "embedding")
+        assert "embedding" not in docs[0].metadata
+        assert docs[0].metadata["daily_sales"] == [1.0] * 365
 
     def test_strip_net_catches_vector_when_name_unknown(self) -> None:
         # Name couldn't be resolved (describe failed) — the shape net still

@@ -364,14 +364,32 @@ _EMBEDDING_MIN_LEN: int = 64
 
 
 def _looks_like_embedding(value: Any) -> bool:
-    """Heuristic: a long list/tuple of numbers is an embedding vector.
+    """Heuristic: a long sequence of numbers is an embedding vector.
 
-    Name-independent safety net for :func:`_strip_embedding_vectors` — used
-    when the embedding column name can't be resolved (e.g. a describe() that
-    never populated ``_index_details``). Booleans are excluded (``bool`` is a
-    subclass of ``int``); numpy scalars are accepted via their ``.item``
-    method so a vector returned as a numpy array still matches.
+    Name-independent last resort for :func:`_strip_embedding_vectors`, used
+    ONLY when the embedding column name can't be resolved from the index
+    (``embedding_column is None``). Vector Search returns metadata values as
+    JSON-parsed ``list``s, so that's the primary case; a numpy ``ndarray`` (or
+    a list of numpy scalars) is also accepted defensively. Booleans are
+    excluded (``bool`` is a subclass of ``int``).
+
+    This is a heuristic and can false-positive on a genuinely long numeric
+    business array (a daily time series, a histogram). It only runs as the
+    no-name fallback, and :func:`_strip_embedding_vectors` logs each drop, so
+    the trade-off (a rare, visible over-strip vs. a context-window overflow)
+    stays observable.
     """
+    # numpy ndarray: 1-D numeric, long enough. Duck-typed to avoid importing
+    # numpy on this hot path.
+    if hasattr(value, "dtype") and hasattr(value, "shape"):
+        try:
+            return (
+                len(getattr(value, "shape", ())) == 1
+                and len(value) >= _EMBEDDING_MIN_LEN
+                and value.dtype.kind in "fiu"  # float / int / unsigned; not bool
+            )
+        except Exception:  # noqa: BLE001
+            return False
     if not isinstance(value, (list, tuple)) or len(value) < _EMBEDDING_MIN_LEN:
         return False
     return all(
@@ -417,18 +435,39 @@ def _strip_embedding_vectors(
 
     ``keep`` is the set of column names the user *explicitly* declared on the
     retriever / vector_store. The vector is excluded by default, but a column
-    the user asked for by name is honored and left untouched — both the
-    name-match and the shape net skip anything in ``keep``.
+    the user asked for by name is honored and left untouched.
+
+    When the column name is known (resolved from the index's own describe) we
+    strip by name and trust it — the lossy shape net does NOT run, so a
+    legitimate long numeric array (a time series, a histogram) is preserved.
+    The shape net runs only as the no-name fallback, and every drop is logged.
     """
     for doc in documents:
         md = getattr(doc, "metadata", None)
         if not isinstance(md, dict):
             continue
-        if embedding_column and embedding_column not in keep:
-            md.pop(embedding_column, None)
+        if embedding_column:
+            # Name resolved from the index — reliable. Strip it (unless the
+            # user explicitly asked for it) and trust the name: skip the shape
+            # net so genuine long numeric arrays survive.
+            if embedding_column not in keep:
+                md.pop(embedding_column, None)
+            continue
+        # Name could not be resolved (build- and query-time describe both
+        # opaque). Last-resort shape net, logged so any over-strip is visible.
         for key in [
             k for k, v in md.items() if k not in keep and _looks_like_embedding(v)
         ]:
+            logger.warning(
+                "dao_ai.vector_search.stripped_embedding_shaped_column",
+                column=key,
+                length=len(md[key]),
+                note=(
+                    "dropped a long numeric metadata array as a probable "
+                    "embedding vector (column name could not be resolved from "
+                    "the index); declare it in `columns` to keep it"
+                ),
+            )
             md.pop(key, None)
 
 
