@@ -435,3 +435,28 @@ class TestEmbeddingVectorStripping:
         docs = [Document(page_content="x", metadata={"a": 1, "b": "two"})]
         _strip_embedding_vectors(docs, "embedding")
         assert docs[0].metadata == {"a": 1, "b": "two"}
+
+    def test_explicitly_requested_named_column_is_kept(self) -> None:
+        # Excluded by default, but honored when the user asked for it by name.
+        docs = [
+            Document(
+                page_content="a shirt",
+                metadata={"product_name": "Shirt", "embedding": [0.1] * 1024},
+            )
+        ]
+        _strip_embedding_vectors(docs, "embedding", keep=frozenset({"embedding"}))
+        assert docs[0].metadata["embedding"] == [0.1] * 1024
+        assert docs[0].metadata["product_name"] == "Shirt"
+
+    def test_explicit_column_survives_shape_net(self) -> None:
+        # The name couldn't be resolved (embedding_column=None), but the user
+        # explicitly declared it — the shape net must not strip it either.
+        docs = [
+            Document(
+                page_content="x",
+                metadata={"vector": [0.02] * 768, "other": [0.5] * 512},
+            )
+        ]
+        _strip_embedding_vectors(docs, None, keep=frozenset({"vector"}))
+        assert docs[0].metadata["vector"] == [0.02] * 768  # kept — explicit
+        assert "other" not in docs[0].metadata  # dropped — not requested

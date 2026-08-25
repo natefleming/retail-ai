@@ -401,7 +401,9 @@ def _embedding_column_name(vs: DatabricksVectorSearch) -> str | None:
 
 
 def _strip_embedding_vectors(
-    documents: list[Document], embedding_column: str | None
+    documents: list[Document],
+    embedding_column: str | None,
+    keep: "frozenset[str]" = frozenset(),
 ) -> None:
     """Drop the raw embedding vector from each document's metadata, in place.
 
@@ -409,17 +411,24 @@ def _strip_embedding_vectors(
     ``DatabricksVectorSearch`` returns it whenever it is among the requested
     columns. A single 1024-dim vector serializes to thousands of tokens, so a
     handful of results can blow past the LLM's context window — the raw vector
-    is never useful to the model. Removes the column by name (from the index's
+    is rarely useful to the model. Removes the column by name (from the index's
     own describe) plus a name-independent net for any embedding-shaped value,
-    so the vector never reaches the LLM even when the name can't be resolved.
+    so the vector doesn't reach the LLM even when the name can't be resolved.
+
+    ``keep`` is the set of column names the user *explicitly* declared on the
+    retriever / vector_store. The vector is excluded by default, but a column
+    the user asked for by name is honored and left untouched — both the
+    name-match and the shape net skip anything in ``keep``.
     """
     for doc in documents:
         md = getattr(doc, "metadata", None)
         if not isinstance(md, dict):
             continue
-        if embedding_column:
+        if embedding_column and embedding_column not in keep:
             md.pop(embedding_column, None)
-        for key in [k for k, v in md.items() if _looks_like_embedding(v)]:
+        for key in [
+            k for k, v in md.items() if k not in keep and _looks_like_embedding(v)
+        ]:
             md.pop(key, None)
 
 
@@ -974,6 +983,12 @@ def create_ai_search_tool(
     # empty at the point we pass it to `_build_vector_search_input_model`.
     operator_overrides: dict[str, list[str]] = dict(operator_overrides_raw)
 
+    # Column names the user *explicitly* declared (retriever/vector_store
+    # ``columns``). Auto-discovered names are NOT included here. Used so the
+    # embedding-vector strip honors an explicit request: excluded by default,
+    # returned when the user asked for the column by name.
+    _explicit_columns: frozenset[str] = frozenset(declared_names)
+
     # ``refresh()`` still runs — it populates ``_index_details`` (needed
     # for vector-column stripping via ``_vector_column_names_from_describe``)
     # and, for Direct-Access indexes, ``vector_store.columns`` from
@@ -1368,12 +1383,16 @@ def create_ai_search_tool(
                 filter=flt if flt else None,
                 query_type=search_parameters.query_type or "ANN",
             )
-            # Never let a raw embedding vector ride through the pipeline into
-            # the LLM. It leaks when a self-managed index syncs the vector
-            # column and it lands among the returned columns (build-time
-            # stripping depends on a describe() that can fail). Strip here at
-            # the single point every result passes through.
-            _strip_embedding_vectors(docs, _embedding_column_name(vs))
+            # Keep a raw embedding vector out of the LLM payload by default. It
+            # otherwise leaks when a self-managed index syncs the vector column
+            # and it lands among the returned columns (build-time stripping
+            # depends on a describe() that can fail). Strip here at the single
+            # point every result passes through — but honor a column the user
+            # explicitly declared (``_explicit_columns``): excluded by default,
+            # included when asked for by name.
+            _strip_embedding_vectors(
+                docs, _embedding_column_name(vs), keep=_explicit_columns
+            )
             return docs
 
         # All routing / decomposition / rerank / verify logic lives in
