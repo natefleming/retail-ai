@@ -355,6 +355,122 @@ def _index_is_self_managed_embeddings(details: dict | None) -> bool:
     return False
 
 
+# Minimum length for a numeric metadata list to be treated as an embedding
+# vector. Real numeric business arrays (sizes, ratings, coordinates) are
+# short; embedding vectors are >=256 dims for every common model
+# (gte-large-en=1024, bge=1024, text-embedding-3=1536/3072). 64 sits safely
+# above any plausible business array and well below any embedding.
+_EMBEDDING_MIN_LEN: int = 64
+
+
+def _looks_like_embedding(value: Any) -> bool:
+    """Heuristic: a long sequence of numbers is an embedding vector.
+
+    Name-independent last resort for :func:`_strip_embedding_vectors`, used
+    ONLY when the embedding column name can't be resolved from the index
+    (``embedding_column is None``). Vector Search returns metadata values as
+    JSON-parsed ``list``s, so that's the primary case; a numpy ``ndarray`` (or
+    a list of numpy scalars) is also accepted defensively. Booleans are
+    excluded (``bool`` is a subclass of ``int``).
+
+    This is a heuristic and can false-positive on a genuinely long numeric
+    business array (a daily time series, a histogram). It only runs as the
+    no-name fallback, and :func:`_strip_embedding_vectors` logs each drop, so
+    the trade-off (a rare, visible over-strip vs. a context-window overflow)
+    stays observable.
+    """
+    # numpy ndarray: 1-D numeric, long enough. Duck-typed to avoid importing
+    # numpy on this hot path.
+    if hasattr(value, "dtype") and hasattr(value, "shape"):
+        try:
+            return (
+                len(getattr(value, "shape", ())) == 1
+                and len(value) >= _EMBEDDING_MIN_LEN
+                and value.dtype.kind in "fiu"  # float / int / unsigned; not bool
+            )
+        except Exception:  # noqa: BLE001
+            return False
+    if not isinstance(value, (list, tuple)) or len(value) < _EMBEDDING_MIN_LEN:
+        return False
+    return all(
+        (isinstance(v, (int, float)) and not isinstance(v, bool)) or hasattr(v, "item")
+        for v in value
+    )
+
+
+def _embedding_column_name(vs: DatabricksVectorSearch) -> str | None:
+    """Return the index's precomputed embedding vector column name, or None.
+
+    Read from the ``DatabricksVectorSearch`` instance's own ``IndexDetails``
+    (built in its ``__init__`` from a live ``describe()``), so it is reliable
+    at query time even when the build-time ``refresh()`` that feeds column
+    auto-discovery failed. Managed-embedding indexes have no such column and
+    return None.
+    """
+    details = getattr(vs, "_index_details", None)
+    if details is None:
+        return None
+    try:
+        col = details.embedding_vector_column or {}
+        name = col.get("name")
+        return name or None
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _strip_embedding_vectors(
+    documents: list[Document],
+    embedding_column: str | None,
+    keep: "frozenset[str]" = frozenset(),
+) -> None:
+    """Drop the raw embedding vector from each document's metadata, in place.
+
+    Self-managed / precomputed-embeddings indexes sync the vector column, and
+    ``DatabricksVectorSearch`` returns it whenever it is among the requested
+    columns. A single 1024-dim vector serializes to thousands of tokens, so a
+    handful of results can blow past the LLM's context window — the raw vector
+    is rarely useful to the model. Removes the column by name (from the index's
+    own describe) plus a name-independent net for any embedding-shaped value,
+    so the vector doesn't reach the LLM even when the name can't be resolved.
+
+    ``keep`` is the set of column names the user *explicitly* declared on the
+    retriever / vector_store. The vector is excluded by default, but a column
+    the user asked for by name is honored and left untouched.
+
+    When the column name is known (resolved from the index's own describe) we
+    strip by name and trust it — the lossy shape net does NOT run, so a
+    legitimate long numeric array (a time series, a histogram) is preserved.
+    The shape net runs only as the no-name fallback, and every drop is logged.
+    """
+    for doc in documents:
+        md = getattr(doc, "metadata", None)
+        if not isinstance(md, dict):
+            continue
+        if embedding_column:
+            # Name resolved from the index — reliable. Strip it (unless the
+            # user explicitly asked for it) and trust the name: skip the shape
+            # net so genuine long numeric arrays survive.
+            if embedding_column not in keep:
+                md.pop(embedding_column, None)
+            continue
+        # Name could not be resolved (build- and query-time describe both
+        # opaque). Last-resort shape net, logged so any over-strip is visible.
+        for key in [
+            k for k, v in md.items() if k not in keep and _looks_like_embedding(v)
+        ]:
+            logger.warning(
+                "dao_ai.vector_search.stripped_embedding_shaped_column",
+                column=key,
+                length=len(md[key]),
+                note=(
+                    "dropped a long numeric metadata array as a probable "
+                    "embedding vector (column name could not be resolved from "
+                    "the index); declare it in `columns` to keep it"
+                ),
+            )
+            md.pop(key, None)
+
+
 def _fetch_index_columns(
     vector_store: "VectorStoreModel",
 ) -> list[tuple[str, str | None, str | None]] | None:
@@ -906,6 +1022,12 @@ def create_ai_search_tool(
     # empty at the point we pass it to `_build_vector_search_input_model`.
     operator_overrides: dict[str, list[str]] = dict(operator_overrides_raw)
 
+    # Column names the user *explicitly* declared (retriever/vector_store
+    # ``columns``). Auto-discovered names are NOT included here. Used so the
+    # embedding-vector strip honors an explicit request: excluded by default,
+    # returned when the user asked for the column by name.
+    _explicit_columns: frozenset[str] = frozenset(declared_names)
+
     # ``refresh()`` still runs — it populates ``_index_details`` (needed
     # for vector-column stripping via ``_vector_column_names_from_describe``)
     # and, for Direct-Access indexes, ``vector_store.columns`` from
@@ -1294,12 +1416,23 @@ def create_ai_search_tool(
         # ``k`` + ``query_type``. The pipeline calls this once per subquery
         # in instructed mode and once with base_filters in standard mode.
         def _run_search(qtxt: str, flt: dict[str, Any]) -> list[Document]:
-            return vs.similarity_search(
+            docs = vs.similarity_search(
                 query=qtxt,
                 k=search_parameters.num_results or 5,
                 filter=flt if flt else None,
                 query_type=search_parameters.query_type or "ANN",
             )
+            # Keep a raw embedding vector out of the LLM payload by default. It
+            # otherwise leaks when a self-managed index syncs the vector column
+            # and it lands among the returned columns (build-time stripping
+            # depends on a describe() that can fail). Strip here at the single
+            # point every result passes through — but honor a column the user
+            # explicitly declared (``_explicit_columns``): excluded by default,
+            # included when asked for by name.
+            _strip_embedding_vectors(
+                docs, _embedding_column_name(vs), keep=_explicit_columns
+            )
+            return docs
 
         # All routing / decomposition / rerank / verify logic lives in
         # ``dao_ai.tools.instructed_pipeline`` — same code path
