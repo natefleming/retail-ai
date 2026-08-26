@@ -443,7 +443,15 @@ def _create_obo_uc_tool(
         tool_description = (
             function_info.comment or f"Unity Catalog function: {function_name}"
         )
-        schema_model = _fix_boolean_schema_defaults(schema_info.pydantic_model)
+        # Rebuild the params model (via _create_filtered_schema, no exclusions) so it
+        # uses pydantic's default extra="ignore" instead of the upstream model's
+        # extra="forbid". Without this, LangChain's InjectedToolArg ``runtime``
+        # (ToolRuntime) is validated against the args_schema and rejected with
+        # "Extra inputs are not permitted", breaking every OBO UC-function call.
+        # Mirrors the non-OBO path, which already rebuilds via _create_filtered_schema.
+        schema_model = _create_filtered_schema(
+            _fix_boolean_schema_defaults(schema_info.pydantic_model), set()
+        )
     except Exception as e:
         logger.warning(
             "Could not introspect function", function_name=function_name, error=str(e)
