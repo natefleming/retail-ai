@@ -18,7 +18,7 @@ from langchain.tools import ToolRuntime
 from langchain_core.runnables.base import RunnableLike
 from langchain_core.tools import InjectedToolArg, StructuredTool
 from loguru import logger
-from pydantic import BaseModel, Field, create_model
+from pydantic import BaseModel, ConfigDict, Field, create_model
 from pydantic.fields import FieldInfo, PydanticUndefined
 from unitycatalog.ai.core.base import FunctionExecutionResult
 
@@ -443,7 +443,19 @@ def _create_obo_uc_tool(
         tool_description = (
             function_info.comment or f"Unity Catalog function: {function_name}"
         )
-        schema_model = _fix_boolean_schema_defaults(schema_info.pydantic_model)
+        # LangChain injects the InjectedToolArg ``runtime`` (ToolRuntime) into the
+        # arguments validated against args_schema. The upstream params model from
+        # generate_function_input_params_schema is generated with extra="forbid",
+        # which rejects ``runtime`` ("Extra inputs are not permitted") and breaks
+        # every OBO UC-function call. Subclass it with extra="ignore" so the
+        # injected arg is dropped during validation, while preserving all declared
+        # parameter fields and their metadata (title/description/constraints).
+        base_schema = _fix_boolean_schema_defaults(schema_info.pydantic_model)
+        schema_model = type(
+            base_schema.__name__,
+            (base_schema,),
+            {"model_config": ConfigDict(extra="ignore")},
+        )
     except Exception as e:
         logger.warning(
             "Could not introspect function", function_name=function_name, error=str(e)
