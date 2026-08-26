@@ -1167,6 +1167,7 @@ def create_guardrail_middleware(
     num_retries: int = 3,
     fail_on_error: bool = False,
     max_context_length: int = 8000,
+    apply_to: Literal["input", "output", "both"] = "output",
 ) -> GuardrailMiddleware:
     """
     Create a GuardrailMiddleware instance.
@@ -1186,6 +1187,10 @@ def create_guardrail_middleware(
         num_retries: Maximum number of retry attempts (default: 3)
         fail_on_error: If True, block responses when the judge call errors (default: False)
         max_context_length: Maximum character length for extracted tool context (default: 8000)
+        apply_to: When to run -- ``"output"`` (default), ``"input"``, or ``"both"``.
+            Defaults to ``"output"`` because an LLM-judge before_model check scores
+            the user query against itself and wrongly blocks ordinary turns; pass
+            ``"input"``/``"both"`` only for guardrails meant to inspect user input.
 
     Returns:
         GuardrailMiddleware configured with the specified parameters
@@ -1206,6 +1211,7 @@ def create_guardrail_middleware(
         num_retries=num_retries,
         fail_on_error=fail_on_error,
         max_context_length=max_context_length,
+        apply_to=apply_to,
     )
 
 

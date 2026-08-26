@@ -7915,8 +7915,15 @@ class GuardrailModel(BaseModel):
         description="Maximum character length for extracted tool context passed to the guardrail.",
     )
     apply_to: Literal["input", "output", "both"] = Field(
-        default="both",
-        description="When to run: 'input' (before model), 'output' (after model), or 'both'.",
+        default="output",
+        description=(
+            "When to run: 'input' (before model), 'output' (after model), or 'both'. "
+            "Defaults to 'output' because LLM-judge guardrails (model + prompt) are only "
+            "meaningful on the agent's response — an input check scores the user query "
+            "against itself and wrongly blocks ordinary turns. Set 'input' or 'both' "
+            "explicitly for deterministic scorers (e.g. PII/toxicity) that should inspect "
+            "the user's message."
+        ),
     )
 
     @model_validator(mode="after")
