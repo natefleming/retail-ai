@@ -878,6 +878,11 @@ class VeracityGuardrailMiddleware(GuardrailMiddleware):
             num_retries=num_retries,
             fail_on_error=fail_on_error,
             max_context_length=max_context_length,
+            # Grounding is only meaningful on the agent's response. The base class
+            # defaults to "both", whose before_model input check evaluates the user
+            # query against itself and wrongly blocks ordinary turns (greetings,
+            # clarifications). Response-quality guardrails must be output-only.
+            apply_to="output",
         )
 
     def after_model(
@@ -934,6 +939,9 @@ class RelevanceGuardrailMiddleware(GuardrailMiddleware):
             prompt=RELEVANCE_INSTRUCTIONS,
             num_retries=num_retries,
             fail_on_error=fail_on_error,
+            # Response-quality guardrail: evaluate the answer, not the input. See
+            # VeracityGuardrailMiddleware for why "both" is wrong here.
+            apply_to="output",
         )
 
 
@@ -991,6 +999,8 @@ class ToneGuardrailMiddleware(GuardrailMiddleware):
             prompt=prompt,
             num_retries=num_retries,
             fail_on_error=fail_on_error,
+            # Response-quality guardrail: evaluate the answer, not the input.
+            apply_to="output",
         )
 
 
@@ -1027,6 +1037,8 @@ class ConcisenessGuardrailMiddleware(GuardrailMiddleware):
             prompt=CONCISENESS_INSTRUCTIONS,
             num_retries=num_retries,
             fail_on_error=fail_on_error,
+            # Response-quality guardrail: evaluate the answer, not the input.
+            apply_to="output",
         )
         self.max_length = max_length
         self.min_length = min_length
