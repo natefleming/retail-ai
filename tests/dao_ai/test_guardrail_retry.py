@@ -1272,14 +1272,17 @@ class TestResolveEnvironmentVarsSecretSource:
 class TestGuardrailModelApplyTo:
     """Tests for the apply_to field on GuardrailModel."""
 
-    def test_defaults_to_both(self):
+    def test_defaults_to_output(self):
         from dao_ai.config import GuardrailModel
 
+        # LLM-judge guardrails are only meaningful on the response; an input
+        # check scores the query against itself and wrongly blocks normal turns.
+        # Input inspection (e.g. PII/toxicity scorers) is an explicit opt-in.
         model = GuardrailModel(
             name="test",
             scorer="mlflow.genai.scorers.guardrails.ToxicLanguage",
         )
-        assert model.apply_to == "both"
+        assert model.apply_to == "output"
 
     def test_accepts_input(self):
         from dao_ai.config import GuardrailModel

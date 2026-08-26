@@ -6082,8 +6082,8 @@
           "title": "Max Context Length"
         },
         "apply_to": {
-          "default": "both",
-          "description": "When to run: 'input' (before model), 'output' (after model), or 'both'.",
+          "default": "output",
+          "description": "When to run: 'input' (before model), 'output' (after model), or 'both'. Defaults to 'output' because LLM-judge guardrails (model + prompt) are only meaningful on the agent's response \u2014 an input check scores the user query against itself and wrongly blocks ordinary turns. Set 'input' or 'both' explicitly for deterministic scorers (e.g. PII/toxicity) that should inspect the user's message.",
           "enum": [
             "input",
             "output",

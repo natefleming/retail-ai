@@ -878,6 +878,11 @@ class VeracityGuardrailMiddleware(GuardrailMiddleware):
             num_retries=num_retries,
             fail_on_error=fail_on_error,
             max_context_length=max_context_length,
+            # Grounding is only meaningful on the agent's response. The base class
+            # defaults to "both", whose before_model input check evaluates the user
+            # query against itself and wrongly blocks ordinary turns (greetings,
+            # clarifications). Response-quality guardrails must be output-only.
+            apply_to="output",
         )
 
     def after_model(
@@ -934,6 +939,9 @@ class RelevanceGuardrailMiddleware(GuardrailMiddleware):
             prompt=RELEVANCE_INSTRUCTIONS,
             num_retries=num_retries,
             fail_on_error=fail_on_error,
+            # Response-quality guardrail: evaluate the answer, not the input. See
+            # VeracityGuardrailMiddleware for why "both" is wrong here.
+            apply_to="output",
         )
 
 
@@ -991,6 +999,8 @@ class ToneGuardrailMiddleware(GuardrailMiddleware):
             prompt=prompt,
             num_retries=num_retries,
             fail_on_error=fail_on_error,
+            # Response-quality guardrail: evaluate the answer, not the input.
+            apply_to="output",
         )
 
 
@@ -1027,6 +1037,8 @@ class ConcisenessGuardrailMiddleware(GuardrailMiddleware):
             prompt=CONCISENESS_INSTRUCTIONS,
             num_retries=num_retries,
             fail_on_error=fail_on_error,
+            # Response-quality guardrail: evaluate the answer, not the input.
+            apply_to="output",
         )
         self.max_length = max_length
         self.min_length = min_length
@@ -1155,6 +1167,7 @@ def create_guardrail_middleware(
     num_retries: int = 3,
     fail_on_error: bool = False,
     max_context_length: int = 8000,
+    apply_to: Literal["input", "output", "both"] = "output",
 ) -> GuardrailMiddleware:
     """
     Create a GuardrailMiddleware instance.
@@ -1174,6 +1187,10 @@ def create_guardrail_middleware(
         num_retries: Maximum number of retry attempts (default: 3)
         fail_on_error: If True, block responses when the judge call errors (default: False)
         max_context_length: Maximum character length for extracted tool context (default: 8000)
+        apply_to: When to run -- ``"output"`` (default), ``"input"``, or ``"both"``.
+            Defaults to ``"output"`` because an LLM-judge before_model check scores
+            the user query against itself and wrongly blocks ordinary turns; pass
+            ``"input"``/``"both"`` only for guardrails meant to inspect user input.
 
     Returns:
         GuardrailMiddleware configured with the specified parameters
@@ -1194,6 +1211,7 @@ def create_guardrail_middleware(
         num_retries=num_retries,
         fail_on_error=fail_on_error,
         max_context_length=max_context_length,
+        apply_to=apply_to,
     )
 
 
