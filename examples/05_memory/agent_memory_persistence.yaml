@@ -29,6 +29,9 @@ parameters:
   llm:
     description: Chat/reasoning serving endpoint for the agent
     default: databricks-claude-sonnet-4-5
+  memory_store:
+    description: Managed Agent Memory store name within the catalog/schema (must already exist)
+    default: agent_memory
 
 schemas:
   demo_schema: &demo_schema
@@ -51,7 +54,7 @@ memory: &memory
     namespace: "{user_id}"                 # per-user logical isolation (encoded in the entry path)
     memory_store:                          # selects the Managed Agent Memory backend
       schema: *demo_schema
-      name: agent_memory                   # -> <catalog>.<schema>.agent_memory
+      name: ${var.memory_store}            # -> <catalog>.<schema>.<memory_store>
       # scope_value: my_scope              # optional fixed Managed Memory scope; defaults to the store namespace
   extraction:
     schemas:
