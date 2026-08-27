@@ -122,13 +122,11 @@ def _parse_ts(entry: dict[str, Any], *keys: str) -> datetime:
     return datetime.now(timezone.utc)
 
 
-def resolve_scope(store_model: StoreModel) -> str:
+def _resolve_scope(store_model: StoreModel) -> str:
     """Resolve the Managed Memory scope for a store config.
 
     Precedence: the memory store's ``scope_value`` (resolved), else the store's
-    ``namespace``, else ``"default"``. Used both to build the store and to key the
-    manager cache, so two configs on the same UC store under different scopes are
-    kept distinct.
+    ``namespace``, else ``"default"``.
     """
     memory_store = store_model.memory_store
     if memory_store is not None and memory_store.scope_value is not None:
@@ -541,7 +539,7 @@ class AgentMemoryStoreManager(StoreManagerBase):
                 store=self.store_model.name,
             )
 
-        scope = resolve_scope(self.store_model)
+        scope = _resolve_scope(self.store_model)
 
         self._store = AgentMemoryStore(
             memory_store=memory_store,
