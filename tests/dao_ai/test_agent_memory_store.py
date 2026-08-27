@@ -40,6 +40,9 @@ class _FakeApiClient:
         # (scope, path) -> entry dict
         self.entries: dict[tuple[str, str], dict] = {}
         self.calls: list[tuple[str, str]] = []
+        self.search_bodies: list[dict] = []
+        # optionally force PATCH to raise NotFound (simulate concurrent delete)
+        self.patch_raises_notfound = False
 
     def do(self, method, path, *, query=None, body=None, **_):
         query = query or {}
@@ -48,12 +51,17 @@ class _FakeApiClient:
         scope = query.get("scope") or body.get("scope")
 
         if method == "POST" and path.endswith("/entries:search"):
-            # Real shape: {"results": [{"memory_entry": {...}, "score": f}]}
+            # Real shape: {"results": [{"memory_entry": {...}, "score": f}]}.
+            # The real API scopes by path_prefix server-side.
+            self.search_bodies.append(dict(body))
             q = (body.get("query") or "").lower()
+            pref = body.get("path_prefix")
             results = [
                 {"memory_entry": dict(e), "score": 0.5}
-                for (s, _p), e in self.entries.items()
-                if s == scope and q in e["contents"].lower()
+                for (s, p), e in self.entries.items()
+                if s == scope
+                and q in e["contents"].lower()
+                and (pref is None or p.startswith(pref))
             ]
             return {"results": results}
 
@@ -77,6 +85,10 @@ class _FakeApiClient:
 
         if method == "PATCH" and path.endswith("/entries"):
             key = (scope, body["path"])
+            if self.patch_raises_notfound:
+                # simulate a concurrent delete: the entry is gone, PATCH 404s
+                self.entries.pop(key, None)
+                raise NotFound(f"no entry {key}")
             if key not in self.entries:
                 raise NotFound(f"no entry {key}")
             self.entries[key]["contents"] = body["replace_all"]["contents"]
@@ -216,8 +228,8 @@ def test_delete_missing_is_noop():
 # --------------------------------------------------------------------------
 
 
-def test_search_query_passes_score_through_and_prefix_filtered():
-    store, _ = _store()
+def test_search_query_scoped_server_side_by_path_prefix():
+    store, fake = _store()
 
     async def run():
         await store.aput(("memories", "u1"), "a", {"text": "prefers dark mode"})
@@ -229,10 +241,28 @@ def test_search_query_passes_score_through_and_prefix_filtered():
     assert all(isinstance(r, SearchItem) for r in results)
     # the service's relevance score is passed through, not discarded
     assert all(r.score == 0.5 for r in results)
-    # matched AND under the namespace prefix (the "other" hit is excluded)
+    # the query search is scoped server-side by path_prefix, so another
+    # namespace's keyword-matching entry ("other") is never even returned
+    assert fake.search_bodies[-1].get("path_prefix") == "/memories/memories/"
     assert {r.namespace for r in results} == {("memories", "u1")}
     assert {r.key for r in results} == {"a"}
     assert results[0].value == {"text": "prefers dark mode"}
+
+
+def test_search_no_query_no_filter_hydrates_only_the_slice():
+    store, fake = _store()
+
+    async def run():
+        for i in range(10):
+            await store.aput(("m",), f"k{i}", {"i": i})
+        fake.calls.clear()
+        return await store.asearch(("m",), limit=3, offset=0)
+
+    results = asyncio.run(run())
+    assert len(results) == 3
+    # only the requested slice is hydrated with :get (not all 10 entries)
+    gets = sum(1 for m, p in fake.calls if m == "GET" and p.endswith("/entries:get"))
+    assert gets == 3, f"expected 3 hydration gets, got {gets}"
 
 
 def test_search_no_query_lists_by_prefix_with_filter():
@@ -276,6 +306,40 @@ def test_list_namespaces_and_max_depth():
     # max_depth truncates and dedups
     assert ("m", "u1", "deep") not in shallow
     assert ("m", "u1") in shallow and ("m", "u2") in shallow
+
+
+def test_list_namespaces_suffix_matched_before_max_depth_truncation():
+    store, _ = _store()
+
+    async def run():
+        await store.aput(("m", "u1", "deep"), "c", {"v": 1})
+        await store.aput(("m", "u2"), "b", {"v": 2})
+        # suffix must match the FULL namespace (…,'deep'); max_depth only
+        # truncates the returned value. Truncating before matching would drop it.
+        return await store.alist_namespaces(suffix=("deep",), max_depth=2)
+
+    result = asyncio.run(run())
+    # ('m','u1','deep') matches suffix on the full ns, returned truncated to depth 2
+    assert ("m", "u1") in result
+    assert ("m", "u2") not in result
+
+
+def test_upsert_patch_notfound_falls_back_to_create():
+    store, fake = _store()
+
+    async def run():
+        await store.aput(("m",), "k", {"v": 1})
+        # simulate a concurrent delete: the replace_all PATCH hits a missing entry
+        fake.patch_raises_notfound = True
+        await store.aput(
+            ("m",), "k", {"v": 2}
+        )  # POST->AlreadyExists->PATCH(NotFound)->POST
+        fake.patch_raises_notfound = False
+        return await store.aget(("m",), "k")
+
+    item = asyncio.run(run())
+    # the fallback re-create wins; no exception propagated
+    assert item is not None and item.value == {"v": 2}
 
 
 # --------------------------------------------------------------------------
@@ -386,3 +450,23 @@ def test_manager_ignores_embedding_model_and_defaults_scope(caplog):
     store = mgr.store()
     assert isinstance(store, AgentMemoryStore)
     assert store._scope == "tenant-a"  # falls back to StoreModel.namespace
+
+
+def test_store_manager_distinguishes_scopes_for_same_store():
+    # Two configs target the SAME UC memory store under DIFFERENT scopes; the
+    # manager cache must not collide them (regression: keyed on full_name only).
+    from dao_ai.memory.core import StoreManager
+
+    a = StoreModel(
+        name="store_scope_x",
+        memory_store={"name": "main.default.shared_mem", "scope_value": "team-x"},
+    )
+    b = StoreModel(
+        name="store_scope_y",
+        memory_store={"name": "main.default.shared_mem", "scope_value": "team-y"},
+    )
+    store_a = StoreManager.instance(a).store()
+    store_b = StoreManager.instance(b).store()
+    assert store_a is not store_b
+    assert store_a._scope == "team-x"
+    assert store_b._scope == "team-y"

@@ -281,16 +281,26 @@ class AgentMemoryStore(BaseStore):
                 )
             except AlreadyExists:
                 # Upsert: overwrite the existing entry via the partial-edit
-                # endpoint's replace_all operation.
-                await self._do(
-                    "PATCH",
-                    self._entries_path,
-                    body={
-                        "scope": self._scope,
-                        "path": path,
-                        "replace_all": {"contents": contents},
-                    },
-                )
+                # endpoint's replace_all operation. If a concurrent delete removed
+                # the entry between the failed POST and this PATCH (writes are
+                # eventually consistent), recreate it instead of failing.
+                try:
+                    await self._do(
+                        "PATCH",
+                        self._entries_path,
+                        body={
+                            "scope": self._scope,
+                            "path": path,
+                            "replace_all": {"contents": contents},
+                        },
+                    )
+                except NotFound:
+                    await self._do(
+                        "POST",
+                        self._entries_path,
+                        query={"scope": self._scope},
+                        body={"path": path, "contents": contents},
+                    )
 
     async def adelete(self, namespace: tuple[str, ...], key: str) -> None:
         path = _encode_path(namespace, key)
@@ -331,33 +341,59 @@ class AgentMemoryStore(BaseStore):
                 }
             )
             if query:
+                # Scope the search to the namespace server-side via path_prefix
+                # (the API supports it), so a shared scope can't leak other
+                # namespaces' entries into a caller's results.
                 resp = await self._do(
                     "POST",
                     f"{self._entries_path}:search",
-                    body={"scope": self._scope, "query": query},
+                    body={
+                        "scope": self._scope,
+                        "query": query,
+                        "path_prefix": prefix_path,
+                    },
                 )
                 resp = resp or {}
                 # entries:search -> {"results": [{"memory_entry": {...}, "score": f}]}
-                raw = [
+                scored = [
                     (r.get("memory_entry") or {}, r.get("score"))
                     for r in (resp.get("results") or [])
                 ]
             else:
-                # The list endpoint omits contents; fetch each entry to hydrate it.
+                # The list endpoint omits contents, so entries must be hydrated
+                # with a per-entry :get. Without a value filter only the requested
+                # slice is needed, so hydrate just that; with a filter, values are
+                # needed to evaluate it. Hydrate concurrently either way.
                 listed = await self._list_entries(prefix_path)
-                raw = []
-                for entry in listed:
-                    full = await self._do(
-                        "GET",
-                        f"{self._entries_path}:get",
-                        query={"scope": self._scope, "path": entry.get("path", "")},
+                candidates = [
+                    e
+                    for e in listed
+                    if _matches_namespace(
+                        _decode_path(e.get("path", ""))[0],
+                        namespace_prefix,
+                        None,
+                        None,
                     )
-                    raw.append((full or entry, None))
+                ]
+                to_hydrate = (
+                    candidates if filter else candidates[offset : offset + limit]
+                )
+                fulls = await asyncio.gather(
+                    *(
+                        self._do(
+                            "GET",
+                            f"{self._entries_path}:get",
+                            query={"scope": self._scope, "path": e.get("path", "")},
+                        )
+                        for e in to_hydrate
+                    )
+                )
+                scored = [(full or e, None) for full, e in zip(fulls, to_hydrate)]
 
         results: list[SearchItem] = []
-        for entry, score in raw:
+        for entry, score in scored:
             namespace, key, item = self._to_item(entry)
-            # entries:search spans the whole scope — constrain to the prefix.
+            # Safety net (query path already scoped server-side by path_prefix).
             if not _matches_namespace(namespace, namespace_prefix, None, None):
                 continue
             if filter and not all(
@@ -374,6 +410,9 @@ class AgentMemoryStore(BaseStore):
                     score=score,
                 )
             )
+        # The no-query, no-filter path already applied offset/limit to candidates.
+        if query is None and not filter:
+            return results
         return results[offset : offset + limit]
 
     async def alist_namespaces(
@@ -390,10 +429,13 @@ class AgentMemoryStore(BaseStore):
         seen: dict[tuple[str, ...], None] = {}
         for entry in entries:
             namespace, _ = _decode_path(entry.get("path", ""))
+            # Match prefix/suffix against the full namespace, then truncate to
+            # max_depth for the returned (deduped) result.
+            if not _matches_namespace(namespace, prefix, suffix, None):
+                continue
             if max_depth is not None:
                 namespace = namespace[:max_depth]
-            if _matches_namespace(namespace, prefix, suffix, None):
-                seen[namespace] = None
+            seen[namespace] = None
         ordered = list(seen.keys())
         return ordered[offset : offset + limit]
 
