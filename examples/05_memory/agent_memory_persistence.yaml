@@ -1,0 +1,114 @@
+# yaml-language-server: $schema=../../../schemas/model_config_schema.json
+
+# =============================================================================
+# Databricks Managed Agent Memory — long-term store backend
+# =============================================================================
+# Persists long-term memory in a Unity-Catalog-governed Databricks Managed Agent
+# Memory store, as an alternative to Lakebase/Postgres for the `store`. Search is
+# keyword-based (the managed API's native relevance ranking).
+#
+# The Managed Agent Memory store is NOT a checkpointer — it has no graph-state
+# checkpoint concept — so conversation thread state uses the in-memory
+# checkpointer here. Pair with Lakebase/Postgres (see lakebase_persistence.yaml)
+# for cross-restart thread persistence.
+#
+# Prerequisite: the memory store must already exist. Create it once with:
+#   databricks api post /api/2.1/unity-catalog/memory-stores \
+#     --json '{"name":"agent_memory","catalog_name":"main","schema_name":"default"}'
+
+# =============================================================================
+# PARAMETERS
+# =============================================================================
+parameters:
+  catalog:
+    description: Unity Catalog catalog name
+    default: main
+  schema:
+    description: Schema within the catalog
+    default: default
+  llm:
+    description: Chat/reasoning serving endpoint for the agent
+    default: databricks-claude-sonnet-4-5
+  memory_store:
+    description: Managed Agent Memory store name within the catalog/schema (must already exist)
+    default: agent_memory
+
+schemas:
+  demo_schema: &demo_schema
+    catalog_name: ${var.catalog}
+    schema_name: ${var.schema}
+
+resources:
+  models:
+    default_llm: &default_llm
+      name: ${var.llm}
+      max_tokens: 4096
+
+# =============================================================================
+# MEMORY — long-term store on Databricks Managed Agent Memory
+# =============================================================================
+memory: &memory
+  # No `checkpointer` -> in-memory thread state. The store is the focus here.
+  store:
+    name: agent_memory_store
+    namespace: "{user_id}"                 # per-user logical isolation (encoded in the entry path)
+    memory_store:                          # selects the Managed Agent Memory backend
+      schema: *demo_schema
+      name: ${var.memory_store}            # -> <catalog>.<schema>.<memory_store>
+      # scope_value: my_scope              # optional fixed Managed Memory scope; defaults to the store namespace
+  extraction:
+    schemas:
+    - user_profile
+    - preference
+    - episode
+    instructions: |
+      Remember durable facts the user shares about themselves: their name, role,
+      and stable preferences (communication style, formats they like). Do not
+      store transient or one-off request details.
+    auto_inject: true
+    auto_inject_limit: 5
+    background_extraction: true
+
+agents:
+  memory_agent: &memory_agent
+    name: memory_agent
+    description: "Assistant with Databricks Managed Agent Memory long-term store"
+    model: *default_llm
+    prompt: |
+      You are a helpful assistant with long-term memory backed by Databricks
+      Managed Agent Memory. When the user shares durable facts about themselves
+      (name, role, preferences), remember them. In later turns, recall and use
+      those facts. Use your memory tools to search and manage what you remember.
+
+# =============================================================================
+# APPLICATION
+# =============================================================================
+app:
+  name: agent_memory_dao
+  description: "Chat agent with Databricks Managed Agent Memory long-term store"
+  log_level: INFO
+
+  registered_model:
+    schema: *demo_schema
+    name: agent_memory_dao
+
+  agents:
+  - *memory_agent
+
+  orchestration:
+    memory: *memory
+
+  # For MLflow trace capture on Databricks Apps / Model Serving, add
+  # `app.trace_location` (UC OTEL tables via a SQL warehouse), a dedicated
+  # `app.experiment`, and `app.service_principal`. See the commerce example
+  # (examples/99_complete_applications/commerce). Omitted here to keep the
+  # example minimal; local/CLI runs and Model Serving still trace by default.
+
+  input_example:
+    messages:
+    - role: user
+      content: "My name is Nate and I'm a data engineer. I prefer concise answers with code examples."
+    custom_inputs:
+      configurable:
+        thread_id: "conversation-1"
+        user_id: "nate"

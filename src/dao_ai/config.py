@@ -8006,6 +8006,79 @@ class MiddlewareModel(BaseModel):
 class StorageType(str, Enum):
     POSTGRES = "postgres"
     MEMORY = "memory"
+    AGENT_MEMORY = "agent_memory"
+
+
+class MemoryStoreModel(IsDatabricksResource, HasFullName):
+    """Databricks Managed Agent Memory store reference (Unity-Catalog-governed).
+
+    Selects the Managed Agent Memory backend for a :class:`StoreModel` (long-term
+    memory). The store is addressed by a 3-part Unity Catalog name — provide a
+    ``schema`` plus a short ``name``, or a fully-qualified ``name``
+    (``catalog.schema.store``), following the same convention as
+    :class:`TableModel` / :class:`FunctionModel`.
+
+    Authentication is inherited from :class:`IsDatabricksResource` (ambient SP,
+    OBO, config PAT, config SP), so all four dao-ai auth modes work unchanged.
+
+    Note: this backs LangGraph's ``BaseStore`` only. The Managed Memory API has
+    no graph-state checkpoint concept, so it cannot back a checkpointer — pair it
+    with a Lakebase / Postgres / in-memory checkpointer.
+    """
+
+    model_config = ConfigDict(
+        use_enum_values=True, extra="forbid", populate_by_name=True
+    )
+    schema_model: Optional[SchemaModel] = Field(
+        default=None,
+        alias="schema",
+        description="Schema reference qualifying the memory store. If omitted, name must be fully qualified.",
+    )
+    name: str = Field(
+        description="Memory store name (short, with 'schema') or fully qualified (catalog.schema.store).",
+    )
+    scope_kind: AnyVariable = Field(
+        default="user_defined",
+        description="Scope kind for memory entries. Reserved for the Conversations API; entry operations use scope_value.",
+    )
+    scope_value: Optional[AnyVariable] = Field(
+        default=None,
+        description="Scope (partition) for memory entries. Defaults to the store's namespace, else 'default'.",
+    )
+
+    @model_validator(mode="after")
+    def _validate_identity(self) -> Self:
+        if self.schema_model is not None and "." in str(self.name):
+            raise ValueError(
+                "When 'schema' is set on a memory store, 'name' must be the store "
+                f"name only (no dots); got '{self.name}'."
+            )
+        if self.schema_model is None and str(self.name).count(".") != 2:
+            raise ValueError(
+                "Without 'schema', a memory store 'name' must be fully qualified as "
+                f"'catalog.schema.store'; got '{self.name}'."
+            )
+        return self
+
+    @property
+    def full_name(self) -> str:
+        if self.schema_model:
+            return (
+                f"{self.schema_model.catalog_name}."
+                f"{self.schema_model.schema_name}.{self.name}"
+            )
+        return self.name
+
+    @property
+    def api_scopes(self) -> Sequence[str]:
+        # Managed Agent Memory is a Unity Catalog REST surface accessed with the
+        # workspace token; it needs no dedicated fine-grained OAuth scope.
+        return []
+
+    def as_resources(self) -> Sequence[DatabricksResource]:
+        # There is no Apps AppResource type for memory stores yet; grants
+        # (READ/WRITE on the store) are managed through Unity Catalog directly.
+        return []
 
 
 class CheckpointerModel(BaseModel):
@@ -8054,15 +8127,33 @@ class StoreModel(BaseModel):
         default=None,
         description="Database for persistent storage. If omitted, uses in-memory storage (lost on restart).",
     )
+    memory_store: Optional[MemoryStoreModel] = Field(
+        default=None,
+        description="Databricks Managed Agent Memory store. Mutually exclusive with 'database'.",
+    )
     namespace: Optional[str] = Field(
         default=None,
         description="Namespace prefix for memory keys, enabling multi-tenant isolation.",
     )
 
+    @model_validator(mode="after")
+    def _validate_backend_exclusive(self) -> Self:
+        if self.database is not None and self.memory_store is not None:
+            raise ValueError(
+                "A store cannot set both 'database' and 'memory_store'; choose one "
+                "backend (Postgres/Lakebase via 'database', or Managed Agent Memory "
+                "via 'memory_store')."
+            )
+        return self
+
     @property
     def storage_type(self) -> StorageType:
-        """Infer storage type from database presence."""
-        return StorageType.POSTGRES if self.database else StorageType.MEMORY
+        """Infer storage type from configured backend."""
+        if self.memory_store:
+            return StorageType.AGENT_MEMORY
+        if self.database:
+            return StorageType.POSTGRES
+        return StorageType.MEMORY
 
     def as_store(self) -> BaseStore:
         from dao_ai.memory import StoreManager

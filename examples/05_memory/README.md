@@ -28,6 +28,7 @@ flowchart TB
             direction LR
             PG["PostgreSQL"]
             LB["Lakebase"]
+            AM["Managed Agent Memory<br/>(store only)"]
             InMem["In-Memory"]
         end
     end
@@ -50,6 +51,7 @@ flowchart TB
 | [`in_memory_basic.yaml`](./in_memory_basic.yaml) | In-Memory | No persistence, good for testing |
 | [`postgres_persistence.yaml`](./postgres_persistence.yaml) | PostgreSQL | Production-ready persistence |
 | [`lakebase_persistence.yaml`](./lakebase_persistence.yaml) | Lakebase | Databricks-native persistence with Unity Catalog |
+| [`agent_memory_persistence.yaml`](./agent_memory_persistence.yaml) | Managed Agent Memory | UC-governed long-term `store` on the Databricks Managed Agent Memory API (keyword search; store only, not a checkpointer) |
 | [`conversation_summarization.yaml`](./conversation_summarization.yaml) | Lakebase | Long conversation summarization with store |
 
 ## Memory Components

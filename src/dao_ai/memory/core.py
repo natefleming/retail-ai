@@ -100,6 +100,19 @@ class StoreManager:
 
                         store_manager = AsyncPostgresStoreManager(store_model)
                     cls.store_managers[cache_key] = store_manager
+            case StorageType.AGENT_MEMORY:
+                # Key by the store config's own name — its declared identity —
+                # matching the in-memory store and langgraph's "one store instance
+                # per compiled graph" model. Each distinct config gets its own
+                # manager, so per-config settings (scope, auth) stay isolated;
+                # different scopes already live in differently-named configs.
+                cache_key = store_model.name
+                store_manager = cls.store_managers.get(cache_key)
+                if store_manager is None:
+                    from dao_ai.memory.agent_memory import AgentMemoryStoreManager
+
+                    store_manager = AgentMemoryStoreManager(store_model)
+                    cls.store_managers[cache_key] = store_manager
             case _:
                 raise ValueError(f"Unknown storage type: {store_model.storage_type}")
 
