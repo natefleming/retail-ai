@@ -1,3 +1,7 @@
+from dao_ai.memory.agent_memory import (
+    AgentMemoryStore,
+    AgentMemoryStoreManager,
+)
 from dao_ai.memory.base import (
     CheckpointManagerBase,
     StoreManagerBase,
@@ -24,6 +28,8 @@ __all__ = [
     "StoreManagerBase",
     "CheckpointManager",
     "StoreManager",
+    "AgentMemoryStore",
+    "AgentMemoryStoreManager",
     "LakebaseCheckpointerManager",
     "LakebaseStoreManager",
     "create_extraction_manager",

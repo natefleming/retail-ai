@@ -100,6 +100,14 @@ class StoreManager:
 
                         store_manager = AsyncPostgresStoreManager(store_model)
                     cls.store_managers[cache_key] = store_manager
+            case StorageType.AGENT_MEMORY:
+                cache_key = store_model.memory_store.full_name
+                store_manager = cls.store_managers.get(cache_key)
+                if store_manager is None:
+                    from dao_ai.memory.agent_memory import AgentMemoryStoreManager
+
+                    store_manager = AgentMemoryStoreManager(store_model)
+                    cls.store_managers[cache_key] = store_manager
             case _:
                 raise ValueError(f"Unknown storage type: {store_model.storage_type}")
 

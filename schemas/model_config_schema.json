@@ -8059,6 +8059,260 @@
       "title": "MemoryModel",
       "type": "object"
     },
+    "MemoryStoreModel": {
+      "additionalProperties": false,
+      "description": "Databricks Managed Agent Memory store reference (Unity-Catalog-governed).\n\nSelects the Managed Agent Memory backend for a :class:`StoreModel` (long-term\nmemory). The store is addressed by a 3-part Unity Catalog name \u2014 provide a\n``schema`` plus a short ``name``, or a fully-qualified ``name``\n(``catalog.schema.store``), following the same convention as\n:class:`TableModel` / :class:`FunctionModel`.\n\nAuthentication is inherited from :class:`IsDatabricksResource` (ambient SP,\nOBO, config PAT, config SP), so all four dao-ai auth modes work unchanged.\n\nNote: this backs LangGraph's ``BaseStore`` only. The Managed Memory API has\nno graph-state checkpoint concept, so it cannot back a checkpointer \u2014 pair it\nwith a Lakebase / Postgres / in-memory checkpointer.",
+      "properties": {
+        "on_behalf_of_user": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": false,
+          "description": "Use the calling user's identity (OBO). Works in Model Serving and Databricks Apps.",
+          "title": "On Behalf Of User"
+        },
+        "service_principal": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ServicePrincipalModel"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Service principal for OAuth M2M authentication. Expands to client_id and client_secret."
+        },
+        "client_id": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CompositeVariableModel"
+            },
+            {
+              "$ref": "#/$defs/EnvironmentVariableModel"
+            },
+            {
+              "$ref": "#/$defs/SecretVariableModel"
+            },
+            {
+              "$ref": "#/$defs/PrimitiveVariableModel"
+            },
+            {
+              "type": "string"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "OAuth client ID for service principal authentication.",
+          "title": "Client Id"
+        },
+        "client_secret": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CompositeVariableModel"
+            },
+            {
+              "$ref": "#/$defs/EnvironmentVariableModel"
+            },
+            {
+              "$ref": "#/$defs/SecretVariableModel"
+            },
+            {
+              "$ref": "#/$defs/PrimitiveVariableModel"
+            },
+            {
+              "type": "string"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "OAuth client secret for service principal authentication.",
+          "title": "Client Secret"
+        },
+        "workspace_host": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CompositeVariableModel"
+            },
+            {
+              "$ref": "#/$defs/EnvironmentVariableModel"
+            },
+            {
+              "$ref": "#/$defs/SecretVariableModel"
+            },
+            {
+              "$ref": "#/$defs/PrimitiveVariableModel"
+            },
+            {
+              "type": "string"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Databricks workspace URL (e.g., 'https://my-workspace.cloud.databricks.com').",
+          "title": "Workspace Host"
+        },
+        "pat": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CompositeVariableModel"
+            },
+            {
+              "$ref": "#/$defs/EnvironmentVariableModel"
+            },
+            {
+              "$ref": "#/$defs/SecretVariableModel"
+            },
+            {
+              "$ref": "#/$defs/PrimitiveVariableModel"
+            },
+            {
+              "type": "string"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Personal access token for PAT-based authentication.",
+          "title": "Pat"
+        },
+        "schema": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SchemaModel"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Schema reference qualifying the memory store. If omitted, name must be fully qualified."
+        },
+        "name": {
+          "description": "Memory store name (short, with 'schema') or fully qualified (catalog.schema.store).",
+          "title": "Name",
+          "type": "string"
+        },
+        "scope_kind": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CompositeVariableModel"
+            },
+            {
+              "$ref": "#/$defs/EnvironmentVariableModel"
+            },
+            {
+              "$ref": "#/$defs/SecretVariableModel"
+            },
+            {
+              "$ref": "#/$defs/PrimitiveVariableModel"
+            },
+            {
+              "type": "string"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "boolean"
+            }
+          ],
+          "default": "user_defined",
+          "description": "Scope kind for memory entries. Reserved for the Conversations API; entry operations use scope_value.",
+          "title": "Scope Kind"
+        },
+        "scope_value": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CompositeVariableModel"
+            },
+            {
+              "$ref": "#/$defs/EnvironmentVariableModel"
+            },
+            {
+              "$ref": "#/$defs/SecretVariableModel"
+            },
+            {
+              "$ref": "#/$defs/PrimitiveVariableModel"
+            },
+            {
+              "type": "string"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Scope (partition) for memory entries. Defaults to the store's namespace, else 'default'.",
+          "title": "Scope Value"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "title": "MemoryStoreModel",
+      "type": "object"
+    },
     "Message": {
       "additionalProperties": false,
       "description": "A single chat message with a role and content.",
@@ -9599,6 +9853,18 @@
           ],
           "default": null,
           "description": "Database for persistent storage. If omitted, uses in-memory storage (lost on restart)."
+        },
+        "memory_store": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/MemoryStoreModel"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Databricks Managed Agent Memory store. Mutually exclusive with 'database'."
         },
         "namespace": {
           "anyOf": [
