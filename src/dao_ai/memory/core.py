@@ -101,14 +101,19 @@ class StoreManager:
                         store_manager = AsyncPostgresStoreManager(store_model)
                     cls.store_managers[cache_key] = store_manager
             case StorageType.AGENT_MEMORY:
-                # Key by the store config's own name, not the UC store full_name:
-                # two StoreModels can target the same store under different scopes,
-                # and scope is baked into the AgentMemoryStore at construction.
-                cache_key = store_model.name
+                from dao_ai.memory.agent_memory import (
+                    AgentMemoryStoreManager,
+                    resolve_scope,
+                )
+
+                # Key by what identifies the target: the fully-qualified UC store
+                # name AND the scope. full_name alone collides across scopes;
+                # the config's `name` alone collides across configs that reuse a
+                # store name but point at different stores (the cache is global).
+                full_name = store_model.memory_store.full_name
+                cache_key = f"{full_name}::{resolve_scope(store_model)}"
                 store_manager = cls.store_managers.get(cache_key)
                 if store_manager is None:
-                    from dao_ai.memory.agent_memory import AgentMemoryStoreManager
-
                     store_manager = AgentMemoryStoreManager(store_model)
                     cls.store_managers[cache_key] = store_manager
             case _:

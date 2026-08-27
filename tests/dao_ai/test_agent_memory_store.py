@@ -453,8 +453,8 @@ def test_manager_ignores_embedding_model_and_defaults_scope(caplog):
 
 
 def test_store_manager_distinguishes_scopes_for_same_store():
-    # Two configs target the SAME UC memory store under DIFFERENT scopes; the
-    # manager cache must not collide them (regression: keyed on full_name only).
+    # Two configs target the SAME UC store under DIFFERENT scopes; the manager
+    # cache must not collide them (regression: keyed on full_name alone).
     from dao_ai.memory.core import StoreManager
 
     a = StoreModel(
@@ -470,3 +470,39 @@ def test_store_manager_distinguishes_scopes_for_same_store():
     assert store_a is not store_b
     assert store_a._scope == "team-x"
     assert store_b._scope == "team-y"
+
+
+def test_store_manager_distinguishes_different_stores_with_same_config_name():
+    # Two configs share the store *config* name but point at DIFFERENT UC stores.
+    # The global manager cache must key on the fully-qualified store name (+scope),
+    # not the config name, or the second would silently reuse the first's store.
+    from dao_ai.memory.core import StoreManager
+
+    a = StoreModel(
+        name="agent_memory_store",
+        memory_store={"name": "main.default.mem_one", "scope_value": "s"},
+    )
+    b = StoreModel(
+        name="agent_memory_store",
+        memory_store={"name": "main.default.mem_two", "scope_value": "s"},
+    )
+    store_a = StoreManager.instance(a).store()
+    store_b = StoreManager.instance(b).store()
+    assert store_a is not store_b
+    assert store_a._full_name == "main.default.mem_one"
+    assert store_b._full_name == "main.default.mem_two"
+
+
+def test_store_manager_reuses_manager_for_identical_target():
+    # Same store + same scope -> same cached manager (idempotent lookup).
+    from dao_ai.memory.core import StoreManager
+
+    a = StoreModel(
+        name="cfg_a",
+        memory_store={"name": "main.default.mem_shared", "scope_value": "s"},
+    )
+    b = StoreModel(
+        name="cfg_b",
+        memory_store={"name": "main.default.mem_shared", "scope_value": "s"},
+    )
+    assert StoreManager.instance(a) is StoreManager.instance(b)
