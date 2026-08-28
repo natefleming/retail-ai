@@ -144,7 +144,7 @@ The block is **optional**: when omitted, the schema falls back to
 `--with-connection` works identically on the `agent` and `workflow` nouns, on the
 `--direct` SDK path and the default bundle path, and from the interactive
 `07_deploy_agent` notebook (a `with_connection` widget). See
-[`examples/02_mcp/mcp_with_connection.yaml`](../examples/02_mcp/mcp_with_connection.yaml).
+[`examples/02_mcp/mcp_with_connection.yaml`](https://github.com/natefleming/dao-ai/blob/main/examples/02_mcp/mcp_with_connection.yaml).
 
 ---
 
