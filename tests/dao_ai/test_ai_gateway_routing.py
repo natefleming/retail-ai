@@ -572,6 +572,30 @@ def test_string_fallback_stays_legacy_when_primary_is_legacy() -> None:
     assert mock_chat.call_count == 2
 
 
+def test_uc_securable_fallback_of_a_legacy_primary_still_reaches_the_gateway() -> None:
+    """A non-gateway primary can still name a UC-securable fallback string. The
+    primary rides the legacy path; the fallback is only addressable on the
+    gateway, so it must infer use_ai_gateway on its own rather than inheriting
+    the primary's False and crashing in ``as_chat_model`` at build time."""
+    primary = InferenceEndpointModel(
+        name="databricks-gpt-oss-120b",
+        fallbacks=["system.ai.claude-sonnet-4-5"],
+    )
+    assert primary.use_ai_gateway is False
+
+    with (
+        patch("dao_ai.config.ChatUnityAIGateway") as mock_unity,
+        patch("dao_ai.config.ChatDatabricks") as mock_chat,
+    ):
+        primary.as_chat_model()
+
+    # Legacy primary on ChatDatabricks; UC-securable fallback on the gateway.
+    mock_chat.assert_called_once()
+    assert mock_chat.call_args.kwargs["model"] == "databricks-gpt-oss-120b"
+    mock_unity.assert_called_once()
+    assert mock_unity.call_args.kwargs["model"] == "system.ai.claude-sonnet-4-5"
+
+
 def test_best_of_n_judge_string_inherits_gateway_from_primary() -> None:
     """The judge is promoted from a string the same way a fallback is, and hits
     the same crash on a UC-securable name. It inherits the primary's routing."""

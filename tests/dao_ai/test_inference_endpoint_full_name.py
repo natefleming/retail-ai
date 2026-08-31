@@ -188,6 +188,36 @@ def test_uc_securable_name_with_explicit_false_is_rejected(
         InferenceEndpointModel.model_validate(payload)
 
 
+def test_inferred_gateway_flag_does_not_pollute_model_fields_set() -> None:
+    """The auto-default must behave like a default, not a user override: a bare
+    ``{name: <uc-securable>}`` keeps ``model_fields_set == {'name'}`` even though
+    the flag was inferred True. A downstream Genie-room disambiguation check keys
+    on exactly ``{'name'}`` to detect a bare model, and ``exclude_unset`` dumps
+    must not emit the inferred key (it re-infers on reload)."""
+    model = InferenceEndpointModel.model_validate({"name": "system.ai.gpt-oss-120b"})
+    assert model.use_ai_gateway is True
+    assert model.model_fields_set == {"name"}
+    assert "use_ai_gateway" not in model.model_dump(exclude_unset=True)
+
+
+def test_as_embeddings_model_rejects_a_uc_securable_name() -> None:
+    """DatabricksEmbeddings has no gateway path, so a UC-securable name 404s at
+    request time. Since the validator no longer rejects such a name at load (it
+    infers the gateway flag, which embeddings ignore), the embedding path must
+    fail with a clear message that names the model."""
+    model = InferenceEndpointModel.model_validate({"name": "system.ai.gpt-oss-120b"})
+    with pytest.raises(ValueError, match="UC-securable"):
+        model.as_embeddings_model()
+
+
+def test_as_embeddings_model_accepts_a_plain_endpoint_name() -> None:
+    """The regression guard: an ordinary embedding endpoint still builds."""
+    from databricks_langchain import DatabricksEmbeddings
+
+    model = InferenceEndpointModel(name="databricks-gte-large-en")
+    assert isinstance(model.as_embeddings_model(), DatabricksEmbeddings)
+
+
 def test_uc_securable_name_with_explicit_false_legacy_alias_is_rejected() -> None:
     """The legacy ``ai_gateway:`` spelling must be treated as an explicit value
     too — Pydantic records the field name in ``model_fields_set`` regardless of
