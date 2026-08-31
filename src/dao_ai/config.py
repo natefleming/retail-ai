@@ -1183,7 +1183,10 @@ class InferenceEndpointModel(IsDatabricksResource, HasFullName):
             "with `use_responses_api` — see that field for the per-model "
             "caveat. Addresses Foundation Model and UC-securable models only, "
             "never a custom serving endpoint. Not for embeddings or other "
-            "non-chat endpoints. Renamed from `ai_gateway` to match the "
+            "non-chat endpoints. Defaults to False for a plain serving-endpoint "
+            "name, but is inferred as True when the model is UC-securable "
+            "(`schema` + `name`, or a three-part `catalog.schema.name`) unless "
+            "set explicitly. Renamed from `ai_gateway` to match the "
             "databricks-langchain kwarg it feeds; the legacy key is still "
             "accepted and will be removed in a future major release."
         ),
@@ -1220,14 +1223,23 @@ class InferenceEndpointModel(IsDatabricksResource, HasFullName):
                 "short model name — not both."
             )
 
+        # A UC-securable name is only addressable through the gateway. When the
+        # routing flag is omitted, infer it from the name shape rather than
+        # forcing every such config to spell out use_ai_gateway: true. An
+        # explicit value (including false) is always honored — and an explicit
+        # false still fails the check below.
+        if "use_ai_gateway" not in self.model_fields_set and self.is_uc_securable:
+            self.use_ai_gateway = True
+
         if self.is_uc_securable and not self.use_ai_gateway:
             raise ValueError(
                 f"Model '{self.full_name}' is a UC-securable model name, which "
                 "is only addressable through the Unity AI Gateway — the "
                 "/serving-endpoints/<name>/invocations path answers 404 for a "
-                "three-level name. Set 'use_ai_gateway: true', or address a "
-                "serving endpoint instead (e.g. "
-                "'databricks-claude-sonnet-4-5')."
+                "three-level name. 'use_ai_gateway' defaults to true for a "
+                "UC-securable name, but this config set it explicitly to false, "
+                "which cannot work. Remove that override, or address a serving "
+                "endpoint instead (e.g. 'databricks-claude-sonnet-4-5')."
             )
 
         return self

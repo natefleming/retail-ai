@@ -46,6 +46,22 @@ def test_default_use_ai_gateway_is_false() -> None:
     assert model.use_ai_gateway is False
 
 
+def test_uc_securable_name_auto_enables_and_routes_through_the_gateway() -> None:
+    """A UC-securable model with the flag omitted infers use_ai_gateway=True,
+    and that inferred flag must actually reach the client: as_chat_model()
+    routes through ChatUnityAIGateway with the qualified name as the model id."""
+    model = InferenceEndpointModel.model_validate({"name": "system.ai.gpt-5-mini"})
+    assert model.use_ai_gateway is True
+    with (
+        patch("dao_ai.config.ChatUnityAIGateway") as mock_unity,
+        patch("dao_ai.config.ChatDatabricks") as mock_chat_databricks,
+    ):
+        model.as_chat_model()
+    mock_chat_databricks.assert_not_called()
+    mock_unity.assert_called_once()
+    assert mock_unity.call_args.kwargs["model"] == "system.ai.gpt-5-mini"
+
+
 # ---------------------------------------------------------------------------
 # Canonical name and the legacy alias
 # ---------------------------------------------------------------------------
