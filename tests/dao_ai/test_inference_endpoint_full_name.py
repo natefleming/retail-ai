@@ -150,18 +150,83 @@ def test_schema_plus_already_qualified_name_is_rejected() -> None:
         pytest.param({"name": "system.ai.claude-sonnet-4-5"}, id="qualified-name"),
     ],
 )
-def test_uc_securable_name_without_the_gateway_is_rejected(
+def test_uc_securable_name_without_the_gateway_auto_enables_it(
     payload: dict[str, object],
 ) -> None:
-    """A three-level name is only addressable through the AI Gateway — the
-    legacy serving path answers 404 ENDPOINT_NOT_FOUND (verified live). Failing
-    at load with a message naming the flag beats a 404 on first invocation.
+    """A three-level name is only addressable through the AI Gateway, so when
+    ``use_ai_gateway`` is omitted it is inferred from the name shape rather than
+    forcing every such config to spell the flag out.
 
-    Both spellings resolve the same ``full_name``, so both must be rejected:
-    keying the check on ``schema`` alone let the equivalent dotted ``name``
-    through to that 404."""
+    Both spellings resolve the same ``full_name``, so both must auto-enable:
+    keying on ``schema`` alone would leave the equivalent dotted ``name`` at the
+    False default and 404 on first invocation."""
+    model = InferenceEndpointModel.model_validate(payload)
+    assert model.use_ai_gateway is True
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        pytest.param(
+            {"schema": SYSTEM_AI, "name": "claude-sonnet-4-5", "use_ai_gateway": False},
+            id="schema",
+        ),
+        pytest.param(
+            {"name": "system.ai.claude-sonnet-4-5", "use_ai_gateway": False},
+            id="qualified-name",
+        ),
+    ],
+)
+def test_uc_securable_name_with_explicit_false_is_rejected(
+    payload: dict[str, object],
+) -> None:
+    """The guardrail: the auto-default only fills in an *omitted* flag. An
+    explicit ``use_ai_gateway: false`` on a UC-securable name is a config that
+    can only 404 at runtime, so it is still rejected at load with a message
+    naming the flag — a clear parse-time error beats an opaque runtime 404."""
     with pytest.raises(ValidationError, match="use_ai_gateway"):
         InferenceEndpointModel.model_validate(payload)
+
+
+def test_inferred_gateway_flag_does_not_pollute_model_fields_set() -> None:
+    """The auto-default must behave like a default, not a user override: a bare
+    ``{name: <uc-securable>}`` keeps ``model_fields_set == {'name'}`` even though
+    the flag was inferred True. A downstream Genie-room disambiguation check keys
+    on exactly ``{'name'}`` to detect a bare model, and ``exclude_unset`` dumps
+    must not emit the inferred key (it re-infers on reload)."""
+    model = InferenceEndpointModel.model_validate({"name": "system.ai.gpt-oss-120b"})
+    assert model.use_ai_gateway is True
+    assert model.model_fields_set == {"name"}
+    assert "use_ai_gateway" not in model.model_dump(exclude_unset=True)
+
+
+def test_as_embeddings_model_rejects_a_uc_securable_name() -> None:
+    """DatabricksEmbeddings has no gateway path, so a UC-securable name 404s at
+    request time. Since the validator no longer rejects such a name at load (it
+    infers the gateway flag, which embeddings ignore), the embedding path must
+    fail with a clear message that names the model."""
+    model = InferenceEndpointModel.model_validate({"name": "system.ai.gpt-oss-120b"})
+    with pytest.raises(ValueError, match="UC-securable"):
+        model.as_embeddings_model()
+
+
+def test_as_embeddings_model_accepts_a_plain_endpoint_name() -> None:
+    """The regression guard: an ordinary embedding endpoint still builds."""
+    from databricks_langchain import DatabricksEmbeddings
+
+    model = InferenceEndpointModel(name="databricks-gte-large-en")
+    assert isinstance(model.as_embeddings_model(), DatabricksEmbeddings)
+
+
+def test_uc_securable_name_with_explicit_false_legacy_alias_is_rejected() -> None:
+    """The legacy ``ai_gateway:`` spelling must be treated as an explicit value
+    too — Pydantic records the field name in ``model_fields_set`` regardless of
+    which alias supplied it, so an explicit false via the alias is rejected on
+    the same terms rather than silently auto-enabling."""
+    with pytest.raises(ValidationError, match="use_ai_gateway"):
+        InferenceEndpointModel.model_validate(
+            {"name": "system.ai.claude-sonnet-4-5", "ai_gateway": False}
+        )
 
 
 # ---------------------------------------------------------------------------

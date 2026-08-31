@@ -1092,9 +1092,10 @@ class InferenceEndpointModel(IsDatabricksResource, HasFullName):
             "`system`, schema `ai`). When set, `name` is the short model name "
             "and `full_name` resolves to `<catalog>.<schema>.<name>`. Omit it "
             "to pass a serving endpoint name — or an already-qualified model "
-            "name — in `name` directly. Requires `use_ai_gateway: true`: a "
-            "three-level name is only addressable on the gateway, and the "
-            "`/serving-endpoints/<name>/invocations` path answers 404 for one."
+            "name — in `name` directly. When set, `use_ai_gateway` defaults to "
+            "true (a three-level name is only addressable on the gateway; the "
+            "`/serving-endpoints/<name>/invocations` path answers 404 for one), "
+            "unless you set it explicitly."
         ),
     )
     name: str = Field(
@@ -1102,9 +1103,9 @@ class InferenceEndpointModel(IsDatabricksResource, HasFullName):
             "Serving endpoint name (e.g. 'databricks-gpt-5-4-mini'), a "
             "UC-securable model name (e.g. 'system.ai.claude-sonnet-4-5'), or "
             "the short model name when `schema` is set. A UC-securable name "
-            "requires `use_ai_gateway: true` however it is spelled — the "
+            "however it is spelled defaults `use_ai_gateway` to true (the "
             "`/serving-endpoints/<name>/invocations` path answers 404 for a "
-            "three-level name."
+            "three-level name), unless you set it explicitly."
         ),
     )
     description: Optional[str] = Field(
@@ -1183,7 +1184,10 @@ class InferenceEndpointModel(IsDatabricksResource, HasFullName):
             "with `use_responses_api` — see that field for the per-model "
             "caveat. Addresses Foundation Model and UC-securable models only, "
             "never a custom serving endpoint. Not for embeddings or other "
-            "non-chat endpoints. Renamed from `ai_gateway` to match the "
+            "non-chat endpoints. Defaults to False for a plain serving-endpoint "
+            "name, but is inferred as True when the model is UC-securable "
+            "(`schema` + `name`, or a three-part `catalog.schema.name`) unless "
+            "set explicitly. Renamed from `ai_gateway` to match the "
             "databricks-langchain kwarg it feeds; the legacy key is still "
             "accepted and will be removed in a future major release."
         ),
@@ -1220,14 +1224,28 @@ class InferenceEndpointModel(IsDatabricksResource, HasFullName):
                 "short model name — not both."
             )
 
+        # A UC-securable name is only addressable through the gateway. When the
+        # routing flag is omitted, infer it from the name shape rather than
+        # forcing every such config to spell out use_ai_gateway: true. An
+        # explicit value (including false) is always honored — and an explicit
+        # false still fails the check below. Discard the inferred key from
+        # model_fields_set afterward so the value behaves like a default, not a
+        # user override: it must not serialize as set, and a downstream check
+        # (the Genie-room disambiguation at ~L12180) keys on
+        # `model_fields_set == {"name"}` to spot a bare `{name: X}`.
+        if "use_ai_gateway" not in self.model_fields_set and self.is_uc_securable:
+            self.use_ai_gateway = True
+            self.model_fields_set.discard("use_ai_gateway")
+
         if self.is_uc_securable and not self.use_ai_gateway:
             raise ValueError(
                 f"Model '{self.full_name}' is a UC-securable model name, which "
                 "is only addressable through the Unity AI Gateway — the "
                 "/serving-endpoints/<name>/invocations path answers 404 for a "
-                "three-level name. Set 'use_ai_gateway: true', or address a "
-                "serving endpoint instead (e.g. "
-                "'databricks-claude-sonnet-4-5')."
+                "three-level name. 'use_ai_gateway' defaults to true for a "
+                "UC-securable name, but this config set it explicitly to false, "
+                "which cannot work. Remove that override, or address a serving "
+                "endpoint instead (e.g. 'databricks-claude-sonnet-4-5')."
             )
 
         return self
@@ -1341,12 +1359,14 @@ class InferenceEndpointModel(IsDatabricksResource, HasFullName):
             if isinstance(fallback, str):
                 fallback = InferenceEndpointModel(
                     name=fallback,
-                    # A bare string carries no routing of its own, so it inherits
-                    # the primary's: without this a UC-securable fallback name is
-                    # built with the default False and rejected by
-                    # validate_schema_qualification, and any fallback silently
-                    # drops off the gateway path the primary is on.
-                    use_ai_gateway=self.use_ai_gateway,
+                    # A bare string carries no routing of its own. A gateway
+                    # primary forces its fallbacks onto the gateway (so a plain
+                    # endpoint fallback rides along). When the primary is not on
+                    # the gateway, leave the flag unset so
+                    # validate_schema_qualification can infer it: a UC-securable
+                    # fallback name then routes through the gateway on its own,
+                    # while a plain endpoint name stays on the legacy path.
+                    **({"use_ai_gateway": True} if self.use_ai_gateway else {}),
                     temperature=self.temperature,
                     max_tokens=self.max_tokens,
                     extra_params=self.extra_params,
@@ -1366,10 +1386,12 @@ class InferenceEndpointModel(IsDatabricksResource, HasFullName):
 
             judge_cfg = self.best_of_n.judge
             if isinstance(judge_cfg, str):
-                # Same as fallbacks: a bare judge string inherits the primary's
-                # routing so a UC-securable name builds and reaches the gateway.
+                # Same as fallbacks: a gateway primary forces its judge onto the
+                # gateway; otherwise leave the flag unset so a UC-securable judge
+                # name infers it and a plain endpoint name stays legacy.
                 judge_cfg = InferenceEndpointModel(
-                    name=judge_cfg, use_ai_gateway=self.use_ai_gateway
+                    name=judge_cfg,
+                    **({"use_ai_gateway": True} if self.use_ai_gateway else {}),
                 )
             judge_chat_model = judge_cfg.as_chat_model()
 
@@ -1384,6 +1406,19 @@ class InferenceEndpointModel(IsDatabricksResource, HasFullName):
         return chat_client
 
     def as_embeddings_model(self) -> Embeddings:
+        # DatabricksEmbeddings addresses a serving endpoint by name and has no
+        # gateway path, so a UC-securable three-level name 404s at request time.
+        # The chat-model validator now infers use_ai_gateway for such a name and
+        # so no longer rejects it at load; keep the embedding path honest by
+        # failing here with a message that names the offending model.
+        if self.is_uc_securable:
+            raise ValueError(
+                f"Embedding model '{self.full_name}' is a UC-securable "
+                "(three-level) name, which DatabricksEmbeddings cannot address "
+                "— it resolves endpoints by name and the AI Gateway serves no "
+                "embedding path. Use a serving-endpoint name (e.g. "
+                "'databricks-gte-large-en')."
+            )
         return DatabricksEmbeddings(endpoint=self.name)
 
 
