@@ -1,0 +1,32 @@
+/** AppUIModel mirror (dao_ai.config.AppUIModel) + defaults + loader. */
+
+export interface UIConfig {
+  enabled: boolean;
+  mode: "end_user" | "developer";
+  inspector: boolean;
+  session_history: boolean;
+  title: string;
+  subtitle: string | null;
+}
+
+export const DEFAULT_UI_CONFIG: UIConfig = {
+  enabled: true,
+  mode: "end_user",
+  inspector: true,
+  session_history: true,
+  title: "dao-ai Console",
+  subtitle: null,
+};
+
+/** Fetch the deploy-injected AppUIModel from the server, falling back to
+ * defaults for any field the server omits (zero-config => full Console). */
+export async function loadUIConfig(): Promise<UIConfig> {
+  try {
+    const res = await fetch("/api/config");
+    if (!res.ok) return DEFAULT_UI_CONFIG;
+    const raw = (await res.json()) as Partial<UIConfig> | null;
+    return { ...DEFAULT_UI_CONFIG, ...(raw ?? {}) };
+  } catch {
+    return DEFAULT_UI_CONFIG;
+  }
+}

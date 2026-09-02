@@ -1,0 +1,19 @@
+{
+  "name": "@dao-ai/console",
+  "version": "0.1.0",
+  "private": true,
+  "description": "dao-ai Console — the default chat + live-anatomy UI for dao-ai agents.",
+  "workspaces": ["client", "server"],
+  "engines": {
+    "node": ">=18.0.0",
+    "npm": ">=8.0.0"
+  },
+  "scripts": {
+    "dev": "concurrently \"npm run dev --workspace=@dao-ai/console-server\" \"npm run dev --workspace=@dao-ai/console-client\"",
+    "build": "npm run build --workspace=@dao-ai/console-client && npm run build --workspace=@dao-ai/console-server",
+    "start": "npm run start --workspace=@dao-ai/console-server"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.0"
+  }
+}

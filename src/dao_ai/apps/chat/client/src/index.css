@@ -1,0 +1,109 @@
+@import "tailwindcss";
+
+/*
+ * dao-ai Console — "instrument panel" theme.
+ * Dark ink base, mono-forward for spans/durations, the dao-ai brand gradient
+ * (#4299E0 → #CA42E0 → #FF5F46) reserved for the live/propagating pulse, and
+ * semantic span colors for the anatomy views.
+ */
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI",
+    Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-display: "Space Grotesk", var(--font-sans);
+  --font-mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, Monaco,
+    "Cascadia Code", "Source Code Pro", monospace;
+
+  /* Ink surfaces (dark) */
+  --color-ink-950: #0b1120;
+  --color-ink-900: #0f172a;
+  --color-ink-850: #131c31;
+  --color-ink-800: #1e293b;
+  --color-ink-700: #334155;
+  --color-ink-600: #475569;
+  --color-line: #1f2a3d;
+
+  /* Text */
+  --color-fg: #e6edf6;
+  --color-fg-muted: #94a3b8;
+  --color-fg-subtle: #64748b;
+
+  /* dao-ai brand gradient stops */
+  --color-brand-blue: #4299e0;
+  --color-brand-magenta: #ca42e0;
+  --color-brand-flame: #ff5f46;
+
+  /* Semantic span / node colors (anatomy views) */
+  --color-span-llm: #818cf8; /* indigo  */
+  --color-span-tool: #22d3ee; /* cyan    */
+  --color-span-retrieval: #2dd4bf; /* teal    */
+  --color-span-handoff: #f59e0b; /* amber   */
+  --color-span-agent: #a855f7; /* purple  */
+  --color-span-error: #fb7185; /* rose    */
+  --color-ok: #34d399;
+}
+
+:root {
+  color-scheme: dark;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--color-ink-950);
+  color: var(--color-fg);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* The live gradient pulse used on active Flow edges / streaming affordances. */
+@keyframes dao-pulse {
+  0% { background-position: 0% 50%; }
+  100% { background-position: 200% 50%; }
+}
+.dao-live-gradient {
+  background-image: linear-gradient(
+    90deg,
+    var(--color-brand-blue),
+    var(--color-brand-magenta),
+    var(--color-brand-flame),
+    var(--color-brand-blue)
+  );
+  background-size: 200% 100%;
+  animation: dao-pulse 2.2s linear infinite;
+}
+
+/* Active Flow edges: a traveling dash in the brand blue while a tool runs. */
+@keyframes dao-dash {
+  to { stroke-dashoffset: -24; }
+}
+.flow-edge-active {
+  stroke: var(--color-brand-magenta);
+  stroke-dasharray: 4 8;
+  animation: dao-dash 0.7s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dao-live-gradient,
+  .flow-edge-active {
+    animation: none;
+  }
+}
+
+/* Thin, instrument-style scrollbars. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-ink-700) transparent;
+}
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+*::-webkit-scrollbar-thumb {
+  background: var(--color-ink-700);
+  border-radius: 4px;
+}
