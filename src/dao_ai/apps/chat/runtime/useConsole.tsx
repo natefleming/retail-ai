@@ -1,3 +1,5 @@
+"use client";
+
 /**
  * Console runtime — the single source of truth behind all three views.
  *

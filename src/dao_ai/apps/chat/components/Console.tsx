@@ -1,3 +1,5 @@
+"use client";
+
 import { useEffect, useState } from "react";
 import { PanelRightClose, PanelRightOpen } from "lucide-react";
 import { clsx } from "clsx";
@@ -8,7 +10,7 @@ import { SessionSidebar } from "@/components/SessionSidebar";
 import { DEFAULT_UI_CONFIG, loadUIConfig, type UIConfig } from "@/lib/config";
 import { ConsoleProvider } from "@/runtime/useConsole";
 
-export default function App() {
+export function Console() {
   const [config, setConfig] = useState<UIConfig>(DEFAULT_UI_CONFIG);
   const [loaded, setLoaded] = useState(false);
   const [inspectorOpen, setInspectorOpen] = useState(false);
