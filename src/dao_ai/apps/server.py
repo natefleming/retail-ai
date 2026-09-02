@@ -181,31 +181,35 @@ _mount_background_routes()
 
 
 def _mount_trace_routes() -> None:
-    """Register ``GET /v1/traces/{trace_id}`` for the Console Timeline view.
+    """Register ``GET /v1/traces?trace_id=...`` for the Console Timeline view.
 
     Returns the MLflow trace as a nested span waterfall (durations, per-span
     I/O, events). The backend owns retrieval — it already sets the tracking
     URI and redacts bearer tokens at write time — so the browser never needs
-    a raw trace API or an OBO token. Defined as a sync route so FastAPI runs
-    the short blocking propagation poll in its threadpool rather than on the
-    event loop. Always mounted (independent of ``app.background``).
+    a raw trace API or an OBO token. The trace id is a query param (not a path
+    segment) because ``trace_location`` ids are UC URIs containing slashes
+    (``trace:/<catalog>.<schema>.<prefix>/<id>``) that a path param can't
+    capture. Sync route so FastAPI runs the short blocking propagation poll in
+    its threadpool. Always mounted (independent of ``app.background``).
     """
-    from fastapi import HTTPException
+    from fastapi import HTTPException, Query
     from fastapi.responses import JSONResponse
     from loguru import logger
 
     from dao_ai.apps.traces import get_trace_tree
 
-    @app.get("/v1/traces/{trace_id}")
-    def get_trace(trace_id: str):
-        tree = get_trace_tree(trace_id)
+    @app.get("/v1/traces")
+    def get_trace(trace_id: str = Query(...)):
+        # trace_location (UC OTEL) traces can take longer to become queryable
+        # than the default local-tracking window, so allow more propagation time.
+        tree = get_trace_tree(trace_id, timeout_seconds=12.0)
         if tree is None:
             raise HTTPException(
                 status_code=404, detail="Trace not found or not yet queryable"
             )
         return JSONResponse(tree)
 
-    logger.info("Trace route mounted", routes=["GET /v1/traces/{id}"])
+    logger.info("Trace route mounted", routes=["GET /v1/traces?trace_id="])
 
 
 _mount_trace_routes()

@@ -89,7 +89,9 @@ function parseSseFrame(frame: string): StreamEvent | null {
 }
 
 export async function fetchTrace(traceId: string): Promise<TraceTree | null> {
-  const res = await fetch(`/v1/traces/${encodeURIComponent(traceId)}`);
+  // trace_id is passed as a query param: trace_location ids are UC URIs
+  // (trace:/<catalog>.<schema>.<prefix>/<id>) whose slashes break a path param.
+  const res = await fetch(`/v1/traces?trace_id=${encodeURIComponent(traceId)}`);
   if (!res.ok) return null;
   return (await res.json()) as TraceTree;
 }
