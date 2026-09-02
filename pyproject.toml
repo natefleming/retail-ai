@@ -227,6 +227,15 @@ exclude = [
     "/tests",
     "/uv.lock",
     "/Makefile",
+    # Console (Next.js) build artifacts / deps — the wheel ships only the UI
+    # SOURCE; `next build` runs on the Apps container. These are unanchored so
+    # they drop the nested dirs under src/dao_ai/apps/chat/ regardless of any
+    # local build state (hatchling does not honor the nested .gitignore).
+    "**/node_modules",
+    "**/.next",
+    "**/out",
+    "**/*.tsbuildinfo",
+    "**/next-env.d.ts",
 ]
 
 [tool.hatch.build.targets.sdist]

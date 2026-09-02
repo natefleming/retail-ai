@@ -589,7 +589,12 @@ def _build_app_block(
     if enable_chat_proxy and include_chat_ui:
         from dao_ai.apps.chat_ui import chat_ui_env_vars
 
-        env_vars.extend(chat_ui_env_vars())
+        ui_config = (
+            config.app.ui.model_dump(mode="json")
+            if config.app and config.app.ui
+            else None
+        )
+        env_vars.extend(chat_ui_env_vars(ui_config=ui_config))
 
     config_env_vars = _extract_env_vars_from_config(config)
     config_env_vars = [
