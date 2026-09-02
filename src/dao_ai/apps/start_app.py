@@ -32,7 +32,6 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 from dao_ai.apps.chat_ui import (
-    _PUBLIC_NPM_REGISTRY,
     CHAT_APP_DIR,
     ChatUIBuildError,
     sanitized_npm_env,
@@ -269,11 +268,8 @@ class ProcessManager:
                     print("Continuing with backend only.")
                     self.no_ui = True
                 else:
-                    # Install against the public npm registry (CLI flag beats
-                    # the image's npm_config_registry env + any .npmrc) — the
-                    # Apps default proxy lacks common transitive packages.
                     for cmd, desc in [
-                        (["npm", "install", "--registry", _PUBLIC_NPM_REGISTRY], "install"),
+                        (["npm", "install"], "install"),
                         (["npm", "run", "build"], "build"),
                     ]:
                         print(f"Running npm {desc}...")

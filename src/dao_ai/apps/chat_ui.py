@@ -28,13 +28,6 @@ _DEFAULT_BACKEND_PORT: int = 8000
 _DEFAULT_FRONTEND_PORT: int = 3000
 _DEFAULT_PROXY_TIMEOUT: int = 300
 
-# The Databricks Apps image defaults npm to an internal proxy
-# (npm-proxy.cloud.databricks.com) that is missing common transitive packages
-# (zwitch, yargs-parser, undici-types, ...). Install against the public registry
-# instead; passed as a CLI flag (highest npm-config precedence, so it overrides
-# both the image's ``npm_config_registry`` env var and any project .npmrc).
-_PUBLIC_NPM_REGISTRY: str = "https://registry.npmjs.org/"
-
 # Env-var prefixes stripped from the npm subprocess environment. The Console
 # talks to the agent only over HTTP (``API_PROXY`` / ``/v1/*``) and never opens
 # a database connection, so DB-binding vars are irrelevant to its build/run;
@@ -59,13 +52,8 @@ def sanitized_npm_env() -> dict[str, str]:
         logger.debug(
             "Stripping DB-binding env vars from npm subprocess", keys=stripped
         )
-    # Also drop any ``npm_config_registry`` env var so it can't override the
-    # public-registry CLI flag / .npmrc (env beats the project .npmrc file).
     return {
-        k: v
-        for k, v in os.environ.items()
-        if not k.startswith(_DB_ENV_VAR_PREFIXES)
-        and k.lower() != "npm_config_registry"
+        k: v for k, v in os.environ.items() if not k.startswith(_DB_ENV_VAR_PREFIXES)
     }
 
 
@@ -154,11 +142,7 @@ def ensure_chat_ui_built(
         logger.info("Console already built, skipping rebuild", path=str(chat_dir))
         return chat_dir
 
-    _npm_run(
-        chat_dir,
-        ["install", "--registry", _PUBLIC_NPM_REGISTRY],
-        "install",
-    )
+    _npm_run(chat_dir, ["install"], "install")
     _npm_run(chat_dir, ["run", "build"], "build")
 
     if not _is_built(chat_dir):
