@@ -1,126 +1,192 @@
+import { ArrowRightLeft, Bot, Database, Wrench } from "lucide-react";
 import { clsx } from "clsx";
 
+import type { SpanNode } from "@/lib/contract";
 import type { Turn, UIToolCall } from "@/runtime/useConsole";
 
 /**
  * The signature view: the agent system as a node graph that lights up as the
- * prompt propagates. The agent node sits at the top; each tool call is a node
- * below it, wired by an edge that animates (traveling dash) while the tool
- * runs and settles to a status color when it completes. Node type is inferred
- * from the tool name (genie/sql → retrieval, search/vector → retrieval,
- * agent/handoff → handoff) so the graph reads as the request's anatomy.
+ * prompt propagates. It shows tool calls AND agent→agent handoffs (nested to
+ * arbitrary depth — a handoff to another agent that itself hands off), drawn as
+ * an indented tree.
+ *
+ * When the MLflow trace is available it is the faithful source of the
+ * hierarchy (agent spans nesting sub-agent and tool spans); while a turn is
+ * still streaming — before the trace lands — the graph falls back to the flat
+ * tool-call lifecycle so tools still appear live.
  */
 
-function nodeColor(call: UIToolCall): string {
-  if (call.status === "error") return "var(--color-span-error)";
-  if (call.status === "in_progress") return "var(--color-span-tool)";
-  const n = call.name.toLowerCase();
-  if (/(genie|sql|vector|search|retriev|index)/.test(n)) return "var(--color-span-retrieval)";
-  if (/(agent|handoff|supervis|transfer)/.test(n)) return "var(--color-span-handoff)";
-  return "var(--color-span-tool)";
+type Kind = "agent" | "handoff" | "tool" | "retrieval";
+
+interface FlowNode {
+  id: string;
+  label: string;
+  kind: Kind;
+  duration_ms?: number | null;
+  status?: string;
+  running?: boolean;
+  children: FlowNode[];
+}
+
+const HANDOFF_RE = /(handoff|transfer|delegate|route_to|to_agent)/i;
+const RETRIEVAL_RE = /(genie|sql|vector|search|retriev|index|lookup)/i;
+
+function kindForTool(name: string): Kind {
+  if (HANDOFF_RE.test(name)) return "handoff";
+  if (RETRIEVAL_RE.test(name)) return "retrieval";
+  return "tool";
+}
+
+/** Build the flow tree from the MLflow span tree, pruning non-structural
+ * spans (LLM calls, parsers) and lifting the children of pruned nodes so the
+ * agent → sub-agent → tool shape survives. */
+function fromSpans(spans: SpanNode[]): FlowNode[] {
+  const out: FlowNode[] = [];
+  for (const s of spans) {
+    const children = fromSpans(s.children ?? []);
+    const t = (s.span_type ?? "").toUpperCase();
+    let kind: Kind | null = null;
+    if (t === "AGENT" || t === "CHAIN") kind = "agent";
+    else if (t === "TOOL") kind = kindForTool(s.name);
+    else if (t === "RETRIEVER") kind = "retrieval";
+
+    if (kind) {
+      out.push({
+        id: s.span_id,
+        label: s.name,
+        kind,
+        duration_ms: s.duration_ms,
+        status: s.status,
+        children,
+      });
+    } else {
+      out.push(...children); // prune this span, keep its structure
+    }
+  }
+  return out;
+}
+
+/** Live fallback: a single agent root with the flat tool calls as children. */
+function fromToolCalls(calls: UIToolCall[]): FlowNode[] {
+  return [
+    {
+      id: "agent",
+      label: "agent",
+      kind: "agent",
+      children: calls.map((c) => ({
+        id: c.call_id,
+        label: c.name,
+        kind: c.status === "error" ? "tool" : kindForTool(c.name),
+        duration_ms: c.duration_ms,
+        status: c.status === "error" ? "ERROR" : undefined,
+        running: c.status === "in_progress",
+        children: [],
+      })),
+    },
+  ];
+}
+
+const KIND_META: Record<Kind, { color: string; Icon: typeof Bot }> = {
+  agent: { color: "var(--color-span-agent)", Icon: Bot },
+  handoff: { color: "var(--color-span-handoff)", Icon: ArrowRightLeft },
+  tool: { color: "var(--color-span-tool)", Icon: Wrench },
+  retrieval: { color: "var(--color-span-retrieval)", Icon: Database },
+};
+
+function NodePill({ node }: { node: FlowNode }) {
+  const { color, Icon } = KIND_META[node.kind];
+  const isError = node.status && node.status !== "OK" && node.status !== "UNSET";
+  const borderColor = isError ? "var(--color-span-error)" : color;
+  return (
+    <div
+      className={clsx(
+        "flex items-center gap-2 rounded-md border bg-[var(--color-ink-850)] px-2.5 py-1.5",
+        node.running && "dao-live-gradient",
+      )}
+      style={node.running ? undefined : { borderColor }}
+    >
+      <span
+        className="flex h-5 w-5 shrink-0 items-center justify-center rounded"
+        style={{ color: isError ? "var(--color-span-error)" : color }}
+      >
+        <Icon size={13} />
+      </span>
+      <span className="truncate font-mono text-[11px] text-[var(--color-fg)]">
+        {node.label}
+      </span>
+      <span className="ml-auto shrink-0 pl-2 font-mono text-[10px] tabular-nums text-[var(--color-fg-subtle)]">
+        {node.running
+          ? "running…"
+          : node.duration_ms != null
+            ? `${node.duration_ms} ms`
+            : (node.status ?? "")}
+      </span>
+    </div>
+  );
+}
+
+function NodeTree({ node }: { node: FlowNode }) {
+  const hasHandoffChild = node.children.some(
+    (c) => c.kind === "agent" || c.kind === "handoff",
+  );
+  return (
+    <div>
+      <NodePill node={node} />
+      {node.children.length > 0 && (
+        <div
+          className="ml-3 mt-1 space-y-1 border-l pl-3"
+          style={{
+            borderColor: hasHandoffChild
+              ? "var(--color-span-handoff)"
+              : "var(--color-line)",
+          }}
+        >
+          {node.children.map((c) => (
+            <NodeTree key={c.id} node={c} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
 }
 
 export function Flow({ turn }: { turn: Turn | undefined }) {
-  if (!turn || turn.toolCalls.length === 0) {
+  if (!turn) {
+    return <Empty label="Select a turn to see its anatomy." />;
+  }
+
+  const nodes =
+    turn.trace && turn.trace.spans.length
+      ? fromSpans(turn.trace.spans)
+      : turn.toolCalls.length
+        ? fromToolCalls(turn.toolCalls)
+        : [];
+
+  if (nodes.length === 0) {
     return (
-      <div className="flex h-full items-center justify-center px-6 text-center text-xs text-[var(--color-fg-subtle)]">
-        {turn?.status === "streaming"
-          ? "Waiting for the agent to route…"
-          : "No tools were called this turn."}
-      </div>
+      <Empty
+        label={
+          turn.status === "streaming"
+            ? "Waiting for the agent to route…"
+            : "No tools or handoffs this turn."
+        }
+      />
     );
   }
 
-  const calls = turn.toolCalls;
-  const W = 320;
-  const rowH = 66;
-  const H = 90 + calls.length * rowH;
-  const agent = { x: W / 2, y: 44 };
-  const toolX = W / 2;
-
   return (
-    <div className="h-full overflow-y-auto p-3">
-      <svg width="100%" viewBox={`0 0 ${W} ${H}`} className="mx-auto block">
-        {/* edges */}
-        {calls.map((c, i) => {
-          const ty = 110 + i * rowH;
-          const active = c.status === "in_progress";
-          return (
-            <path
-              key={`e-${c.call_id}`}
-              d={`M ${agent.x} ${agent.y + 18} C ${agent.x} ${(agent.y + ty) / 2}, ${toolX} ${(agent.y + ty) / 2}, ${toolX} ${ty - 16}`}
-              fill="none"
-              strokeWidth={active ? 2 : 1.5}
-              className={clsx(active && "flow-edge-active")}
-              stroke={active ? undefined : "var(--color-line)"}
-            />
-          );
-        })}
+    <div className="h-full space-y-1 overflow-auto p-3">
+      {nodes.map((n) => (
+        <NodeTree key={n.id} node={n} />
+      ))}
+    </div>
+  );
+}
 
-        {/* agent / supervisor node */}
-        <g>
-          <rect
-            x={agent.x - 62}
-            y={agent.y - 18}
-            width={124}
-            height={36}
-            rx={18}
-            fill="var(--color-ink-850)"
-            stroke="var(--color-span-agent)"
-            strokeWidth={1.5}
-          />
-          <text
-            x={agent.x}
-            y={agent.y + 4}
-            textAnchor="middle"
-            className="fill-[var(--color-fg)] font-mono"
-            fontSize={12}
-          >
-            agent
-          </text>
-        </g>
-
-        {/* tool nodes */}
-        {calls.map((c, i) => {
-          const ty = 110 + i * rowH;
-          const color = nodeColor(c);
-          return (
-            <g key={`n-${c.call_id}`}>
-              <rect
-                x={toolX - 130}
-                y={ty - 16}
-                width={260}
-                height={40}
-                rx={8}
-                fill="var(--color-ink-850)"
-                stroke={color}
-                strokeWidth={1.5}
-              />
-              <circle cx={toolX - 114} cy={ty + 4} r={4} fill={color} />
-              <text
-                x={toolX - 100}
-                y={ty}
-                className="fill-[var(--color-fg)] font-mono"
-                fontSize={11}
-              >
-                {c.name.length > 24 ? `${c.name.slice(0, 24)}…` : c.name}
-              </text>
-              <text
-                x={toolX - 100}
-                y={ty + 14}
-                className="fill-[var(--color-fg-subtle)] font-mono"
-                fontSize={10}
-              >
-                {c.status === "in_progress"
-                  ? "running…"
-                  : c.duration_ms != null
-                    ? `${c.duration_ms} ms`
-                    : c.status}
-              </text>
-            </g>
-          );
-        })}
-      </svg>
+function Empty({ label }: { label: string }) {
+  return (
+    <div className="flex h-full items-center justify-center px-6 text-center text-xs text-[var(--color-fg-subtle)]">
+      {label}
     </div>
   );
 }

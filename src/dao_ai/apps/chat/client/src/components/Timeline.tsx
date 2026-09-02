@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { ChevronRight } from "lucide-react";
 import { clsx } from "clsx";
 
 import type { SpanNode, TraceTree } from "@/lib/contract";
@@ -22,23 +23,50 @@ function spanColor(node: SpanNode): string {
 interface Row {
   node: SpanNode;
   depth: number;
+  hasChildren: boolean;
+  collapsed: boolean;
 }
 
-function flatten(spans: SpanNode[], depth = 0, acc: Row[] = []): Row[] {
+function flatten(
+  spans: SpanNode[],
+  collapsedIds: Set<string>,
+  depth = 0,
+  acc: Row[] = [],
+): Row[] {
   for (const node of spans) {
-    acc.push({ node, depth });
-    if (node.children?.length) flatten(node.children, depth + 1, acc);
+    const hasChildren = !!node.children?.length;
+    const collapsed = collapsedIds.has(node.span_id);
+    acc.push({ node, depth, hasChildren, collapsed });
+    if (hasChildren && !collapsed) {
+      flatten(node.children, collapsedIds, depth + 1, acc);
+    }
   }
   return acc;
 }
 
+function countDescendants(node: SpanNode): number {
+  return (node.children ?? []).reduce(
+    (sum, child) => sum + 1 + countDescendants(child),
+    0,
+  );
+}
+
 export function Timeline({ trace }: { trace: TraceTree | null | undefined }) {
   const [selected, setSelected] = useState<SpanNode | null>(null);
+  const [collapsedIds, setCollapsedIds] = useState<Set<string>>(new Set());
+
+  const toggle = (spanId: string) =>
+    setCollapsedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(spanId)) next.delete(spanId);
+      else next.add(spanId);
+      return next;
+    });
 
   if (!trace) {
     return <Empty label="No trace yet — run a turn to see the span waterfall." />;
   }
-  const rows = flatten(trace.spans);
+  const rows = flatten(trace.spans, collapsedIds);
   if (!rows.length) return <Empty label="Trace has no spans." />;
   const total = Math.max(trace.duration_ms, 0.001);
 
@@ -49,36 +77,65 @@ export function Timeline({ trace }: { trace: TraceTree | null | undefined }) {
         <span className="tabular-nums">{trace.duration_ms.toFixed(1)} ms</span>
       </div>
       <div className="flex-1 space-y-1 overflow-y-auto px-3 pb-3">
-        {rows.map(({ node, depth }) => {
+        {rows.map(({ node, depth, hasChildren, collapsed }) => {
           const left = (node.start_offset_ms / total) * 100;
           const width = Math.max((node.duration_ms / total) * 100, 0.8);
           return (
-            <button
+            <div
               key={node.span_id}
-              onClick={() => setSelected(node)}
-              className="block w-full text-left"
               title={`${node.name} · ${node.duration_ms} ms`}
             >
               <div
-                className="mb-0.5 truncate font-mono text-[11px] text-[var(--color-fg-muted)]"
+                className="mb-0.5 flex items-center gap-1 font-mono text-[11px] text-[var(--color-fg-muted)]"
                 style={{ paddingLeft: depth * 10 }}
               >
-                {node.name}
-              </div>
-              <div className="relative h-2 w-full rounded bg-[var(--color-ink-850)]">
-                <div
-                  className={clsx(
-                    "absolute h-2 rounded",
-                    selected?.span_id === node.span_id && "ring-1 ring-white/40",
+                {hasChildren ? (
+                  <button
+                    onClick={() => toggle(node.span_id)}
+                    className="shrink-0 text-[var(--color-fg-subtle)] hover:text-[var(--color-fg)]"
+                    aria-label={collapsed ? "Expand span" : "Collapse span"}
+                    aria-expanded={!collapsed}
+                  >
+                    <ChevronRight
+                      size={12}
+                      className={clsx("transition-transform", !collapsed && "rotate-90")}
+                    />
+                  </button>
+                ) : (
+                  <span className="inline-block w-3 shrink-0" aria-hidden />
+                )}
+                <button
+                  onClick={() => setSelected(node)}
+                  className="truncate text-left hover:text-[var(--color-fg)]"
+                >
+                  {node.name}
+                  {collapsed && hasChildren && (
+                    <span className="ml-1 text-[var(--color-fg-subtle)]">
+                      (+{countDescendants(node)})
+                    </span>
                   )}
-                  style={{
-                    left: `${left}%`,
-                    width: `${width}%`,
-                    background: spanColor(node),
-                  }}
-                />
+                </button>
               </div>
-            </button>
+              <button
+                onClick={() => setSelected(node)}
+                className="block w-full"
+                aria-label={`${node.name} span bar`}
+              >
+                <div className="relative h-2 w-full rounded bg-[var(--color-ink-850)]">
+                  <div
+                    className={clsx(
+                      "absolute h-2 rounded",
+                      selected?.span_id === node.span_id && "ring-1 ring-white/40",
+                    )}
+                    style={{
+                      left: `${left}%`,
+                      width: `${width}%`,
+                      background: spanColor(node),
+                    }}
+                  />
+                </div>
+              </button>
+            </div>
           );
         })}
       </div>
