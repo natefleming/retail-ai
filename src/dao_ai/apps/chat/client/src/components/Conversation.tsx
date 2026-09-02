@@ -16,22 +16,25 @@ import type { HITLInterrupt, VisualizationSpec } from "@/lib/contract";
 import { useConsoleContext, type Turn, type UIToolCall } from "@/runtime/useConsole";
 import { clsx } from "clsx";
 
-const statusColor: Record<UIToolCall["status"], string> = {
-  in_progress: "text-[var(--color-span-tool)]",
-  completed: "text-[var(--color-ok)]",
-  error: "text-[var(--color-span-error)]",
-};
-
 function ToolCard({ call }: { call: UIToolCall }) {
   const [open, setOpen] = useState(false);
   return (
-    <div className="rounded-md border border-[var(--color-line)] bg-[var(--color-ink-850)]">
+    <div className="rounded-lg border border-[var(--color-line)] bg-[var(--color-ink-900)] shadow-[var(--shadow-card)]">
       <button
         onClick={() => setOpen((o) => !o)}
-        className="flex w-full items-center gap-2 px-3 py-2 text-left font-mono text-xs"
+        className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs"
       >
-        <Wrench size={13} className={statusColor[call.status]} />
-        <span className="text-[var(--color-fg)]">{call.name}</span>
+        <Wrench
+          size={13}
+          className={
+            call.status === "error"
+              ? "text-[var(--color-span-error)]"
+              : "text-[var(--color-primary)]"
+          }
+        />
+        <span className="rounded bg-[var(--color-tag-bg)] px-1.5 py-0.5 font-mono text-[11px] text-[var(--color-tag-fg)]">
+          {call.name}
+        </span>
         {call.status === "in_progress" ? (
           <Loader2 size={12} className="animate-spin text-[var(--color-span-tool)]" />
         ) : (
@@ -78,7 +81,7 @@ function Reasoning({ text, defaultOpen }: { text: string; defaultOpen: boolean }
   const [open, setOpen] = useState(defaultOpen);
   if (!text) return null;
   return (
-    <div className="rounded-md border border-[var(--color-line)] bg-[var(--color-ink-900)]/60">
+    <div className="rounded-lg border border-[var(--color-line)] bg-[var(--color-ink-900)] shadow-[var(--shadow-card)]">
       <button
         onClick={() => setOpen((o) => !o)}
         className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs text-[var(--color-span-llm)]"
@@ -102,7 +105,7 @@ function Reasoning({ text, defaultOpen }: { text: string; defaultOpen: boolean }
 function Visualization({ viz }: { viz: VisualizationSpec }) {
   try {
     return (
-      <div className="overflow-x-auto rounded-md border border-[var(--color-line)] bg-white p-2">
+      <div className="overflow-x-auto rounded-lg border border-[var(--color-line)] bg-white p-3 shadow-[var(--shadow-card)]">
         <VegaLite spec={viz.spec as never} actions={false} />
       </div>
     );
