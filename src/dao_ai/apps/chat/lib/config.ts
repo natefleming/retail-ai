@@ -25,7 +25,12 @@ export async function loadUIConfig(): Promise<UIConfig> {
     const res = await fetch("/api/config");
     if (!res.ok) return DEFAULT_UI_CONFIG;
     const raw = (await res.json()) as Partial<UIConfig> | null;
-    return { ...DEFAULT_UI_CONFIG, ...(raw ?? {}) };
+    // Drop null/undefined so an unset server field (e.g. title: null) falls
+    // back to the default instead of overriding it.
+    const cleaned = Object.fromEntries(
+      Object.entries(raw ?? {}).filter(([, v]) => v != null),
+    );
+    return { ...DEFAULT_UI_CONFIG, ...cleaned };
   } catch {
     return DEFAULT_UI_CONFIG;
   }
