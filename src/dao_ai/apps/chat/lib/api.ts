@@ -1,6 +1,9 @@
 /** Transport to the dao-ai agent backend (served on the same origin). */
 
 import type {
+  MemoryResponse,
+  SessionListItem,
+  SessionMeta,
   SessionThread,
   StreamEvent,
   TraceTree,
@@ -100,4 +103,54 @@ export async function fetchSession(threadId: string): Promise<SessionThread | nu
   const res = await fetch(`/v1/sessions/${encodeURIComponent(threadId)}`);
   if (!res.ok) return null;
   return (await res.json()) as SessionThread;
+}
+
+/** List the current user's sessions from the configured persistence index. */
+export async function fetchSessionList(): Promise<SessionListItem[]> {
+  try {
+    const res = await fetch("/v1/sessions");
+    if (!res.ok) return [];
+    return (await res.json()) as SessionListItem[];
+  } catch {
+    return [];
+  }
+}
+
+/** Register/refresh a thread in the persistence index (fire-and-forget). */
+export async function registerSession(
+  threadId: string,
+  title: string,
+): Promise<void> {
+  try {
+    await fetch("/v1/sessions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ thread_id: threadId, title }),
+    });
+  } catch {
+    /* index unavailable — sidebar falls back to localStorage */
+  }
+}
+
+export async function fetchSessionMeta(
+  threadId: string,
+): Promise<SessionMeta | null> {
+  try {
+    const res = await fetch(`/v1/sessions/${encodeURIComponent(threadId)}/meta`);
+    if (!res.ok) return null;
+    return (await res.json()) as SessionMeta;
+  } catch {
+    return null;
+  }
+}
+
+/** Fetch the current user's long-term memory (null when no store configured). */
+export async function fetchMemory(): Promise<MemoryResponse | null> {
+  try {
+    const res = await fetch("/v1/memory");
+    if (!res.ok) return null;
+    return (await res.json()) as MemoryResponse;
+  } catch {
+    return null;
+  }
 }

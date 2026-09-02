@@ -9,7 +9,7 @@ transcript matches what the live turn streamed.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Optional
 
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
@@ -52,6 +52,41 @@ def session_items_from_messages(messages: list[Any]) -> list[dict[str, Any]]:
                 item["reasoning"] = reasoning
             items.append(item)
     return items
+
+
+def user_id_from_headers(headers: Any) -> Optional[str]:
+    """Resolve the calling user from the OBO ``x-forwarded-user`` header.
+
+    Derived server-side (never trusted from a client value) and normalized the
+    same way ``models.py`` does (``.`` → ``_``) so it matches how sessions and
+    memory are keyed. Returns None when the header is absent (local/dev).
+    """
+    raw = headers.get("x-forwarded-user") or headers.get("X-Forwarded-User")
+    return raw.replace(".", "_") if raw else None
+
+
+async def load_session_meta(graph: Any, thread_id: str) -> dict[str, Any]:
+    """Return checkpoint metadata for a thread from the checkpoint API.
+
+    Reads the latest ``StateSnapshot`` and surfaces the identifiers and
+    last-modified time the Console's session-info popover shows.
+    """
+    config: dict[str, Any] = {"configurable": {"thread_id": thread_id}}
+    snapshot: Any = await graph.aget_state(config)
+    values: dict[str, Any] = getattr(snapshot, "values", None) or {}
+    messages: list[Any] = values.get("messages", []) or []
+    snap_config: dict[str, Any] = getattr(snapshot, "config", None) or {}
+    checkpoint_id: Optional[str] = (snap_config.get("configurable") or {}).get(
+        "checkpoint_id"
+    )
+    metadata: dict[str, Any] = getattr(snapshot, "metadata", None) or {}
+    return {
+        "thread_id": thread_id,
+        "checkpoint_id": checkpoint_id,
+        "last_modified": getattr(snapshot, "created_at", None),
+        "step": metadata.get("step"),
+        "message_count": len(messages),
+    }
 
 
 async def load_session(graph: Any, thread_id: str) -> dict[str, Any]:

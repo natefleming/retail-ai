@@ -215,42 +215,166 @@ def _mount_trace_routes() -> None:
 _mount_trace_routes()
 
 
-def _mount_sessions_routes() -> None:
-    """Register ``GET /v1/sessions/{thread_id}`` for Console session reload.
+def _resolve_persistence_db():
+    """Resolve the DatabaseModel backing persistence (checkpointer preferred,
+    else background), or None. Defensive getattr chain — config-agnostic."""
+    app_cfg = getattr(_config, "app", None)
+    if app_cfg is None:
+        return None
+    orchestration = getattr(app_cfg, "orchestration", None)
+    memory = getattr(orchestration, "memory", None) if orchestration else None
+    checkpointer = getattr(memory, "checkpointer", None) if memory else None
+    db = getattr(checkpointer, "database", None) if checkpointer else None
+    if db is not None:
+        return db
+    background = getattr(app_cfg, "background", None)
+    return getattr(background, "database", None) if background else None
 
-    Reconstructs a past conversation from the LangGraph checkpointer. Only
-    mounted when a checkpointer is configured — with no persistence there are
-    no threads to reload, so the route stays absent and the Console hides its
-    session sidebar (config-agnostic degradation). Mounted on the same
-    FastAPI app as the agent's ``/invocations`` and ``/v1/*`` routes, so the
-    agent endpoint stays fully exposed alongside the proxied UI.
+
+def _mount_sessions_routes() -> None:
+    """Register the Console session routes on the same FastAPI app as the
+    agent's ``/invocations`` and ``/v1/*`` routes.
+
+    - ``GET  /v1/sessions/{thread_id}``      reload a conversation (checkpointer)
+    - ``GET  /v1/sessions/{thread_id}/meta`` checkpoint metadata (last-modified, ids)
+    - ``GET  /v1/sessions``                  list the calling user's threads
+    - ``POST /v1/sessions``                  register/refresh a thread in the index
+
+    The reload/meta routes need a checkpointer; the list/register routes need a
+    persistence DB for the user→thread index (`SessionIndexStore`). Each group
+    mounts only when its backing config exists — otherwise the Console degrades
+    (no reload, localStorage-only sidebar). ``user_id`` is always derived
+    server-side from the OBO header, so a user only sees their own sessions.
     """
-    from fastapi import HTTPException
+    from fastapi import HTTPException, Request
     from fastapi.responses import JSONResponse
     from loguru import logger
 
     from dao_ai.apps.handlers import _responses_agent
-    from dao_ai.apps.sessions import load_session
+    from dao_ai.apps.sessions import (
+        load_session,
+        load_session_meta,
+        user_id_from_headers,
+    )
 
     graph = getattr(_responses_agent, "graph", None)
-    if graph is None or getattr(graph, "checkpointer", None) is None:
-        logger.info("Session routes not mounted (no checkpointer configured)")
-        return
+    has_checkpointer = graph is not None and getattr(graph, "checkpointer", None)
 
-    @app.get("/v1/sessions/{thread_id}")
-    async def get_session(thread_id: str):
-        try:
-            return JSONResponse(await load_session(graph, thread_id))
-        except Exception as exc:  # noqa: BLE001
-            logger.warning(
-                "Failed to load session", thread_id=thread_id, error=str(exc)
-            )
-            raise HTTPException(status_code=404, detail="Session not found")
+    if has_checkpointer:
 
-    logger.info("Session route mounted", routes=["GET /v1/sessions/{thread_id}"])
+        @app.get("/v1/sessions/{thread_id}")
+        async def get_session(thread_id: str):
+            try:
+                return JSONResponse(await load_session(graph, thread_id))
+            except Exception as exc:  # noqa: BLE001
+                logger.warning(
+                    "Failed to load session", thread_id=thread_id, error=str(exc)
+                )
+                raise HTTPException(status_code=404, detail="Session not found")
+
+        @app.get("/v1/sessions/{thread_id}/meta")
+        async def get_session_meta(thread_id: str):
+            try:
+                return JSONResponse(await load_session_meta(graph, thread_id))
+            except Exception as exc:  # noqa: BLE001
+                logger.warning(
+                    "Failed to load session meta",
+                    thread_id=thread_id,
+                    error=str(exc),
+                )
+                raise HTTPException(status_code=404, detail="Session not found")
+
+    persistence_db = _resolve_persistence_db()
+    if persistence_db is not None:
+        from dao_ai.background import SessionIndexStore
+
+        session_index = SessionIndexStore(persistence_db)
+
+        @app.get("/v1/sessions")
+        async def list_sessions(request: Request, limit: int = 50, offset: int = 0):
+            user_id = user_id_from_headers(request.headers)
+            if not user_id:
+                return JSONResponse([])
+            try:
+                sessions = await session_index.list_sessions(
+                    user_id, limit=limit, offset=offset
+                )
+                return JSONResponse(
+                    [
+                        {
+                            "thread_id": s.thread_id,
+                            "title": s.title,
+                            "updated_at": s.updated_at.isoformat()
+                            if s.updated_at
+                            else None,
+                        }
+                        for s in sessions
+                    ]
+                )
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("Failed to list sessions", error=str(exc))
+                return JSONResponse([])
+
+        @app.post("/v1/sessions")
+        async def register_session(request: Request):
+            user_id = user_id_from_headers(request.headers)
+            body = await request.json()
+            thread_id = body.get("thread_id")
+            if not user_id or not thread_id:
+                return JSONResponse({"ok": False})
+            try:
+                await session_index.upsert_session(
+                    user_id, thread_id, title=body.get("title")
+                )
+                return JSONResponse({"ok": True})
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("Failed to register session", error=str(exc))
+                return JSONResponse({"ok": False})
+
+    logger.info(
+        "Session routes mounted",
+        reload=bool(has_checkpointer),
+        index=persistence_db is not None,
+    )
 
 
 _mount_sessions_routes()
+
+
+def _mount_memory_routes() -> None:
+    """Register ``GET /v1/memory`` for the Console memory viewer.
+
+    Returns the calling user's long-term memory (profile / preferences /
+    episodes) from the configured store (``graph.store``). ``user_id`` is
+    derived server-side from the OBO header so a viewer only sees their own
+    memory. When no store is configured the route returns ``{memory: null}``
+    (200) so the Console simply hides the Memory panel — config-agnostic.
+    """
+    from fastapi import Request
+    from fastapi.responses import JSONResponse
+    from loguru import logger
+
+    from dao_ai.apps.handlers import _responses_agent
+    from dao_ai.apps.memory import safe_load_user_memory
+    from dao_ai.apps.sessions import user_id_from_headers
+
+    graph = getattr(_responses_agent, "graph", None)
+    store = getattr(graph, "store", None) if graph else None
+    if store is None:
+        logger.info("Memory route not mounted (no store configured)")
+        return
+
+    @app.get("/v1/memory")
+    async def get_memory(request: Request):
+        user_id = user_id_from_headers(request.headers)
+        if not user_id:
+            return JSONResponse({"memory": None})
+        return JSONResponse(await safe_load_user_memory(store, user_id))
+
+    logger.info("Memory route mounted", routes=["GET /v1/memory"])
+
+
+_mount_memory_routes()
 
 
 def _mount_a2a_routes() -> None:

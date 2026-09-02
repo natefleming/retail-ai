@@ -13,13 +13,21 @@ import {
   createContext,
   useCallback,
   useContext,
+  useEffect,
   useMemo,
   useRef,
   useState,
   type ReactNode,
 } from "react";
 
-import { fetchSession, fetchTrace, streamChat, type ChatMessage } from "@/lib/api";
+import {
+  fetchSession,
+  fetchSessionList,
+  fetchTrace,
+  registerSession,
+  streamChat,
+  type ChatMessage,
+} from "@/lib/api";
 import type {
   CustomOutputs,
   HITLInterrupt,
@@ -132,6 +140,25 @@ export function ConsoleProvider({
     [],
   );
 
+  // Prefer the backend session index (configured persistence) for the sidebar;
+  // fall back to the localStorage list when no index is available.
+  useEffect(() => {
+    let cancelled = false;
+    void fetchSessionList().then((rows) => {
+      if (cancelled || rows.length === 0) return;
+      setSessions(
+        rows.map((r) => ({
+          threadId: r.thread_id,
+          title: r.title ?? "Conversation",
+          updatedAt: r.updated_at ? Date.parse(r.updated_at) : Date.now(),
+        })),
+      );
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   const rememberSession = useCallback((tid: string, title: string) => {
     setSessions((prev) => {
       const rest = prev.filter((s) => s.threadId !== tid);
@@ -139,6 +166,8 @@ export function ConsoleProvider({
       storeSessions(next);
       return next;
     });
+    // Mirror to the backend index (no-op when persistence isn't configured).
+    void registerSession(tid, title);
   }, []);
 
   const runStream = useCallback(

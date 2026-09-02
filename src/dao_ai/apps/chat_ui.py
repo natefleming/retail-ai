@@ -179,3 +179,24 @@ def chat_ui_env_vars(
     if ui_config:
         env.append({"name": "DAO_AI_UI_CONFIG", "value": json.dumps(ui_config)})
     return env
+
+
+def resolve_ui_config(
+    *,
+    app_name: str,
+    app_description: Optional[str],
+    ui: Optional[Any],
+) -> Optional[dict[str, Any]]:
+    """Resolve the AppUIModel dict for the Console, defaulting the title and
+    subtitle to the deployed app's ``name`` / ``description`` when not set.
+
+    So a Console with no explicit ``ui.title``/``ui.subtitle`` shows the actual
+    agent's name and description (in the header and the new-session screen)
+    rather than a generic placeholder. ``ui`` is an ``AppUIModel`` (or None).
+    """
+    cfg: dict[str, Any] = dict(ui.model_dump(mode="json")) if ui is not None else {}
+    if not cfg.get("title"):
+        cfg["title"] = app_name
+    if not cfg.get("subtitle") and app_description:
+        cfg["subtitle"] = app_description
+    return cfg or None

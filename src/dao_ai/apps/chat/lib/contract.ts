@@ -184,3 +184,37 @@ export interface SessionThread {
   thread_id: string;
   messages: SessionMessage[];
 }
+
+// ── Session index list (GET /v1/sessions) ───────────────────────────────────
+
+export interface SessionListItem {
+  thread_id: string;
+  title: string | null;
+  updated_at: string | null;
+}
+
+// ── Session metadata (GET /v1/sessions/{id}/meta) ───────────────────────────
+
+export interface SessionMeta {
+  thread_id: string;
+  checkpoint_id: string | null;
+  last_modified: string | null;
+  step: number | null;
+  message_count: number;
+}
+
+// ── Memory viewer (GET /v1/memory) ──────────────────────────────────────────
+
+export interface MemoryEntry {
+  key: string | null;
+  value: unknown;
+  created_at: string | null;
+  updated_at: string | null;
+}
+
+export interface MemoryResponse {
+  user_id?: string;
+  namespaces?: string[];
+  /** null when no memory store is configured. */
+  memory: Record<string, MemoryEntry[]> | null;
+}

@@ -1,12 +1,14 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { PanelRightClose, PanelRightOpen } from "lucide-react";
+import { Brain, PanelRightClose, PanelRightOpen } from "lucide-react";
 import { clsx } from "clsx";
 
 import { Conversation } from "@/components/Conversation";
 import { Inspector } from "@/components/Inspector";
+import { MemoryPanel } from "@/components/MemoryPanel";
 import { SessionSidebar } from "@/components/SessionSidebar";
+import { fetchMemory } from "@/lib/api";
 import { DEFAULT_UI_CONFIG, loadUIConfig, type UIConfig } from "@/lib/config";
 import { ConsoleProvider } from "@/runtime/useConsole";
 
@@ -14,6 +16,8 @@ export function Console() {
   const [config, setConfig] = useState<UIConfig>(DEFAULT_UI_CONFIG);
   const [loaded, setLoaded] = useState(false);
   const [inspectorOpen, setInspectorOpen] = useState(false);
+  const [memoryOpen, setMemoryOpen] = useState(false);
+  const [memoryAvailable, setMemoryAvailable] = useState(false);
 
   useEffect(() => {
     void loadUIConfig().then((c) => {
@@ -21,6 +25,8 @@ export function Console() {
       setInspectorOpen(c.mode === "developer");
       setLoaded(true);
     });
+    // Probe once whether a memory store is configured (gates the Memory button).
+    void fetchMemory().then((m) => setMemoryAvailable(!!m && m.memory !== null));
   }, []);
 
   if (!loaded) {
@@ -41,6 +47,21 @@ export function Console() {
             {config.mode === "developer" ? "developer" : ""}
           </span>
           <div className="ml-auto flex items-center gap-2">
+            {memoryAvailable && (
+              <button
+                onClick={() => setMemoryOpen((o) => !o)}
+                className={clsx(
+                  "rounded p-1.5 hover:text-[var(--color-fg)]",
+                  memoryOpen
+                    ? "text-[var(--color-span-llm)]"
+                    : "text-[var(--color-fg-subtle)]",
+                )}
+                title="Memory"
+                aria-label="Memory"
+              >
+                <Brain size={17} />
+              </button>
+            )}
             {showInspector && (
               <button
                 onClick={() => setInspectorOpen((o) => !o)}
@@ -77,6 +98,8 @@ export function Console() {
               <Inspector />
             </aside>
           )}
+
+          {memoryOpen && <MemoryPanel onClose={() => setMemoryOpen(false)} />}
         </div>
       </div>
     </ConsoleProvider>
