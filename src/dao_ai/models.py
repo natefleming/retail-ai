@@ -1865,13 +1865,35 @@ class LanggraphResponsesAgent(ResponsesAgent):
             )
         except Exception as e:
             logger.error("Error in graph streaming", error=str(e), exc_info=True)
-            error_item_id: str = f"error_{uuid.uuid4().hex[:8]}"
+            # Attach whatever anatomy we captured before the failure so the UI
+            # still gets the trace_id (Timeline), the tool-call timeline, and
+            # any partial answer — rather than dropping it all on error. Built
+            # defensively so a failure here can't mask the original error.
+            error_custom_outputs: dict[str, Any] = {}
+            try:
+                err_trace_id: str | None = mlflow.get_active_trace_id()
+                if err_trace_id:
+                    error_custom_outputs["trace_id"] = err_trace_id
+                if tool_calls_order:
+                    error_custom_outputs["tool_calls"] = [
+                        tool_calls_by_id[call_id] for call_id in tool_calls_order
+                    ]
+                if accumulated_reasoning:
+                    error_custom_outputs["reasoning"] = accumulated_reasoning
+                if mcp_event_buffer:
+                    error_custom_outputs["mcp_events"] = mcp_event_buffer
+            except Exception:  # noqa: BLE001 — never let cleanup mask the error
+                pass
+            # Prefer any answer text streamed before the error over a generic
+            # message; fall back to a friendly notice when nothing streamed.
+            error_text: str = accumulated_content or (
+                "An unexpected error occurred while processing your request. "
+                "Please try again."
+            )
             yield ResponsesAgentStreamEvent(
                 type="response.output_item.done",
-                item=self.create_text_output_item(
-                    text="An unexpected error occurred while processing your request. Please try again.",
-                    id=error_item_id,
-                ),
+                item=self.create_text_output_item(text=error_text, id=item_id),
+                custom_outputs=error_custom_outputs or None,
             )
 
     def predict(self, request: ResponsesAgentRequest) -> ResponsesAgentResponse:

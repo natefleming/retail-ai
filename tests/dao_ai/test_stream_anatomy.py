@@ -113,6 +113,39 @@ def test_tool_lifecycle_surfaces_as_function_call_items_with_duration():
     assert "duration_ms" in tool_calls[0]
 
 
+def test_error_mid_stream_preserves_partial_answer_and_tool_calls():
+    """If the graph raises after streaming some content/tools, the terminal
+    done event should still carry the partial answer and the captured
+    tool-call anatomy in custom_outputs (so the UI keeps the trace/Timeline)."""
+    tool_run = uuid4()
+
+    async def mock_astream(*args, **kwargs):
+        cfg = kwargs.get("config") or {}
+        collector = next(
+            cb
+            for cb in (cfg.get("callbacks") or [])
+            if type(cb).__name__ == "_DaoAiStreamCollector"
+        )
+        await collector.on_tool_start(
+            {"name": "search_docs"}, "q", run_id=tool_run, inputs={}
+        )
+        await collector.on_tool_end("found it", run_id=tool_run)
+        yield (("agent",), "messages", [AIMessage(content="Partial answer before ")])
+        raise RuntimeError("upstream 400")
+
+    graph = _mock_graph()
+    graph.astream = MagicMock(side_effect=lambda *a, **kw: mock_astream(*a, **kw))
+    agent = LanggraphResponsesAgent(graph)
+
+    events = _collect_events(agent)
+    done = [e for e in events if e.type == "response.output_item.done"][0]
+    answer = "".join(part.get("text", "") for part in done.item["content"])
+    assert "Partial answer before" in answer  # partial content preserved
+    assert done.custom_outputs is not None
+    tool_calls = done.custom_outputs.get("tool_calls", [])
+    assert any(t["call_id"] == str(tool_run) for t in tool_calls)
+
+
 def test_reasoning_streamed_on_separate_channel_not_in_answer_text():
     async def mock_astream(*args, **kwargs):
         yield (
