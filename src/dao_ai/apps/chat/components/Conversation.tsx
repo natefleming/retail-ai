@@ -7,9 +7,9 @@ import {
   Square,
   Wrench,
 } from "lucide-react";
-import Markdown from "react-markdown";
-import remarkGfm from "remark-gfm";
 import { VegaLite } from "react-vega";
+
+import { Markdown } from "@/components/Markdown";
 
 import type { UIConfig } from "@/lib/config";
 import type { HITLInterrupt, VisualizationSpec } from "@/lib/contract";
@@ -173,8 +173,8 @@ function TurnView({ turn, showReasoning }: { turn: Turn; showReasoning: boolean 
             <ToolCard key={c.call_id} call={c} />
           ))}
           {turn.content && (
-            <div className="prose-invert px-2 text-[15px] leading-relaxed text-[var(--color-fg)]">
-              <Markdown remarkPlugins={[remarkGfm]}>{turn.content}</Markdown>
+            <div className="px-2 text-[15px] leading-relaxed text-[var(--color-fg)]">
+              <Markdown>{turn.content}</Markdown>
             </div>
           )}
           {turn.visualizations.map((v, i) => (

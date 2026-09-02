@@ -105,6 +105,37 @@ body {
   }
 }
 
+/* Rendered markdown (assistant answers). */
+.dao-md > :first-child { margin-top: 0; }
+.dao-md > :last-child { margin-bottom: 0; }
+.dao-md p { margin: 0.5em 0; }
+.dao-md ul, .dao-md ol { margin: 0.5em 0; padding-left: 1.4em; }
+.dao-md li { margin: 0.15em 0; }
+.dao-md a { color: var(--color-primary); text-decoration: underline; }
+.dao-md code {
+  font-family: var(--font-mono);
+  font-size: 0.85em;
+  background: var(--color-ink-850);
+  border: 1px solid var(--color-line);
+  border-radius: 4px;
+  padding: 0.05em 0.35em;
+}
+.dao-md pre {
+  background: var(--color-ink-850);
+  border: 1px solid var(--color-line);
+  border-radius: 8px;
+  padding: 0.75em 0.9em;
+  overflow-x: auto;
+}
+.dao-md pre code { background: none; border: none; padding: 0; }
+.dao-md h1, .dao-md h2, .dao-md h3 { font-weight: 600; margin: 0.7em 0 0.3em; }
+.dao-md table { border-collapse: collapse; margin: 0.5em 0; }
+.dao-md th, .dao-md td {
+  border: 1px solid var(--color-line);
+  padding: 0.3em 0.6em;
+  text-align: left;
+}
+
 /* Light, unobtrusive scrollbars. */
 * {
   scrollbar-width: thin;
