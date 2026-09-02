@@ -18,10 +18,7 @@
     "marked": "^14.1.4",
     "next": "^14.2.15",
     "react": "^18.3.1",
-    "react-dom": "^18.3.1",
-    "react-vega": "^7.6.0",
-    "vega": "^5.30.0",
-    "vega-lite": "^5.21.0"
+    "react-dom": "^18.3.1"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4.0.0",

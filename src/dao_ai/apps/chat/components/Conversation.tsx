@@ -7,12 +7,11 @@ import {
   Square,
   Wrench,
 } from "lucide-react";
-import { VegaLite } from "react-vega";
-
 import { Markdown } from "@/components/Markdown";
+import { Visualization } from "@/components/Visualization";
 
 import type { UIConfig } from "@/lib/config";
-import type { HITLInterrupt, VisualizationSpec } from "@/lib/contract";
+import type { HITLInterrupt } from "@/lib/contract";
 import { useConsoleContext, type Turn, type UIToolCall } from "@/runtime/useConsole";
 import { clsx } from "clsx";
 
@@ -100,18 +99,6 @@ function Reasoning({ text, defaultOpen }: { text: string; defaultOpen: boolean }
       )}
     </div>
   );
-}
-
-function Visualization({ viz }: { viz: VisualizationSpec }) {
-  try {
-    return (
-      <div className="overflow-x-auto rounded-lg border border-[var(--color-line)] bg-white p-3 shadow-[var(--shadow-card)]">
-        <VegaLite spec={viz.spec as never} actions={false} />
-      </div>
-    );
-  } catch {
-    return null;
-  }
 }
 
 function InterruptCard({ interrupt }: { interrupt: HITLInterrupt }) {
