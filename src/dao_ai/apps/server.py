@@ -180,6 +180,75 @@ def _mount_background_routes() -> None:
 _mount_background_routes()
 
 
+def _mount_trace_routes() -> None:
+    """Register ``GET /v1/traces/{trace_id}`` for the Console Timeline view.
+
+    Returns the MLflow trace as a nested span waterfall (durations, per-span
+    I/O, events). The backend owns retrieval — it already sets the tracking
+    URI and redacts bearer tokens at write time — so the browser never needs
+    a raw trace API or an OBO token. Defined as a sync route so FastAPI runs
+    the short blocking propagation poll in its threadpool rather than on the
+    event loop. Always mounted (independent of ``app.background``).
+    """
+    from fastapi import HTTPException
+    from fastapi.responses import JSONResponse
+    from loguru import logger
+
+    from dao_ai.apps.traces import get_trace_tree
+
+    @app.get("/v1/traces/{trace_id}")
+    def get_trace(trace_id: str):
+        tree = get_trace_tree(trace_id)
+        if tree is None:
+            raise HTTPException(
+                status_code=404, detail="Trace not found or not yet queryable"
+            )
+        return JSONResponse(tree)
+
+    logger.info("Trace route mounted", routes=["GET /v1/traces/{id}"])
+
+
+_mount_trace_routes()
+
+
+def _mount_sessions_routes() -> None:
+    """Register ``GET /v1/sessions/{thread_id}`` for Console session reload.
+
+    Reconstructs a past conversation from the LangGraph checkpointer. Only
+    mounted when a checkpointer is configured — with no persistence there are
+    no threads to reload, so the route stays absent and the Console hides its
+    session sidebar (config-agnostic degradation). Mounted on the same
+    FastAPI app as the agent's ``/invocations`` and ``/v1/*`` routes, so the
+    agent endpoint stays fully exposed alongside the proxied UI.
+    """
+    from fastapi import HTTPException
+    from fastapi.responses import JSONResponse
+    from loguru import logger
+
+    from dao_ai.apps.handlers import _responses_agent
+    from dao_ai.apps.sessions import load_session
+
+    graph = getattr(_responses_agent, "graph", None)
+    if graph is None or getattr(graph, "checkpointer", None) is None:
+        logger.info("Session routes not mounted (no checkpointer configured)")
+        return
+
+    @app.get("/v1/sessions/{thread_id}")
+    async def get_session(thread_id: str):
+        try:
+            return JSONResponse(await load_session(graph, thread_id))
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "Failed to load session", thread_id=thread_id, error=str(exc)
+            )
+            raise HTTPException(status_code=404, detail="Session not found")
+
+    logger.info("Session route mounted", routes=["GET /v1/sessions/{thread_id}"])
+
+
+_mount_sessions_routes()
+
+
 def _mount_a2a_routes() -> None:
     """Register A2A protocol routes alongside the OpenAI Responses contract.
 

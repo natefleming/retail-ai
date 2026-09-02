@@ -10272,6 +10272,56 @@ class A2AModel(BaseModel):
     )
 
 
+class AppUIModel(BaseModel):
+    """Configuration for the built-in dao-ai Console chat UI served with the app.
+
+    The Console is served by the MLflow ``AgentServer`` chat proxy when
+    ``AppModel.enable_chat_proxy`` is true; these fields tune what it exposes.
+    Omit the whole ``ui`` block to get the full Console with sensible defaults.
+    """
+
+    model_config = ConfigDict(use_enum_values=True, extra="forbid")
+    enabled: bool = Field(
+        default=True,
+        description=(
+            "Serve the dao-ai Console UI. Subordinate to ``enable_chat_proxy``: "
+            "when the chat proxy is disabled no UI is served regardless of this "
+            "flag. Set false to deploy the agent endpoint with no bundled UI."
+        ),
+    )
+    mode: Literal["end_user", "developer"] = Field(
+        default="end_user",
+        description=(
+            "Default Console surface. ``end_user`` opens the clean Conversation "
+            "view with reasoning hidden; ``developer`` also opens the glass-box "
+            "Flow/Timeline inspector and shows reasoning by default."
+        ),
+    )
+    inspector: bool = Field(
+        default=True,
+        description=(
+            "Allow the glass-box inspector (Flow graph, span-waterfall Timeline, "
+            "event log). Set false for a locked-down end-user deployment that "
+            "never exposes the agent's internal anatomy."
+        ),
+    )
+    session_history: bool = Field(
+        default=True,
+        description=(
+            "Show the session sidebar listing past conversation threads. "
+            "Automatically inert when no checkpointer/database is configured."
+        ),
+    )
+    title: Optional[str] = Field(
+        default=None,
+        description="Optional Console title override. Defaults to the dao-ai brand.",
+    )
+    subtitle: Optional[str] = Field(
+        default=None,
+        description="Optional Console subtitle / tagline override.",
+    )
+
+
 class AppModel(BaseModel):
     """Application-level configuration for deployment, model registration, and orchestration."""
 
@@ -10330,6 +10380,15 @@ class AppModel(BaseModel):
     enable_chat_proxy: Optional[bool] = Field(
         default=True,
         description="Whether the MLflow AgentServer enables the chat proxy endpoint for Databricks Apps.",
+    )
+    ui: Optional[AppUIModel] = Field(
+        default=None,
+        description=(
+            "Configuration for the built-in dao-ai Console chat UI. Omit for the "
+            "full Console with defaults; set fields to tune the default mode, "
+            "glass-box inspector access, and session history. Has no effect when "
+            "``enable_chat_proxy`` is false (no UI is served at all)."
+        ),
     )
     environment_vars: Optional[dict[str, AnyVariable]] = Field(
         default_factory=dict,

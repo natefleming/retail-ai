@@ -1,6 +1,8 @@
 import asyncio
 import json
+import time
 import uuid
+from datetime import datetime, timezone
 from os import PathLike
 from pathlib import Path
 from typing import (
@@ -111,8 +113,13 @@ def _extract_reasoning_text(block: dict[str, Any]) -> str | None:
     return None
 
 
-def _extract_text_content(content: str | list[dict[str, Any]]) -> str:
-    """Extract text from message content, handling provider content-block formats.
+def _split_content(content: str | list[dict[str, Any]]) -> tuple[str, str]:
+    """Split message content into ``(answer_text, reasoning_text)`` channels.
+
+    This is the pure parsing primitive shared by ``_extract_text_content`` (which
+    reassembles the two channels into a legacy markdown blockquote) and the
+    streaming agent (which emits them as separate Responses items). Neither
+    channel carries any markdown formatting.
 
     Handles two delivery forms:
 
@@ -122,8 +129,8 @@ def _extract_text_content(content: str | list[dict[str, Any]]) -> str:
     2. **Python list** -- ``ChatDatabricks`` Responses API or native
        ``ChatAnthropic`` returns ``list[dict]`` directly.
 
-    Reasoning / thinking blocks are formatted as a markdown blockquote in
-    italics so they are visually separated from the main response text.
+    A plain string (not a JSON content-block array) is returned as the answer
+    text with empty reasoning.
     """
     if isinstance(content, str):
         stripped: str = content.strip()
@@ -131,10 +138,10 @@ def _extract_text_content(content: str | list[dict[str, Any]]) -> str:
             try:
                 parsed: Any = json.loads(stripped)
                 if isinstance(parsed, list) and parsed and isinstance(parsed[0], dict):
-                    return _extract_text_content(parsed)
+                    return _split_content(parsed)
             except (json.JSONDecodeError, ValueError):
                 pass
-        return content
+        return content, ""
 
     if isinstance(content, list):
         text_parts: list[str] = []
@@ -147,15 +154,191 @@ def _extract_text_content(content: str | list[dict[str, Any]]) -> str:
                     reasoning_parts.append(reasoning)
             elif isinstance(block, str):
                 text_parts.append(block)
+        return "".join(text_parts), " ".join(reasoning_parts)
 
-        result_parts: list[str] = []
-        if reasoning_parts:
-            reasoning_text: str = " ".join(reasoning_parts)
-            result_parts.append(f"\n\n> *{reasoning_text}*\n\n")
-        result_parts.extend(text_parts)
-        return "".join(result_parts)
+    return str(content), ""
 
-    return str(content)
+
+def _extract_text_content(content: str | list[dict[str, Any]]) -> str:
+    """Extract text from message content, handling provider content-block formats.
+
+    Reasoning / thinking blocks are formatted as a markdown blockquote in
+    italics so they are visually separated from the main response text. This
+    legacy formatting is preserved for non-streaming callers; the streaming
+    path uses :func:`_split_content` directly to emit reasoning as a separate
+    channel. See :func:`_split_content` for the delivery forms handled.
+    """
+    text, reasoning = _split_content(content)
+    if reasoning:
+        return f"\n\n> *{reasoning}*\n\n{text}"
+    return text
+
+
+_TOOL_RESULT_SUMMARY_LIMIT: int = 2000
+
+
+def _truncate(text: str, limit: int = _TOOL_RESULT_SUMMARY_LIMIT) -> str:
+    """Truncate a tool-result / error summary for streaming, marking elision."""
+    if len(text) <= limit:
+        return text
+    return f"{text[:limit]}… (truncated, {len(text)} chars)"
+
+
+class _DaoAiStreamCollector(AsyncCallbackHandler):
+    """Per-request callback handler that captures MCP notifications *and*
+    tool-call lifecycle events onto a queue for the streaming agent to drain
+    into SSE items.
+
+    Tool timing is computed here (LangChain callbacks carry no span
+    durations), keyed by each tool run's ``run_id``. This *observes* tools via
+    the callback manager rather than wrapping them, so named tool subclasses
+    are preserved and the behaviour is config-agnostic — callbacks fire for
+    every tool in any graph, with no per-tool wiring or config lookups.
+
+    Envelope channels enqueued:
+
+    - ``mcp.*`` / ``dao_ai.audit.*`` -- MCP notifications (unchanged behaviour).
+    - ``dao_ai.tool.start`` -- ``{call_id, name, arguments, started_at}``.
+    - ``dao_ai.tool.end`` -- ``{call_id, duration_ms, result_summary}``.
+    - ``dao_ai.tool.error`` -- ``{call_id, duration_ms, error}``.
+
+    ``call_id`` is the tool run's ``run_id`` so a UI can correlate start↔end.
+    """
+
+    def __init__(self, queue: "asyncio.Queue[dict[str, Any]]") -> None:
+        self._queue = queue
+        self._starts: dict[UUID, float] = {}
+
+    async def on_custom_event(
+        self,
+        name: str,
+        data: Any,
+        *,
+        run_id: UUID,
+        tags: list[str] | None = None,
+        metadata: dict[str, Any] | None = None,
+        **kwargs: Any,
+    ) -> None:
+        if not isinstance(data, dict):
+            return
+        channel = data.get("channel")
+        if not isinstance(channel, str) or not (
+            channel.startswith("mcp.") or channel.startswith("dao_ai.audit.")
+        ):
+            return
+        await self._queue.put(data)
+
+    async def on_tool_start(
+        self,
+        serialized: dict[str, Any] | None,
+        input_str: str,
+        *,
+        run_id: UUID,
+        inputs: dict[str, Any] | None = None,
+        **kwargs: Any,
+    ) -> None:
+        self._starts[run_id] = time.monotonic()
+        await self._queue.put(
+            {
+                "channel": "dao_ai.tool.start",
+                "call_id": str(run_id),
+                "name": (serialized or {}).get("name", "tool"),
+                "arguments": inputs or {},
+                "started_at": datetime.now(timezone.utc).isoformat(),
+            }
+        )
+
+    async def on_tool_end(
+        self,
+        output: Any,
+        *,
+        run_id: UUID,
+        **kwargs: Any,
+    ) -> None:
+        await self._queue.put(
+            {
+                "channel": "dao_ai.tool.end",
+                "call_id": str(run_id),
+                "duration_ms": self._elapsed_ms(run_id),
+                "result_summary": _truncate(str(output)),
+            }
+        )
+
+    async def on_tool_error(
+        self,
+        error: BaseException,
+        *,
+        run_id: UUID,
+        **kwargs: Any,
+    ) -> None:
+        await self._queue.put(
+            {
+                "channel": "dao_ai.tool.error",
+                "call_id": str(run_id),
+                "duration_ms": self._elapsed_ms(run_id),
+                "error": _truncate(str(error)),
+            }
+        )
+
+    def _elapsed_ms(self, run_id: UUID) -> float:
+        start: float | None = self._starts.pop(run_id, None)
+        if start is None:
+            return 0.0
+        return round((time.monotonic() - start) * 1000, 1)
+
+
+def _stream_item_for_envelope(
+    envelope: dict[str, Any], *, item_id: str, seq: int
+) -> dict[str, Any]:
+    """Translate a :class:`_DaoAiStreamCollector` envelope into the ``item``
+    payload of a ``response.output_item.added`` SSE event.
+
+    Tool lifecycle envelopes map to the MLflow Responses ``function_call`` /
+    ``function_call_output`` taxonomy (with an added ``status`` and, on
+    completion, ``duration_ms``); MCP / audit notifications keep their existing
+    ``custom_tool_call`` shape. ``item_id`` and ``seq`` disambiguate MCP item
+    ids within a turn.
+    """
+    channel: str = str(envelope.get("channel", "mcp.event"))
+
+    if channel == "dao_ai.tool.start":
+        call_id: str = str(envelope.get("call_id", ""))
+        item: dict[str, Any] = ResponsesAgent.create_function_call_item(
+            id=f"fc_{call_id}",
+            call_id=call_id,
+            name=str(envelope.get("name", "tool")),
+            arguments=json.dumps(envelope.get("arguments", {})),
+        )
+        return {
+            **item,
+            "status": "in_progress",
+            "started_at": envelope.get("started_at"),
+        }
+
+    if channel in ("dao_ai.tool.end", "dao_ai.tool.error"):
+        is_error: bool = channel == "dao_ai.tool.error"
+        output: str = str(
+            envelope.get("error") if is_error else envelope.get("result_summary", "")
+        )
+        item = ResponsesAgent.create_function_call_output_item(
+            call_id=str(envelope.get("call_id", "")),
+            output=output,
+        )
+        return {
+            **item,
+            "status": "error" if is_error else "completed",
+            "duration_ms": envelope.get("duration_ms"),
+        }
+
+    # MCP / audit notification -- unchanged custom_tool_call shape.
+    server_name: str = str(envelope.get("server_name", "unknown"))
+    return {
+        "id": f"mcp_{server_name}_{item_id}_{seq}",
+        "type": "custom_tool_call",
+        "status": "in_progress",
+        "name": channel,
+        "input": envelope,
+    }
 
 
 VEGA_LITE_SCHEMA_PREFIX: str = "https://vega.github.io/schema/vega-lite/"
@@ -1320,72 +1503,84 @@ class LanggraphResponsesAgent(ResponsesAgent):
         session_input: dict[str, Any] = self._extract_session_from_request(request)
 
         item_id: str = f"msg_{uuid.uuid4().hex[:8]}"
+        reasoning_item_id: str = f"reason_{uuid.uuid4().hex[:8]}"
         accumulated_content: str = ""
+        accumulated_reasoning: str = ""
         tool_messages: list[ToolMessage] = []
         interrupt_data: list[HITLRequest] = []
         seen_interrupt_keys: set[str] = set()
         structured_response: Any = None
 
-        # MCP notification envelopes captured from tools via LangChain's
-        # callback manager. A per-request AsyncCallbackHandler is attached
-        # to ``custom_inputs["callbacks"]`` below; tools call
-        # ``adispatch_custom_event(channel, envelope)`` and our handler
-        # pushes them onto ``mcp_event_queue``. The outer astream loop
-        # drains the queue between chunks and yields
-        # ``response.output_item.added(status="in_progress")`` events;
-        # the same envelopes accumulate into ``custom_outputs["mcp_events"]``
+        # Live event envelopes captured from tools via LangChain's callback
+        # manager. A per-request ``_DaoAiStreamCollector`` is attached to
+        # ``custom_inputs["callbacks"]`` below; it pushes MCP notifications
+        # (``mcp.*`` / ``dao_ai.audit.*``) *and* tool-call lifecycle envelopes
+        # (``dao_ai.tool.*``) onto ``stream_event_queue``. The outer astream
+        # loop drains the queue between chunks and yields
+        # ``response.output_item.added`` events. The same envelopes accumulate
+        # into ``custom_outputs["mcp_events"]`` and ``custom_outputs["tool_calls"]``
         # for non-streaming replay.
-        mcp_event_queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
+        stream_event_queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
         mcp_event_buffer: list[dict[str, Any]] = []
-        mcp_event_seq: int = 0
+        tool_calls_by_id: dict[str, dict[str, Any]] = {}
+        tool_calls_order: list[str] = []
+        stream_event_seq: int = 0
 
-        class _McpEventCollector(AsyncCallbackHandler):
-            def __init__(self, queue: asyncio.Queue[dict[str, Any]]) -> None:
-                self._queue = queue
+        def _record_tool_envelope(envelope: dict[str, Any]) -> None:
+            """Merge a ``dao_ai.tool.*`` envelope into a per-call record so
+            non-streaming replay sees one entry per tool call, keyed by
+            ``call_id`` and preserving start order."""
+            call_id: str = str(envelope.get("call_id", ""))
+            record: dict[str, Any] | None = tool_calls_by_id.get(call_id)
+            if record is None:
+                record = {"call_id": call_id}
+                tool_calls_by_id[call_id] = record
+                tool_calls_order.append(call_id)
+            channel: str = str(envelope.get("channel", ""))
+            if channel == "dao_ai.tool.start":
+                record.update(
+                    name=envelope.get("name"),
+                    arguments=envelope.get("arguments"),
+                    started_at=envelope.get("started_at"),
+                    status="in_progress",
+                )
+            elif channel == "dao_ai.tool.end":
+                record.update(
+                    duration_ms=envelope.get("duration_ms"),
+                    result_summary=envelope.get("result_summary"),
+                    status="completed",
+                )
+            elif channel == "dao_ai.tool.error":
+                record.update(
+                    duration_ms=envelope.get("duration_ms"),
+                    error=envelope.get("error"),
+                    status="error",
+                )
 
-            async def on_custom_event(
-                self,
-                name: str,
-                data: Any,
-                *,
-                run_id: UUID,
-                tags: list[str] | None = None,
-                metadata: dict[str, Any] | None = None,
-                **kwargs: Any,
-            ) -> None:
-                if not isinstance(data, dict):
-                    return
-                channel = data.get("channel")
-                if not isinstance(channel, str) or not (
-                    channel.startswith("mcp.") or channel.startswith("dao_ai.audit.")
-                ):
-                    return
-                await self._queue.put(data)
-
-        _mcp_collector = _McpEventCollector(mcp_event_queue)
+        _stream_collector = _DaoAiStreamCollector(stream_event_queue)
         # Merge our handler into any callbacks the caller already provided.
         existing_callbacks = custom_inputs.get("callbacks") or []
         if not isinstance(existing_callbacks, list):
             existing_callbacks = [existing_callbacks]
-        custom_inputs["callbacks"] = [*existing_callbacks, _mcp_collector]
+        custom_inputs["callbacks"] = [*existing_callbacks, _stream_collector]
 
-        async def _drain_mcp_queue() -> AsyncGenerator[ResponsesAgentStreamEvent, None]:
-            nonlocal mcp_event_seq
-            while not mcp_event_queue.empty():
-                envelope = mcp_event_queue.get_nowait()
-                mcp_event_buffer.append(envelope)
-                mcp_event_seq += 1
+        async def _drain_stream_queue() -> AsyncGenerator[
+            ResponsesAgentStreamEvent, None
+        ]:
+            nonlocal stream_event_seq
+            while not stream_event_queue.empty():
+                envelope = stream_event_queue.get_nowait()
+                stream_event_seq += 1
                 channel = str(envelope.get("channel", "mcp.event"))
-                server_name = str(envelope.get("server_name", "unknown"))
+                if channel.startswith("dao_ai.tool."):
+                    _record_tool_envelope(envelope)
+                else:
+                    mcp_event_buffer.append(envelope)
                 yield ResponsesAgentStreamEvent(
                     type="response.output_item.added",
-                    item={
-                        "id": f"mcp_{server_name}_{item_id}_{mcp_event_seq}",
-                        "type": "custom_tool_call",
-                        "status": "in_progress",
-                        "name": channel,
-                        "input": envelope,
-                    },
+                    item=_stream_item_for_envelope(
+                        envelope, item_id=item_id, seq=stream_event_seq
+                    ),
                 )
 
         try:
@@ -1433,7 +1628,7 @@ class LanggraphResponsesAgent(ResponsesAgent):
 
                     # Surface any MCP envelopes the collector received while
                     # the astream generator was awaiting this chunk.
-                    async for evt in _drain_mcp_queue():
+                    async for evt in _drain_stream_queue():
                         yield evt
 
                     if stream_mode == "messages":
@@ -1453,14 +1648,21 @@ class LanggraphResponsesAgent(ResponsesAgent):
                                     if isinstance(message.content, (str, list))
                                     else None,
                                 )
-                                content: str = _extract_text_content(message.content)
-                                accumulated_content += content
-
-                                yield ResponsesAgentStreamEvent(
-                                    **self.create_text_delta(
-                                        delta=content, item_id=item_id
+                                text, reasoning = _split_content(message.content)
+                                if reasoning:
+                                    accumulated_reasoning += reasoning
+                                    yield ResponsesAgentStreamEvent(
+                                        type="response.reasoning_summary_text.delta",
+                                        delta=reasoning,
+                                        item_id=reasoning_item_id,
                                     )
-                                )
+                                if text:
+                                    accumulated_content += text
+                                    yield ResponsesAgentStreamEvent(
+                                        **self.create_text_delta(
+                                            delta=text, item_id=item_id
+                                        )
+                                    )
 
                     elif stream_mode == "updates":
                         updates: dict[str, Any] = data
@@ -1538,13 +1740,23 @@ class LanggraphResponsesAgent(ResponsesAgent):
             # Drain any envelopes that arrived after the last astream chunk
             # (MCP notifications from tool completion often race the astream
             # generator's exit).
-            async for evt in _drain_mcp_queue():
+            async for evt in _drain_stream_queue():
                 yield evt
 
             # Mirror MCP notification envelopes into custom_outputs so
             # non-streaming replays and batch callers see the same timeline.
             if mcp_event_buffer:
                 custom_outputs["mcp_events"] = mcp_event_buffer
+
+            # Mirror tool-call lifecycle (one merged record per call) and the
+            # separated reasoning channel so non-streaming replays and batch
+            # callers see the same anatomy the live stream exposed.
+            if tool_calls_order:
+                custom_outputs["tool_calls"] = [
+                    tool_calls_by_id[call_id] for call_id in tool_calls_order
+                ]
+            if accumulated_reasoning:
+                custom_outputs["reasoning"] = accumulated_reasoning
 
             # Extract visualization specs from tool messages collected during streaming
             visualizations: list[dict[str, Any]] = (
@@ -1630,6 +1842,20 @@ class LanggraphResponsesAgent(ResponsesAgent):
                                 delta=action_message, item_id=item_id
                             )
                         )
+
+            # Surface the accumulated reasoning as a durable, standalone item
+            # (distinct from the answer text). Emitted as ``output_item.added``
+            # so it is not folded into the aggregated ``output`` list, keeping
+            # the response shape backward-compatible for clients that only read
+            # the answer text.
+            if accumulated_reasoning:
+                yield ResponsesAgentStreamEvent(
+                    type="response.output_item.added",
+                    item=self.create_reasoning_item(
+                        id=reasoning_item_id,
+                        reasoning_text=accumulated_reasoning,
+                    ),
+                )
 
             # Yield final output item
             yield ResponsesAgentStreamEvent(

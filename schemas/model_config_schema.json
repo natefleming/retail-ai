@@ -1448,6 +1448,18 @@
           "description": "Whether the MLflow AgentServer enables the chat proxy endpoint for Databricks Apps.",
           "title": "Enable Chat Proxy"
         },
+        "ui": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/AppUIModel"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Configuration for the built-in dao-ai Console chat UI. Omit for the full Console with defaults; set fields to tune the default mode, glass-box inspector access, and session history. Has no effect when ``enable_chat_proxy`` is false (no UI is served at all)."
+        },
         "environment_vars": {
           "anyOf": [
             {
@@ -1943,6 +1955,68 @@
         "app"
       ],
       "title": "AppToolModel",
+      "type": "object"
+    },
+    "AppUIModel": {
+      "additionalProperties": false,
+      "description": "Configuration for the built-in dao-ai Console chat UI served with the app.\n\nThe Console is served by the MLflow ``AgentServer`` chat proxy when\n``AppModel.enable_chat_proxy`` is true; these fields tune what it exposes.\nOmit the whole ``ui`` block to get the full Console with sensible defaults.",
+      "properties": {
+        "enabled": {
+          "default": true,
+          "description": "Serve the dao-ai Console UI. Subordinate to ``enable_chat_proxy``: when the chat proxy is disabled no UI is served regardless of this flag. Set false to deploy the agent endpoint with no bundled UI.",
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "mode": {
+          "default": "end_user",
+          "description": "Default Console surface. ``end_user`` opens the clean Conversation view with reasoning hidden; ``developer`` also opens the glass-box Flow/Timeline inspector and shows reasoning by default.",
+          "enum": [
+            "end_user",
+            "developer"
+          ],
+          "title": "Mode",
+          "type": "string"
+        },
+        "inspector": {
+          "default": true,
+          "description": "Allow the glass-box inspector (Flow graph, span-waterfall Timeline, event log). Set false for a locked-down end-user deployment that never exposes the agent's internal anatomy.",
+          "title": "Inspector",
+          "type": "boolean"
+        },
+        "session_history": {
+          "default": true,
+          "description": "Show the session sidebar listing past conversation threads. Automatically inert when no checkpointer/database is configured.",
+          "title": "Session History",
+          "type": "boolean"
+        },
+        "title": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Optional Console title override. Defaults to the dao-ai brand.",
+          "title": "Title"
+        },
+        "subtitle": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Optional Console subtitle / tagline override.",
+          "title": "Subtitle"
+        }
+      },
+      "title": "AppUIModel",
       "type": "object"
     },
     "AuditModel": {
@@ -6592,10 +6666,10 @@
             }
           ],
           "default": null,
-          "description": "Schema qualifying a UC-securable model name, for models addressed through the Unity AI Gateway as UC securables (e.g. catalog `system`, schema `ai`). When set, `name` is the short model name and `full_name` resolves to `<catalog>.<schema>.<name>`. Omit it to pass a serving endpoint name \u2014 or an already-qualified model name \u2014 in `name` directly. Requires `use_ai_gateway: true`: a three-level name is only addressable on the gateway, and the `/serving-endpoints/<name>/invocations` path answers 404 for one."
+          "description": "Schema qualifying a UC-securable model name, for models addressed through the Unity AI Gateway as UC securables (e.g. catalog `system`, schema `ai`). When set, `name` is the short model name and `full_name` resolves to `<catalog>.<schema>.<name>`. Omit it to pass a serving endpoint name \u2014 or an already-qualified model name \u2014 in `name` directly. When set, `use_ai_gateway` defaults to true (a three-level name is only addressable on the gateway; the `/serving-endpoints/<name>/invocations` path answers 404 for one), unless you set it explicitly."
         },
         "name": {
-          "description": "Serving endpoint name (e.g. 'databricks-gpt-5-4-mini'), a UC-securable model name (e.g. 'system.ai.claude-sonnet-4-5'), or the short model name when `schema` is set. A UC-securable name requires `use_ai_gateway: true` however it is spelled \u2014 the `/serving-endpoints/<name>/invocations` path answers 404 for a three-level name.",
+          "description": "Serving endpoint name (e.g. 'databricks-gpt-5-4-mini'), a UC-securable model name (e.g. 'system.ai.claude-sonnet-4-5'), or the short model name when `schema` is set. A UC-securable name however it is spelled defaults `use_ai_gateway` to true (the `/serving-endpoints/<name>/invocations` path answers 404 for a three-level name), unless you set it explicitly.",
           "title": "Name",
           "type": "string"
         },
@@ -6696,7 +6770,7 @@
         },
         "use_ai_gateway": {
           "default": false,
-          "description": "Route through the Databricks AI Gateway (/ai-gateway/mlflow/v1) instead of /serving-endpoints/<name>/invocations. When True, `name` is sent as the OpenAI-style model id in the request body. Serves both /chat/completions and /responses, so this composes with `use_responses_api` \u2014 see that field for the per-model caveat. Addresses Foundation Model and UC-securable models only, never a custom serving endpoint. Not for embeddings or other non-chat endpoints. Renamed from `ai_gateway` to match the databricks-langchain kwarg it feeds; the legacy key is still accepted and will be removed in a future major release.",
+          "description": "Route through the Databricks AI Gateway (/ai-gateway/mlflow/v1) instead of /serving-endpoints/<name>/invocations. When True, `name` is sent as the OpenAI-style model id in the request body. Serves both /chat/completions and /responses, so this composes with `use_responses_api` \u2014 see that field for the per-model caveat. Addresses Foundation Model and UC-securable models only, never a custom serving endpoint. Not for embeddings or other non-chat endpoints. Defaults to False for a plain serving-endpoint name, but is inferred as True when the model is UC-securable (`schema` + `name`, or a three-part `catalog.schema.name`) unless set explicitly. Renamed from `ai_gateway` to match the databricks-langchain kwarg it feeds; the legacy key is still accepted and will be removed in a future major release.",
           "title": "Use Ai Gateway",
           "type": "boolean"
         },
