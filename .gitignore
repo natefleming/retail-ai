@@ -294,3 +294,15 @@ chat-ui.tar.gz
 
 # Isaac local tool state
 .isaac/
+
+# ── Keep the Console (Next.js) client lib/ — MUST stay LAST ───────────────────
+# .gitignore is last-match-wins. The generic Python ``lib/`` rule (and other
+# unanchored build-artifact globs like ``*.log`` / ``target/``) also match the
+# Next app's client lib/ (src/dao_ai/apps/chat/lib: api/config/contract/events/
+# proxy). hatchling honors .gitignore for the SDIST, and the wheel-only
+# ``[tool.hatch.build.targets.wheel] artifacts`` override does NOT apply to the
+# sdist the release builds the wheel from — so these modules were dropped from
+# the published wheel and broke ``next build`` ("Can't resolve '@/lib/api'").
+# Keeping the negations at the very end guarantees no later rule re-ignores them.
+!src/dao_ai/apps/chat/lib/
+!src/dao_ai/apps/chat/lib/**

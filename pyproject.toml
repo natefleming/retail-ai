@@ -247,11 +247,22 @@ exclude = [
 # For source distribution, include more files that developers might need
 exclude = [
     ".databricks",
-    ".vscode", 
+    ".vscode",
     ".pytest_cache",
     ".ruff_cache",
     ".env",
     "uv.lock",
+    # Console (Next.js) build artifacts / deps. node_modules and .next are
+    # ignored only by the NESTED src/dao_ai/apps/chat/.gitignore, which
+    # hatchling does not honor for the sdist (the root .gitignore has no such
+    # rule) — without these the sdist balloons to ~144MB of node_modules and,
+    # since the release builds the wheel from the sdist, that bloat rides along.
+    # Mirrors the wheel target's excludes.
+    "**/node_modules",
+    "**/.next",
+    "**/out",
+    "**/*.tsbuildinfo",
+    "**/next-env.d.ts",
 ]
 
 [tool.pytest.ini_options]
