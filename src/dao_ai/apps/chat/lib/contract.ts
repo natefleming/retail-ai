@@ -189,6 +189,14 @@ export interface SessionThread {
   messages: SessionMessage[];
 }
 
+/** A trace belonging to a thread, discovered via the mlflow.trace.session
+ * linkage (GET /v1/sessions/{id}/traces) to rebuild the Timeline on reload. */
+export interface SessionTraceRef {
+  trace_id: string;
+  request_preview: string | null;
+  request_time: string | null;
+}
+
 // ── Session index list (GET /v1/sessions) ───────────────────────────────────
 
 export interface SessionListItem {

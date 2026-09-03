@@ -265,3 +265,96 @@ def get_trace_tree(
     except Exception as exc:  # noqa: BLE001 — a race after wait, or a read error
         logger.warning("Failed to build trace tree", trace_id=trace_id, error=str(exc))
         return None
+
+
+# MLflow records the request's conversation/session id on every trace as the
+# ``mlflow.trace.session`` metadata, so a thread's traces are discoverable after
+# the fact with no per-turn persistence. The exact searchable field name varies
+# by MLflow version / backend, so try these in order and use the first that
+# returns rows.
+_SESSION_FILTER_CANDIDATES: tuple[str, ...] = (
+    "metadata.`mlflow.trace.session` = '{session}'",
+    "request_metadata.`mlflow.trace.session` = '{session}'",
+    "tags.`mlflow.trace.session` = '{session}'",
+    "trace.session_id = '{session}'",
+)
+
+
+def search_session_traces(session_id: str, *, limit: int = 50) -> list[dict[str, Any]]:
+    """Return a thread's traces (oldest first) discovered via the session link.
+
+    Searches the active experiment for traces whose ``mlflow.trace.session``
+    equals ``session_id`` so the Console can rebuild a reloaded conversation's
+    Timeline. Returns ``[{trace_id, request_preview, request_time}]``. Never
+    raises — any failure (unsupported filter, permission denied, unreachable
+    store) degrades to ``[]`` so reload silently falls back to the checkpointer-
+    derived Events/Flow.
+    """
+    if not session_id:
+        return []
+    experiment_id = _active_experiment_id()
+    if not experiment_id:
+        logger.debug("No active experiment; cannot search session traces")
+        return []
+
+    try:
+        from mlflow import MlflowClient
+
+        client = MlflowClient()
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("MlflowClient unavailable for trace search", error=str(exc))
+        return []
+
+    for template in _SESSION_FILTER_CANDIDATES:
+        filter_string = template.format(session=session_id)
+        try:
+            # include_spans=False → trace-info only (no span-artifact download),
+            # so discovery is fast and works even where span data isn't reachable
+            # (control-plane blob on Apps); the per-turn fetch pulls spans later.
+            infos = client.search_traces(
+                experiment_ids=[experiment_id],
+                filter_string=filter_string,
+                max_results=limit,
+                order_by=["timestamp ASC"],
+                include_spans=False,
+            )
+        except Exception as exc:  # noqa: BLE001 — try the next candidate syntax
+            logger.debug(
+                "Session-trace filter rejected; trying next",
+                filter=filter_string,
+                error=str(exc),
+            )
+            continue
+        if infos:
+            logger.info(
+                "Session traces found",
+                session=session_id,
+                filter=filter_string,
+                count=len(infos),
+            )
+            return [_trace_ref(info) for info in infos]
+    logger.debug("No traces found for session", session=session_id)
+    return []
+
+
+def _trace_ref(result: Any) -> dict[str, Any]:
+    """Project a search result into the {trace_id, request_preview, request_time}
+    ref. ``search_traces`` returns ``Trace`` objects (nested ``.info``) even with
+    ``include_spans=False``, so unwrap to the ``TraceInfo`` first."""
+    info = getattr(result, "info", None) or result
+    md = (
+        getattr(info, "trace_metadata", None)
+        or getattr(info, "request_metadata", None)
+        or {}
+    )
+    request_preview = getattr(info, "request_preview", None) or md.get(
+        "mlflow.trace.request"
+    )
+    request_time = getattr(info, "request_time", None)
+    if request_time is not None and hasattr(request_time, "isoformat"):
+        request_time = request_time.isoformat()
+    return {
+        "trace_id": getattr(info, "trace_id", None),
+        "request_preview": request_preview,
+        "request_time": str(request_time) if request_time is not None else None,
+    }

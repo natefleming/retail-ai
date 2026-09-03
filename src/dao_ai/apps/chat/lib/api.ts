@@ -6,6 +6,7 @@ import type {
   SessionListItem,
   SessionMeta,
   SessionThread,
+  SessionTraceRef,
   StreamEvent,
   TraceTree,
 } from "@/lib/contract";
@@ -124,6 +125,21 @@ export async function fetchSession(threadId: string): Promise<SessionThread | nu
   const res = await fetch(`/v1/sessions/${encodeURIComponent(threadId)}`);
   if (!res.ok) return null;
   return (await res.json()) as SessionThread;
+}
+
+/** Discover a thread's MLflow traces (oldest first) to rebuild the Timeline on
+ * reload. Empty when none are discoverable — reload then uses reconstructed
+ * Events/Flow only. */
+export async function fetchSessionTraces(
+  threadId: string,
+): Promise<SessionTraceRef[]> {
+  try {
+    const res = await fetch(`/v1/sessions/${encodeURIComponent(threadId)}/traces`);
+    if (!res.ok) return [];
+    return (await res.json()) as SessionTraceRef[];
+  } catch {
+    return [];
+  }
 }
 
 /** List the current user's sessions from the configured persistence index. */

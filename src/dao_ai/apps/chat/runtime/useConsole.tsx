@@ -23,11 +23,13 @@ import {
 import {
   fetchSession,
   fetchSessionList,
+  fetchSessionTraces,
   fetchTrace,
   registerSession,
   streamChat,
   type ChatMessage,
 } from "@/lib/api";
+import { eventsFromSteps, eventsFromTrace } from "@/lib/events";
 import type {
   CustomOutputs,
   HITLInterrupt,
@@ -144,6 +146,8 @@ interface ConsoleState {
   /** Extra `custom_inputs.configurable` fields sent with every turn. */
   customInputs: Record<string, unknown>;
   setCustomInputs: (next: Record<string, unknown>) => void;
+  /** Increments when a turn completes — consumers re-fetch memory. */
+  memoryEpoch: number;
   send: (text: string) => Promise<void>;
   respondToInterrupt: (decisions: unknown[]) => Promise<void>;
   cancel: () => void;
@@ -207,11 +211,18 @@ export function ConsoleProvider({
   const [customInputs, setCustomInputsState] = useState<Record<string, unknown>>(
     loadStoredCustomInputs,
   );
+  // Bumped when a turn completes so the Memory panel/probe re-fetch (memory is
+  // often written in a background thread during the turn).
+  const [memoryEpoch, setMemoryEpoch] = useState(0);
   const abortRef = useRef<AbortController | null>(null);
   // Kept in a ref so runStream always reads the latest inputs without needing
   // to be in its dependency list.
   const customInputsRef = useRef(customInputs);
   customInputsRef.current = customInputs;
+  // Current thread, in a ref, so async trace enrichment can bail if the user
+  // switched sessions mid-fetch.
+  const threadIdRef = useRef(threadId);
+  threadIdRef.current = threadId;
 
   const setCustomInputs = useCallback((next: Record<string, unknown>) => {
     setCustomInputsState(next);
@@ -317,6 +328,9 @@ export function ConsoleProvider({
             firstUser?.content?.slice(0, 60) || "Conversation",
           );
         }
+        // Memory is often written in a background thread during the turn; bump
+        // the epoch so the Memory panel + availability probe re-fetch.
+        setMemoryEpoch((e) => e + 1);
       }
     },
     [threadId, userId, patchAssistant, rememberSession],
@@ -472,10 +486,79 @@ export function ConsoleProvider({
       }
     }
 
+    // Rebuild a chronological Events log from the reconstructed steps so the
+    // Events tab populates on reload with no trace dependency (Flow already
+    // renders from the reconstructed tool calls).
+    for (const t of turns) {
+      if (t.role === "assistant") t.events = eventsFromSteps(t.steps, t.toolCalls);
+    }
+
     setThreadId(tid);
     setTurns(turns);
     setSelectedTurnId(turns[turns.length - 1]?.id);
+
+    // Best-effort: discover this thread's MLflow traces (via the session link)
+    // and, per assistant turn, fetch the trace to populate the Timeline
+    // waterfall + upgrade Events to real durations. Non-blocking, and guarded so
+    // a thread switch mid-fetch doesn't clobber the newer turns. Degrades
+    // silently (no traces discoverable/fetchable → the steps-based views stand).
+    void enrichRestoredTurnsWithTraces(tid, turns);
   }, []);
+
+  /** Match discovered traces to reconstructed assistant turns and fetch each to
+   * populate turn.trace + trace-derived events. */
+  const enrichRestoredTurnsWithTraces = useCallback(
+    async (tid: string, turns: Turn[]) => {
+      const refs = await fetchSessionTraces(tid);
+      if (!refs.length) return;
+
+      // Map traces → assistant turns: prefer matching the preceding user turn's
+      // text to the trace request preview; fall back to positional order. One
+      // trace per turn.
+      const assistantTurns = turns.filter((t) => t.role === "assistant");
+      const norm = (s: string) => s.trim().replace(/\s+/g, " ").slice(0, 80);
+      const userBefore = new Map<string, string>();
+      let lastUser = "";
+      for (const t of turns) {
+        if (t.role === "user") lastUser = t.content;
+        else userBefore.set(t.id, lastUser);
+      }
+      const used = new Set<number>();
+      const assignments: { turnId: string; traceId: string }[] = [];
+      for (const turn of assistantTurns) {
+        const want = norm(userBefore.get(turn.id) ?? "");
+        let idx = refs.findIndex(
+          (r, i) =>
+            !used.has(i) && want && norm(r.request_preview ?? "").startsWith(want),
+        );
+        if (idx === -1) idx = refs.findIndex((_, i) => !used.has(i)); // order fallback
+        if (idx === -1) continue;
+        used.add(idx);
+        assignments.push({ turnId: turn.id, traceId: refs[idx].trace_id });
+      }
+
+      await Promise.all(
+        assignments.map(async ({ turnId, traceId }) => {
+          const tree = await fetchTrace(traceId);
+          // Guard: skip if the user switched threads while the fetch was in flight.
+          if (threadIdRef.current !== tid) return;
+          setTurns((prev) =>
+            prev.map((t) =>
+              t.id === turnId
+                ? {
+                    ...t,
+                    traceId,
+                    trace: tree ?? t.trace,
+                    events: tree ? eventsFromTrace(tree) : t.events,
+                  }
+                : t,
+            ),
+          );
+        }),
+      );
+    },
+    [],
+  );
 
   const value = useMemo<ConsoleState>(
     () => ({
@@ -487,6 +570,7 @@ export function ConsoleProvider({
       selectedTurnId,
       customInputs,
       setCustomInputs,
+      memoryEpoch,
       send,
       respondToInterrupt,
       cancel,
@@ -503,6 +587,7 @@ export function ConsoleProvider({
       selectedTurnId,
       customInputs,
       setCustomInputs,
+      memoryEpoch,
       send,
       respondToInterrupt,
       cancel,

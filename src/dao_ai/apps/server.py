@@ -196,7 +196,11 @@ def _mount_trace_routes() -> None:
     from fastapi.responses import JSONResponse
     from loguru import logger
 
-    from dao_ai.apps.traces import build_trace_ui_url, get_trace_tree
+    from dao_ai.apps.traces import (
+        build_trace_ui_url,
+        get_trace_tree,
+        search_session_traces,
+    )
 
     @app.get("/v1/trace-url")
     def get_trace_url(trace_id: str = Query(...)):
@@ -204,6 +208,14 @@ def _mount_trace_routes() -> None:
         # the Apps runtime can't read the trace store (the browser can reach the
         # workspace UI), so the Console can offer it alongside an empty Timeline.
         return JSONResponse({"url": build_trace_ui_url(trace_id)})
+
+    @app.get("/v1/sessions/{thread_id}/traces")
+    def get_session_traces(thread_id: str):
+        # Discover a thread's traces via the mlflow.trace.session link so a
+        # reloaded conversation can rebuild its Timeline. Always 200 with a list;
+        # [] on any failure (never 404/500) so reload degrades to the
+        # checkpointer-derived Events/Flow.
+        return JSONResponse(search_session_traces(thread_id))
 
     @app.get("/v1/traces")
     def get_trace(trace_id: str = Query(...)):
@@ -222,7 +234,14 @@ def _mount_trace_routes() -> None:
             )
         return JSONResponse(tree)
 
-    logger.info("Trace route mounted", routes=["GET /v1/traces?trace_id="])
+    logger.info(
+        "Trace routes mounted",
+        routes=[
+            "GET /v1/traces?trace_id=",
+            "GET /v1/trace-url",
+            "GET /v1/sessions/{thread_id}/traces",
+        ],
+    )
 
 
 _mount_trace_routes()

@@ -3,6 +3,7 @@ import { ChevronRight } from "lucide-react";
 import { clsx } from "clsx";
 
 import type { SpanNode } from "@/lib/contract";
+import { provisionalTrace } from "@/lib/events";
 import type { Turn } from "@/runtime/useConsole";
 
 const SPAN_COLOR: Record<string, string> = {
@@ -64,7 +65,9 @@ export function Timeline({ turn }: { turn: Turn | undefined }) {
       return next;
     });
 
-  const trace = turn?.trace;
+  // Authoritative MLflow trace once fetched; otherwise a provisional waterfall
+  // built from the live tool lifecycle so the Timeline fills in during the turn.
+  const trace = turn?.trace ?? (turn ? provisionalTrace(turn.toolCalls) : null);
   const rows = trace ? flatten(trace.spans, collapsedIds) : [];
   // No spans — whether the trace came back null or empty, the cause on Apps is
   // the same (spans weren't exported), so explain it either way.

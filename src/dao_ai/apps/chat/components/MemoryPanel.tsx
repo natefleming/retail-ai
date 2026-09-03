@@ -3,6 +3,7 @@ import { Brain, X } from "lucide-react";
 
 import { fetchMemory } from "@/lib/api";
 import type { MemoryEntry, MemoryResponse } from "@/lib/contract";
+import { useConsoleContext } from "@/runtime/useConsole";
 
 /** Prettify a namespace path (memory/<uid>/user_profile → "User profile"). */
 function nsLabel(ns: string): string {
@@ -29,9 +30,12 @@ function EntryValue({ value }: { value: unknown }) {
 }
 
 export function MemoryPanel({ onClose }: { onClose: () => void }) {
+  const { memoryEpoch } = useConsoleContext();
   const [data, setData] = useState<MemoryResponse | null>(null);
   const [loading, setLoading] = useState(true);
 
+  // Re-fetch on open and whenever a turn completes (memoryEpoch), so newly
+  // written profile/preference/episode memory appears without reopening.
   useEffect(() => {
     let cancelled = false;
     void fetchMemory().then((res) => {
@@ -43,7 +47,7 @@ export function MemoryPanel({ onClose }: { onClose: () => void }) {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [memoryEpoch]);
 
   const namespaces = data?.memory ? Object.keys(data.memory) : [];
 
