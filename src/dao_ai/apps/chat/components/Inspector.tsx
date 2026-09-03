@@ -88,7 +88,7 @@ export function Inspector() {
       <Metadata turn={turn} />
       <div className="min-h-0 flex-1">
         {tab === "flow" && <Flow turn={turn} />}
-        {tab === "timeline" && <Timeline trace={turn?.trace} />}
+        {tab === "timeline" && <Timeline turn={turn} />}
         {tab === "events" && <EventLog turn={turn} />}
       </div>
     </div>

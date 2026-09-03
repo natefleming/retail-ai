@@ -199,4 +199,8 @@ def resolve_ui_config(
         cfg["title"] = app_name
     if not cfg.get("subtitle") and app_description:
         cfg["subtitle"] = app_description
+    # Stamp the running dao-ai version so the Console can surface it.
+    from dao_ai.utils import dao_ai_version
+
+    cfg["version"] = dao_ai_version()
     return cfg or None

@@ -9,11 +9,19 @@ transcript matches what the live turn streamed.
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from typing import Any, Optional
 
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
 from dao_ai.models import _split_content
+
+# The user→thread session index is kept in the configured LangGraph ``BaseStore``
+# (``graph.store``) under this namespace root, addressed through the store's own
+# ``aput``/``asearch`` API rather than native SQL — so it works unchanged across
+# any store backend (Postgres, Lakebase, Managed Agent Memory, in-memory) and
+# stays isolated from the memory namespace (``("memory", user_id)``).
+_SESSION_NS_ROOT = "sessions"
 
 
 def session_items_from_messages(messages: list[Any]) -> list[dict[str, Any]]:
@@ -63,6 +71,51 @@ def user_id_from_headers(headers: Any) -> Optional[str]:
     """
     raw = headers.get("x-forwarded-user") or headers.get("X-Forwarded-User")
     return raw.replace(".", "_") if raw else None
+
+
+async def register_session(
+    store: Any, user_id: str, thread_id: str, title: Optional[str]
+) -> None:
+    """Record/refresh a user's thread in the configured ``BaseStore``.
+
+    Uses ``store.aput`` (the implementation object) so any store backend records
+    the index identically — no backend-specific query. Keyed by ``thread_id``
+    under the ``("sessions", user_id)`` namespace, so listing is user-scoped.
+    """
+    await store.aput(
+        (_SESSION_NS_ROOT, user_id),
+        thread_id,
+        {"title": title, "updated_at": datetime.now(timezone.utc).isoformat()},
+    )
+
+
+async def list_user_sessions(
+    store: Any, user_id: str, *, limit: int = 50
+) -> list[dict[str, Any]]:
+    """List a user's threads (most-recently-updated first) from the ``BaseStore``.
+
+    Reads through ``store.asearch`` over the user's ``("sessions", user_id)``
+    namespace — the same implementation-object path the memory viewer uses — so
+    the sidebar works for every store backend without native queries.
+    """
+    items: list[Any] = await store.asearch((_SESSION_NS_ROOT, user_id), limit=limit)
+    rows: list[dict[str, Any]] = []
+    for item in items or []:
+        value: dict[str, Any] = getattr(item, "value", None) or {}
+        updated_at: Optional[str] = value.get("updated_at")
+        if updated_at is None:
+            stamp = getattr(item, "updated_at", None)
+            updated_at = stamp.isoformat() if hasattr(stamp, "isoformat") else None
+        rows.append(
+            {
+                "thread_id": getattr(item, "key", None),
+                "title": value.get("title"),
+                "updated_at": updated_at,
+            }
+        )
+    # asearch has no cross-backend ordering guarantee, so order here.
+    rows.sort(key=lambda r: r["updated_at"] or "", reverse=True)
+    return rows[:limit]
 
 
 async def load_session_meta(graph: Any, thread_id: str) -> dict[str, Any]:

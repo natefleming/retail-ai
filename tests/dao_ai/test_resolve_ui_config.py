@@ -34,3 +34,9 @@ class TestResolveUIConfig:
         assert cfg["title"] == "my_agent"
         assert cfg["subtitle"] == "Does things"
         assert cfg["mode"] == "developer"
+
+    @pytest.mark.unit
+    def test_stamps_dao_ai_version(self) -> None:
+        cfg = resolve_ui_config(app_name="my_agent", app_description=None, ui=None)
+        assert isinstance(cfg["version"], str)
+        assert cfg["version"]  # non-empty (falls back to "dev" if unresolved)

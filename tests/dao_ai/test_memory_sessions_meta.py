@@ -7,7 +7,12 @@ from typing import Any
 import pytest
 
 from dao_ai.apps.memory import load_user_memory
-from dao_ai.apps.sessions import load_session_meta, user_id_from_headers
+from dao_ai.apps.sessions import (
+    list_user_sessions,
+    load_session_meta,
+    register_session,
+    user_id_from_headers,
+)
 
 
 def _run(coro):
@@ -70,6 +75,53 @@ class TestLoadUserMemory:
             "memory/nate/user_profile",
             "memory/nate/episodes",
         }
+
+
+class _FakeIndexStore:
+    """Minimal BaseStore stand-in: namespace-keyed aput + prefix asearch."""
+
+    def __init__(self) -> None:
+        self.data: dict[tuple, dict[str, Any]] = {}
+
+    async def aput(self, namespace, key, value):  # noqa: ANN001
+        self.data.setdefault(tuple(namespace), {})[key] = value
+
+    async def asearch(self, namespace_prefix, *, query=None, limit=10, **kw):  # noqa: ANN001
+        return [
+            SimpleNamespace(namespace=tuple(namespace_prefix), key=k, value=v, updated_at=None)
+            for k, v in self.data.get(tuple(namespace_prefix), {}).items()
+        ][:limit]
+
+
+class TestSessionIndex:
+    @pytest.mark.unit
+    def test_register_and_list_is_user_scoped(self) -> None:
+        store = _FakeIndexStore()
+        _run(register_session(store, "u1", "t1", "First"))
+        _run(register_session(store, "u1", "t2", "Second"))
+        _run(register_session(store, "u2", "tX", "Other"))
+        rows = _run(list_user_sessions(store, "u1"))
+        assert {r["thread_id"] for r in rows} == {"t1", "t2"}
+        # u2's thread must never surface for u1.
+        assert _run(list_user_sessions(store, "u2"))[0]["thread_id"] == "tX"
+
+    @pytest.mark.unit
+    def test_list_orders_most_recent_first(self) -> None:
+        store = _FakeIndexStore()
+        store.data[("sessions", "u1")] = {
+            "old": {"title": "Old", "updated_at": "2026-01-01T00:00:00+00:00"},
+            "new": {"title": "New", "updated_at": "2026-09-01T00:00:00+00:00"},
+        }
+        rows = _run(list_user_sessions(store, "u1"))
+        assert [r["thread_id"] for r in rows] == ["new", "old"]
+
+    @pytest.mark.unit
+    def test_register_writes_under_sessions_namespace(self) -> None:
+        store = _FakeIndexStore()
+        _run(register_session(store, "u1", "t1", "Hi"))
+        # Kept out of the ("memory", …) namespace so the memory viewer is unaffected.
+        assert ("sessions", "u1") in store.data
+        assert store.data[("sessions", "u1")]["t1"]["title"] == "Hi"
 
 
 class _FakeGraph:

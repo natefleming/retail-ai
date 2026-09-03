@@ -1,6 +1,7 @@
 /** Transport to the dao-ai agent backend (served on the same origin). */
 
 import type {
+  CustomInputField,
   MemoryResponse,
   SessionListItem,
   SessionMeta,
@@ -18,6 +19,12 @@ export interface ChatRequest {
   messages: ChatMessage[];
   threadId?: string;
   userId?: string;
+  /**
+   * Extra `custom_inputs.configurable` fields the agent's config requires
+   * (e.g. `store_num`). Merged in before the reserved `thread_id`/`user_id`,
+   * which always take precedence.
+   */
+  configurable?: Record<string, unknown>;
   /** Resume a HITL interrupt with approve/reject/edit decisions. */
   decisions?: unknown[];
 }
@@ -31,7 +38,9 @@ export async function* streamChat(
   req: ChatRequest,
   signal?: AbortSignal,
 ): AsyncGenerator<StreamEvent> {
-  const configurable: Record<string, unknown> = {};
+  // Config-required fields first; reserved keys below override them so the
+  // runtime always controls thread/user identity.
+  const configurable: Record<string, unknown> = { ...(req.configurable ?? {}) };
   if (req.threadId) configurable.thread_id = req.threadId;
   if (req.userId) configurable.user_id = req.userId;
 
@@ -141,6 +150,18 @@ export async function fetchSessionMeta(
     return (await res.json()) as SessionMeta;
   } catch {
     return null;
+  }
+}
+
+/** Fetch the configurable fields the agent's config requires (for prefill). */
+export async function fetchCustomInputSchema(): Promise<CustomInputField[]> {
+  try {
+    const res = await fetch("/v1/custom-inputs");
+    if (!res.ok) return [];
+    const data = (await res.json()) as { fields?: CustomInputField[] };
+    return data.fields ?? [];
+  } catch {
+    return [];
   }
 }
 

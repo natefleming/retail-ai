@@ -128,3 +128,49 @@ class TestBuildTraceTree:
         assert tree["trace_id"] == "tr-5"
         assert tree["spans"] == []
         assert tree["root_span_id"] is None
+
+
+class TestTraceRetrievalResilience:
+    """The request path must never raise — a permission-denied / corrupted /
+    unreadable trace degrades to None so the route 404s (not 500s)."""
+
+    @pytest.mark.unit
+    def test_get_trace_tree_returns_none_on_permission_error(
+        self, monkeypatch
+    ) -> None:
+        import mlflow
+
+        from dao_ai.apps import traces
+
+        def _boom(_trace_id):
+            raise RuntimeError(
+                "PermissionDenied: SP is not authorized to use this SQL Endpoint"
+            )
+
+        monkeypatch.setattr(mlflow, "get_trace", _boom)
+        # Must not raise, and must give up immediately (non-NOT_FOUND is terminal).
+        assert traces.get_trace_tree("trace:/c.s.123/abc", timeout_seconds=0.1) is None
+
+    @pytest.mark.unit
+    def test_wait_for_trace_false_on_terminal_error(self, monkeypatch) -> None:
+        import mlflow
+
+        from dao_ai.apps import traces
+
+        monkeypatch.setattr(
+            mlflow, "get_trace", lambda _t: (_ for _ in ()).throw(ValueError("boom"))
+        )
+        assert traces.wait_for_trace("tr-x", timeout_seconds=0.1) is False
+
+    @pytest.mark.unit
+    def test_get_trace_tree_success(self, monkeypatch) -> None:
+        import mlflow
+
+        from dao_ai.apps import traces
+
+        span = _span(span_id="root", parent_id=None, name="agent")
+        trace = SimpleNamespace(data=SimpleNamespace(spans=[span]))
+        monkeypatch.setattr(mlflow, "get_trace", lambda _t: trace)
+        tree = traces.get_trace_tree("tr-ok", timeout_seconds=1.0)
+        assert tree is not None
+        assert tree["spans"][0]["name"] == "agent"

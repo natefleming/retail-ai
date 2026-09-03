@@ -7,6 +7,7 @@ import {
   Square,
   Wrench,
 } from "lucide-react";
+import { CustomInputs } from "@/components/CustomInputs";
 import { Markdown } from "@/components/Markdown";
 import { Visualization } from "@/components/Visualization";
 
@@ -219,6 +220,7 @@ export function Conversation({ config }: { config: UIConfig }) {
       </div>
       <div className="border-t border-[var(--color-line)] px-6 py-4">
         <div className="mx-auto flex max-w-3xl items-end gap-2 rounded-xl border border-[var(--color-line)] bg-[var(--color-ink-850)] px-3 py-2">
+          <CustomInputs />
           <textarea
             value={draft}
             onChange={(e) => setDraft(e.target.value)}

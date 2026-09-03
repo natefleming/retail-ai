@@ -43,6 +43,14 @@ export function Console() {
           <span className="font-display text-sm tracking-tight text-[var(--color-fg)]">
             {config.title}
           </span>
+          {config.version && (
+            <span
+              className="rounded bg-[var(--color-tag-bg)] px-1.5 py-0.5 font-mono text-[10px] text-[var(--color-tag-fg)]"
+              title={`dao-ai ${config.version}`}
+            >
+              dao-ai v{config.version}
+            </span>
+          )}
           <span className="text-xs text-[var(--color-fg-subtle)]">
             {config.mode === "developer" ? "developer" : ""}
           </span>

@@ -7,6 +7,8 @@ export interface UIConfig {
   session_history: boolean;
   title: string;
   subtitle: string | null;
+  /** Running dao-ai version, stamped server-side. */
+  version: string | null;
 }
 
 export const DEFAULT_UI_CONFIG: UIConfig = {
@@ -16,6 +18,7 @@ export const DEFAULT_UI_CONFIG: UIConfig = {
   session_history: true,
   title: "dao-ai Console",
   subtitle: null,
+  version: null,
 };
 
 /** Fetch the deploy-injected AppUIModel from the server, falling back to

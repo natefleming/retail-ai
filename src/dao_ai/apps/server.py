@@ -202,7 +202,13 @@ def _mount_trace_routes() -> None:
     def get_trace(trace_id: str = Query(...)):
         # trace_location (UC OTEL) traces can take longer to become queryable
         # than the default local-tracking window, so allow more propagation time.
-        tree = get_trace_tree(trace_id, timeout_seconds=12.0)
+        # Any retrieval failure degrades to 404 (never 500) so the Console shows
+        # its empty-Timeline note instead of an error.
+        try:
+            tree = get_trace_tree(trace_id, timeout_seconds=12.0)
+        except Exception as exc:  # noqa: BLE001 — defense in depth
+            logger.warning("Trace retrieval failed", trace_id=trace_id, error=str(exc))
+            tree = None
         if tree is None:
             raise HTTPException(
                 status_code=404, detail="Trace not found or not yet queryable"
@@ -215,22 +221,6 @@ def _mount_trace_routes() -> None:
 _mount_trace_routes()
 
 
-def _resolve_persistence_db():
-    """Resolve the DatabaseModel backing persistence (checkpointer preferred,
-    else background), or None. Defensive getattr chain — config-agnostic."""
-    app_cfg = getattr(_config, "app", None)
-    if app_cfg is None:
-        return None
-    orchestration = getattr(app_cfg, "orchestration", None)
-    memory = getattr(orchestration, "memory", None) if orchestration else None
-    checkpointer = getattr(memory, "checkpointer", None) if memory else None
-    db = getattr(checkpointer, "database", None) if checkpointer else None
-    if db is not None:
-        return db
-    background = getattr(app_cfg, "background", None)
-    return getattr(background, "database", None) if background else None
-
-
 def _mount_sessions_routes() -> None:
     """Register the Console session routes on the same FastAPI app as the
     agent's ``/invocations`` and ``/v1/*`` routes.
@@ -240,11 +230,14 @@ def _mount_sessions_routes() -> None:
     - ``GET  /v1/sessions``                  list the calling user's threads
     - ``POST /v1/sessions``                  register/refresh a thread in the index
 
-    The reload/meta routes need a checkpointer; the list/register routes need a
-    persistence DB for the user→thread index (`SessionIndexStore`). Each group
-    mounts only when its backing config exists — otherwise the Console degrades
-    (no reload, localStorage-only sidebar). ``user_id`` is always derived
-    server-side from the OBO header, so a user only sees their own sessions.
+    The reload/meta routes are served through the checkpointer implementation
+    object (``graph.aget_state``); the list/register routes keep a user→thread
+    index in the configured ``BaseStore`` (``graph.store``), addressed through
+    the store's own ``aput``/``asearch`` API — no native queries — so the sidebar
+    works identically across any store backend. Each group mounts only when its
+    backing implementation exists; otherwise the Console degrades (no reload,
+    localStorage-only sidebar). ``user_id`` is always derived server-side from
+    the OBO header, so a user only sees their own sessions.
     """
     from fastapi import HTTPException, Request
     from fastapi.responses import JSONResponse
@@ -252,8 +245,10 @@ def _mount_sessions_routes() -> None:
 
     from dao_ai.apps.handlers import _responses_agent
     from dao_ai.apps.sessions import (
+        list_user_sessions,
         load_session,
         load_session_meta,
+        register_session,
         user_id_from_headers,
     )
 
@@ -284,47 +279,32 @@ def _mount_sessions_routes() -> None:
                 )
                 raise HTTPException(status_code=404, detail="Session not found")
 
-    persistence_db = _resolve_persistence_db()
-    if persistence_db is not None:
-        from dao_ai.background import SessionIndexStore
-
-        session_index = SessionIndexStore(persistence_db)
+    store = getattr(graph, "store", None) if graph is not None else None
+    if store is not None:
 
         @app.get("/v1/sessions")
-        async def list_sessions(request: Request, limit: int = 50, offset: int = 0):
+        async def list_sessions(request: Request, limit: int = 50):
             user_id = user_id_from_headers(request.headers)
             if not user_id:
                 return JSONResponse([])
             try:
-                sessions = await session_index.list_sessions(
-                    user_id, limit=limit, offset=offset
-                )
                 return JSONResponse(
-                    [
-                        {
-                            "thread_id": s.thread_id,
-                            "title": s.title,
-                            "updated_at": s.updated_at.isoformat()
-                            if s.updated_at
-                            else None,
-                        }
-                        for s in sessions
-                    ]
+                    await list_user_sessions(store, user_id, limit=limit)
                 )
             except Exception as exc:  # noqa: BLE001
                 logger.warning("Failed to list sessions", error=str(exc))
                 return JSONResponse([])
 
         @app.post("/v1/sessions")
-        async def register_session(request: Request):
+        async def register_session_route(request: Request):
             user_id = user_id_from_headers(request.headers)
             body = await request.json()
             thread_id = body.get("thread_id")
             if not user_id or not thread_id:
                 return JSONResponse({"ok": False})
             try:
-                await session_index.upsert_session(
-                    user_id, thread_id, title=body.get("title")
+                await register_session(
+                    store, user_id, thread_id, body.get("title")
                 )
                 return JSONResponse({"ok": True})
             except Exception as exc:  # noqa: BLE001
@@ -334,7 +314,7 @@ def _mount_sessions_routes() -> None:
     logger.info(
         "Session routes mounted",
         reload=bool(has_checkpointer),
-        index=persistence_db is not None,
+        index=store is not None,
     )
 
 
@@ -375,6 +355,28 @@ def _mount_memory_routes() -> None:
 
 
 _mount_memory_routes()
+
+
+def _mount_custom_inputs_route() -> None:
+    """Register ``GET /v1/custom-inputs`` advertising the configurable fields
+    the agent's config requires, so the Console can prepopulate its editor.
+
+    Read-only and non-secret (names / descriptions / example values only).
+    Returns ``{fields: []}`` when nothing is discoverable — config-agnostic.
+    """
+    from fastapi.responses import JSONResponse
+    from loguru import logger
+
+    from dao_ai.apps.custom_inputs import discover_custom_input_fields
+
+    @app.get("/v1/custom-inputs")
+    async def custom_inputs_schema():
+        return JSONResponse({"fields": discover_custom_input_fields(_config)})
+
+    logger.info("Custom-inputs route mounted", routes=["GET /v1/custom-inputs"])
+
+
+_mount_custom_inputs_route()
 
 
 def _mount_a2a_routes() -> None:

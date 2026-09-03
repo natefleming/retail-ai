@@ -19,7 +19,6 @@ from dao_ai.background.agent import (
     BackgroundResponsesAgent,
     is_not_found_response,
 )
-from dao_ai.background.sessions_store import SessionIndexStore, SessionRef
 from dao_ai.background.store import BackgroundStore, ResponseRecord, ResponseStatus
 
 __all__ = [
@@ -33,7 +32,5 @@ __all__ = [
     "OPERATION_RETRIEVE",
     "ResponseRecord",
     "ResponseStatus",
-    "SessionIndexStore",
-    "SessionRef",
     "is_not_found_response",
 ]

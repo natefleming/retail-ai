@@ -81,6 +81,9 @@ interface ConsoleState {
   userId?: string;
   sessions: SessionRef[];
   selectedTurnId?: string;
+  /** Extra `custom_inputs.configurable` fields sent with every turn. */
+  customInputs: Record<string, unknown>;
+  setCustomInputs: (next: Record<string, unknown>) => void;
   send: (text: string) => Promise<void>;
   respondToInterrupt: (decisions: unknown[]) => Promise<void>;
   cancel: () => void;
@@ -98,6 +101,7 @@ export function useConsoleContext(): ConsoleState {
 }
 
 const SESSIONS_KEY = "dao-ai-console:sessions";
+const CUSTOM_INPUTS_KEY = "dao-ai-console:custom-inputs";
 
 function loadStoredSessions(): SessionRef[] {
   try {
@@ -116,6 +120,15 @@ function storeSessions(sessions: SessionRef[]): void {
   }
 }
 
+function loadStoredCustomInputs(): Record<string, unknown> {
+  try {
+    const raw = localStorage.getItem(CUSTOM_INPUTS_KEY);
+    return raw ? (JSON.parse(raw) as Record<string, unknown>) : {};
+  } catch {
+    return {};
+  }
+}
+
 let idCounter = 0;
 const nextId = (prefix: string) => `${prefix}_${Date.now()}_${idCounter++}`;
 
@@ -131,7 +144,23 @@ export function ConsoleProvider({
   const [threadId, setThreadId] = useState<string | undefined>(undefined);
   const [sessions, setSessions] = useState<SessionRef[]>(loadStoredSessions);
   const [selectedTurnId, setSelectedTurnId] = useState<string | undefined>();
+  const [customInputs, setCustomInputsState] = useState<Record<string, unknown>>(
+    loadStoredCustomInputs,
+  );
   const abortRef = useRef<AbortController | null>(null);
+  // Kept in a ref so runStream always reads the latest inputs without needing
+  // to be in its dependency list.
+  const customInputsRef = useRef(customInputs);
+  customInputsRef.current = customInputs;
+
+  const setCustomInputs = useCallback((next: Record<string, unknown>) => {
+    setCustomInputsState(next);
+    try {
+      localStorage.setItem(CUSTOM_INPUTS_KEY, JSON.stringify(next));
+    } catch {
+      /* private mode / disabled storage — inputs just won't persist */
+    }
+  }, []);
 
   const patchAssistant = useCallback(
     (id: string, fn: (t: Turn) => Turn) => {
@@ -181,7 +210,13 @@ export function ConsoleProvider({
       let capturedThread: string | undefined = threadId;
       try {
         for await (const event of streamChat(
-          { messages, threadId, userId, decisions },
+          {
+            messages,
+            threadId,
+            userId,
+            decisions,
+            configurable: nonEmptyInputs(customInputsRef.current),
+          },
           controller.signal,
         )) {
           applyEvent(
@@ -326,6 +361,8 @@ export function ConsoleProvider({
       userId,
       sessions,
       selectedTurnId,
+      customInputs,
+      setCustomInputs,
       send,
       respondToInterrupt,
       cancel,
@@ -340,6 +377,8 @@ export function ConsoleProvider({
       userId,
       sessions,
       selectedTurnId,
+      customInputs,
+      setCustomInputs,
       send,
       respondToInterrupt,
       cancel,
@@ -508,6 +547,17 @@ function upsertToolCall(list: UIToolCall[], patch: Partial<UIToolCall> & { call_
   const next = [...list];
   next[idx] = { ...next[idx], ...patch };
   return next;
+}
+
+/** Drop blank keys and empty values so we never send empty configurable fields. */
+function nonEmptyInputs(
+  inputs: Record<string, unknown>,
+): Record<string, unknown> | undefined {
+  const entries = Object.entries(inputs).filter(([k, v]) => {
+    if (k.trim() === "" || v == null) return false;
+    return typeof v === "string" ? v.trim() !== "" : true;
+  });
+  return entries.length ? Object.fromEntries(entries) : undefined;
 }
 
 function safeJson(raw: string): unknown {

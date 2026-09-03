@@ -2,7 +2,8 @@ import { useState } from "react";
 import { ChevronRight } from "lucide-react";
 import { clsx } from "clsx";
 
-import type { SpanNode, TraceTree } from "@/lib/contract";
+import type { SpanNode } from "@/lib/contract";
+import type { Turn } from "@/runtime/useConsole";
 
 const SPAN_COLOR: Record<string, string> = {
   LLM: "var(--color-span-llm)",
@@ -51,7 +52,7 @@ function countDescendants(node: SpanNode): number {
   );
 }
 
-export function Timeline({ trace }: { trace: TraceTree | null | undefined }) {
+export function Timeline({ turn }: { turn: Turn | undefined }) {
   const [selected, setSelected] = useState<SpanNode | null>(null);
   const [collapsedIds, setCollapsedIds] = useState<Set<string>>(new Set());
 
@@ -63,11 +64,13 @@ export function Timeline({ trace }: { trace: TraceTree | null | undefined }) {
       return next;
     });
 
-  if (!trace) {
-    return <Empty label="No trace yet — run a turn to see the span waterfall." />;
+  const trace = turn?.trace;
+  const rows = trace ? flatten(trace.spans, collapsedIds) : [];
+  // No spans — whether the trace came back null or empty, the cause on Apps is
+  // the same (spans weren't exported), so explain it either way.
+  if (!trace || !rows.length) {
+    return <Empty label={emptyLabel(turn)} />;
   }
-  const rows = flatten(trace.spans, collapsedIds);
-  if (!rows.length) return <Empty label="Trace has no spans." />;
   const total = Math.max(trace.duration_ms, 0.001);
 
   return (
@@ -179,6 +182,28 @@ function Payload({ label, value }: { label: string; value: unknown }) {
       </pre>
     </div>
   );
+}
+
+/** Explain *why* there's no waterfall — pending vs. genuinely unavailable —
+ * so a missing trace_location reads as a config note, not a broken panel. */
+function emptyLabel(turn: Turn | undefined): string {
+  if (!turn || (!turn.traceId && turn.status !== "done")) {
+    return "No trace yet — run a turn to see the span waterfall.";
+  }
+  // A completed turn whose trace came back null or with no spans. The Console
+  // can't tell which cause applies, so name the common ones: trace_location not
+  // set, spans still propagating (UC is eventually consistent), or the app's
+  // identity lacking read access to the trace warehouse.
+  if (turn.traceId && (turn.trace === null || turn.status === "done")) {
+    return (
+      "No trace spans to show yet. Traces are recorded to the workspace " +
+      "(control plane) by default, or to Unity Catalog when app.trace_location " +
+      "is set — this one may still be propagating, or this runtime can't reach " +
+      "the trace store. Try reopening shortly."
+    );
+  }
+  if (turn.traceId) return "Fetching trace…";
+  return "This turn produced no trace.";
 }
 
 function Empty({ label }: { label: string }) {

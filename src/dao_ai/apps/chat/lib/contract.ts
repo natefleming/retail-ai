@@ -218,3 +218,12 @@ export interface MemoryResponse {
   /** null when no memory store is configured. */
   memory: Record<string, MemoryEntry[]> | null;
 }
+
+/** A `custom_inputs.configurable` field the agent's config requires/accepts,
+ * discovered from its CustomFieldValidationMiddleware. */
+export interface CustomInputField {
+  name: string;
+  description: string | null;
+  required: boolean;
+  example_value: unknown;
+}

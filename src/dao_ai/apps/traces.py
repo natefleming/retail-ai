@@ -133,14 +133,16 @@ def build_trace_tree(spans: list[Any], *, trace_id: str) -> dict[str, Any]:
 def wait_for_trace(trace_id: str, *, timeout_seconds: float = 5.0) -> bool:
     """Poll until ``trace_id`` is queryable, or the timeout elapses.
 
-    Returns ``True`` when the trace became queryable, ``False`` on timeout.
-    Unlike the evaluation path (which raises), the request path degrades to a
-    ``404`` so a slow-propagating trace never 500s the Console.
+    Returns ``True`` when the trace became queryable, ``False`` otherwise. The
+    request path never raises — a not-yet-propagated, permission-denied,
+    corrupted, or otherwise unreadable trace all degrade to ``False`` so the
+    Console shows an empty-Timeline note instead of a 500. Only a transient
+    "not found" is retried (the trace may still be propagating from the UC
+    trace_location); every other error is terminal and returns immediately.
     """
     import time
 
     import mlflow
-    from mlflow.exceptions import MlflowException, RestException
 
     deadline: float = time.monotonic() + timeout_seconds
     delay: float = 0.25
@@ -148,9 +150,18 @@ def wait_for_trace(trace_id: str, *, timeout_seconds: float = 5.0) -> bool:
         try:
             mlflow.get_trace(trace_id)
             return True
-        except (RestException, MlflowException) as exc:
-            if "NOT_FOUND" not in str(exc) and "not found" not in str(exc).lower():
-                raise
+        except Exception as exc:  # noqa: BLE001 — degrade on any read failure
+            msg = str(exc).lower()
+            is_transient_missing = "not_found" in msg or "not found" in msg
+            if not is_transient_missing:
+                # Permission denied (e.g. the app SP lacks warehouse access),
+                # corrupted spans, warehouse unavailable — retrying won't help.
+                logger.warning(
+                    "Trace not readable; Timeline will show an empty note",
+                    trace_id=trace_id,
+                    error=str(exc),
+                )
+                return False
             if time.monotonic() >= deadline:
                 return False
             time.sleep(delay)
@@ -161,12 +172,17 @@ def get_trace_tree(
     trace_id: str, *, timeout_seconds: float = 5.0
 ) -> dict[str, Any] | None:
     """Fetch a trace by id and return its waterfall tree, or ``None`` if the
-    trace is not queryable within ``timeout_seconds``."""
+    trace is not queryable within ``timeout_seconds``. Never raises — any
+    retrieval error degrades to ``None`` (the route then 404s gracefully)."""
     import mlflow
 
     if not wait_for_trace(trace_id, timeout_seconds=timeout_seconds):
-        logger.debug("Trace not queryable within timeout", trace_id=trace_id)
+        logger.debug("Trace not queryable", trace_id=trace_id)
         return None
-    trace = mlflow.get_trace(trace_id)
-    spans = list(getattr(getattr(trace, "data", None), "spans", None) or [])
-    return build_trace_tree(spans, trace_id=trace_id)
+    try:
+        trace = mlflow.get_trace(trace_id)
+        spans = list(getattr(getattr(trace, "data", None), "spans", None) or [])
+        return build_trace_tree(spans, trace_id=trace_id)
+    except Exception as exc:  # noqa: BLE001 — a race after wait, or a read error
+        logger.warning("Failed to build trace tree", trace_id=trace_id, error=str(exc))
+        return None

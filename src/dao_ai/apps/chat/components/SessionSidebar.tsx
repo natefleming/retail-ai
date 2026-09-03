@@ -6,11 +6,24 @@ import { fetchSessionMeta } from "@/lib/api";
 import type { SessionMeta } from "@/lib/contract";
 import { useConsoleContext } from "@/runtime/useConsole";
 
-function SessionMetaPopover({ meta }: { meta: SessionMeta | null }) {
-  if (!meta) {
+function SessionMetaPopover({
+  meta,
+  loading,
+}: {
+  meta: SessionMeta | null;
+  loading: boolean;
+}) {
+  if (loading) {
     return (
       <div className="px-3 py-2 text-[11px] text-[var(--color-fg-subtle)]">
         Loading metadata…
+      </div>
+    );
+  }
+  if (!meta) {
+    return (
+      <div className="px-3 py-2 text-[11px] text-[var(--color-fg-subtle)]">
+        Session metadata unavailable (no checkpointer configured).
       </div>
     );
   }
@@ -45,6 +58,7 @@ export function SessionSidebar() {
     useConsoleContext();
   const [metaOpenFor, setMetaOpenFor] = useState<string | null>(null);
   const [meta, setMeta] = useState<SessionMeta | null>(null);
+  const [metaLoading, setMetaLoading] = useState(false);
 
   const toggleMeta = async (tid: string) => {
     if (metaOpenFor === tid) {
@@ -52,8 +66,10 @@ export function SessionSidebar() {
       return;
     }
     setMeta(null);
+    setMetaLoading(true);
     setMetaOpenFor(tid);
     setMeta(await fetchSessionMeta(tid));
+    setMetaLoading(false);
   };
 
   return (
@@ -107,7 +123,9 @@ export function SessionSidebar() {
                     <Info size={13} />
                   </button>
                 </div>
-                {metaOpenFor === s.threadId && <SessionMetaPopover meta={meta} />}
+                {metaOpenFor === s.threadId && (
+                  <SessionMetaPopover meta={meta} loading={metaLoading} />
+                )}
               </div>
             );
           })
