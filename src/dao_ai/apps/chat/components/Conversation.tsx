@@ -96,23 +96,42 @@ function ToolCard({ call }: { call: UIToolCall }) {
   );
 }
 
-function Reasoning({ text, defaultOpen }: { text: string; defaultOpen: boolean }) {
+function Reasoning({
+  text,
+  defaultOpen,
+  live,
+}: {
+  text: string;
+  defaultOpen: boolean;
+  live: boolean;
+}) {
   const [open, setOpen] = useState(defaultOpen);
-  if (!text) return null;
+  // While the model is still thinking, show the indicator even before any
+  // reasoning text has arrived; once text exists it becomes expandable.
+  if (!text && !live) return null;
   return (
     <div className="rounded-lg border border-[var(--color-line)] bg-[var(--color-ink-900)] shadow-[var(--shadow-card)]">
       <button
         onClick={() => setOpen((o) => !o)}
-        className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs text-[var(--color-span-llm)]"
+        disabled={!text}
+        className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs text-[var(--color-span-llm)] disabled:cursor-default"
       >
-        <Brain size={13} />
-        <span>Reasoning</span>
-        <ChevronRight
-          size={13}
-          className={clsx("ml-auto transition-transform", open && "rotate-90")}
-        />
+        {live ? (
+          <Loader2 size={13} className="animate-spin" />
+        ) : (
+          <Brain size={13} />
+        )}
+        <span className={clsx(live && "animate-pulse")}>
+          {live ? "Thinking…" : "Thinking"}
+        </span>
+        {text && (
+          <ChevronRight
+            size={13}
+            className={clsx("ml-auto transition-transform", open && "rotate-90")}
+          />
+        )}
       </button>
-      {open && (
+      {open && text && (
         <p className="whitespace-pre-wrap px-3 pb-3 text-[13px] italic text-[var(--color-fg-muted)]">
           {text}
         </p>
@@ -151,9 +170,16 @@ function InterruptCard({ interrupt }: { interrupt: HITLInterrupt }) {
   );
 }
 
-function TurnView({ turn, showReasoning }: { turn: Turn; showReasoning: boolean }) {
+function TurnView({ turn }: { turn: Turn }) {
   const { selectTurn, selectedTurnId } = useConsoleContext();
   const isUser = turn.role === "user";
+  const steps = turnSteps(turn);
+  // The model is actively reasoning when the turn is still streaming and the
+  // trailing step is a reasoning segment (no tool/text has followed it yet).
+  const reasoningLive =
+    turn.status === "streaming" &&
+    steps.length > 0 &&
+    steps[steps.length - 1].kind === "reasoning";
   return (
     <div
       onClick={() => selectTurn(turn.id)}
@@ -175,11 +201,16 @@ function TurnView({ turn, showReasoning }: { turn: Turn; showReasoning: boolean 
               : "border-transparent",
           )}
         >
-          {turnSteps(turn).map((step) => {
+          {steps.map((step, i) => {
             if (step.kind === "reasoning") {
-              return showReasoning ? (
-                <Reasoning key={step.id} text={step.text} defaultOpen={false} />
-              ) : null;
+              return (
+                <Reasoning
+                  key={step.id}
+                  text={step.text}
+                  defaultOpen={false}
+                  live={reasoningLive && i === steps.length - 1}
+                />
+              );
             }
             if (step.kind === "tool") {
               const call = turn.toolCalls.find((c) => c.call_id === step.callId);
@@ -200,13 +231,13 @@ function TurnView({ turn, showReasoning }: { turn: Turn; showReasoning: boolean 
           {turn.interrupts.map((it, i) => (
             <InterruptCard key={i} interrupt={it} />
           ))}
-          {turn.status === "streaming" && (
+          {turn.status === "streaming" && !reasoningLive && (
             <div className="flex items-center gap-2 px-2 text-sm text-[var(--color-fg-subtle)]">
               <Loader2 size={14} className="animate-spin text-[var(--color-primary)]" />
               {(() => {
                 const active = turn.toolCalls.find((c) => c.status === "in_progress");
                 if (active) return `running ${active.name}…`;
-                if (!turn.steps.length) return "thinking…";
+                if (!steps.length) return "thinking…";
                 return "working…";
               })()}
             </div>
@@ -221,7 +252,6 @@ export function Conversation({ config }: { config: UIConfig }) {
   const { turns, isRunning, send, cancel } = useConsoleContext();
   const [draft, setDraft] = useState("");
   const scrollRef = useRef<HTMLDivElement>(null);
-  const showReasoning = config.mode === "developer";
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
@@ -248,7 +278,7 @@ export function Conversation({ config }: { config: UIConfig }) {
         ) : (
           <div className="mx-auto flex max-w-3xl flex-col gap-6">
             {turns.map((t) => (
-              <TurnView key={t.id} turn={t} showReasoning={showReasoning} />
+              <TurnView key={t.id} turn={t} />
             ))}
           </div>
         )}
