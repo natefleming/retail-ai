@@ -177,13 +177,17 @@ def build_trace_ui_url(trace_id: str) -> Optional[str]:
 
     Handles both id forms:
 
-    - ``trace:/<catalog>.<schema>.<experiment_id>/<hex>`` (UC trace_location) —
-      the experiment id is embedded and the UI trace id is ``tr-<hex>``.
-    - ``tr-<hex>`` (control plane) — the experiment id is the active experiment.
+    - ``tr-<hex>`` (control plane) — the UI trace id is the id as-is.
+    - ``trace:/<catalog>.<schema>.<table_prefix>/<hex>`` (UC trace_location) —
+      the UI trace id is ``tr-<hex>``.
 
-    Returns ``None`` when the host or experiment can't be resolved, so the
-    Console simply omits the link. Format:
-    ``https://<host>/ml/experiments/<experiment_id>/traces/<trace_id>``.
+    The experiment id is the app's active experiment (``_active_experiment_id``),
+    which is where the deployment's traces live regardless of the id form. Only
+    when that can't be resolved do we fall back to the UC location's trailing
+    segment — and only if it's numeric, since ``table_prefix`` defaults to the
+    experiment id but may be a custom non-id string. Returns ``None`` when the
+    host or experiment can't be resolved (the Console then omits the link).
+    Format: ``https://<host>/ml/experiments/<experiment_id>/traces/<trace_id>``.
     """
     if not trace_id:
         return None
@@ -191,15 +195,17 @@ def build_trace_ui_url(trace_id: str) -> Optional[str]:
     if not host:
         return None
 
+    experiment_id = _active_experiment_id()
     if trace_id.startswith("trace:/"):
         rest = trace_id[len("trace:/") :]
         location, _, hex_id = rest.partition("/")
-        experiment_id = location.split(".")[-1] if "." in location else None
         if not hex_id:
             return None
         ui_trace_id = hex_id if hex_id.startswith("tr-") else f"tr-{hex_id}"
+        if not experiment_id and "." in location:
+            segment = location.split(".")[-1]
+            experiment_id = segment if segment.isdigit() else None
     else:
-        experiment_id = _active_experiment_id()
         ui_trace_id = trace_id
 
     if not experiment_id or not ui_trace_id:
@@ -311,11 +317,12 @@ def search_session_traces(session_id: str, *, limit: int = 50) -> list[dict[str,
             # include_spans=False → trace-info only (no span-artifact download),
             # so discovery is fast and works even where span data isn't reachable
             # (control-plane blob on Apps); the per-turn fetch pulls spans later.
+            # No order_by — an unsupported sort column would fail every candidate
+            # identically; sort client-side instead.
             infos = client.search_traces(
                 experiment_ids=[experiment_id],
                 filter_string=filter_string,
                 max_results=limit,
-                order_by=["timestamp ASC"],
                 include_spans=False,
             )
         except Exception as exc:  # noqa: BLE001 — try the next candidate syntax
@@ -332,7 +339,9 @@ def search_session_traces(session_id: str, *, limit: int = 50) -> list[dict[str,
                 filter=filter_string,
                 count=len(infos),
             )
-            return [_trace_ref(info) for info in infos]
+            refs = [_trace_ref(info) for info in infos]
+            refs.sort(key=lambda r: r["request_time"] or "")  # oldest first
+            return refs
     logger.debug("No traces found for session", session=session_id)
     return []
 

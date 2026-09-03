@@ -130,6 +130,14 @@ class TestSplitContent:
         assert reasoning == "let me think"
 
     @pytest.mark.unit
+    def test_typeless_block_array_string_not_leaked(self) -> None:
+        # A full JSON array of dicts without a "type" key must be parsed (and
+        # split), not returned verbatim as raw JSON.
+        text, reasoning = _split_content('[{"text": "hi"}]')
+        assert "{" not in text  # no raw JSON leak
+        assert reasoning == ""
+
+    @pytest.mark.unit
     def test_prose_starting_with_bracket_is_not_stripped(self) -> None:
         # A real answer that merely starts with "[" (not a content-block array)
         # must be preserved verbatim.

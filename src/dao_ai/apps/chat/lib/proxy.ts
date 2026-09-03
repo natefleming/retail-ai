@@ -8,8 +8,9 @@
  * memory) and validation middleware would see no user.
  */
 const FORWARDED = [
-  "x-forwarded-user",
+  "x-forwarded-preferred-username",
   "x-forwarded-email",
+  "x-forwarded-user",
   "x-forwarded-access-token",
   "authorization",
 ];

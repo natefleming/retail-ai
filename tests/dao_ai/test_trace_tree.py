@@ -214,22 +214,47 @@ class TestBuildTreeRobustness:
 
 class TestTraceUiUrl:
     @pytest.mark.unit
-    def test_uc_uri_embeds_experiment_and_prefixes_hex(self, monkeypatch) -> None:
+    def test_prefers_active_experiment(self, monkeypatch) -> None:
+        # The app's active experiment is authoritative regardless of the UC
+        # location's table_prefix (which may be a custom, non-id string).
         monkeypatch.setenv("DATABRICKS_HOST", "https://ws.cloud.databricks.com")
-        from dao_ai.apps.traces import build_trace_ui_url
+        from dao_ai.apps import traces
 
-        url = build_trace_ui_url("trace:/cat.sch.540443496685391/abc123")
+        monkeypatch.setattr(traces, "_active_experiment_id", lambda: "777")
+        url = traces.build_trace_ui_url("trace:/cat.sch.sales_genie/abc123")
+        assert url == (
+            "https://ws.cloud.databricks.com/ml/experiments/777/traces/tr-abc123"
+        )
+
+    @pytest.mark.unit
+    def test_uc_falls_back_to_numeric_embedded_id(self, monkeypatch) -> None:
+        # When the active experiment can't be resolved, use the location's
+        # trailing segment only if it's numeric (the default = experiment id).
+        monkeypatch.setenv("DATABRICKS_HOST", "https://ws.cloud.databricks.com")
+        from dao_ai.apps import traces
+
+        monkeypatch.setattr(traces, "_active_experiment_id", lambda: None)
+        url = traces.build_trace_ui_url("trace:/cat.sch.540443496685391/abc123")
         assert url == (
             "https://ws.cloud.databricks.com/ml/experiments/540443496685391/traces/tr-abc123"
         )
 
     @pytest.mark.unit
+    def test_uc_custom_prefix_no_active_experiment_yields_none(self, monkeypatch) -> None:
+        # Custom (non-numeric) table_prefix + no active experiment → no bad link.
+        monkeypatch.setenv("DATABRICKS_HOST", "https://ws.cloud.databricks.com")
+        from dao_ai.apps import traces
+
+        monkeypatch.setattr(traces, "_active_experiment_id", lambda: None)
+        assert traces.build_trace_ui_url("trace:/cat.sch.sales_genie/abc123") is None
+
+    @pytest.mark.unit
     def test_control_plane_id_uses_active_experiment(self, monkeypatch) -> None:
         monkeypatch.setenv("DATABRICKS_HOST", "ws.cloud.databricks.com")
-        monkeypatch.setenv("MLFLOW_EXPERIMENT_ID", "999")
-        from dao_ai.apps.traces import build_trace_ui_url
+        from dao_ai.apps import traces
 
-        url = build_trace_ui_url("tr-deadbeef")
+        monkeypatch.setattr(traces, "_active_experiment_id", lambda: "999")
+        url = traces.build_trace_ui_url("tr-deadbeef")
         assert url == "https://ws.cloud.databricks.com/ml/experiments/999/traces/tr-deadbeef"
 
     @pytest.mark.unit

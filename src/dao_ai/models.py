@@ -155,6 +155,19 @@ def _split_content(content: str | list[dict[str, Any]]) -> tuple[str, str]:
                 if tail:
                     text = f"{text}{tail}" if text else tail
                 return text, reasoning
+            # A complete JSON array of dicts that aren't content-block-shaped
+            # (no ``type`` key) — parse and split rather than leak the raw JSON.
+            if stripped.endswith("]"):
+                try:
+                    parsed: Any = json.loads(stripped)
+                except (json.JSONDecodeError, ValueError):
+                    parsed = None
+                if (
+                    isinstance(parsed, list)
+                    and parsed
+                    and all(isinstance(b, dict) for b in parsed)
+                ):
+                    return _split_content(parsed)
         return content, ""
 
     if isinstance(content, list):

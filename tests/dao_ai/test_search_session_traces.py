@@ -27,7 +27,7 @@ class _FakeClient:
         self.tried: list[str] = []
 
     def search_traces(
-        self, *, experiment_ids, filter_string, max_results, order_by, include_spans=True
+        self, *, experiment_ids, filter_string, max_results, order_by=None, include_spans=True
     ):
         self.tried.append(filter_string)
         if self._working in filter_string:

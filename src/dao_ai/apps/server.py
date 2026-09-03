@@ -32,7 +32,9 @@ import dao_ai.apps.handlers  # noqa: E402, F401
 from dao_ai.apps.handlers import config as _config
 
 # Create the AgentServer instance
-_enable_chat_proxy = _config.app.enable_chat_proxy if _config.app else True
+# Serve the chat UI only when the proxy is on AND ui.enabled isn't false, so
+# `app.ui.enabled: false` yields the agent endpoint with no bundled UI.
+_enable_chat_proxy = _config.app.serves_chat_ui if _config.app else True
 agent_server = AgentServer("ResponsesAgent", enable_chat_proxy=_enable_chat_proxy)
 
 # Define the app as a module level variable to enable multiple workers

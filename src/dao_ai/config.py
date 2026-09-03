@@ -10992,6 +10992,18 @@ class AppModel(BaseModel):
         importlib.invalidate_caches()
         return self
 
+    @property
+    def serves_chat_ui(self) -> bool:
+        """Whether the bundled dao-ai Console UI should be built and served.
+
+        ``ui.enabled`` is subordinate to ``enable_chat_proxy``: the UI is served
+        only when the chat proxy is on AND ``ui`` is unset or ``ui.enabled`` is
+        true. When false, the agent endpoint is still exposed — just no UI.
+        """
+        proxy_on = self.enable_chat_proxy if self.enable_chat_proxy is not None else True
+        ui_on = self.ui.enabled if self.ui is not None else True
+        return bool(proxy_on and ui_on)
+
 
 class EvaluationModel(BaseModel):
     """

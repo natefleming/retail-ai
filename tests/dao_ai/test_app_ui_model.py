@@ -40,3 +40,30 @@ class TestAppUIModel:
         dumped = ui.model_dump(mode="json")
         assert dumped["mode"] == "developer"
         assert AppUIModel(**dumped) == ui
+
+
+class TestServesChatUi:
+    """AppModel.serves_chat_ui gates the bundled Console: ui.enabled is
+    subordinate to enable_chat_proxy."""
+
+    @pytest.mark.unit
+    def test_default_serves(self) -> None:
+        from dao_ai.config import AppModel
+
+        assert AppModel.model_construct(enable_chat_proxy=True, ui=None).serves_chat_ui
+
+    @pytest.mark.unit
+    def test_ui_disabled_does_not_serve(self) -> None:
+        from dao_ai.config import AppModel, AppUIModel
+
+        m = AppModel.model_construct(enable_chat_proxy=True, ui=AppUIModel(enabled=False))
+        assert m.serves_chat_ui is False
+
+    @pytest.mark.unit
+    def test_proxy_off_does_not_serve(self) -> None:
+        from dao_ai.config import AppModel
+
+        assert (
+            AppModel.model_construct(enable_chat_proxy=False, ui=None).serves_chat_ui
+            is False
+        )
