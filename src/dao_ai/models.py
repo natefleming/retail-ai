@@ -121,26 +121,32 @@ def _split_content(content: str | list[dict[str, Any]]) -> tuple[str, str]:
     streaming agent (which emits them as separate Responses items). Neither
     channel carries any markdown formatting.
 
-    Handles two delivery forms:
+    Handles three delivery forms:
 
     1. **JSON string** -- ``ChatDatabricks`` Chat Completions API calls
        ``json.dumps()`` on non-string content, producing strings like
        ``'[{"type": "reasoning", ...}, {"type": "text", ...}]'``.
     2. **Python list** -- ``ChatDatabricks`` Responses API or native
        ``ChatAnthropic`` returns ``list[dict]`` directly.
+    3. **Concatenated blocks + trailing text** -- a checkpointer-persisted
+       Claude message can reload as leading content-block arrays glued to the
+       answer text, e.g.
+       ``'[{"type":"reasoning",...}][{"type":"reasoning",...}]Hi Nate…'`` — the
+       reasoning blocks are peeled off the front and the remainder is the answer.
 
-    A plain string (not a JSON content-block array) is returned as the answer
-    text with empty reasoning.
+    A plain string (not a content-block array) is returned as the answer text
+    with empty reasoning.
     """
     if isinstance(content, str):
         stripped: str = content.strip()
-        if stripped.startswith("[") and stripped.endswith("]"):
-            try:
-                parsed: Any = json.loads(stripped)
-                if isinstance(parsed, list) and parsed and isinstance(parsed[0], dict):
-                    return _split_content(parsed)
-            except (json.JSONDecodeError, ValueError):
-                pass
+        if stripped.startswith("["):
+            blocks, remainder = _consume_leading_block_arrays(stripped)
+            if blocks:
+                text, reasoning = _split_content(blocks)
+                tail: str = remainder.strip()
+                if tail:
+                    text = f"{text}{tail}" if text else tail
+                return text, reasoning
         return content, ""
 
     if isinstance(content, list):
@@ -153,10 +159,48 @@ def _split_content(content: str | list[dict[str, Any]]) -> tuple[str, str]:
                 elif (reasoning := _extract_reasoning_text(block)) is not None:
                     reasoning_parts.append(reasoning)
             elif isinstance(block, str):
-                text_parts.append(block)
+                # A stringified block — recurse so an embedded content-block
+                # array is split rather than leaking as literal text.
+                block_text, block_reasoning = _split_content(block)
+                if block_text:
+                    text_parts.append(block_text)
+                if block_reasoning:
+                    reasoning_parts.append(block_reasoning)
         return "".join(text_parts), " ".join(reasoning_parts)
 
     return str(content), ""
+
+
+def _consume_leading_block_arrays(s: str) -> tuple[list[dict[str, Any]], str]:
+    """Peel consecutive leading JSON content-block arrays off ``s``.
+
+    Returns the flattened block dicts and the trailing remainder (the plain
+    answer text). Only arrays whose elements are ``{"type": ...}`` dicts are
+    consumed, so an answer that merely starts with some other JSON (or ``[`` in
+    prose) is left intact as text.
+    """
+    decoder = json.JSONDecoder()
+    blocks: list[dict[str, Any]] = []
+    idx: int = 0
+    n: int = len(s)
+    while idx < n:
+        while idx < n and s[idx].isspace():
+            idx += 1
+        if idx >= n or s[idx] != "[":
+            break
+        try:
+            value, end = decoder.raw_decode(s, idx)
+        except (json.JSONDecodeError, ValueError):
+            break
+        if not (
+            isinstance(value, list)
+            and value
+            and all(isinstance(b, dict) and "type" in b for b in value)
+        ):
+            break
+        blocks.extend(value)
+        idx = end
+    return blocks, s[idx:]
 
 
 def _extract_text_content(content: str | list[dict[str, Any]]) -> str:

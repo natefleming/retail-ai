@@ -103,3 +103,43 @@ class TestSplitContent:
         text, reasoning = _split_content(content)
         assert text == "json answer"
         assert reasoning == "json thought"
+
+    @pytest.mark.unit
+    def test_reloaded_concatenated_reasoning_arrays_stripped(self) -> None:
+        # A checkpointer-reloaded Claude message: leading reasoning-block arrays
+        # (empty summary text + opaque signature) glued to the answer text.
+        content = (
+            '[{"type": "reasoning", "summary": [{"type": "summary_text", '
+            '"text": "", "signature": ""}]}]'
+            '[{"type": "reasoning", "summary": [{"type": "summary_text", '
+            '"text": "", "signature": "abc123"}]}]'
+            "Hi Nate — here is the answer."
+        )
+        text, reasoning = _split_content(content)
+        assert text == "Hi Nate — here is the answer."
+        assert reasoning == ""  # empty summary text is not surfaced
+
+    @pytest.mark.unit
+    def test_reloaded_concatenated_keeps_nonempty_reasoning(self) -> None:
+        content = (
+            '[{"type": "reasoning", "summary": [{"type": "summary_text", '
+            '"text": "let me think"}]}]The final answer.'
+        )
+        text, reasoning = _split_content(content)
+        assert text == "The final answer."
+        assert reasoning == "let me think"
+
+    @pytest.mark.unit
+    def test_prose_starting_with_bracket_is_not_stripped(self) -> None:
+        # A real answer that merely starts with "[" (not a content-block array)
+        # must be preserved verbatim.
+        text, reasoning = _split_content("[note] see the table below")
+        assert text == "[note] see the table below"
+        assert reasoning == ""
+
+    @pytest.mark.unit
+    def test_leading_json_number_array_preserved(self) -> None:
+        # A leading JSON array that isn't content blocks stays as text.
+        text, reasoning = _split_content("[1, 2, 3] are the winning numbers")
+        assert text == "[1, 2, 3] are the winning numbers"
+        assert reasoning == ""
