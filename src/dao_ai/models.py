@@ -1600,6 +1600,10 @@ class LanggraphResponsesAgent(ResponsesAgent):
         reasoning_item_id: str = f"reason_{uuid.uuid4().hex[:8]}"
         accumulated_content: str = ""
         accumulated_reasoning: str = ""
+        # Track whether the reasoning item has been announced via
+        # ``response.output_item.added`` — the OpenAI Responses contract expects
+        # an item to be announced before any delta references its ``item_id``.
+        reasoning_item_started: bool = False
         tool_messages: list[ToolMessage] = []
         interrupt_data: list[HITLRequest] = []
         seen_interrupt_keys: set[str] = set()
@@ -1744,6 +1748,18 @@ class LanggraphResponsesAgent(ResponsesAgent):
                                 )
                                 text, reasoning = _split_content(message.content)
                                 if reasoning:
+                                    # Announce the reasoning item before its first
+                                    # delta so a strict Responses consumer sees
+                                    # output_item.added → delta(s) → done in order.
+                                    if not reasoning_item_started:
+                                        reasoning_item_started = True
+                                        yield ResponsesAgentStreamEvent(
+                                            type="response.output_item.added",
+                                            item=self.create_reasoning_item(
+                                                id=reasoning_item_id,
+                                                reasoning_text="",
+                                            ),
+                                        )
                                     accumulated_reasoning += reasoning
                                     yield ResponsesAgentStreamEvent(
                                         type="response.reasoning_summary_text.delta",
@@ -1943,8 +1959,15 @@ class LanggraphResponsesAgent(ResponsesAgent):
             # the response shape backward-compatible for clients that only read
             # the answer text.
             if accumulated_reasoning:
+                # Finalize the reasoning item announced at the first delta
+                # (output_item.added → delta(s) → done). Fall back to `added`
+                # only if it was somehow never announced (no streamed deltas).
                 yield ResponsesAgentStreamEvent(
-                    type="response.output_item.added",
+                    type=(
+                        "response.output_item.done"
+                        if reasoning_item_started
+                        else "response.output_item.added"
+                    ),
                     item=self.create_reasoning_item(
                         id=reasoning_item_id,
                         reasoning_text=accumulated_reasoning,

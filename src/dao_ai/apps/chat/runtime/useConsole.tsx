@@ -245,7 +245,11 @@ export function ConsoleProvider({
   useEffect(() => {
     let cancelled = false;
     void fetchSessionList().then((rows) => {
-      if (cancelled || rows.length === 0) return;
+      // `null` = index unavailable → keep the localStorage fallback. A real
+      // (possibly empty) list is authoritative for this user, so replace the
+      // sidebar even when empty — otherwise a previous user's cached
+      // localStorage entries linger on a shared browser.
+      if (cancelled || rows === null) return;
       setSessions(
         rows.map((r) => ({
           threadId: r.thread_id,
@@ -476,7 +480,13 @@ export function ConsoleProvider({
           current.steps.push({ kind: "tool", callId });
         }
         if (m.content) {
-          current.content = m.content;
+          // Accumulate, don't overwrite: a multi-agent turn has several
+          // assistant messages (e.g. a worker answer then a supervisor
+          // summary); last-wins would drop the earlier text from `content`
+          // (used to rebuild history and the Timeline empty-state).
+          current.content = current.content
+            ? `${current.content}\n\n${m.content}`
+            : m.content;
           current.steps.push({ kind: "text", id: nextId("tx"), text: m.content });
         }
       } else if (m.role === "tool") {

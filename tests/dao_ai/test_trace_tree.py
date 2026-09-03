@@ -264,3 +264,38 @@ class TestTraceUiUrl:
 
         monkeypatch.setattr(traces, "_workspace_host", lambda: None)
         assert traces.build_trace_ui_url("tr-x") is None
+
+
+class TestBuildTraceTreeRobustness:
+    """Regression tests for /code-review findings on malformed span data."""
+
+    @pytest.mark.unit
+    def test_falsy_end_time_ns_does_not_yield_negative_duration(self) -> None:
+        # Every span reports a falsy end_time_ns but real starts — duration must
+        # clamp to >= 0 instead of going negative (which blows bar widths off-scale).
+        spans = [
+            _span(span_id="a", parent_id=None, start_time_ns=5 * MS, end_time_ns=0),
+            _span(span_id="b", parent_id="a", start_time_ns=6 * MS, end_time_ns=None),
+        ]
+        tree = build_trace_tree(spans, trace_id="tr-x")
+        assert tree["duration_ms"] >= 0
+
+    @pytest.mark.unit
+    def test_two_node_parent_cycle_keeps_both_spans(self) -> None:
+        # A <-> B mutual-parent cycle: neither may be dropped from the tree, and
+        # the builder must not recurse forever.
+        spans = [
+            _span(span_id="a", parent_id="b", start_time_ns=1 * MS, end_time_ns=2 * MS),
+            _span(span_id="b", parent_id="a", start_time_ns=1 * MS, end_time_ns=2 * MS),
+        ]
+        tree = build_trace_tree(spans, trace_id="tr-cycle")
+
+        seen: set[str] = set()
+
+        def _walk(nodes: list) -> None:
+            for n in nodes:
+                seen.add(n["span_id"])
+                _walk(n["children"])
+
+        _walk(tree["spans"])
+        assert seen == {"a", "b"}  # no span lost to the cycle

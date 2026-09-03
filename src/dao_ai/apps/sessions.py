@@ -135,6 +135,25 @@ async def list_user_sessions(
     return rows[:limit]
 
 
+async def user_owns_thread(store: Any, user_id: Optional[str], thread_id: str) -> bool:
+    """True when ``thread_id`` is registered to ``user_id`` in the session index.
+
+    The ``("sessions", user_id)`` namespace is the authoritative user→thread
+    mapping (written by :func:`register_session`), so the checkpointer-backed
+    reload/meta/trace routes use this to scope access to the owning user — the
+    checkpointer itself is keyed only by ``thread_id`` and would otherwise return
+    any user's conversation for a known/guessed id. Fails closed (``False``) on a
+    missing store/id or any store error.
+    """
+    if not (store is not None and user_id and thread_id):
+        return False
+    try:
+        item = await store.aget((_SESSION_NS_ROOT, user_id), thread_id)
+        return item is not None
+    except Exception:  # noqa: BLE001 — fail closed on any store error
+        return False
+
+
 async def load_session_meta(graph: Any, thread_id: str) -> dict[str, Any]:
     """Return checkpoint metadata for a thread from the checkpoint API.
 

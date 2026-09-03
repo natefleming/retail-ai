@@ -103,7 +103,14 @@ def build_trace_tree(spans: list[Any], *, trace_id: str) -> dict[str, Any]:
         s for s in (getattr(sp, "start_time_ns", 0) or 0 for sp in spans) if s
     ]
     root_start_ns: int = min(starts) if starts else 0
-    max_end_ns: int = max((getattr(s, "end_time_ns", 0) or 0) for s in spans)
+    # Consider only real (non-zero) ends — a span with a falsy end_time_ns must
+    # not pull max_end_ns to 0 while root_start_ns is a real timestamp, which
+    # would make duration_ms negative and blow every bar off-scale. Fall back to
+    # the baseline (duration 0) when no span reports a real end.
+    ends: list[int] = [
+        e for e in (getattr(sp, "end_time_ns", 0) or 0 for sp in spans) if e
+    ]
+    max_end_ns: int = max(ends) if ends else root_start_ns
 
     nodes: dict[str, dict[str, Any]] = {}
     for span in spans:
@@ -111,12 +118,29 @@ def build_trace_tree(spans: list[Any], *, trace_id: str) -> dict[str, Any]:
         if node["span_id"] is not None:
             nodes[node["span_id"]] = node
 
+    def _in_cycle(node: dict[str, Any]) -> bool:
+        """True when following ``parent_id`` links from ``node`` loops without
+        reaching a root — a 2+ span cycle (A→B→A) that the self-parent guard
+        below misses and would otherwise drop from the tree (and recurse in
+        ``_sort``)."""
+        seen: set[str] = set()
+        cur: dict[str, Any] | None = node
+        while cur is not None:
+            sid = cur["span_id"]
+            if sid in seen:
+                return True
+            seen.add(sid)
+            pid = cur["parent_id"]
+            cur = nodes.get(pid) if pid and pid != sid else None
+        return False
+
     roots: list[dict[str, Any]] = []
     for node in nodes.values():
         parent = nodes.get(node["parent_id"]) if node["parent_id"] else None
-        # A span that parents itself (or is missing a valid parent) is a root —
-        # never its own child, which would make the tree cyclic and recurse.
-        if parent is None or parent is node:
+        # A span with no valid parent, one that parents itself, or one caught in a
+        # multi-node parent cycle is a root — otherwise cyclic spans nest under
+        # each other, drop out of the returned tree, and recurse forever in _sort.
+        if parent is None or parent is node or _in_cycle(node):
             roots.append(node)
         else:
             parent["children"].append(node)
@@ -133,7 +157,7 @@ def build_trace_tree(spans: list[Any], *, trace_id: str) -> dict[str, Any]:
     return {
         "trace_id": trace_id,
         "root_span_id": root_span_id,
-        "duration_ms": _ns_to_ms(max_end_ns - root_start_ns),
+        "duration_ms": _ns_to_ms(max(max_end_ns - root_start_ns, 0)),
         "spans": roots,
     }
 

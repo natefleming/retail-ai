@@ -147,3 +147,45 @@ class TestLoadSessionMeta:
         assert meta["last_modified"] == "2026-09-02T18:00:00+00:00"
         assert meta["step"] == 4
         assert meta["message_count"] == 3
+
+
+class _OwnerStore:
+    """Minimal BaseStore fake: aget returns a value only for (ns, key) pairs
+    that were registered, so user_owns_thread can be exercised without a backend."""
+
+    def __init__(self) -> None:
+        self._data: dict[tuple, Any] = {}
+
+    async def aput(self, namespace, key, value) -> None:
+        self._data[(tuple(namespace), key)] = value
+
+    async def aget(self, namespace, key):
+        v = self._data.get((tuple(namespace), key))
+        return SimpleNamespace(value=v) if v is not None else None
+
+
+class TestUserOwnsThread:
+    @pytest.mark.unit
+    def test_owner_true_after_register(self) -> None:
+        from dao_ai.apps.sessions import register_session, user_owns_thread
+
+        store = _OwnerStore()
+        _run(register_session(store, "alice", "t-1", "hello"))
+        assert _run(user_owns_thread(store, "alice", "t-1")) is True
+
+    @pytest.mark.unit
+    def test_other_user_false(self) -> None:
+        from dao_ai.apps.sessions import register_session, user_owns_thread
+
+        store = _OwnerStore()
+        _run(register_session(store, "alice", "t-1", "hello"))
+        # bob must NOT be able to prove ownership of alice's thread (IDOR guard)
+        assert _run(user_owns_thread(store, "bob", "t-1")) is False
+
+    @pytest.mark.unit
+    def test_fails_closed_on_missing_inputs(self) -> None:
+        from dao_ai.apps.sessions import user_owns_thread
+
+        store = _OwnerStore()
+        assert _run(user_owns_thread(store, None, "t-1")) is False
+        assert _run(user_owns_thread(None, "alice", "t-1")) is False

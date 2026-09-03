@@ -142,14 +142,18 @@ export async function fetchSessionTraces(
   }
 }
 
-/** List the current user's sessions from the configured persistence index. */
-export async function fetchSessionList(): Promise<SessionListItem[]> {
+/** List the current user's sessions from the configured persistence index.
+ * Returns the (possibly empty) list when the index route responded, or `null`
+ * when the index is unavailable (route not mounted / network error) so the
+ * caller can tell "this user has no sessions" (clear any stale localStorage
+ * sidebar) apart from "no index configured" (keep the localStorage fallback). */
+export async function fetchSessionList(): Promise<SessionListItem[] | null> {
   try {
     const res = await fetch("/v1/sessions");
-    if (!res.ok) return [];
+    if (!res.ok) return null;
     return (await res.json()) as SessionListItem[];
   } catch {
-    return [];
+    return null;
   }
 }
 

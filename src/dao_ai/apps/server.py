@@ -194,15 +194,20 @@ def _mount_trace_routes() -> None:
     capture. Sync route so FastAPI runs the short blocking propagation poll in
     its threadpool. Always mounted (independent of ``app.background``).
     """
-    from fastapi import HTTPException, Query
+    from fastapi import HTTPException, Query, Request
     from fastapi.responses import JSONResponse
     from loguru import logger
 
+    from dao_ai.apps.handlers import _responses_agent
+    from dao_ai.apps.sessions import user_id_from_headers, user_owns_thread
     from dao_ai.apps.traces import (
         build_trace_ui_url,
         get_trace_tree,
         search_session_traces,
     )
+
+    _graph = getattr(_responses_agent, "graph", None)
+    _store = getattr(_graph, "store", None) if _graph is not None else None
 
     @app.get("/v1/trace-url")
     def get_trace_url(trace_id: str = Query(...)):
@@ -212,15 +217,28 @@ def _mount_trace_routes() -> None:
         return JSONResponse({"url": build_trace_ui_url(trace_id)})
 
     @app.get("/v1/sessions/{thread_id}/traces")
-    def get_session_traces(thread_id: str):
+    async def get_session_traces(request: Request, thread_id: str):
         # Discover a thread's traces via the mlflow.trace.session link so a
-        # reloaded conversation can rebuild its Timeline. Always 200 with a list;
-        # [] on any failure (never 404/500) so reload degrades to the
+        # reloaded conversation can rebuild its Timeline. Scoped to the owning
+        # user (the trace store is not user-partitioned, so an unscoped thread_id
+        # would expose another user's timeline); returns [] when not owned or on
+        # any failure (never 404/500) so reload degrades to the
         # checkpointer-derived Events/Flow.
+        if _store is not None and not await user_owns_thread(
+            _store, user_id_from_headers(request.headers), thread_id
+        ):
+            return JSONResponse([])
         return JSONResponse(search_session_traces(thread_id))
 
     @app.get("/v1/traces")
-    def get_trace(trace_id: str = Query(...)):
+    def get_trace(request: Request, trace_id: str = Query(...)):
+        # Requires a valid OBO user. Per-trace ownership is not enforced here: a
+        # raw trace id carries no cheap user mapping, and the Console only fetches
+        # ids the user legitimately obtained (their own turn's custom_outputs, or
+        # the now-scoped /sessions/{id}/traces). The id is a high-entropy UC URI;
+        # tightening to a per-trace session-ownership check is a follow-up.
+        if not user_id_from_headers(request.headers):
+            raise HTTPException(status_code=401, detail="Unauthorized")
         # trace_location (UC OTEL) traces can take longer to become queryable
         # than the default local-tracking window, so allow more propagation time.
         # Any retrieval failure degrades to 404 (never 500) so the Console shows
@@ -278,17 +296,40 @@ def _mount_sessions_routes() -> None:
         load_session_meta,
         register_session,
         user_id_from_headers,
+        user_owns_thread,
     )
 
     graph = getattr(_responses_agent, "graph", None)
     has_checkpointer = graph is not None and getattr(graph, "checkpointer", None)
+    store = getattr(graph, "store", None) if graph is not None else None
+
+    async def _require_thread_owner(request: Request, thread_id: str) -> None:
+        """Enforce that the caller owns ``thread_id`` before a checkpointer read.
+
+        The checkpointer is keyed only by ``thread_id``, so without this a caller
+        holding another user's id (shared-browser localStorage, logs, a guess)
+        could read their conversation. When a session index (store) is configured
+        we require the thread to be registered to the OBO-derived user; we raise
+        404 (not 403) so a foreign id is indistinguishable from a missing one. If
+        no store is configured there is no user→thread index to check against, so
+        the reload routes cannot be scoped — that deployment has a
+        localStorage-only sidebar and no cross-user index by construction.
+        """
+        if store is None:
+            return
+        user_id = user_id_from_headers(request.headers)
+        if not await user_owns_thread(store, user_id, thread_id):
+            raise HTTPException(status_code=404, detail="Session not found")
 
     if has_checkpointer:
 
         @app.get("/v1/sessions/{thread_id}")
-        async def get_session(thread_id: str):
+        async def get_session(request: Request, thread_id: str):
+            await _require_thread_owner(request, thread_id)
             try:
                 return JSONResponse(await load_session(graph, thread_id))
+            except HTTPException:
+                raise
             except Exception as exc:  # noqa: BLE001
                 logger.warning(
                     "Failed to load session", thread_id=thread_id, error=str(exc)
@@ -296,9 +337,12 @@ def _mount_sessions_routes() -> None:
                 raise HTTPException(status_code=404, detail="Session not found")
 
         @app.get("/v1/sessions/{thread_id}/meta")
-        async def get_session_meta(thread_id: str):
+        async def get_session_meta(request: Request, thread_id: str):
+            await _require_thread_owner(request, thread_id)
             try:
                 return JSONResponse(await load_session_meta(graph, thread_id))
+            except HTTPException:
+                raise
             except Exception as exc:  # noqa: BLE001
                 logger.warning(
                     "Failed to load session meta",
@@ -307,7 +351,6 @@ def _mount_sessions_routes() -> None:
                 )
                 raise HTTPException(status_code=404, detail="Session not found")
 
-    store = getattr(graph, "store", None) if graph is not None else None
     if store is not None:
 
         @app.get("/v1/sessions")
