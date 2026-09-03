@@ -7,6 +7,8 @@
  * response straight back. Reads `API_PROXY` at request time (unlike
  * next.config rewrites, which bake at build time).
  */
+import { forwardedHeaders } from "@/lib/proxy";
+
 export const dynamic = "force-dynamic";
 
 export async function POST(req: Request): Promise<Response> {
@@ -19,7 +21,10 @@ export async function POST(req: Request): Promise<Response> {
   }
   const upstream = await fetch(backend, {
     method: "POST",
-    headers: { "content-type": "application/json", accept: "text/event-stream" },
+    headers: forwardedHeaders(req, {
+      "content-type": "application/json",
+      accept: "text/event-stream",
+    }),
     body: await req.text(),
   });
   return new Response(upstream.body, {

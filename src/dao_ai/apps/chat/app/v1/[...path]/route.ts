@@ -3,6 +3,8 @@
  * Same rationale as the /invocations handler: forwards to the `API_PROXY`
  * backend origin and streams the response, reading env at request time.
  */
+import { forwardedHeaders } from "@/lib/proxy";
+
 export const dynamic = "force-dynamic";
 
 function backendOrigin(): string | undefined {
@@ -22,7 +24,10 @@ async function proxy(req: Request, path: string[]): Promise<Response> {
   const target = `${origin}/v1/${path.join("/")}${search}`;
   const upstream = await fetch(target, {
     method: req.method,
-    headers: { "content-type": "application/json", accept: "text/event-stream" },
+    headers: forwardedHeaders(req, {
+      "content-type": "application/json",
+      accept: "text/event-stream",
+    }),
     body:
       req.method !== "GET" && req.method !== "HEAD"
         ? await req.text()

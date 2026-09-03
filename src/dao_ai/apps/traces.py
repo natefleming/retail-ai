@@ -96,7 +96,12 @@ def build_trace_tree(spans: list[Any], *, trace_id: str) -> dict[str, Any]:
             "spans": [],
         }
 
-    root_start_ns: int = min((getattr(s, "start_time_ns", 0) or 0) for s in spans)
+    # Baseline off real (non-zero) starts only — a span missing start_time_ns
+    # must not drag the baseline to epoch and push every bar off-scale.
+    starts: list[int] = [
+        s for s in (getattr(sp, "start_time_ns", 0) or 0 for sp in spans) if s
+    ]
+    root_start_ns: int = min(starts) if starts else 0
     max_end_ns: int = max((getattr(s, "end_time_ns", 0) or 0) for s in spans)
 
     nodes: dict[str, dict[str, Any]] = {}
@@ -108,7 +113,9 @@ def build_trace_tree(spans: list[Any], *, trace_id: str) -> dict[str, Any]:
     roots: list[dict[str, Any]] = []
     for node in nodes.values():
         parent = nodes.get(node["parent_id"]) if node["parent_id"] else None
-        if parent is None:
+        # A span that parents itself (or is missing a valid parent) is a root —
+        # never its own child, which would make the tree cyclic and recurse.
+        if parent is None or parent is node:
             roots.append(node)
         else:
             parent["children"].append(node)
@@ -148,24 +155,26 @@ def wait_for_trace(trace_id: str, *, timeout_seconds: float = 5.0) -> bool:
     delay: float = 0.25
     while True:
         try:
-            mlflow.get_trace(trace_id)
-            return True
+            trace = mlflow.get_trace(trace_id)
         except Exception as exc:  # noqa: BLE001 — degrade on any read failure
-            msg = str(exc).lower()
-            is_transient_missing = "not_found" in msg or "not found" in msg
-            if not is_transient_missing:
-                # Permission denied (e.g. the app SP lacks warehouse access),
-                # corrupted spans, warehouse unavailable — retrying won't help.
-                logger.warning(
-                    "Trace not readable; Timeline will show an empty note",
-                    trace_id=trace_id,
-                    error=str(exc),
-                )
-                return False
-            if time.monotonic() >= deadline:
-                return False
-            time.sleep(delay)
-            delay = min(delay * 2, 1.0)
+            # ``mlflow.get_trace`` swallows ``MlflowException`` (incl. NOT_FOUND)
+            # and returns None; anything that *does* propagate here is terminal —
+            # e.g. ``databricks.sdk`` ``PermissionDenied`` (the app identity can't
+            # read the trace warehouse). Retrying won't help, so degrade.
+            logger.warning(
+                "Trace not readable; Timeline will show an empty note",
+                trace_id=trace_id,
+                error=str(exc),
+            )
+            return False
+        if trace is not None:
+            return True
+        # None => not found yet. A trace_location (UC) trace can lag, so poll
+        # until the deadline before giving up.
+        if time.monotonic() >= deadline:
+            return False
+        time.sleep(delay)
+        delay = min(delay * 2, 1.0)
 
 
 def get_trace_tree(

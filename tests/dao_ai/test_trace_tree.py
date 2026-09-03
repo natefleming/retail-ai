@@ -174,3 +174,39 @@ class TestTraceRetrievalResilience:
         tree = traces.get_trace_tree("tr-ok", timeout_seconds=1.0)
         assert tree is not None
         assert tree["spans"][0]["name"] == "agent"
+
+    @pytest.mark.unit
+    def test_wait_polls_when_get_trace_returns_none(self, monkeypatch) -> None:
+        # mlflow.get_trace returns None (not raises) for a not-yet-propagated
+        # trace, so the poll must key off the return value, not an exception.
+        import mlflow
+
+        from dao_ai.apps import traces
+
+        calls = {"n": 0}
+
+        def _none(_trace_id):
+            calls["n"] += 1
+            return None
+
+        monkeypatch.setattr(mlflow, "get_trace", _none)
+        assert traces.wait_for_trace("tr-x", timeout_seconds=0.1) is False
+        assert calls["n"] >= 2  # actually polled, not a single immediate True
+
+
+class TestBuildTreeRobustness:
+    @pytest.mark.unit
+    def test_missing_start_does_not_skew_baseline(self) -> None:
+        base = 1_700_000_000_000_000_000  # epoch-scale ns
+        good = _span(span_id="a", parent_id=None, start_time_ns=base, end_time_ns=base + 10 * MS)
+        missing = _span(span_id="b", parent_id="a", start_time_ns=0, end_time_ns=base + 8 * MS)
+        tree = build_trace_tree([good, missing], trace_id="tr")
+        assert tree["spans"][0]["start_offset_ms"] == 0.0
+        assert tree["duration_ms"] < 1000  # not an astronomical epoch offset
+
+    @pytest.mark.unit
+    def test_self_parenting_span_is_root_not_infinite(self) -> None:
+        loopy = _span(span_id="x", parent_id="x", name="loopy")
+        tree = build_trace_tree([loopy], trace_id="tr")  # must not recurse
+        assert tree["spans"][0]["span_id"] == "x"
+        assert tree["spans"][0]["children"] == []
