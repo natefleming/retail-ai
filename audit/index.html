@@ -1,0 +1,2396 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Declarative Agent Orchestration — production-grade multi-agent AI systems defined in YAML, deployed on Databricks.">
+      
+      
+        <meta name="author" content="Nate Fleming">
+      
+      
+        <link rel="canonical" href="https://natefleming.github.io/dao-ai/audit/">
+      
+      
+        <link rel="prev" href="../background_agents/">
+      
+      
+        <link rel="next" href="../lakebase/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../images/brand/logo-symbol.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
+    
+    
+      
+        <title>Auditable Tool Invocations - dao-ai</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.ec1eaa64.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="black" data-md-color-accent="red">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#auditable-tool-invocations" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+<header class="md-header" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="dao-ai" class="md-header__button md-logo" aria-label="dao-ai" data-md-component="logo">
+      
+  <img src="../images/brand/logo-symbol.png" alt="logo">
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            dao-ai
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Auditable Tool Invocations
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="default" data-md-color-primary="black" data-md-color-accent="red"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="slate" data-md-color-primary="black" data-md-color-accent="red"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+          <a href="javascript:void(0)" class="md-search__icon md-icon" title="Share" aria-label="Share" data-clipboard data-clipboard-text="" data-md-component="search-share" tabindex="-1">
+            
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M18 16.08c-.76 0-1.44.3-1.96.77L8.91 12.7c.05-.23.09-.46.09-.7s-.04-.47-.09-.7l7.05-4.11c.54.5 1.25.81 2.04.81a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3c0 .24.04.47.09.7L8.04 9.81C7.5 9.31 6.79 9 6 9a3 3 0 0 0-3 3 3 3 0 0 0 3 3c.79 0 1.5-.31 2.04-.81l7.12 4.15c-.05.21-.08.43-.08.66 0 1.61 1.31 2.91 2.92 2.91s2.92-1.3 2.92-2.91A2.92 2.92 0 0 0 18 16.08"/></svg>
+          </a>
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/natefleming/dao-ai" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    natefleming/dao-ai
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+            
+<nav class="md-tabs" aria-label="Tabs" data-md-component="tabs">
+  <div class="md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href=".." class="md-tabs__link">
+        
+  
+  
+    
+  
+  Home
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../why-dao/" class="md-tabs__link">
+          
+  
+  
+  Concepts
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../configuration-reference/" class="md-tabs__link">
+          
+  
+  
+  Reference
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+    
+  
+  
+    
+    
+      <li class="md-tabs__item md-tabs__item--active">
+        <a href="../examples/" class="md-tabs__link">
+          
+  
+  
+  Guides
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../faq/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  FAQ
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../contributing/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Contributing
+
+      </a>
+    </li>
+  
+
+      
+    </ul>
+  </div>
+</nav>
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+  
+
+
+<nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="dao-ai" class="md-nav__button md-logo" aria-label="dao-ai" data-md-component="logo">
+      
+  <img src="../images/brand/logo-symbol.png" alt="logo">
+
+    </a>
+    dao-ai
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/natefleming/dao-ai" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    natefleming/dao-ai
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Concepts
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Concepts
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../why-dao/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Why DAO?
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../key-capabilities/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Key Capabilities
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../configuration-reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Configuration Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../cli-reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CLI Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../python-api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Python API
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Guides
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Guides
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../examples/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Examples
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../mcp_server/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    MCP Server
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../mcp-callbacks/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    MCP Callbacks
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../a2a_protocol/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    A2A Protocol
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../background_agents/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Background Agents
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Auditable Tool Invocations
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Auditable Tool Invocations
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#contents" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Contents
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#when-to-use-it" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        When to use it
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#config" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Config
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#call-flow-diagrams" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Call flow diagrams
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Call flow diagrams">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#1-audit-only-tool-invocation-execution-receipt" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. Audit-only tool invocation → execution receipt
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#2-audit-hitl-approve-intent-verified-execution-receipt" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. Audit + HITL — approve → intent-verified execution receipt
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#3-audit-hitl-edit-user-modified-args-still-bound-to-intent" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. Audit + HITL — edit → user-modified args, still bound to intent
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#4-audit-hitl-reject-tool-never-runs-rejection-receipt" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4. Audit + HITL — reject → tool never runs, rejection receipt
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#5-audit-hitl-respond-reviewer-replies-on-behalf-of-tool" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5. Audit + HITL — respond → reviewer replies on behalf of tool
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#6-args-tampering-fail-closed-rejection-receipt" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6. Args tampering — fail-closed rejection receipt
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#receipt-schema" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Receipt schema
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#client-facing-stream-events" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Client-facing stream events
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#mlflow-span-attributes-events" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        MLflow span attributes + events
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="MLflow span attributes + events">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#why-events-not-spans-for-receipts" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Why events, not spans, for receipts
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#audittoolkit" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        AuditToolkit
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#sensitive-data-handling" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Sensitive data handling
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#deployment" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Deployment
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Deployment">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#databricks-apps" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Databricks Apps
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#model-serving" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Model Serving
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#guarantees" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Guarantees
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#known-limitations" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Known limitations
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#references" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        References
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../lakebase/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Lakebase
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../mlflow-tracing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    MLflow Tracing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../genie_context_aware_cache_prompt_history/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Genie Context-Aware Cache
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../faq/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    FAQ
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../contributing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Contributing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#contents" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Contents
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#when-to-use-it" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        When to use it
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#config" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Config
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#call-flow-diagrams" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Call flow diagrams
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Call flow diagrams">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#1-audit-only-tool-invocation-execution-receipt" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. Audit-only tool invocation → execution receipt
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#2-audit-hitl-approve-intent-verified-execution-receipt" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. Audit + HITL — approve → intent-verified execution receipt
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#3-audit-hitl-edit-user-modified-args-still-bound-to-intent" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. Audit + HITL — edit → user-modified args, still bound to intent
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#4-audit-hitl-reject-tool-never-runs-rejection-receipt" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4. Audit + HITL — reject → tool never runs, rejection receipt
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#5-audit-hitl-respond-reviewer-replies-on-behalf-of-tool" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5. Audit + HITL — respond → reviewer replies on behalf of tool
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#6-args-tampering-fail-closed-rejection-receipt" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6. Args tampering — fail-closed rejection receipt
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#receipt-schema" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Receipt schema
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#client-facing-stream-events" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Client-facing stream events
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#mlflow-span-attributes-events" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        MLflow span attributes + events
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="MLflow span attributes + events">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#why-events-not-spans-for-receipts" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Why events, not spans, for receipts
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#audittoolkit" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        AuditToolkit
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#sensitive-data-handling" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Sensitive data handling
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#deployment" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Deployment
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Deployment">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#databricks-apps" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Databricks Apps
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#model-serving" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Model Serving
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#guarantees" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Guarantees
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#known-limitations" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Known limitations
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#references" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        References
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+    <a href="https://github.com/natefleming/dao-ai/edit/main/docs/audit.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M10 20H6V4h7v5h5v3.1l2-2V8l-6-6H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h4zm10.2-7c.1 0 .3.1.4.2l1.3 1.3c.2.2.2.6 0 .8l-1 1-2.1-2.1 1-1c.1-.1.2-.2.4-.2m0 3.9L14.1 23H12v-2.1l6.1-6.1z"/></svg>
+    </a>
+  
+  
+
+
+<h1 id="auditable-tool-invocations">Auditable Tool Invocations<a class="headerlink" href="#auditable-tool-invocations" title="Permanent link">&para;</a></h1>
+<p>dao-ai ships a tamper-evident audit trail for LLM-agent tool calls. Every
+audited invocation writes a signed receipt to Lakebase, links to the
+enclosing MLflow trace, captures the OBO identity of the caller, and
+seals into a per-thread hash chain that detects any post-hoc mutation.</p>
+<p>Combined with <code>human_in_the_loop</code>, the same subsystem produces
+<strong>intent-verified approval receipts</strong>: the args a user approves are
+byte-hashed at interrupt time and re-hashed at execution time, and any
+drift <strong>fail-closes</strong> the tool call with a rejection receipt. This
+satisfies the "who approved this exact thing" bar for SOC2 / SOX /
+HIPAA-style non-repudiation and is designed against the intent-
+verification research captured in the vault
+(<code>00-inbox/dao-ai-auditable-hitl-approvals-research-2026-07-12.md</code>).</p>
+<h2 id="contents">Contents<a class="headerlink" href="#contents" title="Permanent link">&para;</a></h2>
+<ol>
+<li><a href="#when-to-use-it">When to use it</a></li>
+<li><a href="#config">Config</a></li>
+<li><a href="#call-flow-diagrams">Call flow diagrams</a></li>
+<li><a href="#receipt-schema">Receipt schema</a></li>
+<li><a href="#mlflow-span-attributes-events">MLflow span attributes</a></li>
+<li><a href="#audittoolkit"><code>AuditToolkit</code> — self-service audit queries for agents</a></li>
+<li><a href="#sensitive-data-handling">Sensitive data handling</a></li>
+<li><a href="#deployment">Deployment</a></li>
+<li><a href="#guarantees">Guarantees</a></li>
+<li><a href="#known-limitations">Known limitations</a></li>
+<li><a href="#references">References</a></li>
+</ol>
+<h2 id="when-to-use-it">When to use it<a class="headerlink" href="#when-to-use-it" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Scenario</th>
+<th>Configuration</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Tool executes autonomously, needs audit log</td>
+<td><code>audit:</code> only</td>
+</tr>
+<tr>
+<td>Tool needs approval, no audit trail</td>
+<td><code>human_in_the_loop:</code> only</td>
+</tr>
+<tr>
+<td>Tool needs approval AND non-repudiation</td>
+<td>Both <code>audit:</code> and <code>human_in_the_loop:</code></td>
+</tr>
+</tbody>
+</table>
+<p>Auditing is per-tool. Tools without <code>audit:</code> see no behavioural change
+even when the agent hosts other audited tools.</p>
+<h2 id="config">Config<a class="headerlink" href="#config" title="Permanent link">&para;</a></h2>
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nt">resources</span><span class="p">:</span>
+</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="w">  </span><span class="nt">databases</span><span class="p">:</span>
+</span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="w">    </span><span class="nt">audit_db</span><span class="p">:</span><span class="w"> </span><span class="nl">&amp;audit_db</span>
+</span><span id="__span-0-4"><a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="w">      </span><span class="nt">project</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">retail-consumer-goods</span>
+</span><span id="__span-0-5"><a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="w">      </span><span class="nt">autoscaling_min_cu</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0</span>
+</span><span id="__span-0-6"><a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>
+</span><span id="__span-0-7"><a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a><span class="nt">tools</span><span class="p">:</span>
+</span><span id="__span-0-8"><a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a><span class="w">  </span><span class="nt">refund_customer</span><span class="p">:</span>
+</span><span id="__span-0-9"><a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a><span class="w">    </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">refund_customer</span>
+</span><span id="__span-0-10"><a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a><span class="w">    </span><span class="nt">function</span><span class="p">:</span>
+</span><span id="__span-0-11"><a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a><span class="w">      </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">python</span>
+</span><span id="__span-0-12"><a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a><span class="w">      </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">my_package.tools.refund_customer</span>
+</span><span id="__span-0-13"><a id="__codelineno-0-13" name="__codelineno-0-13" href="#__codelineno-0-13"></a><span class="w">      </span><span class="nt">audit</span><span class="p">:</span><span class="w">                              </span><span class="c1"># &lt;-- opt this tool into auditing</span>
+</span><span id="__span-0-14"><a id="__codelineno-0-14" name="__codelineno-0-14" href="#__codelineno-0-14"></a><span class="w">        </span><span class="nt">database</span><span class="p">:</span><span class="w"> </span><span class="nv">*audit_db</span><span class="w">               </span><span class="c1"># anchor reuse (same Lakebase as checkpointer)</span>
+</span><span id="__span-0-15"><a id="__codelineno-0-15" name="__codelineno-0-15" href="#__codelineno-0-15"></a><span class="w">        </span><span class="nt">table</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">audit_receipts</span><span class="w">             </span><span class="c1"># default; override if you host multiple audits</span>
+</span><span id="__span-0-16"><a id="__codelineno-0-16" name="__codelineno-0-16" href="#__codelineno-0-16"></a><span class="w">        </span><span class="c1"># nonce_ttl_seconds: 300          # default; 30-3600 accepted</span>
+</span><span id="__span-0-17"><a id="__codelineno-0-17" name="__codelineno-0-17" href="#__codelineno-0-17"></a><span class="w">      </span><span class="nt">human_in_the_loop</span><span class="p">:</span><span class="w">                  </span><span class="c1"># &lt;-- optional: also gate on approval</span>
+</span><span id="__span-0-18"><a id="__codelineno-0-18" name="__codelineno-0-18" href="#__codelineno-0-18"></a><span class="w">        </span><span class="nt">review_prompt</span><span class="p">:</span><span class="w"> </span><span class="s">"Refund</span><span class="nv"> </span><span class="s">of</span><span class="nv"> </span><span class="s">${amount}</span><span class="nv"> </span><span class="s">to</span><span class="nv"> </span><span class="s">customer</span><span class="nv"> </span><span class="s">${customer_id}?"</span>
+</span><span id="__span-0-19"><a id="__codelineno-0-19" name="__codelineno-0-19" href="#__codelineno-0-19"></a><span class="w">        </span><span class="nt">allowed_decisions</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">approve</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">edit</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">reject</span><span class="p p-Indicator">]</span>
+</span></code></pre></div>
+<p>Multi-tool anchor pattern:</p>
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">function</span><span class="p">:</span>
+</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="w">    </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">refund_customer</span>
+</span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="w">    </span><span class="nt">audit</span><span class="p">:</span><span class="w"> </span><span class="nl">&amp;audit</span>
+</span><span id="__span-1-4"><a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="w">      </span><span class="nt">database</span><span class="p">:</span><span class="w"> </span><span class="nv">*audit_db</span>
+</span><span id="__span-1-5"><a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a><span class="w">      </span><span class="nt">table</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">audit_receipts</span>
+</span><span id="__span-1-6"><a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">function</span><span class="p">:</span>
+</span><span id="__span-1-7"><a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a><span class="w">    </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">cancel_subscription</span>
+</span><span id="__span-1-8"><a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a><span class="w">    </span><span class="nt">audit</span><span class="p">:</span><span class="w"> </span><span class="nv">*audit</span>
+</span></code></pre></div>
+<h2 id="call-flow-diagrams">Call flow diagrams<a class="headerlink" href="#call-flow-diagrams" title="Permanent link">&para;</a></h2>
+<p>Six flows exercise every code path in the subsystem.</p>
+<h3 id="1-audit-only-tool-invocation-execution-receipt">1. Audit-only tool invocation → execution receipt<a class="headerlink" href="#1-audit-only-tool-invocation-execution-receipt" title="Permanent link">&para;</a></h3>
+<pre class="mermaid"><code>sequenceDiagram
+    autonumber
+    participant Client
+    participant Proxy as Databricks Apps proxy
+    participant Agent as LanggraphResponsesAgent
+    participant Graph as LangGraph (compiled)
+    participant Middleware as AuditReceiptMiddleware
+    participant Tool as Tool implementation
+    participant Sink as LakebaseAuditSink
+    participant Lakebase as retail_consumer_goods.audit_db
+    participant MLflow as MLflow trace
+
+    Client-&gt;&gt;Proxy: POST /invocations
+    Proxy-&gt;&gt;Agent: X-Forwarded-User + X-Forwarded-Access-Token
+    Agent-&gt;&gt;Graph: ainvoke(messages)
+    Graph-&gt;&gt;Middleware: awrap_tool_call(request)
+    Note over Middleware: SHA-256(JCS(args))&lt;br/&gt;capture OBO from headers&lt;br/&gt;no stash — audit-only path
+    Middleware-&gt;&gt;Tool: handler(request)
+    Tool--&gt;&gt;Middleware: ToolMessage(result)
+    Middleware-&gt;&gt;Sink: record(receipt)
+    Sink-&gt;&gt;Lakebase: INSERT INTO audit_receipts (kind=execution, args_hash, obo, prev_hash, this_hash)
+    Middleware-&gt;&gt;MLflow: set_attribute(dao_ai.audit.receipt_id, args_hash, obo_token_present)
+    Middleware--&gt;&gt;Graph: ToolMessage(result)
+    Graph--&gt;&gt;Agent: response
+    Agent--&gt;&gt;Client: 200 OK + custom_outputs.trace_id</code></pre>
+<h3 id="2-audit-hitl-approve-intent-verified-execution-receipt">2. Audit + HITL — approve → intent-verified execution receipt<a class="headerlink" href="#2-audit-hitl-approve-intent-verified-execution-receipt" title="Permanent link">&para;</a></h3>
+<pre class="mermaid"><code>sequenceDiagram
+    autonumber
+    participant Client
+    participant Agent as LanggraphResponsesAgent
+    participant Graph as LangGraph
+    participant Ahitl as AuditedHumanInTheLoopMiddleware
+    participant Stash as AuditStash (in-process)
+    participant Amw as AuditReceiptMiddleware
+    participant Tool as Tool implementation
+    participant Sink as LakebaseAuditSink
+    participant Lakebase as audit_receipts
+
+    Client-&gt;&gt;Agent: 1st request — invoke refund
+    Agent-&gt;&gt;Graph: ainvoke(messages)
+    Graph-&gt;&gt;Ahitl: after_model → _create_action_and_config
+    Note over Ahitl: canonical_jcs(args)&lt;br/&gt;SHA-256 = args_hash_at_interrupt&lt;br/&gt;issue nonce (in-memory)&lt;br/&gt;displayed_summary (harness-rendered)
+    Ahitl-&gt;&gt;Stash: put(thread_id, tool_call_id, entry)
+    Ahitl--&gt;&gt;Graph: interrupt(HITLRequest)
+    Graph--&gt;&gt;Agent: __interrupt__ raised
+    Agent--&gt;&gt;Client: custom_outputs.interrupts (intent-hash + nonce prefix)
+
+    Client-&gt;&gt;Agent: 2nd request — decisions=[{"type":"approve"}]
+    Agent-&gt;&gt;Graph: ainvoke(Command(resume=decisions))
+    Graph-&gt;&gt;Ahitl: _process_decision(approve, tool_call, config)
+    Ahitl-&gt;&gt;Stash: take → decorate(decision=approve, confirmed_via=chat_ui) → put
+    Ahitl--&gt;&gt;Graph: (tool_call, None)
+    Graph-&gt;&gt;Amw: awrap_tool_call(request)
+    Amw-&gt;&gt;Stash: take
+    Note over Amw: args_hash == stash.args_hash_at_interrupt&lt;br/&gt;OK — no drift, no fail-closed
+    Amw-&gt;&gt;Tool: handler(request)
+    Tool--&gt;&gt;Amw: ToolMessage
+    Amw-&gt;&gt;Sink: record(receipt kind=execution, decision=approve, HITL fields populated)
+    Sink-&gt;&gt;Lakebase: INSERT (prev_hash = last this_hash on thread)
+    Amw--&gt;&gt;Graph: ToolMessage
+    Graph--&gt;&gt;Agent: response
+    Agent--&gt;&gt;Client: 200 OK</code></pre>
+<h3 id="3-audit-hitl-edit-user-modified-args-still-bound-to-intent">3. Audit + HITL — edit → user-modified args, still bound to intent<a class="headerlink" href="#3-audit-hitl-edit-user-modified-args-still-bound-to-intent" title="Permanent link">&para;</a></h3>
+<pre class="mermaid"><code>sequenceDiagram
+    autonumber
+    participant Client
+    participant Ahitl as AuditedHumanInTheLoopMiddleware
+    participant Stash as AuditStash
+    participant Amw as AuditReceiptMiddleware
+    participant Tool
+    participant Sink
+
+    Note over Ahitl,Stash: (interrupt-time — same as approve flow, populates stash)
+
+    Client-&gt;&gt;Ahitl: decisions=[{"type":"edit","edited_action":{"name":"refund","args":{"amount":20}}}]
+    Ahitl-&gt;&gt;Ahitl: _process_decision(edit, tool_call, config)
+    Note over Ahitl: JCS(edited_action.args)&lt;br/&gt;SHA-256 = edited_args_hash
+    Ahitl-&gt;&gt;Stash: take → decorate(decision=edit, edited_args_hash=..., edited_args_jcs=...) → put
+    Ahitl--&gt;&gt;Ahitl: revised_tool_call = ToolCall(args=edited_action.args)
+    Ahitl-&gt;&gt;Amw: awrap_tool_call(revised request)
+    Amw-&gt;&gt;Stash: take
+    Note over Amw: stash.decision == "edit"&lt;br/&gt;expected_hash = stash.edited_args_hash&lt;br/&gt;args_hash == expected_hash → OK
+    Amw-&gt;&gt;Tool: handler(revised request)
+    Tool--&gt;&gt;Amw: ToolMessage
+    Amw-&gt;&gt;Sink: record(execution, decision=edit, edited_args_jcs + hash on receipt)</code></pre>
+<h3 id="4-audit-hitl-reject-tool-never-runs-rejection-receipt">4. Audit + HITL — reject → tool never runs, rejection receipt<a class="headerlink" href="#4-audit-hitl-reject-tool-never-runs-rejection-receipt" title="Permanent link">&para;</a></h3>
+<pre class="mermaid"><code>sequenceDiagram
+    autonumber
+    participant Client
+    participant Agent as LanggraphResponsesAgent
+    participant Hitlpy as dao_ai.hitl.decide_graph_turn
+    participant Tap as _record_hitl_non_executions
+    participant Graph as LangGraph
+    participant Ahitl as AuditedHumanInTheLoopMiddleware
+    participant Sink
+
+    Note over Ahitl: (interrupt already fired — stash populated)
+
+    Client-&gt;&gt;Agent: decisions=[{"type":"reject","message":"Not authorised."}]
+    Agent-&gt;&gt;Hitlpy: decide_graph_turn(decisions, tool_models)
+    Hitlpy-&gt;&gt;Tap: for each reject|respond → write receipt
+    Tap-&gt;&gt;Sink: record(receipt kind=rejection, decision=reject, execution_status=not_executed_rejected)
+    Hitlpy--&gt;&gt;Agent: Command(resume=decisions)
+    Agent-&gt;&gt;Graph: ainvoke(Command)
+    Graph-&gt;&gt;Ahitl: _process_decision(reject, ...)
+    Ahitl--&gt;&gt;Graph: (tool_call, ToolMessage(status=error))
+    Note over Graph,Ahitl: Tool never executes — awrap_tool_call skipped
+    Graph--&gt;&gt;Agent: response with synthetic reject message
+    Agent--&gt;&gt;Client: 200 OK</code></pre>
+<h3 id="5-audit-hitl-respond-reviewer-replies-on-behalf-of-tool">5. Audit + HITL — respond → reviewer replies on behalf of tool<a class="headerlink" href="#5-audit-hitl-respond-reviewer-replies-on-behalf-of-tool" title="Permanent link">&para;</a></h3>
+<pre class="mermaid"><code>sequenceDiagram
+    autonumber
+    participant Client
+    participant Hitlpy as dao_ai.hitl.decide_graph_turn
+    participant Tap as _record_hitl_non_executions
+    participant Ahitl as AuditedHumanInTheLoopMiddleware
+    participant Graph as LangGraph
+    participant Sink
+
+    Client-&gt;&gt;Hitlpy: decisions=[{"type":"respond","message":"Answered manually."}]
+    Hitlpy-&gt;&gt;Tap: reject | respond → write receipt
+    Tap-&gt;&gt;Sink: record(kind=rejection, decision=respond, decision_detail={message:...})
+    Hitlpy--&gt;&gt;Client: Command(resume=decisions)
+    Graph-&gt;&gt;Ahitl: _process_decision(respond, ...)
+    Ahitl--&gt;&gt;Graph: (tool_call, ToolMessage(status=success, content=reviewer's message))
+    Note over Ahitl,Graph: Tool skipped — reviewer's text fed to LLM&lt;br/&gt;as if the tool had returned it</code></pre>
+<h3 id="6-args-tampering-fail-closed-rejection-receipt">6. Args tampering — fail-closed rejection receipt<a class="headerlink" href="#6-args-tampering-fail-closed-rejection-receipt" title="Permanent link">&para;</a></h3>
+<pre class="mermaid"><code>sequenceDiagram
+    autonumber
+    participant Attacker as Attacker (compromised session)
+    participant Agent as LanggraphResponsesAgent
+    participant Graph as LangGraph
+    participant Amw as AuditReceiptMiddleware
+    participant Stash as AuditStash
+    participant Sink
+    participant MLflow
+
+    Note over Stash: stash.args_hash_at_interrupt = H(approved_args)&lt;br/&gt;stash.decision = "approve"
+
+    Attacker-&gt;&gt;Agent: forged resume — same decision, but LangGraph args&lt;br/&gt;secretly mutated (e.g. by malicious middleware)
+    Agent-&gt;&gt;Graph: ainvoke(Command(resume))
+    Graph-&gt;&gt;Amw: awrap_tool_call(request with mutated args)
+    Amw-&gt;&gt;Amw: args_hash = SHA-256(JCS(request.tool_call.args))
+    Amw-&gt;&gt;Stash: take
+    Note over Amw: expected = stash.args_hash_at_interrupt&lt;br/&gt;args_hash ≠ expected → FAIL-CLOSED
+    Amw-&gt;&gt;Sink: record(kind=rejection, execution_status=args_mismatch)
+    Amw-&gt;&gt;MLflow: emit span event dao_ai.audit.args_mismatch
+    Amw--xGraph: raises AuditNonceError — tool NEVER runs</code></pre>
+<h2 id="receipt-schema">Receipt schema<a class="headerlink" href="#receipt-schema" title="Permanent link">&para;</a></h2>
+<p>Every audited invocation writes exactly one row to the configured table.
+Nullable HITL fields land NULL for audit-only tools.</p>
+<table>
+<thead>
+<tr>
+<th>Column</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>receipt_id</code></td>
+<td>UUID.</td>
+</tr>
+<tr>
+<td><code>receipt_kind</code></td>
+<td><code>execution</code> | <code>approval</code> | <code>rejection</code>.</td>
+</tr>
+<tr>
+<td><code>thread_id</code>, <code>agent_id</code></td>
+<td>LangGraph thread + agent identifiers.</td>
+</tr>
+<tr>
+<td><code>mlflow_trace_id</code></td>
+<td>Links back to the MLflow trace for the same turn.</td>
+</tr>
+<tr>
+<td><code>tool_call_id</code>, <code>tool_name</code></td>
+<td>From the LangGraph tool call.</td>
+</tr>
+<tr>
+<td><code>args_jcs</code>, <code>args_hash</code></td>
+<td>RFC 8785 canonical JSON of args + hex SHA-256 hash.</td>
+</tr>
+<tr>
+<td><code>args_hash_at_interrupt</code> / <code>_at_resume</code></td>
+<td>Populated on HITL tools — must match; drift is fail-closed.</td>
+</tr>
+<tr>
+<td><code>edited_args_jcs</code>, <code>edited_args_hash</code></td>
+<td>Populated on <code>edit</code> decisions.</td>
+</tr>
+<tr>
+<td><code>displayed_summary</code></td>
+<td>Harness-generated review text shown to the reviewer (never model-generated).</td>
+</tr>
+<tr>
+<td><code>decision</code>, <code>decision_detail</code></td>
+<td>HITL decision + payload.</td>
+</tr>
+<tr>
+<td><code>approver_sub</code>, <code>approver_email</code></td>
+<td>Identity fields from <code>X-Forwarded-User</code> / <code>X-Forwarded-Email</code>.</td>
+</tr>
+<tr>
+<td><code>confirmed_via</code></td>
+<td><code>chat_ui</code> (v1) — reserved for <code>obo_jwt</code> (v2) and <code>webauthn</code> (v3).</td>
+</tr>
+<tr>
+<td><code>obo_access_token</code>, <code>obo_token_exp</code>, <code>obo_token_sub</code></td>
+<td>Raw OBO JWT + extracted claims. Only populated when the header is present.</td>
+</tr>
+<tr>
+<td><code>nonce</code>, <code>nonce_exp</code></td>
+<td>Server-issued single-use approval nonce (in-memory in v1).</td>
+</tr>
+<tr>
+<td><code>execution_status</code>, <code>execution_error</code></td>
+<td><code>ok</code> / <code>error</code> / <code>args_mismatch</code> / <code>not_executed_rejected</code>.</td>
+</tr>
+<tr>
+<td><code>prev_hash</code>, <code>this_hash</code></td>
+<td>Hash-chain link over the receipts for this <code>thread_id</code>.</td>
+</tr>
+<tr>
+<td><code>recorded_at</code></td>
+<td>Server timestamp (UTC).</td>
+</tr>
+</tbody>
+</table>
+<p>Two side tables live alongside it:</p>
+<ul>
+<li><code>&lt;table&gt;_nonces</code> — approval nonces table. Provisioned by the schema DDL
+  for future cross-process nonce persistence; unused in v1 (in-memory
+  stash).</li>
+<li>The receipts table has <code>BEFORE UPDATE</code>/<code>BEFORE DELETE</code> triggers that
+  refuse mutation — append-only at the SQL layer.</li>
+</ul>
+<h2 id="client-facing-stream-events">Client-facing stream events<a class="headerlink" href="#client-facing-stream-events" title="Permanent link">&para;</a></h2>
+<p>Every successful receipt write also dispatches a
+<code>dao_ai.audit.receipt</code> custom event through LangChain's callback
+manager. dao-ai's <code>LanggraphResponsesAgent.apredict_stream</code> picks
+these up alongside its existing MCP-notification handling and forwards
+them as <code>response.output_item.added(status="in_progress")</code> frames on
+the response stream. A UI can subscribe to these to render "audit
+trail captured for tool X" indicators inline with tool results:</p>
+<div class="language-json highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="p">{</span>
+</span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="w">  </span><span class="nt">"type"</span><span class="p">:</span><span class="w"> </span><span class="s2">"response.output_item.added"</span><span class="p">,</span>
+</span><span id="__span-2-3"><a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="w">  </span><span class="nt">"item"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-2-4"><a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a><span class="w">    </span><span class="nt">"id"</span><span class="p">:</span><span class="w"> </span><span class="s2">"mcp_dao_ai.audit_&lt;...&gt;"</span><span class="p">,</span>
+</span><span id="__span-2-5"><a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a><span class="w">    </span><span class="nt">"type"</span><span class="p">:</span><span class="w"> </span><span class="s2">"custom_tool_call"</span><span class="p">,</span>
+</span><span id="__span-2-6"><a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a><span class="w">    </span><span class="nt">"status"</span><span class="p">:</span><span class="w"> </span><span class="s2">"in_progress"</span><span class="p">,</span>
+</span><span id="__span-2-7"><a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a><span class="w">    </span><span class="nt">"name"</span><span class="p">:</span><span class="w"> </span><span class="s2">"dao_ai.audit.receipt"</span><span class="p">,</span>
+</span><span id="__span-2-8"><a id="__codelineno-2-8" name="__codelineno-2-8" href="#__codelineno-2-8"></a><span class="w">    </span><span class="nt">"input"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-2-9"><a id="__codelineno-2-9" name="__codelineno-2-9" href="#__codelineno-2-9"></a><span class="w">      </span><span class="nt">"channel"</span><span class="p">:</span><span class="w"> </span><span class="s2">"dao_ai.audit.receipt"</span><span class="p">,</span>
+</span><span id="__span-2-10"><a id="__codelineno-2-10" name="__codelineno-2-10" href="#__codelineno-2-10"></a><span class="w">      </span><span class="nt">"server_name"</span><span class="p">:</span><span class="w"> </span><span class="s2">"dao_ai.audit"</span><span class="p">,</span>
+</span><span id="__span-2-11"><a id="__codelineno-2-11" name="__codelineno-2-11" href="#__codelineno-2-11"></a><span class="w">      </span><span class="nt">"receipt_id"</span><span class="p">:</span><span class="w"> </span><span class="s2">"aa27ce5b1e234b1297ace470cce57217"</span><span class="p">,</span>
+</span><span id="__span-2-12"><a id="__codelineno-2-12" name="__codelineno-2-12" href="#__codelineno-2-12"></a><span class="w">      </span><span class="nt">"receipt_kind"</span><span class="p">:</span><span class="w"> </span><span class="s2">"execution"</span><span class="p">,</span>
+</span><span id="__span-2-13"><a id="__codelineno-2-13" name="__codelineno-2-13" href="#__codelineno-2-13"></a><span class="w">      </span><span class="nt">"tool_name"</span><span class="p">:</span><span class="w"> </span><span class="s2">"refund_customer"</span><span class="p">,</span>
+</span><span id="__span-2-14"><a id="__codelineno-2-14" name="__codelineno-2-14" href="#__codelineno-2-14"></a><span class="w">      </span><span class="nt">"tool_call_id"</span><span class="p">:</span><span class="w"> </span><span class="s2">"toolu_..."</span><span class="p">,</span>
+</span><span id="__span-2-15"><a id="__codelineno-2-15" name="__codelineno-2-15" href="#__codelineno-2-15"></a><span class="w">      </span><span class="nt">"thread_id"</span><span class="p">:</span><span class="w"> </span><span class="s2">"audit-verify-thread-C"</span><span class="p">,</span>
+</span><span id="__span-2-16"><a id="__codelineno-2-16" name="__codelineno-2-16" href="#__codelineno-2-16"></a><span class="w">      </span><span class="nt">"mlflow_trace_id"</span><span class="p">:</span><span class="w"> </span><span class="s2">"trace:/retail_consumer_goods.audit_demo/..."</span><span class="p">,</span>
+</span><span id="__span-2-17"><a id="__codelineno-2-17" name="__codelineno-2-17" href="#__codelineno-2-17"></a><span class="w">      </span><span class="nt">"decision"</span><span class="p">:</span><span class="w"> </span><span class="s2">"approve"</span><span class="p">,</span>
+</span><span id="__span-2-18"><a id="__codelineno-2-18" name="__codelineno-2-18" href="#__codelineno-2-18"></a><span class="w">      </span><span class="nt">"hitl_involved"</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="p">,</span>
+</span><span id="__span-2-19"><a id="__codelineno-2-19" name="__codelineno-2-19" href="#__codelineno-2-19"></a><span class="w">      </span><span class="nt">"execution_status"</span><span class="p">:</span><span class="w"> </span><span class="s2">"ok"</span><span class="p">,</span>
+</span><span id="__span-2-20"><a id="__codelineno-2-20" name="__codelineno-2-20" href="#__codelineno-2-20"></a><span class="w">      </span><span class="nt">"confirmed_via"</span><span class="p">:</span><span class="w"> </span><span class="s2">"chat_ui"</span><span class="p">,</span>
+</span><span id="__span-2-21"><a id="__codelineno-2-21" name="__codelineno-2-21" href="#__codelineno-2-21"></a><span class="w">      </span><span class="nt">"approver_sub"</span><span class="p">:</span><span class="w"> </span><span class="s2">"nate_fleming@databricks_com"</span><span class="p">,</span>
+</span><span id="__span-2-22"><a id="__codelineno-2-22" name="__codelineno-2-22" href="#__codelineno-2-22"></a><span class="w">      </span><span class="nt">"recorded_at"</span><span class="p">:</span><span class="w"> </span><span class="s2">"2026-07-14T15:03:19.246575+00:00"</span>
+</span><span id="__span-2-23"><a id="__codelineno-2-23" name="__codelineno-2-23" href="#__codelineno-2-23"></a><span class="w">    </span><span class="p">}</span>
+</span><span id="__span-2-24"><a id="__codelineno-2-24" name="__codelineno-2-24" href="#__codelineno-2-24"></a><span class="w">  </span><span class="p">}</span>
+</span><span id="__span-2-25"><a id="__codelineno-2-25" name="__codelineno-2-25" href="#__codelineno-2-25"></a><span class="p">}</span>
+</span></code></pre></div>
+<p><strong>What the envelope carries (client-safe subset):</strong></p>
+<ul>
+<li><code>receipt_id</code>, <code>receipt_kind</code>, <code>thread_id</code>, <code>mlflow_trace_id</code></li>
+<li><code>tool_name</code>, <code>tool_call_id</code></li>
+<li><code>decision</code>, <code>hitl_involved</code>, <code>execution_status</code>, <code>confirmed_via</code></li>
+<li><code>approver_sub</code>, <code>recorded_at</code></li>
+</ul>
+<p><strong>What the envelope deliberately does NOT carry:</strong></p>
+<ul>
+<li><code>obo_access_token</code> — raw OBO JWT, sensitive credential material</li>
+<li><code>args_jcs</code>, <code>args_hash_at_interrupt</code>, <code>args_hash_at_resume</code> — internal</li>
+<li><code>nonce</code>, <code>nonce_exp</code> — server-only</li>
+<li><code>prev_hash</code>, <code>this_hash</code> — chain-verification queries fetch from Lakebase</li>
+<li><code>displayed_summary</code> — already shown to the user at interrupt time</li>
+</ul>
+<p><strong>Failure semantics.</strong> The dispatch is fully best-effort:
+- Non-streaming caller (<code>apredict</code>) → no callback context → silent no-op.
+- Missing <code>callbacks</code> list on the runnable config → silent no-op.
+- Dispatch exception → logged at DEBUG and swallowed. The receipt has
+  already landed in Lakebase.</p>
+<p><strong>Non-streaming reply.</strong> The same envelope also accumulates into
+<code>custom_outputs["mcp_events"]</code> (via dao-ai's existing MCP
+notification buffer), so clients that consume the aggregated response
+instead of the SSE stream still see the audit events at the end of the
+turn.</p>
+<h2 id="mlflow-span-attributes-events">MLflow span attributes + events<a class="headerlink" href="#mlflow-span-attributes-events" title="Permanent link">&para;</a></h2>
+<p>Audit information reaches MLflow traces through two mechanisms.</p>
+<p><strong>Attributes</strong> on the enclosing tool-call span (immutable, via
+<code>set_attribute</code>):</p>
+<ul>
+<li><code>dao_ai.audit.receipt_id</code></li>
+<li><code>dao_ai.audit.args_hash</code></li>
+<li><code>dao_ai.audit.obo_token_present</code> (bool)</li>
+<li><code>dao_ai.audit.approver_sub</code> (HITL only)</li>
+<li><code>dao_ai.audit.decision</code> (HITL only)</li>
+</ul>
+<p><strong>Events</strong> attached to the currently-active span at receipt-write time:</p>
+<ul>
+<li><code>dao_ai.audit.receipt</code> — one event per receipt, carrying every
+  client-safe envelope field as an event attribute (same fields as the
+  streaming notification, sensitive fields excluded). Fires for every
+  successful receipt write — execution / approval / rejection / respond.</li>
+<li><code>dao_ai.audit.args_mismatch</code> — one event on fail-closed rejections
+  where the args hash drifted between HITL approval and execution.</li>
+</ul>
+<p>The raw OBO JWT is <strong>never</strong> attached to spans — traces have broader
+read access than the receipts table.</p>
+<h3 id="why-events-not-spans-for-receipts">Why events, not spans, for receipts<a class="headerlink" href="#why-events-not-spans-for-receipts" title="Permanent link">&para;</a></h3>
+<p>MLflow tracing distinguishes:</p>
+<ul>
+<li><strong>Spans</strong> — units of work with duration; each shows up as an
+  expandable row in the trace tree. Use when you have measurable
+  duration or sub-structure worth inspecting.</li>
+<li><strong>Events</strong> — point-in-time markers attached to an existing span;
+  carry a name + attributes + timestamp without inflating the tree.
+  Use when the occurrence is instantaneous or is really "context for
+  the enclosing operation."</li>
+</ul>
+<p>Audit receipts are point-in-time confirmations — no independent
+duration to time, no sub-structure to expand. Emitting them as events
+attached to the enclosing tool-call span (or outer turn span for
+rejects) keeps the trace tree narrow and matches the existing
+<code>dao_ai.audit.args_mismatch</code> pattern. If receipt writes ever grow to
+have interesting internal steps (e.g., WORM anchor commits, cross-
+region replication), the case for a dedicated span opens up.</p>
+<h2 id="audittoolkit">AuditToolkit<a class="headerlink" href="#audittoolkit" title="Permanent link">&para;</a></h2>
+<p>Agents can inspect their own audit trail via a first-class LangChain
+toolkit — <code>AuditToolkit</code>. Register it once and the agent gains <strong>seven</strong>
+tools, from basic lookups to full auditor-grade reports:</p>
+<p><strong>Base lookups:</strong></p>
+<ul>
+<li><code>query_audit_receipts</code> — filtered listing (thread_id, tool_name,
+  decision, receipt_kind, approver_sub, hitl_involved, since/until,
+  limit). Returns each row with a synthesised <code>hitl_involved</code> flag.</li>
+<li><code>get_audit_receipt_by_id</code> — single-receipt lookup by <code>receipt_id</code>.</li>
+<li><code>verify_audit_hash_chain</code> — walks the per-thread chain and returns any
+  <code>{index, receipt_id, expected_prev_hash, actual_prev_hash}</code> breaks —
+  runtime detection of tampering that got past the append-only trigger.</li>
+</ul>
+<p><strong>Auditor-oriented reports:</strong></p>
+<ul>
+<li><code>summarize_audit_activity(since, until, thread_id?, tool_name?)</code> —
+  top-level dashboard. Returns overall counts, breakdowns by
+  <code>receipt_kind</code> / <code>decision</code> / <code>execution_status</code> / <code>hitl_involved</code>,
+  unique tools + approvers, top 10 tools + approvers, and the
+  args_mismatch / error counts. Answers "how many, of what kinds, by
+  whom, in this window?".</li>
+<li><code>find_security_incidents(since, until, limit)</code> — the "smoke" query.
+  Surfaces every <code>execution_status = args_mismatch</code> fail-closed
+  rejection, every <code>execution_status = error</code> tool exception, and every
+  anomalous non-execution (blocked without an explicit user reject or
+  respond). Each row tagged with an <code>incident_type</code> for triage.</li>
+<li><code>get_thread_timeline(thread_id)</code> — full ordered audit history for a
+  conversation, including inline hash-chain verification
+  (<code>chain_break: true</code> on any row whose <code>prev_hash</code> doesn't match the
+  previous receipt's <code>this_hash</code>). Lets an auditor reconstruct "what did
+  the agent do, in what sequence, and did the human approve each
+  sensitive step?".</li>
+<li><code>get_approver_activity(approver_sub, since, until)</code> — per-approver
+  breakdown: total decisions, split by decision type, unique tools
+  authorised, per-tool breakdown, first/last-seen timestamps.
+  Answers "show me everything user X approved / rejected in the last
+  quarter".</li>
+</ul>
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="nt">tools</span><span class="p">:</span>
+</span><span id="__span-3-2"><a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="w">  </span><span class="nt">audit_toolkit</span><span class="p">:</span>
+</span><span id="__span-3-3"><a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="w">    </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">audit_toolkit</span>
+</span><span id="__span-3-4"><a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a><span class="w">    </span><span class="nt">function</span><span class="p">:</span>
+</span><span id="__span-3-5"><a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a><span class="w">      </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">factory</span>
+</span><span id="__span-3-6"><a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a><span class="w">      </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">dao_ai.tools.audit_query.create_audit_toolkit</span>
+</span><span id="__span-3-7"><a id="__codelineno-3-7" name="__codelineno-3-7" href="#__codelineno-3-7"></a><span class="w">      </span><span class="nt">args</span><span class="p">:</span>
+</span><span id="__span-3-8"><a id="__codelineno-3-8" name="__codelineno-3-8" href="#__codelineno-3-8"></a><span class="w">        </span><span class="nt">audit</span><span class="p">:</span><span class="w"> </span><span class="nv">*audit_config</span>
+</span></code></pre></div>
+<p>dao-ai's <code>create_factory_tool</code> (<code>src/dao_ai/tools/python.py</code>) sees the
+returned <code>BaseToolkit</code> and expands <code>get_tools()</code> — the whole audit-query
+surface lands on the agent in one registration. This mirrors the
+<code>GenieToolkit</code> pattern.</p>
+<p><strong>Polymorphic factory shape.</strong> <code>create_audit_toolkit(audit, extra_tools=...)</code>
+accepts an optional <code>extra_tools: BaseTool | Sequence[BaseTool] | BaseToolkit</code>,
+letting you bundle custom tools alongside the audit-query surface:</p>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">dao_ai.tools.audit_query</span><span class="w"> </span><span class="kn">import</span> <span class="n">create_audit_toolkit</span><span class="p">,</span> <span class="n">as_tool_list</span>
+</span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>
+</span><span id="__span-4-3"><a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a><span class="n">toolkit</span> <span class="o">=</span> <span class="n">create_audit_toolkit</span><span class="p">(</span><span class="n">audit_model</span><span class="p">,</span> <span class="n">extra_tools</span><span class="o">=</span><span class="p">[</span><span class="n">my_tool_a</span><span class="p">,</span> <span class="n">my_tool_b</span><span class="p">])</span>
+</span><span id="__span-4-4"><a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a><span class="c1"># Or reuse another toolkit:</span>
+</span><span id="__span-4-5"><a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a><span class="n">toolkit</span> <span class="o">=</span> <span class="n">create_audit_toolkit</span><span class="p">(</span><span class="n">audit_model</span><span class="p">,</span> <span class="n">extra_tools</span><span class="o">=</span><span class="n">other_toolkit</span><span class="p">)</span>
+</span></code></pre></div>
+<p>Two shape adapters are also exposed for reuse:</p>
+<ul>
+<li><code>as_tool_list(items) -&gt; list[BaseTool]</code> — normalises <code>BaseTool |
+  Sequence[BaseTool] | BaseToolkit | None</code> to a flat list.</li>
+<li><code>as_toolkit(items) -&gt; BaseToolkit</code> — packs any of the shapes into a
+  <code>BaseToolkit</code> (an existing toolkit is returned unchanged to preserve
+  identity).</li>
+</ul>
+<pre class="mermaid"><code>sequenceDiagram
+    autonumber
+    participant Agent
+    participant QueryTool as query_audit_receipts (BaseTool)
+    participant Sink as LakebaseAuditSink (shared)
+    participant Lakebase
+
+    Agent-&gt;&gt;QueryTool: {"tool_name":"refund_customer","decision":"approve","limit":10}
+    QueryTool-&gt;&gt;Sink: acquire connection pool
+    Sink-&gt;&gt;Lakebase: SELECT ... WHERE tool_name = %s AND decision = %s LIMIT %s
+    Lakebase--&gt;&gt;Sink: rows
+    Sink--&gt;&gt;QueryTool: list[dict]
+    Note over QueryTool: strip raw obo_access_token&lt;br/&gt;strip args_jcs&lt;br/&gt;ISO-format datetimes
+    QueryTool--&gt;&gt;Agent: list[receipt dict]</code></pre>
+<p>The toolkit uses the <strong>same <code>AuditSinkManager</code> cache</strong> as the writers,
+so N audited tools + the query surface all share one connection pool
+per unique <code>(database, table)</code> pair.</p>
+<h2 id="sensitive-data-handling">Sensitive data handling<a class="headerlink" href="#sensitive-data-handling" title="Permanent link">&para;</a></h2>
+<p>The OBO access token is a live, short-lived JWT (~1h). Because it is
+cryptographically verifiable against Databricks JWKS for weeks after
+issuance, storing it makes independent post-hoc re-verification
+possible.</p>
+<p>The receipts table is designed to be governance-scoped:</p>
+<ul>
+<li>Create a Unity Catalog group named <code>hitl_audit_reviewers</code> (or your
+  own equivalent) and grant <code>SELECT</code> on the receipts table only to that
+  group.</li>
+<li>Never grant public / catalog-wide SELECT.</li>
+<li>Consider a v1.5 purge job that NULLs <code>obo_access_token</code> after 30 days
+  while retaining <code>obo_token_sub</code> / <code>obo_token_exp</code> for attribution.</li>
+<li>The <code>AuditToolkit</code>'s row-normaliser drops <code>obo_access_token</code> and
+  <code>args_jcs</code> before returning to the agent — agents get attribution via
+  <code>obo_token_sub</code> / <code>args_hash</code> without ever touching credential
+  material or full argument payloads.</li>
+</ul>
+<h2 id="deployment">Deployment<a class="headerlink" href="#deployment" title="Permanent link">&para;</a></h2>
+<h3 id="databricks-apps">Databricks Apps<a class="headerlink" href="#databricks-apps" title="Permanent link">&para;</a></h3>
+<p>Databricks Apps forwards user identity on <code>X-Forwarded-User</code> /
+<code>X-Forwarded-Email</code> / <code>X-Forwarded-Access-Token</code>. The audit middleware
+picks these up automatically. Deployment flow:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>uv<span class="w"> </span>run<span class="w"> </span>dao-ai<span class="w"> </span>agent<span class="w"> </span>build<span class="w"> </span>--overwrite<span class="w"> </span>--development<span class="w"> </span>-c<span class="w"> </span>my_config.yaml
+</span><span id="__span-5-2"><a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a>databricks<span class="w"> </span>bundle<span class="w"> </span>deploy<span class="w"> </span>-p<span class="w"> </span>&lt;profile&gt;
+</span><span id="__span-5-3"><a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a><span class="c1"># Critical: link the trace destination BEFORE bundle run.</span>
+</span><span id="__span-5-4"><a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a>uv<span class="w"> </span>run<span class="w"> </span>dao-ai<span class="w"> </span>trace<span class="w"> </span>link<span class="w"> </span>-c<span class="w"> </span>my_config.yaml<span class="w"> </span>-p<span class="w"> </span>&lt;profile&gt;
+</span><span id="__span-5-5"><a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a>databricks<span class="w"> </span>bundle<span class="w"> </span>run<span class="w"> </span>&lt;app_name&gt;<span class="w"> </span>-p<span class="w"> </span>&lt;profile&gt;
+</span></code></pre></div>
+<p>The <code>dao-ai trace link</code> step provisions the OTEL span tables in
+the configured <code>trace_location</code> schema and links the experiment to
+them. Without it, span attributes still emit but the OTEL tables are
+missing on cold-start and traces do not surface in the Databricks Trace
+UI.</p>
+<p><strong>Lakebase permission:</strong> the service principal that dao-ai uses to
+connect to Lakebase must be registered as a
+<code>SERVICE_PRINCIPAL</code>-typed federated role on the instance (not merely a
+Postgres <code>CREATE ROLE</code> — Lakebase's OAuth-to-Postgres bridge validates
+the identity against a control-plane list). Register via:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>databricks<span class="w"> </span>api<span class="w"> </span>post<span class="w"> </span><span class="s2">"/api/2.0/database/instances/&lt;INSTANCE&gt;/roles"</span><span class="w"> </span><span class="se">\</span>
+</span><span id="__span-6-2"><a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a><span class="w">  </span>--json<span class="w"> </span><span class="s1">'{"name": "&lt;sp_uuid&gt;", "identity_type": "SERVICE_PRINCIPAL"}'</span><span class="w"> </span><span class="se">\</span>
+</span><span id="__span-6-3"><a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a><span class="w">  </span>-p<span class="w"> </span>&lt;profile&gt;
+</span></code></pre></div>
+<p>Then, connecting as a workspace user with a
+<code>generate-database-credential</code> token, apply scoped grants:</p>
+<div class="language-sql highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="k">GRANT</span><span class="w"> </span><span class="k">CONNECT</span><span class="w"> </span><span class="k">ON</span><span class="w"> </span><span class="k">DATABASE</span><span class="w"> </span><span class="n">databricks_postgres</span><span class="w"> </span><span class="k">TO</span><span class="w"> </span><span class="ss">"&lt;sp_uuid&gt;"</span><span class="p">;</span>
+</span><span id="__span-7-2"><a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a><span class="k">GRANT</span><span class="w"> </span><span class="k">USAGE</span><span class="p">,</span><span class="w"> </span><span class="k">CREATE</span><span class="w"> </span><span class="k">ON</span><span class="w"> </span><span class="k">SCHEMA</span><span class="w"> </span><span class="k">public</span><span class="w"> </span><span class="k">TO</span><span class="w"> </span><span class="ss">"&lt;sp_uuid&gt;"</span><span class="p">;</span>
+</span><span id="__span-7-3"><a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a><span class="k">ALTER</span><span class="w"> </span><span class="k">DEFAULT</span><span class="w"> </span><span class="k">PRIVILEGES</span><span class="w"> </span><span class="k">IN</span><span class="w"> </span><span class="k">SCHEMA</span><span class="w"> </span><span class="k">public</span>
+</span><span id="__span-7-4"><a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a><span class="w">    </span><span class="k">GRANT</span><span class="w"> </span><span class="k">SELECT</span><span class="p">,</span><span class="w"> </span><span class="k">INSERT</span><span class="p">,</span><span class="w"> </span><span class="k">UPDATE</span><span class="w"> </span><span class="k">ON</span><span class="w"> </span><span class="n">TABLES</span><span class="w"> </span><span class="k">TO</span><span class="w"> </span><span class="ss">"&lt;sp_uuid&gt;"</span><span class="p">;</span>
+</span></code></pre></div>
+<p>No <code>databricks_superuser</code>, no blanket <code>ALL</code> — audit reads/writes are
+the only operations the SP needs.</p>
+<h3 id="model-serving">Model Serving<a class="headerlink" href="#model-serving" title="Permanent link">&para;</a></h3>
+<p>Model Serving handles trace linking + SP experiment <code>CAN_EDIT</code> inside
+<code>agents.deploy()</code>. No separate CLI step is required. The audit table's
+SP identity is the one configured on the <code>DatabaseModel</code> — do not mix
+with OBO for long-running audit writes.</p>
+<p>Model Serving requests do not carry <code>X-Forwarded-*</code> headers in the
+classical sense; OBO on MS is captured via
+<code>mlflow.models.get_request_headers()</code>. Callers that don't forward a
+token land NULL in <code>obo_access_token</code> — the receipt still records
+<code>approver_sub</code> from context.</p>
+<h2 id="guarantees">Guarantees<a class="headerlink" href="#guarantees" title="Permanent link">&para;</a></h2>
+<ul>
+<li><strong>Args-hash binding.</strong> For HITL-audited tools, <code>args_hash</code> is
+  recomputed at execution time and byte-compared against
+  <code>args_hash_at_interrupt</code> (for approve) or <code>edited_args_hash</code> (for
+  edit). Drift → hard-reject, rejection receipt with
+  <code>execution_status=args_mismatch</code>, no tool execution.</li>
+<li><strong>Fail-closed on integrity failures.</strong> Args mismatch, nonce reuse,
+  and expired nonces raise; no configuration knob turns them off.</li>
+<li><strong>Fail-open on sink I/O.</strong> If a receipt write fails (Lakebase down,
+  network partition), the tool call itself proceeds and a WARN is
+  emitted. Integrity is preserved; observability is best-effort.</li>
+<li><strong>Append-only at the SQL layer.</strong> <code>BEFORE UPDATE</code>/<code>BEFORE DELETE</code>
+  triggers on the receipts table refuse mutation. Superuser DDL can
+  still truncate — v1.5 WORM anchor closes that residual gap.</li>
+<li><strong>All four HITL decision types produce receipts.</strong> <code>approve</code> and
+  <code>edit</code> write receipts from <code>AuditReceiptMiddleware</code> after execution.
+  <code>reject</code> and <code>respond</code> write receipts from
+  <code>dao_ai.hitl._record_hitl_non_executions</code> before the graph resumes,
+  since the tool itself never fires.</li>
+</ul>
+<h2 id="known-limitations">Known limitations<a class="headerlink" href="#known-limitations" title="Permanent link">&para;</a></h2>
+<ul>
+<li><strong>Approval confirm renders in the same chat surface.</strong> The
+  <code>displayed_summary</code> is harness-generated (not model-generated), which
+  is the achievable subset in v1. Full out-of-band confirmation via
+  WebAuthn/passkey lands in v3.</li>
+<li><strong>Process-local approval stash.</strong> The interrupt-time args_hash +
+  nonce live in an in-process cache (<code>AuditStash</code>), which does not
+  survive a process restart during pause. A restart-then-resume writes
+  an execution receipt but leaves HITL fields NULL. Cross-process
+  approval persistence is a v1.5 improvement.</li>
+<li><strong>Nonce is in-memory only in v1.</strong> The DB nonce table is provisioned
+  by the schema but not written to. LangChain's HITL interrupt hook is
+  synchronous and calling into <code>nest_asyncio.apply()</code> inside Uvicorn's
+  <code>uvloop</code> raises. v1.5 will move nonce persistence to an async
+  side-channel.</li>
+<li><strong>OBO JWT is stored raw.</strong> Signature verification against Databricks
+  JWKS (v2) and semantic-diff LLM-judge for <code>edit</code> decisions (also v2+)
+  are follow-ons.</li>
+</ul>
+<h2 id="references">References<a class="headerlink" href="#references" title="Permanent link">&para;</a></h2>
+<ul>
+<li>Vault: <code>00-inbox/dao-ai-auditable-hitl-approvals-research-2026-07-12.md</code></li>
+<li>Config example:
+  <code>examples/07_human_in_the_loop/human_in_the_loop_audited.yaml</code></li>
+<li>Source:</li>
+<li><code>src/dao_ai/audit/</code> — receipt schema, JCS, hash chain, Lakebase sink</li>
+<li><code>src/dao_ai/middleware/audit_receipt.py</code> — execution-time middleware</li>
+<li><code>src/dao_ai/middleware/audit_hitl.py</code> — HITL enrichment subclass</li>
+<li><code>src/dao_ai/hitl.py</code> — <code>_record_hitl_non_executions</code> tap for
+    reject/respond</li>
+<li><code>src/dao_ai/tools/audit_query.py</code> — <code>AuditToolkit</code> for agent
+    self-service</li>
+<li>Tests: <code>tests/dao_ai/audit/</code></li>
+</ul>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+        
+<div class="md-social">
+  
+    
+    
+    
+    
+      
+      
+    
+    <a href="https://github.com/natefleming/dao-ai" target="_blank" rel="noopener" title="github.com" class="md-social__link">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.tabs", "navigation.sections", "navigation.top", "navigation.instant", "navigation.tracking", "search.highlight", "search.share", "search.suggest", "toc.follow", "content.code.copy", "content.code.annotate", "content.action.edit"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.d7400e89.min.js"></script>
+      
+    
+  </body>
+</html>

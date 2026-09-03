@@ -1,0 +1,2828 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Declarative Agent Orchestration — production-grade multi-agent AI systems defined in YAML, deployed on Databricks.">
+      
+      
+        <meta name="author" content="Nate Fleming">
+      
+      
+        <link rel="canonical" href="https://natefleming.github.io/dao-ai/mcp_server/">
+      
+      
+        <link rel="prev" href="../examples/">
+      
+      
+        <link rel="next" href="../mcp-callbacks/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../images/brand/logo-symbol.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
+    
+    
+      
+        <title>MCP Server - dao-ai</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.ec1eaa64.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="black" data-md-color-accent="red">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#mcp-server-for-dao-ai" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+<header class="md-header" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="dao-ai" class="md-header__button md-logo" aria-label="dao-ai" data-md-component="logo">
+      
+  <img src="../images/brand/logo-symbol.png" alt="logo">
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            dao-ai
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              MCP Server
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="default" data-md-color-primary="black" data-md-color-accent="red"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="slate" data-md-color-primary="black" data-md-color-accent="red"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+          <a href="javascript:void(0)" class="md-search__icon md-icon" title="Share" aria-label="Share" data-clipboard data-clipboard-text="" data-md-component="search-share" tabindex="-1">
+            
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M18 16.08c-.76 0-1.44.3-1.96.77L8.91 12.7c.05-.23.09-.46.09-.7s-.04-.47-.09-.7l7.05-4.11c.54.5 1.25.81 2.04.81a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3c0 .24.04.47.09.7L8.04 9.81C7.5 9.31 6.79 9 6 9a3 3 0 0 0-3 3 3 3 0 0 0 3 3c.79 0 1.5-.31 2.04-.81l7.12 4.15c-.05.21-.08.43-.08.66 0 1.61 1.31 2.91 2.92 2.91s2.92-1.3 2.92-2.91A2.92 2.92 0 0 0 18 16.08"/></svg>
+          </a>
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/natefleming/dao-ai" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    natefleming/dao-ai
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+            
+<nav class="md-tabs" aria-label="Tabs" data-md-component="tabs">
+  <div class="md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href=".." class="md-tabs__link">
+        
+  
+  
+    
+  
+  Home
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../why-dao/" class="md-tabs__link">
+          
+  
+  
+  Concepts
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../configuration-reference/" class="md-tabs__link">
+          
+  
+  
+  Reference
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+    
+  
+  
+    
+    
+      <li class="md-tabs__item md-tabs__item--active">
+        <a href="../examples/" class="md-tabs__link">
+          
+  
+  
+  Guides
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../faq/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  FAQ
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../contributing/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Contributing
+
+      </a>
+    </li>
+  
+
+      
+    </ul>
+  </div>
+</nav>
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+  
+
+
+<nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="dao-ai" class="md-nav__button md-logo" aria-label="dao-ai" data-md-component="logo">
+      
+  <img src="../images/brand/logo-symbol.png" alt="logo">
+
+    </a>
+    dao-ai
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/natefleming/dao-ai" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    natefleming/dao-ai
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Concepts
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Concepts
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../why-dao/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Why DAO?
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../key-capabilities/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Key Capabilities
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../configuration-reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Configuration Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../cli-reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CLI Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../python-api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Python API
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Guides
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Guides
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../examples/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Examples
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    MCP Server
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    MCP Server
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#why" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Why
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#quickstart" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Quickstart
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#configuration-requirements" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Configuration requirements
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#registering-as-a-uc-mcp-connection-genie-one" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Registering as a UC MCP connection (Genie One)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Registering as a UC MCP connection (Genie One)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#where-it-lives" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Where it lives
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#architecture" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Architecture
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Architecture">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#response-shape" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Response shape
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#experiment-provisioning" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Experiment provisioning
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#obo-passthrough" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        OBO passthrough
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#server-side-capabilities" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Server-side capabilities
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#stateful-conversations" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Stateful conversations
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Stateful conversations">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#why-not-a-tool-argument" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Why not a tool argument?
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#langgraph-parent-mcp-child-header-injection-via-interceptor" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        LangGraph parent → MCP child: header injection via interceptor
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#observability-querying-mlflow-traces-by-conversation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Observability: querying MLflow traces by conversation
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#what-server-side-state-actually-requires" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What server-side state actually requires
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#trust-model" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Trust model
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#what-is-not-used-and-why" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What is NOT used, and why
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#obo-user-headers" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        OBO / user headers
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#deployment-artifacts" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Deployment artifacts
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Deployment artifacts">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#cli-flags" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        CLI flags
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#app-resource-bindings" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        App resource bindings
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#verifying-a-deploy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Verifying a deploy
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#consuming-this-mcp-server-from-another-dao-ai-agent" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Consuming this MCP server from another dao-ai agent
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Consuming this MCP server from another dao-ai agent">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#client-capabilities" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Client capabilities
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#consuming-this-mcp-server-from-raw-python-or-langchain" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Consuming this MCP server from raw Python or LangChain
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Consuming this MCP server from raw Python or LangChain">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#raw-python-mcp-sdk-streamable-http" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Raw Python (mcp SDK, Streamable HTTP)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#langchain-langgraph-langchain-mcp-adapters" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        LangChain / LangGraph (langchain-mcp-adapters)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#troubleshooting" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Troubleshooting
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#related-modules" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Related modules
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../mcp-callbacks/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    MCP Callbacks
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../a2a_protocol/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    A2A Protocol
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../background_agents/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Background Agents
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../audit/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Auditable Tool Invocations
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../lakebase/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Lakebase
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../mlflow-tracing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    MLflow Tracing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../genie_context_aware_cache_prompt_history/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Genie Context-Aware Cache
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../faq/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    FAQ
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../contributing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Contributing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#why" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Why
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#quickstart" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Quickstart
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#configuration-requirements" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Configuration requirements
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#registering-as-a-uc-mcp-connection-genie-one" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Registering as a UC MCP connection (Genie One)
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Registering as a UC MCP connection (Genie One)">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#where-it-lives" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Where it lives
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#architecture" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Architecture
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Architecture">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#response-shape" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Response shape
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#experiment-provisioning" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Experiment provisioning
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#obo-passthrough" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        OBO passthrough
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#server-side-capabilities" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Server-side capabilities
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#stateful-conversations" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Stateful conversations
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Stateful conversations">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#why-not-a-tool-argument" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Why not a tool argument?
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#langgraph-parent-mcp-child-header-injection-via-interceptor" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        LangGraph parent → MCP child: header injection via interceptor
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#observability-querying-mlflow-traces-by-conversation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Observability: querying MLflow traces by conversation
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#what-server-side-state-actually-requires" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What server-side state actually requires
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#trust-model" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Trust model
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#what-is-not-used-and-why" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What is NOT used, and why
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#obo-user-headers" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        OBO / user headers
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#deployment-artifacts" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Deployment artifacts
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Deployment artifacts">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#cli-flags" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        CLI flags
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#app-resource-bindings" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        App resource bindings
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#verifying-a-deploy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Verifying a deploy
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#consuming-this-mcp-server-from-another-dao-ai-agent" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Consuming this MCP server from another dao-ai agent
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Consuming this MCP server from another dao-ai agent">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#client-capabilities" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Client capabilities
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#consuming-this-mcp-server-from-raw-python-or-langchain" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Consuming this MCP server from raw Python or LangChain
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Consuming this MCP server from raw Python or LangChain">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#raw-python-mcp-sdk-streamable-http" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Raw Python (mcp SDK, Streamable HTTP)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#langchain-langgraph-langchain-mcp-adapters" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        LangChain / LangGraph (langchain-mcp-adapters)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#troubleshooting" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Troubleshooting
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#related-modules" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Related modules
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+    <a href="https://github.com/natefleming/dao-ai/edit/main/docs/mcp_server.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M10 20H6V4h7v5h5v3.1l2-2V8l-6-6H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h4zm10.2-7c.1 0 .3.1.4.2l1.3 1.3c.2.2.2.6 0 .8l-1 1-2.1-2.1 1-1c.1-.1.2-.2.4-.2m0 3.9L14.1 23H12v-2.1l6.1-6.1z"/></svg>
+    </a>
+  
+  
+
+
+<h1 id="mcp-server-for-dao-ai">MCP Server for dao-ai<a class="headerlink" href="#mcp-server-for-dao-ai" title="Permanent link">&para;</a></h1>
+<p>The <code>dao_ai.mcp</code> package turns any dao-ai agent config into a
+<a href="https://modelcontextprotocol.io">Model Context Protocol (MCP)</a> server
+hosted on Databricks Apps. The emitted server exposes <strong>one</strong> MCP tool:
+the whole dao-ai agent graph. Any MCP client — Claude Desktop, Cursor,
+Databricks Multi-Agent Supervisor, another dao-ai agent — can call the
+agent as a single tool over
+<a href="https://modelcontextprotocol.io/specification/2025-03-26/basic/transports">Streamable HTTP</a>.</p>
+<p>This is the <strong>server</strong> side. <code>dao_ai.apps.mcp</code> is the <strong>client</strong> side
+(primitives for <em>consuming</em> external MCP servers from a dao-ai agent). The
+two are independent.</p>
+<hr />
+<h2 id="why">Why<a class="headerlink" href="#why" title="Permanent link">&para;</a></h2>
+<p>Customers integrating dao-ai with an external agent framework
+(LangGraph, ADK, OpenAI Agents SDK, MAS, IDE assistants) don't want to
+re-implement dao-ai's orchestration — they want to plug the dao-ai agent
+in as a single high-level capability. Individual tools (Genie, Vector
+Search, UC functions) already have first-class Databricks MCP surfaces or
+UC exposure; publishing them a second time from a dao-ai MCP server is
+duplicative.</p>
+<p><code>dao-ai agent build --as-mcp</code> bundles a Databricks App that runs the same graph
+<code>dao-ai agent build</code> deploys — but with an MCP entrypoint instead of an
+MLflow AgentServer HTTP entrypoint. OBO tokens from the caller flow
+through the graph unchanged: downstream Genie / Vector Search / UC
+function calls run as the caller, not as the App's service principal.</p>
+<blockquote>
+<p><strong>Migrating from an older release?</strong> The MCP server was rewritten to
+an agent-as-tool model in PR #154 (one MCP tool per app instead of
+per-tool fan-out). See the "agent-as-tool refactor" entry in
+<a href="https://github.com/natefleming/dao-ai/blob/main/CHANGELOG.md"><code>CHANGELOG.md</code></a> for the full set of removed modules
+(<code>dao_ai.mcp.service</code>, <code>dao_ai.mcp.adapters/</code>, <code>AppModel.mcp_only</code>)
+and the requirement that <code>config.app.name</code> is now mandatory.</p>
+</blockquote>
+<hr />
+<h2 id="quickstart">Quickstart<a class="headerlink" href="#quickstart" title="Permanent link">&para;</a></h2>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="c1"># 1. Install the optional MCP extra</span>
+</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>pip<span class="w"> </span>install<span class="w"> </span><span class="s1">'dao-ai[mcp]'</span>
+</span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>
+</span><span id="__span-0-4"><a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="c1"># 2. Generate a deploy-ready bundle from your dao-ai config</span>
+</span><span id="__span-0-5"><a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>dao-ai<span class="w"> </span>agent<span class="w"> </span>build<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-0-6"><a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a><span class="w">  </span>--as-mcp<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-0-7"><a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a><span class="w">  </span>-c<span class="w"> </span>my_agent.yaml<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-0-8"><a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a><span class="w">  </span>-s<span class="w"> </span>./my-agent-mcp<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-0-9"><a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a><span class="w">  </span>-p<span class="w"> </span>&lt;profile&gt;
+</span><span id="__span-0-10"><a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a>
+</span><span id="__span-0-11"><a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a><span class="c1"># 3. Deploy + run in one step (or drive databricks bundle by hand, below)</span>
+</span><span id="__span-0-12"><a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a>dao-ai<span class="w"> </span>agent<span class="w"> </span>up<span class="w"> </span>--as-mcp<span class="w"> </span>-c<span class="w"> </span>my_agent.yaml<span class="w"> </span>-s<span class="w"> </span>./my-agent-mcp<span class="w"> </span>-p<span class="w"> </span>&lt;profile&gt;
+</span><span id="__span-0-13"><a id="__codelineno-0-13" name="__codelineno-0-13" href="#__codelineno-0-13"></a>
+</span><span id="__span-0-14"><a id="__codelineno-0-14" name="__codelineno-0-14" href="#__codelineno-0-14"></a><span class="c1"># 3b. ...or drive the bundle manually</span>
+</span><span id="__span-0-15"><a id="__codelineno-0-15" name="__codelineno-0-15" href="#__codelineno-0-15"></a><span class="nb">cd</span><span class="w"> </span>my-agent-mcp
+</span><span id="__span-0-16"><a id="__codelineno-0-16" name="__codelineno-0-16" href="#__codelineno-0-16"></a>uv<span class="w"> </span>sync
+</span><span id="__span-0-17"><a id="__codelineno-0-17" name="__codelineno-0-17" href="#__codelineno-0-17"></a>databricks<span class="w"> </span>bundle<span class="w"> </span>deploy<span class="w"> </span>-t<span class="w"> </span>dev<span class="w"> </span>-p<span class="w"> </span>&lt;profile&gt;
+</span><span id="__span-0-18"><a id="__codelineno-0-18" name="__codelineno-0-18" href="#__codelineno-0-18"></a>databricks<span class="w"> </span>bundle<span class="w"> </span>run<span class="w"> </span>&lt;app-name&gt;<span class="w"> </span>-t<span class="w"> </span>dev<span class="w"> </span>-p<span class="w"> </span>&lt;profile&gt;
+</span></code></pre></div>
+<p>The deployed App name is <code>mcp-&lt;config.app.name&gt;</code> (normalized: lowercased,
+underscores hyphenated). The <code>mcp-</code> prefix is added automatically so the MCP
+server and a chat App built from the <em>same</em> config are separate Databricks Apps
+instead of one replacing the other; if <code>app.name</code> already starts with <code>mcp-</code> it
+is left as-is rather than doubled. The MCP tool exposed at <code>/mcp</code> is a slugified
+form of <code>app.name</code> itself (unprefixed); its description is
+<code>config.app.description</code>. Point any MCP client at <code>https://&lt;app-url&gt;/mcp</code>.</p>
+<hr />
+<h2 id="configuration-requirements">Configuration requirements<a class="headerlink" href="#configuration-requirements" title="Permanent link">&para;</a></h2>
+<p>Your dao-ai config needs:</p>
+<ul>
+<li><code>app.name</code> — basis for the Databricks App name (deployed as <code>mcp-&lt;name&gt;</code>)
+  <strong>and</strong> the MCP tool name (slugified, unprefixed).</li>
+<li><code>app.description</code> — recommended; surfaced as the MCP tool description.</li>
+<li>At least one agent (or an <code>orchestration.deep_agent</code> block) — the
+  server calls <code>AppConfig.as_responses_agent()</code> at boot.</li>
+<li>Any resources the agent needs (Genie rooms, Vector Search indexes,
+  Lakebase, warehouses, models) — same as <code>dao-ai agent build</code>.</li>
+</ul>
+<p>dao-ai applies the <code>mcp-</code> prefix for you — you no longer need to hand-name your
+app <code>mcp-something</code>. The prefix matters because Databricks Multi-Agent Supervisor
+pattern-matches it when auto-discovering MCP-hosted Apps across an account.</p>
+<hr />
+<h2 id="registering-as-a-uc-mcp-connection-genie-one">Registering as a UC MCP connection (Genie One)<a class="headerlink" href="#registering-as-a-uc-mcp-connection-genie-one" title="Permanent link">&para;</a></h2>
+<p>Genie One (and the AI Playground) consume external MCP servers through a <strong>Unity
+Catalog connection</strong> that is registered as an <strong>MCP service</strong> with the Unity AI
+Gateway. Pass <code>--with-connection</code> alongside <code>--as-mcp</code> and dao-ai does this for
+you at deploy time — no hand-run notebook:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>dao-ai<span class="w"> </span>agent<span class="w"> </span>up<span class="w"> </span>--as-mcp<span class="w"> </span>--with-connection<span class="w"> </span>-c<span class="w"> </span>my_agent.yaml<span class="w"> </span>-p<span class="w"> </span>&lt;profile&gt;
+</span></code></pre></div>
+<p><code>--with-connection</code> <strong>requires <code>--as-mcp</code></strong> (the connection targets the <code>/mcp</code>
+surface, which only the MCP deployment serves). On deploy dao-ai:</p>
+<ol>
+<li>grants the app's own service principal <code>CAN_USE</code> on the app (the connection
+   authenticates as that SP via M2M OAuth);</li>
+<li>creates a UC HTTP connection (<code>is_mcp_connection: true</code>) pointing at
+   <code>https://&lt;app-url&gt;/mcp</code>, named <code>mcp_&lt;app&gt;_conn</code>;</li>
+<li>registers it as an MCP service (<code>mcp_&lt;app&gt;</code>) with the Unity AI Gateway so it
+   appears under <strong>Catalog → Unity AI Gateway → MCP servers</strong>;</li>
+<li>grants <code>USE_CONNECTION</code> on the connection and <code>EXECUTE</code> on the MCP service.</li>
+</ol>
+<p>Creating the connection and service <strong>fails loudly</strong> if it can't complete (it is
+the explicit point of the flag); only the final grants are best-effort (a
+deployer lacking <code>GRANT</code> degrades to a warning). The step is idempotent — re-runs
+leave an existing connection/service in place.</p>
+<p>Then, one-time in the Genie One UI, add the <code>mcp_&lt;app&gt;_conn</code> connection to a chat
+to make the agent callable as a tool.</p>
+<h3 id="where-it-lives">Where it lives<a class="headerlink" href="#where-it-lives" title="Permanent link">&para;</a></h3>
+<p>The connection is metastore-level, but the MCP service needs a <code>catalog.schema</code>
+to live in. Declare it with an <code>app.connection</code> block:</p>
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="nt">app</span><span class="p">:</span>
+</span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="w">  </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">my_agent</span>
+</span><span id="__span-2-3"><a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="w">  </span><span class="nt">connection</span><span class="p">:</span>
+</span><span id="__span-2-4"><a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a><span class="w">    </span><span class="nt">schema</span><span class="p">:</span><span class="w"> </span><span class="nv">*my_schema</span><span class="w">           </span><span class="c1"># SchemaModel anchor (catalog + schema)</span>
+</span><span id="__span-2-5"><a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a><span class="w">    </span><span class="c1"># name: mcp_my_agent_conn    # optional; defaults to mcp_&lt;app&gt;_conn</span>
+</span><span id="__span-2-6"><a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a><span class="w">    </span><span class="c1"># service_name: mcp_my_agent # optional; defaults to mcp_&lt;app&gt;</span>
+</span><span id="__span-2-7"><a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a><span class="w">    </span><span class="c1"># grant_principals:          # optional; defaults to ["account users"]</span>
+</span><span id="__span-2-8"><a id="__codelineno-2-8" name="__codelineno-2-8" href="#__codelineno-2-8"></a><span class="w">    </span><span class="c1">#   - account users</span>
+</span></code></pre></div>
+<p>The block is <strong>optional</strong>: when omitted, the schema falls back to
+<code>app.registered_model</code> (its <code>schema</code>, or a fully-qualified
+<code>catalog.schema.model</code> name), and the connection/service names are derived from
+<code>app.name</code>. If neither yields a schema, the deploy fails with a clear message.</p>
+<p><code>--with-connection</code> works identically on the <code>agent</code> and <code>workflow</code> nouns, on the
+<code>--direct</code> SDK path and the default bundle path, and from the interactive
+<code>07_deploy_agent</code> notebook (a <code>with_connection</code> widget). See
+<a href="https://github.com/natefleming/dao-ai/blob/main/examples/02_mcp/mcp_with_connection.yaml"><code>examples/02_mcp/mcp_with_connection.yaml</code></a>.</p>
+<hr />
+<h2 id="architecture">Architecture<a class="headerlink" href="#architecture" title="Permanent link">&para;</a></h2>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>┌───────────────────────────────┐
+</span><span id="__span-3-2"><a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>│   FastAPI + RequestContext    │  /healthz, /readyz
+</span><span id="__span-3-3"><a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a>│       middleware              │  captures every request header into a
+</span><span id="__span-3-4"><a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a>│        │                      │  contextvar (x-forwarded-access-token,
+</span><span id="__span-3-5"><a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a>│        ▼                      │  x-request-id, ...)
+</span><span id="__span-3-6"><a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a>│   FastMCP (Streamable HTTP)   │  /mcp   (stateless, json_response)
+</span><span id="__span-3-7"><a id="__codelineno-3-7" name="__codelineno-3-7" href="#__codelineno-3-7"></a>│   ── session_manager driven   │
+</span><span id="__span-3-8"><a id="__codelineno-3-8" name="__codelineno-3-8" href="#__codelineno-3-8"></a>│      by FastAPI.lifespan      │
+</span><span id="__span-3-9"><a id="__codelineno-3-9" name="__codelineno-3-9" href="#__codelineno-3-9"></a>│        │                      │
+</span><span id="__span-3-10"><a id="__codelineno-3-10" name="__codelineno-3-10" href="#__codelineno-3-10"></a>│        ▼                      │
+</span><span id="__span-3-11"><a id="__codelineno-3-11" name="__codelineno-3-11" href="#__codelineno-3-11"></a>│   register_agent_as_tool      │  builds config.as_responses_agent()
+</span><span id="__span-3-12"><a id="__codelineno-3-12" name="__codelineno-3-12" href="#__codelineno-3-12"></a>│        │                      │  once at boot; registers one tool
+</span><span id="__span-3-13"><a id="__codelineno-3-13" name="__codelineno-3-13" href="#__codelineno-3-13"></a>│        ▼                      │  named after config.app.name
+</span><span id="__span-3-14"><a id="__codelineno-3-14" name="__codelineno-3-14" href="#__codelineno-3-14"></a>│   invoke_agent(input) ────────┼─► dao-ai agent graph
+</span><span id="__span-3-15"><a id="__codelineno-3-15" name="__codelineno-3-15" href="#__codelineno-3-15"></a>│                               │      · headers forwarded via
+</span><span id="__span-3-16"><a id="__codelineno-3-16" name="__codelineno-3-16" href="#__codelineno-3-16"></a>│                               │        custom_inputs.configurable.headers
+</span><span id="__span-3-17"><a id="__codelineno-3-17" name="__codelineno-3-17" href="#__codelineno-3-17"></a>│                               │      · downstream OBO honored by
+</span><span id="__span-3-18"><a id="__codelineno-3-18" name="__codelineno-3-18" href="#__codelineno-3-18"></a>│                               │        IsDatabricksResource.workspace_client_from
+</span><span id="__span-3-19"><a id="__codelineno-3-19" name="__codelineno-3-19" href="#__codelineno-3-19"></a>└───────────────────────────────┘
+</span></code></pre></div>
+<p>The single MCP tool accepts either a plain string (wrapped into a single
+user turn internally) or a Responses-style input array. It returns the
+final assistant message text via the MCP <code>tools/call</code> response.</p>
+<p>When the server is configured with <code>app.mcp_server:</code> (see
+<a href="#server-side-capabilities">Server-side capabilities</a>) it can additionally
+emit <code>notifications/progress</code> frames during a call. Clients that opt in via
+<code>McpFunctionModel.capabilities</code> (see
+<a href="#consuming-this-mcp-server-from-another-dao-ai-agent">Consuming this MCP server from another dao-ai agent</a>)
+receive those envelopes and forward them to their outer response stream.
+See <a href="../mcp-callbacks/"><code>docs/mcp-callbacks.md</code></a> for the wire format.</p>
+<h3 id="response-shape">Response shape<a class="headerlink" href="#response-shape" title="Permanent link">&para;</a></h3>
+<p>Every <code>tools/call</code> response is a <code>CallToolResult</code> with:</p>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Purpose</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>content[0].text</code></td>
+<td>Plain-text final assistant message — for legacy MCP clients that ignore <code>structuredContent</code>.</td>
+</tr>
+<tr>
+<td><code>structuredContent</code></td>
+<td><code>AgentInvocationResult</code> (schema advertised on <code>outputSchema</code>): <code>final_message</code>, <code>trace_id</code> (fully-qualified UC location — e.g. <code>trace:/catalog.schema.prefix/&lt;hex&gt;</code>), <code>conversation_id</code> (resolved conversation key — supplied via <code>_meta.conversation_id</code> or <code>X-Databricks-Conversation-Id</code> header; see <a href="#stateful-conversations">Stateful conversations</a>), <code>thread_id</code> (alias of <code>conversation_id</code> for LangGraph-native callers), <code>confidence</code> (reserved).</td>
+</tr>
+<tr>
+<td><code>_meta.databricks.trace_id</code></td>
+<td>Same UC-qualified trace id as <code>structuredContent.trace_id</code>. Copy so schema-unaware callers can still jump to the MLflow trace.</td>
+</tr>
+<tr>
+<td><code>_meta.conversation_id</code></td>
+<td>Same resolved conversation key as <code>structuredContent.conversation_id</code>. Emitted unnamespaced (not under <code>databricks.</code>) to stay symmetric with the inbound <code>_meta.conversation_id</code> channel — it is a cross-cutting concept, not a Databricks-specific field.</td>
+</tr>
+<tr>
+<td><code>_meta.databricks.experiment_id</code></td>
+<td>Bound experiment id from the runtime <code>MLFLOW_EXPERIMENT_ID</code> env.</td>
+</tr>
+<tr>
+<td><code>_meta.databricks.model</code></td>
+<td>Primary agent's <code>model.name</code> from the config.</td>
+</tr>
+<tr>
+<td><code>_meta.databricks.latency_ms</code></td>
+<td>Wall-clock around <code>agent.apredict()</code>.</td>
+</tr>
+<tr>
+<td><code>_meta.databricks.request_id</code></td>
+<td>Server-assigned request id (matches server logs).</td>
+</tr>
+<tr>
+<td><code>_meta.databricks.obo_present</code></td>
+<td><code>true</code> when the caller forwarded an <code>x-forwarded-access-token</code>. Useful for verifying OBO passthrough without a diagnostic tool.</td>
+</tr>
+<tr>
+<td><code>isError</code></td>
+<td><code>true</code> when <code>agent.apredict()</code> raises. Content still reaches the caller LLM (unlike a JSON-RPC error which strips content).</td>
+</tr>
+</tbody>
+</table>
+<h3 id="experiment-provisioning">Experiment provisioning<a class="headerlink" href="#experiment-provisioning" title="Permanent link">&para;</a></h3>
+<p><code>dao-ai agent build --as-mcp</code> emits an MLflow experiment resource in the DAB — parity
+with <code>dao-ai agent build</code>. Behaviour:</p>
+<ul>
+<li>If <code>config.app.experiment</code> is set → binds by literal experiment id
+  (and if <code>manage_permissions: false</code>, requests <code>CAN_READ</code> only).</li>
+<li>Otherwise → declares
+  <code>experiments.&lt;app-name&gt;-experiment.name = /Users/${workspace.current_user.userName}/&lt;app-name&gt;</code>
+  in the top-level <code>experiments:</code> block and binds via
+  <code>${resources.experiments.&lt;key&gt;.id}</code> so DABs materializes + grants
+  <code>CAN_EDIT</code> to the App SP.</li>
+</ul>
+<p>The emitted <code>app.yaml</code> sets <code>MLFLOW_EXPERIMENT_ID: valueFrom: experiment</code>
+(camelCase — the Apps runtime consumes this file directly, DABs isn't in
+the loop). When <code>config.app.trace_location</code> is set,
+<code>MLFLOW_TRACING_SQL_WAREHOUSE_ID</code> is also injected as a literal id, and
+the trace warehouse is added to the App's <code>resources</code> list so the
+platform grants the App SP <code>CAN_USE</code> on it.</p>
+<h3 id="obo-passthrough">OBO passthrough<a class="headerlink" href="#obo-passthrough" title="Permanent link">&para;</a></h3>
+<p>Verified end-to-end. To observe: check the MCP server's app logs for a
+line like:</p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>mcp.agent_tool.invoke.headers | request_id=&lt;uuid&gt; | obo_present=True |
+</span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>  obo_token_fingerprint=&lt;sha256[:16]&gt; | obo_token_subject=&lt;sub-claim&gt; |
+</span><span id="__span-4-3"><a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a>  header_count=&lt;n&gt;
+</span></code></pre></div>
+<p><code>obo_token_subject</code> is a best-effort decode of the JWT <code>sub</code> claim (no
+signature verification — diagnostic only). Compare across calls:</p>
+<ul>
+<li>Direct HTTP call from a Databricks user → <code>sub</code> = user email.</li>
+<li>Nested call from a dao-ai consumer app with
+  <code>on_behalf_of_user: true</code> on the MCP tool → <code>sub</code> = user email
+  (identity flows through).</li>
+<li>Nested call with <code>on_behalf_of_user: false</code> → <code>sub</code> = the consumer
+  App's SP <code>client_id</code>.</li>
+</ul>
+<p>The raw token itself is never logged.</p>
+<h3 id="server-side-capabilities">Server-side capabilities<a class="headerlink" href="#server-side-capabilities" title="Permanent link">&para;</a></h3>
+<p>When <code>config.app.mcp_server:</code> is set, dao-ai's MCP server advertises
+extra capabilities beyond the single agent-as-tool.</p>
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="nt">app</span><span class="p">:</span>
+</span><span id="__span-5-2"><a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="w">  </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">mcp-dao-ai-retail</span>
+</span><span id="__span-5-3"><a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a><span class="w">  </span><span class="nt">description</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Retail assistant exposed as an MCP tool.</span>
+</span><span id="__span-5-4"><a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a><span class="w">  </span><span class="nt">mcp_server</span><span class="p">:</span>
+</span><span id="__span-5-5"><a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a><span class="w">    </span><span class="nt">progress</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span><span class="w">                        </span><span class="c1"># notifications/progress from LangGraph astream_events</span>
+</span><span id="__span-5-6"><a id="__codelineno-5-6" name="__codelineno-5-6" href="#__codelineno-5-6"></a><span class="w">    </span><span class="nt">resources</span><span class="p">:</span><span class="w">                            </span><span class="c1"># static resources listed on resources/list</span>
+</span><span id="__span-5-7"><a id="__codelineno-5-7" name="__codelineno-5-7" href="#__codelineno-5-7"></a><span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">uri</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">dao-ai://prompts/system</span>
+</span><span id="__span-5-8"><a id="__codelineno-5-8" name="__codelineno-5-8" href="#__codelineno-5-8"></a><span class="w">        </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">system-prompt</span>
+</span><span id="__span-5-9"><a id="__codelineno-5-9" name="__codelineno-5-9" href="#__codelineno-5-9"></a><span class="w">        </span><span class="nt">description</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Curated system prompt shipped with the server.</span>
+</span><span id="__span-5-10"><a id="__codelineno-5-10" name="__codelineno-5-10" href="#__codelineno-5-10"></a><span class="w">        </span><span class="nt">mime_type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">text/plain</span>
+</span><span id="__span-5-11"><a id="__codelineno-5-11" name="__codelineno-5-11" href="#__codelineno-5-11"></a><span class="w">        </span><span class="nt">content</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">|</span>
+</span><span id="__span-5-12"><a id="__codelineno-5-12" name="__codelineno-5-12" href="#__codelineno-5-12"></a><span class="w">          </span><span class="no">You are a retail-aware assistant. Answer concisely.</span>
+</span><span id="__span-5-13"><a id="__codelineno-5-13" name="__codelineno-5-13" href="#__codelineno-5-13"></a><span class="w">    </span><span class="nt">prompts</span><span class="p">:</span><span class="w">                              </span><span class="c1"># prompt templates listed on prompts/list</span>
+</span><span id="__span-5-14"><a id="__codelineno-5-14" name="__codelineno-5-14" href="#__codelineno-5-14"></a><span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">greet_customer</span>
+</span><span id="__span-5-15"><a id="__codelineno-5-15" name="__codelineno-5-15" href="#__codelineno-5-15"></a><span class="w">        </span><span class="nt">description</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Greeting for a returning customer.</span>
+</span><span id="__span-5-16"><a id="__codelineno-5-16" name="__codelineno-5-16" href="#__codelineno-5-16"></a><span class="w">        </span><span class="nt">template</span><span class="p">:</span><span class="w"> </span><span class="s">"Welcome</span><span class="nv"> </span><span class="s">back,</span><span class="nv"> </span><span class="s">{customer_name}!"</span>
+</span><span id="__span-5-17"><a id="__codelineno-5-17" name="__codelineno-5-17" href="#__codelineno-5-17"></a><span class="w">        </span><span class="nt">arguments</span><span class="p">:</span>
+</span><span id="__span-5-18"><a id="__codelineno-5-18" name="__codelineno-5-18" href="#__codelineno-5-18"></a><span class="w">          </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">customer_name</span>
+</span><span id="__span-5-19"><a id="__codelineno-5-19" name="__codelineno-5-19" href="#__codelineno-5-19"></a><span class="w">            </span><span class="nt">description</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">The customer's first name.</span>
+</span><span id="__span-5-20"><a id="__codelineno-5-20" name="__codelineno-5-20" href="#__codelineno-5-20"></a><span class="w">            </span><span class="nt">required</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+</span></code></pre></div>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>progress</code></td>
+<td>Emit <code>notifications/progress</code> from <code>LangGraph.astream_events</code> during the agent call. Requires the caller to supply a <code>progressToken</code> via <code>_meta</code> on <code>tools/call</code>. Default <code>true</code>.</td>
+</tr>
+<tr>
+<td><code>resources</code></td>
+<td>Static resources published via <code>resources/list</code>. Empty list means no resources are advertised.</td>
+</tr>
+<tr>
+<td><code>prompts</code></td>
+<td>Prompt templates published via <code>prompts/list</code>. Clients call <code>prompts/get</code> with argument values; the server returns the rendered template as a single user-role message. Placeholders use Python format-string syntax (<code>{name}</code>).</td>
+</tr>
+</tbody>
+</table>
+<blockquote>
+<p>The server-side <code>logging</code> capability (<code>notifications/message</code>) was removed
+— the MCP <code>logging</code> feature is deprecated under
+<a href="https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2577">SEP-2577</a>;
+use MLflow/OTEL tracing for observability. The server also extracts inbound
+W3C trace context from <code>_meta</code> (<code>traceparent</code>/<code>baggage</code>) so it continues the
+caller's distributed trace.</p>
+</blockquote>
+<p>Enabling <code>progress</code> opts the FastMCP transport into stateful
+streamable-HTTP (<code>stateless_http=False</code>) so notifications can be
+correlated to the caller's session.</p>
+<p>When <code>mcp_server:</code> is unset (the default), the server publishes only the
+single agent-as-tool surface — no resources, no prompts, no
+notifications.</p>
+<h3 id="stateful-conversations">Stateful conversations<a class="headerlink" href="#stateful-conversations" title="Permanent link">&para;</a></h3>
+<p>By default the MCP surface is <strong>stateless</strong>: each <code>tools/call</code> on
+<code>invoke_agent</code> is treated as an isolated turn and the LangGraph
+checkpointer sees a fresh UUID every time. To maintain conversation
+history across turns, supply a stable <strong>conversation key</strong> on every call
+via one of two <strong>transport-only channels</strong> (highest-precedence wins):</p>
+<ol>
+<li>
+<p><strong><code>_meta.conversation_id</code> on the <code>tools/call</code> request</strong> — MCP-native
+   side channel. <code>RequestParams.Meta</code> allows arbitrary extra fields and
+   is surfaced to FastMCP tool handlers via <code>ctx.request_context.meta</code>.
+   This is the same channel MCP already uses for <code>progressToken</code>.
+   <div class="language-json highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="p">{</span>
+</span><span id="__span-6-2"><a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a><span class="w">  </span><span class="nt">"jsonrpc"</span><span class="p">:</span><span class="w"> </span><span class="s2">"2.0"</span><span class="p">,</span>
+</span><span id="__span-6-3"><a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a><span class="w">  </span><span class="nt">"method"</span><span class="p">:</span><span class="w"> </span><span class="s2">"tools/call"</span><span class="p">,</span>
+</span><span id="__span-6-4"><a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a><span class="w">  </span><span class="nt">"params"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-6-5"><a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a><span class="w">    </span><span class="nt">"name"</span><span class="p">:</span><span class="w"> </span><span class="s2">"invoke_agent"</span><span class="p">,</span>
+</span><span id="__span-6-6"><a id="__codelineno-6-6" name="__codelineno-6-6" href="#__codelineno-6-6"></a><span class="w">    </span><span class="nt">"arguments"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="nt">"input"</span><span class="p">:</span><span class="w"> </span><span class="s2">"what did I say earlier?"</span><span class="p">},</span>
+</span><span id="__span-6-7"><a id="__codelineno-6-7" name="__codelineno-6-7" href="#__codelineno-6-7"></a><span class="w">    </span><span class="nt">"_meta"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="nt">"conversation_id"</span><span class="p">:</span><span class="w"> </span><span class="s2">"abc-123"</span><span class="p">}</span>
+</span><span id="__span-6-8"><a id="__codelineno-6-8" name="__codelineno-6-8" href="#__codelineno-6-8"></a><span class="w">  </span><span class="p">}</span>
+</span><span id="__span-6-9"><a id="__codelineno-6-9" name="__codelineno-6-9" href="#__codelineno-6-9"></a><span class="p">}</span>
+</span></code></pre></div></p>
+</li>
+<li>
+<p><strong><code>X-Databricks-Conversation-Id</code> HTTP header</strong> — universal
+   transport-level fallback. Works with any client that can set request
+   headers: curl, Claude Desktop over HTTP, Cursor IDE MCP, and
+   <code>langchain-mcp-adapters</code> via a per-call <code>ToolCallInterceptor</code>.
+   <strong>Note</strong>: this is a dao-ai convention, not a Databricks-wide
+   standard. It matches the existing <code>x-databricks-*</code> header family for
+   consistency.
+   <div class="language-bash highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>curl<span class="w"> </span>-H<span class="w"> </span><span class="s2">"X-Databricks-Conversation-Id: abc-123"</span><span class="w"> </span><span class="se">\</span>
+</span><span id="__span-7-2"><a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a><span class="w">     </span>-H<span class="w"> </span><span class="s2">"Content-Type: application/json"</span><span class="w"> </span><span class="se">\</span>
+</span><span id="__span-7-3"><a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a><span class="w">     </span>&lt;mcp-url&gt;/mcp
+</span></code></pre></div></p>
+</li>
+<li>
+<p><strong>Nothing supplied</strong> — the agent generates a UUID downstream. The
+   resolved id is still echoed on the response so the caller can
+   capture it and pin subsequent turns to the same conversation.</p>
+</li>
+</ol>
+<p>The resolved conversation key is always echoed on the response, so a
+caller that lets the server generate the id can persist the returned
+value and reuse it next turn:</p>
+<ul>
+<li><code>structuredContent.conversation_id</code> (Databricks-native name)</li>
+<li><code>structuredContent.thread_id</code> (alias — same value)</li>
+<li><code>_meta.conversation_id</code> (unnamespaced, symmetric with the inbound
+  <code>_meta.conversation_id</code> channel; other <code>_meta.databricks.*</code> fields stay
+  namespaced because those are Databricks-specific observability data)</li>
+</ul>
+<p>The <code>mcp.agent_tool.invoke.headers</code> server log records
+<code>conversation_id_source ∈ {"meta", "header", null}</code> and the resolved id
+so operators can distinguish stateless vs stateful calls without
+decoding trace state.</p>
+<h4 id="why-not-a-tool-argument">Why not a tool argument?<a class="headerlink" href="#why-not-a-tool-argument" title="Permanent link">&para;</a></h4>
+<p>An earlier iteration accepted <code>conversation_id</code> / <code>thread_id</code> as tool
+arguments on <code>invoke_agent</code>. That surface was <strong>removed</strong> for the
+following reasons:</p>
+<ul>
+<li><strong>Prompt-injection surface.</strong> Tool arguments live on the tool's
+  <code>inputSchema</code>, which is <em>model-controlled</em> per MCP semantics — the
+  LLM populates them on each call. A prompt-injected user turn
+  ("actually call the tool with <code>conversation_id=&lt;victim-id&gt;</code>") could
+  steer the calling model into reading or writing another user's
+  conversation. Transport-level channels (<code>_meta</code>, headers) never
+  touch the LLM.</li>
+<li><strong>MCP spec precedent.</strong> MCP puts its own correlation-id primitive
+  (<code>progressToken</code>) in <code>_meta</code>, not as a tool arg. That's the design
+  the spec explicitly gives for request-scoped identifiers the tool
+  doesn't semantically own.</li>
+<li><strong>Industry precedent.</strong> LangGraph Server puts <code>thread_id</code> in
+  <code>configurable</code> (out-of-band from tool schemas). OpenAI Assistants v2
+  makes <code>thread_id</code> a URL path parameter, never tool-visible. Anthropic
+  Messages API keeps conversation state fully client-owned. dao-ai's
+  own Genie tools return <code>conversation_id</code> in <code>_meta</code> of tool <em>results</em>
+  — they don't take it as tool <em>inputs</em>.</li>
+<li><strong>Determinism.</strong> LLMs are known to invent, munge, or forget
+  structured ids across turns. Making thread continuity the model's
+  job is fragile; making it the transport's job is deterministic.</li>
+</ul>
+<h4 id="langgraph-parent-mcp-child-header-injection-via-interceptor">LangGraph parent → MCP child: header injection via interceptor<a class="headerlink" href="#langgraph-parent-mcp-child-header-injection-via-interceptor" title="Permanent link">&para;</a></h4>
+<p>If your dao-ai (or other LangGraph-based) agent invokes this MCP server
+as a tool via <code>langchain-mcp-adapters</code>, use a <code>ToolCallInterceptor</code> to
+inject the conversation id from parent-graph state into the HTTP
+header on every outgoing tool call. The child LLM never sees the id:</p>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">langchain_mcp_adapters.interceptors</span><span class="w"> </span><span class="kn">import</span> <span class="n">ToolCallInterceptor</span>
+</span><span id="__span-8-2"><a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a><span class="kn">from</span><span class="w"> </span><span class="nn">langchain_mcp_adapters.client</span><span class="w"> </span><span class="kn">import</span> <span class="n">MultiServerMCPClient</span>
+</span><span id="__span-8-3"><a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a>
+</span><span id="__span-8-4"><a id="__codelineno-8-4" name="__codelineno-8-4" href="#__codelineno-8-4"></a>
+</span><span id="__span-8-5"><a id="__codelineno-8-5" name="__codelineno-8-5" href="#__codelineno-8-5"></a><span class="k">class</span><span class="w"> </span><span class="nc">ConversationIdInterceptor</span><span class="p">(</span><span class="n">ToolCallInterceptor</span><span class="p">):</span>
+</span><span id="__span-8-6"><a id="__codelineno-8-6" name="__codelineno-8-6" href="#__codelineno-8-6"></a><span class="w">    </span><span class="sd">"""Inject conversation id from LangGraph runtime state into the outgoing</span>
+</span><span id="__span-8-7"><a id="__codelineno-8-7" name="__codelineno-8-7" href="#__codelineno-8-7"></a><span class="sd">    MCP call as an X-Databricks-Conversation-Id header."""</span>
+</span><span id="__span-8-8"><a id="__codelineno-8-8" name="__codelineno-8-8" href="#__codelineno-8-8"></a>
+</span><span id="__span-8-9"><a id="__codelineno-8-9" name="__codelineno-8-9" href="#__codelineno-8-9"></a>    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="fm">__call__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">request</span><span class="p">,</span> <span class="n">handler</span><span class="p">):</span>
+</span><span id="__span-8-10"><a id="__codelineno-8-10" name="__codelineno-8-10" href="#__codelineno-8-10"></a>        <span class="c1"># request.runtime is the parent-graph runtime; extract thread_id</span>
+</span><span id="__span-8-11"><a id="__codelineno-8-11" name="__codelineno-8-11" href="#__codelineno-8-11"></a>        <span class="c1"># from whatever state field your graph carries it in.</span>
+</span><span id="__span-8-12"><a id="__codelineno-8-12" name="__codelineno-8-12" href="#__codelineno-8-12"></a>        <span class="n">runtime</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">request</span><span class="p">,</span> <span class="s2">"runtime"</span><span class="p">,</span> <span class="kc">None</span><span class="p">)</span>
+</span><span id="__span-8-13"><a id="__codelineno-8-13" name="__codelineno-8-13" href="#__codelineno-8-13"></a>        <span class="n">thread_id</span> <span class="o">=</span> <span class="n">_resolve_thread_id_from_runtime</span><span class="p">(</span><span class="n">runtime</span><span class="p">)</span>  <span class="c1"># your helper</span>
+</span><span id="__span-8-14"><a id="__codelineno-8-14" name="__codelineno-8-14" href="#__codelineno-8-14"></a>        <span class="k">if</span> <span class="n">thread_id</span><span class="p">:</span>
+</span><span id="__span-8-15"><a id="__codelineno-8-15" name="__codelineno-8-15" href="#__codelineno-8-15"></a>            <span class="n">request</span> <span class="o">=</span> <span class="n">request</span><span class="o">.</span><span class="n">override</span><span class="p">(</span>
+</span><span id="__span-8-16"><a id="__codelineno-8-16" name="__codelineno-8-16" href="#__codelineno-8-16"></a>                <span class="n">headers</span><span class="o">=</span><span class="p">{</span>
+</span><span id="__span-8-17"><a id="__codelineno-8-17" name="__codelineno-8-17" href="#__codelineno-8-17"></a>                    <span class="o">**</span><span class="p">(</span><span class="n">request</span><span class="o">.</span><span class="n">headers</span> <span class="ow">or</span> <span class="p">{}),</span>
+</span><span id="__span-8-18"><a id="__codelineno-8-18" name="__codelineno-8-18" href="#__codelineno-8-18"></a>                    <span class="s2">"X-Databricks-Conversation-Id"</span><span class="p">:</span> <span class="n">thread_id</span><span class="p">,</span>
+</span><span id="__span-8-19"><a id="__codelineno-8-19" name="__codelineno-8-19" href="#__codelineno-8-19"></a>                <span class="p">}</span>
+</span><span id="__span-8-20"><a id="__codelineno-8-20" name="__codelineno-8-20" href="#__codelineno-8-20"></a>            <span class="p">)</span>
+</span><span id="__span-8-21"><a id="__codelineno-8-21" name="__codelineno-8-21" href="#__codelineno-8-21"></a>        <span class="k">return</span> <span class="k">await</span> <span class="n">handler</span><span class="p">(</span><span class="n">request</span><span class="p">)</span>
+</span><span id="__span-8-22"><a id="__codelineno-8-22" name="__codelineno-8-22" href="#__codelineno-8-22"></a>
+</span><span id="__span-8-23"><a id="__codelineno-8-23" name="__codelineno-8-23" href="#__codelineno-8-23"></a>
+</span><span id="__span-8-24"><a id="__codelineno-8-24" name="__codelineno-8-24" href="#__codelineno-8-24"></a><span class="n">client</span> <span class="o">=</span> <span class="n">MultiServerMCPClient</span><span class="p">(</span>
+</span><span id="__span-8-25"><a id="__codelineno-8-25" name="__codelineno-8-25" href="#__codelineno-8-25"></a>    <span class="n">connections</span><span class="o">=</span><span class="p">{</span>
+</span><span id="__span-8-26"><a id="__codelineno-8-26" name="__codelineno-8-26" href="#__codelineno-8-26"></a>        <span class="s2">"retail_agent"</span><span class="p">:</span> <span class="p">{</span>
+</span><span id="__span-8-27"><a id="__codelineno-8-27" name="__codelineno-8-27" href="#__codelineno-8-27"></a>            <span class="s2">"transport"</span><span class="p">:</span> <span class="s2">"streamable_http"</span><span class="p">,</span>
+</span><span id="__span-8-28"><a id="__codelineno-8-28" name="__codelineno-8-28" href="#__codelineno-8-28"></a>            <span class="s2">"url"</span><span class="p">:</span> <span class="s2">"https://retail-mcp.&lt;workspace&gt;.databricksapps.com/mcp"</span><span class="p">,</span>
+</span><span id="__span-8-29"><a id="__codelineno-8-29" name="__codelineno-8-29" href="#__codelineno-8-29"></a>        <span class="p">}</span>
+</span><span id="__span-8-30"><a id="__codelineno-8-30" name="__codelineno-8-30" href="#__codelineno-8-30"></a>    <span class="p">},</span>
+</span><span id="__span-8-31"><a id="__codelineno-8-31" name="__codelineno-8-31" href="#__codelineno-8-31"></a>    <span class="n">interceptors</span><span class="o">=</span><span class="p">[</span><span class="n">ConversationIdInterceptor</span><span class="p">()],</span>
+</span><span id="__span-8-32"><a id="__codelineno-8-32" name="__codelineno-8-32" href="#__codelineno-8-32"></a><span class="p">)</span>
+</span></code></pre></div>
+<p><strong>Known limitation</strong>: <code>langchain-mcp-adapters</code> v0.3.0 does not plumb
+per-call <code>meta=</code> through to <code>session.call_tool</code>, so the <code>_meta</code> channel
+is currently unreachable from LangChain callers — use the header
+channel above. This is a trivial upstream fix
+(<code>MCPToolCallRequest.meta</code> field + one line in <code>tools.py</code>); once it
+lands, LangChain callers can drop the header shim in favor of <code>_meta</code>.</p>
+<h4 id="observability-querying-mlflow-traces-by-conversation">Observability: querying MLflow traces by conversation<a class="headerlink" href="#observability-querying-mlflow-traces-by-conversation" title="Permanent link">&para;</a></h4>
+<p>The resolved conversation key is written to the trace's
+<code>mlflow.trace.session</code> metadata by the ResponsesAgent — a standard
+MLflow field, so downstream trace-search tools (MLflow UI, the REST
+<code>mlflow/traces</code> endpoint, <code>search_traces</code> filters) can group turns
+by conversation with no additional wiring. For example, all turns from
+a single conversation share the same <code>mlflow.trace.session</code> value
+even though each turn produces its own trace with a distinct
+<code>trace_id</code>. Verified against a deployed fevm App: a two-turn HEADER
+flight and a two-turn META flight each produced two traces sharing the
+same session, while a control flight with no supplied id produced two
+traces with distinct auto-generated sessions.</p>
+<h4 id="what-server-side-state-actually-requires">What server-side state actually requires<a class="headerlink" href="#what-server-side-state-actually-requires" title="Permanent link">&para;</a></h4>
+<p><code>conversation_id</code> is a <strong>key</strong>, not the storage. Persisting per-turn
+state requires the deployed dao-ai instance to have a Lakebase-backed
+checkpointer configured on the AppConfig <code>memory</code> block. Without it,
+supplying a <code>conversation_id</code> is a no-op beyond consistent trace
+correlation (multiple turns will share the same <code>mlflow.trace.session</code>
+metadata value but no LangGraph state is loaded).</p>
+<h4 id="trust-model">Trust model<a class="headerlink" href="#trust-model" title="Permanent link">&para;</a></h4>
+<p>A bare <code>conversation_id</code> is bearer-equivalent: any caller with access
+to this endpoint can read or write any conversation whose id they know.
+This matches how <code>conversation_id</code> on Databricks Apps <code>/invocations</code>
+already works. Keep the MCP endpoint behind OBO / SP auth and treat
+generated ids as secrets in client code.</p>
+<h4 id="what-is-not-used-and-why">What is NOT used, and why<a class="headerlink" href="#what-is-not-used-and-why" title="Permanent link">&para;</a></h4>
+<ul>
+<li><strong><code>Mcp-Session-Id</code></strong> (the Streamable HTTP transport header) is
+  <strong>not</strong> used for conversation continuity. It is per-HTTP-connection,
+  in-memory only by default, and the server issues a new one on client
+  reconnect unless the client explicitly re-sends the previous value
+  <em>and</em> the server still remembers it. Tying conversation state to it
+  would silently reset user memory on every reconnect. Use one of the
+  four channels above instead.</li>
+</ul>
+<hr />
+<h2 id="obo-user-headers">OBO / user headers<a class="headerlink" href="#obo-user-headers" title="Permanent link">&para;</a></h2>
+<p>Every incoming HTTP request has its headers captured by
+<code>RequestContextMiddleware</code> and stored in a contextvar. The tool
+implementation copies them into
+<code>ResponsesAgentRequest.custom_inputs.configurable.headers</code>, which flows
+into the agent graph's <code>Context</code>. From there, dao-ai's existing
+<code>IsDatabricksResource.workspace_client_from(context)</code> pattern picks up
+<code>x-forwarded-access-token</code> and issues OBO'd clients for any resource
+that declares <code>on_behalf_of_user: true</code>.</p>
+<p>This means an MCP client that forwards a user bearer token gets:</p>
+<ul>
+<li>Genie calls run as the user</li>
+<li>Vector Search / UC function calls run as the user</li>
+<li>Lakebase writes attributed to the user</li>
+</ul>
+<p>with <strong>no code changes</strong> in the agent config beyond the usual
+<code>on_behalf_of_user</code> flags.</p>
+<hr />
+<h2 id="deployment-artifacts">Deployment artifacts<a class="headerlink" href="#deployment-artifacts" title="Permanent link">&para;</a></h2>
+<p><code>dao-ai agent build --as-mcp</code> emits:</p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a>output/
+</span><span id="__span-9-2"><a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a>├── databricks.yaml    # DAB with bundle.engine: direct; App + bound resources
+</span><span id="__span-9-3"><a id="__codelineno-9-3" name="__codelineno-9-3" href="#__codelineno-9-3"></a>├── resources/app.yml  # command: ["python", "-m", "dao_ai.mcp.server"]
+</span><span id="__span-9-4"><a id="__codelineno-9-4" name="__codelineno-9-4" href="#__codelineno-9-4"></a>├── pyproject.toml     # dao-ai[mcp] (pinned ==&lt;version&gt;, or local-wheel redirect under --development)
+</span><span id="__span-9-5"><a id="__codelineno-9-5" name="__codelineno-9-5" href="#__codelineno-9-5"></a>├── uv.lock            # portable lock; Apps build phase syncs from this
+</span><span id="__span-9-6"><a id="__codelineno-9-6" name="__codelineno-9-6" href="#__codelineno-9-6"></a>├── &lt;your-config&gt;.yaml # rendered with parameters: stripped
+</span><span id="__span-9-7"><a id="__codelineno-9-7" name="__codelineno-9-7" href="#__codelineno-9-7"></a>└── README.md          # generated deploy snippet + exposed tool name
+</span></code></pre></div>
+<p>The Apps build phase runs <code>uv sync --locked --no-dev</code> from the <code>pyproject.toml</code> +
+<code>uv.lock</code>, which installs <code>dao-ai[mcp]</code> (dao-ai plus the fastapi + uvicorn extras).
+No <code>requirements.txt</code> is emitted — its presence would take precedence and force the
+slower pip path. The runtime command <code>["python", "-m", "dao_ai.mcp.server"]</code>
+launches the server via module invocation — no console script required.</p>
+<h3 id="cli-flags">CLI flags<a class="headerlink" href="#cli-flags" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Flag</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>-c / --config</code></td>
+<td>Path to your dao-ai config YAML.</td>
+</tr>
+<tr>
+<td><code>-s / --staging-dir</code></td>
+<td>Where to write the bundle.</td>
+</tr>
+<tr>
+<td><code>--overwrite</code></td>
+<td>Overwrite existing files in the output directory.</td>
+</tr>
+<tr>
+<td><code>--development</code></td>
+<td>Build the local dao-ai wheel and bundle it under <code>output/dist/</code>; the generated pyproject installs from there. Use when dao-ai changes haven't shipped to PyPI yet.</td>
+</tr>
+<tr>
+<td><code>-p / --profile</code></td>
+<td>Databricks CLI profile — drives <code>_resolve_all_resources</code> so generated bundle paths (e.g. Lakebase database IDs) come from the target workspace. Always pass this when your config references resources resolved at generate time.</td>
+</tr>
+<tr>
+<td><code>--var KEY=VALUE</code> / <code>--param KEY=VALUE</code></td>
+<td>Override declared <code>${var.KEY}</code> substitutions. Repeatable.</td>
+</tr>
+</tbody>
+</table>
+<h3 id="app-resource-bindings">App resource bindings<a class="headerlink" href="#app-resource-bindings" title="Permanent link">&para;</a></h3>
+<p><code>dao-ai agent build --as-mcp</code> derives App resource bindings via
+<code>dao_ai.apps.resources.generate_app_resources</code> and converts them with
+<code>dao_ai.apps.bundle._convert_to_bundle_resources</code>. The resulting
+<code>databricks.yml</code> declares whatever bindings the agent needs — genie
+space, sql warehouse, postgres, uc securable, serving endpoint, secret —
+identical to what <code>dao-ai agent build</code> emits.</p>
+<p>Lakebase <code>database_instances</code> are <strong>not</strong> auto-provisioned. The bundle
+assumes the Lakebase project already exists.</p>
+<hr />
+<h2 id="verifying-a-deploy">Verifying a deploy<a class="headerlink" href="#verifying-a-deploy" title="Permanent link">&para;</a></h2>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-10-1"><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a><span class="nv">APP_URL</span><span class="o">=</span><span class="k">$(</span>databricks<span class="w"> </span>apps<span class="w"> </span>get<span class="w"> </span>&lt;app-name&gt;<span class="w"> </span>-p<span class="w"> </span>&lt;profile&gt;<span class="w"> </span>--output<span class="w"> </span>json<span class="w"> </span><span class="p">|</span><span class="w"> </span>jq<span class="w"> </span>-r<span class="w"> </span>.url<span class="k">)</span>
+</span><span id="__span-10-2"><a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a><span class="nv">TOKEN</span><span class="o">=</span><span class="k">$(</span>databricks<span class="w"> </span>auth<span class="w"> </span>token<span class="w"> </span>-p<span class="w"> </span>&lt;profile&gt;<span class="w"> </span><span class="p">|</span><span class="w"> </span>jq<span class="w"> </span>-r<span class="w"> </span>.access_token<span class="k">)</span>
+</span><span id="__span-10-3"><a id="__codelineno-10-3" name="__codelineno-10-3" href="#__codelineno-10-3"></a>
+</span><span id="__span-10-4"><a id="__codelineno-10-4" name="__codelineno-10-4" href="#__codelineno-10-4"></a><span class="c1"># Boot probe</span>
+</span><span id="__span-10-5"><a id="__codelineno-10-5" name="__codelineno-10-5" href="#__codelineno-10-5"></a>curl<span class="w"> </span>-sS<span class="w"> </span>-H<span class="w"> </span><span class="s2">"Authorization: Bearer </span><span class="nv">$TOKEN</span><span class="s2">"</span><span class="w"> </span><span class="s2">"</span><span class="nv">$APP_URL</span><span class="s2">/readyz"</span>
+</span><span id="__span-10-6"><a id="__codelineno-10-6" name="__codelineno-10-6" href="#__codelineno-10-6"></a>
+</span><span id="__span-10-7"><a id="__codelineno-10-7" name="__codelineno-10-7" href="#__codelineno-10-7"></a><span class="c1"># MCP handshake — initialize + list tools</span>
+</span><span id="__span-10-8"><a id="__codelineno-10-8" name="__codelineno-10-8" href="#__codelineno-10-8"></a>curl<span class="w"> </span>-sS<span class="w"> </span>-X<span class="w"> </span>POST<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-10-9"><a id="__codelineno-10-9" name="__codelineno-10-9" href="#__codelineno-10-9"></a><span class="w">  </span>-H<span class="w"> </span><span class="s2">"Authorization: Bearer </span><span class="nv">$TOKEN</span><span class="s2">"</span><span class="w"> </span><span class="se">\</span>
+</span><span id="__span-10-10"><a id="__codelineno-10-10" name="__codelineno-10-10" href="#__codelineno-10-10"></a><span class="w">  </span>-H<span class="w"> </span><span class="s2">"Content-Type: application/json"</span><span class="w"> </span><span class="se">\</span>
+</span><span id="__span-10-11"><a id="__codelineno-10-11" name="__codelineno-10-11" href="#__codelineno-10-11"></a><span class="w">  </span>-H<span class="w"> </span><span class="s2">"Accept: application/json, text/event-stream"</span><span class="w"> </span><span class="se">\</span>
+</span><span id="__span-10-12"><a id="__codelineno-10-12" name="__codelineno-10-12" href="#__codelineno-10-12"></a><span class="w">  </span>-d<span class="w"> </span><span class="s1">'{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"smoke","version":"1"}}}'</span><span class="w"> </span><span class="se">\</span>
+</span><span id="__span-10-13"><a id="__codelineno-10-13" name="__codelineno-10-13" href="#__codelineno-10-13"></a><span class="w">  </span><span class="s2">"</span><span class="nv">$APP_URL</span><span class="s2">/mcp"</span>
+</span><span id="__span-10-14"><a id="__codelineno-10-14" name="__codelineno-10-14" href="#__codelineno-10-14"></a>
+</span><span id="__span-10-15"><a id="__codelineno-10-15" name="__codelineno-10-15" href="#__codelineno-10-15"></a>curl<span class="w"> </span>-sS<span class="w"> </span>-X<span class="w"> </span>POST<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-10-16"><a id="__codelineno-10-16" name="__codelineno-10-16" href="#__codelineno-10-16"></a><span class="w">  </span>-H<span class="w"> </span><span class="s2">"Authorization: Bearer </span><span class="nv">$TOKEN</span><span class="s2">"</span><span class="w"> </span><span class="se">\</span>
+</span><span id="__span-10-17"><a id="__codelineno-10-17" name="__codelineno-10-17" href="#__codelineno-10-17"></a><span class="w">  </span>-H<span class="w"> </span><span class="s2">"Content-Type: application/json"</span><span class="w"> </span><span class="se">\</span>
+</span><span id="__span-10-18"><a id="__codelineno-10-18" name="__codelineno-10-18" href="#__codelineno-10-18"></a><span class="w">  </span>-H<span class="w"> </span><span class="s2">"Accept: application/json, text/event-stream"</span><span class="w"> </span><span class="se">\</span>
+</span><span id="__span-10-19"><a id="__codelineno-10-19" name="__codelineno-10-19" href="#__codelineno-10-19"></a><span class="w">  </span>-d<span class="w"> </span><span class="s1">'{"jsonrpc":"2.0","id":2,"method":"tools/list"}'</span><span class="w"> </span><span class="se">\</span>
+</span><span id="__span-10-20"><a id="__codelineno-10-20" name="__codelineno-10-20" href="#__codelineno-10-20"></a><span class="w">  </span><span class="s2">"</span><span class="nv">$APP_URL</span><span class="s2">/mcp"</span>
+</span><span id="__span-10-21"><a id="__codelineno-10-21" name="__codelineno-10-21" href="#__codelineno-10-21"></a>
+</span><span id="__span-10-22"><a id="__codelineno-10-22" name="__codelineno-10-22" href="#__codelineno-10-22"></a><span class="c1"># Call the agent</span>
+</span><span id="__span-10-23"><a id="__codelineno-10-23" name="__codelineno-10-23" href="#__codelineno-10-23"></a>curl<span class="w"> </span>-sS<span class="w"> </span>-X<span class="w"> </span>POST<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-10-24"><a id="__codelineno-10-24" name="__codelineno-10-24" href="#__codelineno-10-24"></a><span class="w">  </span>-H<span class="w"> </span><span class="s2">"Authorization: Bearer </span><span class="nv">$TOKEN</span><span class="s2">"</span><span class="w"> </span><span class="se">\</span>
+</span><span id="__span-10-25"><a id="__codelineno-10-25" name="__codelineno-10-25" href="#__codelineno-10-25"></a><span class="w">  </span>-H<span class="w"> </span><span class="s2">"Content-Type: application/json"</span><span class="w"> </span><span class="se">\</span>
+</span><span id="__span-10-26"><a id="__codelineno-10-26" name="__codelineno-10-26" href="#__codelineno-10-26"></a><span class="w">  </span>-H<span class="w"> </span><span class="s2">"Accept: application/json, text/event-stream"</span><span class="w"> </span><span class="se">\</span>
+</span><span id="__span-10-27"><a id="__codelineno-10-27" name="__codelineno-10-27" href="#__codelineno-10-27"></a><span class="w">  </span>-d<span class="w"> </span><span class="s1">'{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"&lt;slugified-app-name&gt;","arguments":{"input":"What are our top-selling SKUs?"}}}'</span><span class="w"> </span><span class="se">\</span>
+</span><span id="__span-10-28"><a id="__codelineno-10-28" name="__codelineno-10-28" href="#__codelineno-10-28"></a><span class="w">  </span><span class="s2">"</span><span class="nv">$APP_URL</span><span class="s2">/mcp"</span>
+</span></code></pre></div>
+<p>The Apps logs (<code>databricks apps logs &lt;app-name&gt; -p &lt;profile&gt;</code>) include
+structured loguru events for boot (<code>mcp.agent_tool.registered</code>) and
+every tool call (dao-ai's existing graph / span emissions).</p>
+<hr />
+<h2 id="consuming-this-mcp-server-from-another-dao-ai-agent">Consuming this MCP server from another dao-ai agent<a class="headerlink" href="#consuming-this-mcp-server-from-another-dao-ai-agent" title="Permanent link">&para;</a></h2>
+<p>Use dao-ai's first-class <code>type: mcp</code> tool to call the deployed server
+from a consumer config. <code>type: app</code> is <em>not</em> the right shape — the
+<code>AppToolModel</code> validator explicitly rejects apps whose name starts with
+<code>mcp-</code> (which every dao-ai MCP server does, since the default deployed
+name is <code>mcp-dao-ai-&lt;...&gt;</code> for MAS discovery) and directs you here.</p>
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-11-1"><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a><span class="nt">resources</span><span class="p">:</span>
+</span><span id="__span-11-2"><a id="__codelineno-11-2" name="__codelineno-11-2" href="#__codelineno-11-2"></a><span class="w">  </span><span class="nt">apps</span><span class="p">:</span>
+</span><span id="__span-11-3"><a id="__codelineno-11-3" name="__codelineno-11-3" href="#__codelineno-11-3"></a><span class="w">    </span><span class="nt">retail_mcp</span><span class="p">:</span><span class="w"> </span><span class="nl">&amp;retail_mcp</span>
+</span><span id="__span-11-4"><a id="__codelineno-11-4" name="__codelineno-11-4" href="#__codelineno-11-4"></a><span class="w">      </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">mcp-dao-ai-retail</span><span class="w">          </span><span class="c1"># the deployed MCP app's name</span>
+</span><span id="__span-11-5"><a id="__codelineno-11-5" name="__codelineno-11-5" href="#__codelineno-11-5"></a><span class="w">      </span><span class="nt">on_behalf_of_user</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span><span class="w">          </span><span class="c1"># forwards the caller's user token</span>
+</span><span id="__span-11-6"><a id="__codelineno-11-6" name="__codelineno-11-6" href="#__codelineno-11-6"></a>
+</span><span id="__span-11-7"><a id="__codelineno-11-7" name="__codelineno-11-7" href="#__codelineno-11-7"></a><span class="nt">tools</span><span class="p">:</span>
+</span><span id="__span-11-8"><a id="__codelineno-11-8" name="__codelineno-11-8" href="#__codelineno-11-8"></a><span class="w">  </span><span class="nt">retail_agent</span><span class="p">:</span><span class="w">                        </span><span class="c1"># your binding name (free choice)</span>
+</span><span id="__span-11-9"><a id="__codelineno-11-9" name="__codelineno-11-9" href="#__codelineno-11-9"></a><span class="w">    </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">mcp</span>
+</span><span id="__span-11-10"><a id="__codelineno-11-10" name="__codelineno-11-10" href="#__codelineno-11-10"></a><span class="w">    </span><span class="nt">app</span><span class="p">:</span><span class="w"> </span><span class="nv">*retail_mcp</span><span class="w">                   </span><span class="c1"># points at the mcp- app above</span>
+</span></code></pre></div>
+<p>Alternate URL-direct form (useful when the target is outside your
+workspace or you want explicit SP auth):</p>
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-12-1"><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a><span class="nt">tools</span><span class="p">:</span>
+</span><span id="__span-12-2"><a id="__codelineno-12-2" name="__codelineno-12-2" href="#__codelineno-12-2"></a><span class="w">  </span><span class="nt">retail_agent</span><span class="p">:</span>
+</span><span id="__span-12-3"><a id="__codelineno-12-3" name="__codelineno-12-3" href="#__codelineno-12-3"></a><span class="w">    </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">mcp</span>
+</span><span id="__span-12-4"><a id="__codelineno-12-4" name="__codelineno-12-4" href="#__codelineno-12-4"></a><span class="w">    </span><span class="nt">url</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">https://mcp-dao-ai-retail.&lt;workspace&gt;.azuredatabricksapps.com/mcp/</span>
+</span><span id="__span-12-5"><a id="__codelineno-12-5" name="__codelineno-12-5" href="#__codelineno-12-5"></a><span class="w">    </span><span class="nt">client_id</span><span class="p">:</span><span class="w"> </span><span class="nv">*client_id</span>
+</span><span id="__span-12-6"><a id="__codelineno-12-6" name="__codelineno-12-6" href="#__codelineno-12-6"></a><span class="w">    </span><span class="nt">client_secret</span><span class="p">:</span><span class="w"> </span><span class="nv">*client_secret</span>
+</span><span id="__span-12-7"><a id="__codelineno-12-7" name="__codelineno-12-7" href="#__codelineno-12-7"></a><span class="w">    </span><span class="nt">workspace_host</span><span class="p">:</span><span class="w"> </span><span class="nv">*workspace_host</span>
+</span></code></pre></div>
+<p>Neither form takes a <code>tool:</code> argument — the MCP server exposes its tool
+set on the MCP protocol and the client discovers it. dao-ai's MCP server
+registers a single agent-as-tool named from the slugified server-side
+<code>app.name</code>.</p>
+<p>The consumer's OBO flow automatically forwards <code>x-forwarded-access-token</code>
+to the deployed MCP server, which then propagates it to the nested
+agent's downstream calls. Traces from both tiers land in the consumer's
+MLflow experiment (set <code>app.trace_location</code> on both sides for a unified
+UC OTEL table).</p>
+<h3 id="client-capabilities">Client capabilities<a class="headerlink" href="#client-capabilities" title="Permanent link">&para;</a></h3>
+<p>Opt into advanced MCP behaviors by setting <code>capabilities:</code> on the
+consumer-side <code>McpFunctionModel</code>. Every field is opt-in; leaving
+<code>capabilities:</code> unset preserves the classic <code>MultiServerMCPClient</code>
+path with no callbacks or interceptors (byte-for-byte compatible with
+pre-capabilities dao-ai).</p>
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-13-1"><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a><span class="nt">tools</span><span class="p">:</span>
+</span><span id="__span-13-2"><a id="__codelineno-13-2" name="__codelineno-13-2" href="#__codelineno-13-2"></a><span class="w">  </span><span class="nt">retail_agent</span><span class="p">:</span>
+</span><span id="__span-13-3"><a id="__codelineno-13-3" name="__codelineno-13-3" href="#__codelineno-13-3"></a><span class="w">    </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">mcp</span>
+</span><span id="__span-13-4"><a id="__codelineno-13-4" name="__codelineno-13-4" href="#__codelineno-13-4"></a><span class="w">    </span><span class="nt">app</span><span class="p">:</span><span class="w"> </span><span class="nv">*retail_mcp</span>
+</span><span id="__span-13-5"><a id="__codelineno-13-5" name="__codelineno-13-5" href="#__codelineno-13-5"></a><span class="w">    </span><span class="nt">capabilities</span><span class="p">:</span>
+</span><span id="__span-13-6"><a id="__codelineno-13-6" name="__codelineno-13-6" href="#__codelineno-13-6"></a><span class="w">      </span><span class="nt">progress</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span><span class="w">                    </span><span class="c1"># consume notifications/progress</span>
+</span><span id="__span-13-7"><a id="__codelineno-13-7" name="__codelineno-13-7" href="#__codelineno-13-7"></a><span class="w">      </span><span class="nt">structured_output</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span><span class="w">           </span><span class="c1"># prefer CallToolResult.structuredContent (default true)</span>
+</span><span id="__span-13-8"><a id="__codelineno-13-8" name="__codelineno-13-8" href="#__codelineno-13-8"></a><span class="w">      </span><span class="nt">elicitation</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">hitl</span><span class="w">                 </span><span class="c1"># server elicit → LangGraph interrupt</span>
+</span></code></pre></div>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>progress</code></td>
+<td>Consume <code>notifications/progress</code>, forward as MLflow span events and (during streaming) as <code>response.output_item.added</code> envelopes on the outer stream. Default <code>false</code>.</td>
+</tr>
+<tr>
+<td><code>structured_output</code></td>
+<td>Prefer <code>CallToolResult.structuredContent</code> and expand <code>resource_link</code> items into MLflow span attributes via a <code>ToolCallInterceptor</code>. Additive — falls back to text extraction when structured content is absent. Default <code>true</code>.</td>
+</tr>
+<tr>
+<td><code>elicitation</code></td>
+<td>Handle server-initiated <code>elicitation/create</code>. <code>hitl</code> raises a LangGraph interrupt (surfaces via the standard HITL flow, resumes via <code>custom_inputs.decisions</code>); <code>reject</code> returns <code>action="cancel"</code> without prompting. Default <code>None</code>.</td>
+</tr>
+</tbody>
+</table>
+<blockquote>
+<p><strong>Deprecated capabilities removed.</strong> <code>logging</code>, <code>sampling</code>, and <code>roots</code>
+were deprecated together under
+<a href="https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2577">SEP-2577</a>
+and are no longer supported. <code>capabilities:</code> uses <code>extra="forbid"</code>, so a
+config that still sets any of them fails validation. Migration: use
+MLflow/OTEL tracing instead of <code>logging</code> (dao-ai now propagates W3C trace
+context via <code>_meta</code> — see below); integrate directly with an LLM endpoint
+instead of <code>sampling</code>; pass directories/URIs via tool parameters instead of
+<code>roots</code>.</p>
+</blockquote>
+<p>All surviving capabilities (<code>progress</code>, <code>structured_output</code>, <code>elicitation</code>)
+run under the classic langchain-mcp-adapters <code>MultiServerMCPClient</code> path.</p>
+<p>W3C trace context (<code>traceparent</code>/<code>baggage</code>) is injected into <code>_meta</code> on every
+<code>tools/call</code> (SEP-414) so a downstream MCP server continues the caller's
+distributed trace — see <a href="../mcp-callbacks/"><code>docs/mcp-callbacks.md</code></a> and
+<code>dao_ai.tools.mcp_trace_context</code>.</p>
+<p>For the wire format of progress envelopes on the outer response stream, see
+<a href="../mcp-callbacks/"><code>docs/mcp-callbacks.md</code></a>.</p>
+<h2 id="consuming-this-mcp-server-from-raw-python-or-langchain">Consuming this MCP server from raw Python or LangChain<a class="headerlink" href="#consuming-this-mcp-server-from-raw-python-or-langchain" title="Permanent link">&para;</a></h2>
+<p>Non-dao-ai callers can invoke the deployed server directly. Both
+examples below demonstrate a two-turn conversation reusing the same
+<code>conversation_id</code> on turn 2.</p>
+<h3 id="raw-python-mcp-sdk-streamable-http">Raw Python (<code>mcp</code> SDK, Streamable HTTP)<a class="headerlink" href="#raw-python-mcp-sdk-streamable-http" title="Permanent link">&para;</a></h3>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-14-1"><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">asyncio</span><span class="o">,</span><span class="w"> </span><span class="nn">os</span><span class="o">,</span><span class="w"> </span><span class="nn">uuid</span>
+</span><span id="__span-14-2"><a id="__codelineno-14-2" name="__codelineno-14-2" href="#__codelineno-14-2"></a><span class="kn">from</span><span class="w"> </span><span class="nn">mcp.client.session</span><span class="w"> </span><span class="kn">import</span> <span class="n">ClientSession</span>
+</span><span id="__span-14-3"><a id="__codelineno-14-3" name="__codelineno-14-3" href="#__codelineno-14-3"></a><span class="kn">from</span><span class="w"> </span><span class="nn">mcp.client.streamable_http</span><span class="w"> </span><span class="kn">import</span> <span class="n">streamablehttp_client</span>
+</span><span id="__span-14-4"><a id="__codelineno-14-4" name="__codelineno-14-4" href="#__codelineno-14-4"></a>
+</span><span id="__span-14-5"><a id="__codelineno-14-5" name="__codelineno-14-5" href="#__codelineno-14-5"></a><span class="n">APP_URL</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="p">[</span><span class="s2">"MCP_APP_URL"</span><span class="p">]</span><span class="o">.</span><span class="n">rstrip</span><span class="p">(</span><span class="s2">"/"</span><span class="p">)</span>   <span class="c1"># https://&lt;app&gt;.&lt;workspace&gt;.databricksapps.com</span>
+</span><span id="__span-14-6"><a id="__codelineno-14-6" name="__codelineno-14-6" href="#__codelineno-14-6"></a><span class="n">TOKEN</span>   <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="p">[</span><span class="s2">"MCP_APP_TOKEN"</span><span class="p">]</span>              <span class="c1"># OBO user token or SP token</span>
+</span><span id="__span-14-7"><a id="__codelineno-14-7" name="__codelineno-14-7" href="#__codelineno-14-7"></a><span class="n">TOOL</span>    <span class="o">=</span> <span class="s2">"mcp_dao_ai_retail"</span>                      <span class="c1"># slugified server-side app.name</span>
+</span><span id="__span-14-8"><a id="__codelineno-14-8" name="__codelineno-14-8" href="#__codelineno-14-8"></a>
+</span><span id="__span-14-9"><a id="__codelineno-14-9" name="__codelineno-14-9" href="#__codelineno-14-9"></a><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">run</span><span class="p">():</span>
+</span><span id="__span-14-10"><a id="__codelineno-14-10" name="__codelineno-14-10" href="#__codelineno-14-10"></a>    <span class="n">headers</span> <span class="o">=</span> <span class="p">{</span>
+</span><span id="__span-14-11"><a id="__codelineno-14-11" name="__codelineno-14-11" href="#__codelineno-14-11"></a>        <span class="s2">"Authorization"</span><span class="p">:</span> <span class="sa">f</span><span class="s2">"Bearer </span><span class="si">{</span><span class="n">TOKEN</span><span class="si">}</span><span class="s2">"</span><span class="p">,</span>
+</span><span id="__span-14-12"><a id="__codelineno-14-12" name="__codelineno-14-12" href="#__codelineno-14-12"></a>        <span class="c1"># Apps proxy forwards this to the server as x-forwarded-access-token</span>
+</span><span id="__span-14-13"><a id="__codelineno-14-13" name="__codelineno-14-13" href="#__codelineno-14-13"></a>        <span class="c1"># for OBO downstream calls.</span>
+</span><span id="__span-14-14"><a id="__codelineno-14-14" name="__codelineno-14-14" href="#__codelineno-14-14"></a>        <span class="s2">"X-Forwarded-Access-Token"</span><span class="p">:</span> <span class="n">TOKEN</span><span class="p">,</span>
+</span><span id="__span-14-15"><a id="__codelineno-14-15" name="__codelineno-14-15" href="#__codelineno-14-15"></a>    <span class="p">}</span>
+</span><span id="__span-14-16"><a id="__codelineno-14-16" name="__codelineno-14-16" href="#__codelineno-14-16"></a>    <span class="n">conv_id</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">"conv-</span><span class="si">{</span><span class="n">uuid</span><span class="o">.</span><span class="n">uuid4</span><span class="p">()</span><span class="o">.</span><span class="n">hex</span><span class="p">[:</span><span class="mi">8</span><span class="p">]</span><span class="si">}</span><span class="s2">"</span>
+</span><span id="__span-14-17"><a id="__codelineno-14-17" name="__codelineno-14-17" href="#__codelineno-14-17"></a>
+</span><span id="__span-14-18"><a id="__codelineno-14-18" name="__codelineno-14-18" href="#__codelineno-14-18"></a>    <span class="k">async</span> <span class="k">with</span> <span class="n">streamablehttp_client</span><span class="p">(</span><span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">APP_URL</span><span class="si">}</span><span class="s2">/mcp"</span><span class="p">,</span> <span class="n">headers</span><span class="o">=</span><span class="n">headers</span><span class="p">)</span> <span class="k">as</span> <span class="p">(</span><span class="n">r</span><span class="p">,</span> <span class="n">w</span><span class="p">,</span> <span class="n">_</span><span class="p">):</span>
+</span><span id="__span-14-19"><a id="__codelineno-14-19" name="__codelineno-14-19" href="#__codelineno-14-19"></a>        <span class="k">async</span> <span class="k">with</span> <span class="n">ClientSession</span><span class="p">(</span><span class="n">r</span><span class="p">,</span> <span class="n">w</span><span class="p">)</span> <span class="k">as</span> <span class="n">sess</span><span class="p">:</span>
+</span><span id="__span-14-20"><a id="__codelineno-14-20" name="__codelineno-14-20" href="#__codelineno-14-20"></a>            <span class="k">await</span> <span class="n">sess</span><span class="o">.</span><span class="n">initialize</span><span class="p">()</span>
+</span><span id="__span-14-21"><a id="__codelineno-14-21" name="__codelineno-14-21" href="#__codelineno-14-21"></a>
+</span><span id="__span-14-22"><a id="__codelineno-14-22" name="__codelineno-14-22" href="#__codelineno-14-22"></a>            <span class="c1"># Turn 1 — pass conversation_id via _meta (spec-idiomatic,</span>
+</span><span id="__span-14-23"><a id="__codelineno-14-23" name="__codelineno-14-23" href="#__codelineno-14-23"></a>            <span class="c1"># matches how MCP ships progressToken).</span>
+</span><span id="__span-14-24"><a id="__codelineno-14-24" name="__codelineno-14-24" href="#__codelineno-14-24"></a>            <span class="n">r1</span> <span class="o">=</span> <span class="k">await</span> <span class="n">sess</span><span class="o">.</span><span class="n">call_tool</span><span class="p">(</span>
+</span><span id="__span-14-25"><a id="__codelineno-14-25" name="__codelineno-14-25" href="#__codelineno-14-25"></a>                <span class="n">TOOL</span><span class="p">,</span>
+</span><span id="__span-14-26"><a id="__codelineno-14-26" name="__codelineno-14-26" href="#__codelineno-14-26"></a>                <span class="p">{</span><span class="s2">"input"</span><span class="p">:</span> <span class="s2">"My favorite color is chartreuse."</span><span class="p">},</span>
+</span><span id="__span-14-27"><a id="__codelineno-14-27" name="__codelineno-14-27" href="#__codelineno-14-27"></a>                <span class="n">meta</span><span class="o">=</span><span class="p">{</span><span class="s2">"conversation_id"</span><span class="p">:</span> <span class="n">conv_id</span><span class="p">},</span>
+</span><span id="__span-14-28"><a id="__codelineno-14-28" name="__codelineno-14-28" href="#__codelineno-14-28"></a>            <span class="p">)</span>
+</span><span id="__span-14-29"><a id="__codelineno-14-29" name="__codelineno-14-29" href="#__codelineno-14-29"></a>            <span class="nb">print</span><span class="p">(</span><span class="s2">"turn1:"</span><span class="p">,</span> <span class="n">r1</span><span class="o">.</span><span class="n">structuredContent</span><span class="p">[</span><span class="s2">"final_message"</span><span class="p">])</span>
+</span><span id="__span-14-30"><a id="__codelineno-14-30" name="__codelineno-14-30" href="#__codelineno-14-30"></a>
+</span><span id="__span-14-31"><a id="__codelineno-14-31" name="__codelineno-14-31" href="#__codelineno-14-31"></a>            <span class="c1"># Turn 2 — same channel. The server threads the id into the</span>
+</span><span id="__span-14-32"><a id="__codelineno-14-32" name="__codelineno-14-32" href="#__codelineno-14-32"></a>            <span class="c1"># LangGraph checkpointer under the same thread, so the reply</span>
+</span><span id="__span-14-33"><a id="__codelineno-14-33" name="__codelineno-14-33" href="#__codelineno-14-33"></a>            <span class="c1"># recalls turn 1.</span>
+</span><span id="__span-14-34"><a id="__codelineno-14-34" name="__codelineno-14-34" href="#__codelineno-14-34"></a>            <span class="n">r2</span> <span class="o">=</span> <span class="k">await</span> <span class="n">sess</span><span class="o">.</span><span class="n">call_tool</span><span class="p">(</span>
+</span><span id="__span-14-35"><a id="__codelineno-14-35" name="__codelineno-14-35" href="#__codelineno-14-35"></a>                <span class="n">TOOL</span><span class="p">,</span>
+</span><span id="__span-14-36"><a id="__codelineno-14-36" name="__codelineno-14-36" href="#__codelineno-14-36"></a>                <span class="p">{</span><span class="s2">"input"</span><span class="p">:</span> <span class="s2">"What did I just tell you my favorite color was?"</span><span class="p">},</span>
+</span><span id="__span-14-37"><a id="__codelineno-14-37" name="__codelineno-14-37" href="#__codelineno-14-37"></a>                <span class="n">meta</span><span class="o">=</span><span class="p">{</span><span class="s2">"conversation_id"</span><span class="p">:</span> <span class="n">conv_id</span><span class="p">},</span>
+</span><span id="__span-14-38"><a id="__codelineno-14-38" name="__codelineno-14-38" href="#__codelineno-14-38"></a>            <span class="p">)</span>
+</span><span id="__span-14-39"><a id="__codelineno-14-39" name="__codelineno-14-39" href="#__codelineno-14-39"></a>            <span class="nb">print</span><span class="p">(</span><span class="s2">"turn2:"</span><span class="p">,</span> <span class="n">r2</span><span class="o">.</span><span class="n">structuredContent</span><span class="p">[</span><span class="s2">"final_message"</span><span class="p">])</span>
+</span><span id="__span-14-40"><a id="__codelineno-14-40" name="__codelineno-14-40" href="#__codelineno-14-40"></a>            <span class="c1"># → "Chartreuse."</span>
+</span><span id="__span-14-41"><a id="__codelineno-14-41" name="__codelineno-14-41" href="#__codelineno-14-41"></a>
+</span><span id="__span-14-42"><a id="__codelineno-14-42" name="__codelineno-14-42" href="#__codelineno-14-42"></a><span class="n">asyncio</span><span class="o">.</span><span class="n">run</span><span class="p">(</span><span class="n">run</span><span class="p">())</span>
+</span></code></pre></div>
+<p>Alternative: pass the id via the <code>X-Databricks-Conversation-Id</code> header on
+the transport instead of <code>_meta</code> — same server-side behavior. Both
+channels are invisible to the LLM.</p>
+<p>Every response echoes <code>structuredContent.conversation_id</code>,
+<code>structuredContent.thread_id</code>, and <code>_meta.conversation_id</code> — capture one
+of these on turn 1 if you let the server generate the id, then replay
+it on subsequent turns.</p>
+<h3 id="langchain-langgraph-langchain-mcp-adapters">LangChain / LangGraph (<code>langchain-mcp-adapters</code>)<a class="headerlink" href="#langchain-langgraph-langchain-mcp-adapters" title="Permanent link">&para;</a></h3>
+<p><code>MultiServerMCPClient</code> wraps each MCP tool as a LangChain <code>BaseTool</code>.
+Because the conversation id is <strong>not</strong> a tool argument (see <a href="#stateful-conversations">Stateful
+conversations</a> for the rationale), a LangGraph
+parent injects it as an HTTP header via a per-call
+<code>ToolCallInterceptor</code> — the child LLM never sees the id.</p>
+<p><strong>Known limitation</strong>: <code>langchain-mcp-adapters</code> v0.3.0 does not plumb
+per-call <code>meta=</code> through to <code>session.call_tool</code>, so the <code>_meta</code> channel
+isn't reachable from LangChain callers today. Use the header
+interceptor pattern below. A trivial upstream PR
+(<code>MCPToolCallRequest.meta</code> + one line in <code>tools.py</code>) would unlock the
+<code>_meta</code> path; once it lands, callers can migrate off the header shim.</p>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-15-1"><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">asyncio</span><span class="o">,</span><span class="w"> </span><span class="nn">os</span><span class="o">,</span><span class="w"> </span><span class="nn">uuid</span>
+</span><span id="__span-15-2"><a id="__codelineno-15-2" name="__codelineno-15-2" href="#__codelineno-15-2"></a><span class="kn">from</span><span class="w"> </span><span class="nn">langchain_mcp_adapters.client</span><span class="w"> </span><span class="kn">import</span> <span class="n">MultiServerMCPClient</span>
+</span><span id="__span-15-3"><a id="__codelineno-15-3" name="__codelineno-15-3" href="#__codelineno-15-3"></a><span class="kn">from</span><span class="w"> </span><span class="nn">langchain_mcp_adapters.interceptors</span><span class="w"> </span><span class="kn">import</span> <span class="n">ToolCallInterceptor</span>
+</span><span id="__span-15-4"><a id="__codelineno-15-4" name="__codelineno-15-4" href="#__codelineno-15-4"></a>
+</span><span id="__span-15-5"><a id="__codelineno-15-5" name="__codelineno-15-5" href="#__codelineno-15-5"></a><span class="n">APP_URL</span> <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="p">[</span><span class="s2">"MCP_APP_URL"</span><span class="p">]</span><span class="o">.</span><span class="n">rstrip</span><span class="p">(</span><span class="s2">"/"</span><span class="p">)</span>
+</span><span id="__span-15-6"><a id="__codelineno-15-6" name="__codelineno-15-6" href="#__codelineno-15-6"></a><span class="n">TOKEN</span>   <span class="o">=</span> <span class="n">os</span><span class="o">.</span><span class="n">environ</span><span class="p">[</span><span class="s2">"MCP_APP_TOKEN"</span><span class="p">]</span>
+</span><span id="__span-15-7"><a id="__codelineno-15-7" name="__codelineno-15-7" href="#__codelineno-15-7"></a>
+</span><span id="__span-15-8"><a id="__codelineno-15-8" name="__codelineno-15-8" href="#__codelineno-15-8"></a>
+</span><span id="__span-15-9"><a id="__codelineno-15-9" name="__codelineno-15-9" href="#__codelineno-15-9"></a><span class="k">class</span><span class="w"> </span><span class="nc">PerCallConversationHeader</span><span class="p">(</span><span class="n">ToolCallInterceptor</span><span class="p">):</span>
+</span><span id="__span-15-10"><a id="__codelineno-15-10" name="__codelineno-15-10" href="#__codelineno-15-10"></a><span class="w">    </span><span class="sd">"""Set X-Databricks-Conversation-Id on every outgoing MCP call from</span>
+</span><span id="__span-15-11"><a id="__codelineno-15-11" name="__codelineno-15-11" href="#__codelineno-15-11"></a><span class="sd">    whatever conversation key the parent LangGraph is tracking. The</span>
+</span><span id="__span-15-12"><a id="__codelineno-15-12" name="__codelineno-15-12" href="#__codelineno-15-12"></a><span class="sd">    child LLM never sees this value.</span>
+</span><span id="__span-15-13"><a id="__codelineno-15-13" name="__codelineno-15-13" href="#__codelineno-15-13"></a><span class="sd">    """</span>
+</span><span id="__span-15-14"><a id="__codelineno-15-14" name="__codelineno-15-14" href="#__codelineno-15-14"></a>
+</span><span id="__span-15-15"><a id="__codelineno-15-15" name="__codelineno-15-15" href="#__codelineno-15-15"></a>    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">resolver</span><span class="p">):</span>
+</span><span id="__span-15-16"><a id="__codelineno-15-16" name="__codelineno-15-16" href="#__codelineno-15-16"></a>        <span class="c1"># resolver(request.runtime) → str | None. Wire this to your</span>
+</span><span id="__span-15-17"><a id="__codelineno-15-17" name="__codelineno-15-17" href="#__codelineno-15-17"></a>        <span class="c1"># parent-graph state (LangGraph node context, thread config, etc.).</span>
+</span><span id="__span-15-18"><a id="__codelineno-15-18" name="__codelineno-15-18" href="#__codelineno-15-18"></a>        <span class="bp">self</span><span class="o">.</span><span class="n">_resolver</span> <span class="o">=</span> <span class="n">resolver</span>
+</span><span id="__span-15-19"><a id="__codelineno-15-19" name="__codelineno-15-19" href="#__codelineno-15-19"></a>
+</span><span id="__span-15-20"><a id="__codelineno-15-20" name="__codelineno-15-20" href="#__codelineno-15-20"></a>    <span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="fm">__call__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">request</span><span class="p">,</span> <span class="n">handler</span><span class="p">):</span>
+</span><span id="__span-15-21"><a id="__codelineno-15-21" name="__codelineno-15-21" href="#__codelineno-15-21"></a>        <span class="n">conversation_id</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_resolver</span><span class="p">(</span><span class="nb">getattr</span><span class="p">(</span><span class="n">request</span><span class="p">,</span> <span class="s2">"runtime"</span><span class="p">,</span> <span class="kc">None</span><span class="p">))</span>
+</span><span id="__span-15-22"><a id="__codelineno-15-22" name="__codelineno-15-22" href="#__codelineno-15-22"></a>        <span class="k">if</span> <span class="n">conversation_id</span><span class="p">:</span>
+</span><span id="__span-15-23"><a id="__codelineno-15-23" name="__codelineno-15-23" href="#__codelineno-15-23"></a>            <span class="n">request</span> <span class="o">=</span> <span class="n">request</span><span class="o">.</span><span class="n">override</span><span class="p">(</span>
+</span><span id="__span-15-24"><a id="__codelineno-15-24" name="__codelineno-15-24" href="#__codelineno-15-24"></a>                <span class="n">headers</span><span class="o">=</span><span class="p">{</span>
+</span><span id="__span-15-25"><a id="__codelineno-15-25" name="__codelineno-15-25" href="#__codelineno-15-25"></a>                    <span class="o">**</span><span class="p">(</span><span class="n">request</span><span class="o">.</span><span class="n">headers</span> <span class="ow">or</span> <span class="p">{}),</span>
+</span><span id="__span-15-26"><a id="__codelineno-15-26" name="__codelineno-15-26" href="#__codelineno-15-26"></a>                    <span class="s2">"X-Databricks-Conversation-Id"</span><span class="p">:</span> <span class="n">conversation_id</span><span class="p">,</span>
+</span><span id="__span-15-27"><a id="__codelineno-15-27" name="__codelineno-15-27" href="#__codelineno-15-27"></a>                <span class="p">}</span>
+</span><span id="__span-15-28"><a id="__codelineno-15-28" name="__codelineno-15-28" href="#__codelineno-15-28"></a>            <span class="p">)</span>
+</span><span id="__span-15-29"><a id="__codelineno-15-29" name="__codelineno-15-29" href="#__codelineno-15-29"></a>        <span class="k">return</span> <span class="k">await</span> <span class="n">handler</span><span class="p">(</span><span class="n">request</span><span class="p">)</span>
+</span><span id="__span-15-30"><a id="__codelineno-15-30" name="__codelineno-15-30" href="#__codelineno-15-30"></a>
+</span><span id="__span-15-31"><a id="__codelineno-15-31" name="__codelineno-15-31" href="#__codelineno-15-31"></a>
+</span><span id="__span-15-32"><a id="__codelineno-15-32" name="__codelineno-15-32" href="#__codelineno-15-32"></a><span class="k">async</span> <span class="k">def</span><span class="w"> </span><span class="nf">run</span><span class="p">():</span>
+</span><span id="__span-15-33"><a id="__codelineno-15-33" name="__codelineno-15-33" href="#__codelineno-15-33"></a>    <span class="n">conv_id</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">"conv-</span><span class="si">{</span><span class="n">uuid</span><span class="o">.</span><span class="n">uuid4</span><span class="p">()</span><span class="o">.</span><span class="n">hex</span><span class="p">[:</span><span class="mi">8</span><span class="p">]</span><span class="si">}</span><span class="s2">"</span>
+</span><span id="__span-15-34"><a id="__codelineno-15-34" name="__codelineno-15-34" href="#__codelineno-15-34"></a>
+</span><span id="__span-15-35"><a id="__codelineno-15-35" name="__codelineno-15-35" href="#__codelineno-15-35"></a>    <span class="c1"># For this simple example the resolver is a closure over conv_id.</span>
+</span><span id="__span-15-36"><a id="__codelineno-15-36" name="__codelineno-15-36" href="#__codelineno-15-36"></a>    <span class="c1"># In a real LangGraph app you'd pull it from the runtime's parent</span>
+</span><span id="__span-15-37"><a id="__codelineno-15-37" name="__codelineno-15-37" href="#__codelineno-15-37"></a>    <span class="c1"># thread config or agent state.</span>
+</span><span id="__span-15-38"><a id="__codelineno-15-38" name="__codelineno-15-38" href="#__codelineno-15-38"></a>    <span class="n">client</span> <span class="o">=</span> <span class="n">MultiServerMCPClient</span><span class="p">(</span>
+</span><span id="__span-15-39"><a id="__codelineno-15-39" name="__codelineno-15-39" href="#__codelineno-15-39"></a>        <span class="n">connections</span><span class="o">=</span><span class="p">{</span>
+</span><span id="__span-15-40"><a id="__codelineno-15-40" name="__codelineno-15-40" href="#__codelineno-15-40"></a>            <span class="s2">"retail"</span><span class="p">:</span> <span class="p">{</span>
+</span><span id="__span-15-41"><a id="__codelineno-15-41" name="__codelineno-15-41" href="#__codelineno-15-41"></a>                <span class="s2">"transport"</span><span class="p">:</span> <span class="s2">"streamable_http"</span><span class="p">,</span>
+</span><span id="__span-15-42"><a id="__codelineno-15-42" name="__codelineno-15-42" href="#__codelineno-15-42"></a>                <span class="s2">"url"</span><span class="p">:</span> <span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">APP_URL</span><span class="si">}</span><span class="s2">/mcp"</span><span class="p">,</span>
+</span><span id="__span-15-43"><a id="__codelineno-15-43" name="__codelineno-15-43" href="#__codelineno-15-43"></a>                <span class="s2">"headers"</span><span class="p">:</span> <span class="p">{</span>
+</span><span id="__span-15-44"><a id="__codelineno-15-44" name="__codelineno-15-44" href="#__codelineno-15-44"></a>                    <span class="s2">"Authorization"</span><span class="p">:</span> <span class="sa">f</span><span class="s2">"Bearer </span><span class="si">{</span><span class="n">TOKEN</span><span class="si">}</span><span class="s2">"</span><span class="p">,</span>
+</span><span id="__span-15-45"><a id="__codelineno-15-45" name="__codelineno-15-45" href="#__codelineno-15-45"></a>                    <span class="s2">"X-Forwarded-Access-Token"</span><span class="p">:</span> <span class="n">TOKEN</span><span class="p">,</span>
+</span><span id="__span-15-46"><a id="__codelineno-15-46" name="__codelineno-15-46" href="#__codelineno-15-46"></a>                <span class="p">},</span>
+</span><span id="__span-15-47"><a id="__codelineno-15-47" name="__codelineno-15-47" href="#__codelineno-15-47"></a>            <span class="p">}</span>
+</span><span id="__span-15-48"><a id="__codelineno-15-48" name="__codelineno-15-48" href="#__codelineno-15-48"></a>        <span class="p">},</span>
+</span><span id="__span-15-49"><a id="__codelineno-15-49" name="__codelineno-15-49" href="#__codelineno-15-49"></a>        <span class="n">interceptors</span><span class="o">=</span><span class="p">[</span><span class="n">PerCallConversationHeader</span><span class="p">(</span><span class="k">lambda</span> <span class="n">_rt</span><span class="p">:</span> <span class="n">conv_id</span><span class="p">)],</span>
+</span><span id="__span-15-50"><a id="__codelineno-15-50" name="__codelineno-15-50" href="#__codelineno-15-50"></a>    <span class="p">)</span>
+</span><span id="__span-15-51"><a id="__codelineno-15-51" name="__codelineno-15-51" href="#__codelineno-15-51"></a>    <span class="n">tools</span> <span class="o">=</span> <span class="k">await</span> <span class="n">client</span><span class="o">.</span><span class="n">get_tools</span><span class="p">()</span>
+</span><span id="__span-15-52"><a id="__codelineno-15-52" name="__codelineno-15-52" href="#__codelineno-15-52"></a>    <span class="n">invoke_agent</span> <span class="o">=</span> <span class="nb">next</span><span class="p">(</span><span class="n">t</span> <span class="k">for</span> <span class="n">t</span> <span class="ow">in</span> <span class="n">tools</span> <span class="k">if</span> <span class="n">t</span><span class="o">.</span><span class="n">name</span> <span class="o">==</span> <span class="s2">"mcp_dao_ai_retail"</span><span class="p">)</span>
+</span><span id="__span-15-53"><a id="__codelineno-15-53" name="__codelineno-15-53" href="#__codelineno-15-53"></a>
+</span><span id="__span-15-54"><a id="__codelineno-15-54" name="__codelineno-15-54" href="#__codelineno-15-54"></a>    <span class="n">turn1</span> <span class="o">=</span> <span class="k">await</span> <span class="n">invoke_agent</span><span class="o">.</span><span class="n">ainvoke</span><span class="p">(</span>
+</span><span id="__span-15-55"><a id="__codelineno-15-55" name="__codelineno-15-55" href="#__codelineno-15-55"></a>        <span class="p">{</span><span class="s2">"input"</span><span class="p">:</span> <span class="s2">"My favorite color is chartreuse."</span><span class="p">}</span>
+</span><span id="__span-15-56"><a id="__codelineno-15-56" name="__codelineno-15-56" href="#__codelineno-15-56"></a>    <span class="p">)</span>
+</span><span id="__span-15-57"><a id="__codelineno-15-57" name="__codelineno-15-57" href="#__codelineno-15-57"></a>    <span class="nb">print</span><span class="p">(</span><span class="s2">"turn1:"</span><span class="p">,</span> <span class="n">turn1</span><span class="p">)</span>
+</span><span id="__span-15-58"><a id="__codelineno-15-58" name="__codelineno-15-58" href="#__codelineno-15-58"></a>
+</span><span id="__span-15-59"><a id="__codelineno-15-59" name="__codelineno-15-59" href="#__codelineno-15-59"></a>    <span class="n">turn2</span> <span class="o">=</span> <span class="k">await</span> <span class="n">invoke_agent</span><span class="o">.</span><span class="n">ainvoke</span><span class="p">(</span>
+</span><span id="__span-15-60"><a id="__codelineno-15-60" name="__codelineno-15-60" href="#__codelineno-15-60"></a>        <span class="p">{</span><span class="s2">"input"</span><span class="p">:</span> <span class="s2">"What did I just tell you my favorite color was?"</span><span class="p">}</span>
+</span><span id="__span-15-61"><a id="__codelineno-15-61" name="__codelineno-15-61" href="#__codelineno-15-61"></a>    <span class="p">)</span>
+</span><span id="__span-15-62"><a id="__codelineno-15-62" name="__codelineno-15-62" href="#__codelineno-15-62"></a>    <span class="nb">print</span><span class="p">(</span><span class="s2">"turn2:"</span><span class="p">,</span> <span class="n">turn2</span><span class="p">)</span>  <span class="c1"># → "Chartreuse."</span>
+</span><span id="__span-15-63"><a id="__codelineno-15-63" name="__codelineno-15-63" href="#__codelineno-15-63"></a>
+</span><span id="__span-15-64"><a id="__codelineno-15-64" name="__codelineno-15-64" href="#__codelineno-15-64"></a><span class="n">asyncio</span><span class="o">.</span><span class="n">run</span><span class="p">(</span><span class="n">run</span><span class="p">())</span>
+</span></code></pre></div>
+<p>Notes:</p>
+<ul>
+<li><strong>Header via interceptor is the recommended per-call pattern.</strong> The
+  interceptor reads <code>request.runtime</code> at call time, so a single
+  <code>MultiServerMCPClient</code> can serve many concurrent conversations by
+  resolving the id from the parent graph's state per invocation.</li>
+<li><strong>Client-wide header is a shortcut</strong> if a client is scoped to one
+  conversation — set <code>X-Databricks-Conversation-Id</code> directly in the
+  <code>headers</code> dict passed to <code>MultiServerMCPClient</code> and skip the
+  interceptor. Wasteful when one client serves many conversations.</li>
+<li><strong>Reading the resolved id.</strong> <code>langchain-mcp-adapters</code> returns the
+  tool's plain-text <code>content[0]</code> by default; if the agent needs
+  programmatic access to the echoed <code>conversation_id</code>, drop to the
+  raw <code>mcp.client.session.ClientSession</code> (see the previous section)
+  which exposes <code>structuredContent</code> and <code>_meta</code>.</li>
+</ul>
+<p>For agents built with LangGraph that already track a <code>thread_id</code> in
+their own state, wire the interceptor's resolver to that field so
+parent-graph and MCP-side conversation lineage stay aligned.</p>
+<hr />
+<h2 id="troubleshooting">Troubleshooting<a class="headerlink" href="#troubleshooting" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Symptom</th>
+<th>Cause</th>
+<th>Fix</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>POST /mcp/</code> returns 307.</td>
+<td>The MCP route is at <code>/mcp</code> (no trailing slash); requests to <code>/mcp/</code> get FastAPI's slash-redirect.</td>
+<td>Strip the trailing slash, or follow the redirect.</td>
+</tr>
+<tr>
+<td><code>Task group is not initialized</code> 500 on every request.</td>
+<td>FastMCP's session manager wasn't started.</td>
+<td>Already handled in <code>dao_ai.mcp.server.build_app</code> via FastAPI lifespan.</td>
+</tr>
+<tr>
+<td><code>INVALID_PARAMETER_VALUE: Failed to register tools from Databricks App MCP server '&lt;name&gt;'</code> from MAS.</td>
+<td>MAS POSTs to <code>&lt;app-url&gt;/mcp</code> (no trailing slash) and treats anything other than 200 as failure.</td>
+<td>Confirm with <code>curl -X POST &lt;app-url&gt;/mcp -d '{"jsonrpc":"2.0","id":1,"method":"initialize",...}'</code>. Expect a 200.</td>
+</tr>
+<tr>
+<td>Downstream tool spans show the App SP identity, not the caller.</td>
+<td>The caller isn't forwarding a bearer token, or the resource models don't set <code>on_behalf_of_user: true</code>.</td>
+<td>Ensure the MCP client sets <code>Authorization: Bearer &lt;user-token&gt;</code> and the config sets <code>on_behalf_of_user: true</code> on the relevant Genie / VS / warehouse / database models.</td>
+</tr>
+<tr>
+<td><code>trace_id=null</code> on every response.</td>
+<td>App isn't bound to an MLflow experiment.</td>
+<td>Set <code>app.trace_location</code> (UC schema) and <code>app.experiment</code> in the config.</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="related-modules">Related modules<a class="headerlink" href="#related-modules" title="Permanent link">&para;</a></h2>
+<ul>
+<li><code>dao_ai.mcp.agent_tool</code> — the single-tool registration surface.</li>
+<li><code>dao_ai.mcp.server</code> — FastAPI + FastMCP entrypoint.</li>
+<li><code>dao_ai.mcp.generate</code> — <code>write_mcp_bundle</code> bundle emission.</li>
+<li><code>dao_ai.apps.bundle.write_bundle</code> — the <code>dao-ai agent build</code> entry
+  point for the standard AgentServer HTTP deployment. <code>write_mcp_bundle</code>
+  mirrors its shape.</li>
+<li><code>dao_ai.apps.mcp</code> — <strong>client</strong> primitives for consuming external MCP
+  servers from a dao-ai agent.</li>
+</ul>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+        
+<div class="md-social">
+  
+    
+    
+    
+    
+      
+      
+    
+    <a href="https://github.com/natefleming/dao-ai" target="_blank" rel="noopener" title="github.com" class="md-social__link">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.tabs", "navigation.sections", "navigation.top", "navigation.instant", "navigation.tracking", "search.highlight", "search.share", "search.suggest", "toc.follow", "content.code.copy", "content.code.annotate", "content.action.edit"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.d7400e89.min.js"></script>
+      
+    
+  </body>
+</html>

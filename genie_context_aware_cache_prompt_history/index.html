@@ -1,0 +1,3961 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Declarative Agent Orchestration — production-grade multi-agent AI systems defined in YAML, deployed on Databricks.">
+      
+      
+        <meta name="author" content="Nate Fleming">
+      
+      
+        <link rel="canonical" href="https://natefleming.github.io/dao-ai/genie_context_aware_cache_prompt_history/">
+      
+      
+        <link rel="prev" href="../mlflow-tracing/">
+      
+      
+        <link rel="next" href="../faq/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../images/brand/logo-symbol.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
+    
+    
+      
+        <title>Genie Context-Aware Cache - dao-ai</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.ec1eaa64.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="black" data-md-color-accent="red">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#genie-context-aware-cache-prompt-history" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+<header class="md-header" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="dao-ai" class="md-header__button md-logo" aria-label="dao-ai" data-md-component="logo">
+      
+  <img src="../images/brand/logo-symbol.png" alt="logo">
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            dao-ai
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Genie Context-Aware Cache
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="default" data-md-color-primary="black" data-md-color-accent="red"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="slate" data-md-color-primary="black" data-md-color-accent="red"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+          <a href="javascript:void(0)" class="md-search__icon md-icon" title="Share" aria-label="Share" data-clipboard data-clipboard-text="" data-md-component="search-share" tabindex="-1">
+            
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M18 16.08c-.76 0-1.44.3-1.96.77L8.91 12.7c.05-.23.09-.46.09-.7s-.04-.47-.09-.7l7.05-4.11c.54.5 1.25.81 2.04.81a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3c0 .24.04.47.09.7L8.04 9.81C7.5 9.31 6.79 9 6 9a3 3 0 0 0-3 3 3 3 0 0 0 3 3c.79 0 1.5-.31 2.04-.81l7.12 4.15c-.05.21-.08.43-.08.66 0 1.61 1.31 2.91 2.92 2.91s2.92-1.3 2.92-2.91A2.92 2.92 0 0 0 18 16.08"/></svg>
+          </a>
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/natefleming/dao-ai" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    natefleming/dao-ai
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+            
+<nav class="md-tabs" aria-label="Tabs" data-md-component="tabs">
+  <div class="md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href=".." class="md-tabs__link">
+        
+  
+  
+    
+  
+  Home
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../why-dao/" class="md-tabs__link">
+          
+  
+  
+  Concepts
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../configuration-reference/" class="md-tabs__link">
+          
+  
+  
+  Reference
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+    
+  
+  
+    
+    
+      <li class="md-tabs__item md-tabs__item--active">
+        <a href="../examples/" class="md-tabs__link">
+          
+  
+  
+  Guides
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../faq/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  FAQ
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../contributing/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Contributing
+
+      </a>
+    </li>
+  
+
+      
+    </ul>
+  </div>
+</nav>
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+  
+
+
+<nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="dao-ai" class="md-nav__button md-logo" aria-label="dao-ai" data-md-component="logo">
+      
+  <img src="../images/brand/logo-symbol.png" alt="logo">
+
+    </a>
+    dao-ai
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/natefleming/dao-ai" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    natefleming/dao-ai
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Concepts
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Concepts
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../why-dao/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Why DAO?
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../key-capabilities/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Key Capabilities
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../configuration-reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Configuration Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../cli-reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CLI Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../python-api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Python API
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Guides
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Guides
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../examples/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Examples
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../mcp_server/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    MCP Server
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../mcp-callbacks/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    MCP Callbacks
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../a2a_protocol/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    A2A Protocol
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../background_agents/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Background Agents
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../audit/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Auditable Tool Invocations
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../lakebase/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Lakebase
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../mlflow-tracing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    MLflow Tracing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Genie Context-Aware Cache
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Genie Context-Aware Cache
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#overview" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Overview
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#problem-solved" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Problem Solved
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Problem Solved">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#before-without-prompt-history" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Before (Without Prompt History)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#after-with-prompt-history" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        After (With Prompt History)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#architecture" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Architecture
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Architecture">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#component-interaction-diagram" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Component Interaction Diagram
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#two-separate-tables" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Two Separate Tables
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Two Separate Tables">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#1-genie_prompt_history-updated" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. genie_prompt_history (UPDATED)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#2-genie_context_aware_cache-existing-updated" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. genie_context_aware_cache (EXISTING, UPDATED)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#data-flow" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Data Flow
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#dual-embedding-architecture" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Dual Embedding Architecture
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Dual Embedding Architecture">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#1-question-embedding" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. Question Embedding
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#2-context-embedding" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. Context Embedding
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#cache-hit-criteria" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Cache Hit Criteria
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#two-phase-search-postgresql" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Two-Phase Search (PostgreSQL)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#context-window-example" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Context Window Example
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#configuration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Configuration
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Configuration">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#configuration-parameters" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Configuration Parameters
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#usage-example" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Usage Example
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#importing-historical-conversations-with-from_space" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Importing Historical Conversations with from_space()
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Importing Historical Conversations with from_space()">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#usage" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Usage
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#parameters" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Parameters
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#what-gets-imported" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What Gets Imported
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#requirements" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Requirements
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#performance-considerations" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Performance Considerations
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#performance-benefits" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Performance Benefits
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Performance Benefits">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#metrics" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Metrics
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#why-its-faster" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Why It's Faster
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#sequence-diagram" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Sequence Diagram
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#context-window-behavior" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Context Window Behavior
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#maintenance-and-cleanup" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Maintenance and Cleanup
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Maintenance and Cleanup">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#automatic-prompt-history-cleanup" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Automatic Prompt History Cleanup
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Automatic Prompt History Cleanup">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#1-per-conversation-length-limit" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. Per-Conversation Length Limit
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#2-ttl-based-cleanup" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. TTL-Based Cleanup
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#error-resilience" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Error Resilience
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#configuration-options" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Configuration Options
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#api-methods" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        API Methods
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="API Methods">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#public-methods" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Public Methods
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#get_entries-method" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        get_entries() Method
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#internal-methods-not-exposed" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Internal Methods (Not Exposed)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#migration-and-fallback" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Migration and Fallback
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Migration and Fallback">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#first-request-behavior" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        First Request Behavior
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#recommendation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Recommendation
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#why-store-user-prompts-only" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Why Store User Prompts Only?
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Why Store User Prompts Only?">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#what-we-store" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What We Store
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#what-we-dont-store-and-why" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What We DON'T Store (and why)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#testing" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Testing
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Testing">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#unit-tests" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Unit Tests
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#integration-test-manual" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Integration Test (Manual)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#troubleshooting" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Troubleshooting
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Troubleshooting">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#issue-context-includes-current-prompt" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Issue: Context includes current prompt
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#issue-no-conversation-context" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Issue: No conversation context
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#issue-cache-hit-rate-low" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Issue: Cache hit rate low
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#best-practices" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Best Practices
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#performance-tuning" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Performance Tuning
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Performance Tuning">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#for-long-conversations" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        For Long Conversations
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#for-high-throughput" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        For High Throughput
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#scaling-to-large-cache-sizes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Scaling to Large Cache Sizes
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#feedback-and-cache-invalidation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Feedback and Cache Invalidation
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Feedback and Cache Invalidation">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#sending-feedback" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Sending Feedback
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#feedback-api-method" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Feedback API Method
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#feedback-behavior" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Feedback Behavior
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#cache-hits-now-support-full-genie-feedback" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Cache Hits Now Support Full Genie Feedback
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#extended-genie-with-message_id-support" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Extended Genie with message_id Support
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#full-feedback-support-for-cached-responses" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Full Feedback Support for Cached Responses
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#cache-entry-traceability" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Cache Entry Traceability
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#future-enhancements-phase-2-3" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Future Enhancements (Phase 2 &amp; 3)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#summary" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Summary
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../faq/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    FAQ
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../contributing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Contributing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#overview" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Overview
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#problem-solved" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Problem Solved
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Problem Solved">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#before-without-prompt-history" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Before (Without Prompt History)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#after-with-prompt-history" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        After (With Prompt History)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#architecture" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Architecture
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Architecture">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#component-interaction-diagram" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Component Interaction Diagram
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#two-separate-tables" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Two Separate Tables
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Two Separate Tables">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#1-genie_prompt_history-updated" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. genie_prompt_history (UPDATED)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#2-genie_context_aware_cache-existing-updated" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. genie_context_aware_cache (EXISTING, UPDATED)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#data-flow" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Data Flow
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#dual-embedding-architecture" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Dual Embedding Architecture
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Dual Embedding Architecture">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#1-question-embedding" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. Question Embedding
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#2-context-embedding" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. Context Embedding
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#cache-hit-criteria" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Cache Hit Criteria
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#two-phase-search-postgresql" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Two-Phase Search (PostgreSQL)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#context-window-example" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Context Window Example
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#configuration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Configuration
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Configuration">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#configuration-parameters" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Configuration Parameters
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#usage-example" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Usage Example
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#importing-historical-conversations-with-from_space" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Importing Historical Conversations with from_space()
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Importing Historical Conversations with from_space()">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#usage" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Usage
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#parameters" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Parameters
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#what-gets-imported" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What Gets Imported
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#requirements" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Requirements
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#performance-considerations" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Performance Considerations
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#performance-benefits" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Performance Benefits
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Performance Benefits">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#metrics" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Metrics
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#why-its-faster" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Why It's Faster
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#sequence-diagram" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Sequence Diagram
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#context-window-behavior" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Context Window Behavior
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#maintenance-and-cleanup" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Maintenance and Cleanup
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Maintenance and Cleanup">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#automatic-prompt-history-cleanup" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Automatic Prompt History Cleanup
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Automatic Prompt History Cleanup">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#1-per-conversation-length-limit" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. Per-Conversation Length Limit
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#2-ttl-based-cleanup" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. TTL-Based Cleanup
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#error-resilience" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Error Resilience
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#configuration-options" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Configuration Options
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#api-methods" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        API Methods
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="API Methods">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#public-methods" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Public Methods
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#get_entries-method" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        get_entries() Method
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#internal-methods-not-exposed" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Internal Methods (Not Exposed)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#migration-and-fallback" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Migration and Fallback
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Migration and Fallback">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#first-request-behavior" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        First Request Behavior
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#recommendation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Recommendation
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#why-store-user-prompts-only" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Why Store User Prompts Only?
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Why Store User Prompts Only?">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#what-we-store" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What We Store
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#what-we-dont-store-and-why" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What We DON'T Store (and why)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#testing" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Testing
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Testing">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#unit-tests" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Unit Tests
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#integration-test-manual" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Integration Test (Manual)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#troubleshooting" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Troubleshooting
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Troubleshooting">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#issue-context-includes-current-prompt" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Issue: Context includes current prompt
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#issue-no-conversation-context" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Issue: No conversation context
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#issue-cache-hit-rate-low" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Issue: Cache hit rate low
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#best-practices" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Best Practices
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#performance-tuning" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Performance Tuning
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Performance Tuning">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#for-long-conversations" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        For Long Conversations
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#for-high-throughput" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        For High Throughput
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#scaling-to-large-cache-sizes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Scaling to Large Cache Sizes
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#feedback-and-cache-invalidation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Feedback and Cache Invalidation
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Feedback and Cache Invalidation">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#sending-feedback" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Sending Feedback
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#feedback-api-method" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Feedback API Method
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#feedback-behavior" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Feedback Behavior
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#cache-hits-now-support-full-genie-feedback" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Cache Hits Now Support Full Genie Feedback
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#extended-genie-with-message_id-support" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Extended Genie with message_id Support
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#full-feedback-support-for-cached-responses" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Full Feedback Support for Cached Responses
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#cache-entry-traceability" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Cache Entry Traceability
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#future-enhancements-phase-2-3" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Future Enhancements (Phase 2 &amp; 3)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#summary" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Summary
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+    <a href="https://github.com/natefleming/dao-ai/edit/main/docs/genie_context_aware_cache_prompt_history.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M10 20H6V4h7v5h5v3.1l2-2V8l-6-6H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h4zm10.2-7c.1 0 .3.1.4.2l1.3 1.3c.2.2.2.6 0 .8l-1 1-2.1-2.1 1-1c.1-.1.2-.2.4-.2m0 3.9L14.1 23H12v-2.1l6.1-6.1z"/></svg>
+    </a>
+  
+  
+
+
+<h1 id="genie-context-aware-cache-prompt-history">Genie Context-Aware Cache - Prompt History<a class="headerlink" href="#genie-context-aware-cache-prompt-history" title="Permanent link">&para;</a></h1>
+<blockquote>
+<p><strong>Config field naming.</strong> This document uses the <code>context_aware_cache_parameters</code> field name from the original <code>create_genie_toolkit</code> factory args. On the first-class <code>type: genie</code> tool shape, the equivalent field is <code>context_aware_cache</code> (no <code>_parameters</code> suffix). Both shapes accept the same nested fields described below.</p>
+</blockquote>
+<h2 id="overview">Overview<a class="headerlink" href="#overview" title="Permanent link">&para;</a></h2>
+<p>The Genie context-aware cache now includes <strong>prompt history tracking</strong> to solve the conversation continuity problem where cache hits created "holes" in conversation context.</p>
+<h2 id="problem-solved">Problem Solved<a class="headerlink" href="#problem-solved" title="Permanent link">&para;</a></h2>
+<h3 id="before-without-prompt-history">Before (Without Prompt History)<a class="headerlink" href="#before-without-prompt-history" title="Permanent link">&para;</a></h3>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>User: "What are total sales?"
+</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>→ Cache MISS → Genie API → Response
+</span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>→ Genie records this in conversation history ✅
+</span><span id="__span-0-4"><a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>
+</span><span id="__span-0-5"><a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>User: "Filter by region"  
+</span><span id="__span-0-6"><a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>→ Cache HIT → Re-execute SQL → Response
+</span><span id="__span-0-7"><a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>→ Genie NEVER sees this question ❌
+</span><span id="__span-0-8"><a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a>
+</span><span id="__span-0-9"><a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a>User: "What's the total for that?"
+</span><span id="__span-0-10"><a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a>→ Cache MISS → Genie API
+</span><span id="__span-0-11"><a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a>→ Genie has no context for "that" ❌
+</span><span id="__span-0-12"><a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a>→ Query fails or returns wrong results
+</span></code></pre></div>
+<h3 id="after-with-prompt-history">After (With Prompt History)<a class="headerlink" href="#after-with-prompt-history" title="Permanent link">&para;</a></h3>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>User: "What are total sales?"
+</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>→ Cache MISS → Genie API → Response
+</span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>→ Stored in local prompt history ✅
+</span><span id="__span-1-4"><a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a>
+</span><span id="__span-1-5"><a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a>User: "Filter by region"
+</span><span id="__span-1-6"><a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a>→ Cache HIT → Re-execute SQL → Response  
+</span><span id="__span-1-7"><a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a>→ Stored in local prompt history ✅
+</span><span id="__span-1-8"><a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a>→ Context embeddings include this prompt ✅
+</span><span id="__span-1-9"><a id="__codelineno-1-9" name="__codelineno-1-9" href="#__codelineno-1-9"></a>
+</span><span id="__span-1-10"><a id="__codelineno-1-10" name="__codelineno-1-10" href="#__codelineno-1-10"></a>User: "What's the total for that?"
+</span><span id="__span-1-11"><a id="__codelineno-1-11" name="__codelineno-1-11" href="#__codelineno-1-11"></a>→ Context includes BOTH previous prompts ✅
+</span><span id="__span-1-12"><a id="__codelineno-1-12" name="__codelineno-1-12" href="#__codelineno-1-12"></a>→ Context-aware matching considers full conversation context ✅
+</span><span id="__span-1-13"><a id="__codelineno-1-13" name="__codelineno-1-13" href="#__codelineno-1-13"></a>→ Returns accurate results
+</span></code></pre></div>
+<h2 id="architecture">Architecture<a class="headerlink" href="#architecture" title="Permanent link">&para;</a></h2>
+<h3 id="component-interaction-diagram">Component Interaction Diagram<a class="headerlink" href="#component-interaction-diagram" title="Permanent link">&para;</a></h3>
+<pre class="mermaid"><code>sequenceDiagram
+    participant Client
+    participant ContextAwareCache
+    participant PromptHistory as genie_prompt_history
+    participant CacheTable as genie_context_aware_cache
+    participant Genie
+
+    Client-&gt;&gt;ContextAwareCache: ask_question(question, conv_id)
+    ContextAwareCache-&gt;&gt;PromptHistory: 1. Get PREVIOUS prompts
+    PromptHistory--&gt;&gt;ContextAwareCache: Recent prompts
+    ContextAwareCache-&gt;&gt;ContextAwareCache: 2. Build embeddings with context
+    ContextAwareCache-&gt;&gt;PromptHistory: 3. Store CURRENT prompt
+    Note over ContextAwareCache,PromptHistory: cache_hit=false initially
+    ContextAwareCache-&gt;&gt;CacheTable: 4. Search for similar entry
+    alt Cache Hit
+        CacheTable--&gt;&gt;ContextAwareCache: Cached SQL + message_id + entry_id
+        ContextAwareCache-&gt;&gt;PromptHistory: 5. Update cache_hit=true, cache_entry_id
+        ContextAwareCache--&gt;&gt;Client: Cached result (incl. message_id, cache_entry_id)
+    else Cache Miss
+        ContextAwareCache-&gt;&gt;Genie: Delegate question
+        Genie--&gt;&gt;ContextAwareCache: Fresh SQL + message_id
+        ContextAwareCache-&gt;&gt;CacheTable: Store new entry (incl. message_id)
+        ContextAwareCache--&gt;&gt;Client: Fresh result (incl. message_id)
+    end</code></pre>
+<h3 id="two-separate-tables">Two Separate Tables<a class="headerlink" href="#two-separate-tables" title="Permanent link">&para;</a></h3>
+<h4 id="1-genie_prompt_history-updated">1. <code>genie_prompt_history</code> (UPDATED)<a class="headerlink" href="#1-genie_prompt_history-updated" title="Permanent link">&para;</a></h4>
+<p>Stores <strong>ALL user prompts</strong> (cache hits and misses)</p>
+<div class="language-sql highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="k">CREATE</span><span class="w"> </span><span class="k">TABLE</span><span class="w"> </span><span class="n">genie_prompt_history</span><span class="w"> </span><span class="p">(</span>
+</span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="w">    </span><span class="n">id</span><span class="w"> </span><span class="nb">SERIAL</span><span class="w"> </span><span class="k">PRIMARY</span><span class="w"> </span><span class="k">KEY</span><span class="p">,</span>
+</span><span id="__span-2-3"><a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="w">    </span><span class="n">genie_space_id</span><span class="w"> </span><span class="nb">TEXT</span><span class="w"> </span><span class="k">NOT</span><span class="w"> </span><span class="k">NULL</span><span class="p">,</span>
+</span><span id="__span-2-4"><a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a><span class="w">    </span><span class="n">conversation_id</span><span class="w"> </span><span class="nb">TEXT</span><span class="w"> </span><span class="k">NOT</span><span class="w"> </span><span class="k">NULL</span><span class="p">,</span>
+</span><span id="__span-2-5"><a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a><span class="w">    </span><span class="n">prompt</span><span class="w"> </span><span class="nb">TEXT</span><span class="w"> </span><span class="k">NOT</span><span class="w"> </span><span class="k">NULL</span><span class="p">,</span>
+</span><span id="__span-2-6"><a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a><span class="w">    </span><span class="n">cache_hit</span><span class="w"> </span><span class="nb">BOOLEAN</span><span class="w"> </span><span class="k">DEFAULT</span><span class="w"> </span><span class="k">FALSE</span><span class="p">,</span>
+</span><span id="__span-2-7"><a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a><span class="w">    </span><span class="n">cache_entry_id</span><span class="w"> </span><span class="nb">INTEGER</span><span class="p">,</span><span class="w">                            </span><span class="c1">-- NEW: Links to cache entry on hit</span>
+</span><span id="__span-2-8"><a id="__codelineno-2-8" name="__codelineno-2-8" href="#__codelineno-2-8"></a><span class="w">    </span><span class="n">created_at</span><span class="w"> </span><span class="k">TIMESTAMP</span><span class="w"> </span><span class="k">WITH</span><span class="w"> </span><span class="k">TIME</span><span class="w"> </span><span class="k">ZONE</span><span class="w"> </span><span class="k">DEFAULT</span><span class="w"> </span><span class="k">CURRENT_TIMESTAMP</span><span class="p">,</span>
+</span><span id="__span-2-9"><a id="__codelineno-2-9" name="__codelineno-2-9" href="#__codelineno-2-9"></a>
+</span><span id="__span-2-10"><a id="__codelineno-2-10" name="__codelineno-2-10" href="#__codelineno-2-10"></a><span class="w">    </span><span class="k">INDEX</span><span class="w"> </span><span class="n">idx_conversation</span><span class="w"> </span><span class="p">(</span><span class="n">genie_space_id</span><span class="p">,</span><span class="w"> </span><span class="n">conversation_id</span><span class="p">,</span><span class="w"> </span><span class="n">created_at</span><span class="w"> </span><span class="k">DESC</span><span class="p">),</span>
+</span><span id="__span-2-11"><a id="__codelineno-2-11" name="__codelineno-2-11" href="#__codelineno-2-11"></a><span class="w">    </span><span class="k">INDEX</span><span class="w"> </span><span class="n">idx_space_recent</span><span class="w"> </span><span class="p">(</span><span class="n">genie_space_id</span><span class="p">,</span><span class="w"> </span><span class="n">created_at</span><span class="w"> </span><span class="k">DESC</span><span class="p">),</span>
+</span><span id="__span-2-12"><a id="__codelineno-2-12" name="__codelineno-2-12" href="#__codelineno-2-12"></a><span class="w">    </span><span class="k">INDEX</span><span class="w"> </span><span class="n">idx_cache_entry</span><span class="w"> </span><span class="p">(</span><span class="n">cache_entry_id</span><span class="p">)</span><span class="w"> </span><span class="k">WHERE</span><span class="w"> </span><span class="n">cache_entry_id</span><span class="w"> </span><span class="k">IS</span><span class="w"> </span><span class="k">NOT</span><span class="w"> </span><span class="k">NULL</span>
+</span><span id="__span-2-13"><a id="__codelineno-2-13" name="__codelineno-2-13" href="#__codelineno-2-13"></a><span class="p">)</span>
+</span></code></pre></div>
+<p><strong>Purpose</strong>: Track conversation context for context-aware matching</p>
+<p><strong>Storage</strong>: ~200 bytes per prompt (text only)</p>
+<p><strong>New Field <code>cache_entry_id</code></strong>: Links prompts to their serving cache entry. This enables:
+- Tracing which cache entry served a particular prompt
+- Analytics on cache entry reuse patterns
+- Debugging cache behavior</p>
+<h4 id="2-genie_context_aware_cache-existing-updated">2. <code>genie_context_aware_cache</code> (EXISTING, UPDATED)<a class="headerlink" href="#2-genie_context_aware_cache-existing-updated" title="Permanent link">&para;</a></h4>
+<p>Stores <strong>SQL queries + embeddings</strong> (cache misses only)</p>
+<div class="language-sql highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="k">CREATE</span><span class="w"> </span><span class="k">TABLE</span><span class="w"> </span><span class="n">genie_context_aware_cache</span><span class="w"> </span><span class="p">(</span>
+</span><span id="__span-3-2"><a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="w">    </span><span class="n">id</span><span class="w"> </span><span class="nb">SERIAL</span><span class="w"> </span><span class="k">PRIMARY</span><span class="w"> </span><span class="k">KEY</span><span class="p">,</span>
+</span><span id="__span-3-3"><a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="w">    </span><span class="n">genie_space_id</span><span class="w"> </span><span class="nb">TEXT</span><span class="w"> </span><span class="k">NOT</span><span class="w"> </span><span class="k">NULL</span><span class="p">,</span>
+</span><span id="__span-3-4"><a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a><span class="w">    </span><span class="n">question</span><span class="w"> </span><span class="nb">TEXT</span><span class="w"> </span><span class="k">NOT</span><span class="w"> </span><span class="k">NULL</span><span class="p">,</span>
+</span><span id="__span-3-5"><a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a><span class="w">    </span><span class="n">conversation_context</span><span class="w"> </span><span class="nb">TEXT</span><span class="p">,</span>
+</span><span id="__span-3-6"><a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a><span class="w">    </span><span class="n">question_embedding</span><span class="w"> </span><span class="n">vector</span><span class="p">(</span><span class="mi">1024</span><span class="p">),</span>
+</span><span id="__span-3-7"><a id="__codelineno-3-7" name="__codelineno-3-7" href="#__codelineno-3-7"></a><span class="w">    </span><span class="n">context_embedding</span><span class="w"> </span><span class="n">vector</span><span class="p">(</span><span class="mi">1024</span><span class="p">),</span>
+</span><span id="__span-3-8"><a id="__codelineno-3-8" name="__codelineno-3-8" href="#__codelineno-3-8"></a><span class="w">    </span><span class="n">sql_query</span><span class="w"> </span><span class="nb">TEXT</span><span class="w"> </span><span class="k">NOT</span><span class="w"> </span><span class="k">NULL</span><span class="p">,</span>
+</span><span id="__span-3-9"><a id="__codelineno-3-9" name="__codelineno-3-9" href="#__codelineno-3-9"></a><span class="w">    </span><span class="n">description</span><span class="w"> </span><span class="nb">TEXT</span><span class="p">,</span>
+</span><span id="__span-3-10"><a id="__codelineno-3-10" name="__codelineno-3-10" href="#__codelineno-3-10"></a><span class="w">    </span><span class="n">conversation_id</span><span class="w"> </span><span class="nb">TEXT</span><span class="p">,</span>
+</span><span id="__span-3-11"><a id="__codelineno-3-11" name="__codelineno-3-11" href="#__codelineno-3-11"></a><span class="w">    </span><span class="n">message_id</span><span class="w"> </span><span class="nb">TEXT</span><span class="p">,</span><span class="w">                                   </span><span class="c1">-- NEW: Original Genie message ID (for feedback)</span>
+</span><span id="__span-3-12"><a id="__codelineno-3-12" name="__codelineno-3-12" href="#__codelineno-3-12"></a><span class="w">    </span><span class="n">created_at</span><span class="w"> </span><span class="k">TIMESTAMP</span><span class="w"> </span><span class="k">WITH</span><span class="w"> </span><span class="k">TIME</span><span class="w"> </span><span class="k">ZONE</span><span class="w"> </span><span class="k">DEFAULT</span><span class="w"> </span><span class="k">CURRENT_TIMESTAMP</span>
+</span><span id="__span-3-13"><a id="__codelineno-3-13" name="__codelineno-3-13" href="#__codelineno-3-13"></a><span class="p">)</span>
+</span></code></pre></div>
+<p><strong>Purpose</strong>: Store SQL + embeddings for context-aware similarity search</p>
+<p><strong>Storage</strong>: ~2KB per entry (embeddings are large)</p>
+<p><strong>New Field <code>message_id</code></strong>: Stores the original Genie API message ID. This enables:
+- Sending feedback to Genie API even for cache hits
+- Tracing cache entries back to their original Genie responses</p>
+<h2 id="data-flow">Data Flow<a class="headerlink" href="#data-flow" title="Permanent link">&para;</a></h2>
+<p><img alt="Concrete before/after: genie_prompt_history mutates around a query — two-row conversation, four numbered steps, and a hit/miss decision leading to a three-row table with the new prompt highlighted" src="../images/diagrams/genie-cache/genie-cache-prompt-history-mutation.png" /></p>
+<h2 id="dual-embedding-architecture">Dual Embedding Architecture<a class="headerlink" href="#dual-embedding-architecture" title="Permanent link">&para;</a></h2>
+<p>The context-aware cache uses <strong>two separate embeddings</strong> that are compared <strong>independently</strong>:</p>
+<h3 id="1-question-embedding">1. Question Embedding<a class="headerlink" href="#1-question-embedding" title="Permanent link">&para;</a></h3>
+<p><strong>Input</strong>: Current prompt only
+<div class="language-python highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="n">question_embedding</span> <span class="o">=</span> <span class="n">embed</span><span class="p">(</span><span class="s2">"Show by region"</span><span class="p">)</span>
+</span></code></pre></div></p>
+<p><strong>Purpose</strong>: Match question intent/semantics</p>
+<h3 id="2-context-embedding">2. Context Embedding<a class="headerlink" href="#2-context-embedding" title="Permanent link">&para;</a></h3>
+<p><strong>Input</strong>: Previous prompts only
+<div class="language-python highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="n">context</span> <span class="o">=</span> <span class="s2">"Previous: What are total sales?</span><span class="se">\n</span><span class="s2">Previous: Filter by Q1"</span>
+</span><span id="__span-5-2"><a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="n">context_embedding</span> <span class="o">=</span> <span class="n">embed</span><span class="p">(</span><span class="n">context</span><span class="p">)</span>
+</span></code></pre></div></p>
+<p><strong>Purpose</strong>: Match conversation context</p>
+<h3 id="cache-hit-criteria">Cache Hit Criteria<a class="headerlink" href="#cache-hit-criteria" title="Permanent link">&para;</a></h3>
+<p>Similarity is computed using <strong>cosine similarity</strong> (via pg_vector's <code>&lt;=&gt;</code> operator). Both similarities must exceed thresholds:
+<div class="language-text highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>question_similarity &gt;= 0.85  (default)
+</span><span id="__span-6-2"><a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a>AND
+</span><span id="__span-6-3"><a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a>context_similarity &gt;= 0.80  (default, with bidirectional skip)
+</span></code></pre></div></p>
+<p><strong>Bidirectional context-skip</strong>: The context threshold is automatically skipped when <em>either</em> side has no conversation context. This handles two scenarios:
+1. The cached entry was stored without conversation history (first message)
+2. The current query has no context (new conversation)</p>
+<p>In both cases, the match depends on question similarity alone -- this prevents false misses when context is unavailable.</p>
+<p><strong>Combined score</strong> (for ranking top-K candidates):
+<div class="language-text highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>combined = (0.6 × question_similarity) + (0.4 × context_similarity)
+</span></code></pre></div></p>
+<h3 id="two-phase-search-postgresql">Two-Phase Search (PostgreSQL)<a class="headerlink" href="#two-phase-search-postgresql" title="Permanent link">&para;</a></h3>
+<p>For scalability, the PostgreSQL cache uses a two-phase search:</p>
+<p><strong>Phase 1 (SQL):</strong> Uses pg_vector's native <code>ORDER BY embedding &lt;=&gt; query LIMIT K</code> pattern with <code>SET LOCAL ivfflat.probes</code> for index-optimized approximate nearest neighbor search. Retrieves the top-K candidates by question distance.</p>
+<p><strong>Phase 2 (Python):</strong> Computes combined similarity on the K candidates, applies threshold checks (question, context with bidirectional skip, TTL), and picks the best match.</p>
+<p>This avoids materializing all rows in a CTE and allows the ivfflat index to do the heavy lifting.</p>
+<h2 id="context-window-example">Context Window Example<a class="headerlink" href="#context-window-example" title="Permanent link">&para;</a></h2>
+<p><strong>Scenario</strong>: 5 prompts with <code>context_window_size=4</code> (default)</p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a>┌─────────────────────────────────────────────────────────────────┐
+</span><span id="__span-8-2"><a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a>│ Prompt 1: "What are total sales?"                               │
+</span><span id="__span-8-3"><a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a>├─────────────────────────────────────────────────────────────────┤
+</span><span id="__span-8-4"><a id="__codelineno-8-4" name="__codelineno-8-4" href="#__codelineno-8-4"></a>│ Previous prompts: (none)                                        │
+</span><span id="__span-8-5"><a id="__codelineno-8-5" name="__codelineno-8-5" href="#__codelineno-8-5"></a>│ Context embedding: zero vector                                  │
+</span><span id="__span-8-6"><a id="__codelineno-8-6" name="__codelineno-8-6" href="#__codelineno-8-6"></a>│ Result: Cache MISS → Call Genie                                 │
+</span><span id="__span-8-7"><a id="__codelineno-8-7" name="__codelineno-8-7" href="#__codelineno-8-7"></a>│ Stored: [P1]                                                    │
+</span><span id="__span-8-8"><a id="__codelineno-8-8" name="__codelineno-8-8" href="#__codelineno-8-8"></a>└─────────────────────────────────────────────────────────────────┘
+</span><span id="__span-8-9"><a id="__codelineno-8-9" name="__codelineno-8-9" href="#__codelineno-8-9"></a>
+</span><span id="__span-8-10"><a id="__codelineno-8-10" name="__codelineno-8-10" href="#__codelineno-8-10"></a>┌─────────────────────────────────────────────────────────────────┐
+</span><span id="__span-8-11"><a id="__codelineno-8-11" name="__codelineno-8-11" href="#__codelineno-8-11"></a>│ Prompt 2: "Filter by Q1"                                        │
+</span><span id="__span-8-12"><a id="__codelineno-8-12" name="__codelineno-8-12" href="#__codelineno-8-12"></a>├─────────────────────────────────────────────────────────────────┤
+</span><span id="__span-8-13"><a id="__codelineno-8-13" name="__codelineno-8-13" href="#__codelineno-8-13"></a>│ Previous prompts: [P1]                                          │
+</span><span id="__span-8-14"><a id="__codelineno-8-14" name="__codelineno-8-14" href="#__codelineno-8-14"></a>│ Context: "Previous: What are total sales?"                      │
+</span><span id="__span-8-15"><a id="__codelineno-8-15" name="__codelineno-8-15" href="#__codelineno-8-15"></a>│ Result: Cache MISS → Call Genie                                 │
+</span><span id="__span-8-16"><a id="__codelineno-8-16" name="__codelineno-8-16" href="#__codelineno-8-16"></a>│ Stored: [P1, P2]                                                │
+</span><span id="__span-8-17"><a id="__codelineno-8-17" name="__codelineno-8-17" href="#__codelineno-8-17"></a>└─────────────────────────────────────────────────────────────────┘
+</span><span id="__span-8-18"><a id="__codelineno-8-18" name="__codelineno-8-18" href="#__codelineno-8-18"></a>
+</span><span id="__span-8-19"><a id="__codelineno-8-19" name="__codelineno-8-19" href="#__codelineno-8-19"></a>┌─────────────────────────────────────────────────────────────────┐
+</span><span id="__span-8-20"><a id="__codelineno-8-20" name="__codelineno-8-20" href="#__codelineno-8-20"></a>│ Prompt 3: "Show top 5 regions"                                  │
+</span><span id="__span-8-21"><a id="__codelineno-8-21" name="__codelineno-8-21" href="#__codelineno-8-21"></a>├─────────────────────────────────────────────────────────────────┤
+</span><span id="__span-8-22"><a id="__codelineno-8-22" name="__codelineno-8-22" href="#__codelineno-8-22"></a>│ Previous prompts: [P1, P2] (window full)                        │
+</span><span id="__span-8-23"><a id="__codelineno-8-23" name="__codelineno-8-23" href="#__codelineno-8-23"></a>│ Context: "Previous: What are total sales?                       │
+</span><span id="__span-8-24"><a id="__codelineno-8-24" name="__codelineno-8-24" href="#__codelineno-8-24"></a>│           Previous: Filter by Q1"                               │
+</span><span id="__span-8-25"><a id="__codelineno-8-25" name="__codelineno-8-25" href="#__codelineno-8-25"></a>│ Result: Cache MISS → Call Genie                                 │
+</span><span id="__span-8-26"><a id="__codelineno-8-26" name="__codelineno-8-26" href="#__codelineno-8-26"></a>│ Stored: [P1, P2, P3]                                            │
+</span><span id="__span-8-27"><a id="__codelineno-8-27" name="__codelineno-8-27" href="#__codelineno-8-27"></a>└─────────────────────────────────────────────────────────────────┘
+</span><span id="__span-8-28"><a id="__codelineno-8-28" name="__codelineno-8-28" href="#__codelineno-8-28"></a>
+</span><span id="__span-8-29"><a id="__codelineno-8-29" name="__codelineno-8-29" href="#__codelineno-8-29"></a>┌─────────────────────────────────────────────────────────────────┐
+</span><span id="__span-8-30"><a id="__codelineno-8-30" name="__codelineno-8-30" href="#__codelineno-8-30"></a>│ Prompt 4: "Compare to last year"                                │
+</span><span id="__span-8-31"><a id="__codelineno-8-31" name="__codelineno-8-31" href="#__codelineno-8-31"></a>├─────────────────────────────────────────────────────────────────┤
+</span><span id="__span-8-32"><a id="__codelineno-8-32" name="__codelineno-8-32" href="#__codelineno-8-32"></a>│ Previous prompts: [P2, P3] ← Sliding window (LIMIT 2)           │
+</span><span id="__span-8-33"><a id="__codelineno-8-33" name="__codelineno-8-33" href="#__codelineno-8-33"></a>│ Context: "Previous: Filter by Q1                                │
+</span><span id="__span-8-34"><a id="__codelineno-8-34" name="__codelineno-8-34" href="#__codelineno-8-34"></a>│           Previous: Show top 5 regions"                         │
+</span><span id="__span-8-35"><a id="__codelineno-8-35" name="__codelineno-8-35" href="#__codelineno-8-35"></a>│ Result: Cache MISS → Call Genie                                 │
+</span><span id="__span-8-36"><a id="__codelineno-8-36" name="__codelineno-8-36" href="#__codelineno-8-36"></a>│ Stored: [P1, P2, P3, P4]                                        │
+</span><span id="__span-8-37"><a id="__codelineno-8-37" name="__codelineno-8-37" href="#__codelineno-8-37"></a>│ Note: P1 not in context (window size=2)                         │
+</span><span id="__span-8-38"><a id="__codelineno-8-38" name="__codelineno-8-38" href="#__codelineno-8-38"></a>└─────────────────────────────────────────────────────────────────┘
+</span><span id="__span-8-39"><a id="__codelineno-8-39" name="__codelineno-8-39" href="#__codelineno-8-39"></a>
+</span><span id="__span-8-40"><a id="__codelineno-8-40" name="__codelineno-8-40" href="#__codelineno-8-40"></a>┌─────────────────────────────────────────────────────────────────┐
+</span><span id="__span-8-41"><a id="__codelineno-8-41" name="__codelineno-8-41" href="#__codelineno-8-41"></a>│ Prompt 5: "What are total sales?" (SAME as P1)                  │
+</span><span id="__span-8-42"><a id="__codelineno-8-42" name="__codelineno-8-42" href="#__codelineno-8-42"></a>├─────────────────────────────────────────────────────────────────┤
+</span><span id="__span-8-43"><a id="__codelineno-8-43" name="__codelineno-8-43" href="#__codelineno-8-43"></a>│ Previous prompts: [P3, P4] ← Sliding window                     │
+</span><span id="__span-8-44"><a id="__codelineno-8-44" name="__codelineno-8-44" href="#__codelineno-8-44"></a>│ Context: "Previous: Show top 5 regions                          │
+</span><span id="__span-8-45"><a id="__codelineno-8-45" name="__codelineno-8-45" href="#__codelineno-8-45"></a>│           Previous: Compare to last year"                       │
+</span><span id="__span-8-46"><a id="__codelineno-8-46" name="__codelineno-8-46" href="#__codelineno-8-46"></a>│                                                                  │
+</span><span id="__span-8-47"><a id="__codelineno-8-47" name="__codelineno-8-47" href="#__codelineno-8-47"></a>│ Similarity Check:                                               │
+</span><span id="__span-8-48"><a id="__codelineno-8-48" name="__codelineno-8-48" href="#__codelineno-8-48"></a>│   question_similarity: HIGH (same question as P1)               │
+</span><span id="__span-8-49"><a id="__codelineno-8-49" name="__codelineno-8-49" href="#__codelineno-8-49"></a>│   context_similarity: LOW (different context)                   │
+</span><span id="__span-8-50"><a id="__codelineno-8-50" name="__codelineno-8-50" href="#__codelineno-8-50"></a>│                                                                  │
+</span><span id="__span-8-51"><a id="__codelineno-8-51" name="__codelineno-8-51" href="#__codelineno-8-51"></a>│ Result: Cache MISS ← Context doesn't match P1's context         │
+</span><span id="__span-8-52"><a id="__codelineno-8-52" name="__codelineno-8-52" href="#__codelineno-8-52"></a>│ Stored: [P1, P2, P3, P4, P5]                                    │
+</span><span id="__span-8-53"><a id="__codelineno-8-53" name="__codelineno-8-53" href="#__codelineno-8-53"></a>└─────────────────────────────────────────────────────────────────┘
+</span></code></pre></div>
+<p><strong>Key Insight</strong>: The same question in different conversation contexts produces different cache entries because both question AND context embeddings must match.</p>
+<h2 id="configuration">Configuration<a class="headerlink" href="#configuration" title="Permanent link">&para;</a></h2>
+<p>Prompt history is <strong>always enabled</strong> - it's fundamental to maintaining accurate conversation context for context-aware matching.</p>
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="nt">genie_tools</span><span class="p">:</span>
+</span><span id="__span-9-2"><a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a><span class="w">  </span><span class="nt">my_genie_tool</span><span class="p">:</span>
+</span><span id="__span-9-3"><a id="__codelineno-9-3" name="__codelineno-9-3" href="#__codelineno-9-3"></a><span class="w">    </span><span class="nt">genie_room</span><span class="p">:</span>
+</span><span id="__span-9-4"><a id="__codelineno-9-4" name="__codelineno-9-4" href="#__codelineno-9-4"></a><span class="w">      </span><span class="nt">space_id</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">my-space-id</span><span class="w">        </span><span class="c1"># or omit and use name instead</span>
+</span><span id="__span-9-5"><a id="__codelineno-9-5" name="__codelineno-9-5" href="#__codelineno-9-5"></a><span class="w">      </span><span class="c1"># name: "My Genie Space"     # resolves space_id automatically</span>
+</span><span id="__span-9-6"><a id="__codelineno-9-6" name="__codelineno-9-6" href="#__codelineno-9-6"></a><span class="w">    </span><span class="nt">context_aware_cache_parameters</span><span class="p">:</span>
+</span><span id="__span-9-7"><a id="__codelineno-9-7" name="__codelineno-9-7" href="#__codelineno-9-7"></a><span class="w">      </span><span class="nt">database</span><span class="p">:</span>
+</span><span id="__span-9-8"><a id="__codelineno-9-8" name="__codelineno-9-8" href="#__codelineno-9-8"></a><span class="w">        </span><span class="nt">project</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">retail-consumer-goods</span><span class="w">  </span><span class="c1"># Lakebase</span>
+</span><span id="__span-9-9"><a id="__codelineno-9-9" name="__codelineno-9-9" href="#__codelineno-9-9"></a><span class="w">      </span><span class="nt">warehouse</span><span class="p">:</span>
+</span><span id="__span-9-10"><a id="__codelineno-9-10" name="__codelineno-9-10" href="#__codelineno-9-10"></a><span class="w">        </span><span class="nt">warehouse_id</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">my-warehouse-id</span><span class="w">  </span><span class="c1"># or omit and use name instead</span>
+</span><span id="__span-9-11"><a id="__codelineno-9-11" name="__codelineno-9-11" href="#__codelineno-9-11"></a><span class="w">        </span><span class="c1"># name: "My Warehouse"        # resolves warehouse_id automatically</span>
+</span><span id="__span-9-12"><a id="__codelineno-9-12" name="__codelineno-9-12" href="#__codelineno-9-12"></a>
+</span><span id="__span-9-13"><a id="__codelineno-9-13" name="__codelineno-9-13" href="#__codelineno-9-13"></a><span class="w">      </span><span class="c1"># Prompt history configuration</span>
+</span><span id="__span-9-14"><a id="__codelineno-9-14" name="__codelineno-9-14" href="#__codelineno-9-14"></a><span class="w">      </span><span class="nt">prompt_history_table</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">genie_prompt_history</span><span class="w">  </span><span class="c1"># Table for prompt storage</span>
+</span><span id="__span-9-15"><a id="__codelineno-9-15" name="__codelineno-9-15" href="#__codelineno-9-15"></a><span class="w">      </span><span class="nt">context_window_size</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">4</span><span class="w">  </span><span class="c1"># Use last 4 prompts for context (default)</span>
+</span><span id="__span-9-16"><a id="__codelineno-9-16" name="__codelineno-9-16" href="#__codelineno-9-16"></a><span class="w">      </span><span class="nt">max_prompt_history_length</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">50</span><span class="w">  </span><span class="c1"># Max prompts per conversation (enforced)</span>
+</span><span id="__span-9-17"><a id="__codelineno-9-17" name="__codelineno-9-17" href="#__codelineno-9-17"></a><span class="w">      </span><span class="nt">prompt_history_ttl_seconds</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">null</span><span class="w">  </span><span class="c1"># TTL for prompts (null = use cache TTL)</span>
+</span><span id="__span-9-18"><a id="__codelineno-9-18" name="__codelineno-9-18" href="#__codelineno-9-18"></a><span class="w">      </span><span class="nt">use_genie_api_for_history</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span><span class="w">  </span><span class="c1"># Fallback to Genie API if local empty</span>
+</span><span id="__span-9-19"><a id="__codelineno-9-19" name="__codelineno-9-19" href="#__codelineno-9-19"></a>
+</span><span id="__span-9-20"><a id="__codelineno-9-20" name="__codelineno-9-20" href="#__codelineno-9-20"></a><span class="w">      </span><span class="c1"># Similarity search config</span>
+</span><span id="__span-9-21"><a id="__codelineno-9-21" name="__codelineno-9-21" href="#__codelineno-9-21"></a><span class="w">      </span><span class="nt">similarity_threshold</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0.85</span>
+</span><span id="__span-9-22"><a id="__codelineno-9-22" name="__codelineno-9-22" href="#__codelineno-9-22"></a><span class="w">      </span><span class="nt">context_similarity_threshold</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0.80</span>
+</span><span id="__span-9-23"><a id="__codelineno-9-23" name="__codelineno-9-23" href="#__codelineno-9-23"></a><span class="w">      </span><span class="nt">question_weight</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0.6</span>
+</span><span id="__span-9-24"><a id="__codelineno-9-24" name="__codelineno-9-24" href="#__codelineno-9-24"></a><span class="w">      </span><span class="nt">context_weight</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0.4</span>
+</span><span id="__span-9-25"><a id="__codelineno-9-25" name="__codelineno-9-25" href="#__codelineno-9-25"></a>
+</span><span id="__span-9-26"><a id="__codelineno-9-26" name="__codelineno-9-26" href="#__codelineno-9-26"></a><span class="w">      </span><span class="c1"># IVFFlat index tuning (all optional -- auto-computed by default)</span>
+</span><span id="__span-9-27"><a id="__codelineno-9-27" name="__codelineno-9-27" href="#__codelineno-9-27"></a><span class="w">      </span><span class="c1"># ivfflat_lists: null       # Auto: max(100, sqrt(row_count))</span>
+</span><span id="__span-9-28"><a id="__codelineno-9-28" name="__codelineno-9-28" href="#__codelineno-9-28"></a><span class="w">      </span><span class="c1"># ivfflat_probes: null      # Auto: max(10, sqrt(lists))</span>
+</span><span id="__span-9-29"><a id="__codelineno-9-29" name="__codelineno-9-29" href="#__codelineno-9-29"></a><span class="w">      </span><span class="c1"># ivfflat_candidates: 20    # Top-K candidates for Python reranking</span>
+</span></code></pre></div>
+<h3 id="configuration-parameters">Configuration Parameters<a class="headerlink" href="#configuration-parameters" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Parameter</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>prompt_history_table</code></td>
+<td><code>genie_prompt_history</code></td>
+<td>Table name for storing prompts</td>
+</tr>
+<tr>
+<td><code>context_window_size</code></td>
+<td><code>4</code></td>
+<td>Number of previous prompts to include in context</td>
+</tr>
+<tr>
+<td><code>max_prompt_history_length</code></td>
+<td><code>50</code></td>
+<td>Maximum prompts to keep per conversation</td>
+</tr>
+<tr>
+<td><code>prompt_history_ttl_seconds</code></td>
+<td><code>null</code></td>
+<td>TTL for prompts (null uses cache TTL)</td>
+</tr>
+<tr>
+<td><code>use_genie_api_for_history</code></td>
+<td><code>false</code></td>
+<td>Fallback to Genie API if local history is empty</td>
+</tr>
+<tr>
+<td><code>ivfflat_lists</code></td>
+<td><code>null</code> (auto)</td>
+<td>IVF index lists. Auto-computed as <code>max(100, sqrt(row_count))</code></td>
+</tr>
+<tr>
+<td><code>ivfflat_probes</code></td>
+<td><code>null</code> (auto)</td>
+<td>IVF probes per query. Auto-computed as <code>max(10, sqrt(lists))</code></td>
+</tr>
+<tr>
+<td><code>ivfflat_candidates</code></td>
+<td><code>20</code></td>
+<td>Top-K candidates retrieved before Python-side reranking</td>
+</tr>
+</tbody>
+</table>
+<h2 id="usage-example">Usage Example<a class="headerlink" href="#usage-example" title="Permanent link">&para;</a></h2>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-10-1"><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">dao_ai.config</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
+</span><span id="__span-10-2"><a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a>    <span class="n">DatabaseModel</span><span class="p">,</span>
+</span><span id="__span-10-3"><a id="__codelineno-10-3" name="__codelineno-10-3" href="#__codelineno-10-3"></a>    <span class="n">GenieContextAwareCacheParametersModel</span><span class="p">,</span>
+</span><span id="__span-10-4"><a id="__codelineno-10-4" name="__codelineno-10-4" href="#__codelineno-10-4"></a>    <span class="n">WarehouseModel</span><span class="p">,</span>
+</span><span id="__span-10-5"><a id="__codelineno-10-5" name="__codelineno-10-5" href="#__codelineno-10-5"></a><span class="p">)</span>
+</span><span id="__span-10-6"><a id="__codelineno-10-6" name="__codelineno-10-6" href="#__codelineno-10-6"></a><span class="kn">from</span><span class="w"> </span><span class="nn">databricks.sdk</span><span class="w"> </span><span class="kn">import</span> <span class="n">WorkspaceClient</span>
+</span><span id="__span-10-7"><a id="__codelineno-10-7" name="__codelineno-10-7" href="#__codelineno-10-7"></a><span class="kn">from</span><span class="w"> </span><span class="nn">databricks_ai_bridge.genie</span><span class="w"> </span><span class="kn">import</span> <span class="n">Genie</span>
+</span><span id="__span-10-8"><a id="__codelineno-10-8" name="__codelineno-10-8" href="#__codelineno-10-8"></a><span class="kn">from</span><span class="w"> </span><span class="nn">dao_ai.genie.cache</span><span class="w"> </span><span class="kn">import</span> <span class="n">PostgresContextAwareGenieService</span>
+</span><span id="__span-10-9"><a id="__codelineno-10-9" name="__codelineno-10-9" href="#__codelineno-10-9"></a><span class="kn">from</span><span class="w"> </span><span class="nn">dao_ai.genie.core</span><span class="w"> </span><span class="kn">import</span> <span class="n">GenieService</span>
+</span><span id="__span-10-10"><a id="__codelineno-10-10" name="__codelineno-10-10" href="#__codelineno-10-10"></a>
+</span><span id="__span-10-11"><a id="__codelineno-10-11" name="__codelineno-10-11" href="#__codelineno-10-11"></a><span class="c1"># Setup</span>
+</span><span id="__span-10-12"><a id="__codelineno-10-12" name="__codelineno-10-12" href="#__codelineno-10-12"></a><span class="n">workspace_client</span> <span class="o">=</span> <span class="n">WorkspaceClient</span><span class="p">()</span>
+</span><span id="__span-10-13"><a id="__codelineno-10-13" name="__codelineno-10-13" href="#__codelineno-10-13"></a>
+</span><span id="__span-10-14"><a id="__codelineno-10-14" name="__codelineno-10-14" href="#__codelineno-10-14"></a><span class="n">database</span> <span class="o">=</span> <span class="n">DatabaseModel</span><span class="p">(</span>
+</span><span id="__span-10-15"><a id="__codelineno-10-15" name="__codelineno-10-15" href="#__codelineno-10-15"></a>    <span class="n">project</span><span class="o">=</span><span class="s2">"retail-consumer-goods"</span><span class="p">,</span>  <span class="c1"># autoscaling Lakebase</span>
+</span><span id="__span-10-16"><a id="__codelineno-10-16" name="__codelineno-10-16" href="#__codelineno-10-16"></a>    <span class="c1"># project="retail-consumer-goods"</span>
+</span><span id="__span-10-17"><a id="__codelineno-10-17" name="__codelineno-10-17" href="#__codelineno-10-17"></a><span class="p">)</span>
+</span><span id="__span-10-18"><a id="__codelineno-10-18" name="__codelineno-10-18" href="#__codelineno-10-18"></a>
+</span><span id="__span-10-19"><a id="__codelineno-10-19" name="__codelineno-10-19" href="#__codelineno-10-19"></a><span class="c1"># Provide warehouse_id directly, or just name to resolve the ID automatically</span>
+</span><span id="__span-10-20"><a id="__codelineno-10-20" name="__codelineno-10-20" href="#__codelineno-10-20"></a><span class="n">warehouse</span> <span class="o">=</span> <span class="n">WarehouseModel</span><span class="p">(</span>
+</span><span id="__span-10-21"><a id="__codelineno-10-21" name="__codelineno-10-21" href="#__codelineno-10-21"></a>    <span class="n">warehouse_id</span><span class="o">=</span><span class="s2">"your-warehouse-id"</span><span class="p">,</span>  <span class="c1"># or use: name="Your Warehouse Name"</span>
+</span><span id="__span-10-22"><a id="__codelineno-10-22" name="__codelineno-10-22" href="#__codelineno-10-22"></a>    <span class="n">workspace_client</span><span class="o">=</span><span class="n">workspace_client</span><span class="p">,</span>
+</span><span id="__span-10-23"><a id="__codelineno-10-23" name="__codelineno-10-23" href="#__codelineno-10-23"></a><span class="p">)</span>
+</span><span id="__span-10-24"><a id="__codelineno-10-24" name="__codelineno-10-24" href="#__codelineno-10-24"></a>
+</span><span id="__span-10-25"><a id="__codelineno-10-25" name="__codelineno-10-25" href="#__codelineno-10-25"></a><span class="c1"># Configure cache (prompt history is always enabled)</span>
+</span><span id="__span-10-26"><a id="__codelineno-10-26" name="__codelineno-10-26" href="#__codelineno-10-26"></a><span class="n">parameters</span> <span class="o">=</span> <span class="n">GenieContextAwareCacheParametersModel</span><span class="p">(</span>
+</span><span id="__span-10-27"><a id="__codelineno-10-27" name="__codelineno-10-27" href="#__codelineno-10-27"></a>    <span class="n">database</span><span class="o">=</span><span class="n">database</span><span class="p">,</span>
+</span><span id="__span-10-28"><a id="__codelineno-10-28" name="__codelineno-10-28" href="#__codelineno-10-28"></a>    <span class="n">warehouse</span><span class="o">=</span><span class="n">warehouse</span><span class="p">,</span>
+</span><span id="__span-10-29"><a id="__codelineno-10-29" name="__codelineno-10-29" href="#__codelineno-10-29"></a>    <span class="n">context_window_size</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span>  <span class="c1"># Use last 2 prompts for context</span>
+</span><span id="__span-10-30"><a id="__codelineno-10-30" name="__codelineno-10-30" href="#__codelineno-10-30"></a>    <span class="n">max_prompt_history_length</span><span class="o">=</span><span class="mi">50</span><span class="p">,</span>  <span class="c1"># Keep last 50 prompts per conversation</span>
+</span><span id="__span-10-31"><a id="__codelineno-10-31" name="__codelineno-10-31" href="#__codelineno-10-31"></a><span class="p">)</span>
+</span><span id="__span-10-32"><a id="__codelineno-10-32" name="__codelineno-10-32" href="#__codelineno-10-32"></a>
+</span><span id="__span-10-33"><a id="__codelineno-10-33" name="__codelineno-10-33" href="#__codelineno-10-33"></a><span class="c1"># Initialize</span>
+</span><span id="__span-10-34"><a id="__codelineno-10-34" name="__codelineno-10-34" href="#__codelineno-10-34"></a><span class="n">genie</span> <span class="o">=</span> <span class="n">Genie</span><span class="p">(</span><span class="n">space_id</span><span class="o">=</span><span class="s2">"my-space"</span><span class="p">)</span>
+</span><span id="__span-10-35"><a id="__codelineno-10-35" name="__codelineno-10-35" href="#__codelineno-10-35"></a><span class="n">genie_service</span> <span class="o">=</span> <span class="n">GenieService</span><span class="p">(</span><span class="n">genie</span><span class="p">)</span>
+</span><span id="__span-10-36"><a id="__codelineno-10-36" name="__codelineno-10-36" href="#__codelineno-10-36"></a>
+</span><span id="__span-10-37"><a id="__codelineno-10-37" name="__codelineno-10-37" href="#__codelineno-10-37"></a><span class="n">cache_service</span> <span class="o">=</span> <span class="n">PostgresContextAwareGenieService</span><span class="p">(</span>
+</span><span id="__span-10-38"><a id="__codelineno-10-38" name="__codelineno-10-38" href="#__codelineno-10-38"></a>    <span class="n">impl</span><span class="o">=</span><span class="n">genie_service</span><span class="p">,</span>
+</span><span id="__span-10-39"><a id="__codelineno-10-39" name="__codelineno-10-39" href="#__codelineno-10-39"></a>    <span class="n">parameters</span><span class="o">=</span><span class="n">parameters</span><span class="p">,</span>
+</span><span id="__span-10-40"><a id="__codelineno-10-40" name="__codelineno-10-40" href="#__codelineno-10-40"></a>    <span class="n">workspace_client</span><span class="o">=</span><span class="n">workspace_client</span><span class="p">,</span>
+</span><span id="__span-10-41"><a id="__codelineno-10-41" name="__codelineno-10-41" href="#__codelineno-10-41"></a><span class="p">)</span><span class="o">.</span><span class="n">initialize</span><span class="p">()</span>
+</span><span id="__span-10-42"><a id="__codelineno-10-42" name="__codelineno-10-42" href="#__codelineno-10-42"></a>
+</span><span id="__span-10-43"><a id="__codelineno-10-43" name="__codelineno-10-43" href="#__codelineno-10-43"></a><span class="c1"># Multi-turn conversation</span>
+</span><span id="__span-10-44"><a id="__codelineno-10-44" name="__codelineno-10-44" href="#__codelineno-10-44"></a><span class="n">conv_id</span> <span class="o">=</span> <span class="s2">"my-conversation"</span>
+</span><span id="__span-10-45"><a id="__codelineno-10-45" name="__codelineno-10-45" href="#__codelineno-10-45"></a>
+</span><span id="__span-10-46"><a id="__codelineno-10-46" name="__codelineno-10-46" href="#__codelineno-10-46"></a><span class="c1"># Prompt 1</span>
+</span><span id="__span-10-47"><a id="__codelineno-10-47" name="__codelineno-10-47" href="#__codelineno-10-47"></a><span class="n">result1</span> <span class="o">=</span> <span class="n">cache_service</span><span class="o">.</span><span class="n">ask_question</span><span class="p">(</span>
+</span><span id="__span-10-48"><a id="__codelineno-10-48" name="__codelineno-10-48" href="#__codelineno-10-48"></a>    <span class="s2">"What are total sales?"</span><span class="p">,</span>
+</span><span id="__span-10-49"><a id="__codelineno-10-49" name="__codelineno-10-49" href="#__codelineno-10-49"></a>    <span class="n">conversation_id</span><span class="o">=</span><span class="n">conv_id</span>
+</span><span id="__span-10-50"><a id="__codelineno-10-50" name="__codelineno-10-50" href="#__codelineno-10-50"></a><span class="p">)</span>
+</span><span id="__span-10-51"><a id="__codelineno-10-51" name="__codelineno-10-51" href="#__codelineno-10-51"></a><span class="c1"># → Cache MISS, calls Genie, stores prompt in history</span>
+</span><span id="__span-10-52"><a id="__codelineno-10-52" name="__codelineno-10-52" href="#__codelineno-10-52"></a>
+</span><span id="__span-10-53"><a id="__codelineno-10-53" name="__codelineno-10-53" href="#__codelineno-10-53"></a><span class="c1"># Prompt 2  </span>
+</span><span id="__span-10-54"><a id="__codelineno-10-54" name="__codelineno-10-54" href="#__codelineno-10-54"></a><span class="n">result2</span> <span class="o">=</span> <span class="n">cache_service</span><span class="o">.</span><span class="n">ask_question</span><span class="p">(</span>
+</span><span id="__span-10-55"><a id="__codelineno-10-55" name="__codelineno-10-55" href="#__codelineno-10-55"></a>    <span class="s2">"Filter by Q1"</span><span class="p">,</span>
+</span><span id="__span-10-56"><a id="__codelineno-10-56" name="__codelineno-10-56" href="#__codelineno-10-56"></a>    <span class="n">conversation_id</span><span class="o">=</span><span class="n">conv_id</span>
+</span><span id="__span-10-57"><a id="__codelineno-10-57" name="__codelineno-10-57" href="#__codelineno-10-57"></a><span class="p">)</span>
+</span><span id="__span-10-58"><a id="__codelineno-10-58" name="__codelineno-10-58" href="#__codelineno-10-58"></a><span class="c1"># → Cache MISS, calls Genie, stores prompt</span>
+</span><span id="__span-10-59"><a id="__codelineno-10-59" name="__codelineno-10-59" href="#__codelineno-10-59"></a><span class="c1"># → Context now includes P1</span>
+</span><span id="__span-10-60"><a id="__codelineno-10-60" name="__codelineno-10-60" href="#__codelineno-10-60"></a>
+</span><span id="__span-10-61"><a id="__codelineno-10-61" name="__codelineno-10-61" href="#__codelineno-10-61"></a><span class="c1"># Prompt 3</span>
+</span><span id="__span-10-62"><a id="__codelineno-10-62" name="__codelineno-10-62" href="#__codelineno-10-62"></a><span class="n">result3</span> <span class="o">=</span> <span class="n">cache_service</span><span class="o">.</span><span class="n">ask_question</span><span class="p">(</span>
+</span><span id="__span-10-63"><a id="__codelineno-10-63" name="__codelineno-10-63" href="#__codelineno-10-63"></a>    <span class="s2">"Show by region"</span><span class="p">,</span>
+</span><span id="__span-10-64"><a id="__codelineno-10-64" name="__codelineno-10-64" href="#__codelineno-10-64"></a>    <span class="n">conversation_id</span><span class="o">=</span><span class="n">conv_id</span>
+</span><span id="__span-10-65"><a id="__codelineno-10-65" name="__codelineno-10-65" href="#__codelineno-10-65"></a><span class="p">)</span>
+</span><span id="__span-10-66"><a id="__codelineno-10-66" name="__codelineno-10-66" href="#__codelineno-10-66"></a><span class="c1"># → Cache HIT (if similar to previous query)</span>
+</span><span id="__span-10-67"><a id="__codelineno-10-67" name="__codelineno-10-67" href="#__codelineno-10-67"></a><span class="c1"># → Stored in prompt history with cache_hit=true</span>
+</span><span id="__span-10-68"><a id="__codelineno-10-68" name="__codelineno-10-68" href="#__codelineno-10-68"></a><span class="c1"># → Context includes [P1, P2]</span>
+</span><span id="__span-10-69"><a id="__codelineno-10-69" name="__codelineno-10-69" href="#__codelineno-10-69"></a>
+</span><span id="__span-10-70"><a id="__codelineno-10-70" name="__codelineno-10-70" href="#__codelineno-10-70"></a><span class="c1"># Inspect prompt history</span>
+</span><span id="__span-10-71"><a id="__codelineno-10-71" name="__codelineno-10-71" href="#__codelineno-10-71"></a><span class="n">prompts</span> <span class="o">=</span> <span class="n">cache_service</span><span class="o">.</span><span class="n">_get_local_prompt_history</span><span class="p">(</span><span class="n">conv_id</span><span class="p">,</span> <span class="n">max_prompts</span><span class="o">=</span><span class="mi">10</span><span class="p">)</span>
+</span><span id="__span-10-72"><a id="__codelineno-10-72" name="__codelineno-10-72" href="#__codelineno-10-72"></a><span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"Conversation history: </span><span class="si">{</span><span class="n">prompts</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
+</span><span id="__span-10-73"><a id="__codelineno-10-73" name="__codelineno-10-73" href="#__codelineno-10-73"></a><span class="c1"># Output: ['What are total sales?', 'Filter by Q1', 'Show by region']</span>
+</span></code></pre></div>
+<h2 id="importing-historical-conversations-with-from_space">Importing Historical Conversations with <code>from_space()</code><a class="headerlink" href="#importing-historical-conversations-with-from_space" title="Permanent link">&para;</a></h2>
+<p>The <code>from_space()</code> method allows you to pre-populate the cache from existing Genie space conversations. This is useful for:</p>
+<ul>
+<li><strong>Cache warming</strong>: Avoid cold-start latency by importing historical queries</li>
+<li><strong>Migration</strong>: Transfer conversation history when setting up a new cache instance</li>
+<li><strong>Analytics</strong>: Build a cache from production usage patterns</li>
+</ul>
+<h3 id="usage">Usage<a class="headerlink" href="#usage" title="Permanent link">&para;</a></h3>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-11-1"><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">datetime</span><span class="w"> </span><span class="kn">import</span> <span class="n">datetime</span><span class="p">,</span> <span class="n">timedelta</span>
+</span><span id="__span-11-2"><a id="__codelineno-11-2" name="__codelineno-11-2" href="#__codelineno-11-2"></a>
+</span><span id="__span-11-3"><a id="__codelineno-11-3" name="__codelineno-11-3" href="#__codelineno-11-3"></a><span class="c1"># Basic usage - import all conversations from the current space</span>
+</span><span id="__span-11-4"><a id="__codelineno-11-4" name="__codelineno-11-4" href="#__codelineno-11-4"></a><span class="n">cache_service</span><span class="o">.</span><span class="n">from_space</span><span class="p">()</span>
+</span><span id="__span-11-5"><a id="__codelineno-11-5" name="__codelineno-11-5" href="#__codelineno-11-5"></a>
+</span><span id="__span-11-6"><a id="__codelineno-11-6" name="__codelineno-11-6" href="#__codelineno-11-6"></a><span class="c1"># Import from a specific Genie space</span>
+</span><span id="__span-11-7"><a id="__codelineno-11-7" name="__codelineno-11-7" href="#__codelineno-11-7"></a><span class="n">cache_service</span><span class="o">.</span><span class="n">from_space</span><span class="p">(</span><span class="n">space_id</span><span class="o">=</span><span class="s2">"01f0c482e842191587af6a40ad4044d8"</span><span class="p">)</span>
+</span><span id="__span-11-8"><a id="__codelineno-11-8" name="__codelineno-11-8" href="#__codelineno-11-8"></a>
+</span><span id="__span-11-9"><a id="__codelineno-11-9" name="__codelineno-11-9" href="#__codelineno-11-9"></a><span class="c1"># Import only recent conversations (last 30 days)</span>
+</span><span id="__span-11-10"><a id="__codelineno-11-10" name="__codelineno-11-10" href="#__codelineno-11-10"></a><span class="n">cache_service</span><span class="o">.</span><span class="n">from_space</span><span class="p">(</span>
+</span><span id="__span-11-11"><a id="__codelineno-11-11" name="__codelineno-11-11" href="#__codelineno-11-11"></a>    <span class="n">from_datetime</span><span class="o">=</span><span class="n">datetime</span><span class="o">.</span><span class="n">now</span><span class="p">()</span> <span class="o">-</span> <span class="n">timedelta</span><span class="p">(</span><span class="n">days</span><span class="o">=</span><span class="mi">30</span><span class="p">),</span>
+</span><span id="__span-11-12"><a id="__codelineno-11-12" name="__codelineno-11-12" href="#__codelineno-11-12"></a><span class="p">)</span>
+</span><span id="__span-11-13"><a id="__codelineno-11-13" name="__codelineno-11-13" href="#__codelineno-11-13"></a>
+</span><span id="__span-11-14"><a id="__codelineno-11-14" name="__codelineno-11-14" href="#__codelineno-11-14"></a><span class="c1"># Import with all filters</span>
+</span><span id="__span-11-15"><a id="__codelineno-11-15" name="__codelineno-11-15" href="#__codelineno-11-15"></a><span class="n">cache_service</span><span class="o">.</span><span class="n">from_space</span><span class="p">(</span>
+</span><span id="__span-11-16"><a id="__codelineno-11-16" name="__codelineno-11-16" href="#__codelineno-11-16"></a>    <span class="n">space_id</span><span class="o">=</span><span class="s2">"my-space-id"</span><span class="p">,</span>           <span class="c1"># Optional: defaults to self.space_id</span>
+</span><span id="__span-11-17"><a id="__codelineno-11-17" name="__codelineno-11-17" href="#__codelineno-11-17"></a>    <span class="n">include_all_messages</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>         <span class="c1"># Include all users' conversations</span>
+</span><span id="__span-11-18"><a id="__codelineno-11-18" name="__codelineno-11-18" href="#__codelineno-11-18"></a>    <span class="n">from_datetime</span><span class="o">=</span><span class="n">datetime</span><span class="p">(</span><span class="mi">2024</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="mi">1</span><span class="p">),</span>  <span class="c1"># Only messages after this date</span>
+</span><span id="__span-11-19"><a id="__codelineno-11-19" name="__codelineno-11-19" href="#__codelineno-11-19"></a>    <span class="n">to_datetime</span><span class="o">=</span><span class="n">datetime</span><span class="p">(</span><span class="mi">2024</span><span class="p">,</span> <span class="mi">6</span><span class="p">,</span> <span class="mi">30</span><span class="p">),</span>   <span class="c1"># Only messages before this date</span>
+</span><span id="__span-11-20"><a id="__codelineno-11-20" name="__codelineno-11-20" href="#__codelineno-11-20"></a>    <span class="n">max_messages</span><span class="o">=</span><span class="mi">1000</span><span class="p">,</span>                 <span class="c1"># Limit total messages imported</span>
+</span><span id="__span-11-21"><a id="__codelineno-11-21" name="__codelineno-11-21" href="#__codelineno-11-21"></a><span class="p">)</span>
+</span></code></pre></div>
+<h3 id="parameters">Parameters<a class="headerlink" href="#parameters" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Parameter</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>space_id</code></td>
+<td><code>self.space_id</code></td>
+<td>Genie space ID to import from</td>
+</tr>
+<tr>
+<td><code>include_all_messages</code></td>
+<td><code>True</code></td>
+<td>If True, fetch all users' conversations</td>
+</tr>
+<tr>
+<td><code>from_datetime</code></td>
+<td><code>None</code></td>
+<td>Only include messages after this time</td>
+</tr>
+<tr>
+<td><code>to_datetime</code></td>
+<td><code>None</code></td>
+<td>Only include messages before this time</td>
+</tr>
+<tr>
+<td><code>max_messages</code></td>
+<td><code>None</code></td>
+<td>Limit to last N messages (most recent first)</td>
+</tr>
+</tbody>
+</table>
+<h3 id="what-gets-imported">What Gets Imported<a class="headerlink" href="#what-gets-imported" title="Permanent link">&para;</a></h3>
+<ol>
+<li><strong>Prompt history table</strong>: All user messages are stored in <code>genie_prompt_history</code></li>
+<li><strong>Cache embeddings table</strong>: Messages with SQL query attachments are embedded and stored in the cache</li>
+</ol>
+<p>Uses <code>ON CONFLICT DO NOTHING</code> to safely skip duplicate entries, making it safe to run multiple times.</p>
+<h3 id="requirements">Requirements<a class="headerlink" href="#requirements" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Requires a <code>workspace_client</code> to be provided when creating the cache service</li>
+<li>The workspace client must have permission to access the Genie space</li>
+</ul>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-12-1"><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a><span class="c1"># workspace_client is required for from_space()</span>
+</span><span id="__span-12-2"><a id="__codelineno-12-2" name="__codelineno-12-2" href="#__codelineno-12-2"></a><span class="n">cache_service</span> <span class="o">=</span> <span class="n">PostgresContextAwareGenieService</span><span class="p">(</span>
+</span><span id="__span-12-3"><a id="__codelineno-12-3" name="__codelineno-12-3" href="#__codelineno-12-3"></a>    <span class="n">impl</span><span class="o">=</span><span class="n">genie_service</span><span class="p">,</span>
+</span><span id="__span-12-4"><a id="__codelineno-12-4" name="__codelineno-12-4" href="#__codelineno-12-4"></a>    <span class="n">parameters</span><span class="o">=</span><span class="n">parameters</span><span class="p">,</span>
+</span><span id="__span-12-5"><a id="__codelineno-12-5" name="__codelineno-12-5" href="#__codelineno-12-5"></a>    <span class="n">workspace_client</span><span class="o">=</span><span class="n">workspace_client</span><span class="p">,</span>  <span class="c1"># Required!</span>
+</span><span id="__span-12-6"><a id="__codelineno-12-6" name="__codelineno-12-6" href="#__codelineno-12-6"></a><span class="p">)</span><span class="o">.</span><span class="n">initialize</span><span class="p">()</span>
+</span><span id="__span-12-7"><a id="__codelineno-12-7" name="__codelineno-12-7" href="#__codelineno-12-7"></a>
+</span><span id="__span-12-8"><a id="__codelineno-12-8" name="__codelineno-12-8" href="#__codelineno-12-8"></a><span class="n">cache_service</span><span class="o">.</span><span class="n">from_space</span><span class="p">()</span>  <span class="c1"># Now works</span>
+</span></code></pre></div>
+<h3 id="performance-considerations">Performance Considerations<a class="headerlink" href="#performance-considerations" title="Permanent link">&para;</a></h3>
+<ul>
+<li>For large spaces (1000+ messages), use <code>max_messages</code> to limit import size</li>
+<li>Use date filters (<code>from_datetime</code>, <code>to_datetime</code>) to import only relevant history</li>
+<li>The method returns <code>self</code> for method chaining:</li>
+</ul>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-13-1"><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a><span class="n">cache_service</span><span class="o">.</span><span class="n">initialize</span><span class="p">()</span><span class="o">.</span><span class="n">from_space</span><span class="p">()</span><span class="o">.</span><span class="n">ask_question</span><span class="p">(</span><span class="s2">"What are sales?"</span><span class="p">)</span>
+</span></code></pre></div>
+<h2 id="performance-benefits">Performance Benefits<a class="headerlink" href="#performance-benefits" title="Permanent link">&para;</a></h2>
+<h3 id="metrics">Metrics<a class="headerlink" href="#metrics" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Operation</th>
+<th>Before</th>
+<th>After</th>
+<th>Improvement</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Context retrieval</td>
+<td>200-500ms (Genie API)</td>
+<td>10-20ms (Local DB)</td>
+<td><strong>10-25x faster</strong></td>
+</tr>
+<tr>
+<td>Cache HIT latency</td>
+<td>360-820ms</td>
+<td>180-360ms</td>
+<td><strong>~50% faster</strong></td>
+</tr>
+<tr>
+<td>Storage per prompt</td>
+<td>N/A</td>
+<td>~200 bytes</td>
+<td>Minimal</td>
+</tr>
+</tbody>
+</table>
+<h3 id="why-its-faster">Why It's Faster<a class="headerlink" href="#why-its-faster" title="Permanent link">&para;</a></h3>
+<ol>
+<li><strong>Local DB queries</strong>: Postgres/Lakebase queries are much faster than Genie API calls</li>
+<li><strong>SQL LIMIT optimization</strong>: Only fetches exactly what's needed (e.g., LIMIT 3)</li>
+<li><strong>No network overhead</strong>: Local DB vs external API</li>
+<li><strong>Includes cache hits</strong>: Doesn't need Genie API for cache hit prompts</li>
+</ol>
+<h2 id="sequence-diagram">Sequence Diagram<a class="headerlink" href="#sequence-diagram" title="Permanent link">&para;</a></h2>
+<pre class="mermaid"><code>sequenceDiagram
+    participant User
+    participant Cache as ContextAwareCache
+    participant PromptDB as genie_prompt_history
+    participant CacheDB as genie_context_aware_cache
+    participant Genie as Genie API
+
+    User-&gt;&gt;Cache: "Show by region"
+
+    Note over Cache,PromptDB: Step 1: Get PREVIOUS prompts
+    Cache-&gt;&gt;PromptDB: SELECT prompt&lt;br/&gt;LIMIT 2&lt;br/&gt;(window_size=2)
+    PromptDB--&gt;&gt;Cache: [P1: "What are sales?",&lt;br/&gt;P2: "Filter by Q1"]
+
+    Note over Cache: Step 2: Build dual embeddings
+    Cache-&gt;&gt;Cache: question_embedding =&lt;br/&gt;embed("Show by region")
+    Cache-&gt;&gt;Cache: context_embedding =&lt;br/&gt;embed("Previous: P1&lt;br/&gt;Previous: P2")
+
+    Note over Cache,PromptDB: Step 3: Store current prompt
+    Cache-&gt;&gt;PromptDB: INSERT (prompt="Show by region",&lt;br/&gt;cache_hit=false)
+    PromptDB--&gt;&gt;Cache: OK
+
+    Note over Cache,CacheDB: Step 4: Search cache
+    Cache-&gt;&gt;CacheDB: Vector search&lt;br/&gt;(question_emb + context_emb)
+    CacheDB--&gt;&gt;Cache: Best match + scores
+
+    alt Cache HIT
+        Cache-&gt;&gt;CacheDB: Re-execute cached SQL
+        CacheDB--&gt;&gt;Cache: Fresh results
+        Cache-&gt;&gt;PromptDB: UPDATE cache_hit=true
+        PromptDB--&gt;&gt;Cache: OK
+        Cache--&gt;&gt;User: Response (cached)
+    else Cache MISS
+        Cache-&gt;&gt;Genie: ask_question()
+        Genie--&gt;&gt;Cache: SQL + results
+        Cache-&gt;&gt;CacheDB: INSERT SQL + embeddings
+        CacheDB--&gt;&gt;Cache: OK
+        Cache--&gt;&gt;User: Response (from Genie)
+    end</code></pre>
+<h2 id="context-window-behavior">Context Window Behavior<a class="headerlink" href="#context-window-behavior" title="Permanent link">&para;</a></h2>
+<p>With <code>context_window_size=4</code> (default):</p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-14-1"><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a>Conversation: [P1, P2, P3, P4, P5, P6, ...]
+</span><span id="__span-14-2"><a id="__codelineno-14-2" name="__codelineno-14-2" href="#__codelineno-14-2"></a>
+</span><span id="__span-14-3"><a id="__codelineno-14-3" name="__codelineno-14-3" href="#__codelineno-14-3"></a>When processing P6:
+</span><span id="__span-14-4"><a id="__codelineno-14-4" name="__codelineno-14-4" href="#__codelineno-14-4"></a>1. SELECT last 4: Returns [P2, P3, P4, P5] ← LIMIT 4
+</span><span id="__span-14-5"><a id="__codelineno-14-5" name="__codelineno-14-5" href="#__codelineno-14-5"></a>2. Context = "Previous: P2\nPrevious: P3\nPrevious: P4\nPrevious: P5"
+</span><span id="__span-14-6"><a id="__codelineno-14-6" name="__codelineno-14-6" href="#__codelineno-14-6"></a>3. Embed P6 with context of [P2, P3, P4, P5]
+</span><span id="__span-14-7"><a id="__codelineno-14-7" name="__codelineno-14-7" href="#__codelineno-14-7"></a>4. Store P6
+</span><span id="__span-14-8"><a id="__codelineno-14-8" name="__codelineno-14-8" href="#__codelineno-14-8"></a>
+</span><span id="__span-14-9"><a id="__codelineno-14-9" name="__codelineno-14-9" href="#__codelineno-14-9"></a>Result: Sliding window of last 4 prompts
+</span></code></pre></div>
+<p><strong>Efficiency</strong>: Constant time O(window_size), not O(total_prompts)</p>
+<h2 id="maintenance-and-cleanup">Maintenance and Cleanup<a class="headerlink" href="#maintenance-and-cleanup" title="Permanent link">&para;</a></h2>
+<h3 id="automatic-prompt-history-cleanup">Automatic Prompt History Cleanup<a class="headerlink" href="#automatic-prompt-history-cleanup" title="Permanent link">&para;</a></h3>
+<p>The context-aware cache automatically maintains prompt history in two ways:</p>
+<h4 id="1-per-conversation-length-limit">1. Per-Conversation Length Limit<a class="headerlink" href="#1-per-conversation-length-limit" title="Permanent link">&para;</a></h4>
+<p>After storing each prompt, the cache enforces <code>max_prompt_history_length</code> by deleting the oldest prompts:</p>
+<div class="language-sql highlight"><pre><span></span><code><span id="__span-15-1"><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a><span class="c1">-- Automatically executed after each INSERT</span>
+</span><span id="__span-15-2"><a id="__codelineno-15-2" name="__codelineno-15-2" href="#__codelineno-15-2"></a><span class="k">DELETE</span><span class="w"> </span><span class="k">FROM</span><span class="w"> </span><span class="n">genie_prompt_history</span>
+</span><span id="__span-15-3"><a id="__codelineno-15-3" name="__codelineno-15-3" href="#__codelineno-15-3"></a><span class="k">WHERE</span><span class="w"> </span><span class="n">conversation_id</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="o">?</span>
+</span><span id="__span-15-4"><a id="__codelineno-15-4" name="__codelineno-15-4" href="#__codelineno-15-4"></a><span class="w">  </span><span class="k">AND</span><span class="w"> </span><span class="n">created_at</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="p">(</span>
+</span><span id="__span-15-5"><a id="__codelineno-15-5" name="__codelineno-15-5" href="#__codelineno-15-5"></a><span class="w">    </span><span class="k">SELECT</span><span class="w"> </span><span class="n">created_at</span><span class="w"> </span><span class="k">FROM</span><span class="w"> </span><span class="n">genie_prompt_history</span>
+</span><span id="__span-15-6"><a id="__codelineno-15-6" name="__codelineno-15-6" href="#__codelineno-15-6"></a><span class="w">    </span><span class="k">ORDER</span><span class="w"> </span><span class="k">BY</span><span class="w"> </span><span class="n">created_at</span><span class="w"> </span><span class="k">DESC</span>
+</span><span id="__span-15-7"><a id="__codelineno-15-7" name="__codelineno-15-7" href="#__codelineno-15-7"></a><span class="w">    </span><span class="k">LIMIT</span><span class="w"> </span><span class="mi">1</span><span class="w"> </span><span class="k">OFFSET</span><span class="w"> </span><span class="mi">49</span><span class="w">  </span><span class="c1">-- max_prompt_history_length - 1</span>
+</span><span id="__span-15-8"><a id="__codelineno-15-8" name="__codelineno-15-8" href="#__codelineno-15-8"></a><span class="w">  </span><span class="p">)</span>
+</span></code></pre></div>
+<p>This keeps each conversation to at most 50 prompts (by default).</p>
+<h4 id="2-ttl-based-cleanup">2. TTL-Based Cleanup<a class="headerlink" href="#2-ttl-based-cleanup" title="Permanent link">&para;</a></h4>
+<p>When calling <code>invalidate_expired()</code>, both cache entries and prompt history are cleaned up:</p>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-16-1"><a id="__codelineno-16-1" name="__codelineno-16-1" href="#__codelineno-16-1"></a><span class="c1"># Clean up expired cache entries AND prompt history</span>
+</span><span id="__span-16-2"><a id="__codelineno-16-2" name="__codelineno-16-2" href="#__codelineno-16-2"></a><span class="n">result</span> <span class="o">=</span> <span class="n">cache_service</span><span class="o">.</span><span class="n">invalidate_expired</span><span class="p">()</span>
+</span><span id="__span-16-3"><a id="__codelineno-16-3" name="__codelineno-16-3" href="#__codelineno-16-3"></a><span class="c1"># Returns: {"cache": 5, "prompt_history": 12}</span>
+</span></code></pre></div>
+<p>Uses <code>prompt_history_ttl_seconds</code> if set, otherwise uses the cache's <code>time_to_live_seconds</code>.</p>
+<h3 id="error-resilience">Error Resilience<a class="headerlink" href="#error-resilience" title="Permanent link">&para;</a></h3>
+<p>Prompt history operations are <strong>non-critical</strong> - failures are logged but don't crash requests:</p>
+<ul>
+<li><code>_store_user_prompt()</code> - INSERT failures are caught and logged</li>
+<li><code>_update_prompt_cache_hit()</code> - UPDATE failures are caught and logged</li>
+<li><code>_enforce_prompt_history_limit()</code> - DELETE failures are caught and logged</li>
+</ul>
+<p>This ensures the primary caching functionality continues even if prompt history has issues.</p>
+<h2 id="configuration-options">Configuration Options<a class="headerlink" href="#configuration-options" title="Permanent link">&para;</a></h2>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-17-1"><a id="__codelineno-17-1" name="__codelineno-17-1" href="#__codelineno-17-1"></a><span class="k">class</span><span class="w"> </span><span class="nc">GenieContextAwareCacheParametersModel</span><span class="p">:</span>
+</span><span id="__span-17-2"><a id="__codelineno-17-2" name="__codelineno-17-2" href="#__codelineno-17-2"></a>    <span class="c1"># Prompt history configuration (always enabled)</span>
+</span><span id="__span-17-3"><a id="__codelineno-17-3" name="__codelineno-17-3" href="#__codelineno-17-3"></a>    <span class="n">prompt_history_table</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">"genie_prompt_history"</span>
+</span><span id="__span-17-4"><a id="__codelineno-17-4" name="__codelineno-17-4" href="#__codelineno-17-4"></a><span class="w">    </span><span class="sd">"""Table name for storing prompt history"""</span>
+</span><span id="__span-17-5"><a id="__codelineno-17-5" name="__codelineno-17-5" href="#__codelineno-17-5"></a>
+</span><span id="__span-17-6"><a id="__codelineno-17-6" name="__codelineno-17-6" href="#__codelineno-17-6"></a>    <span class="n">max_prompt_history_length</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">50</span>
+</span><span id="__span-17-7"><a id="__codelineno-17-7" name="__codelineno-17-7" href="#__codelineno-17-7"></a><span class="w">    </span><span class="sd">"""Maximum prompts to keep per conversation (enforced automatically)"""</span>
+</span><span id="__span-17-8"><a id="__codelineno-17-8" name="__codelineno-17-8" href="#__codelineno-17-8"></a>
+</span><span id="__span-17-9"><a id="__codelineno-17-9" name="__codelineno-17-9" href="#__codelineno-17-9"></a>    <span class="n">prompt_history_ttl_seconds</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+</span><span id="__span-17-10"><a id="__codelineno-17-10" name="__codelineno-17-10" href="#__codelineno-17-10"></a><span class="w">    </span><span class="sd">"""TTL for prompt history cleanup (None = use cache TTL)"""</span>
+</span><span id="__span-17-11"><a id="__codelineno-17-11" name="__codelineno-17-11" href="#__codelineno-17-11"></a>
+</span><span id="__span-17-12"><a id="__codelineno-17-12" name="__codelineno-17-12" href="#__codelineno-17-12"></a>    <span class="n">use_genie_api_for_history</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span>
+</span><span id="__span-17-13"><a id="__codelineno-17-13" name="__codelineno-17-13" href="#__codelineno-17-13"></a><span class="w">    </span><span class="sd">"""Fallback to Genie API if local history empty (default: False)"""</span>
+</span><span id="__span-17-14"><a id="__codelineno-17-14" name="__codelineno-17-14" href="#__codelineno-17-14"></a>
+</span><span id="__span-17-15"><a id="__codelineno-17-15" name="__codelineno-17-15" href="#__codelineno-17-15"></a>    <span class="n">context_window_size</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">4</span>
+</span><span id="__span-17-16"><a id="__codelineno-17-16" name="__codelineno-17-16" href="#__codelineno-17-16"></a><span class="w">    </span><span class="sd">"""Number of previous prompts to include in context embeddings"""</span>
+</span><span id="__span-17-17"><a id="__codelineno-17-17" name="__codelineno-17-17" href="#__codelineno-17-17"></a>
+</span><span id="__span-17-18"><a id="__codelineno-17-18" name="__codelineno-17-18" href="#__codelineno-17-18"></a>    <span class="n">max_context_tokens</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">2000</span>
+</span><span id="__span-17-19"><a id="__codelineno-17-19" name="__codelineno-17-19" href="#__codelineno-17-19"></a><span class="w">    </span><span class="sd">"""Maximum tokens in context to prevent extremely long embeddings"""</span>
+</span><span id="__span-17-20"><a id="__codelineno-17-20" name="__codelineno-17-20" href="#__codelineno-17-20"></a>
+</span><span id="__span-17-21"><a id="__codelineno-17-21" name="__codelineno-17-21" href="#__codelineno-17-21"></a>    <span class="c1"># IVFFlat index tuning for pg_vector (auto-computed when None)</span>
+</span><span id="__span-17-22"><a id="__codelineno-17-22" name="__codelineno-17-22" href="#__codelineno-17-22"></a>    <span class="n">ivfflat_lists</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+</span><span id="__span-17-23"><a id="__codelineno-17-23" name="__codelineno-17-23" href="#__codelineno-17-23"></a><span class="w">    </span><span class="sd">"""Number of IVF lists. None = auto-computed as max(100, sqrt(row_count))"""</span>
+</span><span id="__span-17-24"><a id="__codelineno-17-24" name="__codelineno-17-24" href="#__codelineno-17-24"></a>
+</span><span id="__span-17-25"><a id="__codelineno-17-25" name="__codelineno-17-25" href="#__codelineno-17-25"></a>    <span class="n">ivfflat_probes</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+</span><span id="__span-17-26"><a id="__codelineno-17-26" name="__codelineno-17-26" href="#__codelineno-17-26"></a><span class="w">    </span><span class="sd">"""Lists to probe per query. None = auto-computed as max(10, sqrt(lists))"""</span>
+</span><span id="__span-17-27"><a id="__codelineno-17-27" name="__codelineno-17-27" href="#__codelineno-17-27"></a>
+</span><span id="__span-17-28"><a id="__codelineno-17-28" name="__codelineno-17-28" href="#__codelineno-17-28"></a>    <span class="n">ivfflat_candidates</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">20</span>
+</span><span id="__span-17-29"><a id="__codelineno-17-29" name="__codelineno-17-29" href="#__codelineno-17-29"></a><span class="w">    </span><span class="sd">"""Top-K candidates for Python-side reranking"""</span>
+</span></code></pre></div>
+<h2 id="api-methods">API Methods<a class="headerlink" href="#api-methods" title="Permanent link">&para;</a></h2>
+<h3 id="public-methods">Public Methods<a class="headerlink" href="#public-methods" title="Permanent link">&para;</a></h3>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-18-1"><a id="__codelineno-18-1" name="__codelineno-18-1" href="#__codelineno-18-1"></a><span class="c1"># Retrieve prompt history for a conversation</span>
+</span><span id="__span-18-2"><a id="__codelineno-18-2" name="__codelineno-18-2" href="#__codelineno-18-2"></a><span class="n">prompts</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="n">cache_service</span><span class="o">.</span><span class="n">_get_local_prompt_history</span><span class="p">(</span>
+</span><span id="__span-18-3"><a id="__codelineno-18-3" name="__codelineno-18-3" href="#__codelineno-18-3"></a>    <span class="n">conversation_id</span><span class="o">=</span><span class="s2">"conv-123"</span><span class="p">,</span>
+</span><span id="__span-18-4"><a id="__codelineno-18-4" name="__codelineno-18-4" href="#__codelineno-18-4"></a>    <span class="n">max_prompts</span><span class="o">=</span><span class="mi">10</span>
+</span><span id="__span-18-5"><a id="__codelineno-18-5" name="__codelineno-18-5" href="#__codelineno-18-5"></a><span class="p">)</span>
+</span><span id="__span-18-6"><a id="__codelineno-18-6" name="__codelineno-18-6" href="#__codelineno-18-6"></a>
+</span><span id="__span-18-7"><a id="__codelineno-18-7" name="__codelineno-18-7" href="#__codelineno-18-7"></a><span class="c1"># Clear all cache entries (prompts are NOT cleared automatically)</span>
+</span><span id="__span-18-8"><a id="__codelineno-18-8" name="__codelineno-18-8" href="#__codelineno-18-8"></a><span class="n">cache_service</span><span class="o">.</span><span class="n">clear</span><span class="p">()</span>  <span class="c1"># Only clears context_aware_cache table</span>
+</span><span id="__span-18-9"><a id="__codelineno-18-9" name="__codelineno-18-9" href="#__codelineno-18-9"></a>
+</span><span id="__span-18-10"><a id="__codelineno-18-10" name="__codelineno-18-10" href="#__codelineno-18-10"></a><span class="c1"># Get cache entries with optional filtering</span>
+</span><span id="__span-18-11"><a id="__codelineno-18-11" name="__codelineno-18-11" href="#__codelineno-18-11"></a><span class="n">entries</span> <span class="o">=</span> <span class="n">cache_service</span><span class="o">.</span><span class="n">get_entries</span><span class="p">(</span>
+</span><span id="__span-18-12"><a id="__codelineno-18-12" name="__codelineno-18-12" href="#__codelineno-18-12"></a>    <span class="n">limit</span><span class="o">=</span><span class="mi">100</span><span class="p">,</span>               <span class="c1"># Maximum entries to return</span>
+</span><span id="__span-18-13"><a id="__codelineno-18-13" name="__codelineno-18-13" href="#__codelineno-18-13"></a>    <span class="n">offset</span><span class="o">=</span><span class="mi">0</span><span class="p">,</span>                <span class="c1"># Skip entries for pagination</span>
+</span><span id="__span-18-14"><a id="__codelineno-18-14" name="__codelineno-18-14" href="#__codelineno-18-14"></a>    <span class="n">include_embeddings</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="c1"># Include embedding vectors</span>
+</span><span id="__span-18-15"><a id="__codelineno-18-15" name="__codelineno-18-15" href="#__codelineno-18-15"></a>    <span class="n">conversation_id</span><span class="o">=</span><span class="s2">"conv-1"</span><span class="p">,</span>  <span class="c1"># Filter by conversation</span>
+</span><span id="__span-18-16"><a id="__codelineno-18-16" name="__codelineno-18-16" href="#__codelineno-18-16"></a>    <span class="n">created_after</span><span class="o">=</span><span class="n">datetime</span><span class="p">(</span><span class="mi">2024</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="mi">1</span><span class="p">),</span>  <span class="c1"># Time filter</span>
+</span><span id="__span-18-17"><a id="__codelineno-18-17" name="__codelineno-18-17" href="#__codelineno-18-17"></a>    <span class="n">created_before</span><span class="o">=</span><span class="n">datetime</span><span class="p">(</span><span class="mi">2024</span><span class="p">,</span> <span class="mi">12</span><span class="p">,</span> <span class="mi">31</span><span class="p">),</span>
+</span><span id="__span-18-18"><a id="__codelineno-18-18" name="__codelineno-18-18" href="#__codelineno-18-18"></a>    <span class="n">question_contains</span><span class="o">=</span><span class="s2">"sales"</span><span class="p">,</span>  <span class="c1"># Text search (case-insensitive)</span>
+</span><span id="__span-18-19"><a id="__codelineno-18-19" name="__codelineno-18-19" href="#__codelineno-18-19"></a><span class="p">)</span>
+</span></code></pre></div>
+<h3 id="get_entries-method">get_entries() Method<a class="headerlink" href="#get_entries-method" title="Permanent link">&para;</a></h3>
+<p>The <code>get_entries()</code> method retrieves cache entries for inspection, debugging, or generating evaluation datasets for threshold optimization.</p>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-19-1"><a id="__codelineno-19-1" name="__codelineno-19-1" href="#__codelineno-19-1"></a><span class="k">def</span><span class="w"> </span><span class="nf">get_entries</span><span class="p">(</span>
+</span><span id="__span-19-2"><a id="__codelineno-19-2" name="__codelineno-19-2" href="#__codelineno-19-2"></a>    <span class="bp">self</span><span class="p">,</span>
+</span><span id="__span-19-3"><a id="__codelineno-19-3" name="__codelineno-19-3" href="#__codelineno-19-3"></a>    <span class="n">limit</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+</span><span id="__span-19-4"><a id="__codelineno-19-4" name="__codelineno-19-4" href="#__codelineno-19-4"></a>    <span class="n">offset</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+</span><span id="__span-19-5"><a id="__codelineno-19-5" name="__codelineno-19-5" href="#__codelineno-19-5"></a>    <span class="n">include_embeddings</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>
+</span><span id="__span-19-6"><a id="__codelineno-19-6" name="__codelineno-19-6" href="#__codelineno-19-6"></a>    <span class="n">conversation_id</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+</span><span id="__span-19-7"><a id="__codelineno-19-7" name="__codelineno-19-7" href="#__codelineno-19-7"></a>    <span class="n">created_after</span><span class="p">:</span> <span class="n">datetime</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+</span><span id="__span-19-8"><a id="__codelineno-19-8" name="__codelineno-19-8" href="#__codelineno-19-8"></a>    <span class="n">created_before</span><span class="p">:</span> <span class="n">datetime</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+</span><span id="__span-19-9"><a id="__codelineno-19-9" name="__codelineno-19-9" href="#__codelineno-19-9"></a>    <span class="n">question_contains</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+</span><span id="__span-19-10"><a id="__codelineno-19-10" name="__codelineno-19-10" href="#__codelineno-19-10"></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]]:</span>
+</span></code></pre></div>
+<p><strong>Parameters:</strong></p>
+<table>
+<thead>
+<tr>
+<th>Parameter</th>
+<th>Type</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>limit</code></td>
+<td><code>int \| None</code></td>
+<td><code>None</code></td>
+<td>Maximum entries to return</td>
+</tr>
+<tr>
+<td><code>offset</code></td>
+<td><code>int \| None</code></td>
+<td><code>None</code></td>
+<td>Skip entries for pagination</td>
+</tr>
+<tr>
+<td><code>include_embeddings</code></td>
+<td><code>bool</code></td>
+<td><code>False</code></td>
+<td>Include embedding vectors (large)</td>
+</tr>
+<tr>
+<td><code>conversation_id</code></td>
+<td><code>str \| None</code></td>
+<td><code>None</code></td>
+<td>Filter by conversation ID</td>
+</tr>
+<tr>
+<td><code>created_after</code></td>
+<td><code>datetime \| None</code></td>
+<td><code>None</code></td>
+<td>Only entries after this time</td>
+</tr>
+<tr>
+<td><code>created_before</code></td>
+<td><code>datetime \| None</code></td>
+<td><code>None</code></td>
+<td>Only entries before this time</td>
+</tr>
+<tr>
+<td><code>question_contains</code></td>
+<td><code>str \| None</code></td>
+<td><code>None</code></td>
+<td>Case-insensitive text search</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Returns:</strong></p>
+<p>Each entry dict contains:
+- <code>id</code>: Cache entry ID (int for PostgreSQL, None for in-memory)
+- <code>question</code>: The cached question text
+- <code>conversation_context</code>: Prior conversation context string
+- <code>sql_query</code>: The cached SQL query
+- <code>description</code>: Query description
+- <code>conversation_id</code>: The conversation ID
+- <code>created_at</code>: Entry creation timestamp
+- <code>question_embedding</code>: (only if <code>include_embeddings=True</code>)
+- <code>context_embedding</code>: (only if <code>include_embeddings=True</code>)</p>
+<p><strong>Example: Generate evaluation dataset</strong></p>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-20-1"><a id="__codelineno-20-1" name="__codelineno-20-1" href="#__codelineno-20-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">dao_ai.genie.cache.context_aware.optimization</span><span class="w"> </span><span class="kn">import</span> <span class="n">generate_eval_dataset_from_cache</span>
+</span><span id="__span-20-2"><a id="__codelineno-20-2" name="__codelineno-20-2" href="#__codelineno-20-2"></a>
+</span><span id="__span-20-3"><a id="__codelineno-20-3" name="__codelineno-20-3" href="#__codelineno-20-3"></a><span class="c1"># Get entries with embeddings from your cache</span>
+</span><span id="__span-20-4"><a id="__codelineno-20-4" name="__codelineno-20-4" href="#__codelineno-20-4"></a><span class="n">entries</span> <span class="o">=</span> <span class="n">cache_service</span><span class="o">.</span><span class="n">get_entries</span><span class="p">(</span><span class="n">include_embeddings</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">limit</span><span class="o">=</span><span class="mi">100</span><span class="p">)</span>
+</span><span id="__span-20-5"><a id="__codelineno-20-5" name="__codelineno-20-5" href="#__codelineno-20-5"></a>
+</span><span id="__span-20-6"><a id="__codelineno-20-6" name="__codelineno-20-6" href="#__codelineno-20-6"></a><span class="c1"># Generate evaluation dataset for threshold optimization</span>
+</span><span id="__span-20-7"><a id="__codelineno-20-7" name="__codelineno-20-7" href="#__codelineno-20-7"></a><span class="n">eval_dataset</span> <span class="o">=</span> <span class="n">generate_eval_dataset_from_cache</span><span class="p">(</span>
+</span><span id="__span-20-8"><a id="__codelineno-20-8" name="__codelineno-20-8" href="#__codelineno-20-8"></a>    <span class="n">cache_entries</span><span class="o">=</span><span class="n">entries</span><span class="p">,</span>
+</span><span id="__span-20-9"><a id="__codelineno-20-9" name="__codelineno-20-9" href="#__codelineno-20-9"></a>    <span class="n">embedding_model</span><span class="o">=</span><span class="s2">"databricks-gte-large-en"</span><span class="p">,</span>
+</span><span id="__span-20-10"><a id="__codelineno-20-10" name="__codelineno-20-10" href="#__codelineno-20-10"></a>    <span class="n">num_positive_pairs</span><span class="o">=</span><span class="mi">50</span><span class="p">,</span>
+</span><span id="__span-20-11"><a id="__codelineno-20-11" name="__codelineno-20-11" href="#__codelineno-20-11"></a>    <span class="n">num_negative_pairs</span><span class="o">=</span><span class="mi">50</span><span class="p">,</span>
+</span><span id="__span-20-12"><a id="__codelineno-20-12" name="__codelineno-20-12" href="#__codelineno-20-12"></a>    <span class="n">dataset_name</span><span class="o">=</span><span class="s2">"my_cache_eval"</span><span class="p">,</span>
+</span><span id="__span-20-13"><a id="__codelineno-20-13" name="__codelineno-20-13" href="#__codelineno-20-13"></a><span class="p">)</span>
+</span></code></pre></div>
+<h3 id="internal-methods-not-exposed">Internal Methods (Not Exposed)<a class="headerlink" href="#internal-methods-not-exposed" title="Permanent link">&para;</a></h3>
+<ul>
+<li><code>_store_user_prompt()</code>: Store prompt in history</li>
+<li><code>_update_prompt_cache_hit()</code>: Update cache hit flag</li>
+<li><code>_create_prompt_history_table()</code>: Create schema</li>
+</ul>
+<h2 id="migration-and-fallback">Migration and Fallback<a class="headerlink" href="#migration-and-fallback" title="Permanent link">&para;</a></h2>
+<h3 id="first-request-behavior">First Request Behavior<a class="headerlink" href="#first-request-behavior" title="Permanent link">&para;</a></h3>
+<p><strong>Scenario</strong>: Existing conversation in Genie, new prompt arrives</p>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-21-1"><a id="__codelineno-21-1" name="__codelineno-21-1" href="#__codelineno-21-1"></a><span class="c1"># First prompt to cache service</span>
+</span><span id="__span-21-2"><a id="__codelineno-21-2" name="__codelineno-21-2" href="#__codelineno-21-2"></a><span class="n">result</span> <span class="o">=</span> <span class="n">cache_service</span><span class="o">.</span><span class="n">ask_question</span><span class="p">(</span>
+</span><span id="__span-21-3"><a id="__codelineno-21-3" name="__codelineno-21-3" href="#__codelineno-21-3"></a>    <span class="s2">"Filter by region"</span><span class="p">,</span> 
+</span><span id="__span-21-4"><a id="__codelineno-21-4" name="__codelineno-21-4" href="#__codelineno-21-4"></a>    <span class="n">conversation_id</span><span class="o">=</span><span class="s2">"existing-genie-conv"</span>
+</span><span id="__span-21-5"><a id="__codelineno-21-5" name="__codelineno-21-5" href="#__codelineno-21-5"></a><span class="p">)</span>
+</span></code></pre></div>
+<p><strong>Flow</strong>:
+1. SELECT from local prompt history → Empty (first time)
+2. If <code>use_genie_api_for_history=True</code>: Fall back to Genie API
+3. Otherwise: Use empty context
+4. Store current prompt
+5. Process normally</p>
+<h3 id="recommendation">Recommendation<a class="headerlink" href="#recommendation" title="Permanent link">&para;</a></h3>
+<p>For existing conversations, either:
+- <strong>Option A</strong>: Set <code>use_genie_api_for_history=True</code> for seamless migration
+- <strong>Option B</strong>: Run migration script to import existing prompts
+- <strong>Option C</strong>: Accept first prompt has no context (simplest)</p>
+<h2 id="why-store-user-prompts-only">Why Store User Prompts Only?<a class="headerlink" href="#why-store-user-prompts-only" title="Permanent link">&para;</a></h2>
+<h3 id="what-we-store">What We Store<a class="headerlink" href="#what-we-store" title="Permanent link">&para;</a></h3>
+<p>✅ User prompts (essential for context)</p>
+<h3 id="what-we-dont-store-and-why">What We DON'T Store (and why)<a class="headerlink" href="#what-we-dont-store-and-why" title="Permanent link">&para;</a></h3>
+<p>❌ <strong>Assistant responses</strong>: Not needed for context-aware matching
+❌ <strong>SQL queries</strong>: Already in <code>genie_context_aware_cache</code> table (would be duplication)
+❌ <strong>Result data</strong>: Re-executed on cache hit for fresh data
+❌ <strong>Descriptions</strong>: Not used in context embeddings</p>
+<p><strong>Result</strong>: 50% storage savings and simpler schema</p>
+<h2 id="testing">Testing<a class="headerlink" href="#testing" title="Permanent link">&para;</a></h2>
+<h3 id="unit-tests">Unit Tests<a class="headerlink" href="#unit-tests" title="Permanent link">&para;</a></h3>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-22-1"><a id="__codelineno-22-1" name="__codelineno-22-1" href="#__codelineno-22-1"></a><span class="c1"># Run all unit tests</span>
+</span><span id="__span-22-2"><a id="__codelineno-22-2" name="__codelineno-22-2" href="#__codelineno-22-2"></a>pytest<span class="w"> </span>tests/dao_ai/genie/test_prompt_history.py<span class="w"> </span>-v<span class="w"> </span>-k<span class="w"> </span><span class="s2">"not integration"</span>
+</span></code></pre></div>
+<p><strong>Coverage:</strong>
+- ✅ Table creation
+- ✅ Prompt storage
+- ✅ History retrieval with LIMIT
+- ✅ Cache hit flag updates
+- ✅ Context excludes current prompt
+- ✅ Sliding window behavior
+- ✅ Configuration validation</p>
+<h3 id="integration-test-manual">Integration Test (Manual)<a class="headerlink" href="#integration-test-manual" title="Permanent link">&para;</a></h3>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-23-1"><a id="__codelineno-23-1" name="__codelineno-23-1" href="#__codelineno-23-1"></a><span class="c1"># Run against real Lakebase (requires credentials)</span>
+</span><span id="__span-23-2"><a id="__codelineno-23-2" name="__codelineno-23-2" href="#__codelineno-23-2"></a>pytest<span class="w"> </span>tests/dao_ai/genie/test_prompt_history.py::TestPromptHistoryIntegration<span class="w"> </span>-v
+</span></code></pre></div>
+<h2 id="troubleshooting">Troubleshooting<a class="headerlink" href="#troubleshooting" title="Permanent link">&para;</a></h2>
+<h3 id="issue-context-includes-current-prompt">Issue: Context includes current prompt<a class="headerlink" href="#issue-context-includes-current-prompt" title="Permanent link">&para;</a></h3>
+<p><strong>Symptom</strong>: Context-aware matching behaves oddly
+<strong>Cause</strong>: Storing prompt before retrieving history
+<strong>Fix</strong>: Ensure order is: SELECT → BUILD → INSERT</p>
+<h3 id="issue-no-conversation-context">Issue: No conversation context<a class="headerlink" href="#issue-no-conversation-context" title="Permanent link">&para;</a></h3>
+<p><strong>Symptom</strong>: <code>context_embedding</code> is always zero vector
+<strong>Check</strong>: 
+1. Is <code>store_prompt_history=True</code>?
+2. Is this the first prompt in conversation?
+3. Are previous prompts in database?</p>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-24-1"><a id="__codelineno-24-1" name="__codelineno-24-1" href="#__codelineno-24-1"></a><span class="c1"># Debug: Check prompt history</span>
+</span><span id="__span-24-2"><a id="__codelineno-24-2" name="__codelineno-24-2" href="#__codelineno-24-2"></a><span class="n">prompts</span> <span class="o">=</span> <span class="n">cache_service</span><span class="o">.</span><span class="n">_get_local_prompt_history</span><span class="p">(</span><span class="n">conv_id</span><span class="p">,</span> <span class="mi">10</span><span class="p">)</span>
+</span><span id="__span-24-3"><a id="__codelineno-24-3" name="__codelineno-24-3" href="#__codelineno-24-3"></a><span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"Found </span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">prompts</span><span class="p">)</span><span class="si">}</span><span class="s2"> previous prompts: </span><span class="si">{</span><span class="n">prompts</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
+</span></code></pre></div>
+<h3 id="issue-cache-hit-rate-low">Issue: Cache hit rate low<a class="headerlink" href="#issue-cache-hit-rate-low" title="Permanent link">&para;</a></h3>
+<p><strong>Symptom</strong>: Expected cache hits not occurring
+<strong>Possible causes</strong>:
+1. Different conversation contexts (working as designed)
+2. Similarity thresholds too high
+3. Prompt history not capturing all prompts</p>
+<p><strong>Debug</strong>:
+<div class="language-sql highlight"><pre><span></span><code><span id="__span-25-1"><a id="__codelineno-25-1" name="__codelineno-25-1" href="#__codelineno-25-1"></a><span class="c1">-- Check prompt history</span>
+</span><span id="__span-25-2"><a id="__codelineno-25-2" name="__codelineno-25-2" href="#__codelineno-25-2"></a><span class="k">SELECT</span><span class="w"> </span><span class="o">*</span><span class="w"> </span><span class="k">FROM</span><span class="w"> </span><span class="n">genie_prompt_history</span><span class="w"> </span>
+</span><span id="__span-25-3"><a id="__codelineno-25-3" name="__codelineno-25-3" href="#__codelineno-25-3"></a><span class="k">WHERE</span><span class="w"> </span><span class="n">conversation_id</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">'your-conv-id'</span>
+</span><span id="__span-25-4"><a id="__codelineno-25-4" name="__codelineno-25-4" href="#__codelineno-25-4"></a><span class="k">ORDER</span><span class="w"> </span><span class="k">BY</span><span class="w"> </span><span class="n">created_at</span><span class="p">;</span>
+</span><span id="__span-25-5"><a id="__codelineno-25-5" name="__codelineno-25-5" href="#__codelineno-25-5"></a>
+</span><span id="__span-25-6"><a id="__codelineno-25-6" name="__codelineno-25-6" href="#__codelineno-25-6"></a><span class="c1">-- Check cache entries</span>
+</span><span id="__span-25-7"><a id="__codelineno-25-7" name="__codelineno-25-7" href="#__codelineno-25-7"></a><span class="k">SELECT</span><span class="w"> </span><span class="n">question</span><span class="p">,</span><span class="w"> </span><span class="n">conversation_context</span><span class="w"> </span>
+</span><span id="__span-25-8"><a id="__codelineno-25-8" name="__codelineno-25-8" href="#__codelineno-25-8"></a><span class="k">FROM</span><span class="w"> </span><span class="n">genie_context_aware_cache</span><span class="w"> </span>
+</span><span id="__span-25-9"><a id="__codelineno-25-9" name="__codelineno-25-9" href="#__codelineno-25-9"></a><span class="k">WHERE</span><span class="w"> </span><span class="n">genie_space_id</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s1">'your-space-id'</span>
+</span><span id="__span-25-10"><a id="__codelineno-25-10" name="__codelineno-25-10" href="#__codelineno-25-10"></a><span class="k">ORDER</span><span class="w"> </span><span class="k">BY</span><span class="w"> </span><span class="n">created_at</span><span class="w"> </span><span class="k">DESC</span><span class="p">;</span>
+</span></code></pre></div></p>
+<h2 id="best-practices">Best Practices<a class="headerlink" href="#best-practices" title="Permanent link">&para;</a></h2>
+<ol>
+<li><strong>Use conversation_id</strong>: Always provide <code>conversation_id</code> for multi-turn conversations</li>
+<li><strong>Tune context_window_size</strong>: </li>
+<li>Smaller (1-2): Faster, less context</li>
+<li>Larger (5-10): Better context, slower embeddings</li>
+<li>Default (4): Good balance for most use cases</li>
+<li><strong>Monitor storage</strong>: Check prompt history table size periodically</li>
+<li><strong>Set appropriate TTL</strong>: Align with your data freshness requirements</li>
+<li><strong>Let IVFFlat auto-tune</strong>: Leave <code>ivfflat_lists</code> and <code>ivfflat_probes</code> as <code>null</code> unless you have specific needs</li>
+</ol>
+<h2 id="performance-tuning">Performance Tuning<a class="headerlink" href="#performance-tuning" title="Permanent link">&para;</a></h2>
+<h3 id="for-long-conversations">For Long Conversations<a class="headerlink" href="#for-long-conversations" title="Permanent link">&para;</a></h3>
+<p>If conversations have 100+ prompts:</p>
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-26-1"><a id="__codelineno-26-1" name="__codelineno-26-1" href="#__codelineno-26-1"></a><span class="c1"># Optimize: Use smaller context window</span>
+</span><span id="__span-26-2"><a id="__codelineno-26-2" name="__codelineno-26-2" href="#__codelineno-26-2"></a><span class="nt">context_window_size</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">3</span><span class="w">  </span><span class="c1"># Only last 3 prompts</span>
+</span><span id="__span-26-3"><a id="__codelineno-26-3" name="__codelineno-26-3" href="#__codelineno-26-3"></a>
+</span><span id="__span-26-4"><a id="__codelineno-26-4" name="__codelineno-26-4" href="#__codelineno-26-4"></a><span class="c1"># Optimize: Set max context tokens</span>
+</span><span id="__span-26-5"><a id="__codelineno-26-5" name="__codelineno-26-5" href="#__codelineno-26-5"></a><span class="nt">max_context_tokens</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1000</span><span class="w">  </span><span class="c1"># Truncate if too long</span>
+</span><span id="__span-26-6"><a id="__codelineno-26-6" name="__codelineno-26-6" href="#__codelineno-26-6"></a>
+</span><span id="__span-26-7"><a id="__codelineno-26-7" name="__codelineno-26-7" href="#__codelineno-26-7"></a><span class="c1"># Add TTL to clean old prompts</span>
+</span><span id="__span-26-8"><a id="__codelineno-26-8" name="__codelineno-26-8" href="#__codelineno-26-8"></a><span class="nt">prompt_history_ttl_seconds</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">604800</span><span class="w">  </span><span class="c1"># 7 days</span>
+</span></code></pre></div>
+<h3 id="for-high-throughput">For High Throughput<a class="headerlink" href="#for-high-throughput" title="Permanent link">&para;</a></h3>
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-27-1"><a id="__codelineno-27-1" name="__codelineno-27-1" href="#__codelineno-27-1"></a><span class="c1"># Increase pool size for concurrent requests</span>
+</span><span id="__span-27-2"><a id="__codelineno-27-2" name="__codelineno-27-2" href="#__codelineno-27-2"></a><span class="nt">database</span><span class="p">:</span>
+</span><span id="__span-27-3"><a id="__codelineno-27-3" name="__codelineno-27-3" href="#__codelineno-27-3"></a><span class="w">  </span><span class="nt">max_pool_size</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">20</span><span class="w">  </span><span class="c1"># More connections</span>
+</span><span id="__span-27-4"><a id="__codelineno-27-4" name="__codelineno-27-4" href="#__codelineno-27-4"></a>
+</span><span id="__span-27-5"><a id="__codelineno-27-5" name="__codelineno-27-5" href="#__codelineno-27-5"></a><span class="c1"># Use Lakebase for better performance</span>
+</span><span id="__span-27-6"><a id="__codelineno-27-6" name="__codelineno-27-6" href="#__codelineno-27-6"></a><span class="nt">database</span><span class="p">:</span>
+</span><span id="__span-27-7"><a id="__codelineno-27-7" name="__codelineno-27-7" href="#__codelineno-27-7"></a><span class="w">  </span><span class="nt">project</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">retail-consumer-goods</span>
+</span></code></pre></div>
+<h3 id="scaling-to-large-cache-sizes">Scaling to Large Cache Sizes<a class="headerlink" href="#scaling-to-large-cache-sizes" title="Permanent link">&para;</a></h3>
+<p>The IVFFlat index parameters auto-compute from the table size by default. Here's how they scale:</p>
+<table>
+<thead>
+<tr>
+<th>Cache rows</th>
+<th>lists (auto)</th>
+<th>probes (auto)</th>
+<th>Expected recall</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>1K-10K</td>
+<td>100</td>
+<td>10</td>
+<td>Excellent</td>
+</tr>
+<tr>
+<td>100K</td>
+<td>316</td>
+<td>18</td>
+<td>Good</td>
+</tr>
+<tr>
+<td>500K</td>
+<td>707</td>
+<td>27</td>
+<td>Good</td>
+</tr>
+<tr>
+<td>1M</td>
+<td>1000</td>
+<td>32</td>
+<td>Good</td>
+</tr>
+</tbody>
+</table>
+<p>For explicit control over the recall/speed trade-off:</p>
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-28-1"><a id="__codelineno-28-1" name="__codelineno-28-1" href="#__codelineno-28-1"></a><span class="nt">context_aware_cache_parameters</span><span class="p">:</span>
+</span><span id="__span-28-2"><a id="__codelineno-28-2" name="__codelineno-28-2" href="#__codelineno-28-2"></a><span class="w">  </span><span class="c1"># Override auto-computed values for specific needs</span>
+</span><span id="__span-28-3"><a id="__codelineno-28-3" name="__codelineno-28-3" href="#__codelineno-28-3"></a><span class="w">  </span><span class="nt">ivfflat_lists</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">500</span><span class="w">          </span><span class="c1"># More lists = finer partitioning</span>
+</span><span id="__span-28-4"><a id="__codelineno-28-4" name="__codelineno-28-4" href="#__codelineno-28-4"></a><span class="w">  </span><span class="nt">ivfflat_probes</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">30</span><span class="w">          </span><span class="c1"># More probes = better recall, slower queries</span>
+</span><span id="__span-28-5"><a id="__codelineno-28-5" name="__codelineno-28-5" href="#__codelineno-28-5"></a><span class="w">  </span><span class="nt">ivfflat_candidates</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">30</span><span class="w">      </span><span class="c1"># More candidates = better combined-score ranking</span>
+</span></code></pre></div>
+<p><strong>Note</strong>: After significantly growing the cache (e.g., 10x more rows), you should rebuild the IVFFlat indexes to maintain optimal recall. The auto-computed lists value is set at index creation time and does not adapt to table growth.</p>
+<h2 id="feedback-and-cache-invalidation">Feedback and Cache Invalidation<a class="headerlink" href="#feedback-and-cache-invalidation" title="Permanent link">&para;</a></h2>
+<p>The Genie service supports sending user feedback (positive/negative) for responses. When negative feedback is received, the corresponding cache entry is automatically invalidated.</p>
+<h3 id="sending-feedback">Sending Feedback<a class="headerlink" href="#sending-feedback" title="Permanent link">&para;</a></h3>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-29-1"><a id="__codelineno-29-1" name="__codelineno-29-1" href="#__codelineno-29-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">dao_ai.genie</span><span class="w"> </span><span class="kn">import</span> <span class="n">GenieFeedbackRating</span>
+</span><span id="__span-29-2"><a id="__codelineno-29-2" name="__codelineno-29-2" href="#__codelineno-29-2"></a>
+</span><span id="__span-29-3"><a id="__codelineno-29-3" name="__codelineno-29-3" href="#__codelineno-29-3"></a><span class="c1"># After getting a response</span>
+</span><span id="__span-29-4"><a id="__codelineno-29-4" name="__codelineno-29-4" href="#__codelineno-29-4"></a><span class="n">result</span> <span class="o">=</span> <span class="n">cache_service</span><span class="o">.</span><span class="n">ask_question</span><span class="p">(</span><span class="s2">"What are total sales?"</span><span class="p">)</span>
+</span><span id="__span-29-5"><a id="__codelineno-29-5" name="__codelineno-29-5" href="#__codelineno-29-5"></a>
+</span><span id="__span-29-6"><a id="__codelineno-29-6" name="__codelineno-29-6" href="#__codelineno-29-6"></a><span class="c1"># Later, when user provides feedback</span>
+</span><span id="__span-29-7"><a id="__codelineno-29-7" name="__codelineno-29-7" href="#__codelineno-29-7"></a><span class="n">cache_service</span><span class="o">.</span><span class="n">send_feedback</span><span class="p">(</span>
+</span><span id="__span-29-8"><a id="__codelineno-29-8" name="__codelineno-29-8" href="#__codelineno-29-8"></a>    <span class="n">conversation_id</span><span class="o">=</span><span class="n">result</span><span class="o">.</span><span class="n">response</span><span class="o">.</span><span class="n">conversation_id</span><span class="p">,</span>
+</span><span id="__span-29-9"><a id="__codelineno-29-9" name="__codelineno-29-9" href="#__codelineno-29-9"></a>    <span class="n">rating</span><span class="o">=</span><span class="n">GenieFeedbackRating</span><span class="o">.</span><span class="n">NEGATIVE</span><span class="p">,</span>  <span class="c1"># POSITIVE, NEGATIVE, or NONE</span>
+</span><span id="__span-29-10"><a id="__codelineno-29-10" name="__codelineno-29-10" href="#__codelineno-29-10"></a>    <span class="n">was_cache_hit</span><span class="o">=</span><span class="n">result</span><span class="o">.</span><span class="n">cache_hit</span><span class="p">,</span>  <span class="c1"># Important: pass through from CacheResult</span>
+</span><span id="__span-29-11"><a id="__codelineno-29-11" name="__codelineno-29-11" href="#__codelineno-29-11"></a><span class="p">)</span>
+</span></code></pre></div>
+<h3 id="feedback-api-method">Feedback API Method<a class="headerlink" href="#feedback-api-method" title="Permanent link">&para;</a></h3>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-30-1"><a id="__codelineno-30-1" name="__codelineno-30-1" href="#__codelineno-30-1"></a><span class="k">def</span><span class="w"> </span><span class="nf">send_feedback</span><span class="p">(</span>
+</span><span id="__span-30-2"><a id="__codelineno-30-2" name="__codelineno-30-2" href="#__codelineno-30-2"></a>    <span class="bp">self</span><span class="p">,</span>
+</span><span id="__span-30-3"><a id="__codelineno-30-3" name="__codelineno-30-3" href="#__codelineno-30-3"></a>    <span class="n">conversation_id</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+</span><span id="__span-30-4"><a id="__codelineno-30-4" name="__codelineno-30-4" href="#__codelineno-30-4"></a>    <span class="n">rating</span><span class="p">:</span> <span class="n">GenieFeedbackRating</span><span class="p">,</span>
+</span><span id="__span-30-5"><a id="__codelineno-30-5" name="__codelineno-30-5" href="#__codelineno-30-5"></a>    <span class="n">message_id</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+</span><span id="__span-30-6"><a id="__codelineno-30-6" name="__codelineno-30-6" href="#__codelineno-30-6"></a>    <span class="n">was_cache_hit</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>
+</span><span id="__span-30-7"><a id="__codelineno-30-7" name="__codelineno-30-7" href="#__codelineno-30-7"></a><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+</span><span id="__span-30-8"><a id="__codelineno-30-8" name="__codelineno-30-8" href="#__codelineno-30-8"></a><span class="w">    </span><span class="sd">"""</span>
+</span><span id="__span-30-9"><a id="__codelineno-30-9" name="__codelineno-30-9" href="#__codelineno-30-9"></a><span class="sd">    Send feedback for a Genie message.</span>
+</span><span id="__span-30-10"><a id="__codelineno-30-10" name="__codelineno-30-10" href="#__codelineno-30-10"></a>
+</span><span id="__span-30-11"><a id="__codelineno-30-11" name="__codelineno-30-11" href="#__codelineno-30-11"></a><span class="sd">    Args:</span>
+</span><span id="__span-30-12"><a id="__codelineno-30-12" name="__codelineno-30-12" href="#__codelineno-30-12"></a><span class="sd">        conversation_id: The conversation containing the message</span>
+</span><span id="__span-30-13"><a id="__codelineno-30-13" name="__codelineno-30-13" href="#__codelineno-30-13"></a><span class="sd">        rating: POSITIVE, NEGATIVE, or NONE</span>
+</span><span id="__span-30-14"><a id="__codelineno-30-14" name="__codelineno-30-14" href="#__codelineno-30-14"></a><span class="sd">        message_id: Optional message ID. If None, looks up most recent message.</span>
+</span><span id="__span-30-15"><a id="__codelineno-30-15" name="__codelineno-30-15" href="#__codelineno-30-15"></a><span class="sd">        was_cache_hit: Whether the response being rated was served from cache.</span>
+</span><span id="__span-30-16"><a id="__codelineno-30-16" name="__codelineno-30-16" href="#__codelineno-30-16"></a><span class="sd">    """</span>
+</span></code></pre></div>
+<h3 id="feedback-behavior">Feedback Behavior<a class="headerlink" href="#feedback-behavior" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Scenario</th>
+<th>Behavior</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>was_cache_hit=False</code>, <code>NEGATIVE</code></td>
+<td>Forward to Genie API + Invalidate cache</td>
+</tr>
+<tr>
+<td><code>was_cache_hit=False</code>, <code>POSITIVE</code></td>
+<td>Forward to Genie API only</td>
+</tr>
+<tr>
+<td><code>was_cache_hit=True</code>, <code>NEGATIVE</code></td>
+<td>Invalidate cache + Forward to Genie API (with stored message_id)</td>
+</tr>
+<tr>
+<td><code>was_cache_hit=True</code>, <code>POSITIVE</code></td>
+<td>Forward to Genie API (with stored message_id)</td>
+</tr>
+</tbody>
+</table>
+<h3 id="cache-hits-now-support-full-genie-feedback">Cache Hits Now Support Full Genie Feedback<a class="headerlink" href="#cache-hits-now-support-full-genie-feedback" title="Permanent link">&para;</a></h3>
+<p>With the addition of <code>message_id</code> storage in cache entries, cache hits can now send feedback to the Genie API:</p>
+<ol>
+<li><strong>The original <code>message_id</code></strong> is stored when the SQL is first cached</li>
+<li><strong>On cache hit</strong>, the stored <code>message_id</code> is included in <code>CacheResult</code></li>
+<li><strong>Feedback can be sent</strong> to Genie even for cached responses</li>
+</ol>
+<p>This enables Genie to learn from user feedback regardless of whether responses were cached.</p>
+<h3 id="extended-genie-with-message_id-support">Extended Genie with message_id Support<a class="headerlink" href="#extended-genie-with-message_id-support" title="Permanent link">&para;</a></h3>
+<p>The <code>dao_ai.genie</code> module provides extended <code>Genie</code> and <code>GenieResponse</code> classes that capture <code>message_id</code> from API responses:</p>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-31-1"><a id="__codelineno-31-1" name="__codelineno-31-1" href="#__codelineno-31-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">dao_ai.genie</span><span class="w"> </span><span class="kn">import</span> <span class="n">Genie</span><span class="p">,</span> <span class="n">GenieResponse</span>
+</span><span id="__span-31-2"><a id="__codelineno-31-2" name="__codelineno-31-2" href="#__codelineno-31-2"></a>
+</span><span id="__span-31-3"><a id="__codelineno-31-3" name="__codelineno-31-3" href="#__codelineno-31-3"></a><span class="c1"># Create Genie with message_id support</span>
+</span><span id="__span-31-4"><a id="__codelineno-31-4" name="__codelineno-31-4" href="#__codelineno-31-4"></a><span class="n">genie</span> <span class="o">=</span> <span class="n">Genie</span><span class="p">(</span><span class="n">space_id</span><span class="o">=</span><span class="s2">"my-space"</span><span class="p">)</span>
+</span><span id="__span-31-5"><a id="__codelineno-31-5" name="__codelineno-31-5" href="#__codelineno-31-5"></a><span class="n">response</span> <span class="o">=</span> <span class="n">genie</span><span class="o">.</span><span class="n">ask_question</span><span class="p">(</span><span class="s2">"What are total sales?"</span><span class="p">)</span>
+</span><span id="__span-31-6"><a id="__codelineno-31-6" name="__codelineno-31-6" href="#__codelineno-31-6"></a>
+</span><span id="__span-31-7"><a id="__codelineno-31-7" name="__codelineno-31-7" href="#__codelineno-31-7"></a><span class="c1"># message_id is now available!</span>
+</span><span id="__span-31-8"><a id="__codelineno-31-8" name="__codelineno-31-8" href="#__codelineno-31-8"></a><span class="nb">print</span><span class="p">(</span><span class="n">response</span><span class="o">.</span><span class="n">message_id</span><span class="p">)</span>  <span class="c1"># e.g., "e1ef34712a29169db030324fd0e1df5f"</span>
+</span></code></pre></div>
+<p>The original <code>databricks_ai_bridge</code> classes are available as aliases:
+- <code>DatabricksGenie</code> - Original Genie class
+- <code>DatabricksGenieResponse</code> - Original GenieResponse class</p>
+<p>When using <code>GenieService</code>, the <code>message_id</code> is propagated through <code>CacheResult</code>:</p>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-32-1"><a id="__codelineno-32-1" name="__codelineno-32-1" href="#__codelineno-32-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">dao_ai.genie</span><span class="w"> </span><span class="kn">import</span> <span class="n">Genie</span><span class="p">,</span> <span class="n">GenieService</span><span class="p">,</span> <span class="n">GenieFeedbackRating</span>
+</span><span id="__span-32-2"><a id="__codelineno-32-2" name="__codelineno-32-2" href="#__codelineno-32-2"></a>
+</span><span id="__span-32-3"><a id="__codelineno-32-3" name="__codelineno-32-3" href="#__codelineno-32-3"></a><span class="n">genie</span> <span class="o">=</span> <span class="n">Genie</span><span class="p">(</span><span class="n">space_id</span><span class="o">=</span><span class="s2">"my-space"</span><span class="p">)</span>
+</span><span id="__span-32-4"><a id="__codelineno-32-4" name="__codelineno-32-4" href="#__codelineno-32-4"></a><span class="n">service</span> <span class="o">=</span> <span class="n">GenieService</span><span class="p">(</span><span class="n">genie</span><span class="p">)</span>
+</span><span id="__span-32-5"><a id="__codelineno-32-5" name="__codelineno-32-5" href="#__codelineno-32-5"></a><span class="n">result</span> <span class="o">=</span> <span class="n">service</span><span class="o">.</span><span class="n">ask_question</span><span class="p">(</span><span class="s2">"What are total sales?"</span><span class="p">)</span>
+</span><span id="__span-32-6"><a id="__codelineno-32-6" name="__codelineno-32-6" href="#__codelineno-32-6"></a>
+</span><span id="__span-32-7"><a id="__codelineno-32-7" name="__codelineno-32-7" href="#__codelineno-32-7"></a><span class="c1"># For cache misses, message_id is available</span>
+</span><span id="__span-32-8"><a id="__codelineno-32-8" name="__codelineno-32-8" href="#__codelineno-32-8"></a><span class="k">if</span> <span class="ow">not</span> <span class="n">result</span><span class="o">.</span><span class="n">cache_hit</span><span class="p">:</span>
+</span><span id="__span-32-9"><a id="__codelineno-32-9" name="__codelineno-32-9" href="#__codelineno-32-9"></a>    <span class="n">service</span><span class="o">.</span><span class="n">send_feedback</span><span class="p">(</span>
+</span><span id="__span-32-10"><a id="__codelineno-32-10" name="__codelineno-32-10" href="#__codelineno-32-10"></a>        <span class="n">conversation_id</span><span class="o">=</span><span class="n">result</span><span class="o">.</span><span class="n">response</span><span class="o">.</span><span class="n">conversation_id</span><span class="p">,</span>
+</span><span id="__span-32-11"><a id="__codelineno-32-11" name="__codelineno-32-11" href="#__codelineno-32-11"></a>        <span class="n">rating</span><span class="o">=</span><span class="n">GenieFeedbackRating</span><span class="o">.</span><span class="n">POSITIVE</span><span class="p">,</span>
+</span><span id="__span-32-12"><a id="__codelineno-32-12" name="__codelineno-32-12" href="#__codelineno-32-12"></a>        <span class="n">message_id</span><span class="o">=</span><span class="n">result</span><span class="o">.</span><span class="n">message_id</span><span class="p">,</span>  <span class="c1"># No extra API call needed!</span>
+</span><span id="__span-32-13"><a id="__codelineno-32-13" name="__codelineno-32-13" href="#__codelineno-32-13"></a>    <span class="p">)</span>
+</span></code></pre></div>
+<h3 id="full-feedback-support-for-cached-responses">Full Feedback Support for Cached Responses<a class="headerlink" href="#full-feedback-support-for-cached-responses" title="Permanent link">&para;</a></h3>
+<p>The cache now stores <code>message_id</code> from original Genie responses, enabling full feedback support:</p>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-33-1"><a id="__codelineno-33-1" name="__codelineno-33-1" href="#__codelineno-33-1"></a><span class="c1"># Cache hits now include the original message_id</span>
+</span><span id="__span-33-2"><a id="__codelineno-33-2" name="__codelineno-33-2" href="#__codelineno-33-2"></a><span class="n">result</span> <span class="o">=</span> <span class="n">cache_service</span><span class="o">.</span><span class="n">ask_question</span><span class="p">(</span><span class="s2">"What are total sales?"</span><span class="p">)</span>
+</span><span id="__span-33-3"><a id="__codelineno-33-3" name="__codelineno-33-3" href="#__codelineno-33-3"></a>
+</span><span id="__span-33-4"><a id="__codelineno-33-4" name="__codelineno-33-4" href="#__codelineno-33-4"></a><span class="k">if</span> <span class="n">result</span><span class="o">.</span><span class="n">cache_hit</span><span class="p">:</span>
+</span><span id="__span-33-5"><a id="__codelineno-33-5" name="__codelineno-33-5" href="#__codelineno-33-5"></a>    <span class="c1"># Send feedback to Genie API even for cache hits!</span>
+</span><span id="__span-33-6"><a id="__codelineno-33-6" name="__codelineno-33-6" href="#__codelineno-33-6"></a>    <span class="n">cache_service</span><span class="o">.</span><span class="n">send_feedback</span><span class="p">(</span>
+</span><span id="__span-33-7"><a id="__codelineno-33-7" name="__codelineno-33-7" href="#__codelineno-33-7"></a>        <span class="n">conversation_id</span><span class="o">=</span><span class="n">result</span><span class="o">.</span><span class="n">response</span><span class="o">.</span><span class="n">conversation_id</span><span class="p">,</span>
+</span><span id="__span-33-8"><a id="__codelineno-33-8" name="__codelineno-33-8" href="#__codelineno-33-8"></a>        <span class="n">rating</span><span class="o">=</span><span class="n">GenieFeedbackRating</span><span class="o">.</span><span class="n">NEGATIVE</span><span class="p">,</span>
+</span><span id="__span-33-9"><a id="__codelineno-33-9" name="__codelineno-33-9" href="#__codelineno-33-9"></a>        <span class="n">message_id</span><span class="o">=</span><span class="n">result</span><span class="o">.</span><span class="n">message_id</span><span class="p">,</span>  <span class="c1"># From original cached entry</span>
+</span><span id="__span-33-10"><a id="__codelineno-33-10" name="__codelineno-33-10" href="#__codelineno-33-10"></a>        <span class="n">was_cache_hit</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+</span><span id="__span-33-11"><a id="__codelineno-33-11" name="__codelineno-33-11" href="#__codelineno-33-11"></a>    <span class="p">)</span>
+</span></code></pre></div>
+<h3 id="cache-entry-traceability">Cache Entry Traceability<a class="headerlink" href="#cache-entry-traceability" title="Permanent link">&para;</a></h3>
+<p>Each prompt history entry now links to its serving cache entry:</p>
+<div class="language-python highlight"><pre><span></span><code><span id="__span-34-1"><a id="__codelineno-34-1" name="__codelineno-34-1" href="#__codelineno-34-1"></a><span class="c1"># CacheResult includes cache_entry_id for tracing</span>
+</span><span id="__span-34-2"><a id="__codelineno-34-2" name="__codelineno-34-2" href="#__codelineno-34-2"></a><span class="n">result</span> <span class="o">=</span> <span class="n">cache_service</span><span class="o">.</span><span class="n">ask_question</span><span class="p">(</span><span class="s2">"Filter by region"</span><span class="p">)</span>
+</span><span id="__span-34-3"><a id="__codelineno-34-3" name="__codelineno-34-3" href="#__codelineno-34-3"></a>
+</span><span id="__span-34-4"><a id="__codelineno-34-4" name="__codelineno-34-4" href="#__codelineno-34-4"></a><span class="k">if</span> <span class="n">result</span><span class="o">.</span><span class="n">cache_hit</span><span class="p">:</span>
+</span><span id="__span-34-5"><a id="__codelineno-34-5" name="__codelineno-34-5" href="#__codelineno-34-5"></a>    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"Served by cache entry: </span><span class="si">{</span><span class="n">result</span><span class="o">.</span><span class="n">cache_entry_id</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
+</span><span id="__span-34-6"><a id="__codelineno-34-6" name="__codelineno-34-6" href="#__codelineno-34-6"></a>    <span class="c1"># Can trace back in genie_prompt_history table</span>
+</span></code></pre></div>
+<p>Query to find which prompts were served by a specific cache entry:
+<div class="language-sql highlight"><pre><span></span><code><span id="__span-35-1"><a id="__codelineno-35-1" name="__codelineno-35-1" href="#__codelineno-35-1"></a><span class="k">SELECT</span><span class="w"> </span><span class="n">prompt</span><span class="p">,</span><span class="w"> </span><span class="n">created_at</span><span class="w"> </span>
+</span><span id="__span-35-2"><a id="__codelineno-35-2" name="__codelineno-35-2" href="#__codelineno-35-2"></a><span class="k">FROM</span><span class="w"> </span><span class="n">genie_prompt_history</span><span class="w"> </span>
+</span><span id="__span-35-3"><a id="__codelineno-35-3" name="__codelineno-35-3" href="#__codelineno-35-3"></a><span class="k">WHERE</span><span class="w"> </span><span class="n">cache_entry_id</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">42</span><span class="p">;</span>
+</span></code></pre></div></p>
+<h2 id="future-enhancements-phase-2-3">Future Enhancements (Phase 2 &amp; 3)<a class="headerlink" href="#future-enhancements-phase-2-3" title="Permanent link">&para;</a></h2>
+<ul>
+<li>🔄 Prompt history TTL and cleanup</li>
+<li>🔄 Conversation branching support</li>
+<li>🔄 Prompt summarization for long histories</li>
+<li>🔄 Export/import utilities</li>
+<li>🔄 Analytics dashboard (cache hit rates by conversation length)</li>
+<li>🔄 Context-aware deduplication of similar prompts</li>
+</ul>
+<h2 id="summary">Summary<a class="headerlink" href="#summary" title="Permanent link">&para;</a></h2>
+<p>✅ <strong>Problem Solved</strong>: Cache hits no longer create conversation holes
+✅ <strong>Performance</strong>: 50% faster cache hits, 10-25x faster context retrieval
+✅ <strong>Storage</strong>: Minimal overhead (~200 bytes per prompt)
+✅ <strong>Quality</strong>: Comprehensive test coverage
+✅ <strong>Backward Compatible</strong>: No breaking changes
+✅ <strong>Full Feedback Support</strong>: Cache entries store <code>message_id</code> for Genie feedback on cache hits
+✅ <strong>Traceability</strong>: Prompt history links to cache entries via <code>cache_entry_id</code></p>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+        
+<div class="md-social">
+  
+    
+    
+    
+    
+      
+      
+    
+    <a href="https://github.com/natefleming/dao-ai" target="_blank" rel="noopener" title="github.com" class="md-social__link">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.tabs", "navigation.sections", "navigation.top", "navigation.instant", "navigation.tracking", "search.highlight", "search.share", "search.suggest", "toc.follow", "content.code.copy", "content.code.annotate", "content.action.edit"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.d7400e89.min.js"></script>
+      
+    
+  </body>
+</html>

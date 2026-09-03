@@ -1,0 +1,2706 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Declarative Agent Orchestration — production-grade multi-agent AI systems defined in YAML, deployed on Databricks.">
+      
+      
+        <meta name="author" content="Nate Fleming">
+      
+      
+        <link rel="canonical" href="https://natefleming.github.io/dao-ai/examples/">
+      
+      
+        <link rel="prev" href="../python-api/">
+      
+      
+        <link rel="next" href="../mcp_server/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../images/brand/logo-symbol.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
+    
+    
+      
+        <title>Examples - dao-ai</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.ec1eaa64.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="black" data-md-color-accent="red">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#example-configurations" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+<header class="md-header" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="dao-ai" class="md-header__button md-logo" aria-label="dao-ai" data-md-component="logo">
+      
+  <img src="../images/brand/logo-symbol.png" alt="logo">
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            dao-ai
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Examples
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="default" data-md-color-primary="black" data-md-color-accent="red"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="" data-md-color-scheme="slate" data-md-color-primary="black" data-md-color-accent="red"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+          <a href="javascript:void(0)" class="md-search__icon md-icon" title="Share" aria-label="Share" data-clipboard data-clipboard-text="" data-md-component="search-share" tabindex="-1">
+            
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M18 16.08c-.76 0-1.44.3-1.96.77L8.91 12.7c.05-.23.09-.46.09-.7s-.04-.47-.09-.7l7.05-4.11c.54.5 1.25.81 2.04.81a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3c0 .24.04.47.09.7L8.04 9.81C7.5 9.31 6.79 9 6 9a3 3 0 0 0-3 3 3 3 0 0 0 3 3c.79 0 1.5-.31 2.04-.81l7.12 4.15c-.05.21-.08.43-.08.66 0 1.61 1.31 2.91 2.92 2.91s2.92-1.3 2.92-2.91A2.92 2.92 0 0 0 18 16.08"/></svg>
+          </a>
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/natefleming/dao-ai" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    natefleming/dao-ai
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+            
+<nav class="md-tabs" aria-label="Tabs" data-md-component="tabs">
+  <div class="md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href=".." class="md-tabs__link">
+        
+  
+  
+    
+  
+  Home
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../why-dao/" class="md-tabs__link">
+          
+  
+  
+  Concepts
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../configuration-reference/" class="md-tabs__link">
+          
+  
+  
+  Reference
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+    
+  
+  
+    
+    
+      <li class="md-tabs__item md-tabs__item--active">
+        <a href="./" class="md-tabs__link">
+          
+  
+  
+  Guides
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../faq/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  FAQ
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../contributing/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Contributing
+
+      </a>
+    </li>
+  
+
+      
+    </ul>
+  </div>
+</nav>
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+  
+
+
+<nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="dao-ai" class="md-nav__button md-logo" aria-label="dao-ai" data-md-component="logo">
+      
+  <img src="../images/brand/logo-symbol.png" alt="logo">
+
+    </a>
+    dao-ai
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/natefleming/dao-ai" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    natefleming/dao-ai
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Concepts
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Concepts
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../why-dao/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Why DAO?
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../key-capabilities/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Key Capabilities
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../configuration-reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Configuration Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../cli-reference/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CLI Reference
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../python-api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Python API
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+    
+    
+      
+        
+        
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Guides
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Guides
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Examples
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Examples
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#learning-path" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        📚 Learning Path
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#quick-reference" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Quick Reference
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Quick Reference">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#new-to-dao-ai" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        🆕 New to DAO AI?
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#need-specific-tools" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        🔧 Need Specific Tools?
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#optimizing-performance" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ⚡ Optimizing Performance?
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#managing-state" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        💾 Managing State?
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#production-ready" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        🛡️ Production Ready?
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#need-validation-monitoring" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        🛡️ Need Validation &amp; Monitoring?
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#visualizations" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        📊 Visualizations?
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#background-tasks" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ⏱️ Background Tasks?
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#retrieval-from-lakebase-postgres" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        🔎 Retrieval from Lakebase Postgres?
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#complete-solutions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        🏗️ Complete Solutions?
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#using-examples" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Using Examples
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Using Examples">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#validate-a-configuration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Validate a Configuration
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#visualize-the-workflow" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Visualize the Workflow
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#chat-with-an-agent" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Chat with an Agent
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#deploy-to-databricks" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Deploy to Databricks
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#directory-guide" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        📂 Directory Guide
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="📂 Directory Guide">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#01-getting-started-readme" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        01. Getting Started 📖 README
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#02-mcp-readme" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        02. MCP 📖 README
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#03-caching-readme" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        03. Caching 📖 README
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#05-memory-readme" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        05. Memory 📖 README
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#06-on-behalf-of-user-readme" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        06. On-Behalf-Of User 📖 README
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#07-human-in-the-loop-readme" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        07. Human-in-the-Loop 📖 README
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#08-guardrails-readme" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        08. Guardrails 📖 README
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#09-structured-output-readme" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        09. Structured Output 📖 README
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#10-agent-integrations-readme" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        10. Agent Integrations 📖 README
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#11-prompt-engineering-readme" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        11. Prompt Engineering 📖 README
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#12-middleware-readme" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        12. Middleware 📖 README
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#13-orchestration-readme" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        13. Orchestration 📖 README
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#14-basic-tools-readme" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        14. Basic Tools 📖 README
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#15-complete-applications-readme" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        15. Complete Applications 📖 README
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#18-visualization-readme" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        18. Visualization 📖 README
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#19-background-agents-full-docs" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        19. Background Agents 📖 Full docs
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#customizing-examples" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Customizing Examples
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#contributing-examples" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Contributing Examples
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#navigation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Navigation
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../mcp_server/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    MCP Server
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../mcp-callbacks/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    MCP Callbacks
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../a2a_protocol/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    A2A Protocol
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../background_agents/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Background Agents
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../audit/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Auditable Tool Invocations
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../lakebase/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Lakebase
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../mlflow-tracing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    MLflow Tracing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../genie_context_aware_cache_prompt_history/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Genie Context-Aware Cache
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../faq/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    FAQ
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../contributing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Contributing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#learning-path" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        📚 Learning Path
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#quick-reference" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Quick Reference
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Quick Reference">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#new-to-dao-ai" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        🆕 New to DAO AI?
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#need-specific-tools" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        🔧 Need Specific Tools?
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#optimizing-performance" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ⚡ Optimizing Performance?
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#managing-state" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        💾 Managing State?
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#production-ready" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        🛡️ Production Ready?
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#need-validation-monitoring" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        🛡️ Need Validation &amp; Monitoring?
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#visualizations" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        📊 Visualizations?
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#background-tasks" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ⏱️ Background Tasks?
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#retrieval-from-lakebase-postgres" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        🔎 Retrieval from Lakebase Postgres?
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#complete-solutions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        🏗️ Complete Solutions?
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#using-examples" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Using Examples
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Using Examples">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#validate-a-configuration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Validate a Configuration
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#visualize-the-workflow" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Visualize the Workflow
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#chat-with-an-agent" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Chat with an Agent
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#deploy-to-databricks" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Deploy to Databricks
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#directory-guide" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        📂 Directory Guide
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="📂 Directory Guide">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#01-getting-started-readme" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        01. Getting Started 📖 README
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#02-mcp-readme" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        02. MCP 📖 README
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#03-caching-readme" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        03. Caching 📖 README
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#05-memory-readme" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        05. Memory 📖 README
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#06-on-behalf-of-user-readme" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        06. On-Behalf-Of User 📖 README
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#07-human-in-the-loop-readme" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        07. Human-in-the-Loop 📖 README
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#08-guardrails-readme" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        08. Guardrails 📖 README
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#09-structured-output-readme" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        09. Structured Output 📖 README
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#10-agent-integrations-readme" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        10. Agent Integrations 📖 README
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#11-prompt-engineering-readme" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        11. Prompt Engineering 📖 README
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#12-middleware-readme" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        12. Middleware 📖 README
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#13-orchestration-readme" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        13. Orchestration 📖 README
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#14-basic-tools-readme" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        14. Basic Tools 📖 README
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#15-complete-applications-readme" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        15. Complete Applications 📖 README
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#18-visualization-readme" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        18. Visualization 📖 README
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#19-background-agents-full-docs" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        19. Background Agents 📖 Full docs
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#customizing-examples" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Customizing Examples
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#contributing-examples" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Contributing Examples
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#navigation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Navigation
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+    <a href="https://github.com/natefleming/dao-ai/edit/main/docs/examples.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M10 20H6V4h7v5h5v3.1l2-2V8l-6-6H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h4zm10.2-7c.1 0 .3.1.4.2l1.3 1.3c.2.2.2.6 0 .8l-1 1-2.1-2.1 1-1c.1-.1.2-.2.4-.2m0 3.9L14.1 23H12v-2.1l6.1-6.1z"/></svg>
+    </a>
+  
+  
+
+
+<h1 id="example-configurations">Example Configurations<a class="headerlink" href="#example-configurations" title="Permanent link">&para;</a></h1>
+<p>The <code>examples/</code> directory contains ready-to-use configurations organized in a <strong>numbered, progressive learning path</strong>. Each directory builds upon the previous, guiding you from basic concepts to production-ready applications.</p>
+<h2 id="learning-path">📚 Learning Path<a class="headerlink" href="#learning-path" title="Permanent link">&para;</a></h2>
+<p>The examples follow a natural progression:</p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>01_getting_started → 02_mcp → 03_reranking → 04_genie → 05_memory 
+</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>    → 06_on_behalf_of_user → 07_human_in_the_loop → 08_guardrails → 09_structured_output
+</span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>    → 10_agent_integrations → 11_prompt_engineering → 12_middleware → 13_orchestration
+</span><span id="__span-0-4"><a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>    → 14_basic_tools → 99_complete_applications → 15_instructed_retriever
+</span><span id="__span-0-5"><a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>    → 16_parallel_tools → 17_visualization → 18_background_agents
+</span><span id="__span-0-6"><a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>    → 19_a2a_protocol → 20_lakebase_search
+</span></code></pre></div>
+<p>Start at <code>01_getting_started</code> if you're new, or jump directly to the category that matches your needs.</p>
+<h2 id="quick-reference">Quick Reference<a class="headerlink" href="#quick-reference" title="Permanent link">&para;</a></h2>
+<h3 id="new-to-dao-ai">🆕 New to DAO AI?<a class="headerlink" href="#new-to-dao-ai" title="Permanent link">&para;</a></h3>
+<p><strong>Start here:</strong>
+- <a href="https://github.com/natefleming/dao-ai/blob/main/examples/01_getting_started/minimal.yaml"><code>01_getting_started/minimal.yaml</code></a> - Simplest possible agent
+- <a href="https://github.com/natefleming/dao-ai/blob/main/examples/04_genie/genie_basic.yaml"><code>04_genie/genie_basic.yaml</code></a> - Natural language to SQL</p>
+<h3 id="need-specific-tools">🔧 Need Specific Tools?<a class="headerlink" href="#need-specific-tools" title="Permanent link">&para;</a></h3>
+<p><strong>Explore:</strong>
+- <a href="https://github.com/natefleming/dao-ai/tree/main/examples/02_mcp/"><code>02_mcp/</code></a> - JIRA, managed/external/custom MCP integrations
+- <a href="https://github.com/natefleming/dao-ai/tree/main/examples/10_agent_integrations/"><code>10_agent_integrations/</code></a> - Agent Bricks, Kasal, external agent platforms
+- <a href="https://github.com/natefleming/dao-ai/tree/main/examples/14_basic_tools/"><code>14_basic_tools/</code></a> - SQL execution, Slack, and basic tool patterns</p>
+<h3 id="optimizing-performance">⚡ Optimizing Performance?<a class="headerlink" href="#optimizing-performance" title="Permanent link">&para;</a></h3>
+<p><strong>Check out:</strong>
+- <a href="https://github.com/natefleming/dao-ai/tree/main/examples/04_genie/"><code>04_genie/</code></a> - LRU and semantic caching strategies</p>
+<h3 id="managing-state">💾 Managing State?<a class="headerlink" href="#managing-state" title="Permanent link">&para;</a></h3>
+<p><strong>See:</strong>
+- <a href="https://github.com/natefleming/dao-ai/tree/main/examples/05_memory/"><code>05_memory/</code></a> - Conversation history and persistence</p>
+<h3 id="production-ready">🛡️ Production Ready?<a class="headerlink" href="#production-ready" title="Permanent link">&para;</a></h3>
+<p><strong>Essential patterns:</strong>
+- <a href="https://github.com/natefleming/dao-ai/tree/main/examples/06_on_behalf_of_user/"><code>06_on_behalf_of_user/</code></a> - User-level authentication and access control
+- <a href="https://github.com/natefleming/dao-ai/tree/main/examples/07_human_in_the_loop/"><code>07_human_in_the_loop/</code></a> - Approval workflows
+- <a href="https://github.com/natefleming/dao-ai/tree/main/examples/08_guardrails/"><code>08_guardrails/</code></a> - Safety and compliance
+- <a href="https://github.com/natefleming/dao-ai/tree/main/examples/09_structured_output/"><code>09_structured_output/</code></a> - Enforce JSON schemas
+- <a href="https://github.com/natefleming/dao-ai/tree/main/examples/11_prompt_engineering/"><code>11_prompt_engineering/</code></a> - Prompt management and optimization</p>
+<h3 id="need-validation-monitoring">🛡️ Need Validation &amp; Monitoring?<a class="headerlink" href="#need-validation-monitoring" title="Permanent link">&para;</a></h3>
+<p><strong>Middleware patterns:</strong>
+- <a href="https://github.com/natefleming/dao-ai/tree/main/examples/12_middleware/"><code>12_middleware/</code></a> - Input validation, logging, performance monitoring</p>
+<h3 id="visualizations">📊 Visualizations?<a class="headerlink" href="#visualizations" title="Permanent link">&para;</a></h3>
+<p><strong>Charts and graphs:</strong>
+- <a href="https://github.com/natefleming/dao-ai/tree/main/examples/17_visualization/"><code>17_visualization/</code></a> - Vega-Lite chart generation via <code>custom_outputs</code></p>
+<h3 id="background-tasks">⏱️ Background Tasks?<a class="headerlink" href="#background-tasks" title="Permanent link">&para;</a></h3>
+<p><strong>Background kickoff + poll/stream retrieval (deep research, multi-tool workflows):</strong>
+- <a href="https://github.com/natefleming/dao-ai/tree/main/examples/18_background_agents/"><code>18_background_agents/</code></a> - OpenAI Responses API–compatible <code>/v1/responses</code> on Apps + <code>background=true</code> on Model Serving, backed by Lakebase</p>
+<h3 id="retrieval-from-lakebase-postgres">🔎 Retrieval from Lakebase Postgres?<a class="headerlink" href="#retrieval-from-lakebase-postgres" title="Permanent link">&para;</a></h3>
+<p><strong>ANN / BM25 / hybrid RRF over a Lakebase table (as a sibling of <code>ai_search</code>):</strong>
+- <a href="https://github.com/natefleming/dao-ai/tree/main/examples/20_lakebase_search/"><code>20_lakebase_search/</code></a> - <code>type: lakebase_search</code> using the <code>lakebase_vector</code> + <code>lakebase_text</code> extensions, with filter-operator coverage and a UC OTEL <code>trace_location</code> example</p>
+<h3 id="complete-solutions">🏗️ Complete Solutions?<a class="headerlink" href="#complete-solutions" title="Permanent link">&para;</a></h3>
+<p><strong>Full applications:</strong>
+- <a href="https://github.com/natefleming/dao-ai/tree/main/examples/99_complete_applications/"><code>99_complete_applications/</code></a> - Executive assistant, research agent, reservation system</p>
+<hr />
+<h2 id="using-examples">Using Examples<a class="headerlink" href="#using-examples" title="Permanent link">&para;</a></h2>
+<h3 id="validate-a-configuration">Validate a Configuration<a class="headerlink" href="#validate-a-configuration" title="Permanent link">&para;</a></h3>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>dao-ai<span class="w"> </span>validate<span class="w"> </span>-c<span class="w"> </span>examples/01_getting_started/minimal.yaml
+</span></code></pre></div>
+<h3 id="visualize-the-workflow">Visualize the Workflow<a class="headerlink" href="#visualize-the-workflow" title="Permanent link">&para;</a></h3>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>dao-ai<span class="w"> </span>graph<span class="w"> </span>-c<span class="w"> </span>examples/04_genie/genie_basic.yaml<span class="w"> </span>-o<span class="w"> </span>genie.png
+</span></code></pre></div>
+<h3 id="chat-with-an-agent">Chat with an Agent<a class="headerlink" href="#chat-with-an-agent" title="Permanent link">&para;</a></h3>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>dao-ai<span class="w"> </span>chat<span class="w"> </span>-c<span class="w"> </span>examples/14_basic_tools/slack_integration.yaml
+</span></code></pre></div>
+<h3 id="deploy-to-databricks">Deploy to Databricks<a class="headerlink" href="#deploy-to-databricks" title="Permanent link">&para;</a></h3>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>dao-ai<span class="w"> </span>agent<span class="w"> </span>up<span class="w"> </span>-c<span class="w"> </span>examples/07_human_in_the_loop/human_in_the_loop.yaml
+</span></code></pre></div>
+<hr />
+<h2 id="directory-guide">📂 Directory Guide<a class="headerlink" href="#directory-guide" title="Permanent link">&para;</a></h2>
+<h3 id="01-getting-started-readme">01. Getting Started <a href="https://github.com/natefleming/dao-ai/blob/main/examples/01_getting_started/README.md">📖 README</a><a class="headerlink" href="#01-getting-started-readme" title="Permanent link">&para;</a></h3>
+<p>Foundation concepts for beginners.</p>
+<table>
+<thead>
+<tr>
+<th>Example</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>minimal.yaml</code></td>
+<td>Simplest possible agent configuration</td>
+</tr>
+<tr>
+<td><code>genie_basic.yaml</code></td>
+<td>Natural language to SQL with Databricks Genie</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Prerequisites:</strong> Databricks workspace, basic YAML knowledge<br />
+<strong>Next:</strong> Learn about tools in <code>02_tools/</code></p>
+<hr />
+<h3 id="02-mcp-readme">02. MCP <a href="https://github.com/natefleming/dao-ai/blob/main/examples/02_mcp/README.md">📖 README</a><a class="headerlink" href="#02-mcp-readme" title="Permanent link">&para;</a></h3>
+<p>Integrate external services and Databricks capabilities via the Model Context Protocol.</p>
+<table>
+<thead>
+<tr>
+<th>Example</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>custom_mcp.yaml</code></td>
+<td>Custom MCP integration (JIRA example)</td>
+</tr>
+<tr>
+<td><code>managed_mcp.yaml</code></td>
+<td>Managed Model Context Protocol integration</td>
+</tr>
+<tr>
+<td><code>external_mcp.yaml</code></td>
+<td>External MCP with Unity Catalog connections</td>
+</tr>
+<tr>
+<td><code>filtered_mcp.yaml</code></td>
+<td>MCP tool filtering (security, performance, access control)</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Prerequisites:</strong> Credentials for external services, Unity Catalog access<br />
+<strong>Next:</strong> Improve retrieval quality with reranking in <code>03_reranking/</code></p>
+<hr />
+<h3 id="03-caching-readme">03. Caching <a href="https://github.com/natefleming/dao-ai/blob/main/examples/04_genie/README.md">📖 README</a><a class="headerlink" href="#03-caching-readme" title="Permanent link">&para;</a></h3>
+<p>Improve performance and reduce costs through intelligent caching.</p>
+<table>
+<thead>
+<tr>
+<th>Example</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>genie_lru_cache.yaml</code></td>
+<td>LRU (Least Recently Used) caching for Genie</td>
+</tr>
+<tr>
+<td><code>genie_context_aware_cache.yaml</code></td>
+<td>Two-tier context-aware caching with PostgreSQL embeddings</td>
+</tr>
+<tr>
+<td><code>genie_in_memory_context_aware_cache.yaml</code></td>
+<td>In-memory context-aware caching (no database required)</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Prerequisites:</strong> PostgreSQL or Lakebase required for <code>genie_context_aware_cache.yaml</code> only<br />
+<strong>Next:</strong> Add persistence in <code>05_memory/</code></p>
+<hr />
+<h3 id="05-memory-readme">05. Memory <a href="https://github.com/natefleming/dao-ai/blob/main/examples/05_memory/README.md">📖 README</a><a class="headerlink" href="#05-memory-readme" title="Permanent link">&para;</a></h3>
+<p>Persistent state management and long-term memory for multi-turn conversations.</p>
+<table>
+<thead>
+<tr>
+<th>Example</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>in_memory_basic.yaml</code></td>
+<td>In-memory conversation state (no persistence, good for testing)</td>
+</tr>
+<tr>
+<td><code>postgres_persistence.yaml</code></td>
+<td>PostgreSQL-backed conversation persistence</td>
+</tr>
+<tr>
+<td><code>lakebase_persistence.yaml</code></td>
+<td>Lakebase (Databricks-native) conversation persistence</td>
+</tr>
+<tr>
+<td><code>conversation_summarization.yaml</code></td>
+<td>Long conversation summarization with Lakebase store</td>
+</tr>
+</tbody>
+</table>
+<p>All examples support the optional <code>extraction</code> config block for long-term memory with structured schemas, background extraction, and automatic memory injection.</p>
+<p><strong>Prerequisites:</strong> PostgreSQL or Lakebase database (except <code>in_memory_basic.yaml</code>)<br />
+<strong>Next:</strong> User-level access control in <code>06_on_behalf_of_user/</code></p>
+<hr />
+<h3 id="06-on-behalf-of-user-readme">06. On-Behalf-Of User <a href="https://github.com/natefleming/dao-ai/blob/main/examples/06_on_behalf_of_user/README.md">📖 README</a><a class="headerlink" href="#06-on-behalf-of-user-readme" title="Permanent link">&para;</a></h3>
+<p>User-level authentication and access control with Unity Catalog.</p>
+<table>
+<thead>
+<tr>
+<th>Example</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>obo_basic.yaml</code></td>
+<td>OBO with UC Functions and Genie Spaces</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Prerequisites:</strong> Unity Catalog, user credentials<br />
+<strong>Next:</strong> Add approval workflows in <code>07_human_in_the_loop/</code></p>
+<hr />
+<h3 id="07-human-in-the-loop-readme">07. Human-in-the-Loop <a href="https://github.com/natefleming/dao-ai/blob/main/examples/07_human_in_the_loop/README.md">📖 README</a><a class="headerlink" href="#07-human-in-the-loop-readme" title="Permanent link">&para;</a></h3>
+<p>Approval workflows for sensitive operations.</p>
+<table>
+<thead>
+<tr>
+<th>Example</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>human_in_the_loop.yaml</code></td>
+<td>Tool approval workflows and HITL patterns</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Prerequisites:</strong> MLflow for HITL checkpointing<br />
+<strong>Next:</strong> Add safety guardrails in <code>08_guardrails/</code></p>
+<hr />
+<h3 id="08-guardrails-readme">08. Guardrails <a href="https://github.com/natefleming/dao-ai/blob/main/examples/08_guardrails/README.md">📖 README</a><a class="headerlink" href="#08-guardrails-readme" title="Permanent link">&para;</a></h3>
+<p>Automated safety and validation using MLflow judges (<code>mlflow.genai.judges.make_judge</code>). The prompt determines the evaluation type -- tone, completeness, veracity/groundedness, or any custom criteria. Tool context from the conversation is automatically extracted for veracity checks.</p>
+<table>
+<thead>
+<tr>
+<th>Example</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>guardrails_basic.yaml</code></td>
+<td>Tone, completeness, and veracity guardrails with MLflow judges</td>
+</tr>
+<tr>
+<td><code>guardrails_scorers.yaml</code></td>
+<td>MLflow Scorer-based guardrails (ToxicLanguage, GibberishText) alongside custom judges</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Prerequisites:</strong> MLflow with Databricks model endpoints<br />
+<strong>Next:</strong> Enforce schemas in <code>09_structured_output/</code></p>
+<hr />
+<h3 id="09-structured-output-readme">09. Structured Output <a href="https://github.com/natefleming/dao-ai/blob/main/examples/09_structured_output/README.md">📖 README</a><a class="headerlink" href="#09-structured-output-readme" title="Permanent link">&para;</a></h3>
+<p>Enforce response format with JSON schema.</p>
+<table>
+<thead>
+<tr>
+<th>Example</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>structured_output.yaml</code></td>
+<td>Type-safe API responses with automatic validation</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Prerequisites:</strong> Basic understanding of JSON schemas<br />
+<strong>Next:</strong> External agents in <code>10_agent_integrations/</code></p>
+<hr />
+<h3 id="10-agent-integrations-readme">10. Agent Integrations <a href="https://github.com/natefleming/dao-ai/blob/main/examples/10_agent_integrations/README.md">📖 README</a><a class="headerlink" href="#10-agent-integrations-readme" title="Permanent link">&para;</a></h3>
+<p>Call another agent as a tool using the first-class <code>type: app</code>, <code>type: serving_endpoint</code>, and <code>type: a2a</code> function types.</p>
+<table>
+<thead>
+<tr>
+<th>Example</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>app_first_class.yaml</code></td>
+<td><code>type: app</code> — call a Databricks App as a tool (lazy <code>/agent/info</code> probe + explicit <code>api:</code> override)</td>
+</tr>
+<tr>
+<td><code>serving_endpoint_first_class.yaml</code></td>
+<td><code>type: serving_endpoint</code> — call FMAPI (Chat Completions) and UC-registered ResponsesAgent endpoints (<code>task</code> discovery)</td>
+</tr>
+<tr>
+<td><code>agent_bricks.yaml</code></td>
+<td>Agent Bricks integration with customer support and product expert agents (<code>type: serving_endpoint</code>)</td>
+</tr>
+<tr>
+<td><code>kasal.yaml</code></td>
+<td>Kasal enterprise agents with financial, compliance, and privacy specialists (<code>type: serving_endpoint</code>)</td>
+</tr>
+</tbody>
+</table>
+<p><strong>What You'll Learn:</strong>
+- <strong>First-Class Agent Tools</strong>: Use <code>type: app</code>, <code>type: serving_endpoint</code>, and <code>type: a2a</code> to call other agents as tools — no factory boilerplate required
+- <strong>Wire-Shape Selection</strong>: Pick OpenAI Responses vs Chat Completions per tool via <code>api:</code>, or let dao-ai discover it lazily on first invocation
+- <strong>Per-Target Discovery</strong>: Apps probe <code>/agent/info</code>; Model Serving endpoints probe <code>serving_endpoints.get(name).task</code> — both lazy, cached, and offline-safe
+- <strong>Multi-Agent Orchestration</strong>: Coordinate between specialized external agents
+- <strong>Delegation Patterns</strong>: Route tasks to purpose-built specialist agents</p>
+<p><strong>Key Concepts:</strong>
+- <strong>Hub-and-Spoke Pattern</strong>: One orchestrator routes to multiple specialists
+- <strong>Sequential Workflows</strong>: Chain specialist agents for compliance and validation
+- <strong>Parallel Consultation</strong>: Consult multiple agents simultaneously for multi-perspective analysis</p>
+<p><strong>Prerequisites:</strong> Target Databricks App or Model Serving endpoint deployed (or an Agent Bricks / Kasal endpoint configured)<br />
+<strong>Next:</strong> Reuse prompts across agents in <code>11_prompt_engineering/</code></p>
+<blockquote>
+<p>📖 See <a href="../configuration-reference/#first-class-agent-tools">configuration-reference.md → First-Class Agent Tools</a> for the full field reference, discovery rules, and offline-safety guarantees.</p>
+</blockquote>
+<hr />
+<h3 id="11-prompt-engineering-readme">11. Prompt Engineering <a href="https://github.com/natefleming/dao-ai/blob/main/examples/11_prompt_engineering/README.md">📖 README</a><a class="headerlink" href="#11-prompt-engineering-readme" title="Permanent link">&para;</a></h3>
+<p>Define reusable prompts as first-class config objects and share them across agents.</p>
+<table>
+<thead>
+<tr>
+<th>Example</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>reusable_prompts.yaml</code></td>
+<td>Reusable inline prompts referenced via YAML anchors</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Prerequisites:</strong> None<br />
+<strong>Next:</strong> Add validation and monitoring in <code>12_middleware/</code></p>
+<p><strong>Common Patterns:</strong>
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="nt">tools</span><span class="p">:</span>
+</span><span id="__span-5-2"><a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="w">  </span><span class="nt">specialist_tool</span><span class="p">:</span><span class="w"> </span><span class="nl">&amp;specialist_tool</span>
+</span><span id="__span-5-3"><a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a><span class="w">    </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">specialist_agent</span>
+</span><span id="__span-5-4"><a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a><span class="w">    </span><span class="nt">function</span><span class="p">:</span>
+</span><span id="__span-5-5"><a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a><span class="w">      </span><span class="c1"># First-class type — discovery picks Responses vs Chat Completions</span>
+</span><span id="__span-5-6"><a id="__codelineno-5-6" name="__codelineno-5-6" href="#__codelineno-5-6"></a><span class="w">      </span><span class="c1"># based on serving_endpoints.get(name).task.</span>
+</span><span id="__span-5-7"><a id="__codelineno-5-7" name="__codelineno-5-7" href="#__codelineno-5-7"></a><span class="w">      </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">serving_endpoint</span>
+</span><span id="__span-5-8"><a id="__codelineno-5-8" name="__codelineno-5-8" href="#__codelineno-5-8"></a><span class="w">      </span><span class="nt">endpoint</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">external-agent-endpoint-name</span>
+</span><span id="__span-5-9"><a id="__codelineno-5-9" name="__codelineno-5-9" href="#__codelineno-5-9"></a><span class="w">      </span><span class="nt">description</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">|</span>
+</span><span id="__span-5-10"><a id="__codelineno-5-10" name="__codelineno-5-10" href="#__codelineno-5-10"></a><span class="w">        </span><span class="no">Detailed description of when to use this agent.</span>
+</span><span id="__span-5-11"><a id="__codelineno-5-11" name="__codelineno-5-11" href="#__codelineno-5-11"></a>
+</span><span id="__span-5-12"><a id="__codelineno-5-12" name="__codelineno-5-12" href="#__codelineno-5-12"></a><span class="nt">agents</span><span class="p">:</span>
+</span><span id="__span-5-13"><a id="__codelineno-5-13" name="__codelineno-5-13" href="#__codelineno-5-13"></a><span class="w">  </span><span class="nt">orchestrator</span><span class="p">:</span>
+</span><span id="__span-5-14"><a id="__codelineno-5-14" name="__codelineno-5-14" href="#__codelineno-5-14"></a><span class="w">    </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">main_agent</span>
+</span><span id="__span-5-15"><a id="__codelineno-5-15" name="__codelineno-5-15" href="#__codelineno-5-15"></a><span class="w">    </span><span class="nt">tools</span><span class="p">:</span>
+</span><span id="__span-5-16"><a id="__codelineno-5-16" name="__codelineno-5-16" href="#__codelineno-5-16"></a><span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nv">*specialist_tool</span>
+</span><span id="__span-5-17"><a id="__codelineno-5-17" name="__codelineno-5-17" href="#__codelineno-5-17"></a><span class="w">    </span><span class="nt">prompt</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">|</span>
+</span><span id="__span-5-18"><a id="__codelineno-5-18" name="__codelineno-5-18" href="#__codelineno-5-18"></a><span class="w">      </span><span class="no">You coordinate tasks and delegate to specialist agents.</span>
+</span><span id="__span-5-19"><a id="__codelineno-5-19" name="__codelineno-5-19" href="#__codelineno-5-19"></a><span class="w">      </span><span class="no">Use the specialist tool for X, Y, Z tasks.</span>
+</span></code></pre></div></p>
+<p><strong>Use Cases:</strong>
+- <strong>Customer Service</strong>: Route queries to specialized support, product, and escalation agents
+- <strong>Financial Services</strong>: Financial analysis with compliance validation and risk assessment
+- <strong>Healthcare</strong>: Clinical guidance with HIPAA compliance and privacy validation
+- <strong>Enterprise IT</strong>: Multi-domain technical support with security and access control</p>
+<p><strong>Real-World Examples:</strong></p>
+<p><strong>Agent Bricks</strong> - Customer service automation:
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="c1"># Customer support agent for handling complaints</span>
+</span><span id="__span-6-2"><a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a><span class="nt">customer_support_tool</span><span class="p">:</span>
+</span><span id="__span-6-3"><a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a><span class="w">  </span><span class="nt">function</span><span class="p">:</span>
+</span><span id="__span-6-4"><a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a><span class="w">    </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">serving_endpoint</span>
+</span><span id="__span-6-5"><a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a><span class="w">    </span><span class="nt">endpoint</span><span class="p">:</span><span class="w"> </span><span class="nv">*agent_bricks_customer_support</span>
+</span><span id="__span-6-6"><a id="__codelineno-6-6" name="__codelineno-6-6" href="#__codelineno-6-6"></a><span class="w">    </span><span class="nt">description</span><span class="p">:</span><span class="w"> </span><span class="s">"Handle</span><span class="nv"> </span><span class="s">customer</span><span class="nv"> </span><span class="s">complaints,</span><span class="nv"> </span><span class="s">returns,</span><span class="nv"> </span><span class="s">and</span><span class="nv"> </span><span class="s">issues"</span>
+</span><span id="__span-6-7"><a id="__codelineno-6-7" name="__codelineno-6-7" href="#__codelineno-6-7"></a>
+</span><span id="__span-6-8"><a id="__codelineno-6-8" name="__codelineno-6-8" href="#__codelineno-6-8"></a><span class="c1"># Product expert for technical questions</span>
+</span><span id="__span-6-9"><a id="__codelineno-6-9" name="__codelineno-6-9" href="#__codelineno-6-9"></a><span class="nt">product_expert_tool</span><span class="p">:</span>
+</span><span id="__span-6-10"><a id="__codelineno-6-10" name="__codelineno-6-10" href="#__codelineno-6-10"></a><span class="w">  </span><span class="nt">function</span><span class="p">:</span>
+</span><span id="__span-6-11"><a id="__codelineno-6-11" name="__codelineno-6-11" href="#__codelineno-6-11"></a><span class="w">    </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">serving_endpoint</span>
+</span><span id="__span-6-12"><a id="__codelineno-6-12" name="__codelineno-6-12" href="#__codelineno-6-12"></a><span class="w">    </span><span class="nt">endpoint</span><span class="p">:</span><span class="w"> </span><span class="nv">*agent_bricks_product_expert</span>
+</span><span id="__span-6-13"><a id="__codelineno-6-13" name="__codelineno-6-13" href="#__codelineno-6-13"></a><span class="w">    </span><span class="nt">description</span><span class="p">:</span><span class="w"> </span><span class="s">"Technical</span><span class="nv"> </span><span class="s">specs,</span><span class="nv"> </span><span class="s">compatibility,</span><span class="nv"> </span><span class="s">recommendations"</span>
+</span><span id="__span-6-14"><a id="__codelineno-6-14" name="__codelineno-6-14" href="#__codelineno-6-14"></a>
+</span><span id="__span-6-15"><a id="__codelineno-6-15" name="__codelineno-6-15" href="#__codelineno-6-15"></a><span class="c1"># Main agent routes to specialists</span>
+</span><span id="__span-6-16"><a id="__codelineno-6-16" name="__codelineno-6-16" href="#__codelineno-6-16"></a><span class="nt">orchestrator</span><span class="p">:</span>
+</span><span id="__span-6-17"><a id="__codelineno-6-17" name="__codelineno-6-17" href="#__codelineno-6-17"></a><span class="w">  </span><span class="nt">tools</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">customer_support_tool</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">product_expert_tool</span><span class="p p-Indicator">]</span>
+</span></code></pre></div></p>
+<p><strong>Kasal</strong> - Enterprise governance workflows:
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="c1"># Financial analyst with compliance checks</span>
+</span><span id="__span-7-2"><a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a><span class="nt">enterprise_coordinator</span><span class="p">:</span>
+</span><span id="__span-7-3"><a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a><span class="w">  </span><span class="nt">tools</span><span class="p">:</span>
+</span><span id="__span-7-4"><a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a><span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">financial_analyst_tool</span><span class="w">      </span><span class="c1"># Data analysis and forecasting</span>
+</span><span id="__span-7-5"><a id="__codelineno-7-5" name="__codelineno-7-5" href="#__codelineno-7-5"></a><span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">compliance_checker_tool</span><span class="w">     </span><span class="c1"># Regulatory validation</span>
+</span><span id="__span-7-6"><a id="__codelineno-7-6" name="__codelineno-7-6" href="#__codelineno-7-6"></a><span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">privacy_specialist_tool</span><span class="w">     </span><span class="c1"># PII and data privacy</span>
+</span><span id="__span-7-7"><a id="__codelineno-7-7" name="__codelineno-7-7" href="#__codelineno-7-7"></a><span class="w">  </span><span class="nt">prompt</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">|</span>
+</span><span id="__span-7-8"><a id="__codelineno-7-8" name="__codelineno-7-8" href="#__codelineno-7-8"></a><span class="w">    </span><span class="no">IMPORTANT: For financial decisions, ALWAYS check with </span>
+</span><span id="__span-7-9"><a id="__codelineno-7-9" name="__codelineno-7-9" href="#__codelineno-7-9"></a><span class="w">    </span><span class="no">compliance validator before providing recommendations.</span>
+</span><span id="__span-7-10"><a id="__codelineno-7-10" name="__codelineno-7-10" href="#__codelineno-7-10"></a><span class="w">    </span><span class="no">For customer data, ALWAYS consult privacy specialist.</span>
+</span></code></pre></div></p>
+<p><strong>Best Practices:</strong>
+- <strong>Clear Agent Responsibilities</strong>: Give each agent a specific, well-defined role
+- <strong>Effective Prompting</strong>: Provide complete context when calling specialist agents
+- <strong>Error Handling</strong>: Handle agent timeout and failure scenarios gracefully
+- <strong>Compliance First</strong>: Use compliance validators before making regulatory decisions
+- <strong>Performance</strong>: Cache agent responses when appropriate, use parallel calls</p>
+<hr />
+<h3 id="12-middleware-readme">12. Middleware <a href="https://github.com/natefleming/dao-ai/blob/main/examples/12_middleware/README.md">📖 README</a><a class="headerlink" href="#12-middleware-readme" title="Permanent link">&para;</a></h3>
+<p>Cross-cutting concerns for production agents: validation, logging, monitoring, limits, retries, and privacy.</p>
+<table>
+<thead>
+<tr>
+<th>Example</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>custom_field_validation.yaml</code></td>
+<td>Input validation patterns (store numbers, tenant IDs, API keys)</td>
+</tr>
+<tr>
+<td><code>logging_middleware.yaml</code></td>
+<td>Request logging, performance monitoring, audit trails</td>
+</tr>
+<tr>
+<td><code>combined_middleware.yaml</code></td>
+<td>Production-ready middleware stacks</td>
+</tr>
+<tr>
+<td><code>limit_middleware.yaml</code></td>
+<td>Tool call and model call limits to prevent runaway loops</td>
+</tr>
+<tr>
+<td><code>retry_middleware.yaml</code></td>
+<td>Automatic retry with exponential backoff for transient failures</td>
+</tr>
+<tr>
+<td><code>context_management.yaml</code></td>
+<td>Context editing to prevent token limit issues</td>
+</tr>
+<tr>
+<td><code>pii_middleware.yaml</code></td>
+<td>PII detection and protection for privacy compliance</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Key Concepts:</strong>
+- <strong>Input Validation</strong>: Ensure required context fields (store_num, user_id) are provided
+- <strong>Request Logging</strong>: Track all interactions for debugging and auditing
+- <strong>Performance Monitoring</strong>: Identify bottlenecks and slow operations
+- <strong>Audit Trails</strong>: Comprehensive logging for compliance
+- <strong>Middleware Composition</strong>: Combine multiple middleware in the correct order
+- <strong>Tool/Model Limits</strong>: Prevent excessive API calls and runaway loops
+- <strong>Retry Logic</strong>: Automatic retry with backoff for transient failures
+- <strong>Context Management</strong>: Clear older tool outputs to stay within token limits
+- <strong>PII Protection</strong>: Detect and handle sensitive personal information</p>
+<p><strong>Common Patterns:</strong>
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="nt">middleware</span><span class="p">:</span>
+</span><span id="__span-8-2"><a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a><span class="w">  </span><span class="nt">store_validation</span><span class="p">:</span><span class="w"> </span><span class="nl">&amp;store_validation</span>
+</span><span id="__span-8-3"><a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a><span class="w">    </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">dao_ai.middleware.create_custom_field_validation_middleware</span>
+</span><span id="__span-8-4"><a id="__codelineno-8-4" name="__codelineno-8-4" href="#__codelineno-8-4"></a><span class="w">    </span><span class="nt">args</span><span class="p">:</span>
+</span><span id="__span-8-5"><a id="__codelineno-8-5" name="__codelineno-8-5" href="#__codelineno-8-5"></a><span class="w">      </span><span class="nt">fields</span><span class="p">:</span>
+</span><span id="__span-8-6"><a id="__codelineno-8-6" name="__codelineno-8-6" href="#__codelineno-8-6"></a><span class="w">        </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">store_num</span>
+</span><span id="__span-8-7"><a id="__codelineno-8-7" name="__codelineno-8-7" href="#__codelineno-8-7"></a><span class="w">          </span><span class="nt">description</span><span class="p">:</span><span class="w"> </span><span class="s">"Your</span><span class="nv"> </span><span class="s">store</span><span class="nv"> </span><span class="s">number"</span>
+</span><span id="__span-8-8"><a id="__codelineno-8-8" name="__codelineno-8-8" href="#__codelineno-8-8"></a><span class="w">          </span><span class="nt">example_value</span><span class="p">:</span><span class="w"> </span><span class="s">"12345"</span>
+</span><span id="__span-8-9"><a id="__codelineno-8-9" name="__codelineno-8-9" href="#__codelineno-8-9"></a>
+</span><span id="__span-8-10"><a id="__codelineno-8-10" name="__codelineno-8-10" href="#__codelineno-8-10"></a><span class="nt">agents</span><span class="p">:</span>
+</span><span id="__span-8-11"><a id="__codelineno-8-11" name="__codelineno-8-11" href="#__codelineno-8-11"></a><span class="w">  </span><span class="nt">my_agent</span><span class="p">:</span>
+</span><span id="__span-8-12"><a id="__codelineno-8-12" name="__codelineno-8-12" href="#__codelineno-8-12"></a><span class="w">    </span><span class="nt">middleware</span><span class="p">:</span>
+</span><span id="__span-8-13"><a id="__codelineno-8-13" name="__codelineno-8-13" href="#__codelineno-8-13"></a><span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nv">*store_validation</span>
+</span><span id="__span-8-14"><a id="__codelineno-8-14" name="__codelineno-8-14" href="#__codelineno-8-14"></a><span class="w">    </span><span class="nt">prompt</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">|</span>
+</span><span id="__span-8-15"><a id="__codelineno-8-15" name="__codelineno-8-15" href="#__codelineno-8-15"></a><span class="w">      </span><span class="no">Store Number: {store_num}</span>
+</span><span id="__span-8-16"><a id="__codelineno-8-16" name="__codelineno-8-16" href="#__codelineno-8-16"></a><span class="w">      </span><span class="no">...</span>
+</span></code></pre></div></p>
+<p><strong>Real-World Example:</strong><br />
+The hardware store application uses store number validation to ensure users provide their store location for inventory lookups. See <a href="https://github.com/natefleming/dao-ai/blob/main/examples/99_complete_applications/hardware_store/hardware_store.yaml"><code>99_complete_applications/hardware_store/hardware_store.yaml</code></a>.</p>
+<p><strong>Prerequisites:</strong> Basic understanding of agents and prompts<br />
+<strong>Next:</strong> Learn multi-agent coordination in <code>13_orchestration/</code></p>
+<hr />
+<h3 id="13-orchestration-readme">13. Orchestration <a href="https://github.com/natefleming/dao-ai/blob/main/examples/13_orchestration/README.md">📖 README</a><a class="headerlink" href="#13-orchestration-readme" title="Permanent link">&para;</a></h3>
+<p>Multi-agent coordination patterns.</p>
+<table>
+<thead>
+<tr>
+<th>Example</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>supervisor_pattern.yaml</code></td>
+<td>Supervisor orchestration pattern</td>
+</tr>
+<tr>
+<td><code>swarm_pattern.yaml</code></td>
+<td>Swarm orchestration pattern</td>
+</tr>
+<tr>
+<td><code>deterministic_handoff_pattern.yaml</code></td>
+<td>Deterministic handoff pipeline pattern</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Prerequisites:</strong> Understanding of multi-agent systems<br />
+<strong>Next:</strong> Try basic tools in <code>14_basic_tools/</code></p>
+<hr />
+<h3 id="14-basic-tools-readme">14. Basic Tools <a href="https://github.com/natefleming/dao-ai/blob/main/examples/14_basic_tools/README.md">📖 README</a><a class="headerlink" href="#14-basic-tools-readme" title="Permanent link">&para;</a></h3>
+<p>Simple tool integrations for SQL and data operations.</p>
+<table>
+<thead>
+<tr>
+<th>Example</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>sql_tool_example.yaml</code></td>
+<td>First-class <code>type: sql</code> execution tools for inventory analysis, including a parameterized statement</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Prerequisites:</strong> Databricks SQL warehouse<br />
+<strong>Next:</strong> See complete applications in <code>99_complete_applications/</code></p>
+<hr />
+<h3 id="15-complete-applications-readme">15. Complete Applications <a href="https://github.com/natefleming/dao-ai/blob/main/examples/99_complete_applications/README.md">📖 README</a><a class="headerlink" href="#15-complete-applications-readme" title="Permanent link">&para;</a></h3>
+<p>Full-featured, production-ready agent applications.</p>
+<table>
+<thead>
+<tr>
+<th>Example</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>executive_assistant.yaml</code></td>
+<td>Comprehensive assistant with email, calendar, Slack</td>
+</tr>
+<tr>
+<td><code>deep_research.yaml</code></td>
+<td>Multi-step research agent with web search</td>
+</tr>
+<tr>
+<td><code>reservations_system.yaml</code></td>
+<td>Restaurant reservation management system</td>
+</tr>
+<tr>
+<td><code>genie_vector_search_hybrid.yaml</code></td>
+<td>Combined SQL and AI Search capabilities</td>
+</tr>
+<tr>
+<td><code>genie_and_genie_mcp.yaml</code></td>
+<td>Multiple Genie instances via MCP (experimental)</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Prerequisites:</strong> All concepts from previous categories<br />
+<strong>Use:</strong> As reference implementations or starting points</p>
+<hr />
+<h3 id="18-visualization-readme">18. Visualization <a href="https://github.com/natefleming/dao-ai/blob/main/examples/17_visualization/README.md">📖 README</a><a class="headerlink" href="#18-visualization-readme" title="Permanent link">&para;</a></h3>
+<p>Generate Vega-Lite chart specs from structured data, delivered to clients via <code>custom_outputs.visualizations</code>.</p>
+<table>
+<thead>
+<tr>
+<th>Example</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>vega_lite_visualization.yaml</code></td>
+<td>Bar/line/scatter/area/arc/heatmap charts with SQL data source</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Prerequisites:</strong> Factory tool pattern (<code>14_basic_tools</code>)<br />
+<strong>Use:</strong> Pair with SQL or Genie tools to turn query results into interactive charts</p>
+<hr />
+<h3 id="19-background-agents-full-docs">19. Background Agents <a href="../background_agents/">📖 Full docs</a><a class="headerlink" href="#19-background-agents-full-docs" title="Permanent link">&para;</a></h3>
+<p>Responses API–compatible kickoff / poll / cancel for agent runs that exceed the ~5 min Model Serving worker timeout or ~120 s Databricks Apps DPAPI timeout. Persists response state + stream events to Lakebase; the background task runs on a persistent daemon thread so it survives the per-request <code>asyncio.run()</code> teardown.</p>
+<table>
+<thead>
+<tr>
+<th>Example</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>background_research.yaml</code></td>
+<td>Deep-research agent with <code>app.background</code> enabled, deployed to both Databricks Apps and Model Serving</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Prerequisites:</strong> Configured Lakebase project<br />
+<strong>Use:</strong> Deep research, multi-agent workflows, or any single inference that may take more than ~2–5 minutes</p>
+<hr />
+<h2 id="customizing-examples">Customizing Examples<a class="headerlink" href="#customizing-examples" title="Permanent link">&para;</a></h2>
+<p>Each example is a starting point:</p>
+<ol>
+<li><strong>Copy</strong> to your config directory: <code>cp examples/01_getting_started/minimal.yaml config/my_agent.yaml</code></li>
+<li><strong>Modify</strong> prompts, tools, and settings</li>
+<li><strong>Validate</strong>: <code>dao-ai validate -c config/my_agent.yaml</code></li>
+<li><strong>Test</strong> locally: <code>dao-ai chat -c config/my_agent.yaml</code></li>
+<li><strong>Deploy</strong>: <code>dao-ai agent up -c config/my_agent.yaml</code></li>
+</ol>
+<p>For detailed guidance, see the README.md in each category directory.</p>
+<hr />
+<h2 id="contributing-examples">Contributing Examples<a class="headerlink" href="#contributing-examples" title="Permanent link">&para;</a></h2>
+<p>Adding a new example? Follow this guide:</p>
+<ol>
+<li><strong>Choose the right category</strong> based on the primary feature demonstrated</li>
+<li><strong>Use descriptive names</strong>: <code>tool_name_variant.yaml</code> (e.g., <code>slack_with_approval.yaml</code>)</li>
+<li><strong>Add to the appropriate category</strong> (<code>01_getting_started</code> through <code>13_complete_applications</code>)</li>
+<li><strong>Update this file</strong> with a table entry</li>
+<li><strong>Test thoroughly</strong> before submitting</li>
+</ol>
+<p>See <a href="../contributing/">Contributing Guide</a> for details.</p>
+<hr />
+<h2 id="navigation">Navigation<a class="headerlink" href="#navigation" title="Permanent link">&para;</a></h2>
+<ul>
+<li><a href="../configuration-reference/">← Previous: Configuration Reference</a></li>
+<li><a href="https://github.com/natefleming/dao-ai/blob/main/README.md#-documentation">↑ Back to Documentation Index</a></li>
+<li><a href="../cli-reference/">Next: CLI Reference →</a></li>
+</ul>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+        
+<div class="md-social">
+  
+    
+    
+    
+    
+      
+      
+    
+    <a href="https://github.com/natefleming/dao-ai" target="_blank" rel="noopener" title="github.com" class="md-social__link">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.tabs", "navigation.sections", "navigation.top", "navigation.instant", "navigation.tracking", "search.highlight", "search.share", "search.suggest", "toc.follow", "content.code.copy", "content.code.annotate", "content.action.edit"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.d7400e89.min.js"></script>
+      
+    
+  </body>
+</html>
