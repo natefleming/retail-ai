@@ -289,6 +289,7 @@ def create_agent_node(
     extraction_manager: Optional[MemoryStoreManager] = None,
     checkpointer: Optional[BaseCheckpointSaver] = None,
     genie_handback: bool = False,
+    scope_preamble: Optional[str] = None,
 ) -> CompiledStateGraph:
     """
     Factory function that creates a LangGraph node for a specialized agent.
@@ -315,6 +316,11 @@ def create_agent_node(
             pattern sets this True (and binds the matching handback tool via
             ``additional_tools``); swarm / single-agent / deep_agent callers
             leave it False so no injection occurs. No effect for non-Genie models.
+        scope_preamble: Optional text prepended to the agent's prompt as framing
+            (ahead of the agent's own role/instructions). The supervisor pattern
+            uses this to inject a generic scope-boundary instruction into each
+            worker (see ``SupervisorModel.worker_scope_boundary``); other callers
+            leave it None.
 
     Returns:
         A compiled agent node that processes state and returns responses
@@ -514,6 +520,18 @@ def create_agent_node(
         else:
             effective_prompt = effective_prompt + hitl_guidance
         logger.debug("HITL decision guidance appended to prompt", agent=agent.name)
+
+    # Prepend caller-supplied framing (supervisor scope-boundary — see
+    # SupervisorModel.worker_scope_boundary) FIRST, so it frames the agent's own
+    # role/instructions rather than being buried after them.
+    if scope_preamble:
+        if effective_prompt is None:
+            effective_prompt = scope_preamble.rstrip("\n")
+        elif isinstance(effective_prompt, PromptModel):
+            effective_prompt = scope_preamble + effective_prompt.template
+        else:
+            effective_prompt = scope_preamble + effective_prompt
+        logger.debug("Scope-boundary framing prepended to prompt", agent=agent.name)
 
     # Get the prompt as middleware (always returns AgentMiddleware or None)
     prompt_middleware: AgentMiddleware | None = make_prompt(effective_prompt)

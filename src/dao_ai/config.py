@@ -8774,6 +8774,19 @@ class SupervisorModel(BaseModel):
         default_factory=list,
         description="List of middleware to apply to the supervisor.",
     )
+    worker_scope_boundary: bool = Field(
+        default=True,
+        description=(
+            "When True (default), dao-ai appends a generic scope-boundary "
+            "instruction to every worker's prompt and a matching 'route every "
+            "unhandled part' instruction to the supervisor's prompt. This makes "
+            "workers answer only the parts of a compound request within their "
+            "specialty and hand the rest back via ``handoff_to_supervisor``, so "
+            "the supervisor can route each part to the right specialist instead "
+            "of one worker answering everything (including out-of-domain parts). "
+            "Set False to opt out and let each worker answer whatever it can."
+        ),
+    )
 
 
 class HandoffRouteModel(BaseModel):
