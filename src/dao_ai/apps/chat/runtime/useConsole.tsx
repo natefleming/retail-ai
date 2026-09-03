@@ -54,12 +54,26 @@ export interface UIEvent {
   detail?: string;
 }
 
+/**
+ * One ordered step of an assistant turn, captured in the sequence the agent
+ * produced it — so reasoning segments, tool calls, and answer text interleave
+ * (reason → tool → reason → handoff → answer) rather than being aggregated.
+ * A `tool` step references a `toolCalls` entry by id so live start/end updates
+ * flow through without duplicating state.
+ */
+export type TurnStep =
+  | { kind: "reasoning"; id: string; text: string }
+  | { kind: "tool"; callId: string }
+  | { kind: "text"; id: string; text: string };
+
 export interface Turn {
   id: string;
   role: "user" | "assistant";
   content: string;
   reasoning: string;
   toolCalls: UIToolCall[];
+  /** Ordered, interleaved reasoning/tool/text segments (see TurnStep). */
+  steps: TurnStep[];
   visualizations: VisualizationSpec[];
   interrupts: HITLInterrupt[];
   events: UIEvent[];
@@ -70,6 +84,45 @@ export interface Turn {
    * doesn't otherwise render. */
   customOutputs?: Record<string, unknown>;
   status: "streaming" | "done" | "error";
+}
+
+/** Extend the trailing reasoning segment, or open a new one (called on each
+ * reasoning delta — a new segment starts whenever a tool/text step intervened). */
+function appendReasoningDelta(steps: TurnStep[], delta: string): TurnStep[] {
+  const last = steps[steps.length - 1];
+  if (last && last.kind === "reasoning") {
+    return [...steps.slice(0, -1), { ...last, text: last.text + delta }];
+  }
+  return [...steps, { kind: "reasoning", id: nextId("rs"), text: delta }];
+}
+
+/** Extend the trailing text segment, or open a new one. */
+function appendTextDelta(steps: TurnStep[], delta: string): TurnStep[] {
+  const last = steps[steps.length - 1];
+  if (last && last.kind === "text") {
+    return [...steps.slice(0, -1), { ...last, text: last.text + delta }];
+  }
+  return [...steps, { kind: "text", id: nextId("tx"), text: delta }];
+}
+
+/** Record a tool call in order (idempotent by call id — start/end reuse it). */
+function appendToolStep(steps: TurnStep[], callId: string): TurnStep[] {
+  if (steps.some((s) => s.kind === "tool" && s.callId === callId)) return steps;
+  return [...steps, { kind: "tool", callId }];
+}
+
+/**
+ * The ordered steps to render for a turn. Uses the live-built `steps` when
+ * present; otherwise (a reloaded thread, or a turn delivered only via
+ * custom_outputs) synthesizes a reasonable order from the aggregate fields.
+ */
+export function turnSteps(t: Turn): TurnStep[] {
+  if (t.steps.length) return t.steps;
+  const synthesized: TurnStep[] = [];
+  if (t.reasoning) synthesized.push({ kind: "reasoning", id: `${t.id}_r`, text: t.reasoning });
+  for (const c of t.toolCalls) synthesized.push({ kind: "tool", callId: c.call_id });
+  if (t.content) synthesized.push({ kind: "text", id: `${t.id}_t`, text: t.content });
+  return synthesized;
 }
 
 export interface SessionRef {
@@ -275,6 +328,7 @@ export function ConsoleProvider({
         content: text,
         reasoning: "",
         toolCalls: [],
+        steps: [],
         visualizations: [],
         interrupts: [],
         events: [],
@@ -286,6 +340,7 @@ export function ConsoleProvider({
         content: "",
         reasoning: "",
         toolCalls: [],
+        steps: [],
         visualizations: [],
         interrupts: [],
         events: [],
@@ -313,6 +368,7 @@ export function ConsoleProvider({
         content: "",
         reasoning: "",
         toolCalls: [],
+        steps: [],
         visualizations: [],
         interrupts: [],
         events: [],
@@ -347,6 +403,7 @@ export function ConsoleProvider({
         content: m.content,
         reasoning: m.reasoning ?? "",
         toolCalls: [],
+        steps: [],
         visualizations: [],
         interrupts: [],
         events: [],
@@ -405,11 +462,21 @@ function applyEvent(
   const now = Date.now();
 
   if (event.type === "response.output_text.delta" && event.delta) {
-    patch(assistantId, (t) => ({ ...t, content: t.content + event.delta }));
+    const delta = event.delta;
+    patch(assistantId, (t) => ({
+      ...t,
+      content: t.content + delta,
+      steps: appendTextDelta(t.steps, delta),
+    }));
     return;
   }
   if (event.type === "response.reasoning_summary_text.delta" && event.delta) {
-    patch(assistantId, (t) => ({ ...t, reasoning: t.reasoning + event.delta }));
+    const delta = event.delta;
+    patch(assistantId, (t) => ({
+      ...t,
+      reasoning: t.reasoning + delta,
+      steps: appendReasoningDelta(t.steps, delta),
+    }));
     return;
   }
   if (event.type === "response.output_item.added" && event.item) {
@@ -424,6 +491,7 @@ function applyEvent(
           started_at: item.started_at,
           status: "in_progress",
         }),
+        steps: appendToolStep(t.steps, item.call_id),
         events: [
           ...t.events,
           { at: now, kind: "tool", label: `${item.name} started` },
@@ -475,11 +543,16 @@ function applyEvent(
       event.item && event.item.type === "message"
         ? event.item.content.map((c) => c.text).join("")
         : undefined;
-    patch(assistantId, (t) => ({
-      ...t,
-      content: text && text.length >= t.content.length ? text : t.content,
-      status: "done",
-    }));
+    patch(assistantId, (t) => {
+      const content = text && text.length >= t.content.length ? text : t.content;
+      // If the answer arrived only in the terminal message (no text deltas),
+      // surface it as a text step so the ordered view still shows it.
+      const steps =
+        content && !t.steps.some((s) => s.kind === "text")
+          ? [...t.steps, { kind: "text", id: `${t.id}_final`, text: content } as TurnStep]
+          : t.steps;
+      return { ...t, content, steps, status: "done" };
+    });
     return;
   }
   if (

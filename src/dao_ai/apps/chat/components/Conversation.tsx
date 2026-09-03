@@ -13,7 +13,12 @@ import { Visualization } from "@/components/Visualization";
 
 import type { UIConfig } from "@/lib/config";
 import type { HITLInterrupt } from "@/lib/contract";
-import { useConsoleContext, type Turn, type UIToolCall } from "@/runtime/useConsole";
+import {
+  turnSteps,
+  useConsoleContext,
+  type Turn,
+  type UIToolCall,
+} from "@/runtime/useConsole";
 import { clsx } from "clsx";
 
 function ToolCard({ call }: { call: UIToolCall }) {
@@ -156,22 +161,32 @@ function TurnView({ turn, showReasoning }: { turn: Turn; showReasoning: boolean 
               : "border-transparent",
           )}
         >
-          {showReasoning && <Reasoning text={turn.reasoning} defaultOpen={false} />}
-          {turn.toolCalls.map((c) => (
-            <ToolCard key={c.call_id} call={c} />
-          ))}
-          {turn.content && (
-            <div className="px-2 text-[15px] leading-relaxed text-[var(--color-fg)]">
-              <Markdown>{turn.content}</Markdown>
-            </div>
-          )}
+          {turnSteps(turn).map((step) => {
+            if (step.kind === "reasoning") {
+              return showReasoning ? (
+                <Reasoning key={step.id} text={step.text} defaultOpen={false} />
+              ) : null;
+            }
+            if (step.kind === "tool") {
+              const call = turn.toolCalls.find((c) => c.call_id === step.callId);
+              return call ? <ToolCard key={step.callId} call={call} /> : null;
+            }
+            return (
+              <div
+                key={step.id}
+                className="px-2 text-[15px] leading-relaxed text-[var(--color-fg)]"
+              >
+                <Markdown>{step.text}</Markdown>
+              </div>
+            );
+          })}
           {turn.visualizations.map((v, i) => (
             <Visualization key={i} viz={v} />
           ))}
           {turn.interrupts.map((it, i) => (
             <InterruptCard key={i} interrupt={it} />
           ))}
-          {turn.status === "streaming" && !turn.content && !turn.toolCalls.length && (
+          {turn.status === "streaming" && !turn.steps.length && (
             <div className="flex items-center gap-2 px-2 text-sm text-[var(--color-fg-subtle)]">
               <Loader2 size={14} className="animate-spin" /> thinking…
             </div>

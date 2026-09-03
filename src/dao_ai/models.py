@@ -86,13 +86,17 @@ from dao_ai.state import Context, context_configurable_fields
 def _extract_reasoning_text(block: dict[str, Any]) -> str | None:
     """Extract reasoning or thinking text from a single content block.
 
-    Handles all known reasoning block formats across providers:
+    Handles known reasoning block formats across providers, and degrades to
+    ``None`` for anything else (a model with no reasoning simply yields no
+    reasoning — never a crash or leaked JSON):
 
     - **Databricks/OpenAI**: ``{"type": "reasoning", "summary": [{"type": "summary_text", "text": "..."}]}``
     - **LangChain standard**: ``{"type": "reasoning", "reasoning": "..."}``
     - **Anthropic native**: ``{"type": "thinking", "thinking": "..."}``
+    - **OSS (DeepSeek / Kimi / GLM …)**: ``reasoning_content`` as a block type
+      or a sibling key.
 
-    Returns ``None`` when the block is not a reasoning/thinking block.
+    Returns ``None`` when the block carries no reasoning text.
     """
     block_type: str = block.get("type", "")
     if block_type == "reasoning":
@@ -110,6 +114,10 @@ def _extract_reasoning_text(block: dict[str, Any]) -> str | None:
     elif block_type == "thinking":
         if thinking := block.get("thinking"):
             return str(thinking)
+    # OSS convention: reasoning under ``reasoning_content`` (block type or key).
+    if block_type == "reasoning_content" or "reasoning_content" in block:
+        if rc := block.get("reasoning_content"):
+            return str(rc)
     return None
 
 

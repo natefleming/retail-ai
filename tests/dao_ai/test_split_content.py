@@ -143,3 +143,22 @@ class TestSplitContent:
         text, reasoning = _split_content("[1, 2, 3] are the winning numbers")
         assert text == "[1, 2, 3] are the winning numbers"
         assert reasoning == ""
+
+    @pytest.mark.unit
+    def test_oss_reasoning_content_block(self) -> None:
+        # DeepSeek / Kimi / GLM style: reasoning carried as reasoning_content.
+        content = [
+            {"type": "reasoning_content", "reasoning_content": "oss thinking"},
+            {"type": "text", "text": "the answer"},
+        ]
+        text, reasoning = _split_content(content)
+        assert text == "the answer"
+        assert reasoning == "oss thinking"
+
+    @pytest.mark.unit
+    def test_no_reasoning_model_yields_plain_answer(self) -> None:
+        # A model with no reasoning tokens: content is just text, no leakage.
+        content = [{"type": "text", "text": "plain answer, no reasoning"}]
+        text, reasoning = _split_content(content)
+        assert text == "plain answer, no reasoning"
+        assert reasoning == ""
