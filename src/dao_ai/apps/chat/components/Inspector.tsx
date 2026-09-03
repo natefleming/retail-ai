@@ -1,13 +1,14 @@
 import { useEffect, useState } from "react";
-import { Activity, ExternalLink, GitBranch, ListTree } from "lucide-react";
+import { Activity, Braces, ExternalLink, GitBranch, ListTree } from "lucide-react";
 import { clsx } from "clsx";
 
 import { Flow } from "@/components/Flow";
+import { JsonTree } from "@/components/JsonTree";
 import { Timeline } from "@/components/Timeline";
 import { fetchTraceUrl } from "@/lib/api";
 import { useConsoleContext, type Turn, type UIEvent } from "@/runtime/useConsole";
 
-type Tab = "flow" | "timeline" | "events";
+type Tab = "flow" | "timeline" | "events" | "outputs";
 
 const eventColor: Record<UIEvent["kind"], string> = {
   tool: "var(--color-span-tool)",
@@ -94,6 +95,7 @@ export function Inspector() {
     { id: "flow", label: "Flow", icon: GitBranch },
     { id: "timeline", label: "Timeline", icon: ListTree },
     { id: "events", label: "Events", icon: Activity },
+    { id: "outputs", label: "Outputs", icon: Braces },
   ];
 
   return (
@@ -120,6 +122,7 @@ export function Inspector() {
         {tab === "flow" && <Flow turn={turn} />}
         {tab === "timeline" && <Timeline turn={turn} />}
         {tab === "events" && <EventLog turn={turn} />}
+        {tab === "outputs" && <JsonTree value={turn?.customOutputs} />}
       </div>
     </div>
   );

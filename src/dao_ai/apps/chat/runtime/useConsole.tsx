@@ -65,6 +65,10 @@ export interface Turn {
   events: UIEvent[];
   traceId?: string;
   trace?: TraceTree | null;
+  /** Raw custom_outputs the agent returned this turn (accumulated), for the
+   * inspector's Outputs tree — includes agent-specific keys the Console
+   * doesn't otherwise render. */
+  customOutputs?: Record<string, unknown>;
   status: "streaming" | "done" | "error";
 }
 
@@ -517,6 +521,8 @@ function applyCustomOutputs(
   if (co.trace_id) onTrace(co.trace_id);
   patch(assistantId, (t) => ({
     ...t,
+    // Keep the raw payload (accumulated across events) for the Outputs tree.
+    customOutputs: { ...(t.customOutputs ?? {}), ...co },
     traceId: co.trace_id ?? t.traceId,
     reasoning: co.reasoning ?? t.reasoning,
     visualizations: co.visualizations ?? t.visualizations,
