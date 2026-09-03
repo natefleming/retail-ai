@@ -23,25 +23,39 @@ import { clsx } from "clsx";
 
 function ToolCard({ call }: { call: UIToolCall }) {
   const [open, setOpen] = useState(false);
+  const running = call.status === "in_progress";
   return (
-    <div className="rounded-lg border border-[var(--color-line)] bg-[var(--color-ink-900)] shadow-[var(--shadow-card)]">
+    <div
+      className={clsx(
+        "rounded-lg border bg-[var(--color-ink-900)] shadow-[var(--shadow-card)]",
+        running
+          ? "border-[var(--color-span-tool)] ring-1 ring-[var(--color-span-tool)]/40"
+          : "border-[var(--color-line)]",
+      )}
+    >
       <button
         onClick={() => setOpen((o) => !o)}
         className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs"
       >
-        <Wrench
-          size={13}
-          className={
-            call.status === "error"
-              ? "text-[var(--color-span-error)]"
-              : "text-[var(--color-primary)]"
-          }
-        />
+        {running ? (
+          <Loader2 size={13} className="animate-spin text-[var(--color-span-tool)]" />
+        ) : (
+          <Wrench
+            size={13}
+            className={
+              call.status === "error"
+                ? "text-[var(--color-span-error)]"
+                : "text-[var(--color-primary)]"
+            }
+          />
+        )}
         <span className="rounded bg-[var(--color-tag-bg)] px-1.5 py-0.5 font-mono text-[11px] text-[var(--color-tag-fg)]">
           {call.name}
         </span>
-        {call.status === "in_progress" ? (
-          <Loader2 size={12} className="animate-spin text-[var(--color-span-tool)]" />
+        {running ? (
+          <span className="ml-auto animate-pulse text-[var(--color-span-tool)]">
+            running…
+          </span>
         ) : (
           <span
             className={clsx(
@@ -186,9 +200,15 @@ function TurnView({ turn, showReasoning }: { turn: Turn; showReasoning: boolean 
           {turn.interrupts.map((it, i) => (
             <InterruptCard key={i} interrupt={it} />
           ))}
-          {turn.status === "streaming" && !turn.steps.length && (
+          {turn.status === "streaming" && (
             <div className="flex items-center gap-2 px-2 text-sm text-[var(--color-fg-subtle)]">
-              <Loader2 size={14} className="animate-spin" /> thinking…
+              <Loader2 size={14} className="animate-spin text-[var(--color-primary)]" />
+              {(() => {
+                const active = turn.toolCalls.find((c) => c.status === "in_progress");
+                if (active) return `running ${active.name}…`;
+                if (!turn.steps.length) return "thinking…";
+                return "working…";
+              })()}
             </div>
           )}
         </div>
