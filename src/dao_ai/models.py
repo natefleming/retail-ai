@@ -211,6 +211,35 @@ def _consume_leading_block_arrays(s: str) -> tuple[list[dict[str, Any]], str]:
     return blocks, s[idx:]
 
 
+# OBO identity headers, most human-readable first. Databricks Apps forward all
+# three; ``x-forwarded-user`` is the numeric SCIM id (e.g. ``123@<workspace>``),
+# so it's the last resort — the preferred-username / email give the login name a
+# user (and the model-serving playground) expects to see.
+_USER_ID_HEADER_PREFERENCE: tuple[str, ...] = (
+    "x-forwarded-preferred-username",
+    "x-forwarded-email",
+    "x-forwarded-user",
+)
+
+
+def resolve_user_id_from_headers(headers: dict[str, Any] | None) -> str | None:
+    """Resolve a human-readable ``user_id`` from OBO request headers.
+
+    Prefers the login name (preferred-username, then email) over the numeric
+    ``x-forwarded-user`` id, case-insensitively. Returns ``None`` when no
+    identity header is present (local/dev). Callers apply namespace
+    normalization (``.`` → ``_``).
+    """
+    if not headers:
+        return None
+    lowered: dict[str, Any] = {str(k).lower(): v for k, v in headers.items()}
+    for name in _USER_ID_HEADER_PREFERENCE:
+        value = lowered.get(name)
+        if value:
+            return str(value)
+    return None
+
+
 def _extract_text_content(content: str | list[dict[str, Any]]) -> str:
     """Extract text from message content, handling provider content-block formats.
 
@@ -777,10 +806,10 @@ class LanggraphChatModel(ChatModel):
         # Extract known Context fields
         user_id: str | None = configurable.pop("user_id", None)
 
-        # Fall back to x-forwarded-user header (set by Databricks Apps OBO)
+        # Fall back to the OBO identity headers (set by Databricks Apps),
+        # preferring the login name over the numeric x-forwarded-user id.
         if not user_id:
-            headers = configurable.get("headers") or {}
-            user_id = headers.get("x-forwarded-user") or headers.get("X-Forwarded-User")
+            user_id = resolve_user_id_from_headers(configurable.get("headers"))
 
         if user_id:
             user_id = user_id.replace(".", "_")
@@ -2097,13 +2126,11 @@ class LanggraphResponsesAgent(ResponsesAgent):
         # Extract known Context fields
         user_id_value: str | None = configurable.pop("user_id", None)
 
-        # Fall back to x-forwarded-user header (set by Databricks Apps OBO)
-        # when user_id is not explicitly provided in the request.
+        # Fall back to the OBO identity headers (set by Databricks Apps),
+        # preferring the login name over the numeric x-forwarded-user id, when
+        # user_id is not explicitly provided in the request.
         if not user_id_value:
-            headers = configurable.get("headers") or {}
-            user_id_value = headers.get("x-forwarded-user") or headers.get(
-                "X-Forwarded-User"
-            )
+            user_id_value = resolve_user_id_from_headers(configurable.get("headers"))
 
         if user_id_value:
             # Normalize user_id for memory namespace (replace . with _)

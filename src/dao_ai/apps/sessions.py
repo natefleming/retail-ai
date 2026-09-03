@@ -14,7 +14,7 @@ from typing import Any, Optional
 
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
-from dao_ai.models import _split_content
+from dao_ai.models import _split_content, resolve_user_id_from_headers
 
 # The user→thread session index is kept in the configured LangGraph ``BaseStore``
 # (``graph.store``) under this namespace root, addressed through the store's own
@@ -63,14 +63,18 @@ def session_items_from_messages(messages: list[Any]) -> list[dict[str, Any]]:
 
 
 def user_id_from_headers(headers: Any) -> Optional[str]:
-    """Resolve the calling user from the OBO ``x-forwarded-user`` header.
+    """Resolve the calling user from the OBO identity headers.
 
-    Derived server-side (never trusted from a client value) and normalized the
-    same way ``models.py`` does (``.`` → ``_``) so it matches how sessions and
-    memory are keyed. Returns None when the header is absent (local/dev).
+    Uses the same resolver + normalization as ``models.py`` (login name
+    preferred over the numeric ``x-forwarded-user`` id; ``.`` → ``_``) so the
+    Console's sessions/memory scope matches the ``user_id`` the agent runs
+    under. Derived server-side (never a client value). Returns None when no
+    identity header is present (local/dev).
     """
-    raw = headers.get("x-forwarded-user") or headers.get("X-Forwarded-User")
-    return raw.replace(".", "_") if raw else None
+    # Support both a mapping and a Starlette Headers object.
+    raw_headers = dict(headers.items()) if hasattr(headers, "items") else headers
+    resolved = resolve_user_id_from_headers(raw_headers)
+    return resolved.replace(".", "_") if resolved else None
 
 
 async def register_session(
