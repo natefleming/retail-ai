@@ -43,21 +43,34 @@ def session_items_from_messages(messages: list[Any]) -> list[dict[str, Any]]:
                 items.append({"role": "user", "content": text})
         elif isinstance(message, ToolMessage):
             text, _ = _split_content(message.content)
-            if text:
-                items.append(
-                    {
-                        "role": "tool",
-                        "name": getattr(message, "name", None) or "tool",
-                        "content": text,
-                    }
-                )
+            items.append(
+                {
+                    "role": "tool",
+                    "name": getattr(message, "name", None) or "tool",
+                    "content": text,
+                    "tool_call_id": getattr(message, "tool_call_id", None),
+                }
+            )
         elif isinstance(message, AIMessage):
             text, reasoning = _split_content(message.content)
-            if not text and not reasoning:
+            tool_calls: list[dict[str, Any]] = [
+                {
+                    "call_id": tc.get("id"),
+                    "name": tc.get("name"),
+                    "arguments": tc.get("args"),
+                }
+                for tc in (getattr(message, "tool_calls", None) or [])
+                if isinstance(tc, dict)
+            ]
+            # Keep the message if it carries an answer, reasoning, OR tool calls,
+            # so the reconstructed turn can rebuild the tool/handoff flow.
+            if not text and not reasoning and not tool_calls:
                 continue
             item: dict[str, Any] = {"role": "assistant", "content": text}
             if reasoning:
                 item["reasoning"] = reasoning
+            if tool_calls:
+                item["tool_calls"] = tool_calls
             items.append(item)
     return items
 

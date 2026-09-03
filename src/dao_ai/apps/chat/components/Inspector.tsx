@@ -21,7 +21,9 @@ function EventLog({ turn }: { turn: Turn | undefined }) {
   if (!turn || turn.events.length === 0) {
     return (
       <div className="flex h-full items-center justify-center px-6 text-center text-xs text-[var(--color-fg-subtle)]">
-        Event log is empty for this turn.
+        {turn?.restored
+          ? "Live events aren't captured for restored sessions — they're recorded only as a turn streams."
+          : "Event log is empty for this turn."}
       </div>
     );
   }

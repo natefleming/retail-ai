@@ -45,7 +45,12 @@ class TestSessionItemsFromMessages:
         msg = ToolMessage(content="found 3 docs", name="search_docs", tool_call_id="c1")
         items = session_items_from_messages([msg])
         assert items == [
-            {"role": "tool", "name": "search_docs", "content": "found 3 docs"}
+            {
+                "role": "tool",
+                "name": "search_docs",
+                "content": "found 3 docs",
+                "tool_call_id": "c1",
+            }
         ]
 
     @pytest.mark.unit
@@ -54,6 +59,27 @@ class TestSessionItemsFromMessages:
             [AIMessage(content=""), HumanMessage(content="q")]
         )
         assert items == [{"role": "user", "content": "q"}]
+
+    @pytest.mark.unit
+    def test_assistant_tool_calls_reconstructed(self) -> None:
+        # An assistant message with tool calls but no answer text is kept, so a
+        # reloaded turn can rebuild the tool/handoff flow.
+        msg = AIMessage(
+            content="",
+            tool_calls=[
+                {"id": "c1", "name": "handoff_to_comparison", "args": {}},
+            ],
+        )
+        items = session_items_from_messages([msg])
+        assert items == [
+            {
+                "role": "assistant",
+                "content": "",
+                "tool_calls": [
+                    {"call_id": "c1", "name": "handoff_to_comparison", "arguments": {}}
+                ],
+            }
+        ]
 
     @pytest.mark.unit
     def test_full_turn_order_preserved(self) -> None:

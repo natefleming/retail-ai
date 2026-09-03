@@ -83,6 +83,9 @@ export interface Turn {
    * inspector's Outputs tree — includes agent-specific keys the Console
    * doesn't otherwise render. */
   customOutputs?: Record<string, unknown>;
+  /** True for a turn reconstructed from the checkpointer on session reload —
+   * the trace and live event log aren't persisted, so those views say so. */
+  restored?: boolean;
   status: "streaming" | "done" | "error";
 }
 
@@ -395,23 +398,83 @@ export function ConsoleProvider({
   const loadSession = useCallback(async (tid: string) => {
     const thread = await fetchSession(tid);
     if (!thread) return;
-    const loaded: Turn[] = thread.messages
-      .filter((m) => m.role !== "tool")
-      .map((m) => ({
-        id: nextId("h"),
-        role: m.role === "assistant" ? "assistant" : "user",
-        content: m.content,
-        reasoning: m.reasoning ?? "",
-        toolCalls: [],
-        steps: [],
-        visualizations: [],
-        interrupts: [],
-        events: [],
-        status: "done",
-      }));
+
+    // Rebuild turns from the persisted messages, grouping each assistant
+    // response (reasoning + tool calls/handoffs + answer, and any interleaved
+    // worker messages) into a single turn with ordered steps — so Flow and the
+    // conversation show the tool/handoff flow on reload. The trace and live
+    // event log aren't persisted, so those views show a "restored" note.
+    const turns: Turn[] = [];
+    let current: Turn | null = null;
+    const callsById = new Map<string, UIToolCall>();
+
+    const newAssistant = (): Turn => ({
+      id: nextId("h"),
+      role: "assistant",
+      content: "",
+      reasoning: "",
+      toolCalls: [],
+      steps: [],
+      visualizations: [],
+      interrupts: [],
+      events: [],
+      restored: true,
+      status: "done",
+    });
+
+    for (const m of thread.messages) {
+      if (m.role === "user") {
+        current = null;
+        turns.push({
+          id: nextId("h"),
+          role: "user",
+          content: m.content,
+          reasoning: "",
+          toolCalls: [],
+          steps: [],
+          visualizations: [],
+          interrupts: [],
+          events: [],
+          restored: true,
+          status: "done",
+        });
+      } else if (m.role === "assistant") {
+        if (!current) {
+          current = newAssistant();
+          turns.push(current);
+        }
+        if (m.reasoning) {
+          current.reasoning = current.reasoning
+            ? `${current.reasoning} ${m.reasoning}`
+            : m.reasoning;
+          current.steps.push({ kind: "reasoning", id: nextId("rs"), text: m.reasoning });
+        }
+        for (const tc of m.tool_calls ?? []) {
+          const callId = tc.call_id ?? nextId("tc");
+          const call: UIToolCall = {
+            call_id: callId,
+            name: tc.name ?? "tool",
+            arguments: tc.arguments,
+            status: "completed",
+          };
+          current.toolCalls.push(call);
+          callsById.set(callId, call);
+          current.steps.push({ kind: "tool", callId });
+        }
+        if (m.content) {
+          current.content = m.content;
+          current.steps.push({ kind: "text", id: nextId("tx"), text: m.content });
+        }
+      } else if (m.role === "tool") {
+        // Attach the tool result to its call (results follow the call message).
+        const call = m.tool_call_id ? callsById.get(m.tool_call_id) : undefined;
+        if (call) call.result = m.content;
+      }
+    }
+
     setThreadId(tid);
-    setTurns(loaded);
-    setSelectedTurnId(loaded[loaded.length - 1]?.id);
+    setTurns(turns);
+    setSelectedTurnId(turns[turns.length - 1]?.id);
   }, []);
 
   const value = useMemo<ConsoleState>(

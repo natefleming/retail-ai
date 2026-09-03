@@ -178,6 +178,10 @@ export interface SessionMessage {
   content: string;
   reasoning?: string;
   name?: string;
+  /** Tool calls this assistant message issued (reconstructed from the checkpointer). */
+  tool_calls?: { call_id?: string; name?: string; arguments?: unknown }[];
+  /** For a tool message, the call id it answers (to pair result → call). */
+  tool_call_id?: string;
 }
 
 export interface SessionThread {

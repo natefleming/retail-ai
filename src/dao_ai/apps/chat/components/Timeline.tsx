@@ -187,6 +187,12 @@ function Payload({ label, value }: { label: string; value: unknown }) {
 /** Explain *why* there's no waterfall — pending vs. genuinely unavailable —
  * so a missing trace_location reads as a config note, not a broken panel. */
 function emptyLabel(turn: Turn | undefined): string {
+  if (turn?.restored) {
+    return (
+      "Trace spans aren't captured for restored sessions — the trace id isn't " +
+      "persisted with the conversation. Re-run the turn to inspect its waterfall."
+    );
+  }
   if (!turn || (!turn.traceId && turn.status !== "done")) {
     return "No trace yet — run a turn to see the span waterfall.";
   }
