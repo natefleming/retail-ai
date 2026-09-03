@@ -12,7 +12,8 @@ and builds.
 
 from __future__ import annotations
 
-from typing import Any
+import os
+from typing import Any, Optional
 
 from loguru import logger
 
@@ -135,6 +136,75 @@ def build_trace_tree(spans: list[Any], *, trace_id: str) -> dict[str, Any]:
         "duration_ms": _ns_to_ms(max_end_ns - root_start_ns),
         "spans": roots,
     }
+
+
+def _workspace_host() -> Optional[str]:
+    """The Databricks workspace host for building UI deep links.
+
+    The Console runs on ``*.databricksapps.com``, but trace links must point at
+    the workspace UI, so resolve the workspace host from the environment / SDK
+    config (the browser can't derive it).
+    """
+    host = os.environ.get("DATABRICKS_HOST")
+    if not host:
+        try:
+            from databricks.sdk import WorkspaceClient
+
+            host = WorkspaceClient().config.host
+        except Exception:  # noqa: BLE001 — no workspace host available
+            return None
+    if not host:
+        return None
+    host = host.rstrip("/")
+    return host if host.startswith("http") else f"https://{host}"
+
+
+def _active_experiment_id() -> Optional[str]:
+    """Best-effort active MLflow experiment id (for control-plane ``tr-`` ids)."""
+    exp = os.environ.get("MLFLOW_EXPERIMENT_ID")
+    if exp:
+        return exp
+    try:
+        from mlflow.tracking.fluent import _get_experiment_id
+
+        return _get_experiment_id()
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def build_trace_ui_url(trace_id: str) -> Optional[str]:
+    """Build a Databricks workspace deep link to view ``trace_id`` in the UI.
+
+    Handles both id forms:
+
+    - ``trace:/<catalog>.<schema>.<experiment_id>/<hex>`` (UC trace_location) —
+      the experiment id is embedded and the UI trace id is ``tr-<hex>``.
+    - ``tr-<hex>`` (control plane) — the experiment id is the active experiment.
+
+    Returns ``None`` when the host or experiment can't be resolved, so the
+    Console simply omits the link. Format:
+    ``https://<host>/ml/experiments/<experiment_id>/traces/<trace_id>``.
+    """
+    if not trace_id:
+        return None
+    host = _workspace_host()
+    if not host:
+        return None
+
+    if trace_id.startswith("trace:/"):
+        rest = trace_id[len("trace:/") :]
+        location, _, hex_id = rest.partition("/")
+        experiment_id = location.split(".")[-1] if "." in location else None
+        if not hex_id:
+            return None
+        ui_trace_id = hex_id if hex_id.startswith("tr-") else f"tr-{hex_id}"
+    else:
+        experiment_id = _active_experiment_id()
+        ui_trace_id = trace_id
+
+    if not experiment_id or not ui_trace_id:
+        return None
+    return f"{host}/ml/experiments/{experiment_id}/traces/{ui_trace_id}"
 
 
 def wait_for_trace(trace_id: str, *, timeout_seconds: float = 5.0) -> bool:

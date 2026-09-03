@@ -1,9 +1,10 @@
-import { useState } from "react";
-import { Activity, GitBranch, ListTree } from "lucide-react";
+import { useEffect, useState } from "react";
+import { Activity, ExternalLink, GitBranch, ListTree } from "lucide-react";
 import { clsx } from "clsx";
 
 import { Flow } from "@/components/Flow";
 import { Timeline } from "@/components/Timeline";
+import { fetchTraceUrl } from "@/lib/api";
 import { useConsoleContext, type Turn, type UIEvent } from "@/runtime/useConsole";
 
 type Tab = "flow" | "timeline" | "events";
@@ -39,11 +40,40 @@ function EventLog({ turn }: { turn: Turn | undefined }) {
   );
 }
 
+function TraceLink({ traceId }: { traceId: string }) {
+  const [url, setUrl] = useState<string | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    setUrl(null);
+    void fetchTraceUrl(traceId).then((u) => {
+      if (!cancelled) setUrl(u);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [traceId]);
+
+  const label = `trace ${traceId.slice(0, 12)}…`;
+  if (!url) return <span title={traceId}>{label}</span>;
+  return (
+    <a
+      href={url}
+      target="_blank"
+      rel="noreferrer"
+      title={`View trace in Databricks: ${traceId}`}
+      className="inline-flex items-center gap-1 text-[var(--color-primary)] hover:underline"
+    >
+      {label}
+      <ExternalLink size={10} />
+    </a>
+  );
+}
+
 function Metadata({ turn }: { turn: Turn | undefined }) {
   if (!turn) return null;
   return (
-    <div className="flex flex-wrap gap-x-4 gap-y-1 border-b border-[var(--color-line)] px-3 py-2 font-mono text-[10px] text-[var(--color-fg-subtle)]">
-      {turn.traceId && <span title="MLflow trace id">trace {turn.traceId.slice(0, 12)}…</span>}
+    <div className="flex flex-wrap items-center gap-x-4 gap-y-1 border-b border-[var(--color-line)] px-3 py-2 font-mono text-[10px] text-[var(--color-fg-subtle)]">
+      {turn.traceId && <TraceLink traceId={turn.traceId} />}
       {turn.trace && <span className="tabular-nums">{turn.trace.duration_ms.toFixed(0)} ms</span>}
       <span>{turn.toolCalls.length} tools</span>
       <span className={turn.status === "error" ? "text-[var(--color-span-error)]" : ""}>

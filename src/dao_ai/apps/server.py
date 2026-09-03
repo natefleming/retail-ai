@@ -196,7 +196,14 @@ def _mount_trace_routes() -> None:
     from fastapi.responses import JSONResponse
     from loguru import logger
 
-    from dao_ai.apps.traces import get_trace_tree
+    from dao_ai.apps.traces import build_trace_ui_url, get_trace_tree
+
+    @app.get("/v1/trace-url")
+    def get_trace_url(trace_id: str = Query(...)):
+        # Deep link to the trace in the Databricks workspace UI. Works even when
+        # the Apps runtime can't read the trace store (the browser can reach the
+        # workspace UI), so the Console can offer it alongside an empty Timeline.
+        return JSONResponse({"url": build_trace_ui_url(trace_id)})
 
     @app.get("/v1/traces")
     def get_trace(trace_id: str = Query(...)):

@@ -210,3 +210,32 @@ class TestBuildTreeRobustness:
         tree = build_trace_tree([loopy], trace_id="tr")  # must not recurse
         assert tree["spans"][0]["span_id"] == "x"
         assert tree["spans"][0]["children"] == []
+
+
+class TestTraceUiUrl:
+    @pytest.mark.unit
+    def test_uc_uri_embeds_experiment_and_prefixes_hex(self, monkeypatch) -> None:
+        monkeypatch.setenv("DATABRICKS_HOST", "https://ws.cloud.databricks.com")
+        from dao_ai.apps.traces import build_trace_ui_url
+
+        url = build_trace_ui_url("trace:/cat.sch.540443496685391/abc123")
+        assert url == (
+            "https://ws.cloud.databricks.com/ml/experiments/540443496685391/traces/tr-abc123"
+        )
+
+    @pytest.mark.unit
+    def test_control_plane_id_uses_active_experiment(self, monkeypatch) -> None:
+        monkeypatch.setenv("DATABRICKS_HOST", "ws.cloud.databricks.com")
+        monkeypatch.setenv("MLFLOW_EXPERIMENT_ID", "999")
+        from dao_ai.apps.traces import build_trace_ui_url
+
+        url = build_trace_ui_url("tr-deadbeef")
+        assert url == "https://ws.cloud.databricks.com/ml/experiments/999/traces/tr-deadbeef"
+
+    @pytest.mark.unit
+    def test_no_host_yields_none(self, monkeypatch) -> None:
+        monkeypatch.delenv("DATABRICKS_HOST", raising=False)
+        from dao_ai.apps import traces
+
+        monkeypatch.setattr(traces, "_workspace_host", lambda: None)
+        assert traces.build_trace_ui_url("tr-x") is None

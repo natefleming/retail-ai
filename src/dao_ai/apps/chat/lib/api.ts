@@ -100,6 +100,18 @@ function parseSseFrame(frame: string): StreamEvent | null {
   }
 }
 
+/** Resolve a Databricks workspace UI deep link for a trace (null if unavailable). */
+export async function fetchTraceUrl(traceId: string): Promise<string | null> {
+  try {
+    const res = await fetch(`/v1/trace-url?trace_id=${encodeURIComponent(traceId)}`);
+    if (!res.ok) return null;
+    const data = (await res.json()) as { url: string | null };
+    return data.url ?? null;
+  } catch {
+    return null;
+  }
+}
+
 export async function fetchTrace(traceId: string): Promise<TraceTree | null> {
   // trace_id is passed as a query param: trace_location ids are UC URIs
   // (trace:/<catalog>.<schema>.<prefix>/<id>) whose slashes break a path param.
