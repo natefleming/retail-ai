@@ -1,36 +1,37 @@
 """Chat UI constants and helpers for Databricks Apps deployments.
 
-Provides shared constants, the clone+build logic for the e2e-chatbot-app-next
-template, and the env-var definitions used by both the ``generate-agent``
-and ``deploy-agent`` paths.
+Ships the in-repo **dao-ai Console** (a Next.js app under ``dao_ai/apps/chat``)
+with the wheel, stages it into a writable working dir on the Databricks Apps
+container, and builds it there (the Apps runtime has Node.js + npm pre-installed).
+Also defines the env vars used by both the ``generate-agent`` and
+``deploy-agent`` paths.
 
-The chat UI is cloned from GitHub and built at runtime on the Databricks Apps
-container (which has Node.js 20 + npm + git pre-installed), following the same
-pattern as the official Databricks agent templates.
+The Console replaces the previously cloned ``e2e-chatbot-app-next`` template:
+the source lives in the repo (and the wheel), so no runtime ``git clone`` is
+needed and the UI evolves in lockstep with the agent's streaming contract.
 """
 
+import json
 import os
 import shutil
 import subprocess
 from pathlib import Path
+from typing import Any, Optional
 
 from loguru import logger
 
-CHAT_APP_DIR: str = "e2e-chatbot-app-next"
-REPO_URL_HTTPS: str = "https://github.com/databricks/app-templates.git"
-REPO_URL_SSH: str = "git@github.com:databricks/app-templates.git"
+# Working-dir name for the staged/built Console (under the app's cwd on the
+# Apps container). Kept distinct from the package source dir (``chat``).
+CHAT_APP_DIR: str = "dao-ai-console"
 
 _DEFAULT_BACKEND_PORT: int = 8000
 _DEFAULT_FRONTEND_PORT: int = 3000
 _DEFAULT_PROXY_TIMEOUT: int = 300
 
-# Env-var prefixes whose presence triggers the chat UI's drizzle migration at
-# npm-build time (and its runtime persistence code paths). The bundled
-# e2e-chatbot-app-next template's migrator hits a "drizzle" schema that isn't
-# auto-created, so the build fails when these are set. Stripping them forces
-# the chat UI's isDatabaseAvailable() check to return false, routing into
-# ephemeral mode for both build and runtime — the SPA renders without
-# persisting chat history.
+# Env-var prefixes stripped from the npm subprocess environment. The Console
+# talks to the agent only over HTTP (``API_PROXY`` / ``/v1/*``) and never opens
+# a database connection, so DB-binding vars are irrelevant to its build/run;
+# stripping them keeps the Node toolchain from picking up ambient credentials.
 _DB_ENV_VAR_PREFIXES: tuple[str, ...] = (
     "PG",
     "POSTGRES",
@@ -41,18 +42,15 @@ _DB_ENV_VAR_PREFIXES: tuple[str, ...] = (
 
 
 def sanitized_npm_env() -> dict[str, str]:
-    """Return a copy of os.environ with DB-binding env vars stripped.
+    """Return a copy of ``os.environ`` with DB-binding env vars stripped.
 
-    Used when invoking the chat UI's npm subprocesses so the bundled
-    e2e-chatbot-app-next template skips its drizzle migration and runs in
-    ephemeral mode regardless of whether a postgres resource is bound to the
-    Databricks App.
+    Used when invoking the Console's npm subprocesses so the Node toolchain
+    never inherits database credentials it has no use for.
     """
     stripped = sorted(k for k in os.environ if k.startswith(_DB_ENV_VAR_PREFIXES))
     if stripped:
         logger.debug(
-            "Stripping DB-binding env vars from npm subprocess",
-            keys=stripped,
+            "Stripping DB-binding env vars from npm subprocess", keys=stripped
         )
     return {
         k: v for k, v in os.environ.items() if not k.startswith(_DB_ENV_VAR_PREFIXES)
@@ -60,68 +58,47 @@ def sanitized_npm_env() -> dict[str, str]:
 
 
 class ChatUIBuildError(Exception):
-    """Raised when the chat UI cannot be built (missing Node.js, npm, or git)."""
+    """Raised when the Console cannot be staged or built (missing source/npm/Node)."""
+
+
+def _packaged_chat_dir() -> Path:
+    """Path to the Console source shipped inside the wheel (``dao_ai/apps/chat``)."""
+    return Path(__file__).resolve().parent / "chat"
 
 
 def _is_built(chat_dir: Path) -> bool:
-    """Return True if the chat UI has already been built."""
-    server_dist = chat_dir / "server" / "dist"
-    return server_dist.is_dir() and any(server_dist.iterdir())
+    """Return True if the Next.js production build output (``.next``) exists."""
+    next_dir = chat_dir / ".next"
+    return next_dir.is_dir() and any(next_dir.iterdir())
 
 
-def _clone_chat_app(target_parent: Path) -> Path:
-    """Clone the e2e-chatbot-app-next template into *target_parent*.
+# Never copy build output or dependencies when staging source.
+_STAGE_IGNORE = shutil.ignore_patterns(
+    "node_modules", ".next", "out", "*.log", ".env", ".env.*"
+)
 
-    Tries HTTPS first, then SSH. Raises ChatUIBuildError on failure.
+
+def stage_chat_app(target_parent: Path) -> Path:
+    """Copy the packaged Console source into ``target_parent / CHAT_APP_DIR``.
+
+    Idempotent: returns the existing directory if already staged. Only source
+    is copied (build output and ``node_modules`` are excluded), so the build
+    happens fresh in this writable location rather than in site-packages.
     """
     target_dir = target_parent / CHAT_APP_DIR
     if target_dir.exists():
         return target_dir
 
-    git_bin = shutil.which("git")
-    if not git_bin:
+    src = _packaged_chat_dir()
+    if not src.is_dir():
         raise ChatUIBuildError(
-            "git is not installed. Install git or set "
-            "`app.enable_chat_proxy: false` in your config."
+            f"dao-ai Console source not found at {src}. The wheel may have been "
+            "built without the UI. Set `app.enable_chat_proxy: false` in your "
+            "config to run the agent backend without a UI."
         )
 
-    temp_dir = target_parent / "temp-app-templates"
-    for url in [REPO_URL_HTTPS, REPO_URL_SSH]:
-        try:
-            subprocess.run(
-                [
-                    "git",
-                    "clone",
-                    "--filter=blob:none",
-                    "--sparse",
-                    url,
-                    str(temp_dir),
-                ],
-                check=True,
-                capture_output=True,
-            )
-            break
-        except subprocess.CalledProcessError:
-            if temp_dir.exists():
-                shutil.rmtree(temp_dir, ignore_errors=True)
-            continue
-    else:
-        raise ChatUIBuildError(
-            "Failed to clone the app-templates repository from GitHub.\n"
-            "Ensure you have network access and git is configured.\n"
-            "Alternatively, set `app.enable_chat_proxy: false` in your config."
-        )
-
-    subprocess.run(
-        ["git", "sparse-checkout", "set", CHAT_APP_DIR],
-        cwd=temp_dir,
-        check=True,
-        capture_output=True,
-    )
-    (temp_dir / CHAT_APP_DIR).rename(target_dir)
-    shutil.rmtree(temp_dir, ignore_errors=True)
-
-    logger.info("Cloned chat UI template", path=str(target_dir))
+    shutil.copytree(src, target_dir, ignore=_STAGE_IGNORE)
+    logger.info("Staged dao-ai Console source", path=str(target_dir))
     return target_dir
 
 
@@ -154,15 +131,15 @@ def ensure_chat_ui_built(
     *,
     force_rebuild: bool = False,
 ) -> Path:
-    """Clone (if needed) and build the chat UI in *target_parent / CHAT_APP_DIR*.
+    """Stage (if needed) and build the Console in *target_parent / CHAT_APP_DIR*.
 
-    Returns the path to the built chat UI directory.  Raises
-    ``ChatUIBuildError`` if git, npm, or Node.js is missing.
+    Returns the path to the built Console directory. Raises ``ChatUIBuildError``
+    if the source is missing or npm/Node is unavailable.
     """
-    chat_dir = _clone_chat_app(target_parent)
+    chat_dir = stage_chat_app(target_parent)
 
     if _is_built(chat_dir) and not force_rebuild:
-        logger.info("Chat UI already built, skipping rebuild", path=str(chat_dir))
+        logger.info("Console already built, skipping rebuild", path=str(chat_dir))
         return chat_dir
 
     _npm_run(chat_dir, ["install"], "install")
@@ -170,11 +147,10 @@ def ensure_chat_ui_built(
 
     if not _is_built(chat_dir):
         raise ChatUIBuildError(
-            f"npm run build completed but no output found in {chat_dir / 'server' / 'dist'}. "
-            "Check the e2e-chatbot-app-next template for build issues."
+            f"`next build` completed but no output found in {chat_dir / '.next'}."
         )
 
-    logger.info("Chat UI built successfully", path=str(chat_dir))
+    logger.info("Console built successfully", path=str(chat_dir))
     return chat_dir
 
 
@@ -182,14 +158,49 @@ def chat_ui_env_vars(
     backend_port: int = _DEFAULT_BACKEND_PORT,
     frontend_port: int = _DEFAULT_FRONTEND_PORT,
     timeout_seconds: int = _DEFAULT_PROXY_TIMEOUT,
+    ui_config: Optional[dict[str, Any]] = None,
 ) -> list[dict[str, str]]:
-    """Return env-var dicts needed by the AgentServer chat proxy.
+    """Return env-var dicts needed by the AgentServer chat proxy + Console.
 
     Used by both ``generate_databricks_yaml`` (generate-agent path) and
     ``generate_app_yaml`` (deploy-agent path) to keep them in sync.
+
+    ``CHAT_PROXY_ALLOWED_PATH_PREFIXES`` adds ``/_next/`` to the MLflow
+    AgentServer proxy allowlist so Next.js static assets are forwarded to the
+    Console frontend (the default allowlist only covers Vite's ``/assets/``).
+    ``DAO_AI_UI_CONFIG`` carries the resolved ``AppUIModel`` to the Console.
     """
-    return [
+    env: list[dict[str, str]] = [
         {"name": "API_PROXY", "value": f"http://localhost:{backend_port}/invocations"},
         {"name": "CHAT_APP_PORT", "value": str(frontend_port)},
         {"name": "CHAT_PROXY_TIMEOUT_SECONDS", "value": str(timeout_seconds)},
+        {"name": "CHAT_PROXY_ALLOWED_PATH_PREFIXES", "value": "/_next/"},
     ]
+    if ui_config:
+        env.append({"name": "DAO_AI_UI_CONFIG", "value": json.dumps(ui_config)})
+    return env
+
+
+def resolve_ui_config(
+    *,
+    app_name: str,
+    app_description: Optional[str],
+    ui: Optional[Any],
+) -> Optional[dict[str, Any]]:
+    """Resolve the AppUIModel dict for the Console, defaulting the title and
+    subtitle to the deployed app's ``name`` / ``description`` when not set.
+
+    So a Console with no explicit ``ui.title``/``ui.subtitle`` shows the actual
+    agent's name and description (in the header and the new-session screen)
+    rather than a generic placeholder. ``ui`` is an ``AppUIModel`` (or None).
+    """
+    cfg: dict[str, Any] = dict(ui.model_dump(mode="json")) if ui is not None else {}
+    if not cfg.get("title"):
+        cfg["title"] = app_name
+    if not cfg.get("subtitle") and app_description:
+        cfg["subtitle"] = app_description
+    # Stamp the running dao-ai version so the Console can surface it.
+    from dao_ai.utils import dao_ai_version
+
+    cfg["version"] = dao_ai_version()
+    return cfg or None

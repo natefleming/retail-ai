@@ -1,6 +1,8 @@
 import asyncio
 import json
+import time
 import uuid
+from datetime import datetime, timezone
 from os import PathLike
 from pathlib import Path
 from typing import (
@@ -84,13 +86,17 @@ from dao_ai.state import Context, context_configurable_fields
 def _extract_reasoning_text(block: dict[str, Any]) -> str | None:
     """Extract reasoning or thinking text from a single content block.
 
-    Handles all known reasoning block formats across providers:
+    Handles known reasoning block formats across providers, and degrades to
+    ``None`` for anything else (a model with no reasoning simply yields no
+    reasoning — never a crash or leaked JSON):
 
     - **Databricks/OpenAI**: ``{"type": "reasoning", "summary": [{"type": "summary_text", "text": "..."}]}``
     - **LangChain standard**: ``{"type": "reasoning", "reasoning": "..."}``
     - **Anthropic native**: ``{"type": "thinking", "thinking": "..."}``
+    - **OSS (DeepSeek / Kimi / GLM …)**: ``reasoning_content`` as a block type
+      or a sibling key.
 
-    Returns ``None`` when the block is not a reasoning/thinking block.
+    Returns ``None`` when the block carries no reasoning text.
     """
     block_type: str = block.get("type", "")
     if block_type == "reasoning":
@@ -108,33 +114,61 @@ def _extract_reasoning_text(block: dict[str, Any]) -> str | None:
     elif block_type == "thinking":
         if thinking := block.get("thinking"):
             return str(thinking)
+    # OSS convention: reasoning under ``reasoning_content`` (block type or key).
+    if block_type == "reasoning_content" or "reasoning_content" in block:
+        if rc := block.get("reasoning_content"):
+            return str(rc)
     return None
 
 
-def _extract_text_content(content: str | list[dict[str, Any]]) -> str:
-    """Extract text from message content, handling provider content-block formats.
+def _split_content(content: str | list[dict[str, Any]]) -> tuple[str, str]:
+    """Split message content into ``(answer_text, reasoning_text)`` channels.
 
-    Handles two delivery forms:
+    This is the pure parsing primitive shared by ``_extract_text_content`` (which
+    reassembles the two channels into a legacy markdown blockquote) and the
+    streaming agent (which emits them as separate Responses items). Neither
+    channel carries any markdown formatting.
+
+    Handles three delivery forms:
 
     1. **JSON string** -- ``ChatDatabricks`` Chat Completions API calls
        ``json.dumps()`` on non-string content, producing strings like
        ``'[{"type": "reasoning", ...}, {"type": "text", ...}]'``.
     2. **Python list** -- ``ChatDatabricks`` Responses API or native
        ``ChatAnthropic`` returns ``list[dict]`` directly.
+    3. **Concatenated blocks + trailing text** -- a checkpointer-persisted
+       Claude message can reload as leading content-block arrays glued to the
+       answer text, e.g.
+       ``'[{"type":"reasoning",...}][{"type":"reasoning",...}]Hi Nate…'`` — the
+       reasoning blocks are peeled off the front and the remainder is the answer.
 
-    Reasoning / thinking blocks are formatted as a markdown blockquote in
-    italics so they are visually separated from the main response text.
+    A plain string (not a content-block array) is returned as the answer text
+    with empty reasoning.
     """
     if isinstance(content, str):
         stripped: str = content.strip()
-        if stripped.startswith("[") and stripped.endswith("]"):
-            try:
-                parsed: Any = json.loads(stripped)
-                if isinstance(parsed, list) and parsed and isinstance(parsed[0], dict):
-                    return _extract_text_content(parsed)
-            except (json.JSONDecodeError, ValueError):
-                pass
-        return content
+        if stripped.startswith("["):
+            blocks, remainder = _consume_leading_block_arrays(stripped)
+            if blocks:
+                text, reasoning = _split_content(blocks)
+                tail: str = remainder.strip()
+                if tail:
+                    text = f"{text}{tail}" if text else tail
+                return text, reasoning
+            # A complete JSON array of dicts that aren't content-block-shaped
+            # (no ``type`` key) — parse and split rather than leak the raw JSON.
+            if stripped.endswith("]"):
+                try:
+                    parsed: Any = json.loads(stripped)
+                except (json.JSONDecodeError, ValueError):
+                    parsed = None
+                if (
+                    isinstance(parsed, list)
+                    and parsed
+                    and all(isinstance(b, dict) for b in parsed)
+                ):
+                    return _split_content(parsed)
+        return content, ""
 
     if isinstance(content, list):
         text_parts: list[str] = []
@@ -146,16 +180,259 @@ def _extract_text_content(content: str | list[dict[str, Any]]) -> str:
                 elif (reasoning := _extract_reasoning_text(block)) is not None:
                     reasoning_parts.append(reasoning)
             elif isinstance(block, str):
-                text_parts.append(block)
+                # A stringified block — recurse so an embedded content-block
+                # array is split rather than leaking as literal text.
+                block_text, block_reasoning = _split_content(block)
+                if block_text:
+                    text_parts.append(block_text)
+                if block_reasoning:
+                    reasoning_parts.append(block_reasoning)
+        return "".join(text_parts), " ".join(reasoning_parts)
 
-        result_parts: list[str] = []
-        if reasoning_parts:
-            reasoning_text: str = " ".join(reasoning_parts)
-            result_parts.append(f"\n\n> *{reasoning_text}*\n\n")
-        result_parts.extend(text_parts)
-        return "".join(result_parts)
+    return str(content), ""
 
-    return str(content)
+
+def _consume_leading_block_arrays(s: str) -> tuple[list[dict[str, Any]], str]:
+    """Peel consecutive leading JSON content-block arrays off ``s``.
+
+    Returns the flattened block dicts and the trailing remainder (the plain
+    answer text). Only arrays whose elements are ``{"type": ...}`` dicts are
+    consumed, so an answer that merely starts with some other JSON (or ``[`` in
+    prose) is left intact as text.
+    """
+    decoder = json.JSONDecoder()
+    blocks: list[dict[str, Any]] = []
+    idx: int = 0
+    n: int = len(s)
+    while idx < n:
+        while idx < n and s[idx].isspace():
+            idx += 1
+        if idx >= n or s[idx] != "[":
+            break
+        try:
+            value, end = decoder.raw_decode(s, idx)
+        except (json.JSONDecodeError, ValueError):
+            break
+        if not (
+            isinstance(value, list)
+            and value
+            and all(isinstance(b, dict) and "type" in b for b in value)
+        ):
+            break
+        blocks.extend(value)
+        idx = end
+    return blocks, s[idx:]
+
+
+# OBO identity headers, most human-readable first. Databricks Apps forward all
+# three; ``x-forwarded-user`` is the numeric SCIM id (e.g. ``123@<workspace>``),
+# so it's the last resort — the preferred-username / email give the login name a
+# user (and the model-serving playground) expects to see.
+_USER_ID_HEADER_PREFERENCE: tuple[str, ...] = (
+    "x-forwarded-preferred-username",
+    "x-forwarded-email",
+    "x-forwarded-user",
+)
+
+
+def resolve_user_id_from_headers(headers: dict[str, Any] | None) -> str | None:
+    """Resolve a human-readable ``user_id`` from OBO request headers.
+
+    Prefers the login name (preferred-username, then email) over the numeric
+    ``x-forwarded-user`` id, case-insensitively. Returns ``None`` when no
+    identity header is present (local/dev). Callers apply namespace
+    normalization (``.`` → ``_``).
+    """
+    if not headers:
+        return None
+    lowered: dict[str, Any] = {str(k).lower(): v for k, v in headers.items()}
+    for name in _USER_ID_HEADER_PREFERENCE:
+        value = lowered.get(name)
+        if value:
+            return str(value)
+    return None
+
+
+def _extract_text_content(content: str | list[dict[str, Any]]) -> str:
+    """Extract text from message content, handling provider content-block formats.
+
+    Reasoning / thinking blocks are formatted as a markdown blockquote in
+    italics so they are visually separated from the main response text. This
+    legacy formatting is preserved for non-streaming callers; the streaming
+    path uses :func:`_split_content` directly to emit reasoning as a separate
+    channel. See :func:`_split_content` for the delivery forms handled.
+    """
+    text, reasoning = _split_content(content)
+    if reasoning:
+        return f"\n\n> *{reasoning}*\n\n{text}"
+    return text
+
+
+_TOOL_RESULT_SUMMARY_LIMIT: int = 2000
+
+
+def _truncate(text: str, limit: int = _TOOL_RESULT_SUMMARY_LIMIT) -> str:
+    """Truncate a tool-result / error summary for streaming, marking elision."""
+    if len(text) <= limit:
+        return text
+    return f"{text[:limit]}… (truncated, {len(text)} chars)"
+
+
+class _DaoAiStreamCollector(AsyncCallbackHandler):
+    """Per-request callback handler that captures MCP notifications *and*
+    tool-call lifecycle events onto a queue for the streaming agent to drain
+    into SSE items.
+
+    Tool timing is computed here (LangChain callbacks carry no span
+    durations), keyed by each tool run's ``run_id``. This *observes* tools via
+    the callback manager rather than wrapping them, so named tool subclasses
+    are preserved and the behaviour is config-agnostic — callbacks fire for
+    every tool in any graph, with no per-tool wiring or config lookups.
+
+    Envelope channels enqueued:
+
+    - ``mcp.*`` / ``dao_ai.audit.*`` -- MCP notifications (unchanged behaviour).
+    - ``dao_ai.tool.start`` -- ``{call_id, name, arguments, started_at}``.
+    - ``dao_ai.tool.end`` -- ``{call_id, duration_ms, result_summary}``.
+    - ``dao_ai.tool.error`` -- ``{call_id, duration_ms, error}``.
+
+    ``call_id`` is the tool run's ``run_id`` so a UI can correlate start↔end.
+    """
+
+    def __init__(self, queue: "asyncio.Queue[dict[str, Any]]") -> None:
+        self._queue = queue
+        self._starts: dict[UUID, float] = {}
+
+    async def on_custom_event(
+        self,
+        name: str,
+        data: Any,
+        *,
+        run_id: UUID,
+        tags: list[str] | None = None,
+        metadata: dict[str, Any] | None = None,
+        **kwargs: Any,
+    ) -> None:
+        if not isinstance(data, dict):
+            return
+        channel = data.get("channel")
+        if not isinstance(channel, str) or not (
+            channel.startswith("mcp.") or channel.startswith("dao_ai.audit.")
+        ):
+            return
+        await self._queue.put(data)
+
+    async def on_tool_start(
+        self,
+        serialized: dict[str, Any] | None,
+        input_str: str,
+        *,
+        run_id: UUID,
+        inputs: dict[str, Any] | None = None,
+        **kwargs: Any,
+    ) -> None:
+        self._starts[run_id] = time.monotonic()
+        await self._queue.put(
+            {
+                "channel": "dao_ai.tool.start",
+                "call_id": str(run_id),
+                "name": (serialized or {}).get("name", "tool"),
+                "arguments": inputs or {},
+                "started_at": datetime.now(timezone.utc).isoformat(),
+            }
+        )
+
+    async def on_tool_end(
+        self,
+        output: Any,
+        *,
+        run_id: UUID,
+        **kwargs: Any,
+    ) -> None:
+        await self._queue.put(
+            {
+                "channel": "dao_ai.tool.end",
+                "call_id": str(run_id),
+                "duration_ms": self._elapsed_ms(run_id),
+                "result_summary": _truncate(str(output)),
+            }
+        )
+
+    async def on_tool_error(
+        self,
+        error: BaseException,
+        *,
+        run_id: UUID,
+        **kwargs: Any,
+    ) -> None:
+        await self._queue.put(
+            {
+                "channel": "dao_ai.tool.error",
+                "call_id": str(run_id),
+                "duration_ms": self._elapsed_ms(run_id),
+                "error": _truncate(str(error)),
+            }
+        )
+
+    def _elapsed_ms(self, run_id: UUID) -> float:
+        start: float | None = self._starts.pop(run_id, None)
+        if start is None:
+            return 0.0
+        return round((time.monotonic() - start) * 1000, 1)
+
+
+def _stream_item_for_envelope(
+    envelope: dict[str, Any], *, item_id: str, seq: int
+) -> dict[str, Any]:
+    """Translate a :class:`_DaoAiStreamCollector` envelope into the ``item``
+    payload of a ``response.output_item.added`` SSE event.
+
+    Tool lifecycle envelopes map to the MLflow Responses ``function_call`` /
+    ``function_call_output`` taxonomy (with an added ``status`` and, on
+    completion, ``duration_ms``); MCP / audit notifications keep their existing
+    ``custom_tool_call`` shape. ``item_id`` and ``seq`` disambiguate MCP item
+    ids within a turn.
+    """
+    channel: str = str(envelope.get("channel", "mcp.event"))
+
+    if channel == "dao_ai.tool.start":
+        call_id: str = str(envelope.get("call_id", ""))
+        item: dict[str, Any] = ResponsesAgent.create_function_call_item(
+            id=f"fc_{call_id}",
+            call_id=call_id,
+            name=str(envelope.get("name", "tool")),
+            arguments=json.dumps(envelope.get("arguments", {})),
+        )
+        return {
+            **item,
+            "status": "in_progress",
+            "started_at": envelope.get("started_at"),
+        }
+
+    if channel in ("dao_ai.tool.end", "dao_ai.tool.error"):
+        is_error: bool = channel == "dao_ai.tool.error"
+        output: str = str(
+            envelope.get("error") if is_error else envelope.get("result_summary", "")
+        )
+        item = ResponsesAgent.create_function_call_output_item(
+            call_id=str(envelope.get("call_id", "")),
+            output=output,
+        )
+        return {
+            **item,
+            "status": "error" if is_error else "completed",
+            "duration_ms": envelope.get("duration_ms"),
+        }
+
+    # MCP / audit notification -- unchanged custom_tool_call shape.
+    server_name: str = str(envelope.get("server_name", "unknown"))
+    return {
+        "id": f"mcp_{server_name}_{item_id}_{seq}",
+        "type": "custom_tool_call",
+        "status": "in_progress",
+        "name": channel,
+        "input": envelope,
+    }
 
 
 VEGA_LITE_SCHEMA_PREFIX: str = "https://vega.github.io/schema/vega-lite/"
@@ -542,10 +819,10 @@ class LanggraphChatModel(ChatModel):
         # Extract known Context fields
         user_id: str | None = configurable.pop("user_id", None)
 
-        # Fall back to x-forwarded-user header (set by Databricks Apps OBO)
+        # Fall back to the OBO identity headers (set by Databricks Apps),
+        # preferring the login name over the numeric x-forwarded-user id.
         if not user_id:
-            headers = configurable.get("headers") or {}
-            user_id = headers.get("x-forwarded-user") or headers.get("X-Forwarded-User")
+            user_id = resolve_user_id_from_headers(configurable.get("headers"))
 
         if user_id:
             user_id = user_id.replace(".", "_")
@@ -1320,72 +1597,88 @@ class LanggraphResponsesAgent(ResponsesAgent):
         session_input: dict[str, Any] = self._extract_session_from_request(request)
 
         item_id: str = f"msg_{uuid.uuid4().hex[:8]}"
+        reasoning_item_id: str = f"reason_{uuid.uuid4().hex[:8]}"
         accumulated_content: str = ""
+        accumulated_reasoning: str = ""
+        # Track whether the reasoning item has been announced via
+        # ``response.output_item.added`` — the OpenAI Responses contract expects
+        # an item to be announced before any delta references its ``item_id``.
+        reasoning_item_started: bool = False
         tool_messages: list[ToolMessage] = []
         interrupt_data: list[HITLRequest] = []
         seen_interrupt_keys: set[str] = set()
         structured_response: Any = None
 
-        # MCP notification envelopes captured from tools via LangChain's
-        # callback manager. A per-request AsyncCallbackHandler is attached
-        # to ``custom_inputs["callbacks"]`` below; tools call
-        # ``adispatch_custom_event(channel, envelope)`` and our handler
-        # pushes them onto ``mcp_event_queue``. The outer astream loop
-        # drains the queue between chunks and yields
-        # ``response.output_item.added(status="in_progress")`` events;
-        # the same envelopes accumulate into ``custom_outputs["mcp_events"]``
+        # Live event envelopes captured from tools via LangChain's callback
+        # manager. A per-request ``_DaoAiStreamCollector`` is attached to
+        # ``custom_inputs["callbacks"]`` below; it pushes MCP notifications
+        # (``mcp.*`` / ``dao_ai.audit.*``) *and* tool-call lifecycle envelopes
+        # (``dao_ai.tool.*``) onto ``stream_event_queue``. The outer astream
+        # loop drains the queue between chunks and yields
+        # ``response.output_item.added`` events. The same envelopes accumulate
+        # into ``custom_outputs["mcp_events"]`` and ``custom_outputs["tool_calls"]``
         # for non-streaming replay.
-        mcp_event_queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
+        stream_event_queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
         mcp_event_buffer: list[dict[str, Any]] = []
-        mcp_event_seq: int = 0
+        tool_calls_by_id: dict[str, dict[str, Any]] = {}
+        tool_calls_order: list[str] = []
+        stream_event_seq: int = 0
 
-        class _McpEventCollector(AsyncCallbackHandler):
-            def __init__(self, queue: asyncio.Queue[dict[str, Any]]) -> None:
-                self._queue = queue
+        def _record_tool_envelope(envelope: dict[str, Any]) -> None:
+            """Merge a ``dao_ai.tool.*`` envelope into a per-call record so
+            non-streaming replay sees one entry per tool call, keyed by
+            ``call_id`` and preserving start order."""
+            call_id: str = str(envelope.get("call_id", ""))
+            record: dict[str, Any] | None = tool_calls_by_id.get(call_id)
+            if record is None:
+                record = {"call_id": call_id}
+                tool_calls_by_id[call_id] = record
+                tool_calls_order.append(call_id)
+            channel: str = str(envelope.get("channel", ""))
+            if channel == "dao_ai.tool.start":
+                record.update(
+                    name=envelope.get("name"),
+                    arguments=envelope.get("arguments"),
+                    started_at=envelope.get("started_at"),
+                    status="in_progress",
+                )
+            elif channel == "dao_ai.tool.end":
+                record.update(
+                    duration_ms=envelope.get("duration_ms"),
+                    result_summary=envelope.get("result_summary"),
+                    status="completed",
+                )
+            elif channel == "dao_ai.tool.error":
+                record.update(
+                    duration_ms=envelope.get("duration_ms"),
+                    error=envelope.get("error"),
+                    status="error",
+                )
 
-            async def on_custom_event(
-                self,
-                name: str,
-                data: Any,
-                *,
-                run_id: UUID,
-                tags: list[str] | None = None,
-                metadata: dict[str, Any] | None = None,
-                **kwargs: Any,
-            ) -> None:
-                if not isinstance(data, dict):
-                    return
-                channel = data.get("channel")
-                if not isinstance(channel, str) or not (
-                    channel.startswith("mcp.") or channel.startswith("dao_ai.audit.")
-                ):
-                    return
-                await self._queue.put(data)
-
-        _mcp_collector = _McpEventCollector(mcp_event_queue)
+        _stream_collector = _DaoAiStreamCollector(stream_event_queue)
         # Merge our handler into any callbacks the caller already provided.
         existing_callbacks = custom_inputs.get("callbacks") or []
         if not isinstance(existing_callbacks, list):
             existing_callbacks = [existing_callbacks]
-        custom_inputs["callbacks"] = [*existing_callbacks, _mcp_collector]
+        custom_inputs["callbacks"] = [*existing_callbacks, _stream_collector]
 
-        async def _drain_mcp_queue() -> AsyncGenerator[ResponsesAgentStreamEvent, None]:
-            nonlocal mcp_event_seq
-            while not mcp_event_queue.empty():
-                envelope = mcp_event_queue.get_nowait()
-                mcp_event_buffer.append(envelope)
-                mcp_event_seq += 1
+        async def _drain_stream_queue() -> AsyncGenerator[
+            ResponsesAgentStreamEvent, None
+        ]:
+            nonlocal stream_event_seq
+            while not stream_event_queue.empty():
+                envelope = stream_event_queue.get_nowait()
+                stream_event_seq += 1
                 channel = str(envelope.get("channel", "mcp.event"))
-                server_name = str(envelope.get("server_name", "unknown"))
+                if channel.startswith("dao_ai.tool."):
+                    _record_tool_envelope(envelope)
+                else:
+                    mcp_event_buffer.append(envelope)
                 yield ResponsesAgentStreamEvent(
                     type="response.output_item.added",
-                    item={
-                        "id": f"mcp_{server_name}_{item_id}_{mcp_event_seq}",
-                        "type": "custom_tool_call",
-                        "status": "in_progress",
-                        "name": channel,
-                        "input": envelope,
-                    },
+                    item=_stream_item_for_envelope(
+                        envelope, item_id=item_id, seq=stream_event_seq
+                    ),
                 )
 
         try:
@@ -1433,7 +1726,7 @@ class LanggraphResponsesAgent(ResponsesAgent):
 
                     # Surface any MCP envelopes the collector received while
                     # the astream generator was awaiting this chunk.
-                    async for evt in _drain_mcp_queue():
+                    async for evt in _drain_stream_queue():
                         yield evt
 
                     if stream_mode == "messages":
@@ -1453,14 +1746,33 @@ class LanggraphResponsesAgent(ResponsesAgent):
                                     if isinstance(message.content, (str, list))
                                     else None,
                                 )
-                                content: str = _extract_text_content(message.content)
-                                accumulated_content += content
-
-                                yield ResponsesAgentStreamEvent(
-                                    **self.create_text_delta(
-                                        delta=content, item_id=item_id
+                                text, reasoning = _split_content(message.content)
+                                if reasoning:
+                                    # Announce the reasoning item before its first
+                                    # delta so a strict Responses consumer sees
+                                    # output_item.added → delta(s) → done in order.
+                                    if not reasoning_item_started:
+                                        reasoning_item_started = True
+                                        yield ResponsesAgentStreamEvent(
+                                            type="response.output_item.added",
+                                            item=self.create_reasoning_item(
+                                                id=reasoning_item_id,
+                                                reasoning_text="",
+                                            ),
+                                        )
+                                    accumulated_reasoning += reasoning
+                                    yield ResponsesAgentStreamEvent(
+                                        type="response.reasoning_summary_text.delta",
+                                        delta=reasoning,
+                                        item_id=reasoning_item_id,
                                     )
-                                )
+                                if text:
+                                    accumulated_content += text
+                                    yield ResponsesAgentStreamEvent(
+                                        **self.create_text_delta(
+                                            delta=text, item_id=item_id
+                                        )
+                                    )
 
                     elif stream_mode == "updates":
                         updates: dict[str, Any] = data
@@ -1538,13 +1850,23 @@ class LanggraphResponsesAgent(ResponsesAgent):
             # Drain any envelopes that arrived after the last astream chunk
             # (MCP notifications from tool completion often race the astream
             # generator's exit).
-            async for evt in _drain_mcp_queue():
+            async for evt in _drain_stream_queue():
                 yield evt
 
             # Mirror MCP notification envelopes into custom_outputs so
             # non-streaming replays and batch callers see the same timeline.
             if mcp_event_buffer:
                 custom_outputs["mcp_events"] = mcp_event_buffer
+
+            # Mirror tool-call lifecycle (one merged record per call) and the
+            # separated reasoning channel so non-streaming replays and batch
+            # callers see the same anatomy the live stream exposed.
+            if tool_calls_order:
+                custom_outputs["tool_calls"] = [
+                    tool_calls_by_id[call_id] for call_id in tool_calls_order
+                ]
+            if accumulated_reasoning:
+                custom_outputs["reasoning"] = accumulated_reasoning
 
             # Extract visualization specs from tool messages collected during streaming
             visualizations: list[dict[str, Any]] = (
@@ -1631,6 +1953,27 @@ class LanggraphResponsesAgent(ResponsesAgent):
                             )
                         )
 
+            # Surface the accumulated reasoning as a durable, standalone item
+            # (distinct from the answer text). Emitted as ``output_item.added``
+            # so it is not folded into the aggregated ``output`` list, keeping
+            # the response shape backward-compatible for clients that only read
+            # the answer text.
+            if accumulated_reasoning:
+                # Finalize the reasoning item announced at the first delta
+                # (output_item.added → delta(s) → done). Fall back to `added`
+                # only if it was somehow never announced (no streamed deltas).
+                yield ResponsesAgentStreamEvent(
+                    type=(
+                        "response.output_item.done"
+                        if reasoning_item_started
+                        else "response.output_item.added"
+                    ),
+                    item=self.create_reasoning_item(
+                        id=reasoning_item_id,
+                        reasoning_text=accumulated_reasoning,
+                    ),
+                )
+
             # Yield final output item
             yield ResponsesAgentStreamEvent(
                 type="response.output_item.done",
@@ -1639,13 +1982,35 @@ class LanggraphResponsesAgent(ResponsesAgent):
             )
         except Exception as e:
             logger.error("Error in graph streaming", error=str(e), exc_info=True)
-            error_item_id: str = f"error_{uuid.uuid4().hex[:8]}"
+            # Attach whatever anatomy we captured before the failure so the UI
+            # still gets the trace_id (Timeline), the tool-call timeline, and
+            # any partial answer — rather than dropping it all on error. Built
+            # defensively so a failure here can't mask the original error.
+            error_custom_outputs: dict[str, Any] = {}
+            try:
+                err_trace_id: str | None = mlflow.get_active_trace_id()
+                if err_trace_id:
+                    error_custom_outputs["trace_id"] = err_trace_id
+                if tool_calls_order:
+                    error_custom_outputs["tool_calls"] = [
+                        tool_calls_by_id[call_id] for call_id in tool_calls_order
+                    ]
+                if accumulated_reasoning:
+                    error_custom_outputs["reasoning"] = accumulated_reasoning
+                if mcp_event_buffer:
+                    error_custom_outputs["mcp_events"] = mcp_event_buffer
+            except Exception:  # noqa: BLE001 — never let cleanup mask the error
+                pass
+            # Prefer any answer text streamed before the error over a generic
+            # message; fall back to a friendly notice when nothing streamed.
+            error_text: str = accumulated_content or (
+                "An unexpected error occurred while processing your request. "
+                "Please try again."
+            )
             yield ResponsesAgentStreamEvent(
                 type="response.output_item.done",
-                item=self.create_text_output_item(
-                    text="An unexpected error occurred while processing your request. Please try again.",
-                    id=error_item_id,
-                ),
+                item=self.create_text_output_item(text=error_text, id=item_id),
+                custom_outputs=error_custom_outputs or None,
             )
 
     def predict(self, request: ResponsesAgentRequest) -> ResponsesAgentResponse:
@@ -1797,13 +2162,11 @@ class LanggraphResponsesAgent(ResponsesAgent):
         # Extract known Context fields
         user_id_value: str | None = configurable.pop("user_id", None)
 
-        # Fall back to x-forwarded-user header (set by Databricks Apps OBO)
-        # when user_id is not explicitly provided in the request.
+        # Fall back to the OBO identity headers (set by Databricks Apps),
+        # preferring the login name over the numeric x-forwarded-user id, when
+        # user_id is not explicitly provided in the request.
         if not user_id_value:
-            headers = configurable.get("headers") or {}
-            user_id_value = headers.get("x-forwarded-user") or headers.get(
-                "X-Forwarded-User"
-            )
+            user_id_value = resolve_user_id_from_headers(configurable.get("headers"))
 
         if user_id_value:
             # Normalize user_id for memory namespace (replace . with _)

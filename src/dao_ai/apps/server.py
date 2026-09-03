@@ -32,7 +32,9 @@ import dao_ai.apps.handlers  # noqa: E402, F401
 from dao_ai.apps.handlers import config as _config
 
 # Create the AgentServer instance
-_enable_chat_proxy = _config.app.enable_chat_proxy if _config.app else True
+# Serve the chat UI only when the proxy is on AND ui.enabled isn't false, so
+# `app.ui.enabled: false` yields the agent endpoint with no bundled UI.
+_enable_chat_proxy = _config.app.serves_chat_ui if _config.app else True
 agent_server = AgentServer("ResponsesAgent", enable_chat_proxy=_enable_chat_proxy)
 
 # Define the app as a module level variable to enable multiple workers
@@ -178,6 +180,274 @@ def _mount_background_routes() -> None:
 
 
 _mount_background_routes()
+
+
+def _mount_trace_routes() -> None:
+    """Register ``GET /v1/traces?trace_id=...`` for the Console Timeline view.
+
+    Returns the MLflow trace as a nested span waterfall (durations, per-span
+    I/O, events). The backend owns retrieval — it already sets the tracking
+    URI and redacts bearer tokens at write time — so the browser never needs
+    a raw trace API or an OBO token. The trace id is a query param (not a path
+    segment) because ``trace_location`` ids are UC URIs containing slashes
+    (``trace:/<catalog>.<schema>.<prefix>/<id>``) that a path param can't
+    capture. Sync route so FastAPI runs the short blocking propagation poll in
+    its threadpool. Always mounted (independent of ``app.background``).
+    """
+    from fastapi import HTTPException, Query, Request
+    from fastapi.responses import JSONResponse
+    from loguru import logger
+
+    from dao_ai.apps.handlers import _responses_agent
+    from dao_ai.apps.sessions import user_id_from_headers, user_owns_thread
+    from dao_ai.apps.traces import (
+        build_trace_ui_url,
+        get_trace_tree,
+        search_session_traces,
+    )
+
+    _graph = getattr(_responses_agent, "graph", None)
+    _store = getattr(_graph, "store", None) if _graph is not None else None
+
+    @app.get("/v1/trace-url")
+    def get_trace_url(trace_id: str = Query(...)):
+        # Deep link to the trace in the Databricks workspace UI. Works even when
+        # the Apps runtime can't read the trace store (the browser can reach the
+        # workspace UI), so the Console can offer it alongside an empty Timeline.
+        return JSONResponse({"url": build_trace_ui_url(trace_id)})
+
+    @app.get("/v1/sessions/{thread_id}/traces")
+    async def get_session_traces(request: Request, thread_id: str):
+        # Discover a thread's traces via the mlflow.trace.session link so a
+        # reloaded conversation can rebuild its Timeline. Scoped to the owning
+        # user (the trace store is not user-partitioned, so an unscoped thread_id
+        # would expose another user's timeline); returns [] when not owned or on
+        # any failure (never 404/500) so reload degrades to the
+        # checkpointer-derived Events/Flow.
+        if _store is not None and not await user_owns_thread(
+            _store, user_id_from_headers(request.headers), thread_id
+        ):
+            return JSONResponse([])
+        return JSONResponse(search_session_traces(thread_id))
+
+    @app.get("/v1/traces")
+    def get_trace(request: Request, trace_id: str = Query(...)):
+        # Requires a valid OBO user. Per-trace ownership is not enforced here: a
+        # raw trace id carries no cheap user mapping, and the Console only fetches
+        # ids the user legitimately obtained (their own turn's custom_outputs, or
+        # the now-scoped /sessions/{id}/traces). The id is a high-entropy UC URI;
+        # tightening to a per-trace session-ownership check is a follow-up.
+        if not user_id_from_headers(request.headers):
+            raise HTTPException(status_code=401, detail="Unauthorized")
+        # trace_location (UC OTEL) traces can take longer to become queryable
+        # than the default local-tracking window, so allow more propagation time.
+        # Any retrieval failure degrades to 404 (never 500) so the Console shows
+        # its empty-Timeline note instead of an error.
+        try:
+            tree = get_trace_tree(trace_id, timeout_seconds=12.0)
+        except Exception as exc:  # noqa: BLE001 — defense in depth
+            logger.warning("Trace retrieval failed", trace_id=trace_id, error=str(exc))
+            tree = None
+        if tree is None:
+            raise HTTPException(
+                status_code=404, detail="Trace not found or not yet queryable"
+            )
+        return JSONResponse(tree)
+
+    logger.info(
+        "Trace routes mounted",
+        routes=[
+            "GET /v1/traces?trace_id=",
+            "GET /v1/trace-url",
+            "GET /v1/sessions/{thread_id}/traces",
+        ],
+    )
+
+
+_mount_trace_routes()
+
+
+def _mount_sessions_routes() -> None:
+    """Register the Console session routes on the same FastAPI app as the
+    agent's ``/invocations`` and ``/v1/*`` routes.
+
+    - ``GET  /v1/sessions/{thread_id}``      reload a conversation (checkpointer)
+    - ``GET  /v1/sessions/{thread_id}/meta`` checkpoint metadata (last-modified, ids)
+    - ``GET  /v1/sessions``                  list the calling user's threads
+    - ``POST /v1/sessions``                  register/refresh a thread in the index
+
+    The reload/meta routes are served through the checkpointer implementation
+    object (``graph.aget_state``); the list/register routes keep a user→thread
+    index in the configured ``BaseStore`` (``graph.store``), addressed through
+    the store's own ``aput``/``asearch`` API — no native queries — so the sidebar
+    works identically across any store backend. Each group mounts only when its
+    backing implementation exists; otherwise the Console degrades (no reload,
+    localStorage-only sidebar). ``user_id`` is always derived server-side from
+    the OBO header, so a user only sees their own sessions.
+    """
+    from fastapi import HTTPException, Request
+    from fastapi.responses import JSONResponse
+    from loguru import logger
+
+    from dao_ai.apps.handlers import _responses_agent
+    from dao_ai.apps.sessions import (
+        list_user_sessions,
+        load_session,
+        load_session_meta,
+        register_session,
+        user_id_from_headers,
+        user_owns_thread,
+    )
+
+    graph = getattr(_responses_agent, "graph", None)
+    has_checkpointer = graph is not None and getattr(graph, "checkpointer", None)
+    store = getattr(graph, "store", None) if graph is not None else None
+
+    async def _require_thread_owner(request: Request, thread_id: str) -> None:
+        """Enforce that the caller owns ``thread_id`` before a checkpointer read.
+
+        The checkpointer is keyed only by ``thread_id``, so without this a caller
+        holding another user's id (shared-browser localStorage, logs, a guess)
+        could read their conversation. When a session index (store) is configured
+        we require the thread to be registered to the OBO-derived user; we raise
+        404 (not 403) so a foreign id is indistinguishable from a missing one. If
+        no store is configured there is no user→thread index to check against, so
+        the reload routes cannot be scoped — that deployment has a
+        localStorage-only sidebar and no cross-user index by construction.
+        """
+        if store is None:
+            return
+        user_id = user_id_from_headers(request.headers)
+        if not await user_owns_thread(store, user_id, thread_id):
+            raise HTTPException(status_code=404, detail="Session not found")
+
+    if has_checkpointer:
+
+        @app.get("/v1/sessions/{thread_id}")
+        async def get_session(request: Request, thread_id: str):
+            await _require_thread_owner(request, thread_id)
+            try:
+                return JSONResponse(await load_session(graph, thread_id))
+            except HTTPException:
+                raise
+            except Exception as exc:  # noqa: BLE001
+                logger.warning(
+                    "Failed to load session", thread_id=thread_id, error=str(exc)
+                )
+                raise HTTPException(status_code=404, detail="Session not found")
+
+        @app.get("/v1/sessions/{thread_id}/meta")
+        async def get_session_meta(request: Request, thread_id: str):
+            await _require_thread_owner(request, thread_id)
+            try:
+                return JSONResponse(await load_session_meta(graph, thread_id))
+            except HTTPException:
+                raise
+            except Exception as exc:  # noqa: BLE001
+                logger.warning(
+                    "Failed to load session meta",
+                    thread_id=thread_id,
+                    error=str(exc),
+                )
+                raise HTTPException(status_code=404, detail="Session not found")
+
+    if store is not None:
+
+        @app.get("/v1/sessions")
+        async def list_sessions(request: Request, limit: int = 50):
+            user_id = user_id_from_headers(request.headers)
+            if not user_id:
+                return JSONResponse([])
+            try:
+                return JSONResponse(
+                    await list_user_sessions(store, user_id, limit=limit)
+                )
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("Failed to list sessions", error=str(exc))
+                return JSONResponse([])
+
+        @app.post("/v1/sessions")
+        async def register_session_route(request: Request):
+            user_id = user_id_from_headers(request.headers)
+            body = await request.json()
+            thread_id = body.get("thread_id")
+            if not user_id or not thread_id:
+                return JSONResponse({"ok": False})
+            try:
+                await register_session(
+                    store, user_id, thread_id, body.get("title")
+                )
+                return JSONResponse({"ok": True})
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("Failed to register session", error=str(exc))
+                return JSONResponse({"ok": False})
+
+    logger.info(
+        "Session routes mounted",
+        reload=bool(has_checkpointer),
+        index=store is not None,
+    )
+
+
+_mount_sessions_routes()
+
+
+def _mount_memory_routes() -> None:
+    """Register ``GET /v1/memory`` for the Console memory viewer.
+
+    Returns the calling user's long-term memory (profile / preferences /
+    episodes) from the configured store (``graph.store``). ``user_id`` is
+    derived server-side from the OBO header so a viewer only sees their own
+    memory. When no store is configured the route returns ``{memory: null}``
+    (200) so the Console simply hides the Memory panel — config-agnostic.
+    """
+    from fastapi import Request
+    from fastapi.responses import JSONResponse
+    from loguru import logger
+
+    from dao_ai.apps.handlers import _responses_agent
+    from dao_ai.apps.memory import safe_load_user_memory
+    from dao_ai.apps.sessions import user_id_from_headers
+
+    graph = getattr(_responses_agent, "graph", None)
+    store = getattr(graph, "store", None) if graph else None
+    if store is None:
+        logger.info("Memory route not mounted (no store configured)")
+        return
+
+    @app.get("/v1/memory")
+    async def get_memory(request: Request):
+        user_id = user_id_from_headers(request.headers)
+        if not user_id:
+            return JSONResponse({"memory": None})
+        return JSONResponse(await safe_load_user_memory(store, user_id))
+
+    logger.info("Memory route mounted", routes=["GET /v1/memory"])
+
+
+_mount_memory_routes()
+
+
+def _mount_custom_inputs_route() -> None:
+    """Register ``GET /v1/custom-inputs`` advertising the configurable fields
+    the agent's config requires, so the Console can prepopulate its editor.
+
+    Read-only and non-secret (names / descriptions / example values only).
+    Returns ``{fields: []}`` when nothing is discoverable — config-agnostic.
+    """
+    from fastapi.responses import JSONResponse
+    from loguru import logger
+
+    from dao_ai.apps.custom_inputs import discover_custom_input_fields
+
+    @app.get("/v1/custom-inputs")
+    async def custom_inputs_schema():
+        return JSONResponse({"fields": discover_custom_input_fields(_config)})
+
+    logger.info("Custom-inputs route mounted", routes=["GET /v1/custom-inputs"])
+
+
+_mount_custom_inputs_route()
 
 
 def _mount_a2a_routes() -> None:

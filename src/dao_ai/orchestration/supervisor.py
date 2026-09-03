@@ -48,6 +48,31 @@ from dao_ai.state import AgentState, Context
 from dao_ai.tools import create_tools
 from dao_ai.tools.memory import create_manage_memory_tool, create_search_memory_tool
 
+# Prepended to every worker's prompt under a supervisor (opt out via
+# ``SupervisorModel.worker_scope_boundary=False``) so a worker answers only the
+# parts of a compound request within its specialty and hands the rest back —
+# the generalized, domain-agnostic form of a per-agent "stay in your lane"
+# directive. Placed FIRST (framing) so it outranks the agent's own
+# "be comprehensive" instructions.
+WORKER_SCOPE_BOUNDARY: str = (
+    "You are ONE specialist in a multi-agent team; a supervisor routes each part "
+    "of a request to the right specialist. Handle ONLY the parts that fall within "
+    "your own specialty and tools — even if you could answer more, do not, because "
+    "another specialist is responsible for those parts. For anything outside your "
+    "specialty, do NOT attempt it: call `handoff_to_supervisor` with a brief "
+    "summary of what you handled and what still needs doing, so it can be routed. "
+    "Answer in full only when the entire request falls within your specialty.\n\n"
+)
+
+# Appended to the supervisor's prompt (same opt-out) so it keeps routing until
+# the whole request is handled instead of concluding after the first worker.
+SUPERVISOR_ROUTE_ALL: str = (
+    "\n\nSome requests span multiple specialties. A worker may hand back with "
+    "parts still unaddressed (noted in its summary). Keep routing to the "
+    "appropriate specialist for each remaining part; only finish once the "
+    "entire request has been handled."
+)
+
 
 def _create_handoff_back_to_supervisor_tool() -> BaseTool:
     """
@@ -69,11 +94,16 @@ def _create_handoff_back_to_supervisor_tool() -> BaseTool:
         """
         Hand control back to the supervisor.
 
-        Use this when you have completed your task and want to return
-        control to the supervisor for further coordination.
+        Use this when you have finished the part of the request that fits
+        your specialty. If the request has further parts outside your
+        specialty or tools, do NOT attempt them yourself — hand back with
+        a summary so the supervisor can route them to the right specialist.
+        Also hand back when you have fully completed the task.
 
         Args:
-            summary: A brief summary of what was accomplished
+            summary: A brief summary of what was accomplished — and, when
+                handing back for another specialist to continue, what still
+                needs doing.
         """
         tool_call_id: str = runtime.tool_call_id
         logger.debug("Agent handing back to supervisor", summary_preview=summary[:100])
@@ -151,6 +181,18 @@ def _create_supervisor_agent(
         else:
             effective_prompt = effective_prompt + MEMORY_TOOL_INSTRUCTIONS
         logger.debug("Memory tool instructions appended to supervisor prompt")
+
+    # Keep-routing instruction so the supervisor doesn't conclude after the
+    # first worker when a compound request still has unhandled parts. Paired
+    # with the per-worker WORKER_SCOPE_BOUNDARY; both opt out together.
+    if supervisor.worker_scope_boundary:
+        if effective_prompt is None:
+            effective_prompt = SUPERVISOR_ROUTE_ALL.lstrip("\n")
+        elif isinstance(effective_prompt, PromptModel):
+            effective_prompt = effective_prompt.template + SUPERVISOR_ROUTE_ALL
+        else:
+            effective_prompt = effective_prompt + SUPERVISOR_ROUTE_ALL
+        logger.debug("Route-all guidance appended to supervisor prompt")
 
     # Get the prompt as middleware (always returns AgentMiddleware or None)
     prompt_middleware: LangchainAgentMiddleware | None = make_prompt(effective_prompt)
@@ -374,6 +416,16 @@ def create_supervisor_graph(config: AppConfig) -> CompiledStateGraph:
                 agent=registered_agent.name,
             )
 
+        # Inject the generic scope-boundary framing into non-Genie workers that
+        # can hand back (Genie brains hand back deterministically via middleware
+        # and run their loop server-side, so the prompt nudge doesn't apply).
+        scope_preamble: str | None = (
+            WORKER_SCOPE_BOUNDARY
+            if config.app.orchestration.supervisor.worker_scope_boundary
+            and not is_genie_brain
+            else None
+        )
+
         agent_subgraph: CompiledStateGraph = create_agent_node(
             agent=registered_agent,
             memory=memory,
@@ -383,6 +435,7 @@ def create_supervisor_graph(config: AppConfig) -> CompiledStateGraph:
             extraction_manager=extraction_manager,
             checkpointer=checkpointer,
             genie_handback=genie_handback,
+            scope_preamble=scope_preamble,
         )
         agent_subgraphs[registered_agent.name] = agent_subgraph
         agent_recursion_limits[registered_agent.name] = registered_agent.recursion_limit

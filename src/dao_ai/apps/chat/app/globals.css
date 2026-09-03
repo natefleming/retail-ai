@@ -1,0 +1,153 @@
+@import "tailwindcss";
+
+/*
+ * dao-ai Console — Databricks workspace (DuBois) look: light, airy, white
+ * cards with hairline borders and subtle shadows, the system font stack,
+ * Databricks blue accents, and lavender tags for tool/function names.
+ */
+@theme {
+  --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+    "Helvetica Neue", Arial, "Noto Sans", sans-serif;
+  --font-display: var(--font-sans);
+  --font-mono: "DejaVu Sans Mono", "SFMono-Regular", Menlo, Monaco, Consolas,
+    "Source Code Pro", monospace;
+
+  /* Surfaces */
+  --color-ink-950: #f6f7f9; /* app background (subtle grey) */
+  --color-ink-900: #ffffff; /* card / panel background */
+  --color-ink-850: #f6f7f9; /* muted section (tool rows, composer) */
+  --color-ink-800: #eef1f4; /* hover / user bubble */
+  --color-ink-700: #d0d7de; /* stronger divider */
+  --color-ink-600: #b3bcc6;
+  --color-line: #dce0e5; /* hairline borders */
+
+  /* Text */
+  --color-fg: #11171c;
+  --color-fg-muted: #5f7281;
+  --color-fg-subtle: #8a9aa9;
+
+  /* Databricks brand */
+  --color-brand-blue: #2272b4;
+  --color-brand-magenta: #ca42e0;
+  --color-brand-flame: #ff5f46;
+  --color-primary: #2272b4;
+  --color-primary-hover: #1b5c92;
+
+  /* Lavender tag (tool / function names, à la Playground) */
+  --color-tag-bg: #ececfb;
+  --color-tag-fg: #4f4fd9;
+
+  /* Semantic span / node colors (readable on light) */
+  --color-span-llm: #675dcf;
+  --color-span-tool: #2272b4;
+  --color-span-retrieval: #0e9d8f;
+  --color-span-handoff: #dc6222;
+  --color-span-agent: #7c3aed;
+  --color-span-error: #e83a5f;
+  --color-ok: #3ca45e;
+
+  /* DuBois-ish elevation */
+  --shadow-card: 0 1px 2px rgba(17, 23, 28, 0.06),
+    0 2px 6px rgba(17, 23, 28, 0.04);
+}
+
+:root {
+  color-scheme: light;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--color-ink-950);
+  color: var(--color-fg);
+  font-family: var(--font-sans);
+  font-size: 13px;
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* The live gradient pulse: brand signature for streaming / active state. */
+@keyframes dao-pulse {
+  0% { background-position: 0% 50%; }
+  100% { background-position: 200% 50%; }
+}
+.dao-live-gradient {
+  background-image: linear-gradient(
+    90deg,
+    var(--color-brand-blue),
+    var(--color-brand-magenta),
+    var(--color-brand-flame),
+    var(--color-brand-blue)
+  );
+  background-size: 200% 100%;
+  animation: dao-pulse 2.2s linear infinite;
+}
+
+/* Active Flow edges: a traveling dash while a tool runs. */
+@keyframes dao-dash {
+  to { stroke-dashoffset: -24; }
+}
+.flow-edge-active {
+  stroke: var(--color-brand-blue);
+  stroke-dasharray: 4 8;
+  animation: dao-dash 0.7s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dao-live-gradient,
+  .flow-edge-active {
+    animation: none;
+  }
+}
+
+/* Rendered markdown (assistant answers). */
+.dao-md > :first-child { margin-top: 0; }
+.dao-md > :last-child { margin-bottom: 0; }
+.dao-md p { margin: 0.5em 0; }
+.dao-md ul, .dao-md ol { margin: 0.5em 0; padding-left: 1.4em; }
+.dao-md li { margin: 0.15em 0; }
+.dao-md a { color: var(--color-primary); text-decoration: underline; }
+.dao-md code {
+  font-family: var(--font-mono);
+  font-size: 0.85em;
+  background: var(--color-ink-850);
+  border: 1px solid var(--color-line);
+  border-radius: 4px;
+  padding: 0.05em 0.35em;
+}
+.dao-md pre {
+  background: var(--color-ink-850);
+  border: 1px solid var(--color-line);
+  border-radius: 8px;
+  padding: 0.75em 0.9em;
+  overflow-x: auto;
+}
+.dao-md pre code { background: none; border: none; padding: 0; }
+.dao-md h1, .dao-md h2, .dao-md h3 { font-weight: 600; margin: 0.7em 0 0.3em; }
+.dao-md table { border-collapse: collapse; margin: 0.5em 0; }
+.dao-md th, .dao-md td {
+  border: 1px solid var(--color-line);
+  padding: 0.3em 0.6em;
+  text-align: left;
+}
+
+/* Light, unobtrusive scrollbars. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #cbd2d9 transparent;
+}
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+*::-webkit-scrollbar-thumb {
+  background: #cbd2d9;
+  border-radius: 5px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}

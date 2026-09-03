@@ -1,0 +1,13 @@
+node_modules/
+.next/
+out/
+next-env.d.ts
+*.log
+.env
+.DS_Store
+
+# The repo-root .gitignore has a Python-oriented `lib/` rule that would
+# otherwise swallow this app's source `lib/` directory (contract/config/api).
+# Re-include it for this app.
+!lib/
+!lib/**

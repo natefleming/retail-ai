@@ -42,6 +42,9 @@ def _inject_headers_into_request(request: ResponsesAgentRequest) -> None:
         if "configurable" not in request.custom_inputs:
             request.custom_inputs["configurable"] = {}
         request.custom_inputs["configurable"]["headers"] = headers
+        # Log header keys only (never values — one carries the OBO token) so the
+        # available OBO identity headers can be confirmed without leaking secrets.
+        logger.debug("Injected request headers", header_keys=sorted(headers.keys()))
 
 
 # Load environment variables from .env.local if it exists

@@ -213,6 +213,11 @@ all = [
 [tool.hatch.build.targets.wheel]
 packages = ["src/dao_ai"]
 sources = ["src"]
+# Force-include the Console's client `lib/` directory: the repo-root .gitignore
+# has a Python-oriented `lib/` rule that hatchling honors, which would drop the
+# Next app's src `lib/` (contract/config/api) from the wheel and break the build
+# (`Module not found: @/lib/config`). `artifacts` overrides VCS ignores.
+artifacts = ["src/dao_ai/apps/chat/lib/**"]
 # Excludes are root-anchored (leading "/") so they only drop the repo-root
 # demo/tooling dirs and NOT the packaged pipeline assets under
 # src/dao_ai/pipeline/ (notably src/dao_ai/pipeline/notebooks/, which an
@@ -227,6 +232,15 @@ exclude = [
     "/tests",
     "/uv.lock",
     "/Makefile",
+    # Console (Next.js) build artifacts / deps — the wheel ships only the UI
+    # SOURCE; `next build` runs on the Apps container. These are unanchored so
+    # they drop the nested dirs under src/dao_ai/apps/chat/ regardless of any
+    # local build state (hatchling does not honor the nested .gitignore).
+    "**/node_modules",
+    "**/.next",
+    "**/out",
+    "**/*.tsbuildinfo",
+    "**/next-env.d.ts",
 ]
 
 [tool.hatch.build.targets.sdist]

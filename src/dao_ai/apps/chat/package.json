@@ -1,0 +1,31 @@
+{
+  "name": "@dao-ai/console",
+  "version": "0.1.0",
+  "private": true,
+  "description": "dao-ai Console — the default chat + live-anatomy UI for dao-ai agents (Next.js).",
+  "engines": {
+    "node": ">=18.18.0"
+  },
+  "scripts": {
+    "dev": "next dev -p 3000",
+    "build": "next build",
+    "start": "next start -p ${CHAT_APP_PORT:-3000}"
+  },
+  "dependencies": {
+    "clsx": "^2.1.1",
+    "dompurify": "^3.2.3",
+    "lucide-react": "^0.469.0",
+    "marked": "^14.1.4",
+    "next": "^14.2.15",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4.0.0",
+    "@types/node": "^22.10.0",
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "tailwindcss": "^4.0.0",
+    "typescript": "^5.6.3"
+  }
+}

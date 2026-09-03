@@ -1,13 +1,13 @@
 """
-Start script for running the chat UI frontend alongside the dao-ai agent backend.
+Start script for running the dao-ai Console frontend alongside the agent backend.
 
-Clones the Databricks e2e-chatbot-app-next template (if not present), builds it,
-and starts both the frontend (port 3000) and backend (port 8000) concurrently.
-The MLflow AgentServer's enable_chat_proxy proxies UI requests to the frontend.
+Stages the in-repo Console (Next.js app shipped with the wheel) into the app's
+working dir, builds it, and starts both the frontend (port 3000) and backend
+(port 8000) concurrently. The MLflow AgentServer's enable_chat_proxy proxies UI
+requests (``/``, ``/_next/*``, ``/api/*``, ``/favicon.ico``) to the frontend.
 
-This follows the same pattern as the official Databricks agent templates:
-the Apps runtime has Node.js + npm + git pre-installed, so clone + build
-happens at runtime on first boot and is cached for subsequent restarts.
+The Apps runtime has Node.js + npm pre-installed, so ``next build`` happens at
+runtime on first boot and is cached for subsequent restarts.
 
 When enable_chat_proxy is False in the dao-ai config, skips the frontend
 entirely and only starts the backend agent server.
@@ -34,8 +34,8 @@ from dotenv import load_dotenv
 from dao_ai.apps.chat_ui import (
     CHAT_APP_DIR,
     ChatUIBuildError,
-    ensure_chat_ui_built,
     sanitized_npm_env,
+    stage_chat_app,
 )
 
 BACKEND_READY_PATTERNS = [
@@ -43,7 +43,8 @@ BACKEND_READY_PATTERNS = [
     r"Application startup complete",
     r"Started server process",
 ]
-FRONTEND_READY_PATTERNS = [r"Server is running on http://localhost"]
+# Next.js `next start` prints "✓ Ready in ..." and "- Local: http://localhost:PORT".
+FRONTEND_READY_PATTERNS = [r"Ready in\b", r"Local:\s*http://localhost"]
 
 
 def _check_port_available(port: int) -> bool:
@@ -148,17 +149,21 @@ class ProcessManager:
             self.failed.set()
 
     def _prepare_frontend(self) -> bool:
-        """Clone and build the chat UI if needed. Returns True if available."""
+        """Stage the in-repo Console source into cwd. Returns True if available.
+
+        Only stages (copies) the source here; ``run()`` performs the npm
+        install + ``next build`` so we don't build twice on first boot.
+        """
         frontend_dir = Path(CHAT_APP_DIR)
 
         if frontend_dir.exists():
             return True
 
         try:
-            print("Chat UI not found. Cloning and building...")
-            ensure_chat_ui_built(Path.cwd())
+            print("Staging dao-ai Console source...")
+            stage_chat_app(Path.cwd())
         except ChatUIBuildError as e:
-            print(f"WARNING: Could not build chat UI: {e}")
+            print(f"WARNING: Could not stage Console UI: {e}")
             print("Continuing with backend only.")
             return False
 
@@ -263,13 +268,13 @@ class ProcessManager:
                     print("Continuing with backend only.")
                     self.no_ui = True
                 else:
-                    for cmd_str, desc in [
-                        ("npm install", "install"),
-                        ("npm run build", "build"),
+                    for cmd, desc in [
+                        (["npm", "install"], "install"),
+                        (["npm", "run", "build"], "build"),
                     ]:
                         print(f"Running npm {desc}...")
                         result = subprocess.run(
-                            cmd_str.split(),
+                            cmd,
                             cwd=frontend_dir,
                             capture_output=True,
                             text=True,

@@ -540,11 +540,10 @@ def _build_app_block(
     """
     app_name: str = app_name_for(config.app.name, as_mcp=as_mcp)
 
-    enable_chat_proxy: bool = (
-        config.app.enable_chat_proxy
-        if config.app.enable_chat_proxy is not None
-        else True
-    )
+    # Serve the bundled Console only when the chat proxy is on AND ui.enabled
+    # isn't false — so `app.ui.enabled: false` deploys the agent endpoint with
+    # no UI (runs `dao_ai.apps.server`, skips the UI env vars).
+    serve_chat_ui: bool = config.app.serves_chat_ui
 
     # The experiment is ALWAYS bound as an App resource named "experiment"
     # (see below). ``MLFLOW_EXPERIMENT_ID`` is uniformly sourced from that
@@ -586,10 +585,19 @@ def _build_app_block(
             {"name": "DAO_AI_APP_WORKERS", "value": str(config.app.workers)}
         )
 
-    if enable_chat_proxy and include_chat_ui:
-        from dao_ai.apps.chat_ui import chat_ui_env_vars
+    if serve_chat_ui and include_chat_ui:
+        from dao_ai.apps.chat_ui import chat_ui_env_vars, resolve_ui_config
 
-        env_vars.extend(chat_ui_env_vars())
+        ui_config = (
+            resolve_ui_config(
+                app_name=config.app.name,
+                app_description=config.app.description,
+                ui=config.app.ui,
+            )
+            if config.app
+            else None
+        )
+        env_vars.extend(chat_ui_env_vars(ui_config=ui_config))
 
     config_env_vars = _extract_env_vars_from_config(config)
     config_env_vars = [
@@ -671,7 +679,7 @@ def _build_app_block(
     if app_command is None:
         app_command = (
             ["python", "-m", "dao_ai.apps.start_app"]
-            if enable_chat_proxy
+            if serve_chat_ui
             else ["python", "-m", "dao_ai.apps.server"]
         )
 

@@ -29,6 +29,9 @@ parameters:
   embedding_model:
     description: Text embedding serving endpoint for vector search and memory recall.
     default: databricks-gte-large-en
+  warehouse_id:
+    description: SQL warehouse ID for the UC OTEL trace tables (trace_location).
+    default: d1be2f7fe7faacb1
   lakebase_project:
     description: Lakebase (Postgres) project name for agent memory and checkpoints.
     default: retail-consumer-goods
@@ -867,6 +870,19 @@ app:
                                                     # Schema where model will be registered
     name: hardware_store_lakebase_dao
   endpoint_name: hardware_store_lakebase_dao           # Model serving endpoint name
+
+  # UC destination for MLflow trace persistence. On Databricks Apps, spans are
+  # otherwise routed to a control-plane store the App can't read back, so traces
+  # load with metadata but "missing span data" and the Console Timeline stays
+  # empty. Linking a UC OTEL destination materializes four Delta tables at
+  # <catalog>.<schema>.<experiment_id>_otel_{spans,logs,metrics,annotations} that
+  # the App SP can write and the Console can read. No `experiment:` block — the
+  # default per-app experiment (/Users/<deployer>/<app.name>) is linked, so this
+  # only works against a FRESH experiment (purge a trapped one first).
+  trace_location:
+    schema: *retail_schema
+    warehouse: ${var.warehouse_id}
+
   environment_vars:
     RETAIL_AI_DATABRICKS_CLIENT_ID: *client_id
     RETAIL_AI_DATABRICKS_CLIENT_SECRET: *client_secret

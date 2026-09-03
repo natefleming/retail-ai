@@ -86,7 +86,7 @@ def test_apredict_stream_forwards_mcp_envelopes_via_collector():
         # simulate a tool dispatching custom events during the run.
         cfg = kwargs.get("config") or (args[2] if len(args) > 2 else {})
         for cb in cfg.get("callbacks", []) or []:
-            if type(cb).__name__ == "_McpEventCollector":
+            if type(cb).__name__ == "_DaoAiStreamCollector":
                 captured_collector["cb"] = cb
                 break
 
@@ -145,7 +145,7 @@ def test_apredict_stream_collector_ignores_non_mcp_events():
         cfg = kwargs.get("config") or {}
         collector = None
         for cb in cfg.get("callbacks", []) or []:
-            if type(cb).__name__ == "_McpEventCollector":
+            if type(cb).__name__ == "_DaoAiStreamCollector":
                 collector = cb
                 break
         assert collector is not None
