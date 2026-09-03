@@ -65,6 +65,54 @@ export function provisionalTrace(
 }
 
 /**
+ * Partition an ordered run of tool call_ids into concurrency groups: a group is
+ * a maximal run of calls whose execution windows overlap in time, so the inline
+ * conversation can flag tools that ran in parallel (the Timeline shows this via
+ * overlapping bars; the flat card list otherwise can't). A call's window is
+ * `[started_at, started_at + duration_ms]`; an in-progress call (no duration) is
+ * treated as still running to `nowMs`. Calls arrive in roughly start order, so a
+ * greedy envelope merge suffices: a call joins the current group when it starts
+ * before the group's latest end. A call with no `started_at` can't be timed and
+ * becomes its own singleton group (never merged). Sequential tools yield
+ * singleton groups (no parallel wrapper); only groups of 2+ are concurrent.
+ */
+export function toolConcurrencyGroups(
+  callIds: string[],
+  toolCalls: UIToolCall[],
+  nowMs: number = Date.now(),
+): string[][] {
+  const byId = new Map(toolCalls.map((c) => [c.call_id, c]));
+  const groups: string[][] = [];
+  let cur: string[] = [];
+  let envEnd = -Infinity;
+  const flush = () => {
+    if (cur.length) groups.push(cur);
+    cur = [];
+    envEnd = -Infinity;
+  };
+  for (const id of callIds) {
+    const c = byId.get(id);
+    if (!c?.started_at) {
+      flush();
+      groups.push([id]);
+      continue;
+    }
+    const start = Date.parse(c.started_at);
+    const end = c.duration_ms != null ? start + c.duration_ms : nowMs;
+    if (cur.length && start < envEnd) {
+      cur.push(id);
+      envEnd = Math.max(envEnd, end);
+    } else {
+      flush();
+      cur = [id];
+      envEnd = end;
+    }
+  }
+  flush();
+  return groups;
+}
+
+/**
  * Derive a chronological event log from a turn's reconstructed steps + tool
  * calls (no trace needed) — used so a reloaded turn's Events tab isn't empty.
  * `at` is ordinal (step index) since reconstruction has no real timestamps; the

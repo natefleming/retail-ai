@@ -1,9 +1,10 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import {
   ArrowUp,
   Brain,
   ChevronRight,
   Loader2,
+  Split,
   Square,
   Wrench,
 } from "lucide-react";
@@ -19,6 +20,7 @@ import {
   type Turn,
   type UIToolCall,
 } from "@/runtime/useConsole";
+import { toolConcurrencyGroups } from "@/lib/events";
 import { clsx } from "clsx";
 
 function ToolCard({ call }: { call: UIToolCall }) {
@@ -92,6 +94,31 @@ function ToolCard({ call }: { call: UIToolCall }) {
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+/** A cluster of tools whose execution overlapped in time, rendered with a
+ * header that flags the concurrency the flat card list otherwise hides. */
+function ParallelGroup({ calls }: { calls: UIToolCall[] }) {
+  const running = calls.some((c) => c.status === "in_progress");
+  return (
+    <div className="space-y-2 rounded-lg border border-dashed border-[var(--color-span-tool)]/40 bg-[var(--color-span-tool)]/5 p-1.5">
+      <div className="flex items-center gap-1.5 px-1 text-[11px] font-medium text-[var(--color-span-tool)]">
+        {running ? (
+          <Loader2 size={12} className="animate-spin" />
+        ) : (
+          <Split size={12} />
+        )}
+        <span className={clsx(running && "animate-pulse")}>
+          {running
+            ? `${calls.length} tools running in parallel`
+            : `${calls.length} tools ran in parallel`}
+        </span>
+      </div>
+      {calls.map((c) => (
+        <ToolCard key={c.call_id} call={c} />
+      ))}
     </div>
   );
 }
@@ -201,30 +228,58 @@ function TurnView({ turn }: { turn: Turn }) {
               : "border-transparent",
           )}
         >
-          {steps.map((step, i) => {
-            if (step.kind === "reasoning") {
-              return (
-                <Reasoning
-                  key={step.id}
-                  text={step.text}
-                  defaultOpen={false}
-                  live={reasoningLive && i === steps.length - 1}
-                />
-              );
+          {(() => {
+            // Render steps in order, but collapse each run of consecutive tool
+            // steps into concurrency groups so tools that ran in parallel are
+            // flagged (a single tool renders as a plain card, unchanged).
+            const out: ReactNode[] = [];
+            for (let i = 0; i < steps.length; ) {
+              const step = steps[i];
+              if (step.kind === "tool") {
+                const runIds: string[] = [];
+                let j = i;
+                while (j < steps.length && steps[j].kind === "tool") {
+                  runIds.push((steps[j] as { callId: string }).callId);
+                  j++;
+                }
+                for (const group of toolConcurrencyGroups(runIds, turn.toolCalls)) {
+                  const groupCalls = group
+                    .map((id) => turn.toolCalls.find((c) => c.call_id === id))
+                    .filter((c): c is UIToolCall => c != null);
+                  if (groupCalls.length > 1) {
+                    out.push(
+                      <ParallelGroup key={group.join("+")} calls={groupCalls} />,
+                    );
+                  } else if (groupCalls.length === 1) {
+                    out.push(<ToolCard key={group[0]} call={groupCalls[0]} />);
+                  }
+                }
+                i = j;
+                continue;
+              }
+              if (step.kind === "reasoning") {
+                out.push(
+                  <Reasoning
+                    key={step.id}
+                    text={step.text}
+                    defaultOpen={false}
+                    live={reasoningLive && i === steps.length - 1}
+                  />,
+                );
+              } else {
+                out.push(
+                  <div
+                    key={step.id}
+                    className="px-2 text-[15px] leading-relaxed text-[var(--color-fg)]"
+                  >
+                    <Markdown>{step.text}</Markdown>
+                  </div>,
+                );
+              }
+              i++;
             }
-            if (step.kind === "tool") {
-              const call = turn.toolCalls.find((c) => c.call_id === step.callId);
-              return call ? <ToolCard key={step.callId} call={call} /> : null;
-            }
-            return (
-              <div
-                key={step.id}
-                className="px-2 text-[15px] leading-relaxed text-[var(--color-fg)]"
-              >
-                <Markdown>{step.text}</Markdown>
-              </div>
-            );
-          })}
+            return out;
+          })()}
           {turn.visualizations.map((v, i) => (
             <Visualization key={i} viz={v} />
           ))}
